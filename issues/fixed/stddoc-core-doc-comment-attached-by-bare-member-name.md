@@ -2,7 +2,7 @@
 
 **Severity:** S3 — `yo doc` keys method docs by bare member name — same-named methods render each other's prose
 
-**Status:** OPEN
+**Status:** FIXED 2026-10-03
 **Severity:** wrong output — the generated docs state something false about a
 method rather than merely omitting it. Every std module that defines `new` (or
 `len`, `get`, `push`, …) on two types in one file is affected, which is most of
@@ -76,3 +76,7 @@ Related: `issues/collection-method-docs-written-with-plain-slashes-are-dropped-b
 (the `//`-instead-of-`///` half of the same "docs do not reach the site" story)
 and `issues/stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md`
 (the other failure found in the same session).
+
+## Fixed
+
+Root cause: every impl member's doc was joined by BARE member name — `build_doc_lookup` (`src/doc/builder.yo`) keys each `///` by declaration name alone, so the later `impl`'s `new` overwrote the earlier one's entry, and BOTH the token scan (`extract_impl_info_from_tokens`) and the evaluator-side lookups (`_extract_methods`, `_extract_generic_impl_info`, which see only registry labels, no token positions) read the surviving entry. Fix: the token scan now joins the comment physically preceding each member by position — `_collect_doc_comment_before`, the same join `_extract_trait_body_members` already used — falling back to the bare-name entry when the position walk stops early (a `//` note between comment and member), and records a receiver-qualified `Receiver.member` key in the shared lookup map for the two evaluator-side lookups, which read that key first (`_method_doc`). Verified with the reproducer above (`Vs.new` → "Make one.", `Rs.new` → "Make a ref one.") and on `std/time/instant.yo`, where `Instant.now` had been rendering `SystemTime.now`'s prose; gated by `tests/internal/doc_builder.test.yo` ("a same-named impl member keeps its own receiver's doc comment" fails before, passes after). Existing doc cli-case goldens are content-unchanged (no tree diffs). Fixed 2026-10-03 on branch s3/batch-1-fixes.
