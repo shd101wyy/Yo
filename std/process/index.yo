@@ -12,9 +12,9 @@
 //! `Child` gained `take_stdin`/`take_stdout`/`take_stderr` beside the three
 //! bespoke `*_stdin`/`read_*_to_end` methods it already had. Two ways into a
 //! child's streams is one too many, and which pair survives is not settled.
-//! Freezing this module follows `command.yo`, not its own five members.
+//! Freezing this module follows `command.yo`, not its own six members.
 //!
-//! Those five are as settled as anything in `std`: `platform`/`arch` and the
+//! Those six are as settled as anything in `std`: `platform`/`arch` and the
 //! `Platform`/`Arch` constant sets have not changed since the bootstrap and
 //! are what every platform `cond` in `std/` and `src/` is written against.
 //! They report the CFG spellings (`macos`, `x86`), deliberately not the
@@ -45,5 +45,25 @@ exit :: (fn(code : usize) -> never)({
   unsafe(_exit(int(code)))
 });
 export(exit);
+/// The calling process's id (`getpid(2)`; `GetCurrentProcessId` on Windows).
+/// Unique among LIVE processes, so it is the per-process component the test
+/// runner puts in its batch artifact names — two concurrent `yo test` runs
+/// over one directory must not overwrite each other's batches
+/// (issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md).
+/// The raw C bindings are platform-only (`unistd.h` has no `pid_t` under the
+/// Windows UCRT), which is why `pid` lives here rather than at the libc layer.
+pid :: (fn() -> u32)(
+  cond(
+    (platform == Platform.Windows) => {
+      { GetCurrentProcessId } :: import("../libc/windows");
+      u32(unsafe(GetCurrentProcessId()))
+    },
+    true => {
+      { getpid } :: import("../libc/unistd");
+      u32(unsafe(getpid()))
+    }
+  )
+);
+export(pid);
 _command :: import("./command.yo");
 export(...(_command));
