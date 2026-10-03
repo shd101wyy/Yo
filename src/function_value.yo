@@ -381,7 +381,13 @@ is_fn_unemittable :: (fn(func_id : String) -> bool)(
 record_cee_argument_nodes :: (fn(ids : ArrayList(usize)) -> unit)({
   (i : usize) = usize(0);
   while(i < ids.len(), {
-    match(ids.get(i), .Some(n) => g_cee_arg_nodes.insert(n), .None => ());
+    match(
+      ids.get(i),
+      .Some(n) => {
+        _ := g_cee_arg_nodes.insert(n);
+      },
+      .None => ()
+    );
     i = (i + usize(1));
   });
 });
