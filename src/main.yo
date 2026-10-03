@@ -225,14 +225,14 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
         .FnCall(_, _, _, _, _) => String.new()
       );
       cond(
-        // Pattern: { Names } :: import "path" (infix ::)
+        // Pattern: { Names } :: import("path") (infix ::)
         ((fval == "::") && is_infix && (fn_imp_args.len() >= usize(2))) =>
           match(
             fn_imp_args.get(usize(1)),
             .None => Option(String).None,
             .Some(rhs) => extract_bare_import_path(rhs)
           ),
-        // Pattern: bare import "path"
+        // Pattern: bare import("path")
         true => extract_bare_import_path(expr)
       )
     }
