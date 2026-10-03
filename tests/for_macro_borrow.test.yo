@@ -79,15 +79,14 @@ test("ArrayList index writes mutate in place", {
   assert(list(usize(1)) == i32(20), "ArrayList 1 -> 20");
   assert(list(usize(2)) == i32(30), "ArrayList 2 -> 30");
 });
-test("object elements mutate in place through the value binding", {
-  // The value form binds a HANDLE for object element types — mutating
-  // the element through it is visible in the list (and survives later
-  // growth, because the handle points at the element object, not into
-  // the list's buffer).
+test("String elements mutate in place through the inout binding", {
+  // `String` is a value: the value form `s => ...` borrows each element and
+  // may not write it (E0908, `tests/cli-cases/inout-write-through-a-borrowed-for-is-e0908`).
+  // The borrowed `inout` form writes the element in the list's buffer.
   names := ArrayList(String).new();
   names.push(String.from("a"));
   names.push(String.from("b"));
-  for(names, s => {
+  for(names, inout(s) => {
     s.push_str("!");
   });
   assert(match(names.get(usize(0)), .Some(s) => (s == "a!"), .None => false), "first mutated in place");
