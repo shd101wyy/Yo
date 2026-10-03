@@ -12,6 +12,8 @@
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { sanitize_for_c_identifier } :: import("../utils/index.yo");
 { fnv1a64 } :: import("../../utils.yo");
+{ scope_variables } :: import("../../expr_info.yo");
+{ ExprId } :: import("../../expr.yo");
 /// The C field
 /// name for a LOCAL state-machine capture is derived from the variable's
 /// NAME and declaration site, not its evaluator id (per
@@ -132,10 +134,17 @@ sm_storage_id :: (fn(v : Variable, smv : HashMap(String, CapturedVariable), rema
 /// A local sharing a captured local's RC value is stored in that owner's
 /// slot (`sm_storage_id`).
 sm_slot_of :: (
-  fn(env : Environment, name : String, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String))) -> Option(String)
+  fn(key : ExprId, env : Environment, name : String, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String))) -> Option(String)
 )({
-  vs := get_variables_from_env(env, name);
-  v := match(vs.last(), .Some(x) => x, .None => return(Option(String).None));
+  // Through node `key`'s recorded scope (scope-exit release,
+  // plans/CODEGEN_MEMORY_REDUCTION.md §6.1).
+  vs := scope_variables(key, env, name);
+  match(vs.last(), .Some(v) => sm_slot_of_variable(v, smv, remap, aliases), .None => Option(String).None)
+});
+/// `sm_slot_of` for an already resolved binding.
+sm_slot_of_variable :: (
+  fn(v : Variable, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String))) -> Option(String)
+)({
   id := sm_storage_id(v, smv, remap);
   if(!smv.get(id.clone()).is_some(), {
     return(Option(String).None);
@@ -211,4 +220,4 @@ sm_temp_slot_of :: (fn(temp_var : String, smv : HashMap(String, CapturedVariable
     .None => Option(String).None
   )
 });
-export(sm_storage_id, sm_slot_of, sm_temp_slot_of, note_await_consumed_temp, is_await_consumed_temp, note_sm_move_flag_field, sm_move_flag_of);
+export(sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_temp_slot_of, note_await_consumed_temp, is_await_consumed_temp, note_sm_move_flag_field, sm_move_flag_of);

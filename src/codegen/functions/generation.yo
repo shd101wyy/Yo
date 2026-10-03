@@ -30,7 +30,7 @@
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { is_target_posix, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member, is_index_entry_method } :: import("../../function_value.yo");
-{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls, note_line_position } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _return_type_override } :: import("./declarations.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
@@ -303,7 +303,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
                     lei.variable_name,
                     .Some(lvn) => {
                       raw_code := _call_generate_expr(last_expr, indent.clone(), context);
-                      tail_tmp := get_variable_name_for_codegen(lvn.clone(), Option(Environment).Some(lei.env));
+                      tail_tmp := get_variable_name_for_codegen_at(ast_expr_id(last_expr), lvn.clone(), Option(Environment).Some(lei.env));
                       ret_ty_dup := match(function_type, .Func({ result : r0 }) => r0, _ => t_unit());
                       if(!(tail_tmp == raw_code), {
                         // Declare via get_variable_type_string — the
@@ -335,7 +335,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
                             generate_deferred_drop_expressions(body_expr, indent.clone(), context);
                             rdl := indent.clone();
                             rdl.push_str("return ");
-                            rdl.push_string(get_variable_name_for_codegen(dvn.clone(), Option(Environment).Some(dei.env)));
+                            rdl.push_string(get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dvn.clone(), Option(Environment).Some(dei.env)));
                             rdl.push_str(";");
                             em.emit_string_line(rdl);
                             return(());
@@ -356,7 +356,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
                       generate_deferred_drop_expressions(body_expr, indent.clone(), context);
                       rtl := indent.clone();
                       rtl.push_str("return ");
-                      rtl.push_string(get_variable_name_for_codegen(lvn2.clone(), Option(Environment).Some(lei.env)));
+                      rtl.push_string(get_variable_name_for_codegen_at(ast_expr_id(last_expr), lvn2.clone(), Option(Environment).Some(lei.env)));
                       rtl.push_str(";");
                       em.emit_string_line(rtl);
                       return(());
@@ -1214,7 +1214,7 @@ emit_module_level_variable_declarations :: (
           .None => (),
           .Some(vi) => {
             var_name := match(vi.variable_name, .Some(vn) => vn, .None => ast_expr_token(var_atom).value);
-            (c_var_name : String) = get_variable_name_for_codegen(var_name, Option(Environment).Some(vi.env));
+            (c_var_name : String) = get_variable_name_for_codegen_at(ast_expr_id(var_atom), var_name, Option(Environment).Some(vi.env));
             // The recorded env for a `name := rhs` module init can miss the
             // variable (resolution falls back to the bare name and the
             // resolver's registry check never runs), while the READS resolve

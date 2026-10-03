@@ -18,14 +18,14 @@
 //!    to the plain identifier lookup.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_token } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches } :: import("../utils/index.yo");
+{ sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { lookup_io_builtin_struct_field } :: import("../../expr_info.yo");
 { dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
@@ -340,7 +340,7 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
     if(is_module_type(object_type) && extern_c_global_matches(field_name.clone(), ei.ty), {
       return(sanitize_for_c_identifier(field_name.clone(), true));
     });
-    return(get_variable_name_for_codegen(field_name.clone(), Option(Environment).Some(ei.env)));
+    return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env)));
   });
   // The bare `Io` effect struct's `.io` member is the IDENTITY projection
   // (evaluator twin in evaluator/exprs/property_access.yo): a bundle-style

@@ -333,6 +333,43 @@ Why it survived so long: wrapping the capture in ANY expression
 correctly. Every use of a capture in `std/` and `src/` happened to sit inside
 some expression, so the bare-atom arm position had never been exercised.
 
+## Recorded envs are released at scope exit: look names up through `scope_variables`
+
+`compile` releases recorded environments (`plans/CODEGEN_MEMORY_REDUCTION.md`
+§6.1). When an outermost function body finishes evaluating, every `ExprInfo`
+recorded during it has its `env` replaced by a **husk**, a copy of the body's
+entry frame list. The body's own frames are freed. The answers codegen will need
+were recorded at that moment: an atom's `source_variable`, plus per-info lists
+of the variables of its names (`variable_name`, deferred drop/dup/consumed
+targets, the name a binder bound, a property atom's token).
+
+Rules for codegen code and for the evaluator analyses codegen calls late
+(`mutation_summary.yo`, `await_analysis.yo`, `suspension_analysis.yo`):
+
+- **Never call `get_variables_from_env(ei.env, name)` on a recorded env.** Call
+  `scope_variables(key, env, name)` from `src/expr_info.yo`, or
+  `get_variable_name_for_codegen_at(key, name, env)` for a C name. A live env
+  falls through to the plain lookup; a husk answers from the records of `key`.
+- **`key` is the node whose record holds `name`**, which is not always the node
+  you are generating:
+  - a binding site uses the bound name atom (the `:=` lhs, the destructured
+    field atom, the `inout(name)` atom, the pattern binding);
+  - a cleanup drop uses the drop target atom (`deferred_drop_target_variable`);
+  - a place's base uses its binder (`_lhs_root_binder` in `exprs/assignment.yo`).
+- **A new name source needs a record.** If you add a site that asks a node about
+  a name it does not carry, the evaluator must note that name for the node:
+  `scope_release_note_binding` (a binding) or `scope_release_note_query` (a name
+  the node reads). Otherwise a husk answers from the entry frames only.
+- **Whole-env scans cannot be answered from records.** The handler-installation
+  test (`_call_is_handler_installation`) and the `given` evidence scans keep
+  their nodes' envs: see `_scope_keeps_env`. A new whole-env reader needs the
+  same treatment.
+- **Verify with shadow mode.** `YO_SCOPE_RELEASE=shadow yo compile src/main.yo
+  --skip-c-compiler -o /tmp/x` keeps every env, answers codegen from the envs,
+  and prints `[scope-release] ... mismatch=N` with a per-kind breakdown at the
+  end. Then compare the C of `YO_SCOPE_RELEASE=off` and the default. Both must
+  be byte-identical, and a new site must not raise `mismatch`.
+
 ## Compilation commands
 
 - Emit C only: `yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2`

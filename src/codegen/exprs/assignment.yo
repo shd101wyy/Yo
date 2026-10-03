@@ -16,8 +16,8 @@
 { String } :: import("std/string");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME } :: import("../../expr.yo");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT } :: import("../../expr.yo");
+{ Environment } :: import("../../env.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -30,18 +30,46 @@
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ expr_info_is_compile_time_only_assignment } :: import("../../expr_info.yo");
-/// The last binding for `name` is a module-level global.
-_last_is_module_level :: (fn(env : Environment, name : String) -> bool)({
-  vars := get_variables_from_env(env, name);
+{ expr_info_is_compile_time_only_assignment, scope_variables } :: import("../../expr_info.yo");
+/// The last binding for `name` (in node `key`'s recorded scope `env`) is a
+/// module-level global.
+_last_is_module_level :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
+  vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
 });
-/// The last binding for `name` is a compile-time-only variable.
-_last_is_compile_time_only :: (fn(env : Environment, name : String) -> bool)({
-  vars := get_variables_from_env(env, name);
+/// The last binding for `name` (in node `key`'s recorded scope `env`) is a
+/// compile-time-only variable.
+_last_is_compile_time_only :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
+  vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
+});
+/// The node of a place expression (`a.b.c`, `a.*`, `a(i)`, `f().x`) that
+/// binds `name`: the root atom when its token is `name`, or the node whose
+/// recorded `variable_name` is `name` (a temp holding a call result), else
+/// `lhs` itself. Its record resolves the place's base variable (scope-exit
+/// release, plans/CODEGEN_MEMORY_REDUCTION.md §6).
+_lhs_root_binder :: (fn(lhs : AstExpr, name : String, context : FunctionGenerationContext) -> AstExpr)({
+  (cur : AstExpr) = lhs;
+  while(runtime(true), {
+    binds := match(context.base.get_expr_info(cur), .Some(ci) => match(ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
+    if(binds, {
+      return(cur);
+    });
+    match(
+      cur,
+      .Atom(_, _) => {
+        return(if(ast_expr_token(cur).value == name, cur, lhs));
+      },
+      .FnCall(_, callee, args, _, _) => if(ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).None), {
+        cur = match(args.get(usize(0)), .Some(a0) => a0, .None => callee);
+      }, {
+        cur = callee;
+      })
+    );
+  });
+  lhs
 });
 /// Generate an assignment / initialization.
 generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
@@ -68,7 +96,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   );
   // Module-level globals are declared in the main wrapper — skip here.
   if(is_init && ast_expr_is_atom(lhs), {
-    if(_last_is_module_level(lhs_ei.env, ast_expr_token(lhs).value), {
+    if(_last_is_module_level(ast_expr_id(lhs), lhs_ei.env, ast_expr_token(lhs).value), {
       return(String.from(""));
     });
   });
@@ -84,7 +112,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       .Some(path) => if(path.len() >= usize(2), {
         match(
           path.get(usize(0)),
-          .Some(base_var) => if(_last_is_compile_time_only(lhs_ei.env, base_var.clone()), {
+          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_binder(lhs, base_var.clone(), context)), lhs_ei.env, base_var.clone()), {
             return(String.from(""));
           }),
           .None => ()
@@ -95,7 +123,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   });
   // LHS is a simple comptime variable name.
   if(ast_expr_is_atom(lhs), {
-    if(_last_is_compile_time_only(lhs_ei.env, ast_expr_token(lhs).value), {
+    if(_last_is_compile_time_only(ast_expr_id(lhs), lhs_ei.env, ast_expr_token(lhs).value), {
       return(String.from(""));
     });
   });

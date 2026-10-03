@@ -6,7 +6,7 @@ there). That campaign cut what `check` retains to 970 MB. This one covers what
 `compile` holds on top of it: the evaluator state kept alive for codegen, and
 codegen's own working set.
 
-Status as of 2026-09-30:
+Status as of 2026-10-02:
 - **Phase 0's instruments are in** (§0.1–§0.3, §0.6): `--profile` phase
   memory and `profile: mark` lines.
 - **Landed levers** (#1041, merged 2026-09-30):
@@ -53,11 +53,14 @@ Status as of 2026-09-30:
     call. Most of those clones are transient trial, CTFE and where-clause
     clones. Only ~391 K were retained specialization bodies, so the lever is
     small and costs speed.
-- **Next: scope-exit env records (§6, "Its ceiling, measured").** Releasing
-  at the outermost function body measures −595 MB (2,700 → 2,105 MB) with
-  the evaluator's re-readers traced. The records can be small: an atom's is
-  its `source_variable` in 97.7 % of cases. It is the one lever left that is
-  large enough for the 2.0 GB target. Implementation plan: §6.
+- **Lever 5, scope-exit env release (§6.1, 2026-10-02):** env-free codegen
+  steps 2–4 as built. Each function body's recorded envs are released when it
+  finishes evaluating, and codegen answers from records. `compile`
+  2,895 → **2,484 MB** (−14.2 %, develop `e66b53c5f`), C identical. It is on by default;
+  `YO_SCOPE_RELEASE=off|shadow` are the A/B and verification knobs.
+- **Next** (§6.1 "Open"): the 2.0 GB target is ~480 MB away. Candidates are
+  ExprInfo slimming, releasing collect-time specialization envs, and the
+  records' own footprint.
 
 Prior art: [`archive/BUILD_ON_8GB_MACHINES.md`](archive/BUILD_ON_8GB_MACHINES.md),
 closed 2026-09-26. It found that compile's excess over `check` was the shared
@@ -702,7 +705,7 @@ The candidates, largest first:
 
 Phase 4 Design 1 was measured and rejected (−16 MB, +1.55 % instructions).
 
-## 6. Design: env-free codegen, for §0.6's 746 MB — REJECTED as a drop at emit (2026-09-30); the scope-exit form measured at −671 MB (2026-10-01)
+## 6. Design: env-free codegen, for §0.6's 746 MB — REJECTED as a drop at emit (2026-09-30); the scope-exit form LANDED (§6.1, 2026-10-02)
 
 **Why.** Recorded envs keep 746 MB of the end-of-evaluation heap alive
 (§0.6), and only dropping all of them frees it (§0.7, §0.8). Codegen reads
@@ -1035,3 +1038,106 @@ implement, with the shadow mode first.
 - **The side table's own size.** The `Variable`s it keeps are a subset of
   what the envs keep, and the freed remainder must be measured, not assumed.
 
+
+**Answered by §6.1:** collect keeps its live envs; late evaluations log into
+the body that forces them; records are made per body at scope exit, not per
+ExprInfo at creation.
+
+### 6.1 Landed lever: scope-exit env release (2026-10-02)
+
+Steps 2–4 above, built differently from the side-table sketch: records are
+made per function body at **scope exit**, during evaluation. Recorded envs
+must stop retaining frames during evaluation, not after it (§0.8): RSS freed
+after the peak is not returned.
+
+**Mechanism** (`src/expr_info.yo`, the scope-release block):
+
+- **Logging.** `expr_info_table_set` logs every ExprInfo written while an
+  outermost function body evaluates. That is `evaluate_begin_expression` with
+  the function-body flag, `ctfe_depth == 0`, scope depth 0 → 1. The module
+  walk resets the depth (`anonymous_module.yo`). Only `compile` logs (the
+  shared table is set: `mm_set_shared_expr_info_table`), so `check`, `test`
+  and the LSP are untouched.
+- **Release** (`scope_release_body`, when that body returns). Each logged info
+  of the body's module gets `env` = a **husk**: a copy of the body's entry
+  frame list, marked `function_declaration_frame_level = SCOPE_HUSK_MARK`. Its
+  records are made at the same moment:
+  - an atom's own `source_variable` answers its name (`g_scope_atom_exc` when
+    the env lookup was not exactly `[sv]`);
+  - every other name the info carries keeps only its variables in frames past
+    the prefix the env shares with the husk (`g_scope_one` for a single
+    variable, `g_scope_inner` otherwise). The names are `variable_name`, the
+    deferred drop/dup/consumed targets, the name a binder bound (recorded from
+    the binding node's env), and a name the node is queried by;
+  - `g_scope_klen` holds the shared prefix when it falls short of the husk.
+- **Answer** (`scope_variables(key, env, name)`, the single query API for
+  codegen and for the evaluator analyses it calls late). On a husk the answer
+  is: the husk lookup over the shared prefix, then the recorded variables of
+  `name`, deduplicated by variable id. On a live env it is the plain lookup.
+- **Call-time capture envs** (`capture_env_for`: the callee's def scope
+  flattened into frame 0) share no frame with the husk. They are released
+  with the body husk, and their records cover all their frames. Keeping each
+  capture frame instead was exact but cost ~150 MB.
+- **Kept** (not released):
+  - other modules' infos;
+  - callee and method-call infos whose handler-installation test scans the
+    whole env (`_scope_keeps_env`, about 7 K);
+  - an info object already released by an earlier body (re-logged), which
+    keeps its first records.
+
+**Results** (self-compile `compile src/main.yo --skip-c-compiler`, same
+binary, mimalloc, `/usr/bin/time` max RSS, no `--emit-c`, which adds
+~236 MB):
+- On develop `e66b53c5f` (v0.2.49 seed): `YO_SCOPE_RELEASE=off`
+  **2,895 MB**, default (release) **2,484 MB** (**−411 MB, −14.2 %**).
+  Earlier bases measured 2,827 → 2,424 MB (`b19f918e2`) and 2,730 → 2,343 MB.
+- `compile src/main.yo --optimize 2` with the C compiler: 2,812 → 2,422 MB
+  (−13.9 %). `memory-ratchet.tsv`'s `compile_src_main_peak_kb` is scaled by
+  that ratio. The `--profile` emit peak goes 2,657 → 2,387 MB, and
+  the end of evaluation 2,369 → 2,134 MB.
+- C byte-identical between `off`, `shadow` and the default. The stage-2/3
+  fixpoint holds with release on.
+- Wall time +2–4 %.
+
+**Verification and debugging.** `YO_SCOPE_RELEASE=shadow` keeps every env,
+answers codegen from the envs, and compares each answer with what the records
+would say. It prints `[scope-release] … mismatch=N` and a per-kind breakdown.
+At landing the self-compile shows a small residual (see "Open" below), none of
+which changes the emitted C. Branch `wip/scope-release-sitetag` tags every
+query with its `file:line` for attribution. The rules for code that looks
+names up live in `.github/instructions/c-codegen.instructions.md` ("Recorded
+envs are released at scope exit"). The knob is in
+`.github/instructions/debugging.instructions.md`.
+
+**How the residual was driven down** (in order; each was found with the site
+tags):
+1. Binding sites key by the bound name atom, and binders note what they bound.
+2. Cleanup and loop-exit drops answer from the drop target atom's record.
+3. Property atoms and extern-C symbol atoms note their names.
+4. The await and suspension analyses query through `scope_variables`.
+5. Re-released ids replace their records. Shadow identifies a re-logged info
+   by pointer identity, as release mode does by its husk env.
+6. The shared prefix is matched by `Frame.index_key`: a `clone_env` copy keeps
+   `id` but its contents can differ.
+
+**Open**, for whoever continues:
+- **Shadow residual.** Classes seen at landing:
+  - `rec=2 truth=1` binding records in `init_assignment.yo` and
+    `assignment.yo`, where an older same-named variable leads the record;
+  - extern-C function atoms bound inside a body (`getcwd`) whose atom carries
+    no `source_variable`;
+  - 17 handler-installation reads of a released callee.
+
+  There are 192 in all. None changes the self-compile's C. Each needs a regression test the moment
+  it does.
+- **Records' cost.** About 0.75 M one-variable entries and 22 K lists.
+  Folding them into one flat side array would save tens of MB.
+- **The 2.0 GB target (§5)** is still ~480 MB away (2,484 MB). By the `--profile` marks,
+  collect adds +183 MB (lazy specializations forced during collect, with live
+  envs) and emit +70 MB. The remaining evaluation-end ~2.1 GB is the ExprInfo
+  table itself (2.7 M entries) plus types and module values. Next candidates:
+  1. ExprInfo slimming: move the rarely set fields into `rare`;
+  2. releasing collect-time specialization envs the same way, which needs a
+     scope marker around each forced specialization;
+  3. Phase 4 Design 1 (specialization clones), measured and rejected once
+     (§0.12).
