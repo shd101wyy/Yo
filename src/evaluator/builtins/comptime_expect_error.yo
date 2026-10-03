@@ -21,8 +21,7 @@
   make_err_expr
 } :: import("../../expr.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ push_cee_argument_nodes, pop_cee_argument_nodes } :: import("../../function_value.yo");
+{ record_cee_argument_nodes } :: import("../../function_value.yo");
 { Environment, Frame, frame_truncate_variables, env_frames_for_write } :: import("../../env.yo");
 { EvalContext, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { format_error_message, error_message_text } :: import("../../error.yo");
@@ -40,8 +39,8 @@
 { set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 /// Every node id in `e`'s subtree, into `out`.
-_cee_collect_node_ids :: (fn(e : AstExpr, out : HashSet(usize)) -> unit)({
-  out.insert(ast_expr_id(e));
+_cee_collect_node_ids :: (fn(e : AstExpr, out : ArrayList(usize)) -> unit)({
+  out.push(ast_expr_id(e));
   match(
     e,
     .FnCall(_, _, args, _, _) => {
@@ -232,11 +231,10 @@ evaluate_comptime_expect_error :: (
   saved_depths := forcing_depths();
   // A function literal written in the argument is never emitted
   // (`is_inside_cee_argument`, function_value.yo).
-  cee_nodes := HashSet(usize).new();
+  cee_nodes := ArrayList(usize).new();
   _cee_collect_node_ids(arg_expr, cee_nodes);
-  push_cee_argument_nodes(cee_nodes);
+  record_cee_argument_nodes(cee_nodes);
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
-  pop_cee_argument_nodes();
   observed_msgs := cee_observed_messages();
   clear_cee_observed_error();
   truncate_forcing_depths(saved_depths);

@@ -11,7 +11,7 @@
 { AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
 { expr_info_effect_analysis, expr_info_async_state_machine_struct_name, lookup_method_callee_value, expr_info_capture_type, some_resolution } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
-{ get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable, fn_has_specializations, get_closure_capture_info } :: import("../../function_value.yo");
+{ get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable, is_inside_cee_argument, fn_has_specializations, get_closure_capture_info } :: import("../../function_value.yo");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { is_target_windows } :: import("../../target.yo");
 { CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
@@ -503,6 +503,12 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
     return(true);
   });
   body := _func_value_body(value);
+  // A function written inside a `comptime_expect_error(...)` argument: the
+  // code the test expects to be rejected, which nothing can call
+  // (`is_inside_cee_argument`, function_value.yo).
+  if(!is_user_main && match(body, .Some(cb) => is_inside_cee_argument(ast_expr_id(cb)), .None => false), {
+    return(true);
+  });
   is_effectful := _body_is_effectful(body, context);
   is_erm := is_effect_record_member(func_id.clone());
   // The def-era ORIGINAL of a function the evaluator specialized, whose
