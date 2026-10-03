@@ -2,9 +2,14 @@
 
 **Severity:** S3 — no wrong output (codegen never emits the `comptime_expect_error` argument, so nothing called the stub), but every such definition in a test body produced a live "failed to transpile" stub. Those stubs were the only thing keeping Phase 6 step 4 (a live stub is a compile error) from landing.
 
-**Status:** FIXED on `tss/phase6-step4` (2026-10-03), together with Phase 6 step 4. Regression:
+**Status:** OPEN — partial fix in draft PR #1162 (`tss/phase6-step4`). The span skip covers
 `tests/type_soundness.test.yo`, "soundness: a definition inside comptime_expect_error is not
-emitted".
+emitted". It still misses `tests/algebraic_effects.test.yo` tests 70–72: `YO_DEBUG_CEE=1` reports
+`inside=false` for stubs at batch `:91:179`, `:92:77` and `:93:160`, all inside a
+`comptime_expect_error` argument. The body tokens carry `./.yo_selftest_batch_1_0.yo`. The
+suspected cause, not yet confirmed, is that the recorded argument span carries the other spelling
+(`file:///…`), which `canonical_module_path` does not unify. The next step is to print the recorded
+spans next to the skip decisions.
 
 ## Symptom (measured, develop after #1124)
 
