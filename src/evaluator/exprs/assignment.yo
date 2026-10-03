@@ -519,9 +519,13 @@ d3_check_pending :: (
   (has_borrow : bool) = false;
   (hb : usize) = usize(0);
   while(hb < pending.len(), {
-    match(pending.get(hb), .Some(pe) => if(pe.borrow_error.is_some(), {
-      has_borrow = true;
-    }), .None => ());
+    match(
+      pending.get(hb),
+      .Some(pe) => if(pe.borrow_error.is_some(), {
+        has_borrow = true;
+      }),
+      .None => ()
+    );
     hb = (hb + usize(1));
   });
   (borrow_mask : Option(ParamMutationMask)) = Option(ParamMutationMask).None;
@@ -540,14 +544,20 @@ d3_check_pending :: (
       pending.get(bi),
       .Some(entry) => match(
         entry.borrow_error,
-        .Some(berr) => if(match(borrow_mask, .Some(bm) => (!bm.all && param_mutation_mask_hits(bm, entry.param_index)), .None => false), {
-          if(_g_audit_inout_borrow, {
-            at := ast_expr_token(entry.place);
-            eprintln(`[inout-borrow] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(entry.place)} -> ${callee_fid} (${entry.root_text}: ${entry.noun}, ${entry.root_type})`);
-          }, {
-            raise_flow_violation(with_code(format_error_message(ast_expr_token(entry.place), berr), E_WRITE_THROUGH_BORROW), ctx, exn);
+        .Some(berr) => {
+          if(_g_audit_inout_borrow && match(borrow_mask, .Some(bm) => bm.all, .None => false), {
+            uat := ast_expr_token(entry.place);
+            eprintln(`[inout-borrow-unresolved] ${uat.module_path}:${(uat.row + u32(1)).to_string()}:${(uat.column + u32(1)).to_string()} ${_place_source_text(entry.place)} -> ${callee_fid}`);
           });
-        }),
+          if(match(borrow_mask, .Some(bm) => (!bm.all && param_mutation_mask_hits(bm, entry.param_index)), .None => false), {
+            if(_g_audit_inout_borrow, {
+              at := ast_expr_token(entry.place);
+              eprintln(`[inout-borrow] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(entry.place)} -> ${callee_fid} (${entry.root_text}: ${entry.noun}, ${entry.root_type})`);
+            }, {
+              raise_flow_violation(with_code(format_error_message(ast_expr_token(entry.place), berr), E_WRITE_THROUGH_BORROW), ctx, exn);
+            });
+          });
+        },
         .None => ()
       ),
       .None => ()
