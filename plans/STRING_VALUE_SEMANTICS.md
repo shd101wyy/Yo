@@ -1,7 +1,8 @@
 # `String` is a value: copy-on-write semantics
 
 **Status: APPROVED 2026-10-03. S0 landed (#1148); S1 (E0908 on `inout` writes
-through a borrowed value) in review; S2–S4 not started.** Decision by the user, after
+through a borrowed value) landed (#1161); S2 done; S3 (copy-on-write) and S4
+(docs) in review.** Decision by the user, after
 `issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
 (S1). This supersedes DESIGN §Type inference's "String is a
 reference-semantics type", and is the fix for that issue. No backward
@@ -222,6 +223,15 @@ fast suite, the hollow sweep.
   - Move the issue to `issues/fixed/` with S3's test.
   - Update the `yo-core-patterns` / `yo-syntax` skills, re-recording the
     seven skill-tree goldens (memory note: skill edits move CLI goldens).
+  - **As written (2026-10-04):** DESIGN §Type inference, §Value Types,
+    §String, §Writing through a copy of a `String` (now the value rules and
+    E0908) and the `for` section's example; STRINGS.md (byte access by name,
+    a "`String` is a value" section with the byte-list API); INDEX_TRAIT.md
+    (String has no `Index(usize)`); EXPLICIT_ALLOCATORS.md (where the
+    copy-on-write clone lands); PARALLELISM.md (String is not Send because it
+    holds an `ArrayList`); both languages. Instructions and skills:
+    `yo-design`, `yo-syntax`, the syntax and core-patterns cheatsheets. The
+    issue was already moved to `issues/fixed/` by S3.
 
 **Seed gate.** S3 is a `std/` change compiled by the seed. It uses only
 `rc(...)`, `own(...)` and `inout(self)`, all present in v0.2.49. S1 is a
