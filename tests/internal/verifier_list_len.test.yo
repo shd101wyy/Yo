@@ -513,6 +513,22 @@ test("a lemma (unit ghost_fn with ensures) is proved by induction and used throu
   );
 });
 
+test("push of an element type without Eq: the file loads and the function gets its own outcome", {
+  if(!_have_z3(), {
+    return(());
+  });
+  // Before the fix the load itself failed (E0610 on `==` inside
+  // `ArrayList.push`'s element clause), which `_load_reports` asserts against.
+  reports := _load_reports(
+    String.from("./tests/spec/fixtures/invalid/push_non_eq_element.yo"),
+    io,
+    true
+  );
+  assert(
+    reports.len() == usize(1),
+    `two_points must get exactly one outcome, got: [${_reports_dump(reports)}]`
+  );
+});
 test("seq_of: a list's elements as a ghost Seq; append is one line, its reversal and a lossy copy fail", {
   if(!_have_z3(), {
     return(());
