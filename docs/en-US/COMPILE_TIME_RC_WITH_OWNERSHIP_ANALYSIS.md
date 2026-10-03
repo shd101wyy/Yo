@@ -71,14 +71,18 @@ broken :: (fn(p : Point) -> unit)({
 A by-value parameter borrows its value: its storage is a copy of the caller's, and a field
 write changes only that copy. A field whose old value holds RC data (a `String`, a
 collection, a `Box`, …) cannot be written through it, because the write would release data
-the caller still holds (E0908). The same holds for a `match` or `for` binding. Take the
-parameter as `own(p) : T` or `inout(p) : T`, or copy it into a local first:
+the caller still holds (E0908). The same holds for a `match` or `for` binding, and for
+passing such a place to an `inout` parameter the callee may write, including calling an
+`inout(self)` method such as `push_str` on it: the write would land in the borrowed copy
+alone. Read-only `inout(self)` methods (`clone`, `to_string`) and indexing stay allowed.
+Take the parameter as `own(p) : T` or `inout(p) : T`, or copy it into a local first:
 
 ```rust
 Named :: struct(s : String, n : i32);
 rename :: (fn(p : Named) -> Named)({
   p.n = (p.n + i32(1)); // ✅ OK: no RC data in the old value
   // p.s = String.from("x"); // ❌ E0908: the caller still holds the old string
+  // p.s.push_str("!"); // ❌ E0908: push_str writes the borrowed copy
   q := p; // an owned copy
   q.s = String.from("x"); // ✅ OK
   q
