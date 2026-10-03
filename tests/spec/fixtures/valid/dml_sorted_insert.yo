@@ -2,9 +2,26 @@
 // value is a member of the result. Sortedness is the pairwise adjacent form
 // (guarded by `i < len` too: spec arithmetic is modular, so `i + 1 < len`
 // alone also holds at i = MAX). Each loop keeps `out` sorted and relates its
-// LAST element to the next one pushed; push's element contract does the rest.
+// LAST element to the next one pushed; push_at_end's element contract does the rest.
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
+
+// std's `push` states only its length until the seed carries the
+// proof-only ensures filter (plans/backlog/SEED_VERSION_AUTOMATION.md,
+// Generation B); this assumed wrapper states its elements meanwhile.
+push_at_end :: (
+  fn(
+    xs : ArrayList(i32),
+    v : i32,
+    ensures(
+      xs.len() == (old(xs.len()) + usize(1)),
+      forall(k : usize, (k < xs.len()) ==> (xs(k) == cond((k == old(xs.len())) => v, true => old(xs)(k))))
+    ),
+    assumed()
+  ) -> unit
+)({
+  xs.push(v);
+});
 
 sorted_insert :: (
   fn(
@@ -31,11 +48,11 @@ sorted_insert :: (
       forall(k : usize, ((k < out.len()) && ((k + usize(1)) < out.len())) ==> (out(k) <= out(k + usize(1)))),
       (i > usize(0)) ==> ((out(i - usize(1)) == xs(i - usize(1))) && (out(i - usize(1)) < x))
     );
-    out.push(xs(i));
+    push_at_end(out, xs(i));
     i = (i + usize(1));
   });
   at := i;
-  out.push(x);
+  push_at_end(out, x);
   // Copy the rest.
   while(i < xs.len(), {
     invariant(
@@ -47,7 +64,7 @@ sorted_insert :: (
       forall(k : usize, ((k < out.len()) && ((k + usize(1)) < out.len())) ==> (out(k) <= out(k + usize(1)))),
       (i < xs.len()) ==> (out(i) <= xs(i))
     );
-    out.push(xs(i));
+    push_at_end(out, xs(i));
     i = (i + usize(1));
   });
   out

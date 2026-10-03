@@ -134,12 +134,12 @@ fixtures that need its elements (`dml_append_seq`, `dml_sorted_insert`,
 `push_at_end` that states them. A verify target's own `ensures` is not
 spliced by the seed.
 
-**Generation B DONE** (`feat/push-element-contract`, once SEED_VERSION is
-v0.2.49): `push`'s `ensures` carries
-`forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))`.
-The fixtures' `push_at_end` wrappers are gone (back to `out.push(x)`), and
-`docs/*/FORMAL_VERIFICATION.md` §Sequences over lists no longer says "until
-the seed".
+**Generation B (once `SEED_VERSION` ≥ the release carrying the filter):** add
+to `push`'s `ensures`
+`forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))`,
+delete the fixtures' `push_at_end` wrappers (back to `out.push(x)`), and drop
+the "until the seed" sentence from `docs/*/FORMAL_VERIFICATION.md`
+§Sequences over lists.
 
 ## Seed-gated follow-up (2026-09-30): `build.verify` in `std/build.yo`
 
