@@ -244,7 +244,7 @@ wrong level is invisible until an intermittent `EADDRINUSE` months later.
 byte-identity gate is green _by construction_ because identity is the goal.
 That is precisely the "compiles everywhere but subtly wrong on one platform"
 outcome the request exists to avoid. `AT_FDCWD` survives the same mismatch
-only by accident — see `issues/emitted-c-hardcodes-linux-at-fdcwd.md`.
+only by accident — see `issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md`.
 
 ### 2. The `detect_host()` fix is circular
 
@@ -323,7 +323,7 @@ In dependency order — each stage is independently valuable:
 
 1. **Migrate the ~50 constant-only comptime branches to `c_include`**
    (`std/sys/constants.yo` first — it is also the fix for
-   `issues/emitted-c-hardcodes-linux-at-fdcwd.md`). Mechanical, uses an
+   `issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md`). Mechanical, uses an
    existing in-tree mechanism, and removes most evaluated-program divergence.
    Cost: those constants stop being comptime-known.
 2. **Restructure the ~10 structurally-different sites**, of which the hard
