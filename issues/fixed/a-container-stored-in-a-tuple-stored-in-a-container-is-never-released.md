@@ -4,7 +4,7 @@
 
 **Found:** 2026-09-30, the `plans/reference/MATCH_PATTERN_MATCHING.md` closeout audit (a dynamic verification run of the match suite; the failing test contains no match code — the bug is orthogonal to the match work and predates it).
 
-**Status:** OPEN. Reproduces identically with the released seed `yo 0.2.46` (installed binary) and with a tree-built stage-1 (from `2a24df8c1`), so it is NOT a regression from the 2026-09-30 tree — it ships in the current release's codegen.
+**Status:** FIXED 2026-10-03 — see "Fixed" below. (Before that: OPEN. Reproduced identically with the released seed `yo 0.2.46` (installed binary) and with a tree-built stage-1 (from `2a24df8c1`), so it was NOT a regression from the 2026-09-30 tree — it shipped in the current release's codegen.)
 
 ## Verbatim
 
@@ -91,3 +91,52 @@ PR with the emit gates above). The red test already exists —
 `tests/basic.test.yo`'s `a tuple element type inside a generic container
 declares its C name in time` — so the red-first requirement is satisfied by
 that test; the reproducer above is the minimal form.
+
+## Fixed
+
+Root-caused 2026-10-03 and fixed on branch `s3/batch-2-fixes` — and the
+"plausibly an LSan false positive local to WSL2" theory above is disproven:
+the retention is physical on stock Windows tooling too (the exact nested shape
+looped 200k times exhausts a `--allocator fixed --heap-size 4M` region while
+the flat and direct-push controls recycle, ~70–105 B retained per iteration),
+and the emitted C is platform-independent, so the missing release is not
+platform-specific either. Why the stock-Linux CI legs of 2026-09-30 reported
+green is not established here; with the release physically absent from the
+emitted C, the S1-restore condition ("a stock machine reproduces it") is met
+on the evidence above, and the fix below removes the leak outright. The real
+defect was wider than the doc's sketch: a TUPLE LITERAL passed straight to a
+call (never bound to a name) owned a +1 per RC-typed element that nothing ever
+released — the callee's store dups each RC field itself (std assignment
+semantics, `std/collections/array_list.yo`'s "dst.\* = src.\* dups"), so the
+balancing release is the CALLER's drop of the tuple value, which a named
+binding and a call-result temp both get but an anonymous tuple literal never
+did: `evaluate_tuple_value`'s `attach_temp_variable_to_expr` was a no-op stub
+(the "Phase 3 stub" comment), unlike the array-literal path
+(`src/evaluator/values/array.yo`). The scope-end drop walk descending into
+tuple elements — the doc's original sketch — was already implemented and
+correct. The dup/drop pair optimizer's cancellation (`ys.push((i32(1), inner))`
+cancelling `inner`'s element dup against its scope-end drop) was sound in
+itself: it moves `inner`'s reference into the tuple, and the fix gives that
+moved reference its release. Fix: `src/evaluator/values/tuple.yo` now attaches
+an owning result temp to every runtime (not fully comptime-known) tuple
+literal, exactly like `evaluate_array_value` — every transfer position
+(binding, begin tail/return, `own` argument, arm value) consumes the temp so
+the value still moves; only the anonymous-call-argument position keeps the
+temp's scope-end field-drop, which is the missing release. Codegen side:
+`src/codegen/exprs/tuple_fn.yo`'s temp branch now stores the temp to its
+state-machine slot (`_store_temp_var_to_state_machine_if_needed`), the same
+rule as every other temp-declaring site, so a tuple literal inside an
+`io.async` loop body does not leak through an unassigned slot. Tests: five
+Dispose-counter cases in `tests/rc.test.yo` ("a local moved into a tuple
+argument of a call …", "a fresh constructor inside a tuple argument …", "one
+local pushed in two tuple arguments …", "a tuple argument nested inside
+another tuple argument …", plus the named-binding control) — four red before
+the fix, all five green after, with exact-count assertions as the over-drop
+canary; verified additionally by the emit-diff gate (the only C change on the
+probe corpus is the tuple temp declaration plus its balancing field decrs — no
+incr/decr lost anywhere), the fixed-heap loop oracles (sync 200k and an
+`io.async` body looping across awaits, both rc=0 on 4 MB), the full
+`tests/rc.test.yo` (68), `tests/basic.test.yo` (57), `tests/async_await.test.yo`
+(262), `tests/collections/array_list.test.yo` (129), match_tuples, the three
+drop-focused files, fn/type_soundness/unit_as_value_type/comptime/derive/dyn,
+and `yo check ./src` 278/278 with the rebuilt binary.

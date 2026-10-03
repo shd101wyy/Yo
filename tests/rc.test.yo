@@ -1525,3 +1525,97 @@ test("rc: copies of a value holding RC data are counted in every position (COW S
   assert(io.await(task, io) >= usize(5), "and the task sees a shared count");
   assert((w3.n == i32(1)) && (h.len() == usize(1)), "all copies stay live to here");
 });
+// Regression (issues/fixed/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md):
+// a tuple literal passed straight to a call (never bound to a name) owned a +1
+// per RC-typed element that nothing ever released. The callee stores its OWN
+// dup of each element (std assignment semantics: `dst.* = src.*` dups RC
+// fields), so the balancing release is the CALLER's drop of the tuple value —
+// which a call-result temp and a named binding both get, but an anonymous
+// tuple literal never did (attach_temp_variable_to_expr was a no-op stub in
+// evaluate_tuple_value, unlike the array-literal path). One reference per
+// push leaked, so a container inside a tuple inside a container was never
+// freed (48 B / 2 allocations per instance under LSan). The tuple literal now
+// gets an owning temp, so its scope-end drop releases the fields.
+(g_tuple_elem_disposed : i32) = i32(0);
+TupleElemHandle :: ref(struct(tag : i32));
+impl(
+  TupleElemHandle,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_tuple_elem_disposed = (g_tuple_elem_disposed + i32(1));
+    })
+  )
+);
+test("a local moved into a tuple argument of a call is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    inner := TupleElemHandle(tag : i32(1));
+    ys.push((i32(0), inner));
+    // Over-drop canary: the read after the push must still see the object.
+    assert(ys(usize(0)).1.tag == i32(1), "the pushed handle is readable after the push");
+    assert(g_tuple_elem_disposed == before, "nothing disposed while the scope is live");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "the tuple argument's own reference is released at scope end, not leaked"
+  );
+});
+test("a fresh constructor inside a tuple argument is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    ys.push((i32(0), TupleElemHandle(tag : i32(2))));
+    assert(ys(usize(0)).1.tag == i32(2), "the fresh handle is stored");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "an element temp consumed by the tuple literal is released by the tuple's own drop"
+  );
+});
+test("one local pushed in two tuple arguments is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    shared := TupleElemHandle(tag : i32(3));
+    ys.push((i32(0), shared));
+    ys.push((i32(1), shared));
+    // Over-drop canary: both elements still read the live object.
+    assert((ys(usize(0)).1.tag == i32(3)) && (ys(usize(1)).1.tag == i32(3)), "both elements see the shared object");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "two tuple arguments sharing one local release their references without over-releasing"
+  );
+});
+test("a tuple argument nested inside another tuple argument is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(Tuple(i32, i32), TupleElemHandle)).new();
+    inner := TupleElemHandle(tag : i32(4));
+    ys.push(((i32(0), i32(1)), inner));
+    assert(ys(usize(0)).1.tag == i32(4), "the nested tuple's handle is stored");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "the inner tuple argument's reference is released through the outer tuple's drop"
+  );
+});
+// CONTROL, not the regression guard: a tuple bound to a NAME before the push
+// already disposed correctly (the binding's own scope-end drop descends into
+// the tuple's fields), before and after the fix. It guards the named-binding
+// path against the same change over-releasing.
+test("a named tuple binding pushed into a container is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    inner := TupleElemHandle(tag : i32(5));
+    p := (i32(0), inner);
+    ys.push(p);
+    assert(p.1.tag == i32(5), "the named tuple is readable after the push");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "the named-binding path still releases exactly once"
+  );
+});

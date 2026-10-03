@@ -10,9 +10,11 @@
 //!   * Records `runtime_arg_exprs_in_order` and the resulting tuple type/value
 //!     onto the call expression's ExprInfo.
 //!
-//! `set_expr_as_needs_to_call_dup` for field values IS wired (rc layer 4);
-//! `attach_temp_variable_to_expr` is NOT — no temp-variable assignment is
-//! performed for tuple elements.
+//! `set_expr_as_needs_to_call_dup` for field values IS wired (rc layer 4), and
+//! a RUNTIME tuple literal gets an owning result temp via
+//! `attach_temp_variable_to_expr` — the temp's scope-end drop is what releases
+//! the tuple's own +1 per RC-typed field when the literal is passed straight
+//! to a call (see the end of `evaluate_tuple_value`).
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -43,7 +45,7 @@ import("std/fmt");
   is_comptime_list_type
 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
-{ set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -328,7 +330,21 @@ evaluate_tuple_value :: (
   info.value = tuple_value_opt;
   info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-  // attachTempVariableToExpr — Phase 3 stub (no-op).
+  // A RUNTIME tuple literal needs a temp to materialize into, exactly as the
+  // array-literal path does (values/array.yo) — the former no-op stub here is
+  // why a tuple passed straight to a call leaked one reference per RC-typed
+  // element: the callee stores its OWN dup of each element (std assignment
+  // semantics), so the balancing release is the caller's drop of the tuple
+  // value, which only a named binding or a call-result temp ever got. The
+  // owning temp gives the anonymous literal that scope-end drop; every
+  // transfer position (binding, begin tail, `own` argument) consumes the temp,
+  // so the value still moves rather than being dropped under its new owner.
+  // A fully comptime-known tuple is skipped, matching the array-ctor path
+  // (calls/array_type.yo): it emits as a constant, and a scope-end drop over
+  // static storage would over-release it.
+  if(!all_known, {
+    attach_temp_variable_to_expr(expr, true, ctx);
+  });
   expr
 });
 export(

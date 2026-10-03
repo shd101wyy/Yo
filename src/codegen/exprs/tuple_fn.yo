@@ -16,6 +16,7 @@
 { is_unit_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// Args of a FnCall (empty for an Atom).
@@ -111,6 +112,11 @@ _build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstE
       decl.push_str(";");
       em := context.base.emitter;
       em.emit_string_line(decl);
+      // A tuple result temp declared as a C local inside a state machine may
+      // own an `sm->var_<id>` slot (its deferred drop reads the slot), so store
+      // the value there too — the same rule as every other temp-declaring
+      // site (other_fn_call.yo; the async-loop-body temp leak family).
+      _store_temp_var_to_state_machine_if_needed(temp_var.clone(), indent.clone(), context);
       temp_var
     },
     .None => tuple_value

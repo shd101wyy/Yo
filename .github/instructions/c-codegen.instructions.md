@@ -435,6 +435,8 @@ When you find a test that causes a C codegen bug, don't weaken the test. Create 
 
 `src/evaluator/exprs/begin.yo` performs reference counting optimization that cancels out dup/drop pairs when possible.
 
+A VALUE literal with RC-typed fields that is passed straight to a call — a tuple `(i32(1), list)`, an array literal, a struct constructor — must carry an OWNING RESULT TEMP (`attach_temp_variable_to_expr` in its evaluator path): the callee stores its OWN dup of each RC field (std assignment semantics: `dst.* = src.*` dups) and never consumes the argument, so the CALLER's scope-end drop of the temp is the balancing release. A literal path that skips the attach (the tuple path's attach was a no-op stub until 2026-10-03) leaks one reference per RC field per call, visible only under LeakSanitizer or a fixed-heap loop (`issues/fixed/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`).
+
 For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`.
 
 ### A hand-written C declaration must be registered, or its drops vanish
