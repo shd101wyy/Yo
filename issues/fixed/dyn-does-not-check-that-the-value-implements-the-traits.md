@@ -215,8 +215,9 @@ break. It now carries the marker. `DateTimeError` (`std/time/datetime.yo`) gets
 it too: nothing dyn's one today, so it was not a break, but it is the same
 oversight and the marker is what makes the first `throw` of one compile.
 `PercentError` — the third type in
-`issues/tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md` —
-still needs a hand-written `ToString` and is left to that issue; nothing dyn's it,
+`issues/fixed/tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md` —
+still needed a hand-written `ToString` and was left to that issue (landed
+2026-10-03, as a `derive(PercentError, Error(...))`); nothing dyn's it,
 so the new check does not reach it.
 
 ## Regression tests
