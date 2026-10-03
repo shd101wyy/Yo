@@ -67,9 +67,9 @@ test("stable ids: a temp name anchors on its token's module, not the env's", {
   caller := String.from("caller_env.yo");
   emission_occurrence_reset();
   register_top_level_anchors(m.clone(), _anchors_at(usize(20)));
-  t0 := generate_new_temp_variable_name(caller.clone(), usize(21), usize(4), String.new(), m.clone());
+  t0 := generate_new_temp_variable_name(caller.clone(), usize(21), usize(4), .None, .Some(m.clone()));
   emission_occurrence_reset();
   register_top_level_anchors(m.clone(), _anchors_at(usize(25)));
-  t1 := generate_new_temp_variable_name(caller.clone(), usize(26), usize(4), String.new(), m.clone());
+  t1 := generate_new_temp_variable_name(caller.clone(), usize(26), usize(4), .None, .Some(m.clone()));
   assert(t0 == t1, `temp moved: ${t0} vs ${t1}`);
 });

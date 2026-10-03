@@ -797,10 +797,12 @@ generate_new_temp_variable_name :: (
     module_path : String,
     (row : usize) ?= usize(0),
     (column : usize) ?= usize(0),
-    (slot : String) ?= String.new(),
-    (anchor_module : String) ?= String.new()
+    (slot_opt : Option(String)) ?= .None,
+    (anchor_module_opt : Option(String)) ?= .None
   ) -> String
 )({
+  slot := match(slot_opt, .Some(s) => s, .None => String.new());
+  anchor_module := match(anchor_module_opt, .Some(a) => a, .None => String.new());
   prefix := generate_temp_variable_name_prefix(module_path);
   // The digit tail is a HASH of the mint site's identity (prefix + position
   // + slot) with this key's occurrence index appended — digits only, keeping

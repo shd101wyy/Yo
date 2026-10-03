@@ -59,6 +59,7 @@ json :: import("std/encoding/json");
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
   E_COMPTIME_RUNTIME_BINDING,
+  E_COMPTIME_PARAM_DEFAULT,
   suggest_name
 } :: import("./diagnostics.yo");
 /// One registry entry: a code, its bilingual prose, and one bad→good
@@ -573,6 +574,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc :: i32(0);\n  (comptime(step) : i32) = n;\n  (acc + step)\n});\n",
       "`acc` and `step` are locals of a compile-time function body, so they use the compile-time forms `::` and `comptime(step)`.",
       "`acc` 与 `step` 是编译期函数体的局部变量，因此使用编译期形式 `::` 与 `comptime(step)`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_PARAM_DEFAULT,
+      "parameter default is not compile-time known",
+      "参数默认值不是编译期已知的",
+      "A function parameter's `?=` default is computed at runtime, but defaults must be compile-time known values.",
+      "函数参数的 `?=` 默认值在运行时计算，但默认值必须是编译期已知的值。",
+      "A `?=` default is fixed when the function is defined: literals (`i32(18)`, `\"text\"`, `false`), constants (`K`, `usize.MAX`), payload-free enum variants (`.None`, `Mode.Fast`) and other compile-time values. A runtime call such as `seven()` or `String.new()`, or a runtime variable, has no value until the program runs, so it cannot be a default. When the default really has to be computed, make the parameter optional: declare it as `(p : Option(T)) ?= .None` and branch in the body, computing the value when the caller passed nothing. A default may name an earlier compile-time parameter (`(comptime(Rhs) : Type) ?= Lhs`); that is decided per call. Names in a default always resolve where the function is defined, never at the caller.",
+      "`?=` 默认值在函数定义时就已确定：字面量（`i32(18)`、`\"text\"`、`false`）、常量（`K`、`usize.MAX`）、无载荷的枚举变体（`.None`、`Mode.Fast`）以及其他编译期值。像 `seven()` 或 `String.new()` 这样的运行时调用，或者运行时变量，在程序运行前都没有值，因此不能作为默认值。如果默认值确实需要计算，请把参数改为可选：声明为 `(p : Option(T)) ?= .None`，并在函数体中分支，在调用方未传值时计算该值。默认值可以引用前面的编译期参数（`(comptime(Rhs) : Type) ?= Lhs`），它按每次调用确定。默认值中的名字总是在函数定义处解析，而不是在调用方解析。",
+      "seven :: (fn() -> i32)(i32(7));\ng :: (fn((x : i32) ?= seven()) -> i32)(x);\n",
+      "seven :: (fn() -> i32)(i32(7));\ng :: (fn((x : Option(i32)) ?= .None) -> i32)(match(x, .Some(v) => v, .None => seven()));\n",
+      "`seven()` runs at runtime; the optional parameter computes it in the body when the caller omits `x`.",
+      "`seven()` 在运行时执行；可选参数在调用方省略 `x` 时于函数体中计算它。"
     )
   );
   out.push(
