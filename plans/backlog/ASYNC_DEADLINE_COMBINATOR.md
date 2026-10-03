@@ -1,8 +1,10 @@
 # A deadline combinator usable from INSIDE a task — and the HTTP server keep-alive it blocks
 
 **Status: BACKLOG; superseded in part by `plans/ASYNC_IO_API_AUDIT.md` A1
-(2026-10-03), which makes `JoinHandle.await` suspend inside a task and turns
-`timeout` itself into a future — option A below becomes `timeout`. Two costs
+(2026-10-03): `JoinHandle.join` suspends inside a task and `std/async`'s
+`timeout` is a future, so option A below is `io.await(timeout(h, limit, io), io)`
+in `serve_once` itself; what is left here is the server keep-alive loop and
+the parked-read buffer cost. Two costs
 below are dated: `yield` has had no timer since v0.2.32, and the backends
 cancel timers, park futures and (Linux, macOS) parked descriptor operations.**
 Written 2026-09-11 while landing the client-side HTTP

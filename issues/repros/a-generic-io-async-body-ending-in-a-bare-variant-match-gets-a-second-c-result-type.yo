@@ -1,0 +1,15 @@
+{ println } :: import("std/fmt");
+E :: enum(X, Y);
+// A generic io.async whose result is Result(T, E), built by a match tail.
+g1 :: (fn(generic(T : Type), v : Option(T), io : Io) -> Impl(Future(Result(T, E), Io)))({
+  b := Box(Option(T))(v);
+  io.async((io : Io) => {
+    c := b.*;
+    match(c, .Some(x) => .Ok(x), .None => .Err(E.X))
+  })
+});
+main :: (fn(io : Io) -> unit)({
+  r := io.await(g1(Option(i32).Some(i32(5)), io), io);
+  println(`${match(r, .Ok(v) => v, .Err(_) => i32(-1))}`);
+});
+export(main);

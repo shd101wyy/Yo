@@ -234,7 +234,7 @@ test("async: dropping the last Sender resolves a SUSPENDED recv as Disconnected"
     io.await(sleep(u64(5)), io);
   };
   verdict := match(
-    timeout(h, Duration.from_millis(i64(2000)), io),
+    io.await(timeout(h, Duration.from_millis(i64(2000)), io), io),
     .Ok(v) => v,
     .Err(_te) => i32(-9)
   );
@@ -309,7 +309,7 @@ test("Test channel Stream combinators", {
   chain := ch.filter(x => ((x % i32(2)) == i32(1))).map(x => (x * i32(10)));
   h := io.spawn(chain.collect(io), io);
   got := match(
-    timeout(h, Duration.from_millis(i64(5000)), io),
+    io.await(timeout(h, Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
     .Err(_) => {
       assert(false, "collecting a closed channel must not hang");

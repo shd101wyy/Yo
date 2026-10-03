@@ -581,6 +581,26 @@ _materialize_owned_rc_comptime_value :: (
   _store_temp_var_to_state_machine_if_needed(var_name.clone(), indent.clone(), context);
   c_name
 });
+/// A `cond` / `match` used as a value writes its result temp as a C local. In
+/// an `io.async` state machine that temp can also have a task slot, and every
+/// later read of it (an `if`/`cond` condition whose arm awaits, a drop) goes
+/// through the slot, so the value must be stored there too — the step every
+/// call-result temp already gets (`_store_temp_var_to_state_machine_if_needed`).
+/// Without it a `cond`/`if` whose condition is a `match` or `cond` read the
+/// zeroed slot and took the wrong branch whenever the branch awaited
+/// (issues/fixed/a-match-or-cond-condition-inside-io-async-takes-the-wrong-branch-when-the-branch-awaits.md).
+_store_result_temp_in_task :: (fn(expr : AstExpr, code : String, indent : String, context : FunctionGenerationContext) -> String)({
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.variable_name,
+      .Some(tv) => if(code == tv, _store_temp_var_to_state_machine_if_needed(tv, indent, context)),
+      .None => ()
+    ),
+    .None => ()
+  );
+  code
+});
 /// Generate a function-call expression.
 /// A local `x :: <expr>` emits nothing when its value is a known constant:
 /// every read inlines it (`generate_atom`). When the evaluator could only type
@@ -852,8 +872,8 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   );
   if(ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))), return(generate_field_access(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), return(generate_begin(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), return(generate_cond_expression(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(generate_match_expression(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), return(_store_result_temp_in_task(expr, generate_cond_expression(expr, indent.clone(), context), indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(_store_result_temp_in_task(expr, generate_match_expression(expr, indent.clone(), context), indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), return(generate_anonymous_tuple(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r), .None => ()));

@@ -1408,12 +1408,12 @@ test("HttpClient: dispose closes every idle connection", {
   // server read its EOF and returned. Without the `dispose` above, both of
   // these report `Elapsed`.
   match(
-    timeout(t1, Duration.from_secs(i64(10)), io),
+    io.await(timeout(t1, Duration.from_secs(i64(10)), io), io),
     .Ok(_) => (),
     .Err(err) => assert(false, `the first server never saw its connection close: ${err.to_string()}`)
   );
   match(
-    timeout(t2, Duration.from_secs(i64(10)), io),
+    io.await(timeout(t2, Duration.from_secs(i64(10)), io), io),
     .Ok(_) => (),
     .Err(err) => assert(false, `the second server never saw its connection close: ${err.to_string()}`)
   );

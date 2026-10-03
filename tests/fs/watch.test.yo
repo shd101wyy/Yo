@@ -213,7 +213,7 @@ test("a Watcher is a Stream: map + take collects one event name", {
   h := io.spawn(names.collect(io), io);
   _touch(target, String.from("x"), io);
   got := match(
-    timeout(h, Duration.from_millis(i64(5000)), io),
+    io.await(timeout(h, Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
     .Err(_) => {
       assert(false, "the watcher stream delivered no event inside the deadline");
