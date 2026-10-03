@@ -90,7 +90,9 @@ compiler's own C (`compile src/main.yo --emit-c`, same tree, pre-fix vs fixed co
 1,898,880 → 1,955,702 lines; the added lines are 18,534 `incr`/18,551 `decr` pairs of
 that Stage-0 +1 (almost all `buf.*.push(byte)`-style receivers through a pointer deref
 into a mutating method, which the plain-call path already pays), 194/172 conditional
-pairs for nullable values, and the temps that hold them.
+pairs for nullable values, and the temps that hold them. Both C files compiled with the
+fixpoint gate's flags (`clang -O2`, system malloc), `check ./src --std-path ./std`:
+353.2 s → 363.4 s wall (+2.9 %, one run each), peak RSS unchanged (1.16 GB).
 
 ## Fix
 
