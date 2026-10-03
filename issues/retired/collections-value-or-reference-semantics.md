@@ -38,8 +38,6 @@ The cost is the migration. `src/` passes collections to helper functions that mu
 
 `std/imm/` (`string`, `list`, `vec`, `map`, `set`, `sorted_map`, `sorted_set`) is the immutable, atomically counted family. Once `String`, and per this question the collections, are copy-on-write values, immutability no longer protects anything within a thread: nobody else holds your copy. The family's one remaining role is sharing one buffer across threads without copying, because the value types' counts stay non-atomic. Moving a unique value to another thread, an isolation check (`rc == 1`), does not need `std/imm/`.
 
-Decide together with the question above:
-- keep `std/imm/` as the "share across threads" family; or
-- replace it with `Arc(T)` over value types. That is possible once reading through an `Arc` borrows the inner value instead of copying its handle, since a copy would touch the inner non-atomic count from several threads.
+**Decided (2026-10-03, `plans/VALUES_BY_DEFAULT.md` §3.9):** `std/imm/` stays as the shared, read-only, cross-thread family. Its deletion is tied to the open question of atomically counted copy-on-write buffers. Values cross threads by transfer: a moved value is cloned at the transfer point if a cell is shared.
 
 In this repo, `std/imm/string` is used mostly by its own tests; the only std module importing it is `std/encoding/utf8`.
