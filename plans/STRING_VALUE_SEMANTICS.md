@@ -199,7 +199,7 @@ explicit through a `ref` type, `Box(T)` or `Arc`. That is Swift's model.
   code.
 
 It is a **separate campaign after this one**, filed as
-`issues/questions/collections-value-or-reference-semantics.md`. Its
+`issues/retired/collections-value-or-reference-semantics.md`, decided and folded into `plans/backlog/VALUES_BY_DEFAULT.md`. Its
 migration is far larger: `src/` passes collections to helper functions that
 mutate them throughout, and may hold one list in two places on purpose. It
 needs its own measurements. It reuses everything this plan builds: S1's

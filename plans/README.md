@@ -58,7 +58,7 @@ Safe mode's open work is listed in [`SAFE_MODE`](SAFE_MODE.md); the
 verifier-driven guard elision design, Phases 0–2 landed and Phase 3 open, is
 [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
 (strict mode builds on it).
-[`ASYNC_AWAIT_SITE_FUSION`](backlog/ASYNC_AWAIT_SITE_FUSION.md) is the
+[`VALUES_BY_DEFAULT`](backlog/VALUES_BY_DEFAULT.md) removes `ref(...)`/`atomic(...)`: every declared type is a value, and sharing is spelled `Rc(T)`/`Arc(T)` (`Box(T)` is copy-on-write indirection, resources are move-only, the `Rc` marker trait is deleted). It follows `STRING_VALUE_SEMANTICS.md`. [`ASYNC_AWAIT_SITE_FUSION`](backlog/ASYNC_AWAIT_SITE_FUSION.md) is the
 state-machine plan's phase 7 design for std's single-await I/O wrappers
 (an immediately awaited wrapper runs in its caller's frame).
 
