@@ -59,6 +59,8 @@ pragma(Pragma.AllowUnsafe);
   is_array_type,
   is_struct_type,
   is_reference_struct_type,
+  is_enum_type,
+  is_reference_enum_type,
   is_function_type,
   is_function_type_generic
 } :: import("../../types/guards.yo");
@@ -85,7 +87,8 @@ pragma(Pragma.AllowUnsafe);
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr
 } :: import("../utils.yo");
-{ parse_raw_int } :: import("../../utils.yo");
+{ parse_raw_int, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // throw_rhs_contains_control_flow_expression_error
@@ -296,6 +299,14 @@ _place_source_text :: (fn(place : AstExpr) -> String)({
   });
   text
 });
+/// A value aggregate: a type whose copy owns its own storage, a non-`ref`
+/// struct or newtype (`String`), a tuple, a fixed array or a non-`ref` enum
+/// (`Option(String)`). A `ref` object, a `Box`, a collection or a closure is a
+/// handle, and a write through it reaches the shared object by design.
+_is_value_aggregate_type :: (fn(t : TypeValue) -> bool)(
+  (is_struct_type(t) && !is_reference_struct_type(t)) || (is_tuple_type(t) || (is_array_type(t) || (is_enum_type(t) && !is_reference_enum_type(t))))
+);
+(_g_audit_inout_borrow : bool) = debug_knob(`YO_AUDIT_INOUT_BORROW`).is_some();
 /// E0908 for the `inout` arguments of one call, the `inout(self)` receiver of
 /// a method call included: the callee writes the place, so a place rooted in
 /// a borrowed binding (a by-value parameter, a `match`/`for` binding) is the
@@ -322,12 +333,20 @@ require_no_inout_write_through_borrow :: (
     if(match(param_is_ref.get(i), .Some(b) => b, .None => false), {
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)), .Some(ai) => ai.ty, .None => t_unit());
-      if(!ast_expr_token(arg).module_path.starts_with(String.from("auto-generated://")) && type_contains_rc_type(arg_ty), {
+      if(!ast_expr_token(arg).module_path.starts_with(String.from("auto-generated://")) && type_contains_rc_type(arg_ty) && _is_value_aggregate_type(arg_ty), {
         match(
           borrowed_value_root_of_place(arg, env, ctx),
           .Some(bv) => {
             what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
             label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
+            // YO_AUDIT_INOUT_BORROW=1 lists every site instead of stopping at
+            // the first (plans/STRING_VALUE_SEMANTICS.md S1 migration).
+            if(_g_audit_inout_borrow, {
+              at := ast_expr_token(arg);
+              eprintln(`[inout-borrow] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(arg)} -> ${label} (${bv.name}: ${what}, ${type_to_string(arg_ty)})`);
+              i = (i + usize(1));
+              continue;
+            });
             target := cond((label == "self") => String.from("the `inout(self)` receiver"), true => `the \`inout\` parameter \`${label}\``);
             raise_flow_violation(
               with_code(
