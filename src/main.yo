@@ -6304,27 +6304,37 @@ run_test :: (
           batch_failed = (cst.raw != i32(0));
         });
         if(batch_failed, {
-          // `--json`: the stream still names every test that did not run,
-          // each as a failed `test` event, before the run aborts below.
-          if(json_lines, {
-            (bfi : usize) = batch_start;
-            while(bfi < batch_end, {
-              bft := match(tests.get(bfi), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
-              println(`{"event":"test","file":"${_json_escape(file.clone())}","name":"${_json_escape(bft.name.clone())}","status":"failed","duration_ms":0,"message":"the batch failed to compile; this test did not run"}`);
-              bfi = (bfi + usize(1));
-            });
-          });
+          // A batch that fails to compile FAILS every test in it, and the
+          // run goes on: the next batch and the next file still run. It used
+          // to throw, which ended the whole run at the first such batch. One
+          // bad file then hid every file after it (a local suite ran 82 of
+          // 305: issues/fixed/a-test-batch-compile-failure-aborts-the-whole-run.md).
+          // `--bail` still stops here.
+          //
           // Say how many tests DID NOT RUN, not just that a compile failed.
           // "batch compile failed" reads like an infrastructure hiccup; the
           // fact that matters is that none of this file's tests in this batch
           // executed, which is the same shape as the hollow batch the
           // `__yo_user_main` marker gate catches
           // (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §1.2).
-          exn.throw(
-            dyn(
-              `test: ${file} — 0 of ${(batch_end - batch_start).to_string()} tests in this batch ran: the batch failed to compile (${if(test_in_process, String.from("in-process"), String.from("exit != 0"))}). The generated batch is ${tmp_yo} (keep it with YO_KEEP_BATCH=1).`
-            )
+          eprintln(
+            `yo: error: test: ${file} — 0 of ${(batch_end - batch_start).to_string()} tests in this batch ran: the batch failed to compile (${if(test_in_process, String.from("in-process"), String.from("exit != 0"))}). The generated batch is ${tmp_yo} (keep it with YO_KEEP_BATCH=1).`
           );
+          (bfi : usize) = batch_start;
+          while(bfi < batch_end, {
+            bft := match(tests.get(bfi), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
+            failed = (failed + usize(1));
+            if(json_lines, {
+              println(`{"event":"test","file":"${_json_escape(file.clone())}","name":"${_json_escape(bft.name.clone())}","status":"failed","duration_ms":0,"message":"the batch failed to compile; this test did not run"}`);
+            }, {
+              println(`  ✗ ${bft.name}`);
+              println(String.from("    the batch failed to compile; this test did not run"));
+            });
+            bfi = (bfi + usize(1));
+          });
+          if(bail, {
+            bailed = true;
+          });
         });
         // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
         // passes environ through when envp is NULL). The ASan run environment
@@ -6376,7 +6386,7 @@ run_test :: (
           });
         });
         (ri : usize) = batch_start;
-        while((ri < batch_end) && !bailed, {
+        while((ri < batch_end) && (!bailed && !batch_failed), {
           t := match(tests.get(ri), .Some(x) => x, .None => TestDecl(name : String.from(""), body_src : String.from("()")));
           // std/env's portable wrapper, NOT raw libc setenv — Windows has no
           // setenv (the v0.2.0 windows seed leg failed on it); env.set

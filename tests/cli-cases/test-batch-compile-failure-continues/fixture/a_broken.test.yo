@@ -1,0 +1,9 @@
+// Evaluates cleanly but cannot link: the extern names a C symbol nothing
+// defines, so this file's batch compile fails.
+pragma(Pragma.AllowUnsafe);
+
+missing :: extern("C", yo_cli_case_symbol_nobody_defines : (fn() -> i32));
+
+test("calls a symbol nobody defines", {
+  _ := unsafe(missing.yo_cli_case_symbol_nobody_defines());
+});
