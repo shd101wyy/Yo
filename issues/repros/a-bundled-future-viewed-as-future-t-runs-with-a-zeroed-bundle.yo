@@ -1,0 +1,19 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+{ String } :: import("std/string");
+Raise :: (ctl(generic(T : Type), msg : String) -> T);
+Ctx :: struct(io : Io, raise : Raise);
+make :: (fn(io : Io) -> Impl(Future(i32, Ctx)))(
+  io.async((ctx : Ctx) => {
+    ctx.io.await(yield(ctx.io), ctx.io);
+    ctx.raise(`boom`)
+  })
+);
+// A view typed WITHOUT the bundle: Future(i32) is compatible with Future(i32, Ctx).
+run_view :: (fn(f : Impl(Future(i32)), io : Io) -> i32)(io.await(f, io));
+main :: (fn(io : Io) -> unit)({
+  f := make(io);
+  v := run_view(f, io);
+  println(`returned ${v}`);
+});
+export(main);

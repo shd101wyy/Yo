@@ -1,0 +1,14 @@
+IO_timer :: import("std/sys/timer");
+{ sleep } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+{ println } :: import("std/fmt");
+main :: (fn(io : Io) -> unit)({
+  h := io.spawn(IO_timer.sleep(u64(30)), io);
+  h.abort();
+  println(`after abort: aborted=${h.state() == FutureState.Aborted}`);
+  io.await(sleep(Duration.from_millis(i64(80)), io), io);
+  println(`after timer fired: aborted=${h.state() == FutureState.Aborted} completed=${h.state() == FutureState.Completed}`);
+  r := h.await(io);
+  println(`await is_none=${r.is_none()}`);
+});
+export(main);
