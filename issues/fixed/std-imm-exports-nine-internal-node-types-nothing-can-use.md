@@ -2,7 +2,8 @@
 
 **Severity:** S3 — std/imm exports internal node types nothing external can use — dead public surface freezing into stable API
 
-**Status: OPEN — but the prescribed fix is WRONG in one item.** Re-verified
+**Status:** FIXED (2026-10-03). While open, the prescribed fix was WRONG in
+one item. Re-verified
 2026-09-15; the dead-surface finding holds, the removal list does not. See
 "Correction" at the end before acting on the Fix section.
 Severity: **api-lie / dead public surface**. Found 2026-09-04
@@ -253,3 +254,58 @@ prescriptions corrected in this clean-up: a fix sketch is a claim too.
 **Not implemented here.** Removing an export is a breaking change to a stable
 surface (`yo-design.instructions.md:147`), and the list needed correcting
 before anyone acts on it — which was the more valuable half.
+
+## Fixed
+
+Closed 2026-10-03 on branch `s3/batch-3-fixes`. The nine names of the table
+are gone from the export lists; no implementation code moved:
+
+- `std/imm/map.yo` → `export(Map, MapEntry);` (drops `MapNode`, `MapBranch`,
+  `MapLeaf`, `MapCollision`, `InsertResult`, `RemoveResult`).
+- `std/imm/sorted_map.yo` → `export(SortedMap);` (drops the `export(RBNode);`
+  and `export(Color);` lines).
+- `std/imm/list.yo` → `export(List, ListIter);` (drops `ListNode` only, per
+  the Correction).
+- `std/imm/sorted_map.yo:39` repointed `{ MapEntry } :: import("./map.yo")`
+  at the owning `../collections/entry.yo`, removing the second-hop alias.
+
+On the Correction's closing "**eight** names, not nine": that count is the
+ListNode/ListIter conflation its own Method note diagnoses, carried into the
+arithmetic — the table's nine never included `ListIter`, so the original Fix
+item 3 would have dropped TEN names and the corrected list drops exactly the
+table's nine. Only item 3 was retracted (item 2 is reaffirmed "As written"),
+`Color` appears in no public signature of `sorted_map.yo` (only the private
+`_new_node`/`_rotate_*` helpers and `RBNode`'s private `_color` field), and
+nothing in the tree imports it — so it went with `RBNode`. `ListIter` staying
+exported is not just the `into_iter` return type: four same-directory
+consumers destructure it off `list.yo`'s export list
+(`map.yo:671`, `sorted_map.yo:37`, `set.yo:41`, `sorted_set.yo:38`), so
+removing it would have broken std itself.
+
+Breaking-change note for the release this ships in: `list.yo` now carries a
+`## Stability: stable` marker, so dropping `ListNode` there is a break against
+a declared-stable module — release-note-worthy under the "removed exports are
+NOT additive" rule, though the blast radius is zero (no in-tree importer, no
+public signature reaches it; measured again at fix time: the only imports of
+the three modules anywhere in `src/ std/ tests/ scripts/` destructure
+`Map`, `MapEntry`, `List`, `ListIter`, `SortedMap` alone).
+
+Regression test, added to the S5 discipline this doc's "Regression test"
+section names: `tests/std_export_coverage.test.yo` gained an imm block — one
+runtime test binding every kept export by name (`ListIter` included, which
+nothing outside `std/imm` had bound before), and one test asserting each of
+the nine removed names now fails to destructure
+(`comptime_expect_error({ MapNode } :: import("std/imm/map"), "No member")`
+×9 — the "deleting an export is not directly testable" claim above was wrong:
+the E0403 a missing export raises is exactly a `comptime_expect_error`
+oracle; the block went red before the trim and green after).
+
+Verification (tree-built `yo-out/x86_64-pc-windows-msvc/bin/yo.exe`):
+`yo check ./std --std-path ./std` → 178/178; `yo check
+./tests/std_export_coverage.test.yo --test-bodies --std-path ./std` clean;
+`yo test` on each of `imm_list` 17, `imm_map` 25, `imm_sorted_map` 21,
+`imm_sorted_set` 20, `imm_set` 21, `imm_string` 45, `imm_vec` 54,
+`imm_threading` 30, `imm_iterators` 13, `explicit_allocators` 16 and
+`std_export_coverage` 16 — all rc=0 unchanged; the two imm
+`tests/codegen-bootstrap` fixtures (`imm_map_entries_shell`,
+`comptime_param_value_spec`) compile and run rc=0.
