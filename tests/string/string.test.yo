@@ -2452,3 +2452,56 @@ test("Unicode escapes reach control bytes", {
   assert(String.from("\u{7}") == bell, "one braced digit is enough");
   assert(`\u{7}` == bell, "and a template agrees");
 });
+// plans/STRING_VALUE_SEMANTICS.md S1: E0908 rejects a write through a
+// borrowed String (cli-cases inout-write-through-a-*-is-e0908); these are the
+// ways to write that stay accepted.
+_append_inout :: (fn(inout(out) : String) -> unit)({
+  out.push_str("!");
+});
+_append_own :: (fn(own(out) : String) -> String)({
+  out.push_str("!");
+  out
+});
+_append_local :: (fn(out : String) -> String)({
+  q := out;
+  q.push_str("!");
+  q
+});
+_first_byte :: (fn(s : String) -> u8)({
+  _ := s.clone();
+  s(usize(0))
+});
+_Counter :: struct(n : i32);
+impl(
+  _Counter,
+  bump : (fn(inout(self) : Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+_bumped :: (fn(c : _Counter) -> i32)({
+  c.bump();
+  c.n
+});
+test("Writing a String through inout, own or a local copy is accepted (E0908 extension)", {
+  c := String.new();
+  _append_inout(c);
+  assert(c == "!", "inout reaches the caller's string, empty or not");
+  assert(_append_own(String.from("x")) == "x!", "own moves the string in");
+  assert(_append_local(String.from("y")) == "y!", "a local copy is the callee's own");
+  assert(_first_byte(String.from("abc")) == u8(97), "clone and index read through a borrow");
+  xs := ArrayList(String).new();
+  xs.push(String.new());
+  xs.push(String.from("n"));
+  for(xs, inout(s) => {
+    s.push_str("?");
+  });
+  assert((xs(usize(0)) == "?") && (xs(usize(1)) == "n?"), "an inout for writes the elements");
+  assert(_bumped(_Counter(n : i32(1))) == i32(2), "a value without RC data stays writable as a local copy");
+});
+test("collect(String) builds the string through an owned accumulator", {
+  parts := ArrayList(String).new();
+  parts.push(String.from("a"));
+  parts.push(String.from("b"));
+  parts.push(String.from("c"));
+  assert(parts.into_iter().collect(String) == "abc", "the accumulator is moved, not borrowed");
+});

@@ -1661,7 +1661,7 @@ impl(
   }),
   /// Shorten to `new_len` BYTES, panicking if that is not a char boundary —
   /// Rust's `truncate`. A longer `new_len` is a no-op.
-  truncate : (fn(self : Self, new_len : usize) -> unit)({
+  truncate : (fn(inout(self) : Self, new_len : usize) -> unit)({
     cond(
       (new_len >= self.len()) => (),
       true => {
@@ -1766,7 +1766,7 @@ impl(
   /// PANICS when `idx` is past the end or is not a char boundary, as Rust
   /// does; `len()` is bytes, so an index into the middle of a multi-byte rune
   /// would otherwise produce invalid UTF-8.
-  insert_str : (fn(self : Self, idx : usize, s : Self) -> unit)({
+  insert_str : (fn(inout(self) : Self, idx : usize, s : Self) -> unit)({
     if(idx > self.len(), {
       __yo_panic("String.insert_str: index out of bounds");
     });
@@ -1782,7 +1782,7 @@ impl(
   }),
   /// Insert one rune at BYTE index `idx` — Rust's `insert`. Same panics as
   /// `insert_str`.
-  insert : (fn(self : Self, idx : usize, r : rune) -> unit)({
+  insert : (fn(inout(self) : Self, idx : usize, r : rune) -> unit)({
     one := Self.new();
     one.push_rune(r);
     self.insert_str(idx, one);
@@ -1791,7 +1791,7 @@ impl(
   /// `remove`.
   ///
   /// PANICS when `idx` is out of bounds or not a char boundary.
-  remove : (fn(self : Self, idx : usize) -> rune)({
+  remove : (fn(inout(self) : Self, idx : usize) -> rune)({
     if(idx >= self.len(), {
       __yo_panic("String.remove: index out of bounds");
     });
@@ -1808,7 +1808,7 @@ impl(
     r
   }),
   /// Remove and return the LAST rune, or `.None` when empty — Rust's `pop`.
-  pop : (fn(self : Self) -> Option(rune))({
+  pop : (fn(inout(self) : Self) -> Option(rune))({
     cond(
       (self.len() == usize(0)) => return(Option(rune).None),
       true => ()
@@ -3374,7 +3374,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       String.new()
     ),
-    from_iter_add : (fn(acc : Self, item : Self.Elem) -> Self)({
+    from_iter_add : (fn(own(acc) : Self, item : Self.Elem) -> Self)({
       acc.push_string(item);
       acc
     })
