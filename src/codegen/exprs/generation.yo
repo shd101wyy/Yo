@@ -4,6 +4,7 @@
 //! (set_generate_expr_fn) so every emitter's recursive calls land here.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ TypeValue } :: import("../../types/definitions.yo");
 { eprintln : ceg_eprintln } :: import("std/fmt");
 {
   AstExpr,
@@ -141,7 +142,9 @@
   generate_await,
   generate_state,
   generate_join_handle_await,
-  emit_io_spawn_effect_injection
+  emit_io_spawn_effect_injection,
+  join_handle_is_value_struct,
+  join_handle_future_field_c_type
 } :: import("./await.yo");
 {
   is_io_async_call,
@@ -406,12 +409,18 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // spawn, since the evaluator names every value
   // (issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md).
   em.emit_string_line(`${indent.clone()}__yo_incr_rc((void*)${spawn_var.clone()});  // the JoinHandle owns a reference`);
+  jh_value_ty := match(expr_ei, .Some(ei) => if(join_handle_is_value_struct(ei.ty), Option(TypeValue).Some(ei.ty), Option(TypeValue).None), .None => Option(TypeValue).None);
   match(
     join_handle_type_name,
     .Some(jh) => {
-      // `JoinHandle(T)*` → its generated constructor `__yo_new_<cname>`.
-      jh_base := jh.trim_end_matches("*").trim();
-      handle_code := `__yo_new_${jh_base}((void*)${spawn_var.clone()})`;
+      handle_code := match(
+        jh_value_ty,
+        // A value handle: its one field IS the counted future (the reference
+        // taken above), so building it allocates nothing.
+        .Some(jt) => `(${jh}){ .__future = (${join_handle_future_field_c_type(jt, context)})(${spawn_var.clone()}) }`,
+        // `JoinHandle(T)*` → its generated constructor `__yo_new_<cname>`.
+        .None => `__yo_new_${jh.trim_end_matches("*").trim()}((void*)${spawn_var.clone()})`
+      );
       // Materialize the handle into the spawn's own temp, as a call does:
       // the scope-end drop the evaluator schedules for that temp is what
       // releases a DISCARDED handle (a statement-level spawn). Returned as an

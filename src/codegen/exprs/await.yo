@@ -602,6 +602,23 @@ _option_some_field_type :: (fn(option_type : TypeValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
+/// The `JoinHandle(T)` the prelude declares is either a `ref` struct holding
+/// the future as a raw pointer (today's prelude) or a VALUE struct whose one
+/// field is the counted `Impl(Future(T))` itself (no second allocation per
+/// spawn: issues/an-owning-join-handle-costs-an-allocation-per-spawn.md).
+/// Codegen lowers both, so the prelude can switch once a seed carries this
+/// (Generation A of that change; plans/backlog/SEED_VERSION_AUTOMATION.md).
+join_handle_is_value_struct :: (fn(ty : TypeValue) -> bool)(
+  match(ty, .Struct({ is_reference_semantics : r }) => !r, _ => false)
+);
+/// The C type of a value `JoinHandle`'s `__future` field.
+join_handle_future_field_c_type :: (fn(ty : TypeValue, context : FunctionGenerationContext) -> String)(
+  match(
+    ty,
+    .Struct({ field_types : fts }) => match(fts.get(usize(0)), .Some(ft) => get_type_string(ft, context.base), .None => String.from("void*")),
+    _ => String.from("void*")
+  )
+);
 /// `JoinHandle.await(io)` — poll a spawned task, return Option(T). Casts the
 /// handle's void* future to a common header layout, polls until completed/aborted,
 /// and builds .Some(result)/.None.
@@ -618,8 +635,10 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
     match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   });
   handle_code := _call_generate_expr(handle_arg, indent.clone(), context);
-  // The handle (a `ref` struct) keeps its reference until its Dispose.
-  jh_member := String.from("->__future");
+  // A `ref` handle keeps its reference until its Dispose; a value handle's
+  // counted field keeps it until the handle's last copy is dropped.
+  handle_is_value := match(context.base.get_expr_info(handle_arg), .Some(hei) => join_handle_is_value_struct(hei.ty), .None => false);
+  jh_member := if(handle_is_value, String.from(".__future"), String.from("->__future"));
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("JoinHandle.await missing ExprInfo"))));
   option_type := expr_ei.ty;
   if(!is_enum_type(option_type), {
@@ -651,7 +670,7 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
   var_decl := get_variable_type_string(option_type, result_var.clone(), context.base);
   em.emit_string_line(`${indent.clone()}${var_decl};`);
   em.emit_string_line(`${indent.clone()}{`);
-  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = ${handle_code}${jh_member};`);
+  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = (void*)(${handle_code})${jh_member};`);
   em.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()} {`);
   em.emit_string_line(`${indent.clone()}    __YO_FUTURE_PREFIX`);
   em.emit_string_line(`${indent.clone()}    ${result_type_name.clone()} result;`);
@@ -725,6 +744,8 @@ export(
   resolve_evidence_field_from_given_bindings,
   emit_effect_record_injection,
   emit_io_spawn_effect_injection,
+  join_handle_is_value_struct,
+  join_handle_future_field_c_type,
   emit_effect_injection_for_await,
   generate_await,
   generate_state,
