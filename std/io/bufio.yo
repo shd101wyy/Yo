@@ -144,9 +144,11 @@ impl(
           }
         );
       });
+      at_end := (hit_eof && (line_bytes.len() == usize(0)));
+      line := String.from_bytes(line_bytes);
       cond(
-        (hit_eof && (line_bytes.len() == usize(0))) => Option(String).None,
-        true => Option(String).Some(String.from_bytes(line_bytes))
+        at_end => Option(String).None,
+        true => Option(String).Some(line)
       )
     })
   ),
