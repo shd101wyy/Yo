@@ -86,6 +86,12 @@ authorship from day one.
   coherence, swallowed closure-body errors) and one authoritative identity for
   resolved type variables
   ([`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md)).
+- **Values by default.** Every declared type is a value with independent
+  copies; `ref(...)`/`atomic(...)` leave the language and sharing is spelled
+  `Rc(T)`/`Arc(T)`. `String` goes first
+  ([`STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md)), then the
+  wrappers, move-only resources, the collections, the compiler's own trees
+  and the removal ([`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md)).
 - **Safe mode.** No undefined behavior in safe code. Phases 0a–4 landed:
   loud escaped unwinds, bounds-checked indexing, guarded `/` and `%`,
   overflow traps with `wrapping_*` as the escape hatch, saturating casts, the

@@ -2,7 +2,7 @@
 
 **Kind:** design question (decided; retired into a plan).
 
-**Status:** DECIDED 2026-10-03 by the maintainer: values with copy-on-write, as part of a wider change in which every declared type is a value and sharing is spelled `Rc(T)`/`Arc(T)`. The plan is `plans/backlog/VALUES_BY_DEFAULT.md` (collections are its phase V2). Raised 2026-10-03 with `plans/STRING_VALUE_SEMANTICS.md`, which makes `String` a copy-on-write value and leaves the collections as they are for now.
+**Status:** DECIDED 2026-10-03 by the maintainer: values with copy-on-write, as part of a wider change in which every declared type is a value and sharing is spelled `Rc(T)`/`Arc(T)`. The plan is `plans/VALUES_BY_DEFAULT.md` (collections are its phase V2). Raised 2026-10-03 with `plans/STRING_VALUE_SEMANTICS.md`, which makes `String` a copy-on-write value and leaves the collections as they are for now.
 
 ## The question
 

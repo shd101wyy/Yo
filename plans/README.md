@@ -27,6 +27,7 @@ doc.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 and 5b Phases 0–2 landed, the 2026-10-02 pointer-free unsafe-API audit closed; open: 5b Phase 3 (blocked) and strict mode (deferred). The 2026-10 handover is closed ([`archive/SAFE_MODE_HANDOVER.md`](archive/SAFE_MODE_HANDOVER.md)).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
 - [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) — where that plan stands: four pushed branches (flow orientation, registry retirement, Phase 6 closure re-raise, an option-self-field repro) and the work not started.
+- [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) — every declared type is a value; `ref(...)`/`atomic(...)` leave the language; sharing is spelled `Rc(T)`/`Arc(T)`, `Box(T)` is copy-on-write indirection, resources are move-only, `Send` is transfer and `Sync` is sharing. Reviewed 2026-10-03; V1 starts after the `String` plan's S3.
 - [`ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](ATS_LESSONS_BEYOND_INDEXED_TYPES.md) — what else Yo takes from ATS beyond indexed types: the lemma layer, must-use results, an init proof token (fixes an S1 in `ArrayList.set_len`), spec-transparent pure functions, lexicographic `decreases`, the typestate idiom.
 - [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](AGENT_KNOWLEDGE_CONSOLIDATION.md) — one home per fact across the pack, the skills and the manuals: fix the cheatsheets' stale and self-contradicting rules, move unique facts into manuals, slim each skill to a trigger plus `yo context` pointers, make `yo skills install` prune, and compile documentation code blocks.
 - [`STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md) — `String` becomes a copy-on-write value: copies are independent whether or not the string was empty, mutators take `inout(self)`, and `as_bytes` splits into `to_bytes`/`into_bytes`. A dead-write warning finds the code that relied on shared writes, and the count-accuracy tests come first. The collections follow as the next campaign.
@@ -58,7 +59,7 @@ Safe mode's open work is listed in [`SAFE_MODE`](SAFE_MODE.md); the
 verifier-driven guard elision design, Phases 0–2 landed and Phase 3 open, is
 [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
 (strict mode builds on it).
-[`VALUES_BY_DEFAULT`](backlog/VALUES_BY_DEFAULT.md) removes `ref(...)`/`atomic(...)`: every declared type is a value, and sharing is spelled `Rc(T)`/`Arc(T)` (`Box(T)` is copy-on-write indirection, resources are move-only, the `Rc` marker trait is deleted). It follows `STRING_VALUE_SEMANTICS.md`. [`ASYNC_AWAIT_SITE_FUSION`](backlog/ASYNC_AWAIT_SITE_FUSION.md) is the
+[`ASYNC_AWAIT_SITE_FUSION`](backlog/ASYNC_AWAIT_SITE_FUSION.md) is the
 state-machine plan's phase 7 design for std's single-await I/O wrappers
 (an immediately awaited wrapper runs in its caller's frame).
 
