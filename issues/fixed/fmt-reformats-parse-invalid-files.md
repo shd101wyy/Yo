@@ -2,7 +2,7 @@
 
 **Severity:** S3 — `yo fmt` rewrites parser-invalid files and reports success — `fmt --check` stays green on an uncompilable tree
 
-**Open (2026-08-29).** Found while fixing
+**Fixed 2026-10-03 (open 2026-08-29; see `## Fixed`).** Found while fixing
 `issues/fixed/yo-test-failing-child-windows-unknown-io-error.md`: a comment
 edit inside `src/codegen/async/runtime_io_windows.yo`'s embedded-C template
 string used backticks, which closed the template string mid-line; `yo fmt`

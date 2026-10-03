@@ -2,7 +2,7 @@
 
 **Severity:** S3 — concurrent runs in one checkout fail or report the wrong verdicts. CI runs one suite per checkout and is unaffected.
 
-**Status: OPEN.** Found 2026-09-30 while A/B-ing two compiler binaries on the same tree.
+**Status: FIXED (2026-10-03, see `## Fixed`).** Found 2026-09-30 while A/B-ing two compiler binaries on the same tree.
 
 ## Symptom
 
