@@ -12092,12 +12092,16 @@ export(FutureState);
 /// correct (it used to leak the whole state machine,
 /// issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md). Awaiting
 /// does not consume the handle; awaiting it twice reads the same result.
+///
+/// A VALUE struct whose one field is the counted future itself: copying a
+/// handle takes a reference on the future and dropping one releases it, so a
+/// spawn allocates nothing beyond the task (it was a `ref` box around a raw
+/// pointer, a second heap object per spawn:
+/// issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md).
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
-      __future : *(T)
-    )
+  struct(
+    /// The spawned task's future (the type-erased interface; `T` is its result).
+    __future : Impl(Future(T))
   )
 );
 // Phase L (THREAD_SAFETY): JoinHandle is NOT Send — the inner future state
@@ -12157,18 +12161,7 @@ impl(
 extern(
   "Yo",
   __yo_join_handle_state_raw : (fn(fut : *(void)) -> FutureState),
-  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit),
-  __yo_join_handle_release_raw : (fn(fut : *(void)) -> unit)
-);
-impl(
-  generic(T : Type),
-  JoinHandle(T),
-  /// Dropping the last copy of the handle releases the task's future.
-  Dispose(
-    dispose : (fn(self : Self) -> unit)(
-      __yo_join_handle_release_raw((*void)(self.__future))
-    )
-  )
+  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit)
 );
 impl(
   generic(T : Type),

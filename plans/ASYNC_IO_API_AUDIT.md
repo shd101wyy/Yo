@@ -236,7 +236,7 @@ stub".
   bytes and each bundle copy to nothing. Performance item, not an API change
   (`ASYNC_PERFORMANCE_HANDOVER.md` territory).
 - **An owning `JoinHandle` costs a second allocation per spawn** —
-  `issues/an-owning-join-handle-costs-an-allocation-per-spawn.md` (S3), fix
+  `issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md` (S3), fix
   designed (a value struct over the counted `Impl(Future)`), seed-gated.
 - **`io.spawn` is not a suspension point and runs the task inline to its
   first suspension**, which is a fine design but is stated nowhere a user
@@ -405,7 +405,7 @@ user method named `await`; a non-`Io` parameter named `io` with an `await`
 method — `issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md`);
 `io.state` takes `E : Type.Struct` like its siblings. Not done here, each for a
 reason: the value-struct `JoinHandle` waits for the seed
-(`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`); the
+(`issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md`); the
 `...(E)` spread was removed on 2026-10-03 (user decision) from `Future`,
 function types and the synthesizer, and effect-row polymorphism stays as a
 `generic(E : Type.Struct)` parameter

@@ -938,8 +938,9 @@ export(main);
 
 **Key Insight**: Tasks stay alive until completion even if user code drops them early!
 
-**`JoinHandle(T)` owns a reference.** `io.spawn` returns a `ref` struct that
-holds one reference to the task's Future. The task and its result live as
+**`JoinHandle(T)` owns a reference.** `io.spawn` returns a value struct whose
+one field is the task's Future, so the handle holds one reference to it and a
+spawn allocates nothing beyond the task. Copying a handle takes a reference. The task and its result live as
 long as some copy of the handle does, and dropping the last copy releases that
 reference. Awaiting a handle does not consume it: awaiting it twice reads the
 same result. A handle that is dropped without being awaited **detaches** the

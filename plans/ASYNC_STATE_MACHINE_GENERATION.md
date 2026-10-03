@@ -10,7 +10,7 @@ already lowers it. What remains waits for a seed that carries #1018:
 - the seed-safe spellings in `src/` and `std/`, which also keep `for_await`
   and `inout` in async bodies out of them;
 - the unboxed handle
-  (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`), whose
+  (`issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md`), whose
   counted-field lowering the v0.2.46 seed does not know.
 
 The plan moves to `plans/archive/` once those land. The per-phase progress
@@ -319,7 +319,7 @@ state machine" is about right.
 | spawn 100k one-await machines, then await each | 1718 | 1638 |
 | spawn 100k no-await leaves, then await each | 691 | **1239** (+79%) |
 
-The last row is the owning `JoinHandle`'s own allocation (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`, phase 7).
+The last row is the owning `JoinHandle`'s own allocation (`issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md`, phase 7).
 
 Wall clock, same box, interleaved runs (median ns/op, before → after):
 
@@ -780,7 +780,7 @@ measured before choosing:
   (measured: ~180 ns a round trip of std's `TcpStream` ping-pong);
 - **the spawn handle without a box.** `JoinHandle(T)` is a `ref` struct
   around the future pointer: one extra allocation per spawn
-  (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`, +79% on
+  (`issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md`, +79% on
   the leaf-spawn benchmark). The future is already counted, so the handle can
   be that counted reference itself.
 
@@ -829,7 +829,7 @@ other two options are declined or seed-gated.**
 - **Seed-gated: the spawn handle without a box.** The design is a value
   struct whose one field is the counted future (possible since #1008's
   `Impl(Future)` fields); see
-  `issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`. It is step
+  `issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md`. It is step
   2 of `issues/fixed/join-handle-ownership-waits-for-the-seed.md`, since the seed
   lowers `io.spawn` itself, and it lands with that seed bump.
 

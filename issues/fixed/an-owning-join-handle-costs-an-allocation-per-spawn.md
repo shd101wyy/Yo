@@ -2,7 +2,7 @@
 
 **Severity:** S3 — about 550 extra instructions per spawn of a leaf future (691 → 1239 with 100k live handles); no wrong result
 
-**Status: OPEN** (the owning handle is std's again since 2026-09-30, so this cost is live). Found 2026-09-29 while measuring phase 3 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` (the phase 2/3 PR).
+**Status: FIXED 2026-10-03** in two generations (seed-gated). Found 2026-09-29 while measuring phase 3 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` (the phase 2/3 PR).
 
 ## Symptom
 
@@ -49,3 +49,10 @@ This belongs with phase 7 (allocation per await). Regression test: the `spawn` r
 - **Measured today**, with the seed-safe value handle, which has no box and
   also no ownership: `spawn` is 666 instructions per op, and `spawn_sm` 987
   on the phase 6 branch.
+
+## Fix (2026-10-03)
+
+- **Generation A** (codegen, branch `async-handle-gena`): `io.spawn` and `JoinHandle.await` lower both handle shapes, chosen by the prelude's `JoinHandle` definition (`join_handle_is_value_struct`, `src/codegen/exprs/await.yo`). A value handle is built as `(JoinHandle){ .__future = fut }` around the reference the spawn already takes; the field is an `Impl(Future(T))`, whose copies and drops are the future's own `__yo_incr_rc` / `__yo_decr_rc`.
+- **Generation B** (prelude, branch `async-handle-genb`): `JoinHandle :: struct(__future : Impl(Future(T)))`, and its `Dispose` (with the `__yo_join_handle_release_raw` extern) is gone. It needs a seed that carries Generation A, since the seed's own codegen lowers the compiler's `io.spawn` calls.
+
+Regression coverage: the ownership tests that pin the handle's semantics (statement-level spawn detaches and frees, `tests/async/sm_protocol.test.yo`; a handle awaited twice; abort; the release counters in `tests/async/join_handle.test.yo`) pass with the value handle. The instruction-count row needs callgrind (Linux); the peak-memory measurement is in the PR.
