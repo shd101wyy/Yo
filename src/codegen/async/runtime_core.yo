@@ -1253,6 +1253,27 @@ static void __yo_future_abort(void* fut) {
   if (prev < 0) {
     return;
   }
+  if (!f->vt) {
+    // A raw I/O future (an IoFuture spawned or held directly): no state
+    // machine, so no hook. Take the operation back where the backend can —
+    // the waiters are detached first so the cancel's completion wakes nobody
+    // with a Completed state — then mark it Aborted and wake them. An
+    // operation with no cancel path stays registered; its completion leaves
+    // the Aborted state alone (every backend's completion skips -2), so a
+    // handle never reads an aborted task as Completed again
+    // (issues/fixed/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md).
+    __yo_io_future_t* io = (__yo_io_future_t*)fut;
+    void (*cont)(void*) = atomic_exchange(&io->continuation_fn, NULL);
+    void* csm = atomic_exchange(&io->continuation_sm, NULL);
+    if (io->cancel_fn) {
+      (void)io->cancel_fn(io);
+    }
+    atomic_store(&io->state, -2);
+    if (cont) {
+      __yo_async_wake(cont, csm);
+    }
+    return;
+  }
   f->state = -2;
   if (f->vt && f->vt->cancel_pending) {
     f->vt->cancel_pending(fut, prev);

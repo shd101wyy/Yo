@@ -2474,7 +2474,7 @@ static void __yo_io_cleanup(void) {
     // Nothing fires for it now: mark it done and release the list's
     // reference.
     node->future->cancel_fn = NULL;
-    atomic_store(&node->future->state, -1);
+    { if (atomic_load(&node->future->state) != -2) atomic_store(&node->future->state, -1); }
     __yo_decr_rc((void*)node->future);
     __yo_free(node);
   }
@@ -2520,7 +2520,7 @@ static inline bool __yo_has_pending_io(void) {
 }
 
 static void __yo_io_wake_continuation(__yo_io_future_t* future) {
-  atomic_store_explicit(&future->state, -1, memory_order_release);
+  { if (atomic_load_explicit(&future->state, memory_order_acquire) != -2) atomic_store_explicit(&future->state, -1, memory_order_release); }
 
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
   void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
@@ -2926,13 +2926,13 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
 
   if (fd < 0) {
     future->result = -EBADF;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -2940,14 +2940,14 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   if (handle_type == FILE_TYPE_PIPE) {
     (void)offset;
     if (__yo_win_try_pipe_read(handle, fd, buffer, size, future)) {
-      atomic_store(&future->state, -1);
+      { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
       return future;
     }
     // Empty but open: park the read; __yo_poll_and_fs_event_tick retries it.
     __yo_win_pipe_read_t* pr = (__yo_win_pipe_read_t*)__yo_malloc(sizeof(__yo_win_pipe_read_t));
     if (!pr) {
       future->result = -ENOMEM;
-      atomic_store(&future->state, -1);
+      { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
       return future;
     }
     pr->fd = fd;
@@ -2967,7 +2967,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     (void)offset;
     int result = _read(fd, buffer, (unsigned int)size);
     future->result = (result < 0) ? -errno : result;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -2976,7 +2976,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
   if (!ov) {
     future->result = -ENOMEM;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -2986,7 +2986,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
     future->result = (int32_t)bytes_transferred;
     __yo_win_free_overlapped(ov);
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   DWORD err = GetLastError();
@@ -2997,7 +2997,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     } else {
       future->result = -__yo_win_error_to_errno(err);
     }
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3037,7 +3037,7 @@ static __yo_io_future_t* __yo_win_pipe_write_start(__yo_io_future_t* future, HAN
   __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, 0);
   if (!ov) {
     future->result = -ENOMEM;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   __yo_win_pipe_writer_t* w = __yo_win_pipe_writers;
@@ -3047,7 +3047,7 @@ static __yo_io_future_t* __yo_win_pipe_write_start(__yo_io_future_t* future, HAN
     if (!w) {
       __yo_win_free_overlapped(ov);
       future->result = -ENOMEM;
-      atomic_store(&future->state, -1);
+      { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
       return future;
     }
     w->handle = handle;
@@ -3140,13 +3140,13 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
 
   if (fd < 0) {
     future->result = -EBADF;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3161,7 +3161,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     (void)offset;
     int result = _write(fd, buffer, (unsigned int)size);
     future->result = (result < 0) ? -errno : result;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3179,7 +3179,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
   if (!ov) {
     future->result = -ENOMEM;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3189,14 +3189,14 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
     future->result = (int32_t)bytes_transferred;
     __yo_win_free_overlapped(ov);
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   DWORD err = GetLastError();
   if (err != ERROR_IO_PENDING) {
     __yo_win_free_overlapped(ov);
     future->result = -__yo_win_error_to_errno(err);
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 

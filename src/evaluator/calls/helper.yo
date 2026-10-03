@@ -7433,9 +7433,9 @@ try_to_call_function_with_arguments :: (
               ebc_te := match(ebc_ets.get(usize(0)), .Some(ebc_t0) => ebc_t0, .None => t_unit());
               match(
                 ebc_te,
-                .Struct({ id : ebc_tid, field_labels : ebc_tlabels }) => match(
+                .Struct({ id : ebc_tid, field_labels : ebc_tlabels, field_types : ebc_ttypes }) => match(
                   ebc_eff_ty,
-                  .Struct({ id : ebc_eid, field_labels : ebc_elabels }) => {
+                  .Struct({ id : ebc_eid, field_labels : ebc_elabels, field_types : ebc_etypes }) => {
                     (ebc_layout_ok : bool) = (ebc_tid == ebc_eid);
                     if(!ebc_layout_ok && (ebc_tlabels.len() == ebc_elabels.len()), {
                       ebc_layout_ok = true;
@@ -7444,6 +7444,15 @@ try_to_call_function_with_arguments :: (
                         ebc_tn := match(ebc_tlabels.get(ebc_li), .Some(x) => x, .None => String.from(""));
                         ebc_en := match(ebc_elabels.get(ebc_li), .Some(x) => x, .None => String.from(""));
                         if(ebc_tn != ebc_en, {
+                          ebc_layout_ok = false;
+                        });
+                        // Same label, different TYPE (a handler of another
+                        // signature) is a different bundle too: the body
+                        // would call it with the wrong arguments
+                        // (plans/ASYNC_IO_API_AUDIT.md F6).
+                        ebc_tt := match(ebc_ttypes.get(ebc_li), .Some(x) => x, .None => t_unit());
+                        ebc_et := match(ebc_etypes.get(ebc_li), .Some(x) => x, .None => t_unit());
+                        if(ebc_layout_ok && !are_types_compatible(ebc_et, ebc_tt), {
                           ebc_layout_ok = false;
                         });
                         ebc_li = (ebc_li + usize(1));

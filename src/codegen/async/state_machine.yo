@@ -1641,9 +1641,18 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   inner := indent.clone();
   inner.push_str("  ");
   em.emit_string_line(`${indent}{`);
+  // A named state-machine future this await cold-starts is the task's child:
+  // the abort hook cancels it with the task. (Decided before the core starts
+  // it, on the same `state == 0` test the core's cold start uses.)
+  if(is_named && !is_io, {
+    em.emit_string_line(`${inner}sm->__yo_started_child = (${acc}->state == 0) ? (void*)${acc} : NULL;`);
+  });
   _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low.resume_function_name.clone(), expr, inner.clone(), context, label.clone());
   em.emit_string_line(`${indent}}`);
   em.emit_string_line(`${indent}${label}: ;`);
+  if(is_named && !is_io, {
+    em.emit_string_line(`${indent}sm->__yo_started_child = NULL;`);
+  });
   low.suspensions.push(InlineSuspension(state : k, in_slot : !is_named, is_io : is_io));
   // The awaited future was aborted: this task takes over its unwind, and
   // catches it (its own handler) or escapes too.
@@ -1867,33 +1876,45 @@ generate_async_block_cancel_pending_function_inline :: (
   em.emit_string_line(`// Abort hook for async block ${async_block_id.clone()} (single-pass lowering)`);
   em.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state) {`);
   em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
-  em.emit_string_line(`  if (sm->__yo_await_slot != NULL) {`);
-  em.emit_string_line(`    switch (prev_state) {`);
+  em.emit_string_line(`  switch (prev_state) {`);
   (i : usize) = usize(0);
   while(i < sps.len(), i = (i + usize(1)), {
     match(
       sps.get(i),
-      .Some(sp) => if(sp.in_slot, {
-        em.emit_string_line(`      case ${sp.state.to_string()}:`);
-        if(sp.is_io, {
-          em.emit_string_line(`        if (__yo_async_io_cancel(sm->__yo_await_slot)) {`);
-          em.emit_string_line(`          __yo_decr_rc(sm->__yo_await_slot);`);
-          em.emit_string_line(`          sm->__yo_await_slot = NULL;`);
-          em.emit_string_line(`          __yo_future_wake_waiters(sm_ptr);`);
-          em.emit_string_line(`          __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
-          em.emit_string_line(`          return;`);
-          em.emit_string_line(`        }`);
-        }, {
+      .Some(sp) => cond(
+        (sp.in_slot && sp.is_io) => {
+          em.emit_string_line(`    case ${sp.state.to_string()}:`);
+          em.emit_string_line(`      if (sm->__yo_await_slot != NULL && __yo_async_io_cancel(sm->__yo_await_slot)) {`);
+          em.emit_string_line(`        __yo_decr_rc(sm->__yo_await_slot);`);
+          em.emit_string_line(`        sm->__yo_await_slot = NULL;`);
+          em.emit_string_line(`        __yo_future_wake_waiters(sm_ptr);`);
+          em.emit_string_line(`        __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
+          em.emit_string_line(`        return;`);
+          em.emit_string_line(`      }`);
+          em.emit_string_line(`      break;`);
+        },
+        sp.in_slot => {
+          em.emit_string_line(`    case ${sp.state.to_string()}:`);
+          em.emit_string_line(`      if (sm->__yo_await_slot != NULL) {`);
           em.emit_string_line(`        __yo_future_abort(sm->__yo_await_slot);  // structured cancellation`);
-        });
-        em.emit_string_line(`        break;`);
-      }),
+          em.emit_string_line(`      }`);
+          em.emit_string_line(`      break;`);
+        },
+        !sp.is_io => {
+          // A named child this await started (see emit_inline_await).
+          em.emit_string_line(`    case ${sp.state.to_string()}:`);
+          em.emit_string_line(`      if (sm->__yo_started_child != NULL) {`);
+          em.emit_string_line(`        __yo_future_abort(sm->__yo_started_child);  // structured cancellation`);
+          em.emit_string_line(`      }`);
+          em.emit_string_line(`      break;`);
+        },
+        true => ()
+      ),
       .None => ()
     );
   });
-  em.emit_string_line(`      default:`);
-  em.emit_string_line(`        break;`);
-  em.emit_string_line(`    }`);
+  em.emit_string_line(`    default:`);
+  em.emit_string_line(`      break;`);
   em.emit_string_line(`  }`);
   em.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
   em.emit_string_line(`}`);

@@ -385,7 +385,7 @@ static uint64_t __yo_wasm_now_ms(void) {
 }
 
 static void __yo_io_wake_continuation(__yo_io_future_t* future) {
-  atomic_store_explicit(&future->state, -1, memory_order_release);
+  { if (atomic_load_explicit(&future->state, memory_order_acquire) != -2) atomic_store_explicit(&future->state, -1, memory_order_release); }
 
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
   void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);

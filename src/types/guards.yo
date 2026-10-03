@@ -30,6 +30,20 @@ register_type_decl_module :: (fn(type_id : String, module_path : String) -> unit
 type_decl_module :: (fn(type_id : String) -> Option(String))(
   match(g_type_decl_modules.get(type_id), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
 );
+/// Whether `t` is the prelude's `Io` struct: the effect bundle whose fields are
+/// the compiler's async builtins, never called through at run time. A future
+/// whose bundle is `Io` behaves the same whether or not the bundle was
+/// injected, which is what lets it be viewed as a bundle-less `Future(T)`.
+is_prelude_io_struct :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ id : sid, name : sname }) => (
+      (sname == "Io")
+      && match(type_decl_module(sid.clone()), .Some(m) => m.ends_with("prelude.yo"), .None => false)
+    ),
+    _ => false
+  )
+);
 // ---------------------------------------------------------------------------
 // c_include TYPE ADOPTION — "this Yo type IS the C type `Name` in <header>".
 //
@@ -870,6 +884,7 @@ export(
   is_function_type_hard_generic,
   register_type_decl_module,
   type_decl_module,
+  is_prelude_io_struct,
   AdoptedExternCType,
   register_adopted_extern_c_type,
   get_adopted_extern_c_type,
