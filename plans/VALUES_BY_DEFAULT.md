@@ -184,12 +184,23 @@ no `s[i] = b` either), which closes the UTF-8 hole.
     ```rust
     Box :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_cell : __yo_cell(V)));
     box :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None) -> Box(T))(
-      match(alloc,
-        .Some(a) => with_allocator(a, () => Box(T)(_cell : __yo_cell(T)(v))),
-        .None => Box(T)(_cell : __yo_cell(T)(v))
-      )
+      Box(T)(_cell : __yo_cell(T)(v, alloc))
     );
     ```
+
+    **The primitive takes the allocator.** `__yo_cell(T)(v, .None)` is
+    today's `__yo_rc_alloc_scoped` (the thread's scope, else global: one load
+    of `__yo_scopes_ever_entered` in a program that never entered a scope);
+    `.Some(a)` is the same helper given `a` as an explicit scope. So
+    `box(v)` costs what a `ref` constructor costs today (the `.None` default
+    is a compile-time constant, folded once `box` inlines), and
+    `box(v, alloc : a)` pays no scope save/restore, no `_ScopeGuard`
+    allocation and no closure. Routing the explicit case through
+    `with_allocator(a, () => …)` would add all three to every call.
+    During V1–V4, before the primitive exists, the constructors' explicit
+    path does go through `with_allocator`; that overhead is confined to
+    `alloc : .Some(a)` calls, and a narrow construct-with-scope intrinsic
+    can land in V1 if a benchmark asks for it.
 
     In user code `Box(T)(_cell : …)` is E0405 ("Cannot construct Box
     outside its declaring module"); `__yo_cell` needs
