@@ -1,9 +1,11 @@
 # Async I/O API audit: `io.async` / `io.await` / `io.spawn`, `Future`, `JoinHandle`, `IoFuture`
 
-**Status: APPROVED 2026-10-03, phases A0–A5 in order; A0 landed, A1 in
-review (Generation A: the primitive, `JoinHandle.join`, the future-shaped
-combinators; Generation B, the three std/src loops, is parked in
-`backlog/SEED_VERSION_AUTOMATION.md`); four bugs filed (two S1, two S2, §4).** The four questions in §6 were decided by
+**Status: APPROVED 2026-10-03, phases A0–A5 in order. A0 landed (#1154),
+A1 Generation A landed (#1158: the primitive, `JoinHandle.join`, the
+future-shaped combinators), A1 Generation B and A2–A5 landed together in
+#1167 (2026-10-04, on the v0.2.50 seed); four bugs filed (two S1, two S2, §4).
+The value-struct `JoinHandle` moved to `plans/VALUES_BY_DEFAULT.md` V3
+(§3.13 A3).** The four questions in §6 were decided by
 the user on 2026-10-03, taking the recommendation in each: aborts propagate,
 `IoFuture` stays a raw `i32`, the combinators take handles only,
 `FutureState.Pending` becomes `Cold`. Measured on develop `bcb57bfe7` with a compiler built from

@@ -251,8 +251,8 @@ it as the public surface.
 emits `__yo_join_wait_new` / `__yo_join_wait_add`, `std/async` declares them,
 `JoinHandle.join(io)` and the future-shaped combinators are built on them, and
 `tests/async/combinators.test.yo` proves them from inside a task under the
-tree binary. **Generation B written 2026-10-03, branch `async-genb-join` (waits for the release carrying the
-primitive — v0.2.50, cut from a develop that has A1):** replace the `is_finished()` + awaited `yield` loops with
+tree binary. **Generation B DONE 2026-10-04** (#1167, on the v0.2.50 seed, which carries the
+primitive): replace the `is_finished()` + awaited `yield` loops with
 `io.await(h.join(io), io)` / `io.await(timeout(...), io)` at
 `std/http/client.yo` (`_fetch_deadline`, on the compiler's import path through
 `src/version_cache.yo` and `src/verifier/z3.yo`), `std/process/command.yo`
