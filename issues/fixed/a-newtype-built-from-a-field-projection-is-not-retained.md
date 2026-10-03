@@ -2,7 +2,7 @@
 
 **Severity:** S1 — use-after-free in safe code: a newtype constructed from another value's RC field, or from a local that stays live, shares the payload without a retain, so both owners release it. String S3's O(1) `String.clone()` has exactly this shape, so every `s.clone()` on the copy-on-write branch is a use-after-free.
 
-**Status: FIXED** on `fix/newtype-ctor-retain` (stacked on #1172). Found 2026-10-04 while verifying the String S4 doc examples under ASan (`feat/string-cow` tree std, yo 0.2.50 and a stage-1 with the own-argument retain fix, `3f0ff255b`; both fail).
+**Status: FIXED** on `fix/v0251-stack`. Found 2026-10-04 while verifying the String S4 doc examples under ASan (`feat/string-cow` tree std, yo 0.2.50 and a stage-1 with the own-argument retain fix, `3f0ff255b`; both fail).
 
 ## Symptom
 

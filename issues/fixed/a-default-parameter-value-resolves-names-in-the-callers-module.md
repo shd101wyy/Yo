@@ -2,7 +2,7 @@
 
 **Severity:** S1 — an omitted argument silently takes the value of a same-named binding in the CALLER's module instead of the declaring module's.
 
-**Status:** OPEN. Found 2026-10-03 while checking the `box(v, alloc)` design in
+**Status:** FIXED (#1165). Found 2026-10-03 while checking the `box(v, alloc)` design in
 `plans/VALUES_BY_DEFAULT.md` §3.2.
 
 ## Reproducer
@@ -47,7 +47,7 @@ what reaches the C code.
 Defaults must be compile-time values (DESIGN §Default parameter values). So
 emit the recorded definition-time `EvalValue` as a literal at the call site,
 never re-resolve the expression. The companion issue
-`issues/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`
+`issues/fixed/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`
 makes the definition reject a default that has no compile-time value, so a
 recorded value always exists.
 

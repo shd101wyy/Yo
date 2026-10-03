@@ -719,8 +719,10 @@ create_user(name : `Bob`, age : i32(30)); // 显式指定 age
 (n : i32) ?= i32(18)                    // ✅ 字面量
 (alloc : Option(Allocator)) ?= .None    // ✅ 无负载的变体：只有标签，是常量
 (alloc : Allocator) ?= Allocator.global() // ❌ 含有全局变量的地址，链接时才确定
-(x : i32) ?= seven()                    // ❌ 需要一次调用
+(x : i32) ?= seven()                    // ❌ 需要一次调用：在定义处报错 E1105
 ```
+
+默认值中的名字在函数定义处解析，而不是在调用处：即使调用方有自己的 `K`，默认值 `K` 读到的也是定义模块的 `K`。
 
 如果自然的默认值需要运行时计算，就把默认值设为 `.None`，在函数体里再决定。这样省略的参数读作“未提供”，而不是某个哨兵值：
 
@@ -737,8 +739,6 @@ greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
 ```
 
 调用方要显式写 `.Some(...)`：`T` 不会被自动包装成 `Option(T)`。
-
-> 注意：这条规则目前尚未强制执行。编译期未知的默认值会被接受，然后在 C 编译器阶段失败（`issues/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`）；引用模块内绑定的默认值目前会在调用方模块中解析（`issues/a-default-parameter-value-resolves-names-in-the-callers-module.md`）。
 
 ### 泛型函数
 

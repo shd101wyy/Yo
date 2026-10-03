@@ -2,8 +2,8 @@
 
 **Severity:** S2 — a default the language forbids (a runtime call) passes the evaluator and fails later in the C compiler with an internal-looking error, instead of a diagnostic at the definition.
 
-**Status:** OPEN. Found 2026-10-03 alongside
-`issues/a-default-parameter-value-resolves-names-in-the-callers-module.md`.
+**Status:** FIXED (#1165). Found 2026-10-03 alongside
+`issues/fixed/a-default-parameter-value-resolves-names-in-the-callers-module.md`.
 
 ## Reproducer
 
