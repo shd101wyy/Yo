@@ -30,7 +30,7 @@ Option 1, as the campaign after `plans/STRING_VALUE_SEMANTICS.md`:
 - **The verifier.** Two list parameters can no longer alias, so `requires(distinct(a, b))` (#1107) and the aliasing cases in the list encoding go away.
 - **Agent-written code.** It removes action at a distance through a shared container.
 
-The String campaign builds the machinery this needs and generalizes it: the dead-write warning, the count-accuracy guarantee and the uniqueness step.
+The String campaign builds the machinery this needs and generalizes it: E0908 on `inout` writes through a borrowed value, the count-accuracy guarantee and the uniqueness step.
 
 The cost is the migration. `src/` passes collections to helper functions that mutate them throughout, and may keep one container in two places on purpose. The warning finds the first pattern; the second needs an audit (a shared container becomes a `ref` wrapper). The change also needs its own memory and time measurements on the compiler.
 
