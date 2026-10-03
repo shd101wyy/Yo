@@ -366,34 +366,38 @@ mark_fn_unemittable :: (fn(func_id : String) -> unit)({
 is_fn_unemittable :: (fn(func_id : String) -> bool)(
   g_unemittable_fns.contains(func_id.clone())
 );
-/// The AST node ids of every `comptime_expect_error(...)` argument the
-/// evaluator has evaluated. A function written inside one is the code the test
+/// Every `comptime_expect_error(...)` argument the evaluator has evaluated. A function written inside one is the code the test
 /// expects to be REJECTED: codegen never emits the argument, so nothing can call
 /// it, and its body is typically the invalid code itself. Emitting it anyway
 /// wrote a live abort stub for every such definition in a test body. Those were
 /// the only live stubs in the fast suite, and they kept Phase 6 step 4 from
 /// making a live stub a compile error (plans/TYPE_SYSTEM_SOUNDNESS.md).
-/// `should_skip_function_codegen` skips a function whose BODY node is in this
-/// set, which covers every path that registers a function value. A
+/// `should_skip_function_codegen` skips a function whose BODY starts inside one
+/// of these spans, which covers every path that registers a function value. A
 /// specialization of a std generic minted while the argument is evaluated has
-/// std node ids and is unaffected.
-(g_cee_arg_nodes : HashSet(usize)) = HashSet(usize).new();
-record_cee_argument_nodes :: (fn(ids : ArrayList(usize)) -> unit)({
+/// std tokens and is unaffected.
+/// Each argument is kept as a source span (module path, first and last token
+/// offset), not as node ids: a function's body can be a CLONE with fresh node
+/// ids (a closure re-evaluated, a trial clone), and a clone shares its tokens.
+CeeArgSpan :: struct(module_path : String, lo : u32, hi : u32);
+(g_cee_arg_spans : ArrayList(CeeArgSpan)) = ArrayList(CeeArgSpan).new();
+record_cee_argument_span :: (fn(module_path : String, lo : u32, hi : u32) -> unit)({
+  g_cee_arg_spans.push(CeeArgSpan(module_path : module_path, lo : lo, hi : hi));
+});
+is_inside_cee_argument :: (fn(module_path : String, character : u32) -> bool)({
   (i : usize) = usize(0);
-  while(i < ids.len(), {
+  while(i < g_cee_arg_spans.len(), {
     match(
-      ids.get(i),
-      .Some(n) => {
-        _ := g_cee_arg_nodes.insert(n);
-      },
+      g_cee_arg_spans.get(i),
+      .Some(sp) => if((sp.module_path == module_path) && (character >= sp.lo) && (character <= sp.hi), {
+        return(true);
+      }),
       .None => ()
     );
     i = (i + usize(1));
   });
+  false
 });
-is_inside_cee_argument :: (fn(node_id : usize) -> bool)(
-  g_cee_arg_nodes.contains(node_id)
-);
 // ---------------------------------------------------------------------------
 // CTFE-clone side-table
 // ---------------------------------------------------------------------------
@@ -484,7 +488,7 @@ purge_function_value_tables :: (fn(ids : ArrayList(String)) -> unit)({
     i = (i + usize(1));
   });
 });
-export(mark_fn_unemittable, is_fn_unemittable, record_cee_argument_nodes, is_inside_cee_argument, mark_fn_ctfe_clone, is_fn_ctfe_clone, mark_fn_specialized, fn_has_specializations);
+export(mark_fn_unemittable, is_fn_unemittable, record_cee_argument_span, is_inside_cee_argument, mark_fn_ctfe_clone, is_fn_ctfe_clone, mark_fn_specialized, fn_has_specializations);
 export(purge_function_value_tables);
 export(
   registered_func_type_count,

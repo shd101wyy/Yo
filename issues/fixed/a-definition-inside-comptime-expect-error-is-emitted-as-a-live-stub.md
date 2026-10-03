@@ -33,9 +33,13 @@ rejected, so it becomes a stub.
 
 ## Fix
 
-While `comptime_expect_error` evaluates its argument, it pushes the set of the argument's AST
-node ids (`push_cee_argument_nodes`, `src/function_value.yo`). A function literal whose
-definition node is in an active set is marked unemittable (`mark_fn_unemittable`), which
-`should_skip_function_codegen` already honours. The check is keyed by node id, so a
-specialization of a std generic minted during the window carries std node ids and is
-unaffected.
+`comptime_expect_error` records each argument it evaluates as a source span: its module path
+and the first and last token offset in the subtree (`record_cee_argument_span`,
+`src/function_value.yo`). `should_skip_function_codegen` skips any function whose body starts
+inside a recorded span, which covers every path that registers a function value. A first cut
+keyed the check by AST node id and marked the function at one registration site. It missed a
+function whose body is a CLONE with fresh node ids: `tests/algebraic_effects.test.yo`'s
+`comptime_expect_error((fn() -> …)(begin(handler := (msg -> …), return(handler)))())` became a
+live stub, and step 4 failed the batch. Clones share their tokens, so the span check catches
+them. A specialization of a std generic minted while the argument is evaluated carries std
+tokens and is unaffected.
