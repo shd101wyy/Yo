@@ -33,6 +33,7 @@ Use this skill when you need to:
 
 - `"` creates `str` in runtime code; template strings create `String`. In `comptime` functions, `"hello"` is `comptime_str` (distinct from `str`).
 - Prefer template strings for constant `String` values.
+- `String` is a copy-on-write value: a copy is independent, and writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `inout(s) : String` or return the new string. Read bytes with `byte_at(i)` / `get_byte(i)`; there is no runtime `s(i)`.
 - Prefer `print`/`println` from `std/fmt` over `printf`.
 - `Option(T)` and `Result(T, E)` are the default nullable/error carriers.
 - Use `rune` for Unicode code points, not `Char`.
