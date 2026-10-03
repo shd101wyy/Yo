@@ -3,7 +3,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ExprId, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
-{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_index_trait_ptr_type, scope_variables, scope_release_note_hard } :: import("../../expr_info.yo");
+{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, expr_info_index_trait_ptr_type, scope_variables, scope_release_note_hard } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
@@ -569,6 +569,24 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
     .None => _call_generate_expr(arg, indent.clone(), context)
   )
 );
+/// One argument of a method dispatch (`recv.m(a)`, `Type.m(a)`, a vtable
+/// slot, a recorded method callee). An argument that carries a deferred
+/// `___dup` — the copy an `own` parameter takes of a borrowed value (a field
+/// place, a borrowed parameter) or the caller-owned +1 of a borrowed
+/// projection — is materialized exactly as the plain-call path does
+/// (`_materialize_arg`); any other argument is its plain code, so a call
+/// without a dup emits the same C as before. Generating these arguments
+/// bare dropped the dup while the callee still released its copy, so the
+/// caller's own drop of the field freed it a second time
+/// (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
+_dispatch_arg_code :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  has_dup := match(
+    context.base.get_expr_info(arg),
+    .Some(aei) => match(expr_info_deferred_dup_expressions(aei), .Some(d) => (d.len() > usize(0)), .None => false),
+    .None => false
+  );
+  if(has_dup, _materialize_arg(arg, param_is_ref, expr, indent, context), _call_generate_expr(arg, indent, context))
+});
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
 /// spill to a temp).
@@ -1264,7 +1282,9 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       (dmi : usize) = usize(1);
       while(dmi < ndm, {
         dm_call.push_str(", ");
-        match(dm_runtime.get(dmi), .Some(da) => dm_call.push_string(_call_generate_expr(da, indent.clone(), context)), .None => ());
+        // A slot's own `inout` parameters are not amped here, so an argument
+        // passed by value is the only one that can carry a dup.
+        match(dm_runtime.get(dmi), .Some(da) => dm_call.push_string(_dispatch_arg_code(da, false, expr, indent.clone(), context)), .None => ());
         dmi = (dmi + usize(1));
       });
       dm_call.push_str(")");
@@ -1393,6 +1413,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           .Some(mfv) => match(
             is_function_value_with_only_builtin_yo_inline_function_call(mfv),
             .Some(op) => {
+              // The method's per-param ref flags: they gate the argument dups
+              // (`_dispatch_arg_code`) and the ref-amp below.
+              m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
+              ia_pir := match(get_func_type(m_fid_amp), .Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
               inline_args := ArrayList(String).new();
               ia_n := dm_runtime.len();
               (ia_i : usize) = usize(0);
@@ -1400,7 +1424,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 match(
                   dm_runtime.get(ia_i),
                   .Some(a) => {
-                    inline_args.push(_call_generate_expr(a, indent.clone(), context));
+                    inline_args.push(_dispatch_arg_code(a, match(ia_pir.get(ia_i), .Some(r) => r, .None => false), expr, indent.clone(), context));
                   },
                   .None => ()
                 );
@@ -1415,9 +1439,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               // primitive STRUCT FIELD (`self.row.clone()`) emitted
               // `(*((*self).row))` and failed to compile. Same ref-`&` handling
               // as the main arg loop.
-              m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
-              m_pir := match(get_func_type(m_fid_amp), .Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
-              inline_args_amped := _apply_ref_amp(inline_args, m_pir, dm_runtime, indent.clone(), context);
+              inline_args_amped := _apply_ref_amp(inline_args, ia_pir, dm_runtime, indent.clone(), context);
               return(Option(String).Some(generate_yo_inline_function_call(op, inline_args_amped, expr, context, indent.clone())));
             },
             .None => ()
@@ -1455,7 +1477,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 dm_runtime.get(cmi),
                 .Some(a) => {
                   cm_arg_list.push({
-                    mc := _call_generate_expr(a, indent.clone(), context);
+                    mc := _dispatch_arg_code(a, match(cm_param_is_ref.get(cmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
                     hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -1583,7 +1605,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 rm_runtime.get(rmi),
                 .Some(a) => {
                   rm_args.push({
-                    mc := _call_generate_expr(a, indent.clone(), context);
+                    mc := _dispatch_arg_code(a, match(rm_pir.get(rmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
                     hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });

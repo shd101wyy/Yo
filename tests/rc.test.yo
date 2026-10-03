@@ -1525,3 +1525,87 @@ test("rc: copies of a value holding RC data are counted in every position (COW S
   assert(io.await(task, io) >= usize(5), "and the task sees a shared count");
   assert((w3.n == i32(1)) && (h.len() == usize(1)), "all copies stay live to here");
 });
+// A borrowed value passed to an `own` parameter — a field place, or a borrowed
+// parameter — hands the callee a reference of its own (a +1), and the caller
+// keeps its own. The METHOD-dispatch call forms (`Type.method(a)`,
+// `recv.method(a)`) generated these arguments bare, dropping the +1 the plain
+// call `make(a)` emits: the callee released a reference it was never given,
+// and the caller's own release then freed the box a second time
+// (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
+(g_own_m_disposed : i32) = i32(0);
+_OwnM :: ref(struct(tag : i32));
+impl(
+  _OwnM,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_own_m_disposed = (g_own_m_disposed + i32(1));
+    })
+  )
+);
+_OwnMHolder :: struct(b : _OwnM);
+impl(
+  _OwnMHolder,
+  make : (fn(own(b) : _OwnM) -> Self)(Self(b : b)),
+  adopt : (fn(self : Self, own(b) : _OwnM) -> i32)(b.tag)
+);
+_OwnMWrap :: struct(m : _OwnM, n : i32);
+_OwnMOuter :: struct(w : _OwnMWrap);
+_own_m_plain :: (fn(own(b) : _OwnM) -> _OwnMHolder)(_OwnMHolder(b : b));
+_own_m_param_field :: (fn(w : _OwnMWrap) -> _OwnMHolder)(_OwnMHolder.make(w.m));
+_own_m_param :: (fn(m : _OwnM) -> _OwnMHolder)(_OwnMHolder.make(m));
+_own_m_nested_field :: (fn(o : _OwnMOuter) -> _OwnMHolder)(_OwnMHolder.make(o.w.m));
+_own_m_plain_field :: (fn(w : _OwnMWrap) -> _OwnMHolder)(_own_m_plain(w.m));
+test("Type.method with an own parameter retains a borrowed parameter's field", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(1)), n : i32(1));
+    h := _own_m_param_field(w);
+    assert(rc(w.m) == usize(2), `the holder and the caller each hold one, got ${rc(w.m).to_string()}`);
+    assert((h.b.tag == i32(1)) && (g_own_m_disposed == before), "still live in both");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("Type.method with an own parameter retains a local's field", {
+  before := g_own_m_disposed;
+  {
+    out := _OwnMWrap(m : _OwnM(tag : i32(2)), n : i32(0));
+    h := _OwnMHolder.make(out.m);
+    assert(rc(out.m) == usize(2), `the holder and the local each hold one, got ${rc(out.m).to_string()}`);
+    assert(h.b.tag == i32(2), "the holder reads it");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("Type.method with an own parameter retains a nested field and a borrowed parameter", {
+  before := g_own_m_disposed;
+  {
+    o := _OwnMOuter(w : _OwnMWrap(m : _OwnM(tag : i32(3)), n : i32(0)));
+    h := _own_m_nested_field(o);
+    assert(rc(o.w.m) == usize(2), `nested field: got ${rc(o.w.m).to_string()}`);
+    m := _OwnM(tag : i32(4));
+    h2 := _own_m_param(m);
+    assert(rc(m) == usize(2), `borrowed parameter: got ${rc(m).to_string()}`);
+    assert((h.b.tag + h2.b.tag) == i32(7), "both holders read their box");
+  };
+  assert(g_own_m_disposed == (before + i32(2)), `each box released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("recv.method with an own parameter retains a field argument", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(5)), n : i32(0));
+    holder := _OwnMHolder(b : _OwnM(tag : i32(6)));
+    assert(holder.adopt(w.m) == i32(5), "the callee read its copy");
+    assert(rc(w.m) == usize(1), `the callee released only its own copy, got ${rc(w.m).to_string()}`);
+    assert(g_own_m_disposed == before, "nothing released early");
+  };
+  assert(g_own_m_disposed == (before + i32(2)), `each box released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("a plain call with an own parameter still retains a field argument", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(8)), n : i32(0));
+    h := _own_m_plain_field(w);
+    assert(rc(w.m) == usize(2), `got ${rc(w.m).to_string()}`);
+    assert(h.b.tag == i32(8), "the holder reads it");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
