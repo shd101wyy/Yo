@@ -389,6 +389,11 @@ and a zero-sized `Io` measured on the spawn and await rows of
   is not pursued.
 - **Q3 (A1) — handles only.** A future has no identity until started, and a
   handle is what "a running task" means; the combinators do not spawn.
+  **Amended 2026-10-03** (`plans/VALUES_BY_DEFAULT.md` decision 14): once
+  futures can borrow their receiver, `timeout` and a two-way `select` also
+  take futures, run as scoped children, so a deadline or a race can wrap
+  `rx.recv(io)` or `s.next(io)`. The other combinators stay handles-only.
+  This lands with V3, not before.
 - **Q4 (F8) — rename.** `FutureState.Pending` becomes `FutureState.Cold`
   (the word every doc already uses for a not-started future), in A4 with the
   `Running` fix, no compatibility kept.
