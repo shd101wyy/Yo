@@ -355,7 +355,7 @@ _resolved_or_self :: (fn(t : TypeValue) -> TypeValue)(
 /// through `expected` injects nothing, so the body would run against a zeroed
 /// bundle. An unresolved (generic) bundle is not judged here: it is checked
 /// again at the concrete call.
-_future_view_drops_a_bundle :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
+future_view_drops_a_bundle :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
   ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
   af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
   e_types := ArrayList(TypeValue).new();
@@ -401,7 +401,7 @@ _compat_impl :: (
   // trait check matches by name and never reaches the effect comparison in
   // the FutureTraitT branch below
   // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
-  if(_future_view_drops_a_bundle(actual, expected), {
+  if(future_view_drops_a_bundle(actual, expected), {
     return(false);
   });
   // --- ComptimeInt widening -------------------------------------------------
@@ -1740,4 +1740,4 @@ are_types_compatible_invariant :: (fn(actual : TypeValue, expected : TypeValue) 
 are_function_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Flow, ArrayList(String).new())
 );
-export(are_types_compatible, are_types_compatible_exact, are_types_compatible_invariant, are_function_types_compatible, set_compat_type_implements_trait_fn);
+export(are_types_compatible, are_types_compatible_exact, are_types_compatible_invariant, are_function_types_compatible, set_compat_type_implements_trait_fn, future_view_drops_a_bundle);

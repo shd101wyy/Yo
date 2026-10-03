@@ -5386,22 +5386,32 @@ _evaluate_function_call_unanchored :: (
       // the spelling fallback.
       iob_user_fn := match(
         func_expr,
-        .FnCall(_, iob_dot2, iob_dargs2, _, _) => if(match(iob_dot2, .Atom(_, iob_dtok2) => (iob_dtok2.kind == TokenKind.Dot), _ => false)
-        && (iob_dargs2.len() == usize(2)), match(
-          iob_dargs2.get(usize(0)),
-          .Some(iob_re2) => match(
-            expr_info_table_get(ctx.expr_info_table, ast_expr_id(iob_re2)),
-            .Some(iob_ri2) => match(
-              iob_ri2.ty,
-              .Struct({ id : iob_sid2, name : iob_sn2 }) => !(((iob_sn2 == "Io") || (iob_sn2 == "JoinHandle"))
-              && match(type_decl_module(iob_sid2.clone()), .Some(iob_mod2) => iob_mod2.ends_with("prelude.yo"), .None => false)),
-              .EnumT({ id : _ }) => true,
-              _ => false
+        .FnCall(_, iob_dot2, iob_dargs2, _, _) => if(
+          match(iob_dot2, .Atom(_, iob_dtok2) => (iob_dtok2.kind == TokenKind.Dot), _ => false)
+          && (iob_dargs2.len() == usize(2)),
+          match(
+            iob_dargs2.get(usize(0)),
+            .Some(iob_re2) => match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(iob_re2)),
+              .Some(iob_ri2) => match(
+                iob_ri2.ty,
+                // A type the prelude declares (`Io`, any `JoinHandle(T)`) is
+                // never user code; one with no recorded module is judged by
+                // name, so a `JoinHandle` instance is never marked.
+                .Struct({ id : iob_sid2, name : iob_sn2 }) => match(
+                  type_decl_module(iob_sid2.clone()),
+                  .Some(iob_mod2) => !iob_mod2.ends_with("prelude.yo"),
+                  .None => !((iob_sn2 == "Io") || iob_sn2.starts_with("JoinHandle"))
+                ),
+                .EnumT({ id : _ }) => true,
+                _ => false
+              ),
+              .None => false
             ),
             .None => false
           ),
-          .None => false
-        ), false),
+          false
+        ),
         _ => false
       );
       if(iob_user_fn && (is_io_async_call(expr) || (is_io_await_call(expr) || (is_io_state_call(expr) || (is_io_spawn_call(expr) || is_join_handle_await_call(expr))))), {

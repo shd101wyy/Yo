@@ -165,7 +165,8 @@ pragma(Pragma.AllowUnsafe);
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 {
   are_types_compatible,
-  are_types_compatible_exact
+  are_types_compatible_exact,
+  future_view_drops_a_bundle
 } :: import("../../types/compatibility.yo");
 { register_specialized_base } :: import("../builtins/contracts.yo");
 {
@@ -882,6 +883,21 @@ check_argument_for_parameter :: (
     exn : Exception
   ) -> TypeValue
 )({
+  // An `Impl(Future(T))` parameter binds per call through the trait check,
+  // which matches `Future` by name; the bundle direction rule
+  // (`future_view_drops_a_bundle`) has to be applied here too, or a
+  // handler-bundled future reaches an await that injects nothing
+  // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
+  if(future_view_drops_a_bundle(arg_ty, resolved_pt), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          arg_tok,
+          `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(arg_ty)}\nThe future carries an effect bundle the parameter's type does not name; an await or spawn through it would inject nothing. Name the bundle in the parameter (\`Impl(Future(T, E))\`).`
+        )
+      )
+    );
+  });
   if(param_is_ct && (!in_def_time_trial() && !ctx.is_analyzing_ctfe_capability) && runtime_value_for_comptime_param(arg_ty, arg_info.value), {
     exn.throw(
       dyn(
