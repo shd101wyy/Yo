@@ -1022,3 +1022,16 @@ test("soundness: an operator unit does not implement is rejected", {
   comptime_expect_error(u + u, "No matching call found for operator");
   assert(u == (), "unit's Eq still dispatches");
 });
+// issues/fixed/a-definition-inside-comptime-expect-error-is-emitted-as-a-live-stub.md:
+// a function written inside a `comptime_expect_error` argument is the code the
+// test expects to be rejected, and codegen never emits the argument. It used
+// to be emitted anyway, as a live abort stub; with Phase 6 step 4 (a live stub
+// is a compile error) this whole batch then failed to compile.
+test("soundness: a definition inside comptime_expect_error is not emitted", {
+  comptime_expect_error({
+    _p6_bad :: (fn(x : i32) -> i32)(x + "s");
+    ()
+  });
+  comptime_expect_error(begin(_p6_bad_local := (fn(x : i32) -> i32)(x + true), ()));
+  assert(true, "the rejected definitions left nothing behind");
+});

@@ -366,6 +366,32 @@ mark_fn_unemittable :: (fn(func_id : String) -> unit)({
 is_fn_unemittable :: (fn(func_id : String) -> bool)(
   g_unemittable_fns.contains(func_id.clone())
 );
+/// The AST node ids of each `comptime_expect_error(...)` argument being
+/// evaluated, innermost last. A function literal written inside one is code
+/// the test expects to be REJECTED: codegen never emits the argument, so
+/// nothing can call it, and its body is typically the invalid code itself.
+/// Emitting it anyway wrote a live abort stub for every such definition in a
+/// test body. Those were the only live stubs in the fast suite, and they kept
+/// Phase 6 step 4 from making a live stub a compile error
+/// (plans/TYPE_SYSTEM_SOUNDNESS.md). Keyed by node id, so a specialization of
+/// a std generic minted during the window (std node ids) is unaffected.
+(g_cee_arg_nodes : ArrayList(HashSet(usize))) = ArrayList(HashSet(usize)).new();
+push_cee_argument_nodes :: (fn(ids : HashSet(usize)) -> unit)({
+  g_cee_arg_nodes.push(ids);
+});
+pop_cee_argument_nodes :: (fn() -> unit)({
+  _ := g_cee_arg_nodes.pop();
+});
+is_inside_cee_argument :: (fn(node_id : usize) -> bool)({
+  (i : usize) = usize(0);
+  while(i < g_cee_arg_nodes.len(), {
+    if(match(g_cee_arg_nodes.get(i), .Some(s) => s.contains(node_id), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 // ---------------------------------------------------------------------------
 // CTFE-clone side-table
 // ---------------------------------------------------------------------------
@@ -456,7 +482,7 @@ purge_function_value_tables :: (fn(ids : ArrayList(String)) -> unit)({
     i = (i + usize(1));
   });
 });
-export(mark_fn_unemittable, is_fn_unemittable, mark_fn_ctfe_clone, is_fn_ctfe_clone, mark_fn_specialized, fn_has_specializations);
+export(mark_fn_unemittable, is_fn_unemittable, push_cee_argument_nodes, pop_cee_argument_nodes, is_inside_cee_argument, mark_fn_ctfe_clone, is_fn_ctfe_clone, mark_fn_specialized, fn_has_specializations);
 export(purge_function_value_tables);
 export(
   registered_func_type_count,
