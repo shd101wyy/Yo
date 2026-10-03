@@ -728,7 +728,43 @@ create_user(name : `Alice`); // Uses defaults: age=18
 create_user(name : `Bob`, age : i32(30)); // Explicit age
 ```
 
-> Note: Default parameters must use compile-time known values.
+A default must be a **compile-time known value**: the compiler records it
+once, where the function is defined, and passes that value whenever the
+argument is omitted. What counts is whether the whole value is known, not
+what the parameter's type is:
+
+```rust
+(n : i32) ?= i32(18)                    // ✅ a literal
+(alloc : Option(Allocator)) ?= .None    // ✅ a payload-free variant: only its tag, a constant
+(alloc : Allocator) ?= Allocator.global() // ❌ holds the address of a global, fixed only at link time
+(x : i32) ?= seven()                    // ❌ needs a call
+```
+
+When the natural default needs runtime work, default to `.None` and decide in
+the body. An omitted argument then reads as "not given" instead of as a
+sentinel value:
+
+```rust
+greet :: (fn(name : str, (greeting : Option(String)) ?= .None) -> String)(
+  match(greeting,
+    .Some(g) => `${g}, ${name}`,
+    .None => `Hello, ${name}`
+  )
+);
+
+greet("Ada");                                      // "Hello, Ada"
+greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
+```
+
+The caller writes `.Some(...)` explicitly: a `T` is not wrapped into
+`Option(T)` automatically.
+
+> Note: the rule is not enforced yet. A default that is not compile-time known
+> is accepted and then fails in the C compiler
+> (`issues/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`),
+> and a default that names a module binding is currently resolved in the
+> caller's module
+> (`issues/a-default-parameter-value-resolves-names-in-the-callers-module.md`).
 
 ### Generic function
 

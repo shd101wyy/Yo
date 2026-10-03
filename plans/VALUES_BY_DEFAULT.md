@@ -4,8 +4,11 @@
 2026-10-03 (PR #1153): the inventory was re-measured, the design gaps in §3
 were filled, and §6 is the implementation and migration plan. V0 is done:
 the maintainer confirmed the ten decisions of §4 as written on 2026-10-03
-(#1155 added §3.10). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3
-have landed.**
+(#1155 added §3.10). Amended 2026-10-03 with the maintainer: the wrapper
+constructors `box`/`rc`/`arc` and the count reader's rename to `ref_count`
+(§3.2, decision 11, V1 step 0), explicit allocators (§3.11, decision 12),
+and the constructors' `alloc` parameter in place of `new_in` (the types are
+not callable). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3 have landed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -150,6 +153,84 @@ no `s[i] = b` either), which closes the UTF-8 hole.
   has today. Moving to wrappers costs no allocation and no indirection, and
   `Option(Box(T))`, `Option(Rc(T))`, `Option(Arc(T))` keep the one-pointer
   niche (DESIGN §`Option` of a handle is one pointer).
+- **Constructors.** `Box`, `Rc` and `Arc` are types; `box`, `rc` and `arc`
+  are their only constructors. They are ordinary prelude functions written
+  in Yo (no compiler special case), each moving its argument into a new
+  cell, with an optional explicit allocator:
+
+  ```rust
+  box :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None) -> Box(T))(...);
+  rc :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None) -> Rc(T))(...);
+  arc :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None, where(T <: (Sync, Acyclic))) -> Arc(T))(...);
+
+  e := Expr.Add(box(l), box(r));            // T inferred from the argument
+  c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
+  ```
+
+  - `T` is inferred from the argument, so a call never spells it; this is
+    what the ~1,300 tree-node constructions V4 rewrites rely on. A value
+    whose own type is not known spells it at the argument
+    (`box(Option(i32).None)`).
+  - `alloc : .None` (the default; defaults must be compile-time values)
+    means the current `with_allocator` scope, else the global allocator;
+    `.Some(a)` places the cell in `a` (§3.11). There is no `new_in` and no
+    `box_in`: one function per wrapper. Measured 2026-10-03 on v0.2.49 with
+    a pragma'd module declaring the function and a safe caller: both calls
+    compile and run. The caller writes `.Some(...)`: Yo does not wrap a `T`
+    into `Option(T)` (E0601), and a non-`Option` parameter cannot default to
+    `Allocator.global()`, which is not a compile-time value (defaults are
+    checked nowhere today: `issues/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`).
+    `Option(Allocator)` in a signature is a raw-pointer-carrying type,
+    which the naming gate allows in std (implicitly unsafe-capable) and
+    rejects in a safe user file; passing the value needs no pragma, as with
+    `new_in` today.
+  - **Default parameters resolve names in the caller's module today**
+    (`issues/a-default-parameter-value-resolves-names-in-the-callers-module.md`,
+    S1). `.None` names nothing, so these constructors are unaffected; the
+    issue blocks any default that names a module binding.
+  - **The type is not callable outside the prelude.** This is ordinary
+    member visibility (DESIGN §member visibility, the `Counter.new`
+    pattern), not a builtin: after V5 each wrapper's only field is private,
+    so only `std/prelude.yo`, which declares both the type and its
+    constructor, may build one:
+
+    ```rust
+    Box :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_cell : __yo_cell(V)));
+    box :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None) -> Box(T))(
+      Box(T)(_cell : __yo_cell(T)(v, alloc))
+    );
+    ```
+
+    **The primitive takes the allocator.** `__yo_cell(T)(v, .None)` is
+    today's `__yo_rc_alloc_scoped` (the thread's scope, else global: one load
+    of `__yo_scopes_ever_entered` in a program that never entered a scope);
+    `.Some(a)` is the same helper given `a` as an explicit scope. So
+    `box(v)` costs what a `ref` constructor costs today (the `.None` default
+    is a compile-time constant, folded once `box` inlines), and
+    `box(v, alloc : .Some(a))` pays no scope save/restore, no `_ScopeGuard`
+    allocation and no closure. Routing the explicit case through
+    `with_allocator(a, () => …)` would add all three to every call.
+    During V1–V4, before the primitive exists, the constructors' explicit
+    path does go through `with_allocator`; that overhead is confined to
+    `alloc : .Some(a)` calls, and a narrow construct-with-scope intrinsic
+    can land in V1 if a benchmark asks for it.
+
+    In user code `Box(T)(_cell : …)` is E0405 ("Cannot construct Box
+    outside its declaring module"); `__yo_cell` needs
+    `pragma(Pragma.AllowUnsafe)` (decision 6). During V1–V4 nothing enforces
+    it: the wrapper is still `ref(struct((*) : V))`, whose `*` field is
+    public because `b.*` reads it, so `Box(T)(v)` compiles anywhere and the
+    rule is documentation only (docs, skills and tests teach `box(...)`).
+  - `box` and `arc` exist today without `alloc` (`std/prelude.yo`); `rc` is
+    new. Being prelude exports, the three names cannot be bound by user
+    code (no shadowing), as `box` already cannot.
+  The builtin that reads a cell's count, `rc(x)` today, is renamed
+  **`ref_count(x)`**: it reads any cell (`Box`, `Rc`, `Arc`, a collection
+  buffer, a `Dyn`), so a name tied to `Rc` would mislead, and `ref_count` is
+  the header field it reads. Yo has no shadowing, so a prelude `rc` claims
+  the name in every module: today's 29 locals and parameters named `rc`
+  (`rc := flock(...)`, exit codes) are renamed with it. V1 step 0 sequences
+  the rename through the seed.
 
 ### 3.3 Auto-dereference
 
@@ -159,6 +240,16 @@ write `b.*.x`. `.*` is not special for a struct: `Box :: ref(struct((*) : V))`
 declares a field whose label is `*`, and `b.*` is an ordinary field access
 (`src/evaluator/exprs/property_access.yo:1683`; `is_box_type` in
 `src/types/guards.yo` tests for that label).
+
+**`.*` becomes the payload of a `Deref` type, not a field.** Once V5 gives
+the wrappers a private `_cell` (§3.2), there is no field labelled `*` to
+read, and `w.*` must keep working in user code. So `w.*` on a type that
+implements `Deref` names its payload place (the cell's inline value,
+`w->value` in C), the same place auto-dereference forwards to; on a raw
+pointer it stays the pointer dereference. The rule lands in V1 next to the
+auto-dereference hooks, where it agrees with today's field reading, and V5
+is the point where it becomes the only reading. `is_box_type` and the
+`*`-label tests move to the `Deref` check then.
 
 - A `Deref` marker trait in the prelude, `Deref :: trait(Target : Type)`,
   implemented by `Box`, `Rc` and `Arc` with `Target := V`. It says "this
@@ -190,7 +281,7 @@ declares a field whose label is `*`, and `b.*` is an ordinary field access
   through a `Mutex` or an atomic.
 - **Writes through `Box`** are copy-on-write: before a field write or an
   `inout(self)` call whose root place passes through a `Box`, the evaluator
-  inserts `Box.make_unique(inout b)` (clone the cell when `rc(cell) > 1`);
+  inserts `Box.make_unique(inout b)` (clone the cell when `ref_count(cell) > 1`);
   the same uniqueness step `String` S3 adds by hand to its mutators, made
   automatic for the one prelude type that needs it everywhere.
 
@@ -269,6 +360,17 @@ The primitive is `__yo_cell(V)` / `__yo_atomic_cell(V)`, a builtin usable
 only in a file with `pragma(Pragma.AllowUnsafe)` (§4 Q6); user code has no
 way to declare a reference type except by wrapping a value in `Rc`/`Arc`.
 
+There are two primitives, not one per wrapper: the split is the C count
+discipline, which codegen must know statically (today's `is_atomic_rc`).
+`__yo_cell` (plain `++`/`--`) backs `Box`, `Rc`, the collection and
+`String` buffers and `Dyn`; `__yo_atomic_cell` backs `Arc` and `std/imm`.
+`Box(V)` and `Rc(V)` are both `struct(_cell : __yo_cell(V))` and still
+distinct types, because structs are nominal (a `B(i32)` is E0601 where an
+`A(i32)` of the same shape is expected); their different behaviour, `Box`'s
+dup-`Clone` plus `make_unique` before a write versus `Rc`'s shared writes,
+is in their impls and the evaluator's write rules (§3.3, §3.10), not in the
+cell.
+
 **A cell is a cycle-collector node; a value is not.** This is the rule that
 makes copy-on-write and the collector agree:
 
@@ -318,7 +420,7 @@ makes copy-on-write and the collector agree:
   already walks values inline and stops at atomic cells.
 - **Reflection** keeps its names and changes its reading: `Type.contains_rc_type`
   is "reaches a non-atomic cell", `Var.is_owning_the_rc_value` and
-  `Var.has_other_aliases` are about the handle a value holds, `rc(x)` reads
+  `Var.has_other_aliases` are about the handle a value holds, `ref_count(x)` reads
   the count of the cell `x` directly holds (a `Box`, an `Rc`, an `Arc`, a
   collection's buffer) and is a compile error on a value with no cell.
 
@@ -459,7 +561,64 @@ Two changes under this plan:
   `require_valid_ref_argument_places` keeps only its `Rc`/`Arc`/`Dyn`-rooted
   and module-level-root arms.
 
-### 3.11 What gets simpler
+### 3.11 Explicit allocators
+
+The landed model (`plans/reference/EXPLICIT_ALLOCATORS.md`) carries over
+unchanged: an allocator decides where a block lives, reference counting
+decides when it dies, and every free routes through the owner prefix. What
+changes is what a block is.
+
+- **The scope reaches cells, and only cells.** A value struct, enum, tuple
+  or array allocates nothing, so `with_allocator(a, () => Point(...))`
+  places nothing once `Point` is a value (today it places a `ref` struct).
+  The scope applies wherever a cell is created: `box`/`rc`/`arc`, a
+  collection or `String` buffer (already through `current_allocator()`,
+  P3c), a `Dyn` cell, an `Iso` value, an async state machine. After V5 the
+  six constructor sites that consult the scope today (`ref` struct and
+  enum, `box`/`arc`, `dyn`, `Iso`, async) become the one cell primitive
+  (§3.5) plus the async frame.
+- **A copy-on-write clone lands where its source lives**, not in the
+  current scope. This covers `Box.make_unique`, every collection's and
+  `String`'s uniqueness step, `Dyn`'s clone slot (§3.7) and the transfer
+  isolation clone (§3.8). Three reasons:
+  - it is today's rule for an explicit copy: `ArrayList.clone` places the
+    clone through the source's owner (`std/collections/array_list.yo`,
+    Rust's `Vec<T, A>: Clone`), and growth reallocates through the owner;
+  - following the scope would make placement observe sharing: after
+    `q := p; q.push(x)` in a global scope, `q`'s buffer would move to the
+    global heap if `p` is still alive and stay in the arena if `p` had died.
+    Copy-on-write must be indistinguishable from an eager copy, and an
+    eager copy (`clone`) inherits the owner;
+  - `Allocator` is `Send` and the arena locks itself, so a clone made on
+    another thread (transfer isolation) can use the source's owner.
+- **Consequence for arenas.** A value built in an arena and copied out of
+  the scope keeps its cells in the arena until every copy dies, and a write
+  to a shared copy clones into the arena too. `Arena.deinit` keeps panicking
+  while a block is live (unchanged). Moving a value out is explicit:
+  `clone_deep()` (V2b) builds fresh cells and so follows the scope it runs
+  in: `with_allocator(Allocator.global(), () => v.clone_deep())`.
+- **Placing one cell: the constructors' `alloc` parameter** (§3.2):
+  `rc(v, alloc : .Some(a))`. A scope is the tool for placing everything a call
+  tree creates; a parameter is the tool for one cell. It is not D2's
+  rejected `alloc_in` (a keyword or lazy-expression builtin): it is an
+  ordinary defaulted parameter. Containers keep `new_in`/`with_capacity_in`
+  for now; moving them to the same `alloc` parameter (`ArrayList(T).new(alloc : .Some(a))`)
+  so that all of std places blocks one way is a separate decision, not part
+  of this plan.
+- **`Allocator` moves into the prelude.** The constructors' signatures name
+  it, and the prelude cannot import `std/allocator.yo` (which depends on
+  the prelude). `Allocator` and `AllocatorVTable` (two small structs) move
+  into `std/prelude.yo`; `std/allocator.yo` re-exports them and keeps
+  `with_allocator`, `current_allocator` and the global vtable.
+- **std internals.** `_ScopeGuard` (`std/allocator.yo`, a `ref` struct with
+  `Dispose` today) and `Arena` (`ref(struct(_state : *_ArenaState))`)
+  become move-only values in V3. `Allocator` stays a plain two-word value.
+- **Owner bits.** The cell header keeps the `__YO_RC_TAG` bit. When V2b moves
+  the collections' buffers into private cells, the per-container owner bits
+  (capacity word, `_tombstones`, the `imm` length words) can move to that
+  header tag; that is a simplification to measure then, not a requirement.
+
+### 3.12 What gets simpler
 
 - **The verifier.** Aliasing exists only through `Rc`/`Arc`, so every other
   value is pure. `requires(distinct(a, b))` (#1107) and the list-alias
@@ -517,6 +676,19 @@ edit.
    `fs`, `net`, `process`, `thread`) is the smallest place to mature the
    marker.
 
+Added by amendment, 2026-10-03, with the maintainer:
+
+11. **Constructors `box(v)`, `rc(v)`, `arc(v)` in the prelude; the count
+   reader is `ref_count(x)`** (§3.2). Each constructor is an ordinary
+   prelude function taking `own(v)` and an optional `alloc : Option(Allocator)`
+   (default `.None`, the current scope); there is no `new_in`. `Box`/`Rc`/
+   `Arc` are types only: `Box(T)(v)` is not a public spelling. `ref_count`
+   stays a builtin (it reads the header of whatever cell a value holds). `rc`
+   stops naming the count builtin; with no shadowing, the prelude `rc`
+   claims the name in every module.
+12. **Explicit allocators: the scope places cells; a copy-on-write clone
+   inherits its source's owner** (§3.11).
+
 ## 5. Order and prerequisites
 
 1. **`STRING_VALUE_SEMANTICS` S1–S3 (in progress).** They build the shared
@@ -553,6 +725,30 @@ else.
 
 ### V1: `Rc`, `Box`, `Arc`, auto-dereference, no `Rc` marker trait
 
+**Step 0, the `rc` → `ref_count` rename (decision 11).** The evaluator
+(`src/evaluator/exprs/_expr.yo`, the `BF_RC` arm) and codegen
+(`src/codegen/exprs/generation.yo`, `generate_rc_call`) recognise `rc(...)`
+by name, so any seed that still has the builtin turns a call of a prelude
+`rc` function into a count read. It goes through the seed in two releases:
+
+- **0a, Generation A (one release before V1 step 1; v0.2.50 if it is ready
+  in time).** Add `BF_REF_COUNT :: "ref_count"` with the `rc` builtin's
+  evaluator and codegen paths. Make the `rc` arms give way to a binding:
+  when `rc` resolves to a variable in scope, evaluate an ordinary call (the
+  `_evaluate_exists_or_call` pattern), in both the evaluator and codegen.
+  Tests: `ref_count(x)` matches `rc(x)` on a `ref` struct, a `Box`, an
+  `Arc`, a collection; a module that binds `rc` to a function calls it.
+- **0b, Generation B (seed = 0a's release).** Rename every count call to
+  `ref_count` (about 180: 152 in tests, 11 in `std/`, 2 in `src/`, plus docs,
+  instruction files, skills, the pack), rename the 29 locals and parameters
+  named `rc`, delete `BF_RC`, and add the prelude `rc` constructor. The seed
+  now calls the prelude's `rc` (0a's give-way), so step 1 below can rename
+  `box(` to `rc(` in `std/` and `src/` in the same cycle. Skill edits move
+  the seven skill-tree CLI goldens.
+
+Without 0a's give-way arm, step 1 waits for a seed with no `rc` builtin at
+all: one more release.
+
 Compiler (`src/`), Generation A:
 
 - Delete the `Rc` marker: the registration in
@@ -562,8 +758,10 @@ Compiler (`src/`), Generation A:
   `Dispose` is gated by "is a cell type" (today's `is_reference_struct_type`
   / `is_reference_enum_type`) at the impl site, so behaviour is unchanged.
 - `Deref`: the trait check plus the two hooks of §3.3 (field label-miss
-  rewrite; receiver retry). Codegen needs nothing new: the rewritten chain
-  is `w.*.field`, which already lowers to `w->value.field`.
+  rewrite; receiver retry) and the `.*` rule (`w.*` on a `Deref` type is
+  its payload place, decided by the trait rather than the `*` field label).
+  Codegen needs nothing new: the rewritten chain is `w.*.field`, which
+  already lowers to `w->value.field`.
 - The exclusivity assert moves from function entry to the write-through-`Rc`
   site (§3.10): `__yo_borrow_assert_unborrowed` is emitted where a field
   store, an `inout(self)` call or an index place goes through an `Rc`
@@ -582,9 +780,16 @@ Compiler (`src/`), Generation A:
 
 std, Generation A (all over `ref(struct((*) : V))`, lowerable by the seed):
 
-- `Rc(V)` = today's `Box` definition and impls, renamed. `rc(v)` = `box(v)`.
+- Move `Allocator` and `AllocatorVTable` into the prelude (§3.11);
+  `std/allocator.yo` re-exports them. Generation A: a type moving between
+  std modules is plain std code to the seed.
+- `Rc(V)` = today's `Box` definition and impls, renamed; `rc(own(v), alloc)`
+  its constructor (step 0b).
 - `Box(V)` = a new `ref(struct((*) : V))` whose `Clone` is a dup, with
-  `make_unique(inout(self))`, `Eq`/`Hash`/`Default` by payload.
+  `make_unique(inout(self))`, `Eq`/`Hash`/`Default` by payload, and
+  `box(own(v), alloc)` its constructor. `make_unique` clones through the
+  source cell's owner (§3.11).
+- `arc` gains the `alloc` parameter.
 - `Arc(V)` unchanged.
 - `Dispose`/`Trace` lose `where(Self <: Rc)`.
 - `impl(Box(T), Deref(...))`, `Rc`, `Arc` likewise. std code itself keeps
@@ -607,12 +812,15 @@ changes meaning:
    writes the body through it and every holder must see the write.
 3. In tests, a `Box` test that asserts sharing stays on `Rc`; `tests/rc.test.yo`
    gains the value-`Box` cases (independent copy, make-unique on write,
-   `rc(b)` before and after a write, a `Box` tree copied and edited on one
+   `ref_count(b)` before and after a write, a `Box` tree copied and edited on one
    side).
 
 Tests: auto-deref for field, method, nested wrapper, wrapper-member
 precedence, place write through `Rc`, copy-on-write through `Box`, D3 through
-`Arc`. Exit: gates green, the `Rc` marker trait absent from the tree.
+`Arc`; `box`/`rc`/`arc` with `alloc : .Some(a)` place the cell in `a` (the owner
+read back with `Allocator.owner_of`) and without it follow the current
+scope, and a `make_unique` clone of an arena cell stays in the arena. Exit:
+gates green, the `Rc` marker trait absent from the tree.
 
 ### V3: move-only, `Dispose`, resources
 
@@ -716,7 +924,11 @@ structs the seed lowers; the `Dispose` on the buffer cell is V3's rule):
   `Trace` (visit each slot). Same for the other collections. `Clone`
   becomes a dup; `clone_deep()` is the element-wise copy where one is
   wanted.
-- Every mutator calls the uniqueness step first (`String` S3's helper).
+- Every mutator calls the uniqueness step first (`String` S3's helper),
+  whose clone goes through the source buffer's owner (§3.11). Tests: a
+  list built under `with_allocator(arena, …)`, copied out and written
+  outside the scope, clones into the arena; `clone_deep()` under
+  `with_allocator(Allocator.global(), …)` moves it out, after which `Arena.deinit` succeeds.
 - The `Index` split (§3.1): the evaluator resolves `xs(i)` to `get` in read
   position and to the place form (make-unique, then the pointer) on the
   left of `=` or as an `inout` receiver; `plans/reference/INDEX_TRAIT.md`
@@ -778,7 +990,10 @@ Per type, in this order, each its own PR, measured:
   `Variable`, `ExprInfo`, `EvalContext`, `CodeGenContext`,
   `FunctionGenerationContext`, `Emitter`, the caches, `VcCtx`,
   `BuildRegistry`, …); the ~135 result records become plain structs; the
-  wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`;
+  wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`
+  (each wrapper's only field becomes the private `_cell`, so `Box(T)(…)`
+  outside the prelude is E0405, and `w.*` resolves through the `Deref` rule
+  of §3.3);
   `std/imm` moves onto atomic cells. Tests migrate (~150 declarations in 68
   files; `tests/ref_struct.test.yo`, `tests/ref_enum.test.yo`,
   `tests/atomic_object.test.yo` become the `Rc`/`Box`/`Arc` test files).
@@ -813,7 +1028,10 @@ Per type, in this order, each its own PR, measured:
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value, or on the private cell | V3 impl check |
 | A resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `inout` | E0901 + note |
 | `Iso(T)` of a `ref(struct)` | `Iso(T)` of a value reaching a cell | unchanged call sites |
-| `rc(x)` on a `ref(struct)` | `rc(x)` on a `Box`/`Rc`/`Arc`/collection | compile error elsewhere |
+| `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; with an allocator, `box(v, alloc : .Some(a))` | docs and skills teach only the functions; E0405 after V5 |
+| `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
+| `rc(x)` (the count) | `ref_count(x)` on a `Box`/`Rc`/`Arc`/collection/`Dyn`; a compile error on a value with no cell | V1 step 0 rename |
+| `rc` as a local or parameter name | another name (`code`, `status`); the prelude's `rc` constructor owns the name | the no-shadowing error at the definition |
 
 ## 8. Risks
 

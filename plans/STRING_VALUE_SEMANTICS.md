@@ -161,7 +161,11 @@ fast suite, the hollow sweep.
     rule.
 - **S3: copy-on-write in `String`.**
   - Add the uniqueness step to every mutator, and make `truncate`,
-    `insert_str`, `insert`, `remove` and `pop` `inout(self)`.
+    `insert_str`, `insert`, `remove` and `pop` `inout(self)`. The step's
+    clone goes through the shared buffer's owner, as `ArrayList.clone`
+    does, not the current `with_allocator` scope (`VALUES_BY_DEFAULT`
+    §3.11); a test writes to a copy of an arena-built string outside the
+    scope and checks the clone's owner.
   - Replace `as_bytes` with `to_bytes` / `into_bytes`, and give
     `from_bytes` / `from_utf8` `own`.
   - Migrate every call site in `std/`, `src/`, `tests/` and the docs.

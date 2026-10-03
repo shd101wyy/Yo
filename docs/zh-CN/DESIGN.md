@@ -713,7 +713,32 @@ create_user(name : `Alice`); // 使用默认值：age=18
 create_user(name : `Bob`, age : i32(30)); // 显式指定 age
 ```
 
-> 注意：默认参数必须使用编译期已知的值。
+默认值必须是**编译期已知的值**：编译器在函数定义处记录一次，每当调用省略该参数时就传入这个值。判断标准是整个值是否已知，而不是参数的类型是什么：
+
+```rust
+(n : i32) ?= i32(18)                    // ✅ 字面量
+(alloc : Option(Allocator)) ?= .None    // ✅ 无负载的变体：只有标签，是常量
+(alloc : Allocator) ?= Allocator.global() // ❌ 含有全局变量的地址，链接时才确定
+(x : i32) ?= seven()                    // ❌ 需要一次调用
+```
+
+如果自然的默认值需要运行时计算，就把默认值设为 `.None`，在函数体里再决定。这样省略的参数读作“未提供”，而不是某个哨兵值：
+
+```rust
+greet :: (fn(name : str, (greeting : Option(String)) ?= .None) -> String)(
+  match(greeting,
+    .Some(g) => `${g}, ${name}`,
+    .None => `Hello, ${name}`
+  )
+);
+
+greet("Ada");                                      // "Hello, Ada"
+greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
+```
+
+调用方要显式写 `.Some(...)`：`T` 不会被自动包装成 `Option(T)`。
+
+> 注意：这条规则目前尚未强制执行。编译期未知的默认值会被接受，然后在 C 编译器阶段失败（`issues/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`）；引用模块内绑定的默认值目前会在调用方模块中解析（`issues/a-default-parameter-value-resolves-names-in-the-callers-module.md`）。
 
 ### 泛型函数
 
