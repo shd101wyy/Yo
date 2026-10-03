@@ -281,6 +281,73 @@ borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : Eval
     .None => Option(Variable).None
   )
 });
+/// The way out E0908 offers for a write into the borrowed binding `bv`.
+_write_through_borrow_fix :: (fn(bv : Variable) -> String)(
+  cond(
+    bv.is_parameter => `take it as \`own(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
+    true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy`
+  )
+);
+/// The place as written (`p.s`), not the printer's parenthesized `(p.s)`.
+_place_source_text :: (fn(place : AstExpr) -> String)({
+  text := ast_expr_to_string(place);
+  if(text.starts_with("(") && text.ends_with(")"), {
+    text = text.substring(usize(1), text.len() - usize(1));
+  });
+  text
+});
+/// E0908 for the `inout` arguments of one call, the `inout(self)` receiver of
+/// a method call included: the callee writes the place, so a place rooted in
+/// a borrowed binding (a by-value parameter, a `match`/`for` binding) is the
+/// same write-through-borrow as an assignment into it. A write there lands in
+/// the borrowed copy alone, and data it allocates is never released
+/// (issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md).
+/// `args` are the evaluated arguments, `param_is_ref` the callee's modes.
+require_no_inout_write_through_borrow :: (
+  fn(
+    param_labels : ArrayList(String),
+    param_is_ref : ArrayList(bool),
+    args : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  (n : usize) = param_is_ref.len();
+  if(args.len() < n, {
+    n = args.len();
+  });
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(match(param_is_ref.get(i), .Some(b) => b, .None => false), {
+      arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+      arg_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)), .Some(ai) => ai.ty, .None => t_unit());
+      if(!ast_expr_token(arg).module_path.starts_with(String.from("auto-generated://")) && type_contains_rc_type(arg_ty), {
+        match(
+          borrowed_value_root_of_place(arg, env, ctx),
+          .Some(bv) => {
+            what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
+            label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
+            target := cond((label == "self") => String.from("the `inout(self)` receiver"), true => `the \`inout\` parameter \`${label}\``);
+            raise_flow_violation(
+              with_code(
+                format_error_message(
+                  ast_expr_token(arg),
+                  `Cannot pass \`${_place_source_text(arg)}\` as ${target}: \`${bv.name}\` is ${what}, which borrows its value, and holds data (${type_to_string(arg_ty)}) that its owner still holds. The callee writes it, and the write would land in the borrowed copy alone. To change it, ${_write_through_borrow_fix(bv)}.`
+                ),
+                E_WRITE_THROUGH_BORROW
+              ),
+              ctx,
+              exn
+            );
+          },
+          .None => ()
+        );
+      });
+    });
+    i = (i + usize(1));
+  });
+});
 // ---------------------------------------------------------------------------
 // get_root_expr_of_place
 // ---------------------------------------------------------------------------
@@ -779,15 +846,8 @@ evaluate_assignment :: (
         borrowed_value_root_of_place(evaluated_lhs, env, ctx),
         .Some(bv) => {
           what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
-          // The place as written: `p.s`, not the printer's `(p.s)`.
-          place_text := ast_expr_to_string(lhs);
-          if(place_text.starts_with("(") && place_text.ends_with(")"), {
-            place_text = place_text.substring(usize(1), place_text.len() - usize(1));
-          });
-          fix := cond(
-            bv.is_parameter => `take it as \`own(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
-            true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy`
-          );
+          place_text := _place_source_text(lhs);
+          fix := _write_through_borrow_fix(bv);
           raise_flow_violation(
             with_code(
               format_error_message(
@@ -1700,6 +1760,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
 });
 export(
   throw_if_write_through_atomic_root,
+  require_no_inout_write_through_borrow,
   D3PendingInout,
   d3_record_inout_place,
   d3_check_pending,
