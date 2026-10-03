@@ -2531,15 +2531,19 @@ test("A String copy is independent, empty or not (COW S3)", {
   assert((s == "abcx") && (t == "abcd"), "and the reverse");
 });
 test("COW: clone is O(1) and shares until the first write", {
+  // `ptr()` (privileged; this file is pragma'd) shows buffer identity without
+  // reaching into String's private field.
   s := String.from("shared");
   t := s.clone();
-  assert(rc(t._bytes.unwrap()) == usize(2), "clone shares the buffer");
+  assert(s.ptr() == t.ptr(), "clone shares the buffer");
   t.push_byte(u8(33));
-  assert(rc(s._bytes.unwrap()) == usize(1), "the write gave the copy its own buffer");
+  assert(s.ptr() != t.ptr(), "the write gave the copy its own buffer");
   assert((s == "shared") && (t == "shared!"), "values diverged");
   u := String.from("solo");
+  u.reserve(usize(64));
+  before := u.ptr();
   u.push_str("!");
-  assert(rc(u._bytes.unwrap()) == usize(1), "a unique buffer is written in place");
+  assert(u.ptr() == before, "a unique buffer is written in place");
 });
 test("COW: every mutator writes only its own copy", {
   base := String.from("héllo");
@@ -2573,11 +2577,13 @@ test("COW: collection elements, struct fields and closures hold independent copi
   q.name.push_str("q");
   assert((p.name == "p") && (q.name == "pq"), "a struct copy's field is its own");
   s := String.from("cap");
-  f := (() => {
-    mine := s;
-    mine.push_str("!");
-    mine
-  });
+  f := (
+    () => {
+      mine := s;
+      mine.push_str("!");
+      mine
+    }
+  );
   assert((f() == "cap!") && (s == "cap"), "a closure's copy does not write the captured string");
 });
 test("COW: s.push_string(s) appends a snapshot of itself", {
@@ -2601,7 +2607,7 @@ test("to_bytes copies, into_bytes moves when unique, from_bytes takes the list",
   assert((v.get_byte(usize(0)) == Option(u8).Some(u8(111))) && (v.get_byte(usize(9)) == Option(u8).None), "get_byte reads in place");
 });
 test("COW: a clone made by a write outside the scope stays in the source's arena", {
-  arena := Arena.new((usize(1) << usize(16)));
+  arena := Arena.new(usize(1) << usize(16));
   built := with_allocator(arena.allocator(), () => String.from("in arena"));
   copy := built;
   before := arena.live_blocks();
