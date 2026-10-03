@@ -194,16 +194,15 @@ no `s[i] = b` either), which closes the UTF-8 hole.
     a pragma'd module declaring the function and a safe caller: both calls
     compile and run. The caller writes `.Some(...)`: Yo does not wrap a `T`
     into `Option(T)` (E0601), and a non-`Option` parameter cannot default to
-    `Allocator.global()`, which is not a compile-time value (defaults are
-    checked nowhere today: `issues/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`).
+    `Allocator.global()`, which is not a compile-time value (such a default
+    is E1105 since #1165: `issues/fixed/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`).
     `Option(Allocator)` in a signature is a raw-pointer-carrying type,
     which the naming gate allows in std (implicitly unsafe-capable) and
     rejects in a safe user file; passing the value needs no pragma, as with
     `new_in` today.
-  - **Default parameters resolve names in the caller's module today**
-    (`issues/a-default-parameter-value-resolves-names-in-the-callers-module.md`,
-    S1). `.None` names nothing, so these constructors are unaffected; the
-    issue blocks any default that names a module binding.
+  - **Default parameters resolve names in the defining module** since #1165
+    (`issues/fixed/a-default-parameter-value-resolves-names-in-the-callers-module.md`).
+    `.None` names nothing, so these constructors were never affected.
   - **The type is not callable outside the prelude.** This is ordinary
     member visibility (DESIGN §member visibility, the `Counter.new`
     pattern), not a builtin: after V5 each wrapper's only field is private,

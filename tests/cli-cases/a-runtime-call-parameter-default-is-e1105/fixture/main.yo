@@ -1,0 +1,11 @@
+// A runtime call as a `?=` parameter default is rejected at the DEFINITION
+// with E1105 (issues/fixed/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md).
+// Before, `check` accepted it and `compile` failed in the C compiler on an
+// unnamed function value at the call site.
+{ println } :: import("std/fmt");
+seven :: (fn() -> i32)(i32(7));
+g :: (fn((x : i32) ?= seven()) -> i32)(x);
+main :: (fn() -> unit)({
+  println(`g() = ${g()}`);
+});
+export(main);

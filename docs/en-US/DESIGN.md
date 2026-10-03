@@ -578,7 +578,7 @@ unsafe(unistd.close(fd));
 _ := unsafe(unistd.close(fd));
 ```
 
-`_ := expr` declares a throwaway binding that is dropped at scope end (`_` may repeat within a scope; `___` may not). Reserve it for the rare cases where the binding itself matters — e.g. a test that counts drops via `rc(...)`, or forcing the value-evaluation path that a compile-error fixture depends on.
+`_ := expr` declares a throwaway binding that is dropped at scope end (`_` may repeat within a scope; `___` may not). Reserve it for the rare cases where the binding itself matters — e.g. a test that counts drops via `ref_count(...)`, or forcing the value-evaluation path that a compile-error fixture depends on.
 
 ### Type inference
 
@@ -737,8 +737,12 @@ what the parameter's type is:
 (n : i32) ?= i32(18)                    // ✅ a literal
 (alloc : Option(Allocator)) ?= .None    // ✅ a payload-free variant: only its tag, a constant
 (alloc : Allocator) ?= Allocator.global() // ❌ holds the address of a global, fixed only at link time
-(x : i32) ?= seven()                    // ❌ needs a call
+(x : i32) ?= seven()                    // ❌ needs a call: error E1105 at the definition
 ```
+
+Names in a default resolve where the function is defined, not where it is
+called: a default `K` reads the defining module's `K` even when the caller
+has a `K` of its own.
 
 When the natural default needs runtime work, default to `.None` and decide in
 the body. An omitted argument then reads as "not given" instead of as a
@@ -758,13 +762,6 @@ greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
 
 The caller writes `.Some(...)` explicitly: a `T` is not wrapped into
 `Option(T)` automatically.
-
-> Note: the rule is not enforced yet. A default that is not compile-time known
-> is accepted and then fails in the C compiler
-> (`issues/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`),
-> and a default that names a module binding is currently resolved in the
-> caller's module
-> (`issues/a-default-parameter-value-resolves-names-in-the-callers-module.md`).
 
 ### Generic function
 
@@ -3023,7 +3020,7 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 > case. Naming it "the RC one" would imply the others are not.
 >
 > What this means in practice: sharing is silent, a `Box` cycle leaks unless
-> broken (Rust's `Box` cannot form one), and `rc(b)` / `Iso` are how you ask
+> broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
 > about uniqueness.
 
 `Box(T)` is a generic reference-semantics type that wraps any value type:

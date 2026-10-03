@@ -37,9 +37,9 @@ import("std/fmt");
 }
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
-{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id, type_has_computed_array_len } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
@@ -66,7 +66,8 @@ import("std/fmt");
   convert_comptime_type_to_runtime_type,
   convert_comptime_type_to_runtime_type_with_expected
 } :: import("../../types/env_lookup.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
+{ E_COMPTIME_PARAM_DEFAULT } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target } :: import("../trait_checking.yo");
@@ -392,9 +393,17 @@ get_func_param_comptime :: (fn(func_id : String) -> ArrayList(bool))(
 // so the exprs are kept here for the omitted-parameter branch to
 // clone+evaluate+emit. Keyed/copied like
 // the values (fn-type-expr id → FuncVal id).
-(g_func_param_default_exprs : HashMap(String, ArrayList(Option(AstExpr)))) =
-  HashMap(String, ArrayList(Option(AstExpr))).new();
-register_func_param_default_exprs :: (fn(func_id : String, exprs : ArrayList(Option(AstExpr))) -> unit)({
+//
+// `def_env` is the DEFINITION's lexical scope (the env the `fn(...)` type was
+// evaluated in, before the parameter frame): a default names things in the
+// module that defines the function, so the call site evaluates the clone
+// there (`default_param_eval_env`), never in the caller's scope. Evaluating it
+// in the caller's env made a caller-side `K` shadow the library's `K`, and a
+// name the library only imports was E0401 at a caller without that import.
+FuncParamDefaultExprs :: struct(exprs : ArrayList(Option(AstExpr)), def_env : Environment);
+(g_func_param_default_exprs : HashMap(String, FuncParamDefaultExprs)) =
+  HashMap(String, FuncParamDefaultExprs).new();
+register_func_param_default_exprs :: (fn(func_id : String, exprs : ArrayList(Option(AstExpr)), def_env : Environment) -> unit)({
   (any_default : bool) = false;
   (i : usize) = usize(0);
   while((i < exprs.len()) && !any_default, {
@@ -409,14 +418,14 @@ register_func_param_default_exprs :: (fn(func_id : String, exprs : ArrayList(Opt
   });
   if(any_default, {
     record_owned_func_id(func_id.clone());
-    g_func_param_default_exprs.insert(func_id, exprs);
+    g_func_param_default_exprs.insert(func_id, FuncParamDefaultExprs(exprs : exprs, def_env : def_env));
   });
 });
 copy_func_param_default_exprs :: (fn(from_id : String, to_id : String) -> unit)({
   match(
     g_func_param_default_exprs.get(from_id.clone()),
-    .Some(exprs) => {
-      g_func_param_default_exprs.insert(to_id.clone(), exprs);
+    .Some(entry) => {
+      g_func_param_default_exprs.insert(to_id.clone(), entry);
     },
     .None => ()
   );
@@ -424,10 +433,46 @@ copy_func_param_default_exprs :: (fn(from_id : String, to_id : String) -> unit)(
 get_func_param_default_exprs :: (fn(func_id : String) -> ArrayList(Option(AstExpr)))(
   match(
     g_func_param_default_exprs.get(func_id.clone()),
-    .Some(exprs) => exprs,
+    .Some(entry) => entry.exprs,
     .None => ArrayList(Option(AstExpr)).new()
   )
 );
+/// The environment an omitted argument's `?= default` is evaluated in at a
+/// call site: a fresh frame over the DEFINITION's scope (see
+/// `FuncParamDefaultExprs`), with `inner`'s frames (the callee's captures,
+/// generic and parameter bindings) layered between them so those still win.
+/// Without a registered definition scope, a fresh frame over `fallback`.
+/// `fallback` and `inner` are never mutated: the frame lists are copied.
+default_param_eval_env :: (fn(func_id : String, inner : Option(Environment), fallback : Environment) -> Environment)({
+  out := match(
+    g_func_param_default_exprs.get(func_id),
+    .Some(entry) => {
+      d := entry.def_env;
+      frames := copy_env_frames(d);
+      match(
+        inner,
+        .Some(ie) => {
+          (fi : usize) = usize(0);
+          while(fi < ie.frames.len(), {
+            match(ie.frames.get(fi), .Some(f) => frames.push(f), .None => ());
+            fi = (fi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      Environment(
+        frames : frames,
+        module_path : d.module_path,
+        function_declaration_frame_level : d.function_declaration_frame_level,
+        input_string : d.input_string,
+        frozen : false
+      )
+    },
+    .None => snapshot_env(fallback)
+  );
+  _f := out.push_frame(false);
+  out
+});
 /// Per-parameter declared TYPE expressions (the raw AST right of `:`), keyed
 /// like the defaults (fn-type-expr id, re-keyed under the FuncVal id by
 /// try_to_implement_function_by_function_type). The call site RE-EVALUATES
@@ -1255,6 +1300,20 @@ extract_comptime_parameter_info :: (
     )
   )
 });
+/// E1105: parameter `label`'s `?= dve` default has no compile-time value (a
+/// runtime call or a runtime variable). The help names the `Option` rewrite.
+_param_default_not_comptime_error :: (fn(label : Option(String), param_type : Option(TypeValue), dv_ty : TypeValue, dve : AstExpr) -> YoError)({
+  rd_label := match(label, .Some(l) => l, .None => String.from("?"));
+  rd_ty := match(param_type, .Some(pt) => type_to_string(pt), .None => type_to_string(dv_ty));
+  with_code(
+    format_error_message_with_help(
+      ast_expr_token(dve),
+      `The default of parameter "${rd_label}" is not a compile-time known value: ${ast_expr_to_string(dve)} is evaluated at runtime, and a ?= default must be known at compile time.`,
+      Option(String).Some(`declare "(${rd_label} : Option(${rd_ty})) ?= .None" and compute the value in the body when it is .None`)
+    ),
+    E_COMPTIME_PARAM_DEFAULT
+  )
+});
 // ---------------------------------------------------------------------------
 // evaluate_function_parameter
 // ---------------------------------------------------------------------------
@@ -1602,6 +1661,15 @@ evaluate_function_parameter :: (
           match(
             dv_val_opt,
             .Some(_dv_val) => {
+              // A runtime CALL (`?= seven()`, `?= String.new()`) yields a
+              // RUNTIME-ONLY placeholder, not a value: `?=` defaults are
+              // compile-time known (DESIGN.md); re-evaluated at each call
+              // site, the call emitted broken C (an unnamed function value).
+              // A comptime parameter's placeholder (`?= Lhs`) is
+              // not runtime-only and stays legal: the call site decides it.
+              if(is_runtime_only_unknown_val(_dv_val), {
+                exn.throw(dyn(_param_default_not_comptime_error(label, param_type, dv_ty, dve)));
+              });
               match(
                 param_type,
                 .None => {
@@ -1628,14 +1696,7 @@ evaluate_function_parameter :: (
               );
             },
             .None => {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(dve),
-                    `Expected a compile-time known value for default parameter, got ${ast_expr_to_string(dve)}`
-                  )
-                )
-              );
+              exn.throw(dyn(_param_default_not_comptime_error(label, param_type, dv_ty, dve)));
             }
           );
         },
@@ -4068,6 +4129,22 @@ evaluate_function_type :: (
   // Set is_evaluating_function_type flag on context
   prev_is_eval_fn_type := ctx.is_evaluating_function_type;
   ctx.is_evaluating_function_type = true;
+  // The definition's lexical scope, before the parameter frame: the call
+  // site evaluates an omitted `?= default` here (`default_param_eval_env`).
+  // Taken only when a parameter has a default — a snapshot shares the frame
+  // list, so the parameter frame's push below then copies it.
+  (def_scope_env : Option(Environment)) = Option(Environment).None;
+  (dse_i : usize) = usize(0);
+  while((dse_i < arg_list.len()) && def_scope_env.is_none(), {
+    match(
+      arg_list.get(dse_i),
+      .Some(dse_a) => if(ast_expr_is_fn_call_of(dse_a, "?=", .Some(usize(2))), {
+        def_scope_env = .Some(snapshot_env(env));
+      }),
+      .None => ()
+    );
+    dse_i = (dse_i + usize(1));
+  });
   // Evaluate parameters (pushes a new env frame, doesn't pop it)
   (env_mut : Environment) = env;
   params_result := evaluate_function_parameters(arg_list, env_mut, ctx, exn);
@@ -4498,7 +4575,11 @@ evaluate_function_type :: (
   register_func_return_type_expr(ast_expr_id(expr).to_string(), return_type_expr.clone());
   // Register the per-parameter default-value EXPRESSIONS (parallel to the
   // values above) so codegen can EMIT an omitted default as a C argument.
-  register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs);
+  match(
+    def_scope_env,
+    .Some(dse) => register_func_param_default_exprs(ast_expr_id(expr).to_string(), param_default_exprs, dse),
+    .None => ()
+  );
   // Per-parameter declared TYPE expressions for
   // specialization-time re-evaluation — see the side-table comment above.
   register_func_param_type_exprs(ast_expr_id(expr).to_string(), param_type_exprs);
@@ -5408,6 +5489,7 @@ export(
   copy_func_param_type_exprs,
   get_func_param_type_exprs,
   get_func_param_default_exprs,
+  default_param_eval_env,
   register_func_variadic_param,
   copy_func_variadic_param,
   get_func_variadic_param,

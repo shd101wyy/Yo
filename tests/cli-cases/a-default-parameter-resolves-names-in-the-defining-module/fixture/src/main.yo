@@ -1,0 +1,20 @@
+// A `?=` default resolves its names where the function is DEFINED. The
+// caller's own `K` (99) must not replace the library's (5), and a default
+// naming the library's `Allocator` import must work in a caller that never
+// imports it (issues/fixed/a-default-parameter-value-resolves-names-in-the-callers-module.md).
+{ println } :: import("std/fmt");
+{ f, g, Counter, named_alloc, short_alloc, late } :: import("./lib.yo");
+{ from_other } :: import("./other.yo");
+K :: i32(99);
+LATE :: i32(98);
+main :: (fn() -> unit)({
+  println(`f() = ${f()}`);
+  println(`g(true) = ${g(true)}`);
+  println(`bump() = ${Counter(n : i32(1)).bump()}`);
+  println(`named_alloc() = ${named_alloc()}`);
+  println(`short_alloc() = ${short_alloc()}`);
+  println(`late() = ${late()}`);
+  println(`from_other() = ${from_other()}`);
+  println(`caller K = ${K}`);
+});
+export(main);

@@ -1938,7 +1938,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           vs_args := if(vs_args_raw.len() == rt_fields.len(), vs_args_raw, _ctor_args_from_labeled(wrapped.clone(), vs_fncall_args));
           vs_value := cond(
             (vs_is_newtype && ((rt_fields.len() == usize(1)) && (vs_args.len() == usize(1)))) => {
-              inner := match(vs_args.get(usize(0)), .Some(a) => _call_generate_expr(a, indent.clone(), context), .None => String.from(""));
+              // The payload carries the evaluator's deferred `___dup` exactly
+              // as a struct field does (the compound-literal arm below): a
+              // borrowed field projection or a still-live local must be
+              // retained, or the cast shares the payload with its owner and
+              // both release it
+              // (issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md).
+              inner := match(vs_args.get(usize(0)), .Some(a) => emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context), .None => String.from(""));
               nt_out := String.from("((");
               nt_out.push_string(vs_cname.clone());
               nt_out.push_str(")(");
