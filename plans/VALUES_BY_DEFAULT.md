@@ -108,6 +108,20 @@ fields holding RC data, extended by S1 to `inout` writes through a borrowed
 value). A by-value parameter is the callee's own copy; to change the
 caller's value, take `inout`.
 
+**Indexing splits read from write.** `Index.index` returns a place
+(`fn(inout(self), idx) -> *(Self.Output)`, `plans/reference/INDEX_TRAIT.md`),
+one pointer for both reads and writes. Measured on v0.2.49 (review, yo-88):
+`t := s; t(usize(0)) = u8(122)` writes the buffer `s` shares, and on
+`String` it lets safe code write arbitrary bytes through the UTF-8
+invariant. A read looks like a write to the mutation analysis too, because
+the pointer escapes (`ch := s(i)` has mask `all`). For a copy-on-write type
+the write path needs the uniqueness step and the read path must not, so the
+trait splits, as Swift's subscript `get`/`set` does: a by-value
+`get(self, idx) -> Output` in read position, and a place form used only on
+the left of `=` or as an `inout` receiver, which runs make-unique first.
+`String` keeps read-only byte indexing and loses the byte place (Rust has
+no `s[i] = b` either), which closes the UTF-8 hole.
+
 ### 3.2 Three wrappers carry indirection and sharing
 
 | Wrapper | Meaning | Copies | Threads |
@@ -645,6 +659,10 @@ structs the seed lowers; the `Dispose` on the buffer cell is V3's rule):
   becomes a dup; `clone_deep()` is the element-wise copy where one is
   wanted.
 - Every mutator calls the uniqueness step first (`String` S3's helper).
+- The `Index` split (§3.1): the evaluator resolves `xs(i)` to `get` in read
+  position and to the place form (make-unique, then the pointer) on the
+  left of `=` or as an `inout` receiver; `plans/reference/INDEX_TRAIT.md`
+  gets the amendment. `String` S3 applies the same split to byte indexing.
 - Codegen: `Option(struct(one cell field))` keeps the one-pointer niche
   (today the niche covers a handle payload; it must cover a one-field value
   struct around a handle, or `Option(ArrayList(T))` fields in `src/` grow by
