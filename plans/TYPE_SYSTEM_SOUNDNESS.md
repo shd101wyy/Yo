@@ -709,6 +709,10 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
       and the fast suite (a `YO_DEBUG_*` probe in `t_array_var`). Confirm that every binder
       occurrence in a def-time body env is the re-kind shadow. If one is not, find its binding
       site before step 2.
+      **Measured 2026-10-03** (`YO_DEBUG_ARRAY_LEN=1`, the probe in `t_array_var`): `check ./src`
+      and `check ./std` each mint 39 value-dependent lengths with only three distinct values,
+      binder `N` ×18, binder `U` ×13 and projection `T.BYTES` ×8, and no computed or inferred
+      length. The fast-suite share and the re-kind-shadow confirmation are still to do.
    1. Change the representation, keeping name-keyed behaviour. Add `ArrayLen`. `Binder` and
       `Projection` carry the names, plus ids where the minting site has them. Rewrite every site
       in the table, plus the positional pass-throughs (`types/hierarchy.yo`,
