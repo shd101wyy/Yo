@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 191 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 190 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 58 | 10 |
-| **Total** | **191** | **31** |
+| Other | 57 | 9 |
+| **Total** | **190** | **30** |
 
 ## Counts by severity
 
@@ -46,7 +46,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 27 |
-| S2 | 87 |
+| S2 | 86 |
 | S3 | 75 |
 | (missing) | 2 |
 
@@ -330,14 +330,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (58)
+### Other (57)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md`](./a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md) | S1 | — | yes |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
-| [`a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md`](./a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md) | S2 | — | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |

@@ -187,7 +187,7 @@ _tk_arg_id :: (fn(t : TypeValue, depth : usize) -> String)(
   match(
     t,
     .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, sh_tas, depth + usize(1)), `s:${sh_sid}`),
-    .EnumT(sh_eid, _, _, _, _, _, _, _, _, _) => `e:${sh_eid}`,
+    .EnumT({ id : sh_eid, type_arguments : sh_etas }) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, sh_etas, depth + usize(1)), `e:${sh_eid}`),
     .SomeT({ id : sh_tid }) => {
       sh_end := resolve_cell_chain(t);
       match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(sh_end, depth)}`)
@@ -403,13 +403,22 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
       evds := match(rs, .EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
       e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
       evfls := match(rs, .EnumT({ variant_field_labels : rvfls }) => rvfls, _ => ArrayList(ArrayList(String)).new());
-      // Cycle guard (see g_tk_visited): an enum id already on the expansion
-      // path renders id-only rather than re-expanding its variant fields.
-      if((eid.len() > usize(0)) && _tk_seen(eid), {
+      // Cycle guard (see g_tk_visited): an enum already on the expansion
+      // path renders id-only rather than re-expanding its variant fields. The
+      // node is the id AND its type arguments' identities, as the Struct arm's:
+      // substitution keeps an instance's def-era id, so a generic fn applied
+      // to its own result (`wrap(wrap(x))`, `wrap : fn(U) -> Option(U)`) nests
+      // one `Option(U)` instance inside another under ONE id, and an id-only
+      // guard cut the inner one to its bare id. That gave the outer instance a
+      // second C type beside the declared `Option(Option(i32))`
+      // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
+      e_node_targs := match(rs, .EnumT({ type_arguments : nd_tas }) => nd_tas, _ => ArrayList(TypeValue).new());
+      e_node := _tk_node_id(eid, e_node_targs);
+      if((eid.len() > usize(0)) && _tk_seen(e_node), {
         return(eid.clone());
       });
       if(eid.len() > usize(0), {
-        g_tk_visited.push(eid.clone());
+        g_tk_visited.push(e_node);
       });
       // An EMPTY-id enum must still be keyed STRUCTURALLY (via the sig path
       // below), not by `type_to_string` — the name alone drops the payload, so
@@ -757,13 +766,20 @@ _stable_identity_at :: (fn(t : TypeValue, depth : usize) -> String)({
       evfs := match(rs, .EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs0);
       e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => e_is_ref0);
       pfx := if(e_is_ref, String.from("R#"), String.from(""));
-      if((eid.len() > usize(0)) && _sti_seen(eid), {
+      // The path node carries the type arguments, as `_type_key_at`'s does:
+      // `wrap(wrap(x))` nests one `Option(U)` instance in another under one
+      // id, and an id-only node rendered `Option(Option(i32))` and
+      // `Option(Option(String))` alike, so collect_type aliased the second
+      // onto the first's C type
+      // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
+      e_node := _tk_node_id(eid, match(rs, .EnumT({ type_arguments : sti_tas }) => sti_tas, _ => ArrayList(TypeValue).new()));
+      if((eid.len() > usize(0)) && _sti_seen(e_node), {
         out_cyc := pfx.clone();
         out_cyc.push_string(eid);
         return(out_cyc);
       });
       if(eid.len() > usize(0), {
-        g_sti_visited.push(eid.clone());
+        g_sti_visited.push(e_node);
       });
       out := pfx;
       out.push_string(eid);
@@ -856,4 +872,17 @@ stable_type_identity :: (fn(t : TypeValue) -> String)({
   g_sti_visited = ArrayList(String).new();
   _stable_identity_at(t, usize(0))
 });
-export(type_key, stable_type_identity, _tk_resolve_arg_slot);
+/// A generic enum instance's identity for a cycle guard keyed outside codegen:
+/// its id plus its type arguments' identities (`_tk_node_id`, pure: no key
+/// registry is read or written). Substitution keeps an instance's def-era id,
+/// so `Option(Option(i32))` from `wrap(wrap(x))` nests two `Option` instances
+/// under one id; a guard keyed by the id alone reads that nesting as a cycle.
+/// The id alone for a non-generic enum, "" for any other type.
+enum_instance_node_id :: (fn(t : TypeValue) -> String)(
+  match(
+    t,
+    .EnumT({ id : ein_id, type_arguments : ein_tas }) => _tk_node_id(ein_id, ein_tas),
+    _ => String.new()
+  )
+);
+export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id);
