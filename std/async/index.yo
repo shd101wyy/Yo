@@ -321,14 +321,19 @@ timeout :: (
     // follows resolves without waiting for `limit`.
     dh.abort();
     _deadline_r := io.await(dh.join(io), io);
-    match(
+    // A typed local, not a bare `match` tail: a generic `io.async` body whose
+    // tail builds bare `.Ok`/`.Err` variants gets a second C type for its
+    // result
+    // (issues/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md).
+    (out : Result(T, TimeoutError)) = match(
       io.await(handle.join(io), io),
       .Some(v) => .Ok(v),
       .None => cond(
         elapsed => .Err(TimeoutError.Elapsed),
         true => .Err(TimeoutError.Aborted)
       )
-    )
+    );
+    out
   })
 });
 export(yield, join_all, race, race_first, any, any_first, timeout, TimeoutError);
