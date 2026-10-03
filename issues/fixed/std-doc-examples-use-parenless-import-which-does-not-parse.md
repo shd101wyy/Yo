@@ -4,10 +4,11 @@
 
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row
 (`std/cli/arg_parser.yo:9-10` is one instance of a tree-wide pattern).
-**Severity**: LOW (papercut), but wide — 69 of the offending lines are `//!` /
-`///` doc comments, so `yo doc` renders them into the published HTML/JSON/
-Markdown and hands every reader of a std module a first line that will not
-compile. **Status**: OPEN.
+**Severity**: LOW (papercut), but wide — 69 of the offending lines were `//!` /
+`///` doc comments, so `yo doc` rendered them into the published HTML/JSON/
+Markdown and handed every reader of a std module a first line that would not
+compile. **Status**: FIXED 2026-10-03 (the user-facing halves landed earlier
+in #696 and #881; see ## Fixed).
 
 ## Reproducer
 
@@ -152,3 +153,29 @@ If option (b) is taken, the gate is its own test: add a case under
 error, plus a companion fixture with `import("y")` that passes. If only option
 (a) is taken, the gate belongs beside the existing `yo fmt --check` step in CI,
 and the sweep is verified by the three grep counts above returning zero.
+
+## Fixed
+
+Closed 2026-10-03 on branch `s3/batch-3-fixes`. The user-facing halves of the
+194 had already landed after filing: #696 (2026-09-15) rewrote the 61
+`//!`/`///` lines `yo doc` renders in std/, and #881 (2026-09-25) swept
+`docs/`. What this change finishes is the residue triage re-measured on
+develop `be3ed5b4b`: the 9 ordinary-`//` comment lines the issue counted in
+its 194 and called "equally wrong for a reader of the source"
+(`std/sys/dir.yo:29,30,83,84,85`, `std/sys/dns.yo:25,27,28`,
+`std/sys/file.yo:24`) plus the two `src/main.yo` comments (`:228`, `:235`)
+that spelled the pattern out — all rewritten to `:: import("path")`, the one
+spelling that parses. And it adds the missing anti-rot half, fix option (a):
+`scripts/check-doc-imports.sh` fails on any `:: import "` in `std/`, `docs/`,
+`src/`, wired into `test.yml` beside the ubuntu `fmt --check` step ("Check
+doc examples' import spelling"); before the sweep it listed all 10 lines
+(rc=1), after it is green and the issue's three grep counts return zero.
+Verified with the tree-built binary: the reproducer still fails verbatim
+with E0008 (parser rejection is the intended behavior — the bug was the doc
+content), while the corrected first line
+(`{ Rng } :: import("std/rand");` + `Rng.new(u64(42))`, today's API) checks
+clean (`evaluator OK`, rc=0). Option (b) — parse-checking every std doc fence
+via the `in_fence` tracking in `src/doc/sections.yo:162-163` — remains
+unbuilt: it needs a ````rust,ignore````-style opt-out for deliberately
+partial snippets and is future work beyond this residue, not a defect left
+open.
