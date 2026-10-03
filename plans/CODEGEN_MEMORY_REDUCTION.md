@@ -418,7 +418,7 @@ WSL2 box:
 - `check ./src` 279/279; `check ./std --std-path ./std` 176/176.
 - The fixpoint holds.
 - `gates_fast`: the same 8 failures as the develop-based baseline on the same
-  box, six LeakSanitizer verdicts CI switches off (`YO_TEST_LEAK_VERDICT=0`, now `gates_fast.sh`'s default too) and six CLI goldens (`issues/cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md`);
+  box, six LeakSanitizer verdicts CI switches off (`YO_TEST_LEAK_VERDICT=0`, now `gates_fast.sh`'s default too) and six CLI goldens (`issues/fixed/cli-goldens-doc-and-fixed-oom-shapes-fail-outside-ci.md`);
   the corpus is 156/156 golden.
 - The fast suite (`tests` minus `internal` and `cli-cases`), each binary in
   its own worktree: branch 4,440 passed / 161 failed, baseline 4,438 / 163.
