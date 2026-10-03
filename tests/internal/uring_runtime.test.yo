@@ -17,7 +17,7 @@
 { generate_async_runtime_io_macos, generate_platform_sys_runtime_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
 { generate_async_runtime_io_windows, generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
 { generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime_io_common.yo");
-{ generate_async_runtime_io_wasm } :: import("../../src/codegen/async/runtime_io_wasm.yo");
+{ generate_async_runtime_io_wasm, generate_platform_sys_runtime_wasm } :: import("../../src/codegen/async/runtime_io_wasm.yo");
 { parse_target, host_target, is_target_linux, is_target_macos } :: import("../../src/target.yo");
 { assert, panic } :: import("std/assert");
 /// The emitted Linux platform runtime (sync helpers + the async section that
@@ -247,4 +247,20 @@ test("the read_dir stream list is per-thread on wasm and on macOS", {
   assert(is_target_macos(mt), String.from("macos triple failed to parse as macos"));
   generate_async_runtime_io_common(mem, mt);
   assert(mem.print().contains(decl), String.from("the macOS read_dir stream list is shared by every thread"));
+});
+test("wasm sys runtime: the statx nanosecond accessors are uint32_t, matching std's u32 declarations", {
+  // std/sys/externs.yo declares the three *time_nsec accessors `-> u32` and
+  // linux/macos/windows all define them uint32_t; an int64_t definition makes
+  // every Yo call site a silent int64_t->uint32_t narrowing on wasm alone
+  // (issues/fixed/wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md).
+  em := Emitter.new();
+  generate_platform_sys_runtime_wasm(em);
+  c := em.print();
+  assert(c.contains(String.from("static uint32_t __yo_statx_mtime_nsec(void* buf)")), String.from("mtime_nsec is not uint32_t"));
+  assert(c.contains(String.from("static uint32_t __yo_statx_atime_nsec(void* buf)")), String.from("atime_nsec is not uint32_t"));
+  assert(c.contains(String.from("static uint32_t __yo_statx_ctime_nsec(void* buf)")), String.from("ctime_nsec is not uint32_t"));
+  // The *_sec accessors are declared `-> i64` and stay int64_t.
+  assert(c.contains(String.from("static int64_t __yo_statx_mtime_sec(void* buf)")), String.from("mtime_sec lost its int64_t"));
+  assert(c.contains(String.from("static int64_t __yo_statx_atime_sec(void* buf)")), String.from("atime_sec lost its int64_t"));
+  assert(c.contains(String.from("static int64_t __yo_statx_ctime_sec(void* buf)")), String.from("ctime_sec lost its int64_t"));
 });
