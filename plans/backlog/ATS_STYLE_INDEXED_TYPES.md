@@ -8,9 +8,9 @@
 - E1, `docs/*/DESIGN.md` §Existential Types;
 - Q1, the verify build step.
 
-Still parked, with a written follow-up: `push`'s element clause in std waits
-for the next seed (Generation B in `SEED_VERSION_AUTOMATION.md`). The audit
-was done 2026-09-30 (develop `df3798c4a`, seed v0.2.46). Scoping charter:
+`push`'s element clause, parked until the seed carried #1106's proof-only
+ensures filter, landed with SEED_VERSION v0.2.49 (Generation B in
+`SEED_VERSION_AUTOMATION.md`). The audit was done 2026-09-30 (develop `df3798c4a`, seed v0.2.46). Scoping charter:
 [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md) (updated the same
 day with this audit's verdict). Owner of the type-checker half of the
 prerequisites: [`../TYPE_SYSTEM_SOUNDNESS.md`](../TYPE_SYSTEM_SOUNDNESS.md);
@@ -335,9 +335,8 @@ unsoundness — each contract gets a runtime-mode fixture that executes it
 >   and their `_false` twins fail.
 > - **What the fixtures needed:**
 >   - `push` states its elements inside a `forall`, which is proof-only and
->     never spliced. The released seed still splices it, so std waits for the
->     next seed and the fixtures use an `assumed()` wrapper meanwhile
->     (`SEED_VERSION_AUTOMATION.md`, Generation B).
+>     never spliced. The v0.2.48 seed still spliced it, so the clause waited
+>     for SEED_VERSION v0.2.49 (`SEED_VERSION_AUTOMATION.md`, Generation B).
 >   - A contract clause that quantifies or calls a `ghost_fn` is no longer
 >     spliced as a runtime assert.
 >   - `old(xs)(k)` reads a list.

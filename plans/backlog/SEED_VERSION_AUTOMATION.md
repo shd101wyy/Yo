@@ -134,20 +134,19 @@ fixtures that need its elements (`dml_append_seq`, `dml_sorted_insert`,
 `push_at_end` that states them. A verify target's own `ensures` is not
 spliced by the seed.
 
-**Generation B (once `SEED_VERSION` ≥ v0.2.50, the release carrying #1166):**
-landed early as #1128 on a v0.2.49 seed and was reverted on 2026-10-03.
-- **What broke.** The clause compares elements with `==`, so a call-site
-  contract instance for an element type without `Eq` threw E0610. The
-  front-end verify sweep, which runs the SEED, failed on `src/parser.yo`
-  (`ArrayList(_TemplateBodyOrigin)`) and `src/expr.yo` (`ArrayList(AstExpr)`).
-- **The fix is in the compiler.** #1166 drops an ensures clause that does not
-  evaluate at a call site, so the clause is safe only once the seed carries
-  #1166.
-- **Re-land then:** add to `push`'s `ensures`
-`forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))`,
-delete the fixtures' `push_at_end` wrappers (back to `out.push(x)`), and drop
-the "until the seed" sentence from `docs/*/FORMAL_VERIFICATION.md`
-§Sequences over lists.
+**Generation B DONE**, re-landed 2026-10-04 on a v0.2.50 seed.
+- **First landing:** #1128 on a v0.2.49 seed. It was reverted in #1170,
+  because the clause compares elements with `==`. The call-site contract
+  instance threw E0610 for an element type without `Eq`, and the seed-run
+  verify sweep went red on `src/parser.yo` and `src/expr.yo`.
+- **Why it works now:** #1166 drops such an ensures clause at that call,
+  and v0.2.50 is the first seed that carries it.
+
+`push`'s `ensures` carries
+`forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))`.
+The fixtures' `push_at_end` wrappers are gone (back to `out.push(x)`), and
+`docs/*/FORMAL_VERIFICATION.md` §Sequences over lists no longer says "until
+the seed".
 
 ## Seed-gated follow-up (2026-09-30): `build.verify` in `std/build.yo`
 
