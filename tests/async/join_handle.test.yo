@@ -170,7 +170,7 @@ test("io.await of an already-aborted future inside a task aborts the awaiting ta
   t := _aborted_task(io);
   outer := io.async((io : Io) => {
     v := io.await(t, io);
-    (v + i32(1))
+    v + i32(1)
   });
   ho := io.spawn(outer, io);
   assert(ho.await(io).is_none(), "the awaiting task was aborted in turn");
@@ -181,7 +181,7 @@ test("a plain function's io.await of an already-aborted future propagates to the
   t := _aborted_task(io);
   caller := io.async((io : Io) => {
     v := _plain_get(t, io);
-    (v + i32(1))
+    v + i32(1)
   });
   hc := io.spawn(caller, io);
   assert(hc.await(io).is_none(), "the abort escaped the plain function and aborted the calling task");
@@ -207,7 +207,7 @@ test("aborting a task aborts the named child future its await started", {
   });
   parent := io.async((io : Io) => {
     v := io.await(child, io);
-    (v + i32(1))
+    v + i32(1)
   });
   hp := io.spawn(parent, io);
   io.await(yield(io), io);
@@ -239,7 +239,7 @@ test("aborting a task leaves a named future that someone else started running", 
 // (issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md).
 // ---------------------------------------------------------------------------
 _Awaitable :: struct(v : i32);
-impl(_Awaitable, await : (fn(self : Self, io : Io) -> i32)((self.v + i32(1))));
+impl(_Awaitable, await : (fn(self : Self, io : Io) -> i32)(self.v + i32(1)));
 test("a user method named await compiles and runs as a method", {
   t := _Awaitable(v : i32(5));
   assert(t.await(io) == i32(6), "the user's await ran");

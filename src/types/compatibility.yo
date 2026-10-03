@@ -326,6 +326,57 @@ _is_identity_mode :: (fn(mode : _CompatMode) -> bool)(
 _exact_mode :: (fn(mode : _CompatMode) -> _CompatMode)(
   match(mode, .Identity => _CompatMode.Identity, _ => _CompatMode.Invariant)
 );
+/// The `Future(...)` requirement `t` carries: itself, or the first one in a
+/// SomeT's required traits.
+_future_trait_of :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .FutureTraitT(base_name : _) => Option(TypeValue).Some(t),
+    .SomeT(required_trait_types : rtt) => {
+      (i : usize) = usize(0);
+      while(i < rtt.len(), i = (i + usize(1)), {
+        match(rtt.get(i), .Some(.FutureTraitT(base_name : _)) => return(rtt.get(i)), _ => ());
+      });
+      Option(TypeValue).None
+    },
+    _ => Option(TypeValue).None
+  )
+);
+/// A SomeT's resolution when it has one, else the type itself.
+_resolved_or_self :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    resolve_cell_chain(t),
+    .SomeT({ resolution : r }) => match(r, .Some(x) => resolve_cell_chain(x), .None => resolve_cell_chain(t)),
+    other => other
+  )
+);
+/// True when `actual` is a future whose bundle carries something other than
+/// `Io` and `expected` is a future that names no bundle: an await or spawn
+/// through `expected` injects nothing, so the body would run against a zeroed
+/// bundle. An unresolved (generic) bundle is not judged here: it is checked
+/// again at the concrete call.
+_future_view_drops_a_bundle :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
+  ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
+  af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
+  e_types := ArrayList(TypeValue).new();
+  e_labels := ArrayList(String).new();
+  a_types := ArrayList(TypeValue).new();
+  a_labels := ArrayList(String).new();
+  match(ef, .FutureTraitT(effect_labels : els, effect_types : ets, effect_spreads : esp) => _flatten_effects(els, ets, esp, e_labels, e_types), _ => ());
+  match(af, .FutureTraitT(effect_labels : als, effect_types : ats, effect_spreads : asp) => _flatten_effects(als, ats, asp, a_labels, a_types), _ => ());
+  if((e_types.len() != usize(0)) || (a_types.len() == usize(0)), {
+    return(false);
+  });
+  (drops : bool) = false;
+  (i : usize) = usize(0);
+  while(i < a_types.len(), i = (i + usize(1)), {
+    at := _resolved_or_self(match(a_types.get(i), .Some(v) => v, .None => TypeValue.Unit));
+    if(!is_some_type(at) && !is_prelude_io_struct(at), {
+      drops = true;
+    });
+  });
+  drops
+});
 _compat_impl :: (
   fn(
     actual : TypeValue,
@@ -343,6 +394,15 @@ _compat_impl :: (
   // (plans/reference/TYPE_IDENTITY.md, Phase 3.6).
   if(is_never_type(actual), {
     return(!require_exact || is_never_type(expected));
+  });
+  // --- A bundled future may not be viewed as a bundle-less one ---------------
+  // Checked before any SomeT unwrapping: an `Impl(Future(...))` argument
+  // otherwise recurs into its concrete state-machine type, whose `Future`
+  // trait check matches by name and never reaches the effect comparison in
+  // the FutureTraitT branch below
+  // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
+  if(_future_view_drops_a_bundle(actual, expected), {
+    return(false);
   });
   // --- ComptimeInt widening -------------------------------------------------
   if(is_comptime_int_type(actual), {

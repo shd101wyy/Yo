@@ -5379,14 +5379,30 @@ _evaluate_function_call_unanchored :: (
       // matchers (`is_io_await_call`, `is_join_handle_await_call`, …) do not
       // lower it as the builtin
       // (issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md).
+      // The receiver's type decides: a known struct or enum that is not the
+      // prelude's `Io` or `JoinHandle` has its own method. (The callee VALUE
+      // of a method on a runtime receiver is not a function value, so it
+      // cannot decide.) An unknown receiver type records nothing and keeps
+      // the spelling fallback.
       iob_user_fn := match(
-        callee_info_opt,
-        .Some(iob_ci2) => match(
-          iob_ci2.value,
-          .Some(.FuncVal(_, _)) => match(iob_ci2.ty, .Func({ meta : iob_m2 }) => iob_m2.*.extern_name.is_none(), _ => false),
-          _ => false
-        ),
-        .None => false
+        func_expr,
+        .FnCall(_, iob_dot2, iob_dargs2, _, _) => if(match(iob_dot2, .Atom(_, iob_dtok2) => (iob_dtok2.kind == TokenKind.Dot), _ => false)
+        && (iob_dargs2.len() == usize(2)), match(
+          iob_dargs2.get(usize(0)),
+          .Some(iob_re2) => match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(iob_re2)),
+            .Some(iob_ri2) => match(
+              iob_ri2.ty,
+              .Struct({ id : iob_sid2, name : iob_sn2 }) => !(((iob_sn2 == "Io") || (iob_sn2 == "JoinHandle"))
+              && match(type_decl_module(iob_sid2.clone()), .Some(iob_mod2) => iob_mod2.ends_with("prelude.yo"), .None => false)),
+              .EnumT(_) => true,
+              _ => false
+            ),
+            .None => false
+          ),
+          .None => false
+        ), false),
+        _ => false
       );
       if(iob_user_fn && (is_io_async_call(expr) || (is_io_await_call(expr) || (is_io_state_call(expr) || (is_io_spawn_call(expr) || is_join_handle_await_call(expr))))), {
         record_io_builtin_call(ast_expr_id(expr), String.from(IO_BUILTIN_NONE));
