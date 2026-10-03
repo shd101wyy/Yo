@@ -3415,8 +3415,17 @@ impl(
 impl(
   String,
   Clone(
+    // The payload is rebuilt through the enum constructor, which retains the
+    // buffer. `Self(_bytes : self._bytes)` would be the direct spelling, but a
+    // newtype built from a field or local is emitted as a bare cast with no
+    // retain on v0.2.50 (issues/a-newtype-built-from-a-field-projection-is-not-retained.md),
+    // and std is compiled by that seed.
     clone : (fn(inout(self) : Self) -> Self)(
-      Self(_bytes : self._bytes)
+      match(
+        self._bytes,
+        .Some(al) => Self(_bytes : .Some(al)),
+        .None => Self(_bytes : .None)
+      )
     )
   )
 );
