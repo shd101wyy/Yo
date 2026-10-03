@@ -40,6 +40,8 @@ export(main);
 
 The emitted clone is `return ((String)(*self));`, with no `__yo_incr_rc`, while the caller releases both `s` and `t`.
 
+It already breaks a CLI golden on the copy-on-write branch: `tests/cli-cases/compile-allocator-fixed-oom-shapes` loses its `string: died with an allocation diagnostic` line because the PARENT process dies with SIGSEGV (rc 139) in its third loop iteration, at `.arg(shape.clone())`. Under `--allocator fixed` the double release corrupts the TLSF region. Replacing that argument with `(shape + String.new())` (a new string, no clone) restores all three verdict lines. `tests/cli-cases/test-in-file-tests` fails too: all three of its tests stop with an ASan `heap-use-after-free` at `label : c.label.clone()` (`lib/counter.yo`).
+
 ## Cause
 
 Likely cause, read from the source and not yet confirmed by a fix: the value-struct / newtype constructor emitter in `src/codegen/exprs/other_fn_call.yo` (the "Value-struct / newtype constructor call with RUNTIME field args" block) has two branches. The compound-literal branch emits each field argument through `emit_deferred_dup_or_code(a, _call_generate_expr(a, ...), ...)`, which honors the deferred `___dup` the evaluator attaches to a borrowed argument. The newtype zero-cost-cast branch calls `_call_generate_expr(a, ...)` alone, so the dup is dropped. This is the rule in `.github/instructions/c-codegen.instructions.md`, "A call emitter must emit its arguments' deferred dups".
