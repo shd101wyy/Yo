@@ -3,7 +3,11 @@
 //! Speaks LSP over stdio: base-protocol framing (transport.yo), JSON-RPC
 //! dispatch, the initialize handshake, FULL text-document sync, and push
 //! diagnostics on open/change (diagnostics.yo). One message is handled at a
-//! time — the protocol methods served so far are all sequential-safe.
+//! time — the protocol methods served so far are all sequential-safe. A
+//! `didChange` does NOT analyze inline: it updates the retained text at once
+//! and the analysis runs when the edit burst settles (see `PendingAnalysis`),
+//! so requests arriving mid-edit are answered from the last parsed outcome
+//! instead of queueing behind a full evaluation.
 //!
 //! Every message is handled inside `_handle_message`, whose LOCAL exception
 //! handler turns a malformed frame or JSON body into a skipped message
@@ -21,7 +25,9 @@
 { eprintln } :: import("std/fmt");
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
-{ read_lsp_message, write_lsp_message, prepare_wire } :: import("./transport.yo");
+{ Instant } :: import("std/time/instant");
+{ Duration } :: import("std/time/duration");
+{ read_lsp_message, write_lsp_message, prepare_wire, wait_lsp_input, LspInputWake } :: import("./transport.yo");
 {
   jb,
   jstr,
@@ -240,6 +246,103 @@ _analyze_and_publish :: (
 _publish_empty :: (fn(uri : String) -> unit)({
   params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : ArrayList(JsonValue).new())).obj();
   write_lsp_message(json.stringify(j_notification("textDocument/publishDiagnostics", params)));
+});
+
+/// The idle window a `didChange` analysis waits out, in milliseconds. Every
+/// further change extends it (a classic debounce), and requests during it
+/// are served from the retained outcome. 300 ms sits inside the 200–500 ms
+/// band the fix direction names: small enough that diagnostics feel
+/// immediate, large enough that a burst of keystrokes collapses into one
+/// full analysis instead of one per key
+/// (issues/fixed/lsp-per-keystroke-full-reanalysis-limits-responsiveness.md).
+_ANALYSIS_DEBOUNCE_MS :: i64(300);
+
+/// The pending half of the debounce: which documents changed since the last
+/// analysis (in first-change order) and when the idle window closes
+/// (`deadline` is meaningless while `uris` is empty). One per server,
+/// threaded through the message loop. A `ref` struct so the scheduling and
+/// flushing helpers mutate the same list.
+PendingAnalysis :: ref(
+  struct(
+    uris : ArrayList(String),
+    deadline : Instant
+  )
+);
+
+/// An empty `PendingAnalysis`.
+_new_pending_analysis :: (fn() -> PendingAnalysis)(
+  PendingAnalysis(uris : ArrayList(String).new(), deadline : Instant.now())
+);
+
+/// Record a `didChange`: the editor's newest text (and its lines) are
+/// current from this instant — position conversion and token matching read
+/// them — and the open-buffer overlay is refreshed so an import analyzed in
+/// the window reads this text, while the full analysis itself is deferred to
+/// the idle window (`_flush_pending_analyses`). Each change re-arms the
+/// window, so a burst of keystrokes costs one analysis at the end, not one
+/// per key. A document with no retained state (a `didChange` without a
+/// `didOpen`) falls back to an immediate analysis: there is no outcome to
+/// serve requests from in the meantime.
+_note_document_change :: (
+  fn(uri : String, text : String, std_path : String, docs : HashMap(String, DocState), pending : PendingAnalysis, io : Io) -> unit
+)(
+  match(
+    docs.get(uri.clone()),
+    .Some(st) => {
+      st.text = text.clone();
+      st.lines = text.split(String.from("\n"));
+      mm_set_open_document(uri_to_fs_path(uri.clone()), text.clone());
+      known := false;
+      (i : usize) = usize(0);
+      while(i < pending.uris.len(), {
+        match(
+          pending.uris.get(i),
+          .Some(u) => {
+            if(u == uri.clone(), {
+              known = true;
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      if(!known, {
+        pending.uris.push(uri.clone());
+      });
+      window := Instant.now();
+      pending.deadline = window.add(Duration.from_millis(_ANALYSIS_DEBOUNCE_MS));
+    },
+    .None => _analyze_and_publish(uri, text, std_path, docs, io)
+  )
+);
+
+/// Run the deferred analysis (and publish) for every document the debounce
+/// holds, against each document's newest text. Called when the idle window
+/// closes, and once more after the read loop ends, so a conversation that
+/// stops (EOF or `exit`) still delivers the last edit's diagnostics. A
+/// document closed inside the window is skipped: its state is gone and
+/// `didClose` already cleared its diagnostics.
+_flush_pending_analyses :: (
+  fn(std_path : String, docs : HashMap(String, DocState), pending : PendingAnalysis, io : Io) -> unit
+)({
+  if(pending.uris.len() == usize(0), {
+    return(());
+  });
+  due := pending.uris;
+  pending.uris = ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < due.len(), {
+    match(
+      due.get(i),
+      .Some(u) => match(
+        docs.get(u.clone()),
+        .Some(st) => _analyze_and_publish(u.clone(), st.text.clone(), std_path.clone(), docs, io),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
 });
 
 /// signatureHelp trigger characters: "(" and ",".
@@ -496,6 +599,7 @@ _handle_message :: (
     body : String,
     docs : HashMap(String, DocState),
     std_path : String,
+    pending : PendingAnalysis,
     io : Io
   ) -> i32
 )({
@@ -1062,7 +1166,10 @@ _handle_message :: (
         .Some(params) => {
           uri := _params_uri(params);
           // Full sync: the last contentChanges entry's `text` is the whole
-          // document (we advertise TextDocumentSyncKind.Full).
+          // document (we advertise TextDocumentSyncKind.Full). The text is
+          // retained at once but the analysis is DEBOUNCED — see
+          // `_note_document_change`; publishDiagnostics still follows every
+          // analysis, just the idle window after the last edit.
           text_opt := match(
             params.get(String.from("contentChanges")),
             .Some(changes) => match(
@@ -1082,7 +1189,7 @@ _handle_message :: (
           match(
             text_opt,
             .Some(text) => if(uri.len() > usize(0), {
-              _analyze_and_publish(uri, text, std_path.clone(), docs, io);
+              _note_document_change(uri, text, std_path.clone(), docs, pending, io);
             }),
             .None => ()
           );
@@ -1217,6 +1324,7 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
   // another module takes the file-level fallback for it.
   reader := BufReader(Stdin).new(stdin());
   docs := HashMap(String, DocState).new();
+  pending := _new_pending_analysis();
   std_path := resolve_std_path();
   // No startup banner: the cli-case harness merges stderr into stdout, and
   // stderr/stdout interleaving is not deterministic. Real editors surface
@@ -1224,6 +1332,21 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
   (running : bool) = true;
   (exit_code : i32) = i32(0);
   while(running, {
+    // While a debounce window is open the loop waits on INPUT, not on the
+    // blocking read: a message that arrives is served at once (against the
+    // retained outcome, the same last-parsed contract mid-edit requests
+    // already run under), and only a stream that stays silent past the
+    // deadline pays for the deferred analysis. Without this wait every
+    // keystroke's didChange ran a synchronous full evaluation and every
+    // request behind it queued for seconds
+    // (issues/fixed/lsp-per-keystroke-full-reanalysis-limits-responsiveness.md).
+    if(pending.uris.len() > usize(0), {
+      match(
+        wait_lsp_input(reader, pending.deadline),
+        .Idle => _flush_pending_analyses(std_path.clone(), docs, pending, io),
+        .Readable => ()
+      );
+    });
     msg_opt := read_lsp_message(reader, io, exn);
     match(
       msg_opt,
@@ -1232,7 +1355,7 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
         running = false;
       },
       .Some(body) => {
-        action := _handle_message(body, docs, std_path.clone(), io);
+        action := _handle_message(body, docs, std_path.clone(), pending, io);
         if(action == i32(10), {
           running = false;
         });
@@ -1242,6 +1365,13 @@ run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
         });
       }
     );
+  });
+  // The last word still counts: a conversation that ends while a window is
+  // open (EOF, or `exit` right after the final edit) publishes that edit's
+  // diagnostics before the server goes — a redirected/piped client reads
+  // stdout to the end.
+  if(pending.uris.len() > usize(0), {
+    _flush_pending_analyses(std_path.clone(), docs, pending, io);
   });
   if(exit_code != i32(0), {
     exn.throw(dyn(`lsp: exit notification received without a shutdown request`));

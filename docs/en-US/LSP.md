@@ -64,7 +64,8 @@ next to itself).
 
 ### 1. Diagnostics
 
-Errors are published on open and on every change, at the exact range the
+Errors are published on open and after each change settles (a short idle
+window — see "Behaviour while editing"), at the exact range the
 compiler's own diagnostic renderer underlines, with the diagnostic's severity
 (`error`, `warning`, `note`, `help`) and its code (`E0401`, …) when it has one.
 Errors in an imported file surface at the top of the importing document with
@@ -225,6 +226,16 @@ references and rename, so those keep answering mid-edit; positions are matched
 against the current text by token, so a stale analysis answers only where the
 two still agree. A document that parses but fails to evaluate keeps its full
 program and every type the evaluator recorded before the error.
+
+A `didChange` retains the new text at once but does not re-analyze inline:
+the full analysis (and with it `publishDiagnostics`) is debounced to a short
+idle window (300 ms) after the last edit, so a burst of keystrokes costs one
+analysis instead of one per key, and a request arriving mid-edit — hover,
+completion, signature help — is answered immediately from the retained
+analysis rather than queueing behind a fresh evaluation (which takes seconds
+on compiler-sized files). Diagnostics therefore lag the last keystroke by
+the window, never more; a conversation that ends while a window is still
+open still delivers the final diagnostics before the server exits.
 
 Edits to an open imported file are visible to the next analysis of any
 document that imports it (the server overlays open buffers on the module
