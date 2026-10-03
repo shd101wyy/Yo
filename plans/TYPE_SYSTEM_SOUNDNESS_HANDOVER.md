@@ -241,7 +241,7 @@ definitions in 31 of them:
   `stable_type_identity`) has the same shape. No reproducer was found for those.
 - **Phase 3 step 9 (array lengths by identity)** has a written design in the plan (the
   `ArrayLen` sum, the site table, a five-step migration). Not started.
-- **`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`**
+- **`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`**
   (S3, handed over by a peer 2026-10-01): `EnumT` has no `type_arguments`, so a phantom enum
   instance cannot be matched to its generic impl through a `comptime(K) : Type` parameter. The
   fix (a `type_arguments` field that `substitute` rewrites, plus the CTFE canonicalization
