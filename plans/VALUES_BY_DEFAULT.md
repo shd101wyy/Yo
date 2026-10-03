@@ -164,7 +164,7 @@ no `s[i] = b` either), which closes the UTF-8 hole.
   arc :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None, where(T <: (Sync, Acyclic))) -> Arc(T))(...);
 
   e := Expr.Add(box(l), box(r));            // T inferred from the argument
-  c := rc(node, alloc : arena.allocator()); // placed in the arena
+  c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
   ```
 
   - `T` is inferred from the argument, so a call never spells it; this is
@@ -174,7 +174,20 @@ no `s[i] = b` either), which closes the UTF-8 hole.
   - `alloc : .None` (the default; defaults must be compile-time values)
     means the current `with_allocator` scope, else the global allocator;
     `.Some(a)` places the cell in `a` (§3.11). There is no `new_in` and no
-    `box_in`: one function per wrapper.
+    `box_in`: one function per wrapper. Measured 2026-10-03 on v0.2.49 with
+    a pragma'd module declaring the function and a safe caller: both calls
+    compile and run. The caller writes `.Some(...)`: Yo does not wrap a `T`
+    into `Option(T)` (E0601), and a non-`Option` parameter cannot default to
+    `Allocator.global()`, which is not a compile-time value (defaults are
+    checked nowhere today: `issues/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`).
+    `Option(Allocator)` in a signature is a raw-pointer-carrying type,
+    which the naming gate allows in std (implicitly unsafe-capable) and
+    rejects in a safe user file; passing the value needs no pragma, as with
+    `new_in` today.
+  - **Default parameters resolve names in the caller's module today**
+    (`issues/a-default-parameter-value-resolves-names-in-the-callers-module.md`,
+    S1). `.None` names nothing, so these constructors are unaffected; the
+    issue blocks any default that names a module binding.
   - **The type is not callable outside the prelude.** This is ordinary
     member visibility (DESIGN §member visibility, the `Counter.new`
     pattern), not a builtin: after V5 each wrapper's only field is private,
@@ -194,7 +207,7 @@ no `s[i] = b` either), which closes the UTF-8 hole.
     `.Some(a)` is the same helper given `a` as an explicit scope. So
     `box(v)` costs what a `ref` constructor costs today (the `.None` default
     is a compile-time constant, folded once `box` inlines), and
-    `box(v, alloc : a)` pays no scope save/restore, no `_ScopeGuard`
+    `box(v, alloc : .Some(a))` pays no scope save/restore, no `_ScopeGuard`
     allocation and no closure. Routing the explicit case through
     `with_allocator(a, () => …)` would add all three to every call.
     During V1–V4, before the primitive exists, the constructors' explicit
@@ -585,11 +598,11 @@ changes is what a block is.
   `clone_deep()` (V2b) builds fresh cells and so follows the scope it runs
   in: `with_allocator(Allocator.global(), () => v.clone_deep())`.
 - **Placing one cell: the constructors' `alloc` parameter** (§3.2):
-  `rc(v, alloc : a)`. A scope is the tool for placing everything a call
+  `rc(v, alloc : .Some(a))`. A scope is the tool for placing everything a call
   tree creates; a parameter is the tool for one cell. It is not D2's
   rejected `alloc_in` (a keyword or lazy-expression builtin): it is an
   ordinary defaulted parameter. Containers keep `new_in`/`with_capacity_in`
-  for now; moving them to the same `alloc` parameter (`ArrayList(T).new(alloc : a)`)
+  for now; moving them to the same `alloc` parameter (`ArrayList(T).new(alloc : .Some(a))`)
   so that all of std places blocks one way is a separate decision, not part
   of this plan.
 - **`Allocator` moves into the prelude.** The constructors' signatures name
@@ -804,7 +817,7 @@ changes meaning:
 
 Tests: auto-deref for field, method, nested wrapper, wrapper-member
 precedence, place write through `Rc`, copy-on-write through `Box`, D3 through
-`Arc`; `box`/`rc`/`arc` with `alloc : a` place the cell in `a` (the owner
+`Arc`; `box`/`rc`/`arc` with `alloc : .Some(a)` place the cell in `a` (the owner
 read back with `Allocator.owner_of`) and without it follow the current
 scope, and a `make_unique` clone of an arena cell stays in the arena. Exit:
 gates green, the `Rc` marker trait absent from the tree.
@@ -1015,8 +1028,8 @@ Per type, in this order, each its own PR, measured:
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value, or on the private cell | V3 impl check |
 | A resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `inout` | E0901 + note |
 | `Iso(T)` of a `ref(struct)` | `Iso(T)` of a value reaching a cell | unchanged call sites |
-| `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; with an allocator, `box(v, alloc : a)` | docs and skills teach only the functions; E0405 after V5 |
-| `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : a)` | review |
+| `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; with an allocator, `box(v, alloc : .Some(a))` | docs and skills teach only the functions; E0405 after V5 |
+| `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
 | `rc(x)` (the count) | `ref_count(x)` on a `Box`/`Rc`/`Arc`/collection/`Dyn`; a compile error on a value with no cell | V1 step 0 rename |
 | `rc` as a local or parameter name | another name (`code`, `status`); the prelude's `rc` constructor owns the name | the no-shadowing error at the definition |
 
