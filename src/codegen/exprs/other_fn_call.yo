@@ -576,8 +576,9 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
 /// projection — is materialized exactly as the plain-call path does
 /// (`_materialize_arg`); any other argument is its plain code, so a call
 /// without a dup emits the same C as before. Generating these arguments
-/// bare dropped the dup while the callee still released its copy, so the
-/// caller's own drop of the field freed it a second time
+/// bare dropped the dup: an `own` callee still released its copy, so the
+/// caller's own drop of the field freed it a second time, and a receiver
+/// projection was not held while the callee replaced it
 /// (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
 _dispatch_arg_code :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   has_dup := match(
