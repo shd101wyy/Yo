@@ -1,0 +1,19 @@
+// expect-elided: 0
+// Negative twin of arraylist_index_proved.yo: the index is known in bounds
+// only through a callee's `ensures`, an unenforced assumption under 5b §5.1
+// rule 3, so the subscript keeps the checked `index` call even though the
+// obligation is proved (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+
+first_index :: (fn(xs : ArrayList(i32), requires(!xs.is_empty()), ensures(r < xs.len())) -> (r : usize))(usize(0));
+
+first :: (fn(xs : ArrayList(i32), requires(!xs.is_empty())) -> (r : i32))(xs(first_index(xs)));
+
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(3));
+  println(first(xs));
+});
+export(main);

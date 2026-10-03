@@ -1,0 +1,23 @@
+// expect-elided: 3
+// 5b container bounds elision
+// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md): each `xs(i)` on an
+// ArrayList is proved in bounds by its function's `requires`, so codegen calls
+// the `IndexUnchecked` twin instead of the checked `index`: one read in `get`,
+// two in `sum2`. The i32 addition in `sum2` keeps its overflow guard (nothing
+// bounds the elements).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+
+get :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
+
+sum2 :: (fn(xs : ArrayList(i32), requires(xs.len() >= usize(2))) -> (r : i32))(xs(usize(0)) + xs(usize(1)));
+
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(3));
+  xs.push(i32(4));
+  println(get(xs, usize(1)));
+  println(sum2(xs));
+});
+export(main);

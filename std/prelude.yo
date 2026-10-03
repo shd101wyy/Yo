@@ -309,6 +309,18 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   )
 );
 export(Index);
+/// IndexUnchecked — the bounds-check-free twin of `Index(usize)`.
+/// Codegen calls `index_unchecked` instead of `index` ONLY at a subscript the
+/// verifier proved in bounds, in a verify-mode file
+/// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md). It returns a raw
+/// pointer, so safe code cannot call it. An impl's body must be its `index`
+/// body minus the length test: anything weaker turns a proof into undefined
+/// behavior.
+IndexUnchecked :: trait(
+  Output : Type,
+  index_unchecked : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))
+);
+export(IndexUnchecked);
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(

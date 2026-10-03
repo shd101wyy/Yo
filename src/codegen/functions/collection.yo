@@ -27,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { CodeGenContext, DynImplEntry, type_key, c_symbol_name, function_c_name, extern_c_global_matches } :: import("../utils/index.yo");
 { is_target_wasm } :: import("../../target.yo");
 { canonical_module_path } :: import("../../utils.yo");
+{ index_unchecked_twin_of } :: import("../../evaluator/builtins/contracts.yo");
 // Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): the
 // compiler has no codegen-time monomorphizer, so the trace collector drives the
 // evaluator's create_specialized_function_inline. These are the normal
@@ -704,6 +705,22 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
           if(!context.has_function(iid.clone()), {
             context.register_function(iid.clone(), imv, function_c_name(iid));
             recur(_func_val_body(imv), context, info);
+          });
+        }),
+        .None => ()
+      );
+      // 5b container bounds elision: the subscript's `IndexUnchecked` twin
+      // (recorded only in verify-mode target files) is emitted beside
+      // `index`, so a proved site can call it
+      // (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+      match(
+        index_unchecked_twin_of(ast_expr_id(expr)),
+        .Some(tw) => if(is_func_val(tw), {
+          twid := _func_val_id(tw);
+          mark_as_index_entry_method(twid.clone());
+          if(!context.has_function(twid.clone()), {
+            context.register_function(twid.clone(), tw, function_c_name(twid));
+            recur(_func_val_body(tw), context, info);
           });
         }),
         .None => ()

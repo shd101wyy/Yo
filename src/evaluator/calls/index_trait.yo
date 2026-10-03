@@ -48,7 +48,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
+{ convert_comptime_type_to_runtime_type, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
+{ _is_verify_target, resolve_verify_mode, record_index_unchecked_twin } :: import("../builtins/contracts.yo");
 { evaluate_expression, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { try_to_call_function_with_arguments } :: import("./helper.yo");
 { get_func_param_comptime } :: import("../types/function.yo");
@@ -1592,6 +1593,7 @@ try_to_call_with_index_trait :: (
     .Some(_) => _specialize_index_method(method.method_value, method.method_type, expr, caller_env, ctx, arg_expr, spec_out),
     .None => ()
   );
+  _record_index_unchecked_twin(value_type, arg_type, output_ty, expr, caller_env, ctx, arg_expr);
   ctx.expected_type = saved_idx_exp;
   spec_method_value := match(spec_out.get(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => method.method_value);
   IndexCallResult(
@@ -1604,6 +1606,72 @@ try_to_call_with_index_trait :: (
     index : Option(usize).None,
     comptime_ref : Option(ComptimeRef).None
   )
+});
+// ---------------------------------------------------------------------------
+// _record_index_unchecked_twin
+// ---------------------------------------------------------------------------
+/// 5b container bounds elision
+/// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md). In a verify-mode
+/// target file, specialize the receiver's `IndexUnchecked` `index_unchecked`
+/// for this subscript and record it, so codegen can call it in place of
+/// `index` once the verifier proves the site in bounds. Only the method that
+/// the `IndexUnchecked` trait itself supplies qualifies, matched by trait id
+/// and never by method name alone: an unrelated `index_unchecked` would turn
+/// a proof into undefined behavior. Its result must point at the same
+/// `Output` as `index`'s. Runtime-mode files record nothing, so their C is
+/// unchanged.
+_record_index_unchecked_twin :: (
+  fn(value_type : TypeValue, arg_type : TypeValue, output_ty : TypeValue, expr : AstExpr, caller_env : Environment, ctx : EvalContext, idx_expr : AstExpr) -> unit
+)({
+  tok := ast_expr_token(expr);
+  if(!_is_verify_target(tok.module_path.clone()), {
+    return(());
+  });
+  vmode := resolve_verify_mode(tok.module_path.clone());
+  if(!((vmode == "verify") || (vmode == "verify+")), {
+    return(());
+  });
+  if(!are_types_compatible(arg_type, t_usize()), {
+    return(());
+  });
+  trait_id := match(
+    get_trait_type_from_env(caller_env, String.from("IndexUnchecked")),
+    .Some(.TraitT(id : tid)) => tid,
+    _ => String.new()
+  );
+  if(trait_id == "", {
+    return(());
+  });
+  cands := get_receiver_methods_by_name_from_env(caller_env, String.from("index_unchecked"), value_type, false);
+  (picked : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
+  (ci : usize) = usize(0);
+  while((ci < cands.len()) && picked.is_none(), {
+    c := cands(ci);
+    if((c.source_trait_id == trait_id) && c.value.is_some(), {
+      same_output := match(
+        c.ty,
+        .Func({ result : .Pointer(twin_out) }) => (are_types_compatible(twin_out, output_ty) && are_types_compatible(output_ty, twin_out)),
+        _ => false
+      );
+      if(same_output, {
+        picked = Option(_IndexMethodEntry).Some(_IndexMethodEntry(method_type : c.ty, method_value : c.value));
+      });
+    });
+    ci = (ci + usize(1));
+  });
+  match(
+    picked,
+    .Some(tw) => {
+      twin_out := ArrayList(EvalValue).new();
+      _specialize_index_method(tw.method_value, tw.method_type, expr, caller_env, ctx, idx_expr, twin_out);
+      match(
+        twin_out.get(usize(0)),
+        .Some(sv) => record_index_unchecked_twin(ast_expr_id(expr), sv),
+        .None => ()
+      );
+    },
+    .None => ()
+  );
 });
 // ---------------------------------------------------------------------------
 // has_index_impl
