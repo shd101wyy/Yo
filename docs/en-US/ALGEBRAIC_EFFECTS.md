@@ -537,8 +537,7 @@ lib.yo
 
 A parameter is an effect when its type is, transitively through struct
 fields, a handler record (a struct with a `ctl(...)` field — `Exception`,
-`ResumableException(T)`: kind `ctl`), the prelude `Io` (kind `io`), or an
-effects-row implicit (kind `row`). A returned `Impl(Future(T, E))` reports `E`
-under `future`, since the awaiter must supply it. `--json` prints one object
+`ResumableException(T)`: kind `ctl`) or the prelude `Io` (kind `io`). A
+returned `Impl(Future(T, E))` reports `E` under `future`, since the awaiter must supply it. `--json` prints one object
 per module: `{"file", "functions": [{"name", "effects": [{"param", "type",
 "via": "param" | "implicit" | "future", "kinds"}]}]}`.

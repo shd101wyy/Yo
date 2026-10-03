@@ -7,7 +7,8 @@
 //!   Pass 4 — scan where clause and try to evaluate constraints (with pending retry)
 //!   Pass 5 — process regular parameters; retry pending constraints after each
 //!
-//! Effect-row generic `E : Type.Struct` and effect-row spread `E : Type.Struct` are fully implemented.
+//! An effect row is a `generic(E : Type.Struct)` parameter; the older `...(E)`
+//! spread spelling was removed (2026-10-03) and is reported as an error.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 import("std/fmt");
@@ -39,12 +40,12 @@ import("std/fmt");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
-{ EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
+{ EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id, type_has_computed_array_len } :: import("../../types/creators.yo");
+{ t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type, is_effects_row_type }
+{ is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type }
 :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
@@ -813,7 +814,7 @@ _collect_where_constraints_from_some_t :: (
 )({
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
       (ri : usize) = usize(0);
       while(ri < required_trait_types.len(), {
         match(
@@ -851,7 +852,6 @@ FuncParam :: struct(
   is_quote : bool,
   is_owning_rc_value : bool,
   is_implicit : bool,
-  is_effect_row_spread : bool,
   // The parameter's evaluated `?= default` value, or `.None` for a
   // required parameter. Collected into a func-id-keyed side-table (the
   // Func TypeValue does not carry per-param default info) so call-site arg
@@ -1158,7 +1158,7 @@ _add_where_clause_constraint :: (
 )(
   match(
     some_ty,
-    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _) => {
       // Dedup by trait id before appending. A SomeT's trait lists are shared by
       // REFERENCE, so re-validating the same where clause used to append another
       // copy every time — measured at the entries.yo codegen panic, one SomeT's
@@ -1820,7 +1820,6 @@ use_id :: (fn(generic(T : Type),
           is_quote,
           is_owning_rc_value,
           false,
-          false,
           captured_default_value,
           is_param_ref,
           default_value_expr,
@@ -1851,7 +1850,7 @@ use_id :: (fn(generic(T : Type),
                 new_some := av_box;
                 match(
                   new_some,
-                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _, _) => {
+                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
                     // Merge required traits
                     (ri : usize) = usize(0);
                     while(ri < new_rtt.len(), {
@@ -2004,7 +2003,6 @@ use_id :: (fn(generic(T : Type),
     is_compile_time_only,
     is_quote,
     is_owning_rc_value,
-    false,
     false,
     captured_default_value,
     is_param_ref,
@@ -2898,6 +2896,17 @@ retry_pending_constraints :: (
   });
   still_pending
 });
+/// True for `...(E)` with one identifier argument: the removed effect-row
+/// spread spelling (the variadic `...(comptime(rest) : T)` has a non-atom
+/// argument and is not matched).
+_is_removed_row_spread :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, "...", .Some(usize(1))) && match(_fn_call_args(e).get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false)
+);
+/// The diagnostic for a removed `...(E)` effect-row spread in a `generic(...)`
+/// or implicit-parameter position.
+_removed_effect_row_spread_message :: (fn(spread_expr : AstExpr) -> String)(
+  `The effect-row spread ${ast_expr_to_string(spread_expr)} was removed: declare the effect row as generic(E : Type.Struct) and take the bundle as one parameter (e : E).`
+);
 // ---------------------------------------------------------------------------
 // evaluate_function_parameters
 // ---------------------------------------------------------------------------
@@ -2927,7 +2936,6 @@ evaluate_function_parameters :: (
     false,
     false,
     false,
-    false,
     Option(EvalValue).None,
     false,
     Option(AstExpr).None,
@@ -2945,89 +2953,11 @@ evaluate_function_parameters :: (
       while(j < forall_args.len(), {
         tp_expr := match(forall_args.get(j), .Some(a) => a, .None => make_err_expr());
         j = (j + usize(1));
-        // Detect E : Type.Struct — effect row variable declaration
-        (is_eff_row_forall : bool) = false;
-        if(ast_expr_is_fn_call_of(tp_expr, "...", .Some(usize(1))) &&
-          ast_expr_is_atom(match(_fn_call_args(tp_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr())), {
-          inner_arg := match(_fn_call_args(tp_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-          row_var_name := ast_expr_token(inner_arg).value.clone();
-          // Duplicate check
-          (erd_found : bool) = false;
-          (erdi : usize) = usize(0);
-          while(erdi < forall_params.len(), {
-            erfp := match(
-              forall_params.get(erdi),
-              .Some(p) => p,
-              .None => {
-                erdi = forall_params.len();
-                break;
-              }
-            );
-            if(erfp.label == row_var_name, {
-              erd_found = true;
-              erdi = forall_params.len();
-            });
-            erdi = (erdi + usize(1));
-          });
-          if(erd_found, {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(tp_expr),
-                  `Duplicate label "${row_var_name}" in type parameter`
-                )
-              )
-            );
-          });
-          // Create effects-row SomeT (is_effects_row = true)
-          er_frame_level := cond(
-            (env_mut.frames.len() > usize(0)) => (env_mut.frames.len() - usize(1)),
-            true => usize(0)
-          );
-          eff_row_some_type := TypeValue.SomeT(
-            generate_some_type_id(),
-            row_var_name.clone(),
-            er_frame_level,
-            TypeValue.TypeUni(usize(1)),
-            ArrayList(TypeValue).new(),
-            ArrayList(usize).new(),
-            ArrayList(TypeValue).new(),
-            ArrayList(usize).new(),
-            true,
-            Option(TypeValue).None,
-            Option(TypeValue).None
-          );
-          row_kind_type := TypeValue.TypeUni(usize(1));
-          add_variable_to_env(
-            env_mut,
-            row_var_name.clone(),
-            row_kind_type.clone(),
-            Option(EvalValue).Some(EvalValue.TypeVal(eff_row_some_type.clone())),
-            true,
-            false,
-            false,
-            false,
-            ast_expr_token(inner_arg)
-          );
-          forall_params.push(
-            FuncParam(
-              row_var_name.clone(),
-              row_kind_type.clone(),
-              true,
-              false,
-              false,
-              false,
-              false,
-              Option(EvalValue).None,
-              false,
-              Option(AstExpr).None,
-              Option(AstExpr).None
-            )
-          );
-          is_eff_row_forall = true;
-        });
-        if(is_eff_row_forall, {
-          continue;
+        // `generic(..., ...(E))` declared an effect-row variable for the
+        // removed `...(E)` spread syntax; an effect row is a
+        // `generic(E : Type.Struct)` parameter.
+        if(_is_removed_row_spread(tp_expr), {
+          exn.throw(dyn(format_error_message(ast_expr_token(tp_expr), _removed_effect_row_spread_message(tp_expr))));
         });
         param := evaluate_function_parameter(tp_expr, env_mut, ctx, true, true, exn);
         // Duplicate check
@@ -3089,208 +3019,10 @@ evaluate_function_parameters :: (
     while(uj < using_args.len(), {
       impl_expr := match(using_args.get(uj), .Some(a) => a, .None => make_err_expr());
       uj = (uj + usize(1));
-      // Detect E : Type.Struct — effect row spread in
-      (is_eff_row_using : bool) = false;
-      if(ast_expr_is_fn_call_of(impl_expr, "...", .Some(usize(1))) &&
-        ast_expr_is_atom(match(_fn_call_args(impl_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr())), {
-        inner_arg2 := match(_fn_call_args(impl_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-        row_var_name2 := ast_expr_token(inner_arg2).value.clone();
-        // Look up E (must have been declared in generic)
-        row_vars := get_variables_from_env(env_mut, row_var_name2.clone());
-        if(row_vars.len() == usize(0), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(impl_expr),
-                `Effect row variable "${row_var_name2}" not found in scope. Declare it with generic(..., ...(${row_var_name2}))`
-              )
-            )
-          );
-        });
-        row_var_opt := row_vars.last();
-        match(
-          row_var_opt,
-          .None => {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(impl_expr),
-                  String.from("Effect row variable not found")
-                )
-              )
-            );
-          },
-          .Some(row_var) => {
-            e_val := row_var.value.get(usize(0));
-            (eff_row_handled : bool) = false;
-            match(
-              e_val,
-              .Some(ev) => {
-                if(is_type_val(ev) && !eff_row_handled, {
-                  inner_ty := match(ev, .TypeVal(b) => b, _ => TypeValue.Unit);
-                  if(is_effects_row_type(inner_ty.clone()), {
-                    // Expand concrete EffectsRowT into individual params
-                    match(
-                      inner_ty.clone(),
-                      .EffectsRowT(row_ls, row_ts) => {
-                        (ki : usize) = usize(0);
-                        while(ki < row_ls.len(), {
-                          lbl := match(row_ls.get(ki), .Some(l) => l, .None => String.from(""));
-                          ty := match(row_ts.get(ki), .Some(t) => t, .None => TypeValue.Unit);
-                          implicit_params.push(
-                            FuncParam(
-                              lbl.clone(),
-                              ty.clone(),
-                              true,
-                              false,
-                              false,
-                              true,
-                              false,
-                              Option(EvalValue).None,
-                              false,
-                              Option(AstExpr).None,
-                              Option(AstExpr).None
-                            )
-                          );
-                          ki = (ki + usize(1));
-                        });
-                      },
-                      _ => ()
-                    );
-                    eff_row_handled = true;
-                  }, {
-                    // TypeVal but not EffectsRowT — must be a SomeT with is_effects_row
-                    is_er_some := match(
-                      inner_ty.clone(),
-                      .SomeT(_, _, _, _, _, _, _, _, is_er, _, _) => is_er,
-                      _ => false
-                    );
-                    if(!is_er_some, {
-                      exn.throw(
-                        dyn(
-                          format_error_message(
-                            ast_expr_token(impl_expr),
-                            `"...(${row_var_name2})" requires "${row_var_name2}" to be a generic-declared effect row variable, but it resolves to a concrete type.`
-                          )
-                        )
-                      );
-                    });
-                    // Push spread marker
-                    implicit_params.push(
-                      FuncParam(
-                        row_var_name2.clone(),
-                        inner_ty.clone(),
-                        true,
-                        false,
-                        false,
-                        true,
-                        true,
-                        Option(EvalValue).None,
-                        false,
-                        Option(AstExpr).None,
-                        Option(AstExpr).None
-                      )
-                    );
-                    eff_row_handled = true;
-                  });
-                });
-                if(is_unknown_val(ev) && !eff_row_handled, {
-                  inner_ty2 := match(ev, .UnknownVal(b, _) => b, _ => TypeValue.Unit);
-                  if(is_effects_row_type(inner_ty2.clone()), {
-                    // Expand EffectsRowT
-                    match(
-                      inner_ty2.clone(),
-                      .EffectsRowT(row_ls2, row_ts2) => {
-                        (ki2 : usize) = usize(0);
-                        while(ki2 < row_ls2.len(), {
-                          lbl2 := match(row_ls2.get(ki2), .Some(l) => l, .None => String.from(""));
-                          ty2 := match(row_ts2.get(ki2), .Some(t) => t, .None => TypeValue.Unit);
-                          implicit_params.push(
-                            FuncParam(
-                              lbl2.clone(),
-                              ty2.clone(),
-                              true,
-                              false,
-                              false,
-                              true,
-                              false,
-                              Option(EvalValue).None,
-                              false,
-                              Option(AstExpr).None,
-                              Option(AstExpr).None
-                            )
-                          );
-                          ki2 = (ki2 + usize(1));
-                        });
-                      },
-                      _ => ()
-                    );
-                    eff_row_handled = true;
-                  }, {
-                    // UnknownVal with non-EffectsRowT — create fresh SomeT spread marker
-                    er_fl := cond(
-                      (env_mut.frames.len() > usize(0)) => (env_mut.frames.len() - usize(1)),
-                      true => usize(0)
-                    );
-                    fresh_some_t := TypeValue.SomeT(
-                      generate_some_type_id(),
-                      row_var_name2.clone(),
-                      er_fl,
-                      TypeValue.TypeUni(usize(1)),
-                      ArrayList(TypeValue).new(),
-                      ArrayList(usize).new(),
-                      ArrayList(TypeValue).new(),
-                      ArrayList(usize).new(),
-                      true,
-                      Option(TypeValue).None,
-                      Option(TypeValue).None
-                    );
-                    implicit_params.push(
-                      FuncParam(
-                        row_var_name2.clone(),
-                        fresh_some_t.clone(),
-                        true,
-                        false,
-                        false,
-                        true,
-                        true,
-                        Option(EvalValue).None,
-                        false,
-                        Option(AstExpr).None,
-                        Option(AstExpr).None
-                      )
-                    );
-                    eff_row_handled = true;
-                  });
-                });
-                if(!eff_row_handled, {
-                  exn.throw(
-                    dyn(
-                      format_error_message(
-                        ast_expr_token(impl_expr),
-                        `Effect row variable "${row_var_name2}" has invalid value. Expected a type.`
-                      )
-                    )
-                  );
-                });
-              },
-              .None => {
-                exn.throw(
-                  dyn(
-                    format_error_message(
-                      ast_expr_token(impl_expr),
-                      `Effect row variable "${row_var_name2}" has no value.`
-                    )
-                  )
-                );
-              }
-            );
-          }
-        );
-        is_eff_row_using = true;
-      });
-      if(is_eff_row_using, {
-        continue;
+      // A `...(E)` spread of an effect row was removed: take the bundle as
+      // one parameter `e : E` with `generic(E : Type.Struct)`.
+      if(_is_removed_row_spread(impl_expr), {
+        exn.throw(dyn(format_error_message(ast_expr_token(impl_expr), _removed_effect_row_spread_message(impl_expr))));
       });
       // Bare types without labels are not allowed
       has_explicit_label := (
@@ -3372,7 +3104,6 @@ evaluate_function_parameters :: (
         param.is_quote,
         param.is_owning_rc_value,
         true,
-        false,
         Option(EvalValue).None,
         false,
         Option(AstExpr).None,
@@ -3864,7 +3595,6 @@ evaluate_function_parameters :: (
         vparam_type,
         is_vcomptime,
         is_vquote,
-        false,
         false,
         false,
         Option(EvalValue).None,
@@ -4420,7 +4150,6 @@ evaluate_function_type :: (
   param_is_owning := ArrayList(bool).new();
   implicit_labels := ArrayList(String).new();
   implicit_types := ArrayList(TypeValue).new();
-  implicit_spreads := ArrayList(bool).new();
   where_types := ArrayList(TypeValue).new();
   (fpi : usize) = usize(0);
   while(fpi < params_result.forall_params.len(), {
@@ -4628,7 +4357,6 @@ evaluate_function_type :: (
     );
     implicit_labels.push(ip.label);
     implicit_types.push(ip.ty);
-    implicit_spreads.push(ip.is_effect_row_spread);
     ipi = (ipi + usize(1));
   });
   // where_types: collect trait types from where clause exprs (for substitution)
@@ -4645,7 +4373,7 @@ evaluate_function_type :: (
     );
     match(
       fp.ty,
-      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
         (ti2 : usize) = usize(0);
         while(ti2 < required_trait_types.len(), {
           tt := match(
@@ -4683,7 +4411,6 @@ evaluate_function_type :: (
         forall_labels : forall_labels,
         param_labels : param_labels,
         implicit_labels : implicit_labels,
-        implicit_spreads : implicit_spreads,
         // result_is_comptime_only — set from the `comptime(...)` wrapper on
         // the declared return.
         result_is_comptime_only : is_return_comptime_only,
@@ -4751,7 +4478,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))
   acc := ArrayList(TypeValue).new();
   rtts := match(
     wrapper,
-    .SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _, _) => rts,
+    .SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _) => rts,
     _ => ArrayList(TypeValue).new()
   );
   (i : usize) = usize(0);
@@ -4881,7 +4608,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : TypeValue) -> ArrayList(TypeValue))
 _substitute_wrapper_carriers :: (fn(ns : Substitution, wrapper : TypeValue) -> TypeValue)(
   match(
     wrapper,
-    .SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt, sw_rtl, sw_ntt, sw_ntl, sw_ier, sw_kft, sw_rc) => {
+    .SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt, sw_rtl, sw_ntt, sw_ntl, sw_kft, sw_rc) => {
       new_rtt := ArrayList(TypeValue).new();
       (i : usize) = usize(0);
       while(i < sw_rtt.len(), {
@@ -4894,7 +4621,7 @@ _substitute_wrapper_carriers :: (fn(ns : Substitution, wrapper : TypeValue) -> T
         match(sw_ntt.get(j), .Some(t) => new_ntt.push(substitute(ns, t)), .None => ());
         j = (j + usize(1));
       });
-      TypeValue.SomeT(sw_id, sw_nm, sw_fl, sw_pt, new_rtt, sw_rtl, new_ntt, sw_ntl, sw_ier, sw_kft, sw_rc)
+      TypeValue.SomeT(sw_id, sw_nm, sw_fl, sw_pt, new_rtt, sw_rtl, new_ntt, sw_ntl, sw_kft, sw_rc)
     },
     _ => substitute(ns, wrapper)
   )
@@ -4976,7 +4703,7 @@ _resolve_some_types_deep :: (
       if(!is_some_type(nres), {
         match(
           nst,
-          .SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _, _) => {
+          .SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _) => {
             subst_add(ns, nst_name, nst_lvl, nres);
             nbound = true;
           },
@@ -5032,7 +4759,7 @@ _resolve_some_types_deep :: (
     if(!is_some_type(resolved) || rebound_to_some, {
       match(
         st,
-        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _, _) => {
+        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _) => {
           subst_add(s, st_name, st_lvl, resolved);
           bound_any = true;
         },
@@ -5270,7 +4997,7 @@ _resolve_type_arg_somes :: (fn(ty : TypeValue, env : Environment) -> TypeValue)(
         if(!is_some_type(tas_r), {
           match(
             tas_st,
-            .SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _, _) => {
+            .SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _) => {
               if(tas_own && (tas_id.len() > usize(0)), {
                 subst_adopt_own_resolution(tas_s, tas_id);
               }, {

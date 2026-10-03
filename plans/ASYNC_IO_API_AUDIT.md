@@ -406,10 +406,10 @@ method — `issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-awa
 `io.state` takes `E : Type.Struct` like its siblings. Not done here, each for a
 reason: the value-struct `JoinHandle` waits for the seed
 (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`); the
-`...(E)` spread is one use of the effect-row feature, which function types and
-the synthesizer share, so it is filed as a decision
-(`issues/questions/effect-row-spreads-outlived-the-single-bundle-future.md`)
-rather than removed from `Future` alone; a zero-sized `Io` is a measurement
+`...(E)` spread was removed on 2026-10-03 (user decision) from `Future`,
+function types and the synthesizer, and effect-row polymorphism stays as a
+`generic(E : Type.Struct)` parameter
+(`issues/fixed/effect-row-spreads-outlived-the-single-bundle-future.md`); a zero-sized `Io` is a measurement
 for `ASYNC_PERFORMANCE_HANDOVER.md`, not an API change. The plan text below is
 the proposal.
 

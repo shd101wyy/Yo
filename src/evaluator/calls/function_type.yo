@@ -416,7 +416,7 @@ _type_binder_env_value :: (
       sig_some_ts.get(smi),
       .Some(st) => match(
         st,
-        .SomeT(_, st_name, _, _, _, _, _, _, _, _, _) => if(st_name == name, {
+        .SomeT(_, st_name, _, _, _, _, _, _, _, _) => if(st_name == name, {
           sig_match = Option(TypeValue).Some(st);
         }),
         _ => ()
@@ -445,7 +445,7 @@ _type_binder_env_value :: (
         if(we.lhs_label == name, {
           match(
             fresh_some,
-            .SomeT(_, _, _, _, fs_req, fs_req_lv, fs_neg, fs_neg_lv, _, _, _) => {
+            .SomeT(_, _, _, _, fs_req, fs_req_lv, fs_neg, fs_neg_lv, _, _) => {
               if(we.is_negated, {
                 fs_neg.push(we.trait_ty);
                 fs_neg_lv.push(usize(0));
@@ -743,7 +743,7 @@ _build_def_time_body_env :: (
                 rv.value.get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
-                  .TypeVal(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _, _)) =>
+                  .TypeVal(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _)) =>
                     resolve_some_binder_kind(rv_sname, rv_slvl),
                   _ => Option(TypeValue).None,
                   _ => Option(TypeValue).None
@@ -1209,7 +1209,7 @@ Result type: ${type_to_string(result_box)}`
       while(pti < n_pt, {
         pt_name := match(
           param_types.get(pti),
-          .Some(.SomeT(_, name, _, _, _, _, _, _, _, _, _)) => name,
+          .Some(.SomeT(_, name, _, _, _, _, _, _, _, _)) => name,
           .Some(_) => String.from(""),
           .None => String.from("")
         );

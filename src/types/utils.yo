@@ -1028,10 +1028,10 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
         while(cst_i < cst_rtt.len(), {
           match(
             cst_rtt.get(cst_i),
-            .Some(.FnTraitT(_, _, _, _, _, _, _, _)) => {
+            .Some(.FnTraitT(_, _, _, _, _, _, _)) => {
               cst_has_fn_or_fut = true;
             },
-            .Some(.FutureTraitT(_, _, _, _, _)) => {
+            .Some(.FutureTraitT(_, _, _, _)) => {
               cst_has_fn_or_fut = true;
             },
             .Some(_) => (),
@@ -1072,7 +1072,7 @@ _collect_some_types_into :: (
   ty = t_refine_inner(ty);
   match(
     ty,
-    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, _, _, _, _, _, _) => {
       acc.push(ty);
     },
     .TypeAppT(constructor : con, args : args_list) => {
@@ -1334,7 +1334,7 @@ type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
     while(walk, {
       match(
         cur,
-        .SomeT(sarc_id, _, _, _, _, _, _, _, _, _, sarc_rc) => {
+        .SomeT(sarc_id, _, _, _, _, _, _, _, _, sarc_rc) => {
           (revisit : bool) = false;
           (si : usize) = usize(0);
           while(si < seen.len(), {
@@ -2430,7 +2430,7 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : TypeValue, name : String) -> bool)(
         i = (i + usize(1));
         hit := match(
           tt,
-          .FnTraitT(_, _, _, _, _, _, _, _) => (name == "call"),
+          .FnTraitT(_, _, _, _, _, _, _) => (name == "call"),
           .TraitT({ field_labels : fls, field_types : fts }) => {
             (found : bool) = false;
             (j : usize) = usize(0);

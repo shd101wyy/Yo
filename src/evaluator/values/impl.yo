@@ -346,8 +346,8 @@ get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
   match(
     trait_ty,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _, _, _, _, _) => base_name,
-    .FutureTraitT(base_name, _, _, _, _) => base_name,
+    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
+    .FutureTraitT(base_name, _, _, _) => base_name,
     _ => String.from("")
   )
 );
@@ -1348,7 +1348,7 @@ try_match_generic_impl :: (
     while((wcj < n_wcj) && wc_ok, {
       wcj_some := match(entry.where_constraint_some_types.get(wcj), .Some(sm) => sm, .None => t_unit());
       wcj_trait := match(entry.where_constraint_traits.get(wcj), .Some(tr) => tr, .None => t_unit());
-      wcj_name := match(wcj_some, .SomeT(_, nm, _, _, _, _, _, _, _, _, _) => nm, _ => ``);
+      wcj_name := match(wcj_some, .SomeT(_, nm, _, _, _, _, _, _, _, _) => nm, _ => ``);
       match(
         _pre_where_or_resolve(entry.forall_some_types, pre_where_bindings, match_env, wcj_some, wcj_name, unify_base - usize(1)),
         .Some(wcj_bound) => match(
@@ -1555,7 +1555,7 @@ try_match_generic_impl :: (
         dar_ty := match(bindings.get(dar_i), .Some(t) => t, .None => t_unit());
         match(
           dar_some,
-          .SomeT(_, _, dar_lvl, _, _, _, _, _, _, _, _) => subst_add(dar_s, dar_name, dar_lvl, dar_ty),
+          .SomeT(_, _, dar_lvl, _, _, _, _, _, _, _) => subst_add(dar_s, dar_name, dar_lvl, dar_ty),
           _ => ()
         );
         dar_i = (dar_i + usize(1));
@@ -2331,7 +2331,7 @@ find_methods_from_generic_impls :: (
                 sb_ty := match(match_bindings.get(sb_i), .Some(t) => t, .None => t_unit());
                 match(
                   sb_some,
-                  .SomeT(_, _, lvl, _, _, _, _, _, _, _, _) => {
+                  .SomeT(_, _, lvl, _, _, _, _, _, _, _) => {
                     subst_add(spec_s, sb_name, lvl, sb_ty);
                     (fts_i : usize) = usize(0);
                     while(fts_i < ft_all_somes.len(), {
@@ -2339,7 +2339,7 @@ find_methods_from_generic_impls :: (
                         ft_all_somes.get(fts_i),
                         .Some(fts_t) => match(
                           fts_t,
-                          .SomeT(_, fts_n, fts_lvl, _, _, _, _, _, _, _, _) => if((fts_n == sb_name) && (fts_lvl != lvl), {
+                          .SomeT(_, fts_n, fts_lvl, _, _, _, _, _, _, _) => if((fts_n == sb_name) && (fts_lvl != lvl), {
                             subst_add(spec_s, sb_name, fts_lvl, sb_ty);
                           }),
                           _ => ()
@@ -2507,7 +2507,7 @@ find_associated_type_from_generic_impls :: (
                         sb_ty := match(match_bindings.get(sb_i), .Some(t) => t, .None => t_unit());
                         match(
                           sb_some,
-                          .SomeT(_, _, lvl, _, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
+                          .SomeT(_, _, lvl, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
                           _ => ()
                         );
                         sb_i = (sb_i + usize(1));
@@ -2974,7 +2974,7 @@ _substitute_assoc_in_method_ty :: (
       somes.get(i),
       .Some(st) => match(
         st,
-        .SomeT(_, snm, slvl, _, _, _, _, _, _, _, _) => {
+        .SomeT(_, snm, slvl, _, _, _, _, _, _, _) => {
           (j : usize) = usize(0);
           while(j < labels.len(), {
             lbl := match(labels.get(j), .Some(l) => l, .None => String.from(""));
@@ -3023,7 +3023,6 @@ _retype_with_value_param_labels :: (fn(ty : TypeValue, fv : EvalValue) -> TypeVa
             forall_labels : rw_m.*.forall_labels,
             param_labels : fv_params,
             implicit_labels : rw_m.*.implicit_labels,
-            implicit_spreads : rw_m.*.implicit_spreads,
             result_is_comptime_only : rw_m.*.result_is_comptime_only,
             param_is_ref : rw_m.*.param_is_ref,
             param_is_owning : rw_m.*.param_is_owning,
@@ -3083,7 +3082,7 @@ _freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
               while(cj < c_somes.len(), {
                 match(
                   c_somes.get(cj),
-                  .Some(.SomeT(_, c_nm, c_lvl, _, _, _, _, _, _, _, _)) => {
+                  .Some(.SomeT(_, c_nm, c_lvl, _, _, _, _, _, _, _)) => {
                     keep.push(`${c_nm}@${c_lvl.to_string()}`);
                   },
                   .Some(_) => (),
@@ -3106,7 +3105,7 @@ _freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
           res_somes.get(ri),
           .Some(rst) => match(
             rst,
-            .SomeT({ name : r_nm, frame_level : r_lvl, parent_type : r_pt, required_trait_types : r_rtt, required_trait_levels : r_rtl, negative_trait_types : r_ntt, negative_trait_levels : r_ntl, is_effects_row : r_ier, kind_function_type : r_kft }) => {
+            .SomeT({ name : r_nm, frame_level : r_lvl, parent_type : r_pt, required_trait_types : r_rtt, required_trait_levels : r_rtl, negative_trait_types : r_ntt, negative_trait_levels : r_ntl, kind_function_type : r_kft }) => {
               r_key := `${r_nm}@${r_lvl.to_string()}`;
               (r_kept : bool) = false;
               (ki : usize) = usize(0);
@@ -3130,7 +3129,6 @@ _freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
                     r_rtl.clone(),
                     r_ntt.clone(),
                     r_ntl.clone(),
-                    r_ier,
                     r_kft.clone(),
                     Option(TypeValue).None
                   )
@@ -3182,7 +3180,7 @@ _substitute_self_in_method_ty :: (
   while(ssi < self_somes.len(), {
     match(
       self_somes.get(ssi),
-      .Some(.SomeT(_, ss_n, ss_lvl, _, _, _, _, _, _, _, _)) => if(ss_n == "Self", {
+      .Some(.SomeT(_, ss_n, ss_lvl, _, _, _, _, _, _, _)) => if(ss_n == "Self", {
         subst_add(s, String.from("Self"), ss_lvl, self_concrete.clone());
         any_self = true;
       }),
@@ -4045,7 +4043,7 @@ _collect_impl_where_constraints :: (
                   // enforcement wrongly rejects the prelude.
                   match(
                     st,
-                    .SomeT(_, _, _, _, cw_req, cw_req_lv, _, _, _, _, _) => {
+                    .SomeT(_, _, _, _, cw_req, cw_req_lv, _, _, _, _) => {
                       cw_req.push(tr);
                       cw_req_lv.push(usize(0));
                     },
@@ -4065,7 +4063,7 @@ _collect_impl_where_constraints :: (
                 // Stamp on the SomeT too — see the tuple arm above.
                 match(
                   st,
-                  .SomeT(_, _, _, _, cw1_req, cw1_req_lv, _, _, _, _, _) => {
+                  .SomeT(_, _, _, _, cw1_req, cw1_req_lv, _, _, _, _) => {
                     cw1_req.push(tr);
                     cw1_req_lv.push(usize(0));
                   },

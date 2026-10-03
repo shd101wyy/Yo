@@ -51,49 +51,6 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
   });
   false
 });
-// Flatten effects arrays into out_labels / out_types, expanding EffectsRowT spreads.
-// ArrayList is RC-shared — mutations to out_* are visible to the caller.
-_flatten_effects :: (
-  fn(
-    labels : ArrayList(String),
-    types : ArrayList(TypeValue),
-    spreads : ArrayList(bool),
-    out_labels : ArrayList(String),
-    out_types : ArrayList(TypeValue)
-  ) -> unit
-)({
-  i := usize(0);
-  n := labels.len();
-  while(i < n, {
-    lbl := match(labels.get(i), .Some(v) => v, .None => ``);
-    ty := match(types.get(i), .Some(v) => v, .None => TypeValue.Unit);
-    sp := match(spreads.get(i), .Some(v) => v, .None => false);
-    if(sp, {
-      match(
-        ty,
-        .EffectsRowT(implicit_labels : row_labels, implicit_types : row_types) => {
-          j := usize(0);
-          m := row_labels.len();
-          while(j < m, {
-            rl := match(row_labels.get(j), .Some(v) => v, .None => ``);
-            rt := match(row_types.get(j), .Some(v) => v, .None => TypeValue.Unit);
-            out_labels.push(rl);
-            out_types.push(rt);
-            j = (j + usize(1));
-          });
-        },
-        _ => {
-          out_labels.push(lbl);
-          out_types.push(ty);
-        }
-      );
-    }, {
-      out_labels.push(lbl);
-      out_types.push(ty);
-    });
-    i = (i + usize(1));
-  });
-});
 /// Does the bound `req` mention the SomeT `self_var` (same name and frame
 /// level)? Looks inside a trait's member types and an Fn trait's signature,
 /// which `get_all_some_types` does not enter.
@@ -249,7 +206,7 @@ _binder_level :: (fn(types : ArrayList(TypeValue), label : String) -> Option(usi
   while(i < types.len(), {
     t := match(types.get(i), .Some(x) => x, .None => TypeValue.Unit);
     somes := get_all_some_types(t);
-    match(t, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
+    match(t, .SomeT(_, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
     (j : usize) = usize(0);
     while(j < somes.len(), {
       match(
@@ -358,12 +315,8 @@ _resolved_or_self :: (fn(t : TypeValue) -> TypeValue)(
 future_view_drops_a_bundle :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
   ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
   af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
-  e_types := ArrayList(TypeValue).new();
-  e_labels := ArrayList(String).new();
-  a_types := ArrayList(TypeValue).new();
-  a_labels := ArrayList(String).new();
-  match(ef, .FutureTraitT(effect_labels : els, effect_types : ets, effect_spreads : esp) => _flatten_effects(els, ets, esp, e_labels, e_types), _ => ());
-  match(af, .FutureTraitT(effect_labels : als, effect_types : ats, effect_spreads : asp) => _flatten_effects(als, ats, asp, a_labels, a_types), _ => ());
+  e_types := match(ef, .FutureTraitT(effect_types : ets) => ets, _ => ArrayList(TypeValue).new());
+  a_types := match(af, .FutureTraitT(effect_types : ats) => ats, _ => ArrayList(TypeValue).new());
   if((e_types.len() != usize(0)) || (a_types.len() == usize(0)), {
     return(false);
   });
@@ -1465,30 +1418,6 @@ _compat_impl :: (
       .ComptimeListT(echild) => recur(achild, echild, mode, visited),
       _ => false
     ),
-    .EffectsRowT(implicit_labels : als, implicit_types : ats) => match(
-      expected,
-      .EffectsRowT(implicit_labels : els, implicit_types : ets) => {
-        if(als.len() != els.len(), {
-          return(false);
-        });
-        i := usize(0);
-        while(i < als.len(), {
-          al := match(als.get(i), .Some(v) => v, .None => ``);
-          el := match(els.get(i), .Some(v) => v, .None => ``);
-          at := match(ats.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          et := match(ets.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          if(al != el, {
-            return(false);
-          });
-          if(!recur(at, et, mode, visited), {
-            return(false);
-          });
-          i = (i + usize(1));
-        });
-        true
-      },
-      _ => false
-    ),
     .TypeAppT(constructor : acon, args : aargs) => match(
       expected,
       .TypeAppT(constructor : econ, args : eargs) => {
@@ -1618,22 +1547,16 @@ _compat_impl :: (
       _ => false
     ),
     // FutureTraitT: same base_name, compatible output, order-independent effects
-    .FutureTraitT(base_name : abn, output : aout, effect_labels : aels, effect_types : aets, effect_spreads : aesp) =>
+    .FutureTraitT(base_name : abn, output : aout, effect_types : flat_a_types) =>
       match(
         expected,
-        .FutureTraitT(base_name : ebn, output : eout, effect_labels : eels, effect_types : eets, effect_spreads : eesp) => {
+        .FutureTraitT(base_name : ebn, output : eout, effect_types : flat_e_types) => {
           if(abn != ebn, {
             return(false);
           });
           if(!recur(aout, eout, mode, visited), {
             return(false);
           });
-          flat_a_labels := ArrayList(String).new();
-          flat_a_types := ArrayList(TypeValue).new();
-          flat_e_labels := ArrayList(String).new();
-          flat_e_types := ArrayList(TypeValue).new();
-          _flatten_effects(aels, aets, aesp, flat_a_labels, flat_a_types);
-          _flatten_effects(eels, eets, eesp, flat_e_labels, flat_e_types);
           // A bundle-less future (a raw `IoFuture`, `yield`) is compatible with
           // any bundle: it never reads one.
           if(flat_a_types.len() == usize(0), {

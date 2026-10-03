@@ -47,12 +47,14 @@ _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> Stri
   match(
     effect_type,
     .Struct({ name, is_source_namespace : fl_sns }) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
-    .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
+    .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
     _ => ast_expr_to_string(effect_expr)
   )
 );
-/// Resolve a single effect argument (either `E : Type.Struct` spread or individual effect type).
-/// Pushes the result into out_labels/out_types/out_spreads and returns updated env.
+/// Resolve the effect argument of `Future(T, E)`: one effect type (a bundle
+/// struct or a `generic(E : Type.Struct)` variable). A `...(E)` spread is a
+/// check error. Pushes the result into out_labels/out_types and returns the
+/// updated env.
 _resolve_effect_arg :: (
   fn(
     effect_expr : AstExpr,
@@ -60,11 +62,10 @@ _resolve_effect_arg :: (
     ctx : EvalContext,
     out_labels : ArrayList(String),
     out_types : ArrayList(TypeValue),
-    out_spreads : ArrayList(bool),
     exn : Exception
   ) -> Environment
 )({
-  // Check if this is a spread expression E : Type.Struct with one atom arg
+  // A `...(E)` spread: one `...` call with one atom argument.
   is_spread := (
     ast_expr_is_fn_call(effect_expr) &&
       ast_expr_is_fn_call_of(effect_expr, "...", .Some(usize(1))) &&
@@ -112,7 +113,6 @@ _resolve_effect_arg :: (
           label := _effect_label_for(effect_type, effect_expr);
           out_labels.push(label);
           out_types.push(effect_type);
-          out_spreads.push(false);
           expr_info_adopt_env(info)
         },
         .None => {
@@ -193,7 +193,6 @@ evaluate_future_type :: (
   // Process effect arguments (args 1..N)
   effect_labels := ArrayList(String).new();
   effect_types := ArrayList(TypeValue).new();
-  effect_spreads := ArrayList(bool).new();
   (ei : usize) = usize(1);
   while(ei < expr_args.len(), {
     effect_expr := match(
@@ -204,11 +203,11 @@ evaluate_future_type :: (
         break;
       }
     );
-    env_mut = _resolve_effect_arg(effect_expr, env_mut, ctx, effect_labels, effect_types, effect_spreads, exn);
+    env_mut = _resolve_effect_arg(effect_expr, env_mut, ctx, effect_labels, effect_types, exn);
     ei = (ei + usize(1));
   });
   // Build the FutureTraitT
-  future_type := t_future_trait(String.from(BK_FUTURE), output_type, effect_labels, effect_types, effect_spreads);
+  future_type := t_future_trait(String.from(BK_FUTURE), output_type, effect_labels, effect_types);
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(future_type));
   out_info.value = .Some(create_type_value(future_type));

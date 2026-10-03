@@ -76,7 +76,6 @@ TypeInfo :: enum(
   ComptimeList(element : Type),
   // === 元编程（无字段）===
   Expr,
-  EffectsRow,
   TypeApplication
 );
 ```

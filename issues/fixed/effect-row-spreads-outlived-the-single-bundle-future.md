@@ -26,3 +26,16 @@ The async codegen reads a future's effect at index 0 only (`_first_future_effect
 ## Recommendation
 
 Option 1. The single-bundle design is settled and documented, AGENTS.md rules out compatibility scaffolding, and nothing in the tree uses rows. It is a pure evaluator change with no seed gate: delete, then `yo check ./src`, `yo check ./std --std-path ./std` and the language suite confirm nothing depended on it.
+
+## Resolution (2026-10-03)
+
+Decided by the user: Yo keeps effect-row polymorphism in its documented, tested form — a `generic(E : Type.Struct)` parameter standing for one effect-bundle struct, taken as `e : E` or inside a callback type `f : (fn(e : E) -> T)` (`docs/en-US/ALGEBRAIC_EFFECTS.md`, "Effect row polymorphism"; `tests/algebraic_effects.test.yo`, `tests/async_await.test.yo`). The older `...(E)` spread syntax is removed. `Future` takes exactly `Future(T)` or `Future(T, E)`, and a spread there is a check error (`src/evaluator/types/future_trait.yo`). A `...(E)` row-variable declaration inside `generic(...)` or a `...(E)` spread among the implicit parameters is now a check error too, naming the `generic(E : Type.Struct)` replacement (`src/evaluator/types/function.yo`).
+
+Removed, all of it machinery only the spread reached:
+
+- the row-variable declaration and spread expansion in `evaluate_function_parameters` (`src/evaluator/types/function.yo`), and `FuncParam.is_effect_row_spread`;
+- the synthesizer's spread/row unification: `_expand_effects`, the solved/unsolved spread binding, the "Ambiguous effect row unification" and "Effect row unification failed" errors, the `EffectsRow + EffectsRow` case and `ImplicitEntry` (`src/evaluator/types/synthesizer.yo`); implicit/effect lists are still matched set-wise by type;
+- `TypeValue.EffectsRowT`, `t_effects_row`, `TypeTag.TEffectsRow`, `is_effects_row_type`, and their arms in the type printer, interner, substitution, compatibility (`_flatten_effects`), creators, `yo effects` (kind `row`) and `Type.get_info` (`TypeInfo.EffectsRow`, also dropped from the prelude's `TypeInfo` enum and `docs/*/TYPE_REFLECTION.md`);
+- `SomeT.is_effects_row` (only the spread built a `true` one), `FnTraitT.implicit_spreads`, `FuncMeta.implicit_spreads`, `FutureTraitT.effect_spreads`, `Variable.is_from_effect_spread` (never set) and `has_effect_in_spread_` (`src/evaluator/effects/effect_analysis.yo`), with the compiler-internal tests that exercised them.
+
+Nothing was kept for `generic(E : Type.Struct)`: that path binds `E` as an ordinary `SomeT` resolved to the bundle struct and never produced or read an effects row, a spread flag or `is_effects_row`. Regression: `tests/async/effect_bundle.test.yo`, "a ...(E) effect-row spread is a check error".
