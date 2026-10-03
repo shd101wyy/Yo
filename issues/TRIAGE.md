@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 189 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 188 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 55 | 6 |
-| **Total** | **189** | **27** |
+| Other | 54 | 6 |
+| **Total** | **188** | **27** |
 
 ## Counts by severity
 
@@ -46,7 +46,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 25 |
-| S2 | 86 |
+| S2 | 85 |
 | S3 | 76 |
 | (missing) | 2 |
 
@@ -332,7 +332,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (55)
+### Other (54)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -378,7 +378,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`](./parser-internal-tests-report-a-40-byte-lsan-leak-locally.md) | S3 | — | — |
 | [`prelude-methods-have-no-visibility-owner.md`](./prelude-methods-have-no-visibility-owner.md) | S3 | OPEN | — |
-| [`refined-param-signatures-emit-malformed-c.md`](./refined-param-signatures-emit-malformed-c.md) | S2 | — | — |
 | [`runtime-str-plus-str-passes-check-and-fails-compile.md`](./runtime-str-plus-str-passes-check-and-fails-compile.md) | S2 | — | — |
 | [`tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`](./tasks-still-pending-or-queued-at-thread-exit-are-never-released.md) | S3 | — | — |
 | [`verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md`](./verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md) | S3 | — | — |

@@ -144,3 +144,17 @@ test("unchecked is the trusted cast (no gate, no proof)", {
   use :: (fn(x : NonZero(i32)) -> i32)(i32(81) / x);
   assert(use(blind) == i32(9), "9/9 == 1 — the caller vouches for the predicate");
 });
+
+// A refined RESULT is still its inner type to operators and methods: a binder
+// erases a refinement, but a call's result keeps its declared `refine(...)`
+// type, so `abs(x) == 3` and `abs(x).to_string()` found no impl
+// (issues/fixed/an-operator-on-a-refined-value-finds-no-impl.md).
+_nonneg_i32 :: ghost_fn((fn(v : i32) -> bool)(v >= i32(0)));
+abs_nn :: (fn(x : i32) -> refine(i32, _nonneg_i32))(cond((x >= i32(0)) => x, true => -x));
+test("a refined result answers its inner type's operators and methods", {
+  assert(abs_nn(i32(-3)) == i32(3), "== on a refined result");
+  assert((abs_nn(i32(-3)) + i32(1)) == i32(4), "+ on a refined result");
+  (a : i32) = abs_nn(i32(-5));
+  assert(a == i32(5), "a binder declared i32 holds the plain value");
+  assert(abs_nn(i32(-7)).to_string() == `7`, "a method on a refined result");
+});

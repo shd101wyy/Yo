@@ -1,5 +1,7 @@
 # Refined-parameter signatures emit malformed C (`// Unknown type:` inside the prototype)
 
+**Status: FIXED** (confirmed 2026-10-03 on a develop build): the `.RefineT` arm described under Fix is in `get_type_string` (`src/codegen/utils/index.yo`), and a program with a refined parameter (`safe_div(num : i32, denom : refine(i32, non_zero))`) and a refined result compiles and runs with no `// Unknown type: refine` in its C. `tests/spec/refine_types.test.yo` compiles refined-parameter functions in every run. The doc had stayed in `issues/` root after the fix.
+
 **Severity:** S2 — a `refine(...)` parameter or return type emits a malformed C prototype — valid programs fail to compile
 
 ## Symptom
