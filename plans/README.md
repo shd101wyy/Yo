@@ -58,7 +58,8 @@ and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md
 Safe mode's open work is listed in [`SAFE_MODE`](SAFE_MODE.md); the
 verifier-driven guard elision design, Phases 0–2 landed and Phase 3 open, is
 [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
-(strict mode builds on it).
+(strict mode builds on it); its container bounds-check prerequisite is designed in
+[`SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION`](backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
 [`ASYNC_AWAIT_SITE_FUSION`](backlog/ASYNC_AWAIT_SITE_FUSION.md) is the
 state-machine plan's phase 7 design for std's single-await I/O wrappers
 (an immediately awaited wrapper runs in its caller's frame).
