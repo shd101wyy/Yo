@@ -21,6 +21,7 @@
   make_err_expr
 } :: import("../../expr.yo");
 { ArrayList } :: import("std/collections/array_list");
+{ record_cee_argument_span } :: import("../../function_value.yo");
 { Environment, Frame, frame_truncate_variables, env_frames_for_write } :: import("../../env.yo");
 { EvalContext, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { format_error_message, error_message_text } :: import("../../error.yo");
@@ -37,6 +38,32 @@
 { t_unit } :: import("../../types/creators.yo");
 { set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+/// The first and last token position, (row, column), seen in an argument's
+/// subtree.
+_CeeSpanAcc :: ref(struct(lo_row : u32, lo_col : u32, hi_row : u32, hi_col : u32));
+/// Widen `acc` to every token position in `e`'s subtree.
+_cee_token_span :: (fn(e : AstExpr, acc : _CeeSpanAcc) -> unit)({
+  t := ast_expr_token(e);
+  if((t.row < acc.lo_row) || ((t.row == acc.lo_row) && (t.column < acc.lo_col)), {
+    acc.lo_row = t.row;
+    acc.lo_col = t.column;
+  });
+  if((t.row > acc.hi_row) || ((t.row == acc.hi_row) && (t.column > acc.hi_col)), {
+    acc.hi_row = t.row;
+    acc.hi_col = t.column;
+  });
+  match(
+    e,
+    .FnCall(_, _, args, _, _) => {
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(args.get(i), .Some(a) => recur(a, acc), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+});
 /// Evaluate `arg_expr` and report whether it THREW a compile error. Uses
 /// `evaluate_expression_raw` (which propagates via `exn`) under a LOCAL
 /// `Exception` whose `throw` unwinds this helper with `true`. If the eval
@@ -213,6 +240,12 @@ evaluate_comptime_expect_error :: (
   // evaluated) pushed; truncate back so no later lookup forces a member of the
   // abandoned impl (issues/fixed/abandoned-impl-members-survive-the-error.md).
   saved_depths := forcing_depths();
+  // A function literal written in the argument is never emitted
+  // (`is_inside_cee_argument`, function_value.yo).
+  cee_tok := ast_expr_token(arg_expr);
+  cee_acc := _CeeSpanAcc(lo_row : cee_tok.row, lo_col : cee_tok.column, hi_row : cee_tok.row, hi_col : cee_tok.column);
+  _cee_token_span(arg_expr, cee_acc);
+  record_cee_argument_span(cee_tok.module_path.clone(), cee_acc.lo_row, cee_acc.lo_col, cee_acc.hi_row, cee_acc.hi_col);
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   observed_msgs := cee_observed_messages();
   clear_cee_observed_error();

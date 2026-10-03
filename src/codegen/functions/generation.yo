@@ -932,15 +932,37 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
             `[ftt-stub] kind=${cond(stub_is_superseded => String.from("superseded"), !stub_ret_unit => String.from("value"), true => String.from("unit"))} fn=${c_function_name.clone()} site=${stub_site} spec=${stub_inst.is_some().to_string()} recorded=${stub_rec.is_some().to_string()}`
           );
         });
+        // Phase 6 step 4 / Phase 4.2: a stub that is NOT a superseded generic
+        // original is reachable code with no body, so it is a compile error.
+        // The error is the one the definition-time trial recorded for this
+        // body (with the call that requested a specialization, when one did);
+        // with nothing recorded, the stub site itself is reported with the
+        // swallow hint. Definitions inside a `comptime_expect_error` argument
+        // never get here (`is_inside_cee_argument`): they were the only live
+        // stubs in the fast suite.
         if(!stub_is_superseded, {
           match(
-            stub_inst,
-            .Some(si) => match(
-              stub_rec,
-              .Some(rec) => codegen_report_error(dyn(_hollow_specialization_error(rec, si))),
-              .None => ()
+            stub_rec,
+            .Some(rec) => match(
+              stub_inst,
+              .Some(si) => codegen_report_error(dyn(_hollow_specialization_error(rec, si))),
+              .None => codegen_report_error(
+                dyn(
+                  cond(
+                    (rec.diagnostics.len() > usize(0)) => yo_error_from_diagnostics(rec.diagnostics.clone()),
+                    true => format_error_message(ast_expr_token(body_box), rec.message.clone())
+                  )
+                )
+              )
             ),
-            .None => ()
+            .None => codegen_report_error(
+              dyn(
+                format_error_message(
+                  ast_expr_token(body_box),
+                  `the body of this function could not be compiled: its definition-time evaluation failed and the error was swallowed. Re-run \`yo check\` with YO_DEBUG_SWALLOW=1 to see it`
+                )
+              )
+            )
           );
         });
       });
