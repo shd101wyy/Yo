@@ -394,17 +394,8 @@ abs_doubles_nonneg :: law(
 `requires`。法则求值为 `unit`，因此 `name :: law(...)` 绑定 unit，代码生成不产出
 任何东西。
 
-**已知限制：被调用者必须与法则位于同一文件。** 对导入的被调用者写法则（如上例）
-目前无法验证，会在法则的 `requires` 上报告子集错误：
-
-```
-  subset   law@laws.yo:4:22 [verify] — cannot verify: untyped expression
-           (x > i64(-(1000))) && (x < i64(1000))
-```
-
-把同一条法则写在同一文件中 `abs_value` 的定义之后，就能证出
-（[`issues/law-over-an-imported-callee-cannot-verify.md`](../../issues/law-over-an-imported-callee-cannot-verify.md)）。
-在这个问题修复之前，请把每条法则放在它所描述的、带契约的代码旁边。
+被调用者可以位于另一个文件中，如上例：文档约定的 `spec/` 目录布局
+正是把法则与它所描述的代码分开存放。
 
 **法则只从被调用者的契约出发证明，绝不打开其函数体。** 这既是要点，也是约束：
 如果 `abs_value` 只承诺 `ensures(r >= 0)`，上面的法则无法证明 —— 两个只知道非负
@@ -665,7 +656,6 @@ yo verify ./src --solver-path /usr/bin/z3 --rlimit 20000000
 | 代码没错，法则或调用方却证不出 | 被调用者的 `ensures` 比断言所需的弱：加强契约 |
 | `ok … — no obligations` | 空洞：补上你本想写的 `ensures` |
 | `cannot verify: <构造>` | 函数体在子集之外：重构它，或改用 `verify+` 退回运行时断言 |
-| 法则上报告 `cannot verify: untyped expression` | 法则的被调用者是导入的（§法则） |
 
 ## 试一试
 

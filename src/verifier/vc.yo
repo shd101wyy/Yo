@@ -2705,6 +2705,34 @@ _variant_accessors :: (fn(e_ty : TypeValue, variant : String, count : usize) -> 
 // ============================================================================
 // Loops (V4): the havoc-invariant rule
 // ============================================================================
+/// Close a guarded walk: `ctx.path[mark]` is the guard the walk of a
+/// short-circuit operand assumed (`a` for `a && b` and `a ==> b`, `!a` for
+/// `a || b`). Entries after it are facts that walk learned — a contracted
+/// callee's `ensures` about its fresh result — and they hold wherever the
+/// guard does, so they stay on the path as `guard ==> fact`. Popping them
+/// with the guard lost them: `ensures((r >= 1) && (f(x) < 1000))` was
+/// refuted with `f`'s result unconstrained
+/// (issues/fixed/a-callee-fact-in-the-right-operand-of-and-is-dropped.md).
+_pop_guard_keep_facts :: (fn(inout(ctx) : VcCtx, mark : usize) -> unit)({
+  if(ctx.path.len() <= mark, {
+    return(());
+  });
+  guard := ctx.path.get(mark).unwrap();
+  facts := ArrayList(VcTerm).new();
+  (fi : usize) = (mark + usize(1));
+  while(fi < ctx.path.len(), {
+    facts.push(ctx.path.get(fi).unwrap());
+    fi = (fi + usize(1));
+  });
+  while(ctx.path.len() > mark, {
+    ctx.path.pop();
+  });
+  (fj : usize) = usize(0);
+  while(fj < facts.len(), {
+    ctx.path.push(_app2(VcOp.ImpOp, guard, facts.get(fj).unwrap()));
+    fj = (fj + usize(1));
+  });
+});
 /// Conjoin a non-empty term list with AndOp (single terms pass through).
 _and_terms :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
   r := ts.get(usize(0)).unwrap();
@@ -3843,9 +3871,7 @@ _call_term :: (
     });
     b_opt := _expr_term(ctx, args.get(usize(1)).unwrap());
     if(is_short_circuit, {
-      while(ctx.path.len() > guard_mark, {
-        ctx.path.pop();
-      });
+      _pop_guard_keep_facts(ctx, guard_mark);
     });
     if(a_opt.is_none() || b_opt.is_none(), {
       return(Option(VcTerm).None);
@@ -4245,9 +4271,7 @@ _call_term :: (
     imp_mark := ctx.path.len();
     ctx.path.push(a.unwrap());
     b := _expr_term(ctx, args.get(usize(1)).unwrap());
-    while(ctx.path.len() > imp_mark, {
-      ctx.path.pop();
-    });
+    _pop_guard_keep_facts(ctx, imp_mark);
     if(b.is_none(), {
       return(Option(VcTerm).None);
     });

@@ -490,6 +490,14 @@ _ctor_binder_some_ids :: (
   ids
 });
 /// Record a type constructor's PHANTOM positions from its definition-time
+/// `prepare_callsite_contracts` over each evaluated contract clause.
+_stash_clause_callsite_contracts :: (fn(clauses : ArrayList(AstExpr), env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  (i : usize) = usize(0);
+  while(i < clauses.len(), {
+    match(clauses.get(i), .Some(c) => prepare_callsite_contracts(c, env, ctx, exn), .None => ());
+    i = (i + usize(1));
+  });
+});
 /// trial (types/creators.yo `g_ctor_phantom_positions`). The trial evaluated
 /// the body with each type binder bound to the SomeT in `binder_ids`; when the
 /// body is an enum, a position is phantom when its SomeT occurs in none of
@@ -1565,6 +1573,18 @@ Result type: ${type_to_string(result_box)}`
               .None => ()
             );
             ve = (ve + usize(1));
+          });
+          // A contracted call INSIDE a clause (`ensures(r == f(x))`) needs
+          // its callee's contract instance stashed exactly like a body call:
+          // the walk otherwise falls back to the callee's raw clauses, which
+          // are typed only in the callee's own module table, so a callee
+          // imported from another file reported "untyped expression"
+          // (issues/fixed/law-over-an-imported-callee-cannot-verify.md). A
+          // deferred (generic) fn's clauses are soft-evaluated and may be
+          // hollow; its call sites are stashed per instance instead.
+          if(!should_defer_ft, {
+            _stash_clause_callsite_contracts(evd_reqs, pred_env, ctx, exn);
+            _stash_clause_callsite_contracts(evd_enss, pred_env, ctx, exn);
           });
           // V6 task 2: the DIAGNOSTIC TRIAL of the deferred (generic)
           // body — evaluate it once with the parameters bound to unknowns

@@ -22,7 +22,7 @@ implementation breakdown another agent can pick up phase by phase
 > #1075); B4 (evals corpus) and B5 (repo-shape gate) are UNSTARTED
 > and are the live remainder of the ROADMAP's Agent-loop item; B6 `par2`
 > unstarted, weakest agent-loop relevance. Known blocker for the `spec/`
-> convention: `issues/law-over-an-imported-callee-cannot-verify.md`.
+> convention: `issues/fixed/law-over-an-imported-callee-cannot-verify.md` (fixed 2026-10-03).
 
 The one-paragraph verdict: **Bend 2's verification foundation is the road
 Yo deliberately did not take** (dependent types, hand-written inductive
@@ -621,7 +621,7 @@ through one unfolding + the IH, without opening any runtime body.
 > template (`src/init.yo`); the verify recipe half ("keep laws in `spec/`,
 > run `yo verify --strict ./spec` before committing") did NOT land —
 > `issues/init-agentsmd-template-omits-the-verify-recipe.md` — and waits
-> on `issues/law-over-an-imported-callee-cannot-verify.md` besides, since
+> on `issues/fixed/law-over-an-imported-callee-cannot-verify.md` (fixed 2026-10-03) besides, since
 > a `spec/` directory of cross-file laws cannot verify today.
 
 **Scope.** Three small CLI additions; no compiler change.

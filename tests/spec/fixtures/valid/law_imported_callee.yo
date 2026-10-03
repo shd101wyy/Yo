@@ -1,0 +1,13 @@
+// `law_abs_nonneg.yo`'s law with the callee in its own file — the documented
+// `spec/` layout. The law proves from the imported contract alone
+// (issues/fixed/law-over-an-imported-callee-cannot-verify.md).
+pragma(Pragma.Verify);
+{ abs_value } :: import("./law_imported_callee_math.yo");
+
+abs_doubles_nonneg :: law(
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((abs_value(x) + abs_value(x)) >= i64(0))
+  ) -> unit
+);

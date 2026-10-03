@@ -520,8 +520,8 @@ manifest/cli cases; internal test for the manifest→store walk.
 > check/fmt but NOT `yo verify --strict ./spec` (confirmed by `git log -S`;
 > the line never existed). It is filed as
 > `issues/init-agentsmd-template-omits-the-verify-recipe.md`, and the
-> `spec/` convention it teaches is blocked anyway by
-> `issues/law-over-an-imported-callee-cannot-verify.md`.
+> `spec/` convention it teaches was blocked by
+> `issues/fixed/law-over-an-imported-callee-cannot-verify.md` (fixed 2026-10-03).
 
 1. `yo init`'s `AGENTS.md` template (`src/init.yo` ~L186): the four-line
    recipe — `yo context` to learn, `yo check` after every edit, `yo test`

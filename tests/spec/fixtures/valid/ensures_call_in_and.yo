@@ -1,0 +1,20 @@
+// A contracted call in the RIGHT operand of `&&` (here inside an `ensures`):
+// the walk assumes the left operand while it walks the right one, and the
+// callee's `ensures` about its fresh result must survive the guard's pop as
+// `guard ==> fact` (issues/fixed/a-callee-fact-in-the-right-operand-of-and-is-dropped.md).
+pragma(Pragma.Verify);
+abs_value :: (
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((r >= i64(0)) && (r < i64(1000)))
+  ) -> (r : i64)
+)(cond((x >= i64(0)) => x, true => -x));
+plus_abs :: (
+  fn(
+    x : i64,
+    requires((x > i64(-1000)) && (x < i64(1000))),
+    ensures((r >= i64(1)) && (abs_value(x) < i64(1000)))
+  ) -> (r : i64)
+)(abs_value(x) + i64(1));
+export(plus_abs);

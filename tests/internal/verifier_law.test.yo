@@ -203,6 +203,67 @@ test("law: a true law PROVES from the callee's contract alone", {
     .None => assert(false, "no law@ report was produced — the law did not register")
   );
 });
+// The documented `spec/` layout: the law in its own file, the callee imported.
+// Its callee clauses were walked against the law module's table, where they
+// have no ExprInfo ("untyped expression")
+// (issues/fixed/law-over-an-imported-callee-cannot-verify.md).
+test("law: a law over an IMPORTED callee proves like a same-file one", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/law_imported_callee.yo"), io);
+  match(
+    _first_law(reports),
+    .Some(rp) => {
+      assert(rp.outcome == "ok", `the cross-file law must prove, got '${rp.outcome}': ${rp.subset_construct}`);
+      assert(
+        rp.obligations.len() == usize(3),
+        `claim + 2 call-site requires, got ${rp.obligations.len().to_string()}`
+      );
+    },
+    .None => assert(false, "no law@ report was produced")
+  );
+});
+test("contracts: an ensures that calls an IMPORTED contracted fn proves", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/ensures_imported_callee.yo"), io);
+  (seen : bool) = false;
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => if(rp.fn_id.contains(String.from("ensures_imported_callee.yo")), {
+        seen = true;
+        assert(rp.outcome == "ok", `plus_abs must prove, got '${rp.outcome}': ${rp.subset_construct}`);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(seen, "no report for plus_abs");
+});
+test("contracts: a callee fact in the right operand of && is kept", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/ensures_call_in_and.yo"), io);
+  (seen : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => if(rp.fn_id.contains(String.from("ensures_call_in_and.yo")), {
+        seen = (seen + usize(1));
+        assert(rp.outcome == "ok", `${rp.fn_id} must prove, got '${rp.outcome}'`);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(seen == usize(2), "abs_value and plus_abs both report");
+});
 test("law: a false law REFUTES with a counter-example", {
   if(!_have_z3(), {
     return(());

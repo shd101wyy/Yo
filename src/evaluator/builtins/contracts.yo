@@ -3200,6 +3200,21 @@ evaluate_law :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
     law_tok.clone()
   );
   body_ev := evaluated_for_verify(body, pred_env, ctx, exn);
+  // A law's calls live in its clauses (its body is a unit literal), so the
+  // callee contract instances are stashed from them: without the stash the
+  // walk read an imported callee's raw clauses, typed only in the callee's
+  // module table — "untyped expression" for every cross-file law
+  // (issues/fixed/law-over-an-imported-callee-cannot-verify.md).
+  (ci : usize) = usize(0);
+  while(ci < ev_reqs.len(), {
+    match(ev_reqs.get(ci), .Some(c) => _prepare_callsite_contracts(c, pred_env, ctx, exn), .None => ());
+    ci = (ci + usize(1));
+  });
+  (cj : usize) = usize(0);
+  while(cj < ev_enss.len(), {
+    match(ev_enss.get(cj), .Some(c) => _prepare_callsite_contracts(c, pred_env, ctx, exn), .None => ());
+    cj = (cj + usize(1));
+  });
   pred_env.pop_frame();
   register_verify_task(
     VerifyTask(

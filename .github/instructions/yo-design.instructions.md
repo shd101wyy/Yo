@@ -243,9 +243,9 @@ verification work:
   to `unit` and is erased in codegen; a non-`unit` return, no `ensures`,
   `assumed()`, `decreases(...)` or a named alias in place of the fn type
   are all compile errors, and `unproven` has no assert fallback for a law,
-  so `--strict` decides. A law is never `outside-subset`. KNOWN LIMITATION:
-  the callee must live in the same file today
-  (`issues/law-over-an-imported-callee-cannot-verify.md`). Full contract:
+  so `--strict` decides. A law is never `outside-subset`. Its callee may be
+  imported from another file (`spec/` layout;
+  `issues/fixed/law-over-an-imported-callee-cannot-verify.md`). Full contract:
   `docs/en-US/FORMAL_VERIFICATION.md` §Laws; workflow: the yo-verification
   skill.
 

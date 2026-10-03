@@ -487,18 +487,8 @@ The argument is a function **type** with contract clauses and no body. Its
 and are what discharge the callees' own `requires` at each call site. A law
 evaluates to `unit`, so `name :: law(...)` binds unit and codegen emits nothing.
 
-**Known limitation: the callee must be in the law's own file.** A law over an
-imported callee, as in the example above, does not verify today. It reports a
-subset error on the law's `requires`:
-
-```
-  subset   law@laws.yo:4:22 [verify] — cannot verify: untyped expression
-           (x > i64(-(1000))) && (x < i64(1000))
-```
-
-The same law placed after `abs_value`'s definition in one file proves
-([`issues/law-over-an-imported-callee-cannot-verify.md`](../../issues/law-over-an-imported-callee-cannot-verify.md)).
-Until that issue is fixed, keep each law beside the contracted code it talks about.
+The callee may live in another file, as here: the documented `spec/`
+layout keeps laws apart from the code they are about.
 
 **A law is proved from the callee's contract, never from its body.** That is the
 point, and it is also the constraint: if `abs_value` promises only
@@ -803,7 +793,6 @@ yo verify ./src --solver-path /usr/bin/z3 --rlimit 20000000
 | a law, or a caller, cannot prove though the code is right | the callee's `ensures` is weaker than the claim needs: strengthen the contract |
 | `ok … — no obligations` | vacuous: add the `ensures` you meant |
 | `cannot verify: <construct>` | the body is outside the subset: restructure it, or use `verify+` to fall back to the runtime assert |
-| `cannot verify: untyped expression` on a law | the law's callee is imported (§Laws) |
 
 ## Try it
 
