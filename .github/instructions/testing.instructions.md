@@ -21,6 +21,14 @@ the tree explicitly:
 YO_STD=$PWD/std yo test ./tests/sync/channel.test.yo --parallel 1
 ```
 
+Since the entry-side fix
+(`issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md`),
+entries that live INSIDE a std tree (`yo test ./std`, `yo check ./std`,
+`yo compile std/...`) resolve THAT tree automatically — the command prints a
+`yo: every entry lives inside the std tree at ...` note on stderr — even
+under an installed binary. Files under `./tests/**` are NOT inside a std
+tree, so the explicit `YO_STD` above still applies to them.
+
 A tree-built stage-1 (`yo build` → `yo-out/<target>/bin/yo`) walks up to the
 repo root and finds `./std` naturally, so it needs no override — and it is
 what CI's suite legs run. Changes to `src/` codegen are only observable

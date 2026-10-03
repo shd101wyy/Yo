@@ -120,6 +120,7 @@ json :: import("std/encoding/json");
 {
   ModuleLoadOutcome,
   resolve_std_path,
+  prefer_entry_std_root,
   get_std_path_override,
   set_std_path_override,
   get_imports_file_override,
@@ -1121,6 +1122,10 @@ run_fix :: (
   if(files.len() == usize(0), {
     exn.throw(dyn(`fix: no .yo files found at ${target_path}`));
   });
+  // Same rule as `check`: a std tree is evaluated against its own root, not
+  // the std the resolver found beside the binary
+  // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
@@ -1368,6 +1373,12 @@ run_check :: (
   set_retain_walk_contexts(watch || watch_once);
   set_owner_logs_enabled(watch || watch_once);
   set_codegen_tables_enabled(false);
+  // A std tree must be checked against ITSELF: when every entry lives inside
+  // one std root while the resolver picked another (an installed binary
+  // finds its bundled std beside the exe before ./std), the run evaluates
+  // two copies of std and reports false failures — prefer the entry-side
+  // root (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   // Reset the per-module loader cache for this run. Keys are absolute
   // paths, so cache entries are valid for the whole run (a module
@@ -1656,6 +1667,10 @@ run_verify_cmd :: (
   // collected spelling (Token.module_path is the path EXACTLY as passed
   // to mm_load_file) and the normalized absolute form (what an imported
   // module's tokens carry).
+  // Same rule as `check`: verifying a std tree against a different std
+  // (the bundle an installed binary finds beside itself) evaluates two
+  // copies of it (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   abs_targets := ArrayList(String).new();
   (fi : usize) = usize(0);
@@ -4290,6 +4305,14 @@ run_compile :: (
   if((allocator == "mimalloc") && is_target_wasm(target), {
     allocator = String.from("system");
   });
+  // Same rule as `check`: compiling a module that lives inside a std tree
+  // must resolve std to THAT tree, not the bundle an installed binary finds
+  // beside itself (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  // This also covers the test runner's batch programs, which `run_test`
+  // writes next to the test files inside the very tree being tested.
+  compile_entries := ArrayList(String).new();
+  compile_entries.push(input_path.clone());
+  prefer_entry_std_root(compile_entries);
   std_path := resolve_std_path();
   // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
   // via g_shared_expr_info_table now (not after the prelude load). The prelude
@@ -6067,6 +6090,14 @@ run_test :: (
     });
     return(());
   });
+  // Same rule as `check`: test files that live inside a std tree (std's own
+  // sibling *.test.yo files) must run against THAT tree, not the bundled std
+  // an installed binary finds beside itself
+  // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  // Installing the override here also forwards it to every batch-compile
+  // child below as an explicit `--std-path`, so the runner and its children
+  // cannot disagree.
+  prefer_entry_std_root(files);
   // §7 items 3+4: the counts START from the restart's forwarded totals when
   // the RSS valve resumed this process (see --resume-from).
   (passed : usize) = accum_passed;
@@ -6786,6 +6817,9 @@ run_effects :: (
   if(files.len() == usize(0), {
     exn.throw(dyn(`effects: no .yo files found at ${target_path}`));
   });
+  // Same rule as `check`: a std tree is evaluated against its own root
+  // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
     exn.throw(dyn(`effects: could not load the prelude from ${std_path}`));
