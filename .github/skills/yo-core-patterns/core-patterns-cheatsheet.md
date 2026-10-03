@@ -25,7 +25,7 @@ println("plain str is also fine");
 | Type           | When you see it                              | Key behavior                           |
 | -------------- | -------------------------------------------- | -------------------------------------- |
 | `str`          | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
-| `String`       | Template strings `` `hello` ``               | Owned UTF-8, reference-counted         |
+| `String`       | Template strings `` `hello` ``               | Owned UTF-8 value, copy-on-write       |
 | `comptime_str` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
 
 Key rules:
@@ -33,6 +33,7 @@ Key rules:
 - In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str`. It does NOT auto-convert to `str`. A comptime function returning `str` materializes its `comptime_str` result automatically.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
+- `String` is a VALUE: `t := s` is an independent copy (O(1); the buffer is shared until one side writes). Mutators take `inout(self)`, so writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `inout(s) : String`, return the new string, or write a local copy. Bytes: `byte_at(i)` / `get_byte(i)` read in place, `to_bytes()` copies, `into_bytes()` moves out; there is no runtime `s(i)` (E0606) and no `as_bytes`.
 - **PITFALL:** Never write `String.from(`hello`)` — backtick strings are already `String`, not `str`. `String.from` takes `str`, so wrapping a backtick in `String.from` causes a type error ("Cannot unify String and str"). Only use `String.from(str_expr)` for actual `str` values.
 
 ## Import patterns
@@ -263,7 +264,7 @@ TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
   - `ref(struct(...))` / `ref(enum(...))`: plain `name : Type` (reference semantics — no pointer or inout needed).
     `foo :: (fn(ctx : EvalContext) -> unit)(ctx.do_stuff());`
   - `struct(...)` / `enum(...)` / primitive, read-only: plain `name : Type`.
-  - `struct(...)` / `enum(...)` / primitive, need mutation: `inout(name) : Type`.
+  - `struct(...)` / `enum(...)` / primitive / `String`, need mutation: `inout(name) : Type` (writing a by-value `String`, or the `String` field of a by-value struct, is E0908).
     `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)(...);`
   - Method receiver on `ref(struct(...))` / `ref(enum(...))`: plain `self : Self`.
   - Method receiver on value type (traits + inherent mutators): `inout(self) : Self`.
@@ -501,8 +502,8 @@ while(i < list.len(), {
 
 | Form                          | Expansion                                 | When to use                                                                 |
 | ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
-| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; reference-semantics elements are handles and mutate in place |
-| `for(coll, inout(x) => …)`    | borrows each element's storage            | In-place element mutation; growing/shrinking `coll` in the body panics      |
+| `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; `ref` elements are handles and mutate in place; a value element (`String`, …) is borrowed, so writing it is E0908 |
+| `for(coll, inout(x) => …)`    | borrows each element's storage            | In-place element mutation (`s.push_str(…)` on a `String` element); growing/shrinking `coll` in the body panics |
 | index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                     |
 | `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                             |
 

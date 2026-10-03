@@ -460,6 +460,8 @@ begin(
 - 用 `union(...)` 定义的联合体
 - 固定大小数组：`Array(T, N)` 或 `[T; N]`
 - 元组：`Tuple(T1, T2, ...)` 或 `(T1; T2; ...)`
+- `String`（`std/string`）：字节存放在堆上，副本与原值共享这些字节，直到其中一方写入
+  （写时复制；见[通过 `String` 的副本写入](#通过-string-的副本写入)）
 
 **引用语义类型**（堆分配，引用计数）：
 
@@ -570,9 +572,9 @@ _ := unsafe(unistd.close(fd));
 ### 类型推断
 
 ```rust
-// String 是一个带自动引用计数的引用语义类型
-(my_string : String) = String.from("Hello, world"); // 堆分配
-my_string_2 := my_string; // 两者指向同一个对象（RC 递增）
+// String 是一个值，字节存放在堆上
+(my_string : String) = String.from("Hello, world"); // 字节在堆上分配
+my_string_2 := my_string; // 独立的副本：两者共享缓冲区，直到其中一个写入（写时复制）
 // 原始类型是复制的
 my_int := 1; // 栈分配
 my_int_2 := my_int; // my_int_2 是一个副本
@@ -582,7 +584,7 @@ my_int_array := [1, 2, 3]; // Array(i32, 3)
 // ArrayList 是一个引用语义类型
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // 堆分配，RC
 // 枚举/ADT 可以是值类型或引用语义类型，取决于定义方式
-Person :: struct(name : String, age : i32); // 值类型（但包含引用语义类型字段）
+Person :: struct(name : String, age : i32); // 值类型（它的 String 字段也是值）
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -1639,7 +1641,7 @@ for(iter_expr, variable => {
 });
 ```
 
-`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对引用语义元素类型，`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。struct/标量元素的就地变异使用索引循环 + 索引写：
+`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(coll, inout(x) => body)`，或索引循环 + 索引写：
 
 ```rust
 // 值形式 — 每个 `x` 按值产出。
@@ -1651,8 +1653,11 @@ for(list, value => {
 });
 
 // 引用语义元素是句柄 — 变异落在集合里。
-for(names, s => {
-  s.push_str("!");
+Counter :: ref(struct(n : i32));
+counters := ArrayList(Counter).new();
+counters.push(Counter(n : i32(1)));
+for(counters, c => {
+  c.n = (c.n + i32(1));
 });
 
 // struct/标量元素：索引写就地变异。
@@ -2349,11 +2354,13 @@ s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 ### String（可增长字符串）
 
 堆分配的可增长 UTF-8 字符串，与 Rust 的 `String` 形态一致。它**不是**不可变的：
-`push_str`、`push_string`、`push_byte`、`reserve` 和 `clear` 接受 `inout(self)`
+`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、`clear`、
+`truncate`、`insert_str`、`insert`、`remove` 和 `pop` 接受 `inout(self)`
 并就地修改；而 `+` 之类的运算符仍然产生新字符串。
 
 若需要不可变、使用原子引用计数、可安全跨线程共享的字符串，请参阅 `std/imm/string`
-——它的所有"修改"方法都返回新值。
+——它的所有"修改"方法都返回新值。若需要由多个所有者共享的可变构建器，请使用
+引用语义类型 `StringBuilder`。
 
 ```rust
 s := String.new();
@@ -2363,55 +2370,77 @@ s3 := (s + s2); // 创建一个新字符串。
 
 #### 通过 `String` 的副本写入
 
-`String` 具有引用语义：副本与原字符串共享同一个缓冲区（见 §类型推断），
-无论副本来自赋值、参数传递、从集合读取（`xs(i)`）还是 `for` 循环的元素。
-通过副本写入，对原字符串可见。
+`String` 是一个值，与 `i32` 或 `Array(T, N)` 一样：执行 `t := s` 之后，对 `t`
+所做的任何事都不会通过 `s` 看到，反之亦然，无论 `s` 是否为空。复制并不复制字节：
+各个副本共享同一个缓冲区，直到其中一个写入（写时复制）。每个修改方法都会先让缓冲区
+变为独占，只有当另一个副本仍持有它时才克隆。由唯一所有者逐步构建的字符串会被就地写入，
+`clone()` 是 O(1)，空 `String` 在第一次写入之前不分配任何内存。
 
-**已知缺陷（S1，`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`）。** 空 `String` 还没有缓冲区，第一次写入时才会分配。
-因此通过空 `String` 的副本写入，只会在副本里分配缓冲区，原字符串永远看不到这次写入，
-而且不会有任何报告。
+写入落在被写的那个绑定上：
 
-在修复之前，不要依赖通过副本的写入：把字符串作为 `inout(out) : String` 传入、
-返回结果，或在需要独立字符串时调用 `.clone()`。下面的例子同时展示了共享的写入和丢失的写入：
+- **普通参数** `fn(out : String)` 借用调用方的值。写入它（`out.push_str("!")`，
+  或把它传给 `inout` 形参）是 E0908。要修改调用方的字符串，请接受
+  `inout(out) : String`；要产生新字符串，请返回它；要在私有副本上操作，请先复制到
+  局部变量（`t := out;`）再写这个局部变量。
+- **`for` 或 `match` 的绑定**同样是借用：`for(xs, s => s.push_str("!"))` 是
+  E0908。`for(xs, inout(s) => s.push_str("!"))` 会就地写入每个元素，
+  `xs(i).push_str("!")` 也一样。
+- **结构体字段**通过它的位置写入：在 `inout(p)` 形参或局部变量上写
+  `p.name.push_str("!")`。
 
 ```rust
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 
-// 普通的 `String` 参数是调用方句柄的副本。
-append_copy :: (fn(out : String) -> unit)({
-  out.push_str("!");
-});
-
 // `inout` 传入的是调用方的变量本身。
 append_inout :: (fn(inout(out) : String) -> unit)({
   out.push_str("!");
 });
 
+// 按值参数是借用的：写一个局部副本并返回它。
+with_bang :: (fn(s : String) -> String)({
+  t := s;
+  t.push_str("!");
+  t
+});
+
 main :: (fn() -> unit)({
-  a := String.new();
-  append_copy(a); // 丢失（缺陷）：`a` 没有缓冲区，写入在副本里分配了一个
-  b := String.from("hi");
-  append_copy(b); // 可见：副本与 `b` 共享缓冲区
-  println(`"${a}" "${b}"`); // "" "hi!"
+  a := String.from("hi");
+  b := a; // b 与 a 共享缓冲区
+  b.push_str("?"); // 第一次写入会复制缓冲区：a 不受影响
+  println(`"${a}" "${b}"`); // "hi" "hi?"
+
+  e := String.new();
+  f := e;
+  f.push_str("x"); // 无论是否为空，副本都是独立的
+  println(`"${e}" "${f}"`); // "" "x"
 
   c := String.new();
   append_inout(c);
-  d := b.clone();
-  d.push_str("?"); // 独立的缓冲区
-  println(`"${c}" "${b}" "${d}"`); // "!" "hi!" "hi!?"
+  d := with_bang(a);
+  println(`"${c}" "${a}" "${d}"`); // "!" "hi" "hi!"
 
   names := ArrayList(String).new();
   names.push(String.new());
   names.push(String.from("n"));
-  for(names, s => {
-    s.push_str("!");
+  for(names, inout(s) => {
+    s.push_str("!"); // 就地写入元素
   });
-  println(`"${names(usize(0))}" "${names(usize(1))}"`); // "" "n!"
+  println(`"${names(usize(0))}" "${names(usize(1))}"`); // "!" "n!"
 });
 export(main);
 ```
+
+由于 `String` 之外的任何东西都不能持有它的缓冲区，字节 API 只复制或移动，不出借：
+`to_bytes()` 返回一个独立的 `ArrayList(u8)`；`into_bytes()` 消耗字符串并把缓冲区
+移出（没有其他副本共享时不复制）；`from_bytes(own(bytes))` / `from_utf8(own(bytes))`
+接管传入的列表。就地读取字节用 `len()`、`byte_at(i)`、`get_byte(i)` 和 `bytes()`；
+运行期的 `String` 没有 `s(i)`（见 [STRINGS.md](./STRINGS.md)）。
+
+写入所做的克隆放在共享缓冲区所在的位置，而不是当前的 `with_allocator` 作用域：
+在 arena 中构建的字符串，其副本若在作用域外被写入，克隆仍会放进该 arena
+（[显式分配器](#显式分配器)）。
 
 #### 使用 `${}` 语法的模板字符串插值：
 
