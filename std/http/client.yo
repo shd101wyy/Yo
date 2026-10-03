@@ -907,10 +907,13 @@ _fetch_deadline :: (
         // elapsed-time check inside the read loop could only fire BETWEEN
         // awaits, which is exactly not the hung-server case a deadline exists
         // for. The race is driven by awaiting `yield` (a real suspension
-        // point), NOT by `std/async`'s `timeout`/`JoinHandle.await`: those
-        // poll the event loop synchronously and, called from inside a task,
-        // nest the loop
+        // point), NOT by `JoinHandle.await`, which polls the event loop
+        // synchronously and, called from inside a task, nests the loop
         // (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md). The
+        // suspending form is `io.await(timeout(h, limit, e.io), e.io)`; this
+        // file is on the compiler's import path, so it adopts it once the
+        // seed carries `__yo_join_wait_new` (plans/backlog/SEED_VERSION_AUTOMATION.md,
+        // 2026-10-03 entry). The
         // body is the top-level `_fetch_follow`, not a closure nested here
         // (C22). A while-with-await inside one arm of a match whose other arm
         // awaits once was mis-emitted until C38

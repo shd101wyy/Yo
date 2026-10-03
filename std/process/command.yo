@@ -600,7 +600,10 @@ impl(
       // stderr runs as a spawned task; stdout is awaited directly; the stderr
       // handle is then polled with is_finished() + awaited `yield` and
       // consumed only once terminal (a blocking JoinHandle.await from inside a
-      // task would nest the event loop, C37).
+      // task would nest the event loop, C37). The suspending form is
+      // `io.await(err_task.join(e.io), e.io)`; this file is on the compiler's
+      // import path, so it adopts it once the seed carries `__yo_join_wait_new`
+      // (plans/backlog/SEED_VERSION_AUTOMATION.md, 2026-10-03 entry).
       err_task := e.io.spawn(_drain_fd(err_read, io), e);
       stdout_buf := e.io.await(_drain_fd(out_read, io), e);
       while(runtime(!err_task.is_finished()), {

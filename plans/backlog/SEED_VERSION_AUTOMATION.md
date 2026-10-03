@@ -238,6 +238,21 @@ with the actual seed bundle. The cli-case fixture then moves to
 `build.manifest.<field>`, and the user docs (`docs/*/BUILD_SYSTEM.md`) document
 it as the public surface.
 
+## Seed-gated follow-up (2026-10-03): `JoinHandle.join` at the three hand-rolled wait loops
+
+**Generation A DONE 2026-10-03** (`plans/ASYNC_IO_API_AUDIT.md` A1): the runtime
+emits `__yo_join_wait_new` / `__yo_join_wait_add`, `std/async` declares them,
+`JoinHandle.join(io)` and the future-shaped combinators are built on them, and
+`tests/async/combinators.test.yo` proves them from inside a task under the
+tree binary. **Generation B (once `SEED_VERSION` ≥ the release carrying the
+primitive):** replace the `is_finished()` + awaited `yield` loops with
+`io.await(h.join(io), io)` / `io.await(timeout(...), io)` at
+`std/http/client.yo` (`_fetch_deadline`, on the compiler's import path through
+`src/version_cache.yo` and `src/verifier/z3.yo`), `std/process/command.yo`
+(`output`'s stderr drain) and `src/build_runner.yo` (the scheduler's wait).
+Failure mode if early: LOUD — the seed's runtime has no `__yo_join_wait_new`,
+so stage 1 fails to link.
+
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
 
 **Generation A DONE 2026-08-28:** the runtime emits

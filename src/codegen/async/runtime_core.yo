@@ -1273,6 +1273,38 @@ static void __yo_join_handle_release_raw(void* fut) {
   if (fut) {
     __yo_decr_rc(fut);
   }
+}
+
+// JoinHandle.join / the std/async combinators: a WAIT is a park future that
+// completes when any task added to it reaches a terminal state (Completed or
+// Aborted). A task that is already terminal completes the wait at once, so an
+// await of it takes the inline fast path. Otherwise the wait is registered as
+// one of the task's waiters, exactly like an awaiting task is, and fires when
+// the task's completion or abort wakes them. The waiter entry holds a
+// reference to the wait so a wait the joiner has already dropped or cancelled
+// is still valid memory when the entry fires (the wake is then a no-op: a park
+// completes only from state 0). This is what makes a JoinHandle awaitable from
+// INSIDE a task without nesting the event loop
+// (plans/ASYNC_IO_API_AUDIT.md A1).
+static void __yo_join_wait_fire(void* p) {
+  __yo_io_future_t* w = (__yo_io_future_t*)p;
+  __yo_waker_wake_local(w);
+  __yo_decr_rc((void*)w);
+}
+static __yo_io_future_t* __yo_join_wait_new(void) {
+  return __yo_async_park_start();
+}
+static void __yo_join_wait_add(__yo_io_future_t* w, void* task) {
+  if (!w || !task) {
+    return;
+  }
+  __yo_future_header_t* t = (__yo_future_header_t*)task;
+  if (t->state < 0) {
+    __yo_waker_wake_local(w);
+    return;
+  }
+  __yo_incr_rc((void*)w);
+  __yo_future_add_waiter(task, __yo_join_wait_fire, (void*)w);
 }`
   );
 });

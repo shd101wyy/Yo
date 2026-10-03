@@ -221,7 +221,10 @@ _git_version :: (
     // has no `current_dir`. The output future runs as a
     // SPAWNED TASK polled with is_finished + yield: a blocking await from
     // inside a task nests the event loop (C37), and awaiting an aborted
-    // future directly would discard this closure's continuation.
+    // future directly would discard this closure's continuation. The
+    // suspending form is `io.await(t.join(e.io), e.io)`; the compiler adopts
+    // it once the seed carries `__yo_join_wait_new`
+    // (plans/backlog/SEED_VERSION_AUTOMATION.md, 2026-10-03 entry).
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("-C"));
     cmd.arg(project_dir);
