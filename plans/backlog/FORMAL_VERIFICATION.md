@@ -1501,7 +1501,7 @@ become real; the stdlib starts carrying executable specifications.
 > hard-errors ("Expected all parameters to be compile time only…"), and
 > **`get_type_string` had no `.RefineT` arm** — refined-parameter
 > signatures emitted `// Unknown type:` INSIDE prototypes (malformed C;
-> `issues/refined-param-signatures-emit-malformed-c.md`) — invisible to
+> `issues/fixed/refined-param-signatures-emit-malformed-c.md`) — invisible to
 > the in-process harness (mm_load evaluates, never emits C) until the
 > seed-path batch compile. SEED GATES: the rework evaluates under seeds
 > ≥ v0.2.36 (which carries #705/#727/#710); the CODEGEN fix rides the
