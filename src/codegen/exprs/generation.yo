@@ -383,10 +383,9 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   em.emit_string_line(`${indent.clone()}// io.spawn — start cold Future, return JoinHandle`);
   em.emit_string_line(`${indent.clone()}${future_type_name} ${spawn_var.clone()} = ${future_code};`);
   em.emit_string_line(`${indent.clone()}int ${spawn_state_var.clone()} = ${spawn_var.clone()}->state;`);
-  em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == -2) {`);
-  em.emit_string_line(`${indent.clone()}  fflush(stdout); fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`);
-  em.emit_string_line(`${indent.clone()}  __yo_abort();`);
-  em.emit_string_line(`${indent.clone()}}`);
+  // An already-aborted future is not started (only a cold one is); its handle
+  // reads `.None` like any aborted task's (plans/ASYNC_IO_API_AUDIT.md A2).
+  // This used to be a panic, "attempted to spawn an aborted Future".
   // Inject the bundle effect into the future's SM before cold-starting.
   emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
   is_io_future := match(context.base.get_expr_info(future_arg), .Some(ei) => is_io_future_type(ei.ty), .None => false);

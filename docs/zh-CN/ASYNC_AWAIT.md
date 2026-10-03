@@ -196,11 +196,11 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 3. `io.state(future)` 返回当前 `FutureState`，不会阻塞或启动 Future
 4. `io.spawn(future)` 启动冷 Future 但不等待——返回 `JoinHandle(T)` 以便后续 await
 5. `handle.await(io)` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`
-6. 对已**中止**的 Future 进行 spawn 会导致 **panic**
+6. 对已**中止**的 Future 进行 spawn 不会启动任何东西：它的 `JoinHandle` 读出 `.None`
 7. 所有异步代码运行在**同一线程**上——不会创建新线程
 8. `yield()` 挂起当前任务，将控制权让给事件循环中其他就绪的任务
 9. `io.await(future)` 可以对同一 Future **多次调用**——每次调用返回相同的结果
-10. 对被代数效应处理器**中止**的 Future 进行 await 会导致 **panic**
+10. await 一个**已中止**的 Future 会把中止传播给等待者（见"已中止的 Future"），无论它是在 await 开始之前还是等待期间被中止的
 11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
 12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下
 
@@ -373,7 +373,12 @@ rb := hb.await(io);
 
 当代数效应处理器在异步任务内调用 `unwind` 时，Future 被标记为**已中止**（内部状态 = -2）。任务的续体被丢弃，不会存储结果。
 
-**使用 `io.await`**：对已中止的 Future 调用 `io.await` 会导致 **panic**。
+**使用 `io.await`**：中止会传播给等待者。在 `io.async` 体内，正在等待的任务随之被中止，
+所以更上层的 `JoinHandle.await` 或 `join` 读出 `.None`。在普通 `fn` 中，正在等待的函数接管
+这次 unwind：若该函数自己安装了处理器则在此捕获，否则逃逸到调用方，一直到 `main`——逃逸到
+那里会打印 `unhandled effect unwind escaped to top level` 并终止。无论 Future 是在 await
+开始之前还是等待期间被中止，也无论它的类型是否带有效应包，规则都一样。（2026-10-03 之前，
+已中止的情形会 panic："attempted to await an aborted Future"。）
 
 **使用 `handle.await`**：`JoinHandle.await` 返回 `Option(T)`——中止时返回 `.None`，安全地捕获 unwind：
 
@@ -418,7 +423,7 @@ export(main);
   会跳过这个已死的等待者，把锁或消息交给一个存活的等待者，不会丢失任何东西。
 - 所有正在 await 这个被中止任务的任务都会被唤醒。中止发生时**正在等待**的
   `io.await` 会让它自己所在的任务也中止，因此更上层的 `JoinHandle.await` 读到
-  `.None`。（对一个**已经**中止的 Future 发起 `io.await` 仍然会 panic。）
+  `.None`。对一个**已经**中止的 Future 发起 `io.await` 的行为与此相同。
 
 被中止任务的局部变量会在它的最后一个引用消失时被 drop。
 

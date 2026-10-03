@@ -29,7 +29,6 @@
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
-{ some_resolution } :: import("../../expr_info.yo");
 { is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 {
   extract_future_trait_from_type,
@@ -432,23 +431,13 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   // "unhandled", and takes over the unwind that caused it (below: caught here
   // or propagated).
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_take_unwind((void*)${sync_future_var.clone()});`);
-  // Determine whether the future carries algebraic effects (resolve SomeType).
-  effect_opt := _first_future_effect(future_trait_type);
-  effect_type_resolved := match(
-    effect_opt,
-    .Some(eff) => match(some_resolution(eff.ty), .Some(r) => Option(TypeValue).Some(r), .None => Option(TypeValue).Some(eff.ty)),
-    .None => Option(TypeValue).None
-  );
-  has_algebraic_effects := match(
-    effect_type_resolved,
-    .Some(et) => (is_function_type(et) || (is_module_type(et) || is_struct_type(et))),
-    .None => false
-  );
-  if(has_algebraic_effects, {
-    em.emit_string_line(`${indent.clone()}    if (${pre_await_state_var.clone()} == -2) {`);
-    em.emit_string_line(`${indent.clone()}      fflush(stdout); fprintf(stderr, "panic: attempted to await an aborted Future\\n");`);
-    em.emit_string_line(`${indent.clone()}      __yo_abort();`);
-    em.emit_string_line(`${indent.clone()}    }`);
+  // One abort semantics (plans/ASYNC_IO_API_AUDIT.md A2, decision Q1): an
+  // aborted future propagates its abort to this awaiter, whether it was
+  // aborted before the await started or while it waited, and whether or not
+  // its type names a bundle — the state-machine await already behaves so. It
+  // used to be a panic ("attempted to await an aborted Future") for an
+  // already-aborted future, and for every abort of a bundle-less one.
+  {
     // Drop in-scope locals (excluding the not-yet-declared await result var).
     saved_drops := context.pending_deferred_drops;
     match(
@@ -526,58 +515,33 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       }),
       .None => em.emit_string_line(`${indent.clone()}    return;`)
     );
-  }, {
-    em.emit_string_line(`${indent.clone()}    fflush(stdout); fprintf(stderr, "panic: attempted to await an aborted Future\\n");`);
-    em.emit_string_line(`${indent.clone()}    __yo_abort();`);
-  });
+  };
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}}`);
   if(!is_result_unit, {
     result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
     result_type_str := get_type_string(result_type, context.base);
     var_decl := get_variable_type_string(result_type, result_var.clone(), context.base);
-    if(has_algebraic_effects, {
-      em.emit_string_line(`${indent.clone()}${var_decl};`);
-      em.emit_string_line(`${indent.clone()}if (${sync_future_var.clone()}->state == -1) {`);
-      if(type_contains_rc_type(result_type), {
-        match(
-          get_dup_function_for_type(result_type, context),
-          .Some(dup_fn) => em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = ${dup_fn}(${sync_future_var.clone()}->result);`),
-          // INLINE dup, not a bare copy. No `___dup` methods are
-          // synthesized (see drop_dup.yo), so `.None` is
-          // the ONLY path — and a bare copy hands out a second owner with no
-          // increment, while the scope-end pass still emits a decrement per
-          // binding. Awaiting one RC-result future twice therefore over-released
-          // it: heap corruption (SIGTRAP on macOS, tcache corruption on glibc).
-          // That was the Linux-only failure of
-          // tests/async_await.test.yo "Test await future multiple times returns
-          // same result". Use the same inline generator every other dup
-          // site uses.
-          .None => {
-            dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, result_type, context);
-            em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = ${dup_code};`);
-          }
-        );
-      }, {
-        em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = ${sync_future_var.clone()}->result;`);
-      });
-      em.emit_string_line(`${indent.clone()}} else {`);
-      em.emit_string_line(`${indent.clone()}  ${result_var.clone()} = (${result_type_str}){0};`);
-      em.emit_string_line(`${indent.clone()}}`);
+    // Every abort returned above, so the future is Completed here.
+    if(type_contains_rc_type(result_type), {
+      match(
+        get_dup_function_for_type(result_type, context),
+        .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_fn}(${sync_future_var.clone()}->result);`),
+        // INLINE dup, not a bare copy. No `___dup` methods are synthesized
+        // (see drop_dup.yo), so `.None` is the ONLY path — and a bare copy
+        // hands out a second owner with no increment, while the scope-end
+        // pass still emits a decrement per binding. Awaiting one RC-result
+        // future twice therefore over-released it: heap corruption (SIGTRAP
+        // on macOS, tcache corruption on glibc), the Linux-only failure of
+        // tests/async_await.test.yo "Test await future multiple times returns
+        // same result".
+        .None => {
+          dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, result_type, context);
+          em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_code};`);
+        }
+      );
     }, {
-      if(type_contains_rc_type(result_type), {
-        match(
-          get_dup_function_for_type(result_type, context),
-          .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_fn}(${sync_future_var.clone()}->result);`),
-          // INLINE dup — see the comment on the effectful branch above.
-          .None => {
-            dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, result_type, context);
-            em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_code};`);
-          }
-        );
-      }, {
-        em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
-      });
+      em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
     });
     return(result_var);
   });

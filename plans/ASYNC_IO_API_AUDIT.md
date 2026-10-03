@@ -334,7 +334,7 @@ awaits the futures and adds the in-task cases (`join`, `join_all`,
 `YO_ASYNC_STRICT=1`; aborting a joiner leaves the joined task running), the
 two `tests/net/tcp.test.yo` call sites, `fixpoint_only.sh`.
 
-### A2 — One abort semantics (after §6 Q1)
+### A2 — One abort semantics (after §6 Q1) — landed 2026-10-03
 
 Recommended: delete both panics. An `io.await` that meets an already-aborted
 future takes over the unwind exactly as a waiting await does; `io.spawn` of an

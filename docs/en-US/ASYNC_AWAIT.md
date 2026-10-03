@@ -202,11 +202,11 @@ yield(io)                     // Create a pending Future completed by the next l
 3. `io.state(future)` returns the current `FutureState` without blocking or starting the Future
 4. `io.spawn(future)` starts a cold future without waiting — returns `JoinHandle(T)` for later awaiting
 5. `handle.await(io)` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on unwind (abort)
-6. Spawning an already **aborted** Future causes a **panic**
+6. Spawning an already **aborted** Future starts nothing: its `JoinHandle` reads `.None`
 7. All async code runs on the **same thread** — no thread spawning
 8. `yield()` suspends the current task and yields to other ready tasks in the event loop
 9. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
-10. Awaiting a Future that was **aborted** by an algebraic effect handler causes a **panic**
+10. Awaiting an **aborted** Future propagates the abort to the awaiter (see "Aborted Futures"), whether it was aborted before the await started or while it waited
 11. `io.spawn(future, e)` runs the task **inline up to its first suspension point** before returning; spawn is not itself a suspension point of the caller
 12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under
 
@@ -381,7 +381,16 @@ rb := hb.await(io);
 
 When an algebraic effect handler calls `unwind` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
 
-**With `io.await`**: Attempting to `io.await` on an aborted Future causes a **panic**.
+**With `io.await`**: the abort propagates to the awaiter. Inside an
+`io.async` body the awaiting task is aborted in turn, so a `JoinHandle.await`
+or `join` further up reads `.None`. In a plain `fn` the awaiting function
+takes over the unwind: a handler installed in that function catches it, and
+otherwise it escapes to the caller, up to `main`, where an escape prints
+`unhandled effect unwind escaped to top level` and aborts. The rule is the
+same whether the Future was aborted before the await started or while it
+waited, and whether or not its type names an effect bundle. (Until
+2026-10-03 the already-aborted case was a panic, "attempted to await an
+aborted Future".)
 
 **With `handle.await`**: `JoinHandle.await` returns `Option(T)` — `.None` on abort, safely catching the unwind:
 
@@ -428,8 +437,8 @@ cancelled with it.
   one. Nothing is lost.
 - Every task awaiting the aborted one is woken. An `io.await` that was
   **waiting** when the abort happened aborts its own task too, so a
-  `JoinHandle.await` further up reads `.None`. (Starting an `io.await` on a
-  Future that is **already** aborted is still a panic.)
+  `JoinHandle.await` further up reads `.None`. Starting an `io.await` on a
+  Future that is **already** aborted behaves the same way.
 
 The aborted task's locals are dropped when its last reference goes away.
 
