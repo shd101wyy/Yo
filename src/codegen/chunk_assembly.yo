@@ -188,7 +188,7 @@ _ca_collect_static_def_names :: (fn(text : String, into : HashSet(String)) -> un
   static_pat := String.from("static ");
   inline_pat := String.from("inline ");
   attr_pat := String.from("__attribute__((");
-  bytes := text.as_bytes();
+  bytes := text.to_bytes();
   n := bytes.len();
   (ls : usize) = usize(0);
   while(ls < n, {
@@ -216,7 +216,7 @@ _ca_dequalify_statics :: (fn(text : String, header_defined : HashSet(String)) ->
   static_pat := String.from("static ");
   inline_pat := String.from("inline ");
   attr_pat := String.from("__attribute__((");
-  bytes := text.as_bytes();
+  bytes := text.to_bytes();
   n := bytes.len();
   out := ArrayList(u8).new();
   (ls : usize) = usize(0);
@@ -275,7 +275,7 @@ DeclSplit :: ref(struct(header_part : String, moved_part : String));
 /// indents everything inside it, and C string literals cannot span a raw
 /// newline — so the first column-0 `}` after the opening line ends the body.
 _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
-  bytes := text.as_bytes();
+  bytes := text.to_bytes();
   n := bytes.len();
   hdr := ArrayList(u8).new();
   mov := ArrayList(u8).new();
@@ -398,7 +398,7 @@ _ca_collect_residue_protos :: (
   fn(text : String, names_out : ArrayList(String), protos_out : HashMap(String, String)) -> unit
 )({
   yo_pat := String.from("__yo_");
-  bytes := text.as_bytes();
+  bytes := text.to_bytes();
   n := bytes.len();
   (ls : usize) = usize(0);
   while(ls < n, {
@@ -474,7 +474,7 @@ _ca_collect_residue_protos :: (
 /// newlines are `\n` escapes), so the in-string state resets per line.
 _ca_collect_yo_refs :: (fn(text : String, into : HashSet(String)) -> unit)({
   yo_pat := String.from("__yo_");
-  bytes := text.as_bytes();
+  bytes := text.to_bytes();
   n := bytes.len();
   (i : usize) = usize(0);
   (in_str : bool) = false;
@@ -546,9 +546,9 @@ _ca_patch_chunk_markers :: (fn(body : String, chunk_file : String) -> String)({
   if(!body.contains(marker), {
     return(body);
   });
-  bytes := body.as_bytes();
+  bytes := body.to_bytes();
   n := bytes.len();
-  mb := marker.as_bytes();
+  mb := marker;
   mlen := mb.len();
   out := ArrayList(u8).new();
   (ls : usize) = usize(0);
@@ -576,7 +576,7 @@ _ca_patch_chunk_markers :: (fn(body : String, chunk_file : String) -> String)({
       (all_eq : bool) = true;
       while((mi < mlen) && all_eq, {
         a := _ca_bget(bytes, ls + mi);
-        b := match(mb.get(mi), .Some(b1) => b1, .None => u8(1));
+        b := match(mb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
         if(a != b, {
           all_eq = false;
         });
@@ -606,7 +606,7 @@ _ca_patch_chunk_markers :: (fn(body : String, chunk_file : String) -> String)({
       });
       out.push(u8(32)); // ' '
       out.push(u8(34)); // '"'
-      cf := chunk_file.as_bytes();
+      cf := chunk_file.to_bytes();
       (ci3 : usize) = usize(0);
       while(ci3 < cf.len(), {
         out.push(_ca_bget(cf, ci3));
@@ -696,7 +696,7 @@ assemble_chunks :: (
   ) -> ChunkAssembly
 )({
   n := if(n_chunks < usize(1), usize(1), n_chunks);
-  code_bytes := code.as_bytes();
+  code_bytes := code.to_bytes();
   // 1. The header-defined name set: static definitions already living in the
   //    declarations text (atomics, dyn wrappers), the constructor/traverse
   //    block, and the RC helper ranges (their c_name IS the defined name).

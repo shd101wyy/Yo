@@ -999,7 +999,7 @@ _mangle_c_identifier_bytes :: (fn(s : String) -> String)({
   sanitized := String.new();
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
   // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
-  n := s.as_bytes().len();
+  n := s.len();
   (i : usize) = usize(0);
   while(i < n, {
     b := s.byte_at(i);
@@ -1496,7 +1496,7 @@ _extract_future_trait_of_some_t :: (fn(t : TypeValue) -> Option(TypeValue))(
 /// identifier can't contain `*`; sanitize would otherwise turn it into `_u42_`).
 _strip_stars :: (fn(s : String) -> String)({
   out := String.from("");
-  n := s.as_bytes().len();
+  n := s.len();
   (i : usize) = usize(0);
   while(i < n, {
     b := s.byte_at(i);

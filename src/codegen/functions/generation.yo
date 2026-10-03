@@ -59,21 +59,22 @@ _insert_attr_before_first_decl :: (
   fn(em : Emitter, c_name : String, attr_line : String, code_limit_b : usize) -> unit
 )({
   needle := ` ${c_name}(`;
-  nb := needle.as_bytes();
+  nb := needle;
   nlen := nb.len();
   (bi : usize) = usize(0);
   while(bi < usize(4), {
-    // Read-only search: share the buffers (a `.clone()` copied the whole
-    // ~110 MB code buffer per stub). Stage 2 is the spilled code, if any.
-    hay := cond(
-      (bi == usize(0)) => em.headers.as_bytes(),
-      (bi == usize(1)) => em.declarations.as_bytes(),
+    // Read-only search over a String copy: O(1), the buffer is shared
+    // (copy-on-write), never the ~110 MB byte copy `to_bytes()` would make
+    // per stub. Stage 2 is the spilled code, if any.
+    (hay : String) = cond(
+      (bi == usize(0)) => em.headers,
+      (bi == usize(1)) => em.declarations,
       (bi == usize(2)) => if(
         em.code_spilled_bytes > usize(0),
-        read_file_sync(em.code_spill_path.clone(), Exception(throw : (err -> panic(`yo: reading the C code spill file failed: ${err.to_string()}`)))),
-        ArrayList(u8).new()
+        String.from_bytes(read_file_sync(em.code_spill_path.clone(), Exception(throw : (err -> panic(`yo: reading the C code spill file failed: ${err.to_string()}`))))),
+        String.new()
       ),
-      true => em.code.as_bytes()
+      true => em.code
     );
     limit := cond((bi == usize(3)) => code_limit_b, true => hay.len());
     if(limit >= nlen, {
@@ -83,8 +84,8 @@ _insert_attr_before_first_decl :: (
         (mi : usize) = usize(0);
         (all_eq : bool) = true;
         while((mi < nlen) && all_eq, {
-          a := match(hay.get(si + mi), .Some(b0) => b0, .None => u8(0));
-          b := match(nb.get(mi), .Some(b1) => b1, .None => u8(1));
+          a := match(hay.get_byte(si + mi), .Some(b0) => b0, .None => u8(0));
+          b := match(nb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
           if(a != b, {
             all_eq = false;
           });
@@ -93,26 +94,26 @@ _insert_attr_before_first_decl :: (
         if(all_eq, {
           // Walk back to the start of this line.
           (ls : usize) = si;
-          while((ls > usize(0)) && match(hay.get(ls - usize(1)), .Some(cb) => (cb != u8(10)), .None => false), {
+          while((ls > usize(0)) && match(hay.get_byte(ls - usize(1)), .Some(cb) => (cb != u8(10)), .None => false), {
             ls = (ls - usize(1));
           });
           out := ArrayList(u8).new();
           (ci : usize) = usize(0);
           while(ci < ls, {
-            out.push(match(hay.get(ci), .Some(cb) => cb, .None => u8(0)));
+            out.push(match(hay.get_byte(ci), .Some(cb) => cb, .None => u8(0)));
             ci = (ci + usize(1));
           });
-          ab := attr_line.as_bytes();
+          ab := attr_line;
           (ai : usize) = usize(0);
           while(ai < ab.len(), {
-            out.push(match(ab.get(ai), .Some(cb) => cb, .None => u8(0)));
+            out.push(match(ab.get_byte(ai), .Some(cb) => cb, .None => u8(0)));
             ai = (ai + usize(1));
           });
           out.push(u8(10));
           (ci2 : usize) = ls;
           total := hay.len();
           while(ci2 < total, {
-            out.push(match(hay.get(ci2), .Some(cb) => cb, .None => u8(0)));
+            out.push(match(hay.get_byte(ci2), .Some(cb) => cb, .None => u8(0)));
             ci2 = (ci2 + usize(1));
           });
           cond(
@@ -709,7 +710,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // function's end already restored) and restore again at the closing
       // brace so the scaffolding after this body reports honest C lines.
       em.clear_yo_line_position();
-      stub_mark_b := em.code.as_bytes().len();
+      stub_mark_b := em.code.len();
       em.emit_string_line(open);
       _maybe_emit_method_entry_borrow_assert(function_type, func_id.clone(), body_box, em, context);
       prev_name := context.base.current_function_name;
@@ -833,10 +834,10 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // exact.
       (stub_found_ftt : bool) = false;
       {
-        sb := em.code.as_bytes();
+        sb := em.code;
         total_b := sb.len();
         needle := String.from("// Failed to transpile");
-        nb := needle.as_bytes();
+        nb := needle;
         nlen := nb.len();
         if(total_b >= (stub_mark_b + nlen), {
           (si : usize) = stub_mark_b;
@@ -845,8 +846,8 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
             (mi : usize) = usize(0);
             (all_eq : bool) = true;
             while((mi < nlen) && all_eq, {
-              a := match(sb.get(si + mi), .Some(b0) => b0, .None => u8(0));
-              b := match(nb.get(mi), .Some(b1) => b1, .None => u8(1));
+              a := match(sb.get_byte(si + mi), .Some(b0) => b0, .None => u8(0));
+              b := match(nb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
               if(a != b, {
                 all_eq = false;
               });
@@ -872,7 +873,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
               // with no expression, i.e. C that does not even parse.
               prev_ok := cond(
                 (si == usize(0)) => true,
-                true => match(sb.get(si - usize(1)), .Some(qv) => (qv != u8(34)), .None => true)
+                true => match(sb.get_byte(si - usize(1)), .Some(qv) => (qv != u8(34)), .None => true)
               );
               if(prev_ok, {
                 stub_found_ftt = true;
@@ -962,7 +963,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         // Truncate at the marker, in place. stub_mark_b is a byte offset taken
         // at an emission point (a char boundary), so this is byte-exact with
         // the former `substring(0, stub_mark)` and copies nothing.
-        pb := em.code.as_bytes();
+        pb := em.code;
         if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
           // The rewrite below TRUNCATES the body at the marker, destroying the
           // evidence of WHICH expression failed — print a window AROUND the
@@ -972,7 +973,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           (mw_end : usize) = (stub_mark_b + usize(320));
           while((mw < mw_end) && (mw < pb.len()), {
             match(
-              pb.get(mw),
+              pb.get_byte(mw),
               .Some(mwb) => mk_win.push(mwb),
               .None => ()
             );
@@ -1071,7 +1072,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   // the shared header (per-TU `static` copies — constructors are called from
   // every chunk, and each TU's constructors take the address of that TU's own
   // traverse copy, which is only ever CALLED through the stored pointer).
-  ctor_block_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
+  ctor_block_start := if(context.base.chunk_mode, em.code.len(), usize(0));
   generate_ref_struct_constructor_functions(context);
   generate_ref_enum_constructor_functions(context);
   // After both traversal passes: the Iso walk calls the traversal functions.
@@ -1079,7 +1080,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   generate_closure_constructor_functions(context);
   if(context.base.chunk_mode, {
     context.base.chunk_header_ranges.push(
-      ChunkRange(c_name : String.from("__ctor_block"), start_b : ctor_block_start, end_b : em.code.as_bytes().len(), module : String.new())
+      ChunkRange(c_name : String.from("__ctor_block"), start_b : ctor_block_start, end_b : em.code.len(), module : String.new())
     );
   });
   // Iterate in INSERTION order (function_order), NOT HashMap bucket order, so
@@ -1104,14 +1105,14 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
             // range AFTER the call returns — generate_function may truncate
             // the buffer tail (superseded-stub rewrite), so the extent is
             // final only then. Ranges are non-overlapping and ascending.
-            fn_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
+            fn_start := if(context.base.chunk_mode, em.code.len(), usize(0));
             generate_function(entry.value, entry.c_name, context);
             // A function boundary: spill finished code (a no-op without a
             // spill file, which chunk mode never opens).
             context.base.emitter.spill_code_if_large();
             if(context.base.chunk_mode, {
               context.base.chunk_fn_ranges.push(
-                ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.as_bytes().len(), module : entry.def_module.clone())
+                ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.len(), module : entry.def_module.clone())
               );
             });
           });

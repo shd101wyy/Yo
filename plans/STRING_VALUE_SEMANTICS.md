@@ -2,7 +2,7 @@
 
 **Status: APPROVED 2026-10-03. S0 landed (#1148); S1 (E0908 on `inout` writes
 through a borrowed value) in review; S2–S4 not started.** Decision by the user, after
-`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
+`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
 (S1). This supersedes DESIGN §Type inference's "String is a
 reference-semantics type", and is the fix for that issue. No backward
 compatibility is kept (AGENTS.md): signatures change and call sites migrate.
@@ -195,6 +195,27 @@ fast suite, the hollow sweep.
   - **Measure** `yo check ./src` time and stage-2 compile RSS before and
     after (`--optimize 2`, no `--emit-c`), and re-baseline the memory
     ratchet if a number moves past ±10 %.
+  - **As implemented (2026-10-03):**
+    - `_make_unique` clones a shared buffer through `ArrayList.clone`, which
+      places the clone where the source lives. `clear` on a shared buffer lets
+      it go instead of cloning it.
+    - `get_byte(i) -> Option(u8)` joins `byte_at(i)` for in-place reads.
+      `String` loses `Index(usize)` (`s(i)` is E0606), which closes the
+      writable byte place.
+    - Inside `std/string/` a private `_byte_list()` returns the shared buffer
+      for read-only helpers; member visibility keeps it in that directory.
+    - Migration of the 313 `as_bytes()` sites:
+      - `.as_bytes().len()` → `.len()`, `.as_bytes().get(` → `.get_byte(`;
+      - a binding only ever read becomes an O(1) `String` snapshot read with
+        `byte_at`/`get_byte`;
+      - the rest copy with `to_bytes()`.
+      Helpers that took the list read-only (`interpolation_body_end`, the
+      regex prefix scan and match builder) take a `String`, so the lexer,
+      parser, formatter and regex copy nothing per token or per match.
+      `to_bytes()` becomes O(1) once V2b makes `ArrayList` a value.
+    - The one site that wrote a string through its list,
+      `Emitter.patch_restore_line_numbers`, now takes the buffer out
+      (`into_bytes`, no copy when unique), patches it, and puts it back.
 - **S4: docs and close.**
   - DESIGN §Type inference and §Writing through a copy of a `String`, en-US
     and zh-CN, STRINGS.md, and the pack's ownership section.

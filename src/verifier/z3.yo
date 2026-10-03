@@ -167,7 +167,7 @@ _z3_write_file_sync :: (fn(path : String, contents : String) -> bool)({
   match(
     f,
     .Some(fh) => {
-      b := contents.as_bytes();
+      b := contents;
       bptr := match(
         b.ptr(),
         .Some(p) => p,
@@ -384,10 +384,10 @@ Z3Sexpr :: ref(
 parse_z3_sexprs :: (fn(text : String) -> ArrayList(Z3Sexpr))({
   out := ArrayList(Z3Sexpr).new();
   stack := ArrayList(ArrayList(Z3Sexpr)).new();
-  b := text.as_bytes();
+  b := text;
   (i : usize) = usize(0);
   while(i < b.len(), {
-    c := match(b.get(i), .Some(x) => x, .None => u8(0));
+    c := match(b.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       ((c == u8(0x20)) || (c == u8(0x09)) || (c == u8(0x0A)) || (c == u8(0x0D))) => {
         i = (i + usize(1));
@@ -396,7 +396,7 @@ parse_z3_sexprs :: (fn(text : String) -> ArrayList(Z3Sexpr))({
         // ';' comment — skip to end of line (leave the \n for the next pass).
         (j : usize) = i;
         while(j < b.len(), {
-          cc := match(b.get(j), .Some(x) => x, .None => u8(0x0A));
+          cc := match(b.get_byte(j), .Some(x) => x, .None => u8(0x0A));
           if(cc == u8(0x0A), {
             break;
           });
@@ -432,7 +432,7 @@ parse_z3_sexprs :: (fn(text : String) -> ArrayList(Z3Sexpr))({
         // Atom: run of bytes that are not whitespace, parens, or comment.
         start := i;
         while(i < b.len(), {
-          cc := match(b.get(i), .Some(x) => x, .None => u8(0));
+          cc := match(b.get_byte(i), .Some(x) => x, .None => u8(0));
           if((cc == u8(0x20)) || (cc == u8(0x09)) || (cc == u8(0x0A)) || (cc == u8(0x0D)) || (cc == u8(0x28)) || (cc == u8(0x29)) || (cc == u8(0x3B)), {
             break;
           });

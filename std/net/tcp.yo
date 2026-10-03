@@ -479,7 +479,7 @@ impl(
   write_str : (fn(self : Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     s := String.from(data);
-    s_bytes := s.as_bytes();
+    s_bytes := s;
     io.async(e => {
       r := e.io.await(IO_tcp.stream_write(fd, s_bytes.ptr().unwrap(), s_bytes.len()), e.io);
       usize(NetError.check(r, e.exn))
@@ -489,7 +489,7 @@ impl(
   /// Returns the number of bytes written.
   write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    data_bytes := data.as_bytes();
+    data_bytes := data;
     io.async(e => {
       r := e.io.await(IO_tcp.stream_write(fd, data_bytes.ptr().unwrap(), data_bytes.len()), e.io);
       usize(NetError.check(r, e.exn))

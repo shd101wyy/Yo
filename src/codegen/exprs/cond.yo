@@ -62,8 +62,8 @@ _inside_c_string_literal :: (fn(s : String, idx : usize) -> bool)({
 /// scanned C code contains multibyte string literals (see other_fn_call.yo's
 /// splitter fix).
 _byte_index_of :: (fn(s : String, word : String, from : usize) -> Option(usize))({
-  sb := s.as_bytes();
-  wb := word.as_bytes();
+  sb := s;
+  wb := word;
   n := sb.len();
   m := wb.len();
   if((m == usize(0)) || (n < m), {
@@ -74,8 +74,8 @@ _byte_index_of :: (fn(s : String, word : String, from : usize) -> Option(usize))
     (j : usize) = usize(0);
     (hit : bool) = true;
     while((j < m) && hit, {
-      a := match(sb.get(i + j), .Some(x) => x, .None => u8(0));
-      b := match(wb.get(j), .Some(x) => x, .None => u8(1));
+      a := match(sb.get_byte(i + j), .Some(x) => x, .None => u8(0));
+      b := match(wb.get_byte(j), .Some(x) => x, .None => u8(1));
       if(!(a == b), {
         hit = false;
       });
@@ -94,7 +94,7 @@ _contains_word_return :: (fn(s : String) -> bool)({
   word := String.from("return");
   wlen := usize(6);
   // BYTE length + byte-based find — see _byte_index_of.
-  slen := s.as_bytes().len();
+  slen := s.len();
   (from : usize) = usize(0);
   while(true, {
     match(

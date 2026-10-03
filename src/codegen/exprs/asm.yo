@@ -72,11 +72,11 @@ _resolve_constraint :: (fn(constraint : Option(String), arch : Arch) -> String)(
   );
   if(c.starts_with("raw:"), {
     out := String.new();
-    b := c.as_bytes();
+    b := c;
     (i : usize) = usize(4);
     while(i < b.len(), {
       match(
-        b.get(i),
+        b.get_byte(i),
         .Some(x) => {
           out.push_byte(x);
         },
@@ -103,13 +103,13 @@ _resolve_constraint :: (fn(constraint : Option(String), arch : Arch) -> String)(
 /// {{ -> {, }} -> }.
 _transform_template :: (fn(template : String) -> String)({
   result := String.new();
-  b := template.as_bytes();
+  b := template;
   n := b.len();
   (i : usize) = usize(0);
   while(i < n, {
-    c := match(b.get(i), .Some(x) => x, .None => u8(0));
+    c := match(b.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
-      ((c == u8(123)) && match(b.get(i + usize(1)), .Some(x) => (x == u8(123)), .None => false)) => {
+      ((c == u8(123)) && match(b.get_byte(i + usize(1)), .Some(x) => (x == u8(123)), .None => false)) => {
         result.push_str("{");
         i = (i + usize(2));
       },
@@ -120,7 +120,7 @@ _transform_template :: (fn(template : String) -> String)({
         {
           (j : usize) = (i + usize(1));
           while((j < n) && !found_close, {
-            if(match(b.get(j), .Some(x) => (x == u8(125)), .None => false), {
+            if(match(b.get_byte(j), .Some(x) => (x == u8(125)), .None => false), {
               close_idx = j;
               found_close = true;
             });
@@ -138,7 +138,7 @@ _transform_template :: (fn(template : String) -> String)({
           {
             (k : usize) = (i + usize(1));
             while(k < close_idx, {
-              ck := match(b.get(k), .Some(x) => x, .None => u8(0));
+              ck := match(b.get_byte(k), .Some(x) => x, .None => u8(0));
               cond(
                 ((ck == u8(58)) && !seen_colon) => {
                   seen_colon = true;
@@ -156,10 +156,10 @@ _transform_template :: (fn(template : String) -> String)({
           // Positional (all digits) or named?
           (all_digits : bool) = (ref_str.len() > usize(0));
           {
-            rb := ref_str.as_bytes();
+            rb := ref_str;
             (di : usize) = usize(0);
             while(di < rb.len(), {
-              db := match(rb.get(di), .Some(x) => x, .None => u8(0));
+              db := match(rb.get_byte(di), .Some(x) => x, .None => u8(0));
               if((db < u8(48)) || (db > u8(57)), {
                 all_digits = false;
               });
@@ -178,7 +178,7 @@ _transform_template :: (fn(template : String) -> String)({
           i = (close_idx + usize(1));
         });
       },
-      ((c == u8(125)) && match(b.get(i + usize(1)), .Some(x) => (x == u8(125)), .None => false)) => {
+      ((c == u8(125)) && match(b.get_byte(i + usize(1)), .Some(x) => (x == u8(125)), .None => false)) => {
         result.push_str("}");
         i = (i + usize(2));
       },
@@ -615,20 +615,20 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
           // Replace {name}/{N} (with optional :modifier) with the bare value.
           // Byte-scan replace: rebuild the template.
           rebuilt := String.new();
-          b := processed_template.as_bytes();
+          b := processed_template;
           n := b.len();
           (i : usize) = usize(0);
           while(i < n, {
-            c := match(b.get(i), .Some(x) => x, .None => u8(0));
+            c := match(b.get_byte(i), .Some(x) => x, .None => u8(0));
             (replaced : bool) = false;
-            if((c == u8(123)) && !match(b.get(i + usize(1)), .Some(x) => (x == u8(123)), .None => false), {
+            if((c == u8(123)) && !match(b.get_byte(i + usize(1)), .Some(x) => (x == u8(123)), .None => false), {
               // find close and split ref
               (close_idx : usize) = i;
               (found_close : bool) = false;
               {
                 (j : usize) = (i + usize(1));
                 while((j < n) && !found_close, {
-                  if(match(b.get(j), .Some(x) => (x == u8(125)), .None => false), {
+                  if(match(b.get_byte(j), .Some(x) => (x == u8(125)), .None => false), {
                     close_idx = j;
                     found_close = true;
                   });
@@ -641,7 +641,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
                   (k : usize) = (i + usize(1));
                   (stop : bool) = false;
                   while((k < close_idx) && !stop, {
-                    ck := match(b.get(k), .Some(x) => x, .None => u8(0));
+                    ck := match(b.get_byte(k), .Some(x) => x, .None => u8(0));
                     if(ck == u8(58), {
                       stop = true;
                     }, {

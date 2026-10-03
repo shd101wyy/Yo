@@ -1430,10 +1430,10 @@ _cache_read_file :: (
 /// rather than a local closure, so the io.async body using it stays a plain
 /// statement sequence.
 _stamp_push_str :: (fn(dst : ArrayList(u8), s2 : String) -> unit)({
-  b := s2.as_bytes();
+  b := s2;
   (bi : usize) = usize(0);
   while(bi < b.len(), {
-    dst.push(b(bi));
+    dst.push(b.byte_at(bi));
     bi = (bi + usize(1));
   });
   dst.push(u8(10));

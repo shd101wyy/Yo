@@ -2466,7 +2466,7 @@ s3 := (s + s2); // Create a new string.
 a collection read (`xs(i)`) or a `for` loop element. A write through the copy
 is visible through the original.
 
-**Known defect (S1, `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`).** An empty `String` has no buffer yet; none is
+**Known defect (S1, `issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`).** An empty `String` has no buffer yet; none is
 allocated until the first write. A write through a copy of an empty `String`
 therefore allocates a buffer in the copy alone, and the original never sees
 it. Nothing reports the lost write.

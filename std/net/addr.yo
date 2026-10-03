@@ -70,7 +70,7 @@ impl(
   /// `Ipv4Addr::from_str` does — octal ambiguity), no empty octet (`1..2.3`,
   /// `1.2.3.`, `...` used to parse as 0-filled addresses).
   parse_v4 : (fn(s : String, exn : Exception) -> IpAddr)({
-    bytes := s.as_bytes();
+    bytes := s;
     parts := Array(u8, usize(4)).fill(u8(0));
     part_idx := usize(0);
     val := u32(0);
@@ -79,7 +79,7 @@ impl(
     digits := usize(0);
     i := usize(0);
     while(runtime(i < bytes.len()), {
-      ch := bytes(i);
+      ch := bytes.byte_at(i);
       cond(
         (ch == _ASCII_DOT) => {
           // '.' separator
@@ -150,7 +150,7 @@ impl(
   /// at the end. A zone id (`%eth0`) is NOT accepted — it identifies an
   /// interface, not an address, and `IpAddr` has nowhere to put it.
   parse_v6 : (fn(s : String, exn : Exception) -> IpAddr)({
-    bytes := s.as_bytes();
+    bytes := s;
     n := bytes.len();
     cond(
       (n == usize(0)) => {
@@ -174,7 +174,7 @@ impl(
     // `::` has been passed. Written inline at each commit point because a
     // closure would have to capture six mutable locals.
     while(runtime(i < n), {
-      b := bytes(i);
+      b := bytes.byte_at(i);
       cond(
         (b == _ASCII_COLON) => {
           // Decide FIRST whether this colon opens a `::`, then commit at most
@@ -182,7 +182,7 @@ impl(
           // earlier shape looked backwards at the previous byte instead, and a
           // third colon (`1:2:::3`) was silently swallowed as part of the
           // `::`.
-          is_double := (((i + usize(1)) < n) && (bytes(i + usize(1)) == _ASCII_COLON));
+          is_double := (((i + usize(1)) < n) && (bytes.byte_at(i + usize(1)) == _ASCII_COLON));
           cond(
             is_double => {
               // Flush the group written immediately before the `::`, if any —
@@ -226,7 +226,7 @@ impl(
               i = (i + usize(2));
               // A THIRD colon is not part of the compression run.
               cond(
-                ((i < n) && (bytes(i) == _ASCII_COLON)) => {
+                ((i < n) && (bytes.byte_at(i) == _ASCII_COLON)) => {
                   exn.throw(dyn(NetError.Other(String.from("empty group in IPv6 address"))));
                 },
                 true => ()
@@ -368,12 +368,12 @@ impl(
       },
       // Nothing after the last separator. Legal only when that separator was
       // the `::` itself — `1::` is fine, `1:` is not.
-      ((n > usize(0)) && (bytes(n - usize(1)) == _ASCII_COLON)) => {
+      ((n > usize(0)) && (bytes.byte_at(n - usize(1)) == _ASCII_COLON)) => {
         cond(
           !seen_double => {
             exn.throw(dyn(NetError.Other(String.from("IPv6 address may not end with a single ':'"))));
           },
-          ((n >= usize(2)) && (bytes(n - usize(2)) != _ASCII_COLON)) => {
+          ((n >= usize(2)) && (bytes.byte_at(n - usize(2)) != _ASCII_COLON)) => {
             exn.throw(dyn(NetError.Other(String.from("IPv6 address may not end with a single ':'"))));
           },
           true => ()
@@ -805,11 +805,11 @@ _parse_port :: (fn(s : String, exn : Exception) -> u16)({
     },
     true => ()
   );
-  bytes := s.as_bytes();
+  bytes := s;
   (v : u32) = u32(0);
   (i : usize) = usize(0);
   while(runtime(i < bytes.len()), {
-    b := bytes(i);
+    b := bytes.byte_at(i);
     cond(
       ((b < _ASCII_ZERO) || (b > _ASCII_NINE)) => {
         exn.throw(dyn(NetError.Other(String.from("port is not a number"))));

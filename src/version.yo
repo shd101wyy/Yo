@@ -28,7 +28,7 @@ _all_digits :: (fn(s : String, start : usize, end_pos : usize) -> bool)({
   ok := true;
   i := start;
   while(i < end_pos, {
-    byte_opt := s.as_bytes().get(i);
+    byte_opt := s.get_byte(i);
     is_digit := match(
       byte_opt,
       .None => false,
@@ -60,7 +60,7 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
     return(.Err(`Empty .yo-version file. Specify a version number (e.g., ${CURRENT_YO_VERSION}).`));
   });
   // Strip leading v/V  (ASCII: 'v' = 118, 'V' = 86)
-  first_byte_opt := version.as_bytes().get(usize(0));
+  first_byte_opt := version.get_byte(usize(0));
   version = match(
     first_byte_opt,
     .None => version,
@@ -100,7 +100,7 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
           patch_ok := cond(
             (patch_and_rest.len() == usize(0)) => false,
             true => match(
-              patch_and_rest.as_bytes().get(usize(0)),
+              patch_and_rest.get_byte(usize(0)),
               .None => false,
               .Some(b) => ((b >= u8(48)) && (b <= u8(57)))
             )

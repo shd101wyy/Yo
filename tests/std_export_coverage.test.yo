@@ -25,8 +25,8 @@ log :: import("std/log");
 // --- crypto/hmac: the named-algorithm wrappers (RFC 2202 / RFC 4231 style
 // vectors, key "key", message "The quick brown fox jumps over the lazy dog").
 test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
-  key := String.from("key").as_bytes();
-  msg := String.from("The quick brown fox jumps over the lazy dog").as_bytes();
+  key := String.from("key").to_bytes();
+  msg := String.from("The quick brown fox jumps over the lazy dog").to_bytes();
   assert(hex.encode(hmac_sha1(key, msg)) == "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9", "HMAC-SHA1");
   assert(hex.encode(hmac_sha256(key, msg)) == "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", "HMAC-SHA256");
   assert(hex.encode(hmac_sha512(key, msg)) == "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a", "HMAC-SHA512");
@@ -36,7 +36,7 @@ test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
 // --- encoding/json: the byte / String entry points and pretty printing.
 test("json.parse_bytes, json.parse_string, json.stringify_pretty", {
   src := `{"a": [1, 2, {"b": true}], "c": "x"}`;
-  v1 := json.parse_bytes(src.as_bytes()).unwrap();
+  v1 := json.parse_bytes(src.to_bytes()).unwrap();
   v2 := json.parse_string(src).unwrap();
   assert(json.stringify(v1) == json.stringify(v2), "bytes and String entry points agree");
   pretty := json.stringify_pretty(v1, usize(2));
@@ -116,10 +116,10 @@ test("get_hardware_threads and get_cpu_id", {
 // called maps ASCII only — `ÉCOLE` came back as `École`
 // (issues/fixed/unicode-case-mapping-was-locale-dependent.md).
 test("to_lowercase_bytes / to_uppercase_bytes", {
-  assert(String.from_bytes(to_lowercase_bytes(String.from("ÉCOLE").as_bytes())) == "école", "Latin-1 lower (was École under the C locale)");
-  assert(String.from_bytes(to_uppercase_bytes(String.from("straße").as_bytes())) == "STRASSE", "ß expands under uppercase");
-  assert(String.from_bytes(to_lowercase_bytes(String.from("日本語 123").as_bytes())) == "日本語 123", "uncased scripts and digits pass through");
-  assert(String.from_bytes(to_uppercase_bytes(String.new().as_bytes())) == "", "empty in, empty out");
+  assert(String.from_bytes(to_lowercase_bytes(String.from("ÉCOLE").to_bytes())) == "école", "Latin-1 lower (was École under the C locale)");
+  assert(String.from_bytes(to_uppercase_bytes(String.from("straße").to_bytes())) == "STRASSE", "ß expands under uppercase");
+  assert(String.from_bytes(to_lowercase_bytes(String.from("日本語 123").to_bytes())) == "日本語 123", "uncased scripts and digits pass through");
+  assert(String.from_bytes(to_uppercase_bytes(String.new().to_bytes())) == "", "empty in, empty out");
 });
 // --- encoding/html: entity code validation + from_code_point.
 test("is_valid_entity_code", {

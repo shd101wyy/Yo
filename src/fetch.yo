@@ -161,12 +161,12 @@ _push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
 });
 /// Push a String's bytes into an ArrayList(u8).
 _push_string_bytes :: (fn(buf : ArrayList(u8), s : String) -> unit)({
-  bytes := s.as_bytes();
+  bytes := s;
   n := bytes.len();
   k := usize(0);
   while(k < n, {
     match(
-      bytes.get(k),
+      bytes.get_byte(k),
       .None => (),
       .Some(b) => {
         buf.push(b);
@@ -238,7 +238,7 @@ compute_content_hash :: (
       };
       if(item.is_dir, {
         // Check for hidden directory (starts with '.')
-        first_byte := entry_name.as_bytes().get(usize(0));
+        first_byte := entry_name.get_byte(usize(0));
         is_hidden := match(
           first_byte,
           .None => false,

@@ -2367,7 +2367,7 @@ s3 := (s + s2); // 创建一个新字符串。
 无论副本来自赋值、参数传递、从集合读取（`xs(i)`）还是 `for` 循环的元素。
 通过副本写入，对原字符串可见。
 
-**已知缺陷（S1，`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`）。** 空 `String` 还没有缓冲区，第一次写入时才会分配。
+**已知缺陷（S1，`issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`）。** 空 `String` 还没有缓冲区，第一次写入时才会分配。
 因此通过空 `String` 的副本写入，只会在副本里分配缓冲区，原字符串永远看不到这次写入，
 而且不会有任何报告。
 

@@ -116,14 +116,14 @@ _advance_body_origin :: (fn(pos : _TemplateBodyOrigin, b : u8) -> _TemplateBodyO
 /// the caller lexes the body text on its own.
 _template_body_origins :: (fn(tok : Token) -> ArrayList(_TemplateBodyOrigin))({
   out := ArrayList(_TemplateBodyOrigin).new();
-  bytes := tok.input.as_bytes();
+  bytes := tok.input;
   n := bytes.len();
-  if((usize(tok.byte_offset) < n) && (bytes(usize(tok.byte_offset)) == u8(0x60)), {
+  if((usize(tok.byte_offset) < n) && (bytes.byte_at(usize(tok.byte_offset)) == u8(0x60)), {
     (pos : _TemplateBodyOrigin) = _TemplateBodyOrigin(byte : (usize(tok.byte_offset) + usize(1)), row : usize(tok.row), col : (usize(tok.column) + usize(1)), ch : (usize(tok.character) + usize(1)));
     (done : bool) = false;
     while((pos.byte < n) && !done, {
-      b := bytes(pos.byte);
-      nb := cond(((pos.byte + usize(1)) < n) => bytes(pos.byte + usize(1)), true => u8(0));
+      b := bytes.byte_at(pos.byte);
+      nb := cond(((pos.byte + usize(1)) < n) => bytes.byte_at(pos.byte + usize(1)), true => u8(0));
       cond(
         (b == u8(0x60)) => {
           done = true;
@@ -139,10 +139,10 @@ _template_body_origins :: (fn(tok : Token) -> ArrayList(_TemplateBodyOrigin))({
           out.push(pos);
           body_end := interpolation_body_end(bytes, pos.byte);
           while(pos.byte < body_end, {
-            pos = _advance_body_origin(pos, bytes(pos.byte));
+            pos = _advance_body_origin(pos, bytes.byte_at(pos.byte));
           });
           if(pos.byte < n, {
-            pos = _advance_body_origin(pos, bytes(pos.byte));
+            pos = _advance_body_origin(pos, bytes.byte_at(pos.byte));
           });
         },
         true => {
@@ -395,7 +395,7 @@ impl(
     // Byte-wise: every delimiter here is ASCII, and a UTF-8 multi-byte
     // sequence never contains an ASCII byte, so literal runes pass through
     // byte by byte unchanged.
-    ts_bytes := template_value.as_bytes();
+    ts_bytes := template_value;
     n := ts_bytes.len();
     // Parts: each part is either a literal string or an interpolated expression
     part_is_expr := ArrayList(bool).new();
@@ -403,8 +403,8 @@ impl(
     cur_sb := StringBuilder.new();
     i := usize(0);
     while(i < n, {
-      c := ts_bytes(i);
-      nc := cond(((i + usize(1)) < n) => ts_bytes(i + usize(1)), true => u8(0));
+      c := ts_bytes.byte_at(i);
+      nc := cond(((i + usize(1)) < n) => ts_bytes.byte_at(i + usize(1)), true => u8(0));
       cond(
         // Escaped dollar: \$  →  $
         ((c == u8(0x5C)) && (nc == u8(0x24))) => {

@@ -134,12 +134,12 @@ _is_digit_byte :: (fn(b : u8) -> bool)(
 /// The number of `^` bytes in `s` — the underline length the renderer drew
 /// (the caret is ASCII, so bytes == runes).
 _count_carets :: (fn(s : String) -> usize)({
-  bytes := s.as_bytes();
+  bytes := s;
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < bytes.len(), {
     match(
-      bytes.get(i),
+      bytes.get_byte(i),
       .Some(b) => {
         if(b == u8(94), {
           n = (n + usize(1));
@@ -156,13 +156,13 @@ _count_carets :: (fn(s : String) -> usize)({
 /// space-padded to the group's gutter width).
 _is_row_line :: (fn(l : String) -> bool)({
   t := l.trim();
-  bytes := t.as_bytes();
+  bytes := t;
   (i : usize) = usize(0);
   (digits : usize) = usize(0);
   (scanning : bool) = true;
   while((i < bytes.len()) && scanning, {
     b := match(
-      bytes.get(i),
+      bytes.get_byte(i),
       .Some(x) => x,
       .None => u8(0)
     );
@@ -177,12 +177,12 @@ _is_row_line :: (fn(l : String) -> bool)({
     return(false);
   });
   b0 := match(
-    bytes.get(i),
+    bytes.get_byte(i),
     .Some(x) => x,
     .None => u8(0)
   );
   b1 := match(
-    bytes.get(i + usize(1)),
+    bytes.get_byte(i + usize(1)),
     .Some(x) => x,
     .None => u8(0)
   );

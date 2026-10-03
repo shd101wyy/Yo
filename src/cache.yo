@@ -86,11 +86,11 @@ get_store_dir :: (fn(cache_root : String) -> String)(
   cache_root.concat(String.from("/store/sha256"))
 );
 _is_lower_hex :: (fn(s : String) -> bool)({
-  bytes := s.as_bytes();
+  bytes := s;
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     is_digit := ((b >= u8(48)) && (b <= u8(57)));
     is_af := ((b >= u8(97)) && (b <= u8(102)));
     if(!(is_digit || is_af), {
@@ -131,7 +131,7 @@ get_git_mirrors_dir :: (fn(cache_root : String) -> String)(
 /// The hex SHA-256 of a remote URL — the file-system name every per-remote
 /// artifact (mirror, tag index) is filed under.
 url_key :: (fn(url : String) -> String)(
-  sha256_hex(url.as_bytes())
+  sha256_hex(url.to_bytes())
 );
 /// `<cache_root>/git/<sha256(url)>.git` — the bare mirror of `url`.
 git_mirror_dir :: (fn(cache_root : String, url : String) -> String)({

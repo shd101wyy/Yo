@@ -353,7 +353,7 @@ impl(
   /// Write a `str`; returns the byte count written.
   write_str : (fn(self : Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
     s := String.from(data);
-    sb := s.as_bytes();
+    sb := s;
     io.async(e => {
       n := e.io.await(self.write(sb.ptr().unwrap(), sb.len(), e.io), e);
       return(n);
@@ -361,7 +361,7 @@ impl(
   }),
   /// Write a `String` (matches TcpStream.write_string); byte count written.
   write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
-    sb := data.as_bytes();
+    sb := data;
     io.async(e => {
       n := e.io.await(self.write(sb.ptr().unwrap(), sb.len(), e.io), e);
       return(n);

@@ -2,6 +2,8 @@ pragma(Pragma.AllowUnsafe);
 { assert, assert_approx } :: import("std/assert");
 { rune, String, ParseFloatError } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ Arena } :: import("std/arena");
+{ with_allocator } :: import("std/allocator");
 // ===== Construction Tests =====
 test("String.new creates empty string", {
   s := String.new();
@@ -327,14 +329,14 @@ test("String as_bytes returns byte array", {
   bytes.push(u8(72));
   bytes.push(u8(101));
   s := String.from_bytes(bytes);
-  result_bytes := s.as_bytes();
+  result_bytes := s;
   assert(result_bytes.len() == usize(2));
-  assert(result_bytes(usize(0)) == u8(72));
-  assert(result_bytes(usize(1)) == u8(101));
+  assert(result_bytes.byte_at(usize(0)) == u8(72));
+  assert(result_bytes.byte_at(usize(1)) == u8(101));
 });
 test("String as_bytes on empty string", {
   s := String.new();
-  result_bytes := s.as_bytes();
+  result_bytes := s;
   assert(result_bytes.len() == usize(0));
 });
 // ===== Edge Cases =====
@@ -357,7 +359,7 @@ test("String len counts bytes while chars().count() only counts rune starts", {
   bytes.push(u8(0x96));
   bytes.push(u8(0x87));
   s := String.from_bytes(bytes);
-  byte_count := s.as_bytes().len();
+  byte_count := s.len();
   assert(byte_count == usize(6));
   // `len()` IS the byte count since D4; `chars().count()` is the one that skips
   // UTF-8 continuation bytes.
@@ -524,18 +526,18 @@ test("String as_bytes preserves UTF-8 encoding", {
   bytes.push(u8(0xB8));
   bytes.push(u8(0xAD));
   s := String.from_bytes(bytes);
-  result := s.as_bytes();
+  result := s;
   assert(result.len() == usize(3));
-  assert(result(usize(0)) == u8(0xE4));
-  assert(result(usize(1)) == u8(0xB8));
-  assert(result(usize(2)) == u8(0xAD));
+  assert(result.byte_at(usize(0)) == u8(0xE4));
+  assert(result.byte_at(usize(1)) == u8(0xB8));
+  assert(result.byte_at(usize(2)) == u8(0xAD));
 });
 test("String as_bytes returns copy not reference", {
   original_bytes := ArrayList(u8).new();
   original_bytes.push(u8(65));
   original_bytes.push(u8(66));
   s := String.from_bytes(original_bytes);
-  retrieved := s.as_bytes();
+  retrieved := s;
   assert(retrieved.len() == usize(2));
 });
 // ===== Additional UTF-8 Character Tests =====
@@ -2469,7 +2471,7 @@ _append_local :: (fn(out : String) -> String)({
 });
 _first_byte :: (fn(s : String) -> u8)({
   _ := s.clone();
-  s(usize(0))
+  s.byte_at(usize(0))
 });
 _Counter :: struct(n : i32);
 impl(
@@ -2504,4 +2506,113 @@ test("collect(String) builds the string through an owned accumulator", {
   parts.push(String.from("b"));
   parts.push(String.from("c"));
   assert(parts.into_iter().collect(String) == "abc", "the accumulator is moved, not borrowed");
+});
+// ===== Copy-on-write (plans/STRING_VALUE_SEMANTICS.md S3) =====
+_cow_append_local :: (fn(out : String) -> String)({
+  q := out;
+  q.push_str("!");
+  q
+});
+_CowNamed :: struct(name : String, n : i32);
+test("A String copy is independent, empty or not (COW S3)", {
+  // The issue's program: the outcome no longer depends on whether the string
+  // was empty (issues/fixed/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md).
+  a := String.new();
+  b := String.from("hi");
+  assert(_cow_append_local(a) == "!", "the callee's copy is written");
+  assert(_cow_append_local(b) == "hi!", "the callee's copy is written");
+  assert(a == "", "an empty caller string is untouched");
+  assert(b == "hi", "a non-empty caller string is untouched");
+  s := String.from("abc");
+  t := s;
+  t.push_str("d");
+  assert((s == "abc") && (t == "abcd"), "a write to a copy stays in the copy");
+  s.push_str("x");
+  assert((s == "abcx") && (t == "abcd"), "and the reverse");
+});
+test("COW: clone is O(1) and shares until the first write", {
+  s := String.from("shared");
+  t := s.clone();
+  assert(rc(t._bytes.unwrap()) == usize(2), "clone shares the buffer");
+  t.push_byte(u8(33));
+  assert(rc(s._bytes.unwrap()) == usize(1), "the write gave the copy its own buffer");
+  assert((s == "shared") && (t == "shared!"), "values diverged");
+  u := String.from("solo");
+  u.push_str("!");
+  assert(rc(u._bytes.unwrap()) == usize(1), "a unique buffer is written in place");
+});
+test("COW: every mutator writes only its own copy", {
+  base := String.from("héllo");
+  c1 := base;
+  c1.truncate(usize(1));
+  c2 := base;
+  c2.insert_str(usize(0), String.from(">"));
+  c3 := base;
+  c3.insert(usize(0), rune(u32(0x3C)));
+  c4 := base;
+  _ := c4.remove(usize(0));
+  c5 := base;
+  _ := c5.pop();
+  c6 := base;
+  c6.clear();
+  c7 := base;
+  c7.reserve(usize(64));
+  c7.push_rune(rune(u32(0x21)));
+  assert(base == "héllo", "the original is untouched by all seven");
+  assert((c1 == "h") && (c2 == ">héllo") && (c3 == "<héllo"), "truncate / insert_str / insert");
+  assert((c4 == "éllo") && (c5 == "héll") && (c6 == "") && (c7 == "héllo!"), "remove / pop / clear / reserve+push_rune");
+});
+test("COW: collection elements, struct fields and closures hold independent copies", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("e"));
+  got := xs.get(usize(0)).unwrap();
+  got.push_str("!");
+  assert(xs.get(usize(0)).unwrap() == "e", "a copy taken out of a list does not write the element");
+  p := _CowNamed(name : String.from("p"), n : i32(1));
+  q := p;
+  q.name.push_str("q");
+  assert((p.name == "p") && (q.name == "pq"), "a struct copy's field is its own");
+  s := String.from("cap");
+  f := (() => {
+    mine := s;
+    mine.push_str("!");
+    mine
+  });
+  assert((f() == "cap!") && (s == "cap"), "a closure's copy does not write the captured string");
+});
+test("COW: s.push_string(s) appends a snapshot of itself", {
+  s := String.from("ab");
+  s.push_string(s);
+  assert(s == "abab", "the argument is read before the write");
+});
+test("to_bytes copies, into_bytes moves when unique, from_bytes takes the list", {
+  s := String.from("xyz");
+  l := s.to_bytes();
+  l.push(u8(33));
+  assert(s == "xyz", "writing the to_bytes list never changes the string");
+  t := s;
+  shared_out := t.into_bytes();
+  assert((shared_out.len() == usize(3)) && (s == "xyz"), "into_bytes of a shared buffer copies, the other copy keeps its bytes");
+  u := String.from("own");
+  out := u.into_bytes();
+  assert(rc(out) == usize(1), "into_bytes of a unique buffer moves it out");
+  v := String.from_bytes(out);
+  assert(v == "own", "from_bytes takes the list over");
+  assert((v.get_byte(usize(0)) == Option(u8).Some(u8(111))) && (v.get_byte(usize(9)) == Option(u8).None), "get_byte reads in place");
+});
+test("COW: a clone made by a write outside the scope stays in the source's arena", {
+  arena := Arena.new((usize(1) << usize(16)));
+  built := with_allocator(arena.allocator(), () => String.from("in arena"));
+  copy := built;
+  before := arena.live_blocks();
+  copy.push_str("!");
+  assert(arena.live_blocks() > before, "the copy-on-write clone was placed through the source buffer's owner");
+  assert((built == "in arena") && (copy == "in arena!"), "values diverged");
+});
+test("A String has no writable byte place: s(i) does not compile, byte_at reads", {
+  // issues/fixed/a-string-byte-index-is-a-writable-place.md: `s(i) = b` wrote
+  // the shared buffer and could break UTF-8.
+  s := String.from("abc");
+  comptime_expect_error(s(usize(0)) = u8(255), "is not callable");
+  assert(s.byte_at(usize(0)) == u8(97), "byte_at reads the byte");
 });

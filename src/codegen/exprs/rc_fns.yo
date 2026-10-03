@@ -119,11 +119,11 @@ generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
       });
       value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
       em := context.base.emitter;
-      code_len_before := em.code.as_bytes().len();
+      code_len_before := em.code.len();
       drop_code := generate_drop_code_for_value(value_code.clone(), value_type, context);
       // An enum/Option-typed drop is a multi-line `switch` the generator writes
       // to the emitter itself, handing back "".
-      drop_written := (em.code.as_bytes().len() > code_len_before);
+      drop_written := (em.code.len() > code_len_before);
       // A local that lives in an async state machine (`sm->var_N`) is dropped
       // inline when its scope ends, but the state machine's dispose function
       // ALSO sweeps every cross-boundary local when the body escaped

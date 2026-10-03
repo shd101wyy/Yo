@@ -2,7 +2,7 @@
 
 **Severity:** S1: silently wrong result. Whether a write through a copy of a `String` reaches the original depends on whether the original happened to be empty, and nothing reports the lost write.
 
-**Status: OPEN, partly fixed.** Since `plans/STRING_VALUE_SEMANTICS.md` S1, the parameter, `for` and `match` shapes below are compile errors (E0908, `issues/fixed/an-inout-write-through-a-borrowed-value-bypassed-e0908.md`). A local copy (`t := s; t.push_str("!")`) still shows the split until S3's copy-on-write. Found 2026-10-03 while documenting `String` copies (agent-knowledge consolidation K1; DESIGN §Writing through a copy of a `String`). **Measured on:** yo 0.2.49, `--std-path ./std`.
+**Status: FIXED** (String S3, `plans/STRING_VALUE_SEMANTICS.md`). `String` is a copy-on-write value: every mutator makes the buffer unique first, `clone` is a dup, `as_bytes` is gone (`to_bytes` copies, `into_bytes` moves), and `from_bytes`/`from_utf8` take `own`. A copy is independent whether or not it was empty; the write-through-a-borrow shape is E0908 since S1. Tests: `tests/string/string.test.yo`, the "COW" tests.
 
 ## Symptom
 

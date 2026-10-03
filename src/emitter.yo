@@ -221,13 +221,13 @@ _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
 /// Count `\n` bytes — the physical-line accounting `#line` restore numbers
 /// need (plans/reference/LINE_DIRECTIVES.md).
 _emitter_count_newlines :: (fn(s : String) -> usize)({
-  bytes := s.as_bytes();
+  bytes := s;
   n := bytes.len();
   (i : usize) = usize(0);
   (count : usize) = usize(0);
   while(i < n, {
     match(
-      bytes.get(i),
+      bytes.get_byte(i),
       .Some(b) => if(b == u8(10), {
         count = (count + usize(1));
       }),
@@ -435,7 +435,7 @@ impl(
       if((self.code_spill_fd < i32(0)) && !self._open_code_spill(), {
         return(());
       });
-      bytes := self.code.as_bytes();
+      bytes := self.code;
       n := bytes.len();
       base_ptr := bytes.ptr().unwrap();
       (done : usize) = usize(0);
@@ -643,10 +643,15 @@ impl(
       return(());
     });
     base := (_emitter_count_newlines(self.headers) + _emitter_count_newlines(self.declarations) + usize(2));
-    bytes := self.code.as_bytes();
+    // Patch the buffer in place: take it out of `self.code` (with the field
+    // emptied the buffer is unique, so `into_bytes` moves it out with no
+    // copy), write the line numbers, and put it back below.
+    taken := self.code;
+    self.code = String.new();
+    bytes := taken.into_bytes();
     n := bytes.len();
     marker := line_restore_marker();
-    mb := marker.as_bytes();
+    mb := marker;
     mlen := mb.len();
     (ls : usize) = usize(0);
     (c_nl : usize) = usize(0);
@@ -672,7 +677,7 @@ impl(
         (all_eq : bool) = true;
         while((mi < mlen) && all_eq, {
           a := match(bytes.get(ls + mi), .Some(b0) => b0, .None => u8(0));
-          b := match(mb.get(mi), .Some(b1) => b1, .None => u8(1));
+          b := match(mb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
           if(a != b, {
             all_eq = false;
           });
@@ -704,6 +709,7 @@ impl(
         ls = le;
       });
     });
+    self.code = String.from_bytes(bytes);
   }),
   /// The full C source as its parts in order — headers, "\n", declarations,
   /// "\n", code: the bytes of `print()`, sharing the three buffers instead of

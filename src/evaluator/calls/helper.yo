@@ -1270,12 +1270,12 @@ ${ast_expr_to_string(actual_arg)}`
 /// Only the character-replacement aspect is handled (no C keyword avoidance
 /// needed here since the signature is a suffix appended to a valid func_id).
 sanitize_for_sig :: (fn(s : String) -> String)({
-  bytes := s.as_bytes();
+  bytes := s;
   n := bytes.len();
   result := String.new();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     is_alnum := (
       ((b >= u8(97)) && (b <= u8(122))) || // a-z
       ((b >= u8(65)) && (b <= u8(90))) || // A-Z

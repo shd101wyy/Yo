@@ -1127,9 +1127,10 @@ _clean_decimal :: (fn(src : ArrayList(u8), from : usize, to : usize) -> Option(_
     },
     true => ()
   );
+  text := String.from_bytes(out);
   cond(
     bad => Option(_Decimal).None,
-    true => Option(_Decimal).Some(_Decimal(text : String.from_bytes(out), is_float : is_float))
+    true => Option(_Decimal).Some(_Decimal(text : text, is_float : is_float))
   )
 });
 /// A prefixed integer's digits (`0x`, `0o`, `0b`): at least one digit of the
@@ -1165,9 +1166,10 @@ _clean_radix :: (fn(src : ArrayList(u8), from : usize, to : usize, radix : u32) 
       }
     );
   });
+  text := String.from_bytes(out);
   cond(
     ((count == usize(0)) || prev_us || bad) => Option(String).None,
-    true => Option(String).Some(String.from_bytes(out))
+    true => Option(String).Some(text)
   )
 });
 /// Every byte up to a value terminator (whitespace, `,`, `]`, `}`, `#`, end
@@ -1185,7 +1187,7 @@ _scan_token :: (fn(p : _Parser) -> String)({
 /// `0x`/`0o`/`0b` integer (no sign — TOML's prefixed integers are
 /// unsigned in the grammar), or a decimal integer/float.
 _classify_number :: (fn(tok : String, start : usize) -> Result(TomlValue, TomlError))({
-  b := tok.as_bytes();
+  b := tok.to_bytes();
   n := b.len();
   bad := Result(TomlValue, TomlError).Err(TomlError.InvalidNumber(pos : start));
   cond(
@@ -2194,17 +2196,17 @@ _parse_document :: (fn(p : _Parser) -> Result(TomlValue, TomlError))({
 /// returns a `Result`). The root is always a `.Table`; `.Err` carries the
 /// byte offset of the fault.
 parse :: (fn(input : String) -> Result(TomlValue, TomlError))(
-  _parse_document(_Parser.new(input.as_bytes()))
+  _parse_document(_Parser.new(input.to_bytes()))
 );
 export(parse);
 // ============================================================================
 // Serialization
 // ============================================================================
 _push_string :: (fn(s : String, out : ArrayList(u8)) -> unit)({
-  b := s.as_bytes();
+  b := s;
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
-    out.push(b(i));
+    out.push(b.byte_at(i));
   });
 });
 _push_lit :: (fn(s : str, out : ArrayList(u8)) -> unit)({
@@ -2232,10 +2234,10 @@ _write_u_escape :: (fn(b : u8, out : ArrayList(u8)) -> unit)({
 /// the output prettier, never more correct.
 _write_basic_string :: (fn(s : String, out : ArrayList(u8)) -> unit)({
   out.push(_QUOTE);
-  b := s.as_bytes();
+  b := s;
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
-    c := b(i);
+    c := b.byte_at(i);
     cond(
       (c == _QUOTE) => {
         out.push(_BACKSLASH);
@@ -2273,7 +2275,7 @@ _write_basic_string :: (fn(s : String, out : ArrayList(u8)) -> unit)({
 });
 /// May `key` be written bare?
 _is_bare_key :: (fn(key : String) -> bool)({
-  b := key.as_bytes();
+  b := key;
   cond(
     (b.len() == usize(0)) => {
       return(false);
@@ -2284,7 +2286,7 @@ _is_bare_key :: (fn(key : String) -> bool)({
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     cond(
-      !_is_bare_key_byte(b(i)) => {
+      !_is_bare_key_byte(b.byte_at(i)) => {
         ok = false;
       },
       true => ()
@@ -2345,11 +2347,11 @@ _write_f64 :: (fn(v : f64, out : ArrayList(u8)) -> unit)({
       .None => ()
     );
   });
-  b := text.as_bytes();
+  b := text;
   (needs_point : bool) = true;
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
-    c := b(i);
+    c := b.byte_at(i);
     cond(
       ((c == _DOT) || (c == u8(101)) || (c == u8(69))) => {
         needs_point = false;
@@ -2395,15 +2397,15 @@ _write_datetime :: (fn(d : TomlDateTime, out : ArrayList(u8)) -> unit)({
           fptr := &fbuf(usize(0));
           unsafe(snprintf((*char)(fptr), usize(16), "%09u", v.nanosecond));
           fs := String.from_cstr(fptr).unwrap();
-          fb := fs.as_bytes();
+          fb := fs;
           (end : usize) = fb.len();
-          while((end > usize(1)) && (fb(end - usize(1)) == _ZERO), {
+          while((end > usize(1)) && (fb.byte_at(end - usize(1)) == _ZERO), {
             end = (end - usize(1));
           });
           out.push(_DOT);
           i := usize(0);
           while(i < end, i = (i + usize(1)), {
-            out.push(fb(i));
+            out.push(fb.byte_at(i));
           });
         },
         true => ()
