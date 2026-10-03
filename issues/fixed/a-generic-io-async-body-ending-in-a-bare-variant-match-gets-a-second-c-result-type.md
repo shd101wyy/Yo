@@ -42,14 +42,14 @@ Not async-specific: `-> Impl(Fn(k : i32) -> Result(T, E))` with the same tail fa
 
 ## Workaround in the tree (removed with the fix)
 
-`std/async`'s `timeout` bound its result to a typed local; it ends in the bare `match` again.
+`std/async`'s `timeout` binds its result to a typed local. It keeps it until `SEED_VERSION` carries this fix, because the seed compiles std/http's `timeout` call into the compiler and fails there (measured 2026-10-04 with the v0.2.50 seed: clang `initializing 'Result(HttpResponse, TimeoutError)' with an expression of incompatible type 'Result(T, TimeoutError)'`). Generation B in `plans/backlog/SEED_VERSION_AUTOMATION.md` writes it back as a bare `match`.
 
 ## Fix direction
 
-Infer the tail's variants against the specialized result type the state machine's `result` field is emitted with. Regression test: the reproducer compiles and prints 5, plus `timeout`'s tail written back as a bare `match`.
+Infer the tail's variants against the specialized result type the state machine's `result` field is emitted with. Regression test: the reproducer compiles and prints 5.
 
 ## Fix
 
 The occurrence fallback in the specialization path (`src/evaluator/calls/helper.yo`) also collects the SomeTs inside an `Impl` wrapper's trait arguments (`collect_wrapper_trait_somes`) and applies the substitution with `_substitute_wrapper_carriers` (`src/evaluator/types/function.yo`), which resolves the carriers and keeps the wrapper's id — the async state machine is registered against it.
 
-Regression tests: "a generic Impl(Future(Result(T, E))) body ending in a bare-variant match" and "a generic Impl(Fn(...) -> Result(T, E)) closure ending in a bare-variant match" in `tests/async_generic_future_return.test.yo`; `std/async`'s `timeout` (bare `match` tail again) through `tests/async/combinators.test.yo`.
+Regression tests: "a generic Impl(Future(Result(T, E))) body ending in a bare-variant match" and "a generic Impl(Fn(...) -> Result(T, E)) closure ending in a bare-variant match" in `tests/async_generic_future_return.test.yo`.

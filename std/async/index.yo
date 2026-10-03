@@ -321,14 +321,21 @@ timeout :: (
     // follows resolves without waiting for `limit`.
     dh.abort();
     _deadline_r := io.await(dh.join(io), io);
-    match(
+    // A typed local, not a bare `match` tail, until SEED_VERSION carries the
+    // fix for a generic `io.async` body whose tail builds bare variants: the
+    // seed compiles std/http's `timeout` call into the compiler and would give
+    // the result a second C type
+    // (issues/fixed/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md;
+    // Generation B in plans/backlog/SEED_VERSION_AUTOMATION.md).
+    (out : Result(T, TimeoutError)) = match(
       io.await(handle.join(io), io),
       .Some(v) => .Ok(v),
       .None => cond(
         elapsed => .Err(TimeoutError.Elapsed),
         true => .Err(TimeoutError.Aborted)
       )
-    )
+    );
+    out
   })
 });
 export(yield, join_all, race, race_first, any, any_first, timeout, TimeoutError);

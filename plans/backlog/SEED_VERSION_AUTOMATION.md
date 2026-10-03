@@ -260,6 +260,12 @@ primitive): replace the `is_finished()` + awaited `yield` loops with
 Failure mode if early: LOUD — the seed's runtime has no `__yo_join_wait_new`,
 so stage 1 fails to link.
 
+**Parked, Generation B of #1167's generic-wrapper substitution fix** (once
+`SEED_VERSION` ≥ v0.2.51): write `timeout`'s tail in `std/async/index.yo` back
+as a bare `match` instead of the typed `out` local. With the v0.2.50 seed it
+breaks stage 1, because std/http's `timeout` call is compiled into the compiler
+(`issues/fixed/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md`).
+
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
 
 **Generation A DONE 2026-08-28:** the runtime emits
