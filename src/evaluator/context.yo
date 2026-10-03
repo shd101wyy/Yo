@@ -16,7 +16,7 @@
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
+{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, find_variable_in_env } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -2677,6 +2677,21 @@ adopt_resolved_definition :: (fn(env : Environment, var : Variable, module_frame
   );
   idx
 });
+/// True when `name` resolves to a binding from `env`: a variable in one of
+/// its frames, or a top-level definition of `module_path`'s active walk that
+/// the env does not hold yet (a lazy `::` definition later in the file, §4.2).
+/// Nothing is forced. A builtin whose name a binding takes over (`rc`) asks
+/// this before dispatching to itself.
+name_resolves_to_binding :: (fn(env : Environment, name : String, module_path : String) -> bool)(
+  cond(
+    find_variable_in_env(env, name.clone()).is_some() => true,
+    true => match(
+      _active_walk_for(module_path),
+      .Some(walk) => _find_def_by_name(walk.defs, name, false).is_some(),
+      .None => false
+    )
+  )
+);
 /// The identifier-miss hook (§4.2). `module_path` is the identifier TOKEN's
 /// module path — the module whose definitions the name can refer to (a macro
 /// expanded elsewhere still names its definition site's module).
@@ -3410,6 +3425,7 @@ export(
   truncate_module_walks,
   truncate_forcing_stack,
   resolve_pending_definition,
+  name_resolves_to_binding,
   adopt_resolved_definition,
   ImplFieldState,
   ImplPendingField,

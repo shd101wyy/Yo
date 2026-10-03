@@ -1636,4 +1636,70 @@ test("a receiver projection outlives a method that replaces it", {
   o2 := _AlOuter(inner : _AlInner(v : i32(8)));
   assert(o2.inner.poke(o2) == i32(8), "method call: the receiver survived the replacement");
   assert((o.inner.v + o2.inner.v) == i32(0), "both owners see the replacement");
+// `ref_count(x)` is the count builtin's name; `rc(x)` is its old spelling,
+// retired one seed release later (plans/VALUES_BY_DEFAULT.md V1 step 0).
+// Both read the same cell in every shape `rc` reads today.
+RcNode :: ref(struct(v : i32));
+test("ref_count(x) reads the same count as rc(x)", {
+  // A value: 1, at compile time.
+  p := Point(1, 2);
+  assert(ref_count(p) == rc(p), "ref_count(p) == rc(p)");
+  assert(ref_count(p) == usize(1), "ref_count(p) == 1");
+  // ref(struct(...))
+  n1 := RcNode(v : i32(1));
+  assert(ref_count(n1) == usize(1), "ref_count(n1) == 1");
+  {
+    n2 := n1;
+    {
+      n3 := n2;
+      assert(ref_count(n1) == usize(2), "ref_count(n1) == 2");
+      assert(ref_count(n3) == rc(n3), "ref_count(n3) == rc(n3)");
+    };
+  };
+  assert(ref_count(n1) == rc(n1), "ref_count(n1) == rc(n1)");
+  // Box
+  b1 := Box(i32)(3);
+  {
+    b2 := b1;
+    {
+      b3 := b2;
+      assert(ref_count(b1) == usize(2), "ref_count(b1) == 2");
+      assert(ref_count(b3) == rc(b3), "ref_count(b3) == rc(b3)");
+    };
+  };
+  assert(ref_count(b1) == usize(1), "ref_count(b1) == 1");
+  // Arc: an atomic count, read atomically.
+  a1 := arc(i32(42));
+  {
+    a2 := a1;
+    {
+      a3 := a2;
+      assert(ref_count(a1) == usize(2), "ref_count(a1) == 2");
+      assert(ref_count(a3) == rc(a3), "ref_count(a3) == rc(a3)");
+    };
+  };
+  assert(ref_count(a1) == usize(1), "ref_count(a1) == 1");
+  // ArrayList (a ref struct): the list handle's own count.
+  l1 := ArrayList(i32).new();
+  l1.push(i32(1));
+  {
+    l2 := l1;
+    {
+      l3 := l2;
+      assert(ref_count(l1) == usize(2), "ref_count(l1) == 2");
+      assert(ref_count(l3) == rc(l3), "ref_count(l3) == rc(l3)");
+    };
+  };
+  assert(ref_count(l1) == usize(1), "ref_count(l1) == 1");
+  assert(ref_count(l1) == rc(l1), "ref_count(l1) == rc(l1)");
+});
+test("rc gives way to a local binding; a local named ref_count stays bindable", {
+  // Not reserved: markdown_yo (a dependency of the compiler) binds a local
+  // `ref_count` counter. A binding that is only read never meets the builtin.
+  (ref_count : i32) = i32(3);
+  assert(ref_count == i32(3), "a local named ref_count reads as the local");
+  {
+    rc :: (fn(x : i32) -> i32)(x + i32(10));
+    assert(rc(i32(1)) == i32(11), "a local fn named rc is called, not the count builtin");
+  };
 });

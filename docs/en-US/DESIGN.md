@@ -578,7 +578,7 @@ unsafe(unistd.close(fd));
 _ := unsafe(unistd.close(fd));
 ```
 
-`_ := expr` declares a throwaway binding that is dropped at scope end (`_` may repeat within a scope; `___` may not). Reserve it for the rare cases where the binding itself matters — e.g. a test that counts drops via `rc(...)`, or forcing the value-evaluation path that a compile-error fixture depends on.
+`_ := expr` declares a throwaway binding that is dropped at scope end (`_` may repeat within a scope; `___` may not). Reserve it for the rare cases where the binding itself matters — e.g. a test that counts drops via `ref_count(...)`, or forcing the value-evaluation path that a compile-error fixture depends on.
 
 ### Type inference
 
@@ -3023,7 +3023,7 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 > case. Naming it "the RC one" would imply the others are not.
 >
 > What this means in practice: sharing is silent, a `Box` cycle leaks unless
-> broken (Rust's `Box` cannot form one), and `rc(b)` / `Iso` are how you ask
+> broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
 > about uniqueness.
 
 `Box(T)` is a generic reference-semantics type that wraps any value type:

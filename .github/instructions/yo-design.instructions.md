@@ -104,6 +104,13 @@ accessed with `value.*`. Treat this as a value payload accessor for reference-se
 not automatically as a pointer dereference; pointer dereference still applies
 when the receiver itself has pointer type.
 
+`ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
+an atomic load for `Arc`/`atomic(ref(...))`/`Iso`). `rc(x)` is the old spelling being
+retired so `rc` can become a prelude function; the `rc` builtin already gives way to
+any binding named `rc` in scope (evaluator `_evaluate_rc_or_call`; codegen follows the
+callee's ExprInfo). Neither name is in `is_reserved_builtin_binding_name`: the
+`markdown_yo` dependency binds a local `ref_count` counter, so reserving it breaks the build.
+
 ## Pointers
 
 - `Pointer` works in both compile-time and runtime contexts (`Runtime` and `Comptime` traits in `prelude.yo`).
