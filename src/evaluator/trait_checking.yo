@@ -134,8 +134,8 @@ _trait_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _, _, _, _, _) => base_name,
-    .FutureTraitT(base_name, _, _, _, _) => base_name,
+    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
+    .FutureTraitT(base_name, _, _, _) => base_name,
     _ => String.from("")
   )
 );
@@ -755,7 +755,7 @@ type_implements_trait :: (
   if(is_fn_trait_type(trait_type) && is_function_type(target), {
     fn_trait_call_ty := match(
       trait_type,
-      .FnTraitT(_, param_labels, param_types, result, _, _, _, _) => TypeValue.Func(
+      .FnTraitT(_, param_labels, param_types, result, _, _, _) => TypeValue.Func(
         ArrayList(TypeValue).new(),
         param_types,
         ArrayList(TypeValue).new(),
@@ -766,7 +766,6 @@ type_implements_trait :: (
             forall_labels : ArrayList(String).new(),
             param_labels : param_labels,
             implicit_labels : ArrayList(String).new(),
-            implicit_spreads : ArrayList(bool).new(),
             result_is_comptime_only : false,
             // Fn-trait call type (runtime)
             param_is_ref : ArrayList(bool).new(),
@@ -1042,7 +1041,7 @@ type_implements_trait :: (
   // via _add_where_clause_constraint (no separate env lookup needed).
   match(
     target,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
       (found_req : bool) = false;
       (found_neg : bool) = false;
       // Check required_trait_types.
@@ -1450,7 +1449,7 @@ type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
 type_implements_fn :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -1503,7 +1502,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty,
     .FnTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, _, _, _, _, _, _) => {
       // Walk the SomeT and its `resolution` chain: a where-clause `F`
       // whose Fn bound was
       // stripped by freshening still resolves through `__impl_fn` (which
@@ -1517,7 +1516,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
       while(eft_going, {
         match(
           eft_cur,
-          .SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, _, eft_rc) => {
+          .SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, eft_rc) => {
             n := eft_rtt.len();
             (i : usize) = usize(0);
             while((i < n) && eft_out.is_none(), {
@@ -1692,8 +1691,8 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env : Environment, markers_judged : bool) -> Option(TypeValue))(
   match(
     param_type,
-    .SomeT({ name : ip_nm, required_trait_types : ip_req, is_effects_row : ip_row }) => cond(
-      ((ip_nm != "Impl") || ip_row || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
+    .SomeT({ name : ip_nm, required_trait_types : ip_req }) => cond(
+      ((ip_nm != "Impl") || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
       true => {
         (ip_miss : Option(TypeValue)) = Option(TypeValue).None;
         (ip_i : usize) = usize(0);
@@ -1725,7 +1724,7 @@ judge_function_argument_markers :: (
   (judged : bool) = false;
   match(
     param_type,
-    .SomeT({ name : pn, required_trait_types : prtts, is_effects_row : prow }) => if((pn == "Impl") && !prow, {
+    .SomeT({ name : pn, required_trait_types : prtts }) => if(pn == "Impl", {
       (pi : usize) = usize(0);
       while(pi < prtts.len(), {
         match(
@@ -1771,7 +1770,7 @@ impl_argument_unmet_trait_message :: (
 type_implements_future :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -2017,7 +2016,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
     .FutureTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -2143,7 +2142,7 @@ find_some_type_missing_comptime_constraint :: (
         // Check required_trait_types.
         match(
           ty,
-          .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+          .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;

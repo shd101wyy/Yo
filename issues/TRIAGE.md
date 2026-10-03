@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 194 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 187 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -32,12 +32,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 6 | 0 |
 | Codegen / emitted C | 19 | 3 |
 | Evaluator / types | 21 | 2 |
-| Std library | 50 | 12 |
-| Tooling (fmt/doc/lsp) | 13 | 2 |
+| Std library | 49 | 12 |
+| Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 59 | 10 |
-| **Total** | **194** | **32** |
+| Other | 54 | 5 |
+| **Total** | **187** | **26** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 28 |
-| S2 | 88 |
-| S3 | 76 |
+| S1 | 26 |
+| S2 | 84 |
+| S3 | 75 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -235,7 +235,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (50)
+### Std library (49)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -269,7 +269,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md`](./stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md) | S3 | OPEN | — |
 | [`stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md`](./stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md) | S2 | — | yes |
 | [`stddoc-io-arg-parser-positionals-are-never-required.md`](./stddoc-io-arg-parser-positionals-are-never-required.md) | S2 | — | yes |
-| [`stddoc-io-dns-lookup-discards-the-gai-error-code.md`](./stddoc-io-dns-lookup-discards-the-gai-error-code.md) | S2 | open | — |
 | [`stddoc-io-dns-lookup-host-returns-duplicate-addresses.md`](./stddoc-io-dns-lookup-host-returns-duplicate-addresses.md) | S2 | open | — |
 | [`stddoc-io-dns-resolution-blocks-the-event-loop.md`](./stddoc-io-dns-resolution-blocks-the-event-loop.md) | S2 | open | — |
 | [`stddoc-io-doc-renders-every-stability-marker-as-unstable.md`](./stddoc-io-doc-renders-every-stability-marker-as-unstable.md) | S3 | open | — |
@@ -290,13 +289,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | S3 | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | S3 | — | — |
 
-### Tooling (fmt/doc/lsp) (13)
+### Tooling (fmt/doc/lsp) (12)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`](./collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md) | S3 | OPEN | — |
 | [`collection-test-names-still-use-pre-rename-method-spellings.md`](./collection-test-names-still-use-pre-rename-method-spellings.md) | S3 | OPEN | — |
-| [`fmt-hugs-a-trailing-nested-match-then-expands-it-on-the-next-pass.md`](./fmt-hugs-a-trailing-nested-match-then-expands-it-on-the-next-pass.md) | S3 | — | yes |
 | [`fmt-not-idempotent-call-wrapped-match-in-block.md`](./fmt-not-idempotent-call-wrapped-match-in-block.md) | S3 | — | yes |
 | [`fmt-pointer-type-paren-verdict-is-context-dependent.md`](./fmt-pointer-type-paren-verdict-is-context-dependent.md) | S3 | OPEN | — |
 | [`fmt-reformats-parse-invalid-files.md`](./fmt-reformats-parse-invalid-files.md) | S3 | — | — |
@@ -332,27 +330,22 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (59)
+### Other (54)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
-| [`a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md`](./a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md) | S1 | — | yes |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
 | [`a-default-parameter-value-resolves-names-in-the-callers-module.md`](./a-default-parameter-value-resolves-names-in-the-callers-module.md) | S1 | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
-| [`a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md`](./a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md) | S2 | — | yes |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
 | [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
-| [`a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md`](./a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md) | S2 | — | yes |
 | [`a-string-byte-index-is-a-writable-place.md`](./a-string-byte-index-is-a-writable-place.md) | S1 | — | — |
 | [`a-trait-method-returning-option-of-self-item-under-a-where-clause-emits-an-undeclared-call.md`](./a-trait-method-returning-option-of-self-item-under-a-where-clause-emits-an-undeclared-call.md) | S2 | — | — |
-| [`a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md`](./a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md) | S1 | — | yes |
 | [`a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md`](./a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md) | S3 | — | — |
 | [`a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`](./a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md) | S1 | — | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
-| [`abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md`](./abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md) | S2 | — | yes |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |

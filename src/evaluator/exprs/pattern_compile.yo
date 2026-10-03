@@ -788,6 +788,21 @@ _compile_variant :: (
       );
       return(Pattern.Wildcard);
     });
+    // A labeled pattern may name fewer fields than the variant has, never
+    // more: in a mixed list a positional sub-pattern past the last field
+    // bound nothing and the extra binder silently read a unit
+    // (issues/fixed/a-variant-pattern-mixing-labels-and-positions-skips-the-arity-check.md).
+    if(has_labeled && (dparams.len() > arity), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(e),
+            `Variant "${vname}" has ${arity} fields, but the pattern lists ${dparams.len()}`
+          )
+        )
+      );
+      return(Pattern.Wildcard);
+    });
   });
   field_idx := ArrayList(usize).new();
   subs := ArrayList(Pattern).new();

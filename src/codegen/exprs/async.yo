@@ -685,6 +685,11 @@ emit_async_block_struct_definition :: (
   // field per await expression for its result
   // (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
   em.emit_declaration_line("  void* __yo_await_slot;  // the future the task is suspended on (owned)");
+  // A NAMED future the pending await cold-started (not owned: the name's own
+  // slot owns it). Aborting the task aborts it too — structured cancellation
+  // of a child the task started; a named future someone else started may be
+  // shared, so it is left running (plans/ASYNC_IO_API_AUDIT.md F5).
+  em.emit_declaration_line("  void* __yo_started_child;  // a named future the pending await started (not owned)");
   irfs := inline_await_result_fields(info.analysis, context);
   (iai : usize) = usize(0);
   while(iai < irfs.len(), iai = (iai + usize(1)), {

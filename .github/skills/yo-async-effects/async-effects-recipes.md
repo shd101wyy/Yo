@@ -202,7 +202,7 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
 - `unwind` is only valid inside a `ctl(...) -> R` body. From any other position
   (match arm, `cond` branch, `begin` block, plain `fn` body), use `return`.
 - `unwind` inside an async task aborts the future instead of completing it normally.
-- `io.await(...)` on an already-aborted future can panic; `JoinHandle.await(...)` converts abort into `.None`.
+- `io.await(...)` on an aborted future propagates the abort (the awaiting task aborts too; in a plain `fn` it escapes to the caller); `JoinHandle.await(...)` / `join(...)` convert the abort into `.None`.
 - Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions. If you need to use a `ctl` handler from inside a closure body, pass it in as an explicit parameter instead of capturing it.
 - Pointers and references to `ctl` types (or structs containing them) are rejected.
 - **`recur` inside `io.async` calls the lambda, not the outer function** — call the outer function by name (or use an iterative worklist) for async recursion.

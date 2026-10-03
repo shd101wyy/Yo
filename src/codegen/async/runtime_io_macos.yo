@@ -1271,7 +1271,7 @@ static void __yo_io_cleanup(void) {
         __yo_io_pending_op_t* p = reg->waiters_head;
         __yo_kq_unlink(p);
         p->future->result = -ECANCELED;
-        atomic_store_explicit(&p->future->state, -1, memory_order_release);
+        { if (atomic_load_explicit(&p->future->state, memory_order_acquire) != -2) atomic_store_explicit(&p->future->state, -1, memory_order_release); }
         __yo_pending_io_count--;
         __yo_kq_free_pending(p);
         __yo_decr_rc((void*)p->future);
@@ -1332,7 +1332,7 @@ static int __yo_poll_and_fs_event_tick(void);
 // Helper to wake continuation from I/O completion (inline, single-threaded)
 static void __yo_io_wake_continuation(__yo_io_future_t* future) {
   // Mark as completed
-  atomic_store_explicit(&future->state, -1, memory_order_release);
+  { if (atomic_load_explicit(&future->state, memory_order_acquire) != -2) atomic_store_explicit(&future->state, -1, memory_order_release); }
 
   // Wake continuation if registered — enqueue directly (same thread)
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);

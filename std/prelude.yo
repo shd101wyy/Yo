@@ -7724,7 +7724,6 @@ TypeInfo :: enum(
   ComptimeList(element : Type),
   // Metaprogramming (fieldless)
   Expr,
-  EffectsRow,
   TypeApplication
 );
 impl(TypeInfo, Comptime());
@@ -12057,16 +12056,20 @@ impl(
 );
 /// FutureState — the state of an async `Future`.
 FutureState :: enum(
-  /// The future has been created but not yet started.
-  Pending = 0,
-  /// The future is actively running.
+  /// The future is cold: created but not yet started (an `io.async` future
+  /// before its first `io.await` / `io.spawn`). Was `Pending` until
+  /// 2026-10-03; renamed because "pending" reads as Rust's "not ready yet",
+  /// which every suspended future is (plans/ASYNC_IO_API_AUDIT.md Q4).
+  Cold = 0,
+  /// The future has started and is not finished: suspended at an await, or
+  /// an I/O operation in flight.
   Running = 1,
   /// The future completed successfully.
   Completed = -(1),
   /// The future was aborted (e.g., via `unwind`).
   Aborted = -(2)
 );
-// SAFETY: FutureState is a plain enum of integer values (Pending, Done,
+// SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
 // Aborted) with no heap allocations. It is trivially Send and Acyclic.
 impl(FutureState, Acyclic());
 impl(FutureState, Runtime());
@@ -12113,7 +12116,7 @@ Io :: struct(
   /// Await a `Future`, suspending until its result is ready.
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   /// Inspect the current state of a `Future` without blocking.
-  state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
@@ -12126,7 +12129,7 @@ extern(
   "Yo",
   __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   __yo_io_await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  __yo_io_state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  __yo_io_state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
   __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 /// Built-in Io module instance. Automatically injected for `main` functions
@@ -12197,10 +12200,11 @@ impl(
   /// descriptor operations): the task and what it was waiting on are then
   /// released at once instead of when that operation would have completed.
   /// An operation with no cancel path still runs to completion and releases
-  /// the task then. Only the future in the task's anonymous await slot is
-  /// under the hook; a NAMED awaited child is not cancelled yet, and a raw
-  /// `IoFuture` spawned directly has no hook at all
-  /// (issues/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md).
+  /// the task then; the task stays `Aborted`. A child future the task is
+  /// awaiting is aborted with it when the task started it (an anonymous
+  /// `io.await(child(io), io)`, or a named future this await cold-started); a
+  /// named future someone else started may be shared and keeps running. A raw
+  /// `IoFuture` spawned directly is cancelled the same way.
   abort : (fn(self : JoinHandle(T)) -> unit)(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )

@@ -6643,7 +6643,6 @@ run_test :: (
 ///   - a struct with a `ctl(...)` field — a handler record (`Exception`,
 ///     `ResumableException(T)`): kind `ctl`;
 ///   - the prelude's `Io` (its fields are the async primitives): kind `io`;
-///   - an effects row (`...(E)` implicit): kind `row`, listing its types.
 /// `Impl(Future(T, E))` results report `E` the same way under `future`.
 /// Human output is one line per fn; `--json` is one object per module.
 run_effects :: (
@@ -6869,25 +6868,6 @@ _effect_kinds_of_type :: (fn(t : TypeValue, depth : usize) -> ArrayList(String))
       });
       if(has_async, {
         _push_unique(kinds, String.from("io"));
-      });
-    },
-    .EffectsRowT({ implicit_types }) => {
-      _push_unique(kinds, String.from("row"));
-      (ri : usize) = usize(0);
-      while(ri < implicit_types.len(), {
-        match(
-          implicit_types.get(ri),
-          .Some(rt) => {
-            inner := recur(rt, depth + usize(1));
-            (ki : usize) = usize(0);
-            while(ki < inner.len(), {
-              match(inner.get(ki), .Some(k) => _push_unique(kinds, k.clone()), .None => ());
-              ki = (ki + usize(1));
-            });
-          },
-          .None => ()
-        );
-        ri = (ri + usize(1));
       });
     },
     _ => ()

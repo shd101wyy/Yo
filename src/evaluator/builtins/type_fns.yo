@@ -1190,7 +1190,6 @@ evaluate_yo_type_get_info :: (
     .CULongLong => String.from("TypeInfo.ULongLong"),
     .CLongDouble => String.from("TypeInfo.LongDouble"),
     .ExprT => String.from("TypeInfo.Expr"),
-    .EffectsRowT(_, _) => String.from("TypeInfo.EffectsRow"),
     .TypeAppT(_, _) => String.from("TypeInfo.TypeApplication"),
     .Int(bits, signed) => cond(
       (signed && (bits == u8(8))) => String.from("TypeInfo.I8"),
@@ -1301,7 +1300,7 @@ evaluate_yo_type_get_info :: (
         tc
       }
     },
-    .FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes, _, _) => {
+    .FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes, _) => {
       fni_name := _ti_bind_function_info(
         local_env,
         ft_plabels,
@@ -1327,7 +1326,7 @@ evaluate_yo_type_get_info :: (
         fc
       }
     },
-    .FutureTraitT(_, fut_output, _, fut_etypes, _) => {
+    .FutureTraitT(_, fut_output, _, fut_etypes) => {
       out_name := _ti_bind_type(local_env, fut_output, ctx);
       eff_name := _ti_bind_trait_info_list(local_env, fut_etypes, String.from("eff"), ctx, exn);
       empty_fields := _ti_bind_comptime_list(local_env, ArrayList(EvalValue).new(), String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn);
