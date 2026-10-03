@@ -564,10 +564,8 @@ impl(
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := (*i32)(out_fd_buf.as_ptr());
       pr1 := IO_pipe.pipe(out_fd);
-      cond(
-        (pr1 < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - pr1))),
-        true => ()
-      );
+      IoError.check(pr1, e.exn);
+      ();
       out_read := (out_fd.add(usize(0))).*;
       out_write := (out_fd.add(usize(1))).*;
       err_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
@@ -703,10 +701,8 @@ impl(
           true => {
             result := e.io.await(IO_file.close(raw), e.io);
             self._closed = true;
-            cond(
-              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-              true => ()
-            )
+            IoError.check(result, e.exn);
+            ()
           }
         )
     )
@@ -786,10 +782,8 @@ impl(
           true => {
             result := e.io.await(IO_file.close(raw), e.io);
             self._closed = true;
-            cond(
-              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-              true => ()
-            )
+            IoError.check(result, e.exn);
+            ()
           }
         )
     )
@@ -839,10 +833,8 @@ impl(
           true => {
             result := e.io.await(IO_file.close(raw), e.io);
             self._closed = true;
-            cond(
-              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-              true => ()
-            )
+            IoError.check(result, e.exn);
+            ()
           }
         )
     )
@@ -1043,10 +1035,8 @@ _stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i3
       fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       fds := (*i32)(fd_buf.as_ptr());
       pr := IO_pipe.pipe(fds);
-      cond(
-        (pr < i32(0)) => exn.throw(dyn(IoError.from_errno(i32(0) - pr))),
-        true => ()
-      );
+      IoError.check(pr, exn);
+      ();
       rd := (fds.add(usize(0))).*;
       wr := (fds.add(usize(1))).*;
       cond(

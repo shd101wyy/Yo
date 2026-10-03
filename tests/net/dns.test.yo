@@ -10,7 +10,7 @@ import("std/string");
 import("std/fmt");
 { lookup_host, resolve } :: import("std/net/dns");
 { IpAddr, SocketAddr } :: import("std/net/addr");
-{ NetError } :: import("std/net/errors");
+{ NetError, DnsError } :: import("std/net/errors");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
 // ============================================================================
 // DNS tests
@@ -110,4 +110,47 @@ test("lookup_host returns IPv6 results (was: AAAA records dropped)", {
     i = (i + usize(1));
   });
   assert(found_v6, "::1 must come back as a V6 address, not be silently dropped");
+});
+// The failure carries its reason, classified the same on every platform
+// (issues/fixed/stddoc-io-dns-lookup-discards-the-gai-error-code.md,
+// plans/ASYNC_IO_API_AUDIT.md A4). `.invalid` is reserved and never resolves;
+// a resolver that wildcards NXDOMAIN answers anyway, which reads as 0 here.
+/// 1 NotFound, 2 TryAgain, 3 Fail, 4 NoMemory, 5 Other, 9 not a DNS failure.
+_dns_reason_code :: (fn(err : AnyError) -> i32)(
+  match(
+    downcast(err, NetError),
+    .Some(ne) => match(
+      ne,
+      .DNSFailed(host : _h, reason : r) => match(
+        r,
+        .NotFound => i32(1),
+        .TryAgain => i32(2),
+        .Fail => i32(3),
+        .NoMemory => i32(4),
+        .Other => i32(5)
+      ),
+      _ => i32(9)
+    ),
+    .None => i32(9)
+  )
+);
+/// 0 when `host` resolved, else the reason code of the throw.
+_lookup_reason :: (fn(host : String, io : Io) -> i32)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(_dns_reason_code(err));
+      }
+    )
+  );
+  _addrs := io.await(lookup_host(host, io), IoExn(io : io, exn : exn));
+  i32(0)
+});
+test("lookup_host of a nonexistent name fails with a classified DnsError", {
+  code := _lookup_reason(`this.host.does.not.exist.invalid`, io);
+  unsafe(printf("  reason code = %d\n", code));
+  // NotFound on a normal resolver; TryAgain when the machine has no resolver
+  // reachable; 0 on a resolver that wildcards NXDOMAIN. Never Other, never
+  // an unclassified throw.
+  assert((code == i32(0)) || ((code == i32(1)) || (code == i32(2))), "a DNSFailed with a classified reason");
 });

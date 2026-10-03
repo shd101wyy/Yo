@@ -1231,13 +1231,16 @@ static void __yo_future_wake_waiters(void* fut) {
   }
 }
 
-// Non-blocking FutureState read: positive step indices read as Running (1),
-// matching io.state's mapping (0 Pending, -1 Completed, -2 Aborted).
+// Non-blocking FutureState read, io.state's mapping: positive step indices
+// read as Running (1), and so does a raw I/O future's pending 0 — it was
+// submitted when it was created, so it is never Cold (0 Cold, -1 Completed,
+// -2 Aborted).
 static int32_t __yo_join_handle_state_raw(void* fut) {
-  int s = ((__yo_future_header_t*)fut)->state;
+  __yo_future_header_t* h = (__yo_future_header_t*)fut;
+  int s = h->state;
   // Reading Aborted through the handle observes an effect-unwind abort.
   if (s == -2) __yo_task_abort_observed(fut);
-  return (s > 0) ? 1 : s;
+  return (s > 0 || (s == 0 && h->vt == NULL)) ? 1 : s;
 }
 
 // Abort a future: mark a non-terminal one Aborted, then let its hook cancel

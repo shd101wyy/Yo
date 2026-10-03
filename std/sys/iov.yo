@@ -32,7 +32,7 @@ iovec_size :: (fn() -> usize)(
 /// possibly short of the segment total), or a negative errno.
 ///
 /// On Windows this is not one operation: a socket goes through `WSARecv`
-/// (returning a negated WSA code on failure), and a regular file is emulated
+/// (its Winsock failure code mapped to errno), and a regular file is emulated
 /// with a per-segment overlapped `ReadFile` loop that saves and restores the
 /// file pointer — so it is not atomic against another user of the same
 /// handle.

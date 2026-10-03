@@ -751,13 +751,14 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
 // --- DNS (stub — no real networking) ---
 static __yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
                                                      const uint8_t* hints, uint8_t** result) {
-  (void)node; (void)service; (void)hints; (void)result; return __yo_wasm_io_completed(-ENOSYS);
+  // -(4096 + 5): the resolver's "other failure" code (DNS_ERR_OTHER in std/sys/dns.yo).
+  (void)node; (void)service; (void)hints; (void)result; return __yo_wasm_io_completed(-(4096 + 5));
 }
 static __yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint32_t addrlen,
                                                      uint8_t* host, size_t hostlen,
                                                      uint8_t* service, size_t servlen, int32_t flags) {
   (void)addr; (void)addrlen; (void)host; (void)hostlen; (void)service; (void)servlen; (void)flags;
-  return __yo_wasm_io_completed(-ENOSYS);
+  return __yo_wasm_io_completed(-(4096 + 5));
 }
 
 // --- Directory scanning ---

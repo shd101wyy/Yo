@@ -26,6 +26,34 @@
 { ToString } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
 // ============================================================================
+// DnsError
+// ============================================================================
+/// Why a name lookup failed. The runtime classifies the resolver's `EAI_*`
+/// answer the same way on every platform (`std/sys/dns`'s `DNS_ERR_*`), so a
+/// caller can retry `TryAgain` and give up on `NotFound`.
+DnsError :: enum(
+  /// The name does not exist (`EAI_NONAME`, `EAI_NODATA`). Permanent.
+  NotFound,
+  /// A temporary resolver failure (`EAI_AGAIN`). Retrying may succeed.
+  TryAgain,
+  /// A permanent resolver failure (`EAI_FAIL`).
+  Fail,
+  /// The resolver ran out of memory (`EAI_MEMORY`).
+  NoMemory,
+  /// Any other resolver failure.
+  Other
+);
+derive(
+  DnsError,
+  Error(
+    .NotFound => String.from("name not found"),
+    .TryAgain => String.from("temporary resolver failure"),
+    .Fail => String.from("resolver failure"),
+    .NoMemory => String.from("resolver out of memory"),
+    .Other => String.from("resolver error")
+  )
+);
+// ============================================================================
 // NetError
 // ============================================================================
 /// Network-specific error type wrapping lower-level I/O errors.
@@ -46,8 +74,8 @@ NetError :: enum(
   HostUnreachable,
   /// The network is unreachable.
   NetworkUnreachable,
-  /// DNS resolution failed.
-  DNSFailed(msg : String),
+  /// DNS resolution of `host` failed, for `reason`.
+  DNSFailed(host : String, reason : DnsError),
   /// A wrapped lower-level I/O error.
   Io(err : IoError),
   /// An unclassified network error with a message.
@@ -82,7 +110,7 @@ derive(
     .TimedOut => String.from("operation timed out"),
     .HostUnreachable => String.from("host unreachable"),
     .NetworkUnreachable => String.from("network unreachable"),
-    .DNSFailed => `DNS lookup failed: ${msg}`,
+    .DNSFailed => `DNS lookup failed for ${host}: ${reason.to_string()}`,
     .Io => err.to_string(),
     .Other => msg
   )
@@ -98,4 +126,4 @@ impl(
     )
   )
 );
-export(NetError);
+export(NetError, DnsError);

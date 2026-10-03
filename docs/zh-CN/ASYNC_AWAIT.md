@@ -462,7 +462,7 @@ assert(hf.await(io).is_none(), "the aborted task reads .None");
 
 | 状态值 | 含义                                      | `FutureState` 枚举值    |
 | ------ | ----------------------------------------- | ----------------------- |
-| 0      | 冷——尚未启动                              | `FutureState.Pending`   |
+| 0      | 冷——尚未启动                              | `FutureState.Cold`      |
 | 1..N   | 中间状态——在 await/yield 点挂起           | `FutureState.Running`   |
 | -1     | 已完成——结果可用                          | `FutureState.Completed` |
 | -2     | 已中止——效应处理器调用了 `unwind`，无结果 | `FutureState.Aborted`   |
@@ -473,7 +473,7 @@ assert(hf.await(io).is_none(), "the aborted task reads .None");
 
 ```rust
 FutureState :: enum(
-  Pending = 0,
+  Cold = 0,
   // 冷——尚未启动
   Running = 1,
   // 执行中——在 await/yield 点挂起
@@ -493,8 +493,8 @@ main :: (fn(io : Io) -> unit)({
     return(i32(42));
   });
 
-  // 启动前：Pending
-  assert(io.state(task) == FutureState.Pending, "cold future is Pending");
+  // 启动前：Cold
+  assert(io.state(task) == FutureState.Cold, "cold future is Cold");
 
   io.await(task, io);
 

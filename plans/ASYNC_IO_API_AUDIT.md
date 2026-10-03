@@ -367,7 +367,23 @@ bundle check compares field types. The plan text below is the proposal.
   bundle the static type does not name`), keep `Future(T)` for raw futures.
 - The bundle check compares field TYPES.
 
-### A4 — `IoFuture` hygiene (after §6 Q2)
+### A4 — `IoFuture` hygiene (after §6 Q2) — landed 2026-10-03
+
+As landed: the Windows runtime maps every Winsock code to errno
+(`__yo_wsa_to_errno`); resolver failures resolve to one stable `DNS_ERR_*`
+code per kind and `NetError.DNSFailed` carries a `DnsError` (fixes
+`issues/fixed/stddoc-io-dns-lookup-discards-the-gai-error-code.md`); `io.state`
+and `JoinHandle.state` read an in-flight raw future as `Running` (a mapping at
+the read, so no backend's state protocol changes); `FutureState.Pending` is
+`Cold`; the 16 hand-rolled checks of the exact `cond(r < 0 => throw
+from_errno(-r), true => ())` shape in `std/fs` and `std/process` are
+`IoError.check`, and the 14 that release resources before throwing keep their
+shape; `IoError.check` and `IoError.from_result` have unit tests
+(`tests/sys/constants.test.yo`). Not done: `sleep` has no error channel
+(`Future(unit)`, no `IoExn`), and its only failures are an allocation failure
+and its own cancellation, so it keeps discarding the `i32`. The plan text
+below is the proposal.
+
 
 Keep `IoFuture` a raw `i32` ABI at the `std/sys` layer. Normalise the two
 deviant families at the extern boundary so every negative value is an errno

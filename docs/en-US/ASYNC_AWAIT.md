@@ -482,7 +482,7 @@ out, the task and everything it is blocked on are cancelled.
 
 | State | Meaning                                                | `FutureState` enum      |
 | ----- | ------------------------------------------------------ | ----------------------- |
-| 0     | Cold — not started yet                                 | `FutureState.Pending`   |
+| 0     | Cold — not started yet                                 | `FutureState.Cold`      |
 | 1..N  | Intermediate — suspended at an await/yield point       | `FutureState.Running`   |
 | -1    | Completed — result is available                        | `FutureState.Completed` |
 | -2    | Aborted — an effect handler called `unwind`, no result | `FutureState.Aborted`   |
@@ -493,7 +493,7 @@ out, the task and everything it is blocked on are cancelled.
 
 ```rust
 FutureState :: enum(
-  Pending = 0,
+  Cold = 0,
   // Cold — not started yet
   Running = 1,
   // In progress — suspended at an await/yield point
@@ -513,8 +513,8 @@ main :: (fn(io : Io) -> unit)({
     return(i32(42));
   });
 
-  // Before starting: Pending
-  assert(io.state(task) == FutureState.Pending, "cold future is Pending");
+  // Before starting: Cold
+  assert(io.state(task) == FutureState.Cold, "cold future is Cold");
 
   io.await(task, io);
 

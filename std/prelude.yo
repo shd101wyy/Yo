@@ -12056,16 +12056,20 @@ impl(
 );
 /// FutureState — the state of an async `Future`.
 FutureState :: enum(
-  /// The future has been created but not yet started.
-  Pending = 0,
-  /// The future is actively running.
+  /// The future is cold: created but not yet started (an `io.async` future
+  /// before its first `io.await` / `io.spawn`). Was `Pending` until
+  /// 2026-10-03; renamed because "pending" reads as Rust's "not ready yet",
+  /// which every suspended future is (plans/ASYNC_IO_API_AUDIT.md Q4).
+  Cold = 0,
+  /// The future has started and is not finished: suspended at an await, or
+  /// an I/O operation in flight.
   Running = 1,
   /// The future completed successfully.
   Completed = -(1),
   /// The future was aborted (e.g., via `unwind`).
   Aborted = -(2)
 );
-// SAFETY: FutureState is a plain enum of integer values (Pending, Done,
+// SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
 // Aborted) with no heap allocations. It is trivially Send and Acyclic.
 impl(FutureState, Acyclic());
 impl(FutureState, Runtime());

@@ -1732,7 +1732,7 @@ test("Test io.state pending", {
     return(i32(42));
   });
   s := io.state(task);
-  assert(s == FutureState.Pending, "cold future should be Pending");
+  assert(s == FutureState.Cold, "cold future should be Cold");
   io.await(task, io);
 });
 test("Test io.state completed", {
@@ -1784,7 +1784,7 @@ test("Test io.state consistency", {
   s1 := io.state(task);
   s2 := io.state(task);
   assert(s1 == s2, "multiple state calls should return same result");
-  assert(s1 == FutureState.Pending, "cold future should be Pending");
+  assert(s1 == FutureState.Cold, "cold future should be Cold");
   io.await(task, io);
   s3 := io.state(task);
   s4 := io.state(task);
