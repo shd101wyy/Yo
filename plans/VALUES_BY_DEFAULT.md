@@ -4,8 +4,10 @@
 2026-10-03 (PR #1153): the inventory was re-measured, the design gaps in §3
 were filled, and §6 is the implementation and migration plan. V0 is done:
 the maintainer confirmed the ten decisions of §4 as written on 2026-10-03
-(#1155 added §3.10). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3
-have landed.**
+(#1155 added §3.10). Amended 2026-10-03 with the maintainer: the wrapper
+constructors `box`/`rc`/`arc` and the count reader's rename to `ref_count`
+(§3.2, decision 11, V1 step 0), and explicit allocators (§3.11, decision
+12). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3 have landed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -150,6 +152,23 @@ no `s[i] = b` either), which closes the UTF-8 hole.
   has today. Moving to wrappers costs no allocation and no indirection, and
   `Option(Box(T))`, `Option(Rc(T))`, `Option(Arc(T))` keep the one-pointer
   niche (DESIGN §`Option` of a handle is one pointer).
+- **Constructors.** The prelude defines one per wrapper, each moving its
+  argument into a new cell:
+
+  ```rust
+  box :: (fn(generic(T : Type), own(v) : T) -> Box(T))(Box(T)(v));
+  rc :: (fn(generic(T : Type), own(v) : T) -> Rc(T))(Rc(T)(v));
+  arc :: (fn(generic(T : Type), own(v) : T, where(T <: (Sync, Acyclic))) -> Arc(T))(Arc(T)(v));
+  ```
+
+  `box` and `arc` exist today in this shape (`std/prelude.yo`); `rc` is new.
+  The builtin that reads a cell's count, `rc(x)` today, is renamed
+  **`ref_count(x)`**: it reads any cell (`Box`, `Rc`, `Arc`, a collection
+  buffer, a `Dyn`), so a name tied to `Rc` would mislead, and `ref_count` is
+  the header field it reads. Yo has no shadowing, so a prelude `rc` claims
+  the name in every module: today's 29 locals and parameters named `rc`
+  (`rc := flock(...)`, exit codes) are renamed with it. V1 step 0 sequences
+  the rename through the seed.
 
 ### 3.3 Auto-dereference
 
@@ -190,7 +209,7 @@ declares a field whose label is `*`, and `b.*` is an ordinary field access
   through a `Mutex` or an atomic.
 - **Writes through `Box`** are copy-on-write: before a field write or an
   `inout(self)` call whose root place passes through a `Box`, the evaluator
-  inserts `Box.make_unique(inout b)` (clone the cell when `rc(cell) > 1`);
+  inserts `Box.make_unique(inout b)` (clone the cell when `ref_count(cell) > 1`);
   the same uniqueness step `String` S3 adds by hand to its mutators, made
   automatic for the one prelude type that needs it everywhere.
 
@@ -318,7 +337,7 @@ makes copy-on-write and the collector agree:
   already walks values inline and stops at atomic cells.
 - **Reflection** keeps its names and changes its reading: `Type.contains_rc_type`
   is "reaches a non-atomic cell", `Var.is_owning_the_rc_value` and
-  `Var.has_other_aliases` are about the handle a value holds, `rc(x)` reads
+  `Var.has_other_aliases` are about the handle a value holds, `ref_count(x)` reads
   the count of the cell `x` directly holds (a `Box`, an `Rc`, an `Arc`, a
   collection's buffer) and is a compile error on a value with no cell.
 
@@ -459,7 +478,54 @@ Two changes under this plan:
   `require_valid_ref_argument_places` keeps only its `Rc`/`Arc`/`Dyn`-rooted
   and module-level-root arms.
 
-### 3.11 What gets simpler
+### 3.11 Explicit allocators
+
+The landed model (`plans/reference/EXPLICIT_ALLOCATORS.md`) carries over
+unchanged: an allocator decides where a block lives, reference counting
+decides when it dies, and every free routes through the owner prefix. What
+changes is what a block is.
+
+- **The scope reaches cells, and only cells.** A value struct, enum, tuple
+  or array allocates nothing, so `with_allocator(a, () => Point(...))`
+  places nothing once `Point` is a value (today it places a `ref` struct).
+  The scope applies wherever a cell is created: `box`/`rc`/`arc`, a
+  collection or `String` buffer (already through `current_allocator()`,
+  P3c), a `Dyn` cell, an `Iso` value, an async state machine. After V5 the
+  six constructor sites that consult the scope today (`ref` struct and
+  enum, `box`/`arc`, `dyn`, `Iso`, async) become the one cell primitive
+  (§3.5) plus the async frame.
+- **A copy-on-write clone lands where its source lives**, not in the
+  current scope. This covers `Box.make_unique`, every collection's and
+  `String`'s uniqueness step, `Dyn`'s clone slot (§3.7) and the transfer
+  isolation clone (§3.8). Three reasons:
+  - it is today's rule for an explicit copy: `ArrayList.clone` places the
+    clone through the source's owner (`std/collections/array_list.yo`,
+    Rust's `Vec<T, A>: Clone`), and growth reallocates through the owner;
+  - following the scope would make placement observe sharing: after
+    `q := p; q.push(x)` in a global scope, `q`'s buffer would move to the
+    global heap if `p` is still alive and stay in the arena if `p` had died.
+    Copy-on-write must be indistinguishable from an eager copy, and an
+    eager copy (`clone`) inherits the owner;
+  - `Allocator` is `Send` and the arena locks itself, so a clone made on
+    another thread (transfer isolation) can use the source's owner.
+- **Consequence for arenas.** A value built in an arena and copied out of
+  the scope keeps its cells in the arena until every copy dies, and a write
+  to a shared copy clones into the arena too. `Arena.deinit` keeps panicking
+  while a block is live (unchanged). Moving a value out is explicit:
+  `clone_deep()` (V2b) builds fresh cells and so follows the scope it runs
+  in: `with_allocator(Allocator.global(), () => v.clone_deep())`.
+- **No `_in` variants for the wrappers.** `with_allocator(a, () => rc(v))`
+  places one cell; D2 already rejected an `alloc_in` form. Containers keep
+  `new_in`/`with_capacity_in` because std builds them deep in its own code.
+- **std internals.** `_ScopeGuard` (`std/allocator.yo`, a `ref` struct with
+  `Dispose` today) and `Arena` (`ref(struct(_state : *_ArenaState))`)
+  become move-only values in V3. `Allocator` stays a plain two-word value.
+- **Owner bits.** The cell header keeps the `__YO_RC_TAG` bit. When V2b moves
+  the collections' buffers into private cells, the per-container owner bits
+  (capacity word, `_tombstones`, the `imm` length words) can move to that
+  header tag; that is a simplification to measure then, not a requirement.
+
+### 3.12 What gets simpler
 
 - **The verifier.** Aliasing exists only through `Rc`/`Arc`, so every other
   value is pure. `requires(distinct(a, b))` (#1107) and the list-alias
@@ -517,6 +583,15 @@ edit.
    `fs`, `net`, `process`, `thread`) is the smallest place to mature the
    marker.
 
+Added by amendment, 2026-10-03, with the maintainer:
+
+11. **Constructors `box(v)`, `rc(v)`, `arc(v)` in the prelude; the count
+   reader is `ref_count(x)`** (§3.2). Each constructor takes `own(v)`. `rc`
+   stops naming the count builtin; with no shadowing, the prelude `rc`
+   claims the name in every module.
+12. **Explicit allocators: the scope places cells; a copy-on-write clone
+   inherits its source's owner** (§3.11).
+
 ## 5. Order and prerequisites
 
 1. **`STRING_VALUE_SEMANTICS` S1–S3 (in progress).** They build the shared
@@ -553,6 +628,30 @@ else.
 
 ### V1: `Rc`, `Box`, `Arc`, auto-dereference, no `Rc` marker trait
 
+**Step 0, the `rc` → `ref_count` rename (decision 11).** The evaluator
+(`src/evaluator/exprs/_expr.yo`, the `BF_RC` arm) and codegen
+(`src/codegen/exprs/generation.yo`, `generate_rc_call`) recognise `rc(...)`
+by name, so any seed that still has the builtin turns a call of a prelude
+`rc` function into a count read. It goes through the seed in two releases:
+
+- **0a, Generation A (one release before V1 step 1; v0.2.50 if it is ready
+  in time).** Add `BF_REF_COUNT :: "ref_count"` with the `rc` builtin's
+  evaluator and codegen paths. Make the `rc` arms give way to a binding:
+  when `rc` resolves to a variable in scope, evaluate an ordinary call (the
+  `_evaluate_exists_or_call` pattern), in both the evaluator and codegen.
+  Tests: `ref_count(x)` matches `rc(x)` on a `ref` struct, a `Box`, an
+  `Arc`, a collection; a module that binds `rc` to a function calls it.
+- **0b, Generation B (seed = 0a's release).** Rename every count call to
+  `ref_count` (about 180: 152 in tests, 11 in `std/`, 2 in `src/`, plus docs,
+  instruction files, skills, the pack), rename the 29 locals and parameters
+  named `rc`, delete `BF_RC`, and add the prelude `rc` constructor. The seed
+  now calls the prelude's `rc` (0a's give-way), so step 1 below can rename
+  `box(` to `rc(` in `std/` and `src/` in the same cycle. Skill edits move
+  the seven skill-tree CLI goldens.
+
+Without 0a's give-way arm, step 1 waits for a seed with no `rc` builtin at
+all: one more release.
+
 Compiler (`src/`), Generation A:
 
 - Delete the `Rc` marker: the registration in
@@ -582,9 +681,12 @@ Compiler (`src/`), Generation A:
 
 std, Generation A (all over `ref(struct((*) : V))`, lowerable by the seed):
 
-- `Rc(V)` = today's `Box` definition and impls, renamed. `rc(v)` = `box(v)`.
+- `Rc(V)` = today's `Box` definition and impls, renamed; `rc(own(v))` its
+  constructor (step 0b).
 - `Box(V)` = a new `ref(struct((*) : V))` whose `Clone` is a dup, with
-  `make_unique(inout(self))`, `Eq`/`Hash`/`Default` by payload.
+  `make_unique(inout(self))`, `Eq`/`Hash`/`Default` by payload, and
+  `box(own(v))` its constructor. `make_unique` clones through the source
+  cell's owner (§3.11).
 - `Arc(V)` unchanged.
 - `Dispose`/`Trace` lose `where(Self <: Rc)`.
 - `impl(Box(T), Deref(...))`, `Rc`, `Arc` likewise. std code itself keeps
@@ -607,7 +709,7 @@ changes meaning:
    writes the body through it and every holder must see the write.
 3. In tests, a `Box` test that asserts sharing stays on `Rc`; `tests/rc.test.yo`
    gains the value-`Box` cases (independent copy, make-unique on write,
-   `rc(b)` before and after a write, a `Box` tree copied and edited on one
+   `ref_count(b)` before and after a write, a `Box` tree copied and edited on one
    side).
 
 Tests: auto-deref for field, method, nested wrapper, wrapper-member
@@ -716,7 +818,11 @@ structs the seed lowers; the `Dispose` on the buffer cell is V3's rule):
   `Trace` (visit each slot). Same for the other collections. `Clone`
   becomes a dup; `clone_deep()` is the element-wise copy where one is
   wanted.
-- Every mutator calls the uniqueness step first (`String` S3's helper).
+- Every mutator calls the uniqueness step first (`String` S3's helper),
+  whose clone goes through the source buffer's owner (§3.11). Tests: a
+  list built under `with_allocator(arena, …)`, copied out and written
+  outside the scope, clones into the arena; `clone_deep()` under
+  `with_allocator(Allocator.global(), …)` moves it out, after which `Arena.deinit` succeeds.
 - The `Index` split (§3.1): the evaluator resolves `xs(i)` to `get` in read
   position and to the place form (make-unique, then the pointer) on the
   left of `=` or as an `inout` receiver; `plans/reference/INDEX_TRAIT.md`
@@ -813,7 +919,8 @@ Per type, in this order, each its own PR, measured:
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value, or on the private cell | V3 impl check |
 | A resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `inout` | E0901 + note |
 | `Iso(T)` of a `ref(struct)` | `Iso(T)` of a value reaching a cell | unchanged call sites |
-| `rc(x)` on a `ref(struct)` | `rc(x)` on a `Box`/`Rc`/`Arc`/collection | compile error elsewhere |
+| `rc(x)` (the count) | `ref_count(x)` on a `Box`/`Rc`/`Arc`/collection/`Dyn`; a compile error on a value with no cell | V1 step 0 rename |
+| `rc` as a local or parameter name | another name (`code`, `status`); the prelude's `rc` constructor owns the name | the no-shadowing error at the definition |
 
 ## 8. Risks
 
