@@ -304,7 +304,7 @@ _place_source_text :: (fn(place : AstExpr) -> String)({
 /// (`Option(String)`). A `ref` object, a `Box`, a collection or a closure is a
 /// handle, and a write through it reaches the shared object by design.
 _is_value_aggregate_type :: (fn(t : TypeValue) -> bool)(
-  (is_struct_type(t) && !is_reference_struct_type(t)) || (is_tuple_type(t) || (is_array_type(t) || (is_enum_type(t) && !is_reference_enum_type(t))))
+  (is_struct_type(t) && !is_reference_struct_type(t)) || is_tuple_type(t) || is_array_type(t) || (is_enum_type(t) && !is_reference_enum_type(t))
 );
 (_g_audit_inout_borrow : bool) = debug_knob(`YO_AUDIT_INOUT_BORROW`).is_some();
 /// E0908 for the `inout` arguments of one call, the `inout(self)` receiver of
@@ -1438,7 +1438,7 @@ Bound type: ${type_to_string(mcb_v.ty)}`
   // generic'd return through the C fn pointer, so the ABI mismatch the rule
   // guards against is moot (the `Exception { throw : ctl(generic(ResumeType),
   // …) }` shape as a local binding; async_await "unwind in async closure").
-  if(!variable.is_compile_time_only && (is_function_type(variable.ty) && is_function_type_generic(variable.ty)), {
+  if(!variable.is_compile_time_only && is_function_type(variable.ty) && is_function_type_generic(variable.ty), {
     (dgc_proven : bool) = false;
     match(
       rhs_info.value,

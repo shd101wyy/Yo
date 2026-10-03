@@ -83,7 +83,7 @@ _binop :: (fn(args : ArrayList(String), op : str) -> String)({
   // expression", the fn Dyn-closure test).
   lhs := _a(args, usize(0));
   rhs := _a(args, usize(1));
-  if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || (lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile")), {
+  if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile"), {
     return(`// Failed to transpile (${lhs}) ${op} (${rhs})`);
   });
   out := String.from("((");
@@ -99,7 +99,7 @@ _binop :: (fn(args : ArrayList(String), op : str) -> String)({
 _callop2 :: (fn(args : ArrayList(String), fname : str) -> String)({
   lhs := _a(args, usize(0));
   rhs := _a(args, usize(1));
-  if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || (lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile")), {
+  if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile"), {
     return(`// Failed to transpile ${fname}((${lhs}), (${rhs}))`);
   });
   out := String.from(fname);
@@ -121,14 +121,14 @@ _div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   b := _a(args, usize(1));
-  if((a.len() == usize(0)) || (b.len() == usize(0)) || (a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile")), {
+  if((a.len() == usize(0)) || (b.len() == usize(0)) || a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile"), {
     return(`// Failed to transpile (${a}) ${op} (${b})`);
   });
   tok := ast_expr_token(expr);
   file_lit := _idx_c_string_literal(tok.module_path.clone());
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
   signed_wide := cond(
-    (is_i8_type(ty) || (is_i16_type(ty) || is_i32_type(ty))) => String.from("(-2147483647 - 1)"),
+    (is_i8_type(ty) || is_i16_type(ty) || is_i32_type(ty)) => String.from("(-2147483647 - 1)"),
     is_i64_type(ty) => String.from("(-9223372036854775807LL - 1)"),
     is_isize_type(ty) => if(is_target_wasm(context.base.target_info), String.from("(-2147483647 - 1)"), String.from("(-9223372036854775807LL - 1)")),
     true => String.new()
@@ -141,7 +141,7 @@ _div_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : Fun
     });
     return(`(__yo_div_guard((long long)(${a}), (long long)(${b}), ${signed_wide}${loc}), ((${a}) ${op} (${b})))`);
   });
-  if(is_u8_type(ty) || (is_u16_type(ty) || (is_u32_type(ty) || (is_u64_type(ty) || is_usize_type(ty)))), {
+  if(is_u8_type(ty) || is_u16_type(ty) || is_u32_type(ty) || is_u64_type(ty) || is_usize_type(ty), {
     // 5b: a proved non-zero divisor needs no guard.
     if(guard_site_is_proved(expr, "divisor-nonzero"), {
       return(_binop(args, op));
@@ -180,7 +180,7 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   b := _a(args, usize(1));
-  if((a.len() == usize(0)) || (b.len() == usize(0)) || (a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile")), {
+  if((a.len() == usize(0)) || (b.len() == usize(0)) || a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile"), {
     return(`// Failed to transpile (${a}) ${op} (${b})`);
   });
   tok := ast_expr_token(expr);
@@ -194,7 +194,7 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
   // Asked inside each guarded branch only, so an unguarded operation is never
   // counted as elided.
   plain := `((${ct})((${a}) ${op} (${b})))`;
-  if(is_i8_type(ty) || (is_i16_type(ty) || is_i32_type(ty)) || (is_isize_type(ty) && wasm), {
+  if(is_i8_type(ty) || is_i16_type(ty) || is_i32_type(ty) || (is_isize_type(ty) && wasm), {
     bounds := cond(
       is_i16_type(ty) => String.from("(-32768), 32767"),
       (is_i32_type(ty) || is_isize_type(ty)) => String.from("(-2147483647 - 1), 2147483647"),
@@ -211,7 +211,7 @@ _arith_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
     });
     return(`(__yo_${fnbase}_chk_s64((${a}), (${b})${loc}))`);
   });
-  if(is_u8_type(ty) || (is_u16_type(ty) || is_u32_type(ty)) || (is_usize_type(ty) && wasm), {
+  if(is_u8_type(ty) || is_u16_type(ty) || is_u32_type(ty) || (is_usize_type(ty) && wasm), {
     hi := cond(
       is_u16_type(ty) => String.from("65535"),
       (is_u32_type(ty) || is_usize_type(ty)) => String.from("4294967295ULL"),
@@ -271,7 +271,7 @@ _shift_checked_expr :: (fn(args : ArrayList(String), expr : AstExpr, context : F
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   b := _a(args, usize(1));
-  if((a.len() == usize(0)) || (b.len() == usize(0)) || (a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile")), {
+  if((a.len() == usize(0)) || (b.len() == usize(0)) || a.starts_with("// Failed to transpile") || b.starts_with("// Failed to transpile"), {
     return(`// Failed to transpile (${a}) ${op} (${b})`);
   });
   bits := cond(

@@ -62,7 +62,7 @@ _strip_str_delims :: (fn(raw : String) -> String)({
   // no-op) while _c_string_literal below truncated the tail bytes — the
   // em-dash template corruption in the stage-2 binary.
   n := raw.as_bytes().len();
-  if((n >= usize(2)) && ((raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34))), {
+  if((n >= usize(2)) && (raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34)), {
     // Byte-exact strip of the first/last byte (the ASCII `"` delimiters).
     // `len()`/`byte_at` are byte-indexed but `substring` is rune-indexed, so
     // rebuild from the inner byte range to stay correct for multibyte UTF-8.
@@ -149,7 +149,7 @@ _is_io_builtin_fn_type :: (fn(t : TypeValue) -> bool)(
           __ibm1.*.extern_name,
           .Some(en) => (
             (en == "__yo_io_async") || (en == "__yo_io_await") ||
-              ((en == "__yo_io_state") || (en == "__yo_io_spawn"))
+              (en == "__yo_io_state") || (en == "__yo_io_spawn")
               ||
                 (en == "__yo_join_handle_await")
           ),
@@ -475,7 +475,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         // "Phase 1: comptime-only struct fields are erased from C layout").
         ct_flags := get_struct_field_comptime_flags(id.clone());
         cond(
-          (is_newtype && ((field_types.len() == usize(1)) && (field_values.len() == usize(1)))) => {
+          (is_newtype && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => {
             uty := match(field_types.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
             uval := match(field_values.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
             out := String.from("((");

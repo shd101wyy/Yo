@@ -1075,7 +1075,7 @@ hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
         // (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md).
         // The location marker is the generated module path, which the
         // rendered diagnostic carries.
-        (msg.contains(String.from("--> auto-generated://")) || (msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found."))))) => {
+        (msg.contains(String.from("--> auto-generated://")) || msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
           // The swallowed dyn-message often already carries an "Error: " or
           // "error[E0401]: " prefix; format_error_message adds its own —
           // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".
@@ -2051,7 +2051,7 @@ _anchor_label_chars :: (fn(raw : String) -> String)({
   (ci : usize) = usize(0);
   while(ci < raw.len(), {
     b := raw.byte_at(ci);
-    ok := ((((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90)))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))));
+    ok := ((((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90)))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95)));
     if(ok, {
       out.push_byte(b);
     }, {

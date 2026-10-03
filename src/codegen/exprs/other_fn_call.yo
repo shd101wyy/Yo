@@ -40,11 +40,11 @@ ref_spill_counter_reset :: (fn() -> unit)({
 });
 /// ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
 );
 /// ASCII identifier start byte ([A-Za-z_]).
 _is_ident_start :: (fn(b : u8) -> bool)(
-  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (b == u8(95)))
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || (b == u8(95))
 );
 /// Length of the C identifier at `start` in `s` (0 if none).
 _scan_ident :: (fn(s : String, start : usize) -> usize)({
@@ -150,7 +150,7 @@ _is_addressable_c_expr :: (fn(code : String) -> bool)({
         return(false);
       });
       i = (i + idlen);
-    }, if((b == u8(45)) && (((i + usize(1)) < n) && (s.byte_at(i + usize(1)) == u8(62))), {
+    }, if((b == u8(45)) && ((i + usize(1)) < n) && (s.byte_at(i + usize(1)) == u8(62)), {
       i = (i + usize(2));
       idlen := _scan_ident(s, i);
       if(idlen == usize(0), {
@@ -212,10 +212,10 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
         cur.push_byte(b);
       },
       true => {
-        if((b == u8(40)) || ((b == u8(91)) || (b == u8(123))), {
+        if((b == u8(40)) || (b == u8(91)) || (b == u8(123)), {
           depth = (depth + usize(1));
         });
-        if((b == u8(41)) || ((b == u8(93)) || (b == u8(125))), {
+        if((b == u8(41)) || (b == u8(93)) || (b == u8(125)), {
           depth = (depth - usize(1));
         });
         if((b == u8(44)) && (depth == usize(0)), {
@@ -469,7 +469,7 @@ _is_bare_literal :: (fn(c : String) -> bool)({
           b := c.byte_at(i);
           if((b >= u8(48)) && (b <= u8(57)), {
             seen_digit = true;
-          }, if((b == u8(46)) || ((b == u8(102)) || ((b == u8(70)) || ((b == u8(108)) || ((b == u8(76)) || ((b == u8(117)) || (b == u8(85))))))), (), {
+          }, if((b == u8(46)) || (b == u8(102)) || (b == u8(70)) || (b == u8(108)) || (b == u8(76)) || (b == u8(117)) || (b == u8(85)), (), {
             ok = false;
           }));
           i = (i + usize(1));
@@ -1914,7 +1914,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           vs_fncall_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
           vs_args := if(vs_args_raw.len() == rt_fields.len(), vs_args_raw, _ctor_args_from_labeled(wrapped.clone(), vs_fncall_args));
           vs_value := cond(
-            (vs_is_newtype && ((rt_fields.len() == usize(1)) && (vs_args.len() == usize(1)))) => {
+            (vs_is_newtype && (rt_fields.len() == usize(1)) && (vs_args.len() == usize(1))) => {
               inner := match(vs_args.get(usize(0)), .Some(a) => _call_generate_expr(a, indent.clone(), context), .None => String.from(""));
               nt_out := String.from("((");
               nt_out.push_string(vs_cname.clone());

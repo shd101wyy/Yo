@@ -765,7 +765,7 @@ _sm_consuming_read :: (fn(expr : AstExpr, name : String, sm_code : String, conte
   vs := scope_variables(eid, ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
-  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && ((ct.*.row == tok.row) && (ct.*.column == tok.column))), .None => false);
+  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && (ct.*.row == tok.row) && (ct.*.column == tok.column)), .None => false);
   if(!is_move || !type_contains_rc_type(ei.ty), {
     return(sm_code);
   });
