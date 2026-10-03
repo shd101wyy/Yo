@@ -1,0 +1,313 @@
+//! Await-site fusion (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md §5): an await of
+//! a single-await `io.async` wrapper runs the wrapper in its caller. Fusion
+//! changes no observable behavior, so every case here must give the same
+//! result with the lowering on (the default) and off (`YO_ASYNC_FUSION=0`).
+{ assert } :: import("std/assert");
+{ Error, Exception, IoExn } :: import("std/error");
+{ String } :: import("std/string");
+{ ToString } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+{ sleep } :: import("std/sys/timer");
+Boom :: struct(msg : String);
+impl(Boom, ToString(to_string : (self -> self.msg)));
+impl(Boom, Error());
+// The awaited leaf: a future with no await of its own.
+_leaf :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(io.async((e : Io) => n));
+// A fusable wrapper: a prologue, then one await, then a tail that throws for
+// a big value (std's `NetError.check` shape).
+_checked :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
+  k := (n + i32(1));
+  io.async(e => {
+    r := e.io.await(_leaf(k, e.io), e.io);
+    cond(
+      (r > i32(100)) => e.exn.throw(dyn(Boom(msg : `too big: ${r}`))),
+      true => r
+    )
+  })
+});
+// Its caller: awaits the wrapper directly (the fused site).
+_caller :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    v := e.io.await(_checked(n, e.io), e);
+    v * i32(2)
+  })
+);
+// One frame further out, for a handler installed two frames up.
+_outer :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    v := e.io.await(_caller(n, e.io), e);
+    v + i32(1)
+  })
+);
+test("a fused wrapper's value reaches its caller", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  v := io.await(_caller(i32(4), io), IoExn(io : io, exn : exn));
+  assert(v == i32(10), "(4 + 1) * 2");
+});
+_unwound_caller :: (fn(io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(true);
+      }
+    )
+  );
+  _v := io.await(_caller(i32(200), io), IoExn(io : io, exn : exn));
+  false
+});
+test("a throw in a fused tail unwinds to the caller's handler", {
+  assert(_unwound_caller(io), "the handler's unwind value is the function's result");
+});
+_unwound_two_up :: (fn(io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(true);
+      }
+    )
+  );
+  _v := io.await(_outer(i32(300), io), IoExn(io : io, exn : exn));
+  false
+});
+test("a throw in a fused tail unwinds to a handler two frames up", {
+  assert(_unwound_two_up(io), "the outer handler catches it");
+});
+// Side effects in the prologue and the arguments run once, in order.
+_log_push :: (fn(log : ArrayList(i32), x : i32) -> i32)({
+  log.push(x);
+  x
+});
+_logged :: (fn(log : ArrayList(i32), n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
+  _p := _log_push(log, i32(2));
+  io.async(e => {
+    r := e.io.await(_leaf(n, e.io), e.io);
+    _q := _log_push(log, i32(3));
+    r
+  })
+});
+test("prologue and argument effects run once, in order", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  log := ArrayList(i32).new();
+  v := io.await(_logged(log, _log_push(log, i32(1)), io), IoExn(io : io, exn : exn));
+  assert(v == i32(1), "the argument's value");
+  assert(log.len() == usize(3), "three effects");
+  assert(log.get(usize(0)).unwrap() == i32(1), "argument first");
+  assert(log.get(usize(1)).unwrap() == i32(2), "prologue second");
+  assert(log.get(usize(2)).unwrap() == i32(3), "block third");
+});
+// Two awaits of one wrapper in one caller, and one in a loop.
+_twice_and_loop :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    a := e.io.await(_checked(i32(1), e.io), e);
+    b := e.io.await(_checked(i32(2), e.io), e);
+    (sum : i32) = i32(0);
+    (i : i32) = i32(0);
+    while(i < i32(5), i = (i + i32(1)), {
+      x := e.io.await(_checked(i, e.io), e);
+      sum = (sum + x);
+    });
+    a + b + sum
+  })
+);
+test("fused awaits of one wrapper, twice and in a loop", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  v := io.await(_twice_and_loop(io), IoExn(io : io, exn : exn));
+  assert(v == i32(20), "(1+1) + (2+1) + (1+2+3+4+5)");
+});
+// A fused await in a cond arm.
+_in_arm :: (fn(flag : bool, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    r := cond(
+      flag => {
+        x := e.io.await(_checked(i32(10), e.io), e);
+        x
+      },
+      true => i32(0)
+    );
+    r
+  })
+);
+test("a fused await in a cond arm", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  assert(io.await(_in_arm(true, io), IoExn(io : io, exn : exn)) == i32(11), "the taken arm");
+  assert(io.await(_in_arm(false, io), IoExn(io : io, exn : exn)) == i32(0), "the other arm");
+});
+// A bound future is not a fused site: the ordinary path.
+_bound :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    f := _checked(i32(20), e.io);
+    v := e.io.await(f, e);
+    v
+  })
+);
+test("a bound future keeps the ordinary path", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  assert(io.await(_bound(io), IoExn(io : io, exn : exn)) == i32(21), "20 + 1");
+});
+// A fused wrapper that suspends for real (a timer), awaited from a spawned
+// task that is aborted while it waits there.
+_nap :: (fn(ms : u64, io : Io) -> Impl(Future(u64, IoExn)))({
+  d := ms;
+  io.async(e => {
+    e.io.await(sleep(d), e.io);
+    d
+  })
+});
+_napper :: (fn(io : Io) -> Impl(Future(u64, IoExn)))(
+  io.async(e => {
+    v := e.io.await(_nap(u64(10000), e.io), e);
+    v
+  })
+);
+test("aborting a task suspended at a fused await cancels the wait", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  h := io.spawn(_napper(io), IoExn(io : io, exn : exn));
+  io.await(sleep(u64(5)), io);
+  h.abort();
+  assert(h.await(io).is_none(), "an aborted task has no result");
+});
+// Nested fusion (F3): a wrapper whose one await is itself a fusable wrapper
+// runs both blocks in the caller (§3.1, up to depth 4).
+_twice_checked :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
+  m := (n * i32(2));
+  io.async(e => {
+    r := e.io.await(_checked(m, e.io), e);
+    r + i32(1)
+  })
+});
+_nest2 :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    v := e.io.await(_twice_checked(n, e.io), e);
+    v
+  })
+);
+test("a fused wrapper nested in a fused wrapper gives its value", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "no throw expected");
+        unwind(());
+      }
+    )
+  );
+  // 3 * 2 = 6, + 1 in _checked = 7, + 1 in _twice_checked = 8.
+  assert(io.await(_nest2(i32(3), io), IoExn(io : io, exn : exn)) == i32(8), "both blocks ran");
+});
+_nest2_unwound :: (fn(io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(true);
+      }
+    )
+  );
+  _v := io.await(_nest2(i32(60), io), IoExn(io : io, exn : exn));
+  false
+});
+test("a throw two fused blocks deep unwinds to the caller's handler", {
+  assert(_nest2_unwound(io), "60 * 2 + 1 > 100 throws in the inner block");
+});
+// A chain of five wrappers: fusion stops at depth 4, and the fifth runs as its
+// own task. The value is the same either way: n + 5.
+_d1 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_leaf(n, e), e);
+    r + i32(1)
+  })
+);
+_d2 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d1(n, e), e);
+    r + i32(1)
+  })
+);
+_d3 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d2(n, e), e);
+    r + i32(1)
+  })
+);
+_d4 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d3(n, e), e);
+    r + i32(1)
+  })
+);
+_d5 :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_d4(n, e), e);
+    r + i32(1)
+  })
+);
+test("a chain of five fusable wrappers gives its value past the depth limit", {
+  assert(io.await(_d5(i32(10), io), io) == i32(15), "10 + 5");
+});
+// Two wrappers that await each other are recursive through the fused path
+// (§3.1 rule 5): codegen must terminate and not fuse the cycle. They are only
+// reached behind a runtime false, since running them never ends.
+_ping :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_pong(n, e), e);
+    r
+  })
+);
+_pong :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := e.await(_ping(n, e), e);
+    r
+  })
+);
+_maybe_ping :: (fn(go : bool, io : Io) -> Impl(Future(i32)))(
+  io.async((e : Io) => {
+    r := cond(
+      go => e.await(_ping(i32(1), e), e),
+      true => i32(0)
+    );
+    r
+  })
+);
+test("mutually recursive wrappers compile, and are not fused into each other", {
+  assert(io.await(_maybe_ping(runtime(i32(0) > i32(1)), io), io) == i32(0), "the cycle is never entered");
+});
