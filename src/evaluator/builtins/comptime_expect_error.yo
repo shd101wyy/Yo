@@ -38,16 +38,19 @@
 { t_unit } :: import("../../types/creators.yo");
 { set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-/// The first and last token offset seen in an argument's subtree.
-_CeeSpanAcc :: ref(struct(lo : u32, hi : u32));
-/// Widen `acc` to every token offset in `e`'s subtree.
+/// The first and last token position, (row, column), seen in an argument's
+/// subtree.
+_CeeSpanAcc :: ref(struct(lo_row : u32, lo_col : u32, hi_row : u32, hi_col : u32));
+/// Widen `acc` to every token position in `e`'s subtree.
 _cee_token_span :: (fn(e : AstExpr, acc : _CeeSpanAcc) -> unit)({
-  c := ast_expr_token(e).character;
-  if(c < acc.lo, {
-    acc.lo = c;
+  t := ast_expr_token(e);
+  if((t.row < acc.lo_row) || ((t.row == acc.lo_row) && (t.column < acc.lo_col)), {
+    acc.lo_row = t.row;
+    acc.lo_col = t.column;
   });
-  if(c > acc.hi, {
-    acc.hi = c;
+  if((t.row > acc.hi_row) || ((t.row == acc.hi_row) && (t.column > acc.hi_col)), {
+    acc.hi_row = t.row;
+    acc.hi_col = t.column;
   });
   match(
     e,
@@ -240,9 +243,9 @@ evaluate_comptime_expect_error :: (
   // A function literal written in the argument is never emitted
   // (`is_inside_cee_argument`, function_value.yo).
   cee_tok := ast_expr_token(arg_expr);
-  cee_acc := _CeeSpanAcc(lo : cee_tok.character, hi : cee_tok.character);
+  cee_acc := _CeeSpanAcc(lo_row : cee_tok.row, lo_col : cee_tok.column, hi_row : cee_tok.row, hi_col : cee_tok.column);
   _cee_token_span(arg_expr, cee_acc);
-  record_cee_argument_span(cee_tok.module_path.clone(), cee_acc.lo, cee_acc.hi);
+  record_cee_argument_span(cee_tok.module_path.clone(), cee_acc.lo_row, cee_acc.lo_col, cee_acc.hi_row, cee_acc.hi_col);
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   observed_msgs := cee_observed_messages();
   clear_cee_observed_error();

@@ -19,7 +19,7 @@
 { Frame } :: import("./env.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { t_unit } :: import("./types/creators.yo");
-{ debug_knob } :: import("./utils.yo");
+{ debug_knob, canonical_module_path } :: import("./utils.yo");
 { record_owned_func_id } :: import("./evaluator/values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Control-function side-table
@@ -376,22 +376,31 @@ is_fn_unemittable :: (fn(func_id : String) -> bool)(
 /// of these spans, which covers every path that registers a function value. A
 /// specialization of a std generic minted while the argument is evaluated has
 /// std tokens and is unaffected.
-/// Each argument is kept as a source span (module path, first and last token
-/// offset), not as node ids: a function's body can be a CLONE with fresh node
-/// ids (a closure re-evaluated, a trial clone), and a clone shares its tokens.
-CeeArgSpan :: struct(module_path : String, lo : u32, hi : u32);
+/// Each argument is kept as a source span (canonical module path, first and
+/// last token position as (row, column)), not as node ids: a function's body
+/// can be a CLONE with fresh node ids (a closure re-evaluated, a trial clone)
+/// or a synthesized node, and both keep their source row and column.
+CeeArgSpan :: struct(module_path : String, lo_row : u32, lo_col : u32, hi_row : u32, hi_col : u32);
 (g_cee_arg_spans : ArrayList(CeeArgSpan)) = ArrayList(CeeArgSpan).new();
-record_cee_argument_span :: (fn(module_path : String, lo : u32, hi : u32) -> unit)({
-  g_cee_arg_spans.push(CeeArgSpan(module_path : module_path, lo : lo, hi : hi));
+record_cee_argument_span :: (fn(module_path : String, lo_row : u32, lo_col : u32, hi_row : u32, hi_col : u32) -> unit)({
+  g_cee_arg_spans.push(CeeArgSpan(module_path : canonical_module_path(module_path), lo_row : lo_row, lo_col : lo_col, hi_row : hi_row, hi_col : hi_col));
 });
-is_inside_cee_argument :: (fn(module_path : String, character : u32) -> bool)({
+is_inside_cee_argument :: (fn(module_path : String, row : u32, column : u32) -> bool)({
+  if(g_cee_arg_spans.len() == usize(0), {
+    return(false);
+  });
+  canon := canonical_module_path(module_path);
   (i : usize) = usize(0);
   while(i < g_cee_arg_spans.len(), {
     match(
       g_cee_arg_spans.get(i),
-      .Some(sp) => if((sp.module_path == module_path) && (character >= sp.lo) && (character <= sp.hi), {
-        return(true);
-      }),
+      .Some(sp) => {
+        after_lo := ((row > sp.lo_row) || ((row == sp.lo_row) && (column >= sp.lo_col)));
+        before_hi := ((row < sp.hi_row) || ((row == sp.hi_row) && (column <= sp.hi_col)));
+        if((sp.module_path == canon) && after_lo && before_hi, {
+          return(true);
+        });
+      },
       .None => ()
     );
     i = (i + usize(1));
