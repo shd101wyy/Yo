@@ -88,13 +88,13 @@ test("growing an unallocated map releases every RC value exactly once", {
   assert(g_hm_lazy_disposed == i32(40), "each of the 40 values is released exactly once");
 });
 // ===== Set Tests =====
-test("HashMap.set inserts new key-value pair", {
+test("HashMap.insert inserts new key-value pair", {
   map := HashMap(i32, i32).new();
   result := map.insert(i32(42), i32(100));
   assert(result.is_none());
   assert(map.len() == usize(1));
 });
-test("HashMap.set updates existing key", {
+test("HashMap.insert updates existing key", {
   map := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
   // `insert` returns the PREVIOUS value directly now (D9) — there is no
@@ -104,14 +104,14 @@ test("HashMap.set updates existing key", {
   assert(result.unwrap() == i32(100));
   assert(map.len() == usize(1));
 });
-test("HashMap.set inserts multiple key-value pairs", {
+test("HashMap.insert inserts multiple key-value pairs", {
   map := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
   map.insert(i32(3), i32(30));
   assert(map.len() == usize(3));
 });
-test("HashMap.set handles many insertions and triggers resize", {
+test("HashMap.insert handles many insertions and triggers resize", {
   map := HashMap(i32, i32).new();
   // Insert enough elements to trigger resize (> 7/8 of capacity)
   i := usize(0);
@@ -157,21 +157,21 @@ test("HashMap.get after update returns new value", {
   assert(result.unwrap() == i32(999));
 });
 // ===== Has Tests =====
-test("HashMap.has returns true for existing key", {
+test("HashMap.contains_key returns true for existing key", {
   map := HashMap(i32, i32).new();
   map.insert(i32(42), i32(100));
   assert(map.contains_key(i32(42)));
 });
-test("HashMap.has returns false for non-existing key", {
+test("HashMap.contains_key returns false for non-existing key", {
   map := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
   assert(!map.contains_key(i32(99)));
 });
-test("HashMap.has returns false for empty map", {
+test("HashMap.contains_key returns false for empty map", {
   map := HashMap(i32, i32).new();
   assert(!map.contains_key(i32(42)));
 });
-test("HashMap.has works after multiple insertions", {
+test("HashMap.contains_key works after multiple insertions", {
   map := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
@@ -315,7 +315,7 @@ test("HashMap handles hash collisions", {
   });
 });
 // ===== Update Tests =====
-test("HashMap.set replaces old value", {
+test("HashMap.insert replaces old value", {
   map := HashMap(i32, i32).new();
   map.insert(i32(5), i32(50));
   map.insert(i32(5), i32(500));
@@ -530,7 +530,7 @@ test("HashMap into_iter - multiple entries all visited", {
   assert(val_sum == i32(60));
   assert(count == i32(3));
 });
-test("HashMap iter_ptr - yields pointers to buckets", {
+test("HashMap iter - yields pointers to buckets", {
   map := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
@@ -540,7 +540,7 @@ test("HashMap iter_ptr - yields pointers to buckets", {
   });
   assert(val_sum == i32(30));
 });
-test("HashMap iter_ptr - mutate values through pointer", {
+test("HashMap iter - mutate values through pointer", {
   map := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   map.insert(i32(2), i32(20));
@@ -562,7 +562,7 @@ test("HashMap for (b) => body iterates occupied buckets by value", {
 });
 test("HashMap value-form bucket is a copy — writes do not reach the map", {
   // The value form yields `MapEntry(K, V)` STRUCT COPIES; in-place value
-  // mutation goes through `set` (or `iter_ptr` in privileged code).
+  // mutation goes through `insert` (or `iter` in privileged code).
   map := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
   for(map, b => {

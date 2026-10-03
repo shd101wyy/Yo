@@ -713,6 +713,14 @@ review defect, not a style preference.
 | conversion | `from_` / `to_` / `into_`, with Rust's discipline (`into_` consumes) | two spellings of one conversion (`to_cstr` vs `to_c_str`) |
 | comptime twins | `Comptime` prefix on the trait, `comptime_` prefix on the method | an infix `_comptime_` |
 
+A rename sweep must also rewrite the `test("<Type>.<method> …")` name strings
+that spell a renamed method (and any comment naming it): `--test-name-pattern`
+matches those strings, so a name left on the old spelling hides the test from
+the pattern that targets the method and offers phantom matches for a method
+that no longer exists (2026-10-03: 37 collection tests were still named
+`add`/`has`/`set`/`min`/`max`/`iter_ptr` a month after the rename —
+`issues/fixed/collection-test-names-still-use-pre-rename-method-spellings.md`).
+
 Two conventions that are easy to miss:
 
 - **`sys/` is plumbing, `std/*` is the product.** Every user-relevant syscall

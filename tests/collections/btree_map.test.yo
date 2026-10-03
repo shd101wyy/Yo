@@ -9,7 +9,7 @@ test("BTreeMap.new creates empty map", {
   assert(m.is_empty(), "should be empty");
 });
 // ===== Set / Get Tests =====
-test("BTreeMap.set inserts single entry", {
+test("BTreeMap.insert inserts single entry", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(10), i32(100));
   assert(m.len() == usize(1), "len should be 1");
@@ -18,7 +18,7 @@ test("BTreeMap.set inserts single entry", {
   assert(v.is_some(), "key 10 should exist");
   assert(v.unwrap() == i32(100), "value should be 100");
 });
-test("BTreeMap.set inserts multiple entries in order", {
+test("BTreeMap.insert inserts multiple entries in order", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(1), i32(10));
   m.insert(i32(2), i32(20));
@@ -28,7 +28,7 @@ test("BTreeMap.set inserts multiple entries in order", {
   assert(m(i32(2)) == i32(20), "key 2 => 20");
   assert(m(i32(3)) == i32(30), "key 3 => 30");
 });
-test("BTreeMap.set inserts entries in reverse order", {
+test("BTreeMap.insert inserts entries in reverse order", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(30), i32(3));
   m.insert(i32(20), i32(2));
@@ -38,14 +38,14 @@ test("BTreeMap.set inserts entries in reverse order", {
   assert(m(i32(20)) == i32(2), "key 20 => 2");
   assert(m(i32(30)) == i32(3), "key 30 => 3");
 });
-test("BTreeMap.set updates existing key", {
+test("BTreeMap.insert updates existing key", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(5), i32(50));
   m.insert(i32(5), i32(99));
   assert(m.len() == usize(1), "len should still be 1");
   assert(m(i32(5)) == i32(99), "value should be updated to 99");
 });
-test("BTreeMap.set handles many entries", {
+test("BTreeMap.insert handles many entries", {
   m := BTreeMap(i32, i32).new();
   i := i32(0);
   while(i < i32(20), i = (i + i32(1)), {
@@ -109,7 +109,7 @@ test("BTreeMap.remove preserves order of remaining keys", {
   assert(m(i32(40)) == i32(4), "key 40 should remain");
 });
 // ===== Min / Max Tests =====
-test("BTreeMap.min returns smallest key entry", {
+test("BTreeMap.first_entry returns smallest key entry", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(30), i32(3));
   m.insert(i32(10), i32(1));
@@ -119,7 +119,7 @@ test("BTreeMap.min returns smallest key entry", {
   assert(entry.unwrap().key == i32(10), "min key should be 10");
   assert(entry.unwrap().value == i32(1), "min value should be 1");
 });
-test("BTreeMap.max returns largest key entry", {
+test("BTreeMap.last_entry returns largest key entry", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(30), i32(3));
   m.insert(i32(10), i32(1));
@@ -129,15 +129,15 @@ test("BTreeMap.max returns largest key entry", {
   assert(entry.unwrap().key == i32(30), "max key should be 30");
   assert(entry.unwrap().value == i32(3), "max value should be 3");
 });
-test("BTreeMap.min returns None for empty map", {
+test("BTreeMap.first_entry returns None for empty map", {
   m := BTreeMap(i32, i32).new();
   assert(m.first_entry().is_none(), "first_entry should be None for empty map");
 });
-test("BTreeMap.max returns None for empty map", {
+test("BTreeMap.last_entry returns None for empty map", {
   m := BTreeMap(i32, i32).new();
   assert(m.last_entry().is_none(), "last_entry should be None for empty map");
 });
-test("BTreeMap.min and max same for single entry", {
+test("BTreeMap.first_entry and last_entry same for single entry", {
   m := BTreeMap(i32, i32).new();
   m.insert(i32(42), i32(100));
   assert(m.first_entry().unwrap().key == i32(42), "first_entry key should be 42");
