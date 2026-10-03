@@ -25,16 +25,16 @@
 //!
 //! ## Stability
 //!
-//! unstable — the NAMES and signatures (`yield`, `join_all`, `race`,
-//! `race_first`, `any`, `any_first`,
-//! `timeout`, `TimeoutError`) are intended to keep their meanings, but the
-//! MECHANISM under them is expected to change: every combinator drives the
-//! loop by polling, re-checking on a 1 ms timer tick, so a handle that
-//! completes just after a check waits out the rest of the tick. A waker-based
-//! rewrite is planned (`plans/archive/STD_API_STABILIZATION.md` §4 Concurrency) and
-//! would change the latency and the CPU cost of waiting, not the API. The
-//! `JoinHandle`-not-`Future` argument type is a consequence of that design and
-//! may relax with it.
+//! unstable — the NAMES (`yield`, `join_all`, `race`, `race_first`, `any`,
+//! `any_first`, `timeout`, `TimeoutError`) keep their meanings, but the
+//! SHAPE is about to change: every combinator is a blocking-poll plain `fn`
+//! (it re-checks its handles around `__yo_async_poll_step`, with no timer
+//! under it since v0.2.32), so none of them can be called from inside an
+//! `io.async` body without nesting the event loop. Phase A1 of
+//! `plans/ASYNC_IO_API_AUDIT.md` turns each one into a future
+//! (`join_all(handles, io) -> Impl(Future(ArrayList(Option(T)), Io))`, and so
+//! on) built on a `JoinHandle.await` that suspends inside a task; the
+//! `JoinHandle`-not-`Future` argument type stays (decision Q3 there).
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { assert } :: import("../assert");
@@ -84,8 +84,9 @@ yield :: (fn(io : Io) -> Impl(Future(unit)))(
 );
 /// Await every handle, in order, returning each task's result (`.None` for a
 /// task that was aborted). All tasks run concurrently on the loop — awaiting
-/// sequentially costs the SLOWEST task's wall time, not the sum. Each handle
-/// is consumed (a `JoinHandle` must be awaited at most once).
+/// sequentially costs the SLOWEST task's wall time, not the sum. The handles
+/// are not consumed: a `JoinHandle` owns a reference to its task and may be
+/// awaited again (it re-reads the same result).
 join_all :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> ArrayList(Option(T)))({
   out := ArrayList(Option(T)).with_capacity(handles.len());
   (i : usize) = usize(0);
@@ -97,10 +98,10 @@ join_all :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) 
   out
 });
 /// Drive the loop until at least one handle is terminal (completed OR
-/// aborted) and return its index. The handles are NOT consumed: every one —
-/// winner and losers alike — must still be awaited exactly once by the
-/// caller (`abort` the losers first if their results are unwanted). Panics
-/// on an empty list.
+/// aborted) and return its index. The losers keep running: a `JoinHandle`
+/// dropped without an await DETACHES its task, so `abort()` the losers if
+/// their work is unwanted (`race_first` does that for you). Panics on an
+/// empty list.
 race :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> usize)({
   assert(handles.len() > usize(0), "race: empty handle list");
   (winner : Option(usize)) = Option(usize).None;
@@ -121,8 +122,8 @@ race :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> u
 });
 /// Drive the loop until some handle COMPLETES (not merely aborts) and return
 /// its index, or `.None` once every handle is terminal without a completion.
-/// Like `race`, the handles are not consumed — award each exactly one await.
-/// Panics on an empty list.
+/// Like `race`, the losers keep running unless aborted (`any_first` aborts
+/// them). Panics on an empty list.
 any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Option(usize))({
   assert(handles.len() > usize(0), "any: empty handle list");
   (result : Option(usize)) = Option(usize).None;
@@ -155,20 +156,17 @@ any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Op
 /// cleanup done for you. Returns the winner's result (`.None` if the winner
 /// was aborted rather than completed). Panics on an empty list.
 ///
-/// This exists because `race`/`any` hand back an index and leave a manual
-/// contract behind ("every handle must still be awaited exactly once; abort
-/// the losers first if their results are unwanted"), and a caller who forgets
-/// it leaks every loser's state machine. The plan's original prescription for
-/// that leak was a `Dispose` on `JoinHandle` that aborts a non-terminal task,
-/// and that is the wrong fix twice over: `JoinHandle(T)` is a bare copyable
-/// `struct` over a raw pointer, not an `Rc`, so it cannot carry `Dispose` at
-/// all; and abort-on-drop is not the semantics Yo's async `JoinHandle`
-/// follows — dropping it DETACHES, exactly as Tokio's does, which is what
-/// makes fire-and-forget `io.spawn` work. The leak is a combinator contract
-/// problem, so it is fixed in the combinator.
+/// This exists because `race`/`any` hand back an index and leave the losers
+/// running: dropping a `JoinHandle` DETACHES its task (Tokio's semantics,
+/// which is what makes a fire-and-forget `io.spawn` statement correct), so a
+/// caller who wants the losers' work stopped has to `abort()` each one. The
+/// original plan prescribed abort-on-drop through `Dispose`; the handle does
+/// carry a `Dispose` today (it owns a reference to the task's future), but
+/// abort-on-drop is deliberately not its semantics.
 ///
-/// Every loser is aborted AND awaited: aborting alone marks the task and
-/// leaves its await outstanding, which is the same leak one step later.
+/// Every loser is aborted AND awaited: the await lets a loser suspended in a
+/// cancellable operation be released here rather than when that operation
+/// would have completed.
 race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Option(T))({
   assert(handles.len() > usize(0), "race_first: empty handle list");
   w := race(handles, io);
@@ -231,8 +229,8 @@ derive(
 /// Await `handle` with a deadline: `.Ok(v)` if it finishes within `limit`,
 /// `.Err(TimeoutError.Elapsed)` if the deadline fires first (the handle is
 /// `abort()`ed), `.Err(TimeoutError.Aborted)` if the task was cancelled on
-/// its own. The handle is consumed either way. Millisecond granularity (the
-/// timer contract of `std/time/sleep`).
+/// its own. The handle stays valid either way (it can be awaited again).
+/// Millisecond granularity (the timer contract of `std/time/sleep`).
 ///
 /// A task that finishes before the deadline leaves nothing behind: `abort()`
 /// on the deadline handle deregisters the armed timer in the I/O backend and
@@ -270,7 +268,7 @@ timeout :: (
       true => __yo_async_poll_step()
     );
   });
-  // Consume the deadline handle exactly once. When the task finished first,
+  // Abort and await the deadline handle. When the task finished first,
   // the abort cancels the still-armed timer and releases the deadline task
   // immediately (runtime_core.yo `__yo_async_io_cancel`), so the await that
   // follows returns without waiting for `limit`.

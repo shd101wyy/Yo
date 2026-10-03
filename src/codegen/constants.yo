@@ -253,17 +253,14 @@ codegen_fatal_expr :: (fn(message : String) -> String)({
   codegen_fatal(message);
   String.from("")
 });
-/// A USER error that only codegen can see: a language rule enforced where the
-/// `io.async` state-machine splitter runs (an `io.await` in a position it
-/// cannot split). Unlike `codegen_fatal` it is not an internal error: it
-/// builds a `YoError` from the user's token, so the CLI renders it with its
-/// code, the caret and the source line, honouring `--error-format`
-/// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 4.1,
+/// A USER error that only codegen can see. Unlike `codegen_fatal` it is not
+/// an internal error: it builds a `YoError` from the user's token, so the CLI
+/// renders it with its code, the caret and the source line, honouring
+/// `--error-format` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 4.1,
 /// issues/fixed/user-facing-async-restrictions-reported-as-internal-compiler-error.md).
-/// The rules that are decidable from the syntax are also enforced by the
-/// evaluator (`validate_await_placement`, evaluator/async/await_placement.yo),
-/// so `yo check` reports them; this is the backstop for the splitter's own
-/// limits.
+/// Its one caller is the hollow `io.async` body report (E0905,
+/// codegen/exprs/async.yo): the await placement rules it used to back stop
+/// moved into the evaluator in Phase 4 and no longer exist in codegen.
 codegen_user_error :: (fn(tok : Token, message : String) -> unit)({
   _record_codegen_error(dyn(format_error_message(tok, message)));
 });

@@ -85,8 +85,9 @@ impl(
     })
   ),
   /// Run `body` under the lock as one critical section: acquire, run to
-  /// completion (awaits inside `body` are allowed — the section stays
-  /// exclusive across them), release. Was DEFERRED on C54 — a generic
+  /// completion, release. `body` is a synchronous closure and cannot await;
+  /// for a section that spans awaits call `lock`/`unlock` directly. Was
+  /// DEFERRED on C54 — a generic
   /// `-> Impl(Future(R))` method called with two different `R`s miscompiled
   /// because the async body's `body(..)` result was stamped as the bare
   /// forall `R` and rendered through the global last-writer registry; the

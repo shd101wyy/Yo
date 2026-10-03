@@ -370,30 +370,30 @@ lowering (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
 
 ## JoinHandle(T) — spawned task handle
 
-`JoinHandle(T)` is a builtin generic type returned by `io.spawn`. It wraps a pointer to the spawned future and allows awaiting its result.
+`JoinHandle(T)` is the prelude type `io.spawn` returns: a `ref` struct that OWNS one reference to the spawned task's future (`std/prelude.yo`, "JoinHandle — a handle to a spawned async task").
 
 ### API
 
 ```rust
 handle := io.spawn(task, ctx);   // → JoinHandle(T), ctx is the task's effect bundle
 result := handle.await(io);      // → Option(T)
+handle.state(); handle.is_finished(); handle.abort();
 ```
 
 ### Semantics
 
-- `io.spawn(task, e)` cold-starts the future with the effect bundle `e`, and returns a `JoinHandle(T)`.
-- `handle.await(io)` polls the spawned future until completion or abort, returns `Option(T)`:
-  - `.Some(result)` — task completed normally
-  - `.None` — task was aborted (effect handler called `unwind`)
-- When used as fire-and-forget (`io.spawn(task, e)` without binding result), the JoinHandle is discarded with no RC overhead.
-- `JoinHandle(T)` is a non-owning view — it does not increment the future's reference count. The original task variable owns the future.
+- `io.spawn(task, e)` copies the bundle `e` into the cold future, runs the task INLINE up to its first suspension point (spawn is not itself a suspension point), and returns a `JoinHandle(T)`.
+- `handle.await(io)` returns `Option(T)`: `.Some(result)` on completion, `.None` when the task was aborted (an effect handler called `unwind`, or `handle.abort()`). Awaiting does NOT consume the handle; a second await re-reads the same result (a fresh dup). Today it is a BLOCKING poll loop in every context, so inside an `io.async` body it nests the event loop (`YO_ASYNC_STRICT=1` panics there) — phase A1 of `plans/ASYNC_IO_API_AUDIT.md` makes it suspend inside a task.
+- The handle owns a reference: the task and its result live as long as some copy of the handle does, and `Dispose` releases that reference. Dropping the last copy without awaiting DETACHES the task (it keeps running and frees itself when it finishes), which is what makes a fire-and-forget `io.spawn(task, e);` statement correct. Abort-on-drop is deliberately NOT the semantics.
+- `JoinHandle(T)` is `!Send` (the task lives on the spawner's loop thread); `Io` is `!Send` too.
+- The handle is a second heap object per spawn today (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`); the value-struct-over-counted-future form waits for a seed bump.
 
 ### Definition (in prelude.yo)
 
 ```rust
-JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))
-  struct(__future : *(T))
-;
+JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(struct(__future : *(T)))
+);
 ```
 
 The `*(T)` field is required so the type parameter `T` appears in the struct fields, enabling the type synthesizer to extract `T` bindings during generic impl matching.

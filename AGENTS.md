@@ -106,7 +106,7 @@ The compiler is the `yo` binary on your PATH (install with `scripts/install.sh`;
 yo build --std-path ./std     # build the compiler → yo-out/<target>/bin/yo. --std-path is LOAD-BEARING: without it the seed compiles its own std, so a std change the seed cannot lower passes locally and breaks CI (#996)
 yo check ./src                # type-check the whole compiler tree (evaluator-only) — run this FIRST
 yo check ./std --std-path ./std   # --std-path matters: without it an installed yo imports its BUNDLED std beside the checked ./std (22 false failures, issues/check-std-in-a-checkout-evaluates-two-copies-of-std.md). No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
-yo compile src/main.yo --skip-c-compiler   # ~3 min; catches async state-machine rules `check` cannot see (they fire in codegen)
+yo compile src/main.yo --skip-c-compiler   # ~3 min; catches the one async rule `check` cannot see (a hollow `io.async` body, E0905, fires in codegen)
 
 # Incremental loop: keep ONE resident checker alive instead of re-running the ~105 s cold `check ./src`.
 # A round re-forces only the edited fn-literal definitions (+ dependents): comment-only 6 ms, one body
@@ -177,7 +177,7 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 ### Before, during, after a change
 
 - **Use the LATEST published seed** (`yo --version` = newest GitHub release). A current tree can need runtime symbols only the newest seed emits. Update with `bash scripts/install.sh` (`--no-deps` on nix boxes).
-- Run `yo check ./src` before any longer command. `check` is evaluator-only: async state-machine rules are enforced in codegen, so gate those with `yo compile src/main.yo --skip-c-compiler`.
+- Run `yo check ./src` before any longer command. `check` is evaluator-only: the hollow-`io.async`-body rule (E0905) is enforced in codegen, so gate it with `yo compile src/main.yo --skip-c-compiler`.
 - Make commands succeed yourself. Do not ask the user to run them, and do not end the conversation until they pass.
 - No hardcoding, no shortcuts, no simplifications in the evaluator or codegen. When asked to refactor, refactor everything: no placeholders, no TODOs.
 - Do not create new `.yo` files unless told to.
