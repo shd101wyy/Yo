@@ -1,0 +1,165 @@
+/// Tests for `run_doc`'s handling of DEGRADED modules — the token-only
+/// fallback that steps in when the evaluator cannot load a file
+/// (`src/doc_command.yo`).
+///
+/// A degraded module used to cost nothing: `Warning:` lines on stderr, exit 0,
+/// `Documentation generated successfully!` — with every member of ~110 std
+/// modules flattened into untyped constants and the "items documented" count
+/// reading ~1.8x the evaluated run's (a BETTER-looking number for a worse
+/// output). `run_doc` now consumes the `DocumentedFile.degraded` flag it has
+/// carried all along: without `--allow-token-only` a degraded module FAILS the
+/// run before anything is rendered; with the flag the run proceeds and the
+/// token-only modules count exported top-level declarations, members attached
+/// to their types (issues/fixed/yo-doc-without-std-path-silently-emits-token-only-docs.md).
+{ String } :: import("std/string");
+{ Path } :: import("std/path");
+{ Exception, IoExn } :: import("std/error");
+{ write_string, read, exists } :: import("std/fs/file");
+{ create_dir_all } :: import("std/fs/dir");
+{ TempDir } :: import("std/fs/temp");
+{ assert } :: import("std/assert");
+{ DocCommandOptions, run_doc } :: import("../../src/doc_command.yo");
+/// Write `text` to `<root>/<rel>`, creating parent directories.
+_put :: (fn(root : String, rel : String, text : String, io : Io, exn : Exception) -> unit)({
+  path := Path.new(root).join(Path.new(rel));
+  io.await(create_dir_all(path.parent().unwrap_or(Path.new(String.from("."))), io), IoExn(io : io, exn : exn));
+  io.await(write_string(path, text, io), IoExn(io : io, exn : exn));
+});
+/// A directory with one loadable module and one that fails evaluation (an
+/// unbound name) but lexes fine, so the token-only fallback documents it.
+_write_fixture :: (fn(base : String, io : Io, exn : Exception) -> String)({
+  root := `${base}/d`;
+  _put(
+    root.clone(),
+    String.from("ok.yo"),
+    String.from("//! Fine.\nfine :: (fn() -> i32)(i32(1));\nexport(fine);\n"),
+    io,
+    exn
+  );
+  _put(
+    root.clone(),
+    String.from("broken.yo"),
+    String.from(
+      "//! Broken.\n/// A widget.\nWidget :: struct(\n  /// Field doc.\n  size : i32\n);\nimpl(\n  Widget,\n  /// Method doc.\n  grow : (fn(inout(self) : Self) -> unit)(())\n);\n/// Limit doc.\nW_LIMIT :: i32(9);\n/// Secret doc.\n_secret :: (fn() -> i32)(no_such_name);\nexport(Widget, W_LIMIT);\n"
+    ),
+    io,
+    exn
+  );
+  root
+});
+_doc_options :: (fn(input : String, output_dir : String, allow_token_only : bool) -> DocCommandOptions)(
+  DocCommandOptions(
+    input : input,
+    output_dir : output_dir,
+    include_private : false,
+    verbose : false,
+    title : String.new(),
+    format : String.from("json"),
+    version : String.new(),
+    logo : String.new(),
+    favicon : String.new(),
+    allow_token_only : allow_token_only
+  )
+);
+/// Run `run_doc`, unwinding any thrown error's text out as `.Some` (a
+/// handler is capture-free by design, so the outcome travels as the
+/// function's value, not through an outer variable).
+_run_doc_catching :: (fn(options : DocCommandOptions, io : Io) -> Option(String))({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(Option(String).Some(err.to_string()));
+      }
+    )
+  );
+  run_doc(options, io, exn);
+  Option(String).None
+});
+test("a degraded module fails the run unless --allow-token-only is passed", {
+  // An IO failure fails the test. Each test binds its own handler: a fn may
+  // not return one (a `ctl` handler cannot outlive its frame).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err.to_string()}`);
+      }
+    )
+  );
+  td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
+  base := td.path().to_string();
+  root := _write_fixture(base.clone(), io, exn);
+  out := `${base}/out`;
+  threw := _run_doc_catching(_doc_options(root.clone(), out.clone(), false), io);
+  message := match(
+    threw,
+    .Some(m) => m,
+    .None => __yo_panic("a token-only module fails the run")
+  );
+  assert(
+    message.contains(String.from("--allow-token-only")),
+    `the error says how to opt in, got '${message}'`
+  );
+  assert(
+    message.contains(String.from("broken")),
+    `the error names the degraded module, got '${message}'`
+  );
+  // The failure happens before rendering: a failed run must not leave a
+  // plausible-looking doc site behind.
+  json := Path.new(out.clone()).join(Path.new(String.from("doc.json")));
+  wrote := io.await(exists(json, io), io);
+  assert(!wrote, "no doc.json is written for a failed run");
+});
+test("--allow-token-only renders, with members on their types and no unexported items", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err.to_string()}`);
+      }
+    )
+  );
+  td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
+  base := td.path().to_string();
+  root := _write_fixture(base.clone(), io, exn);
+  out := `${base}/out2`;
+  run_doc(_doc_options(root.clone(), out.clone(), true), io, exn);
+  json_path := Path.new(out.clone()).join(Path.new(String.from("doc.json")));
+  wrote := io.await(exists(json_path, io), io);
+  assert(wrote, "the opt-in run renders its output");
+  json := String.from_bytes(io.await(read(json_path, io), IoExn(io : io, exn : exn)));
+  // The loadable module documents through the evaluator.
+  assert(json.contains(String.from("\"name\": \"fine\"")), "ok.yo's export is documented");
+  // The degraded module's type entry carries its own and its members' docs.
+  assert(json.contains(String.from("\"name\": \"Widget\"")), "Widget is documented as a type");
+  assert(json.contains(String.from("Field doc.")), "the field doc rides on the type");
+  assert(json.contains(String.from("Method doc.")), "the method doc rides on the type");
+  assert(json.contains(String.from("Limit doc.")), "the exported constant keeps its doc");
+  // The unexported helper is not an item (the evaluated path would not show
+  // it either); before the fix it inflated the count as one more constant.
+  assert(!json.contains(String.from("_secret")), "the unexported helper is not documented");
+  assert(!json.contains(String.from("Secret doc.")), "its doc does not leak either");
+});
+test("a fully loadable tree never needs the flag", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `a clean tree must not throw: ${err.to_string()}`);
+      }
+    )
+  );
+  td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
+  base := td.path().to_string();
+  root := `${base}/clean`;
+  _put(
+    root.clone(),
+    String.from("ok.yo"),
+    String.from("//! Fine.\nfine :: (fn() -> i32)(i32(1));\nexport(fine);\n"),
+    io,
+    exn
+  );
+  out := `${base}/out3`;
+  threw := _run_doc_catching(_doc_options(root.clone(), out.clone(), false), io);
+  assert(threw.is_none(), "a clean tree must not throw");
+  json := Path.new(out.clone()).join(Path.new(String.from("doc.json")));
+  wrote := io.await(exists(json, io), io);
+  assert(wrote, "the clean run renders normally");
+});

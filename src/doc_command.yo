@@ -46,7 +46,13 @@ DocCommandOptions :: struct(
   /// `--logo <path>`: an image for the sidebar header ("" = none).
   logo : String,
   /// `--favicon <path>`: the site's icon ("" = none).
-  favicon : String
+  favicon : String,
+  /// `--allow-token-only`: a module the evaluator cannot load is normally a
+  /// FAILED run — it would be documented from tokens only (no signatures,
+  /// members untyped), which is silent data loss dressed as success
+  /// (issues/fixed/yo-doc-without-std-path-silently-emits-token-only-docs.md).
+  /// With this set, the run proceeds and the fallback is a warning.
+  allow_token_only : bool
 );
 /// `path.resolve(p)`: absolute paths are folded lexically; relative paths are
 /// joined onto the current working directory and then folded (`Path` itself
@@ -488,6 +494,7 @@ run_doc :: (
   std_path := resolve_std_path();
   println(`Generating documentation...`);
   modules := ArrayList(DocModule).new();
+  degraded := ArrayList(String).new();
   (fi : usize) = usize(0);
   while(fi < files.len(), {
     match(
@@ -496,12 +503,51 @@ run_doc :: (
         document_one_file(file, base_path.clone(), std_path.clone(), options.verbose, io, exn),
         .Some(df) => {
           modules.push(df.doc_module);
+          if(df.degraded, {
+            degraded.push(_module_name_from_path(file.clone(), base_path.clone()));
+          });
         },
         .None => ()
       ),
       .None => ()
     );
     fi = (fi + usize(1));
+  });
+  // A module the evaluator cannot load is a FAILED run, not a warning to
+  // scroll past: its docs would come from tokens only — no signatures, every
+  // member untyped — and the run still printed `Documentation generated
+  // successfully!` with exit 0. Rendering would make it worse (a
+  // plausible-looking site built from degraded data), so the failure fires
+  // before anything is written; `--allow-token-only` opts back into the
+  // fallback knowingly (issues/fixed/yo-doc-without-std-path-silently-emits-token-only-docs.md).
+  if((degraded.len() > usize(0)) && !options.allow_token_only, {
+    (shown : usize) = usize(0);
+    names := ArrayList(String).new();
+    while((shown < degraded.len()) && (shown < usize(5)), {
+      match(
+        degraded.get(shown),
+        .Some(n) => {
+          names.push(n.clone());
+        },
+        .None => ()
+      );
+      shown = (shown + usize(1));
+    });
+    more := if(
+      degraded.len() > shown,
+      ` (and ${(degraded.len() - shown).to_string()} more)`,
+      String.new()
+    );
+    exn.throw(
+      dyn(
+        `doc: ${degraded.len().to_string()} of ${modules.len().to_string()} module(s) failed to evaluate and would be documented from tokens only (no signatures, members untyped): ${String.from(", ").join(names)}${more}. Pass --allow-token-only to accept token-only docs, or evaluate against the std tree these sources belong to (--std-path <dir>).`
+      )
+    );
+  });
+  if(degraded.len() > usize(0), {
+    eprintln(
+      `Warning: ${degraded.len().to_string()} module(s) documented from tokens only (--allow-token-only).`
+    );
   });
   if(modules.len() == usize(0), {
     println(`No documentable modules found.`);

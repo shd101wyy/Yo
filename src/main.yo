@@ -7735,7 +7735,8 @@ run_build_cmd :: (
 /// surface ("doc [path]"):
 /// positional path (default "."), -o/--output (default "yo-out/doc"),
 /// --title, --document-private, -v/--verbose, -f/--format
-/// (html|markdown|json, default html), --version, --logo, --favicon.
+/// (html|markdown|json, default html), --version, --logo, --favicon,
+/// --allow-token-only.
 /// `yo unsafe-report [path] [--json]` — the unsafe-surface audit (scanning
 /// lives in unsafe_report.yo). A nonexistent
 /// path reports on stderr and exits 1.
@@ -7830,6 +7831,9 @@ run_doc_cmd :: (
   // was written and nothing read them (the plan's B13); they render now.
   (logo : String) = String.new();
   (favicon : String) = String.new();
+  // `--allow-token-only`: a module the evaluator cannot load fails the run
+  // by default (token-only docs are silent data loss); this opts in.
+  (allow_token_only : bool) = false;
   (saw_input : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
@@ -7901,8 +7905,11 @@ run_doc_cmd :: (
       arg.starts_with(String.from("--favicon=")) => {
         favicon = arg.substring(usize(10), arg.len());
       },
+      (arg == "--allow-token-only") => {
+        allow_token_only = true;
+      },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>] [--logo <path>] [--favicon <path>]`));
+        exn.throw(dyn(`doc: unknown option '${arg}'. Usage: yo doc [path] [-o <dir>] [--title <t>] [--document-private] [-v] [-f html|markdown|json] [--version <v>] [--logo <path>] [--favicon <path>] [--allow-token-only]`));
       },
       true => {
         if(saw_input, {
@@ -7927,7 +7934,8 @@ run_doc_cmd :: (
       format : format,
       version : version,
       logo : logo,
-      favicon : favicon
+      favicon : favicon,
+      allow_token_only : allow_token_only
     ),
     io,
     exn
@@ -8902,6 +8910,9 @@ Options:
   --document-private        Include underscore-private items
   -v, --verbose             Verbose output
   --std-path <dir>          Override the std library directory
+  --allow-token-only        Document modules the evaluator cannot load from
+                            tokens only (no signatures); without this they
+                            fail the run
 
 Examples:
   $ yo doc ./std
@@ -8919,6 +8930,8 @@ Examples:
   --document-private        包含下划线私有的条目
   -v, --verbose             详细输出
   --std-path <dir>          覆盖标准库目录
+  --allow-token-only        求值器无法加载的模块仅按词法生成文档（无签名）；
+                            不加此选项时这类模块会使运行失败
 
 示例：
   $ yo doc ./std

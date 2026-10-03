@@ -7,8 +7,13 @@
 /// (`___`, `__yo_`) and a temp's prefix is its module path, so no literal
 /// prefix can catch them all.
 { String } :: import("std/string");
-{ assert } :: import("std/assert");
-{ is_compiler_internal_field_name } :: import("../../src/doc/builder.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert, panic } :: import("std/assert");
+{ Exception } :: import("std/error");
+{ tokenize } :: import("../../src/lexer.yo");
+{ extract_doc_comments } :: import("../../src/doc/extractor.yo");
+{ is_compiler_internal_field_name, build_doc_module_from_tokens } :: import("../../src/doc/builder.yo");
+{ DocModule, DocField, DocVariant } :: import("../../src/doc/model.yo");
 // ---------------------------------------------------------------------------
 // What must be hidden
 // ---------------------------------------------------------------------------
@@ -54,4 +59,121 @@ test("is_compiler_internal_field_name: temp-LOOKING user names stay documented",
   assert(!is_compiler_internal_field_name(`_my_temp_buffer`), "digits required after _temp_");
   assert(!is_compiler_internal_field_name(`_a_temp_`), "no digits at all");
   assert(!is_compiler_internal_field_name(`_a_temp_3x`), "non-digit tail");
+});
+// ---------------------------------------------------------------------------
+// build_doc_module_from_tokens — the DEGRADED (token-only) module shape
+//
+// A module the evaluator cannot load is documented from tokens alone. That
+// fallback used to flatten EVERY doc-commented member — impl methods, struct
+// fields, enum variants, trait methods, even unexported helpers — into
+// standalone `(unknown)` constants, so a degraded run counted ~1.8x the items
+// of the evaluated one and read as the BETTER run
+// (issues/fixed/yo-doc-without-std-path-silently-emits-token-only-docs.md). The
+// token-only path must count what the evaluated path counts: exported
+// top-level declarations, with members attached to their types.
+// ---------------------------------------------------------------------------
+token_module_ :: (fn(source : String) -> DocModule)({
+  // The lex handler is bound per call: a `ctl`-typed Exception cannot live at
+  // module level (it would outlive its frame).
+  lex_exn := Exception(
+    throw : (
+      err -> {
+        panic(`fixture did not lex: ${err.to_string()}`);
+      }
+    )
+  );
+  tokens := tokenize(source, `fixture.yo`, lex_exn);
+  build_doc_module_from_tokens(
+    String.from("fixture"),
+    String.from("fixture"),
+    extract_doc_comments(tokens),
+    tokens
+  )
+});
+/// The canonical shape: a documented struct (+field docs, +impl method), an
+/// enum (+variant docs), a trait (+method doc), a constant, an unexported
+/// helper, and an export list naming everything but the helper.
+_token_fixture_source := String.from(
+  "//! Fixture module.\n/// A documented point.\nPoint :: struct(\n  /// Horizontal coordinate.\n  x : i32,\n  /// Vertical coordinate.\n  y : i32\n);\nimpl(\n  Point,\n  /// Taxicab length.\n  taxicab : (fn(self : Self) -> i32)((self.x + self.y))\n);\n/// The kind of a shape.\nShapeKind :: enum(\n  /// A circle.\n  Circle,\n  /// A box.\n  Boxed(label : String)\n);\n/// Renderable things.\nRenderable :: trait(\n  /// Render to a string.\n  render : (fn(self : Self) -> String)\n);\n/// A real constant.\nMAX_COORD :: i32(1000);\n/// Not exported.\n_helper :: (fn() -> i32)(i32(1));\nexport(Point, ShapeKind, Renderable, MAX_COORD);\n"
+);
+test("token-only docs count exported top-level declarations, not members", {
+  m := token_module_(_token_fixture_source);
+  // The one number run_doc sums: functions + types + traits + constants.
+  // Members (x, y, taxicab, Circle, Boxed, render) and the unexported
+  // `_helper` must NOT appear as standalone items.
+  total := (m.functions.len() + m.types.len() + m.traits.len() + m.constants.len());
+  assert(total == usize(4), `4 items (Point, ShapeKind, Renderable, MAX_COORD), got ${total.to_string()}`);
+  assert(m.constants.len() == usize(1), `only MAX_COORD is a constant, got ${m.constants.len().to_string()}`);
+  c := m.constants(usize(0));
+  assert(c.name == `MAX_COORD`, `the constant is MAX_COORD, got '${c.name}'`);
+  assert(match(c.doc, .Some(d) => (d == `A real constant.`), .None => false), "the constant keeps its doc");
+});
+test("token-only docs attach methods, fields and variants to their type", {
+  m := token_module_(_token_fixture_source);
+  assert(m.types.len() == usize(2), `Point and ShapeKind are types, got ${m.types.len().to_string()}`);
+  point := m.types(usize(0));
+  assert(point.name == `Point`, `first type is Point, got '${point.name}'`);
+  assert(match(point.doc, .Some(d) => (d == `A documented point.`), .None => false), "the type keeps its doc");
+  // The impl method rides on the type, with its doc.
+  assert(point.methods.len() == usize(1), `Point carries taxicab, got ${point.methods.len().to_string()}`);
+  taxicab := point.methods(usize(0));
+  assert(taxicab.name == `taxicab`, `the method is taxicab, got '${taxicab.name}'`);
+  assert(match(taxicab.doc, .Some(d) => (d == `Taxicab length.`), .None => false), "the method keeps its doc");
+  // Struct fields ride on the type with their docs.
+  fields := match(point.fields, .Some(fs) => fs, .None => ArrayList(DocField).new());
+  assert(fields.len() == usize(2), `both documented fields attach, got ${fields.len().to_string()}`);
+  fx := fields(usize(0));
+  assert(fx.name == `x`, `first field is x, got '${fx.name}'`);
+  assert(match(fx.doc, .Some(d) => (d == `Horizontal coordinate.`), .None => false), "the field keeps its doc");
+  // Enum variants ride on the type with their docs.
+  shape := m.types(usize(1));
+  assert(shape.name == `ShapeKind`, `second type is ShapeKind, got '${shape.name}'`);
+  variants := match(shape.variants, .Some(vs) => vs, .None => ArrayList(DocVariant).new());
+  assert(variants.len() == usize(2), `both documented variants attach, got ${variants.len().to_string()}`);
+  assert(variants(usize(0)).name == `Circle`, "first variant is Circle");
+  assert(
+    match(variants(usize(0)).doc, .Some(d) => (d == `A circle.`), .None => false),
+    "the variant keeps its doc"
+  );
+  // The trait is a trait, and its method's doc survives on it.
+  assert(m.traits.len() == usize(1), `Renderable is a trait, got ${m.traits.len().to_string()}`);
+  tr := m.traits(usize(0));
+  assert(tr.name == `Renderable`, `the trait is Renderable, got '${tr.name}'`);
+  assert(tr.methods.len() == usize(1), `the trait carries render, got ${tr.methods.len().to_string()}`);
+  assert(
+    match(tr.methods(usize(0)).doc, .Some(d) => (d == `Render to a string.`), .None => false),
+    "the trait method keeps its doc"
+  );
+  // The module doc survives either way.
+  assert(match(m.doc, .Some(d) => (d == `Fixture module.`), .None => false), "the module doc survives");
+});
+test("token-only docs: a module without export() documents nothing, like the evaluator", {
+  // `std/math.yo` precedent, measured: a module with no export statement
+  // exports NO names, and the evaluated doc pipeline documents zero items.
+  // The token-only path must not invent items the evaluated one would not
+  // show.
+  m := token_module_(String.from("//! No exports.\n/// Documented anyway.\nA :: struct(x : i32);\n"));
+  total := (m.functions.len() + m.types.len() + m.traits.len() + m.constants.len());
+  assert(total == usize(0), `no export statement means no items, got ${total.to_string()}`);
+  assert(match(m.doc, .Some(d) => (d == `No exports.`), .None => false), "the module doc still survives");
+});
+test("token-only docs: an undocumented exported type still carries its method docs", {
+  // The type has no doc comment of its own, so only its impl methods bring
+  // text. Dropping the type entry would drop their docs with it — the
+  // doc-loss defect the token path must never regress
+  // (issues/fixed/yo-doc-renders-the-prelude-empty.md, root cause 3).
+  m := token_module_(
+    String.from(
+      "//! Module.\nQuiet :: struct(v : i32);\nimpl(\n  Quiet,\n  /// Loud doc.\n  loud : (fn(self : Self) -> i32)(self.v)\n);\nexport(Quiet);\n"
+    )
+  );
+  assert(m.types.len() == usize(1), `Quiet is documented as a type, got ${m.types.len().to_string()}`);
+  quiet := m.types(usize(0));
+  assert(quiet.name == `Quiet`, `the type is Quiet, got '${quiet.name}'`);
+  assert(quiet.doc.is_none(), "Quiet itself has no doc comment");
+  assert(quiet.methods.len() == usize(1), `loud rides on Quiet, got ${quiet.methods.len().to_string()}`);
+  assert(
+    match(quiet.methods(usize(0)).doc, .Some(d) => (d == `Loud doc.`), .None => false),
+    "the method's doc survives on the synthesized type entry"
+  );
 });

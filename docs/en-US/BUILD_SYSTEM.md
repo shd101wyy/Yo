@@ -1335,7 +1335,17 @@ yo doc -o docs/api          # Custom output directory
 yo doc --name "My Library"  # Override project name
 yo doc --document-private   # Include non-exported items
 yo doc --version v1.0.0     # Set version (auto-detects from git if omitted)
+yo doc --allow-token-only   # Accept token-only docs for modules the
+                            # evaluator cannot load
 ```
+
+A module the evaluator cannot load — typically because the run resolves a
+different std than the sources belong to, which `--std-path <dir>` fixes —
+**fails the run** (`doc: N of M module(s) failed to evaluate ...`) instead of
+silently emitting untyped, signature-less pages. Token-only output is
+deliberate opt-in: pass `--allow-token-only` and the degraded modules render
+with their doc comments attached to the right items, each module counted once
+per exported top-level declaration.
 
 ### Build System Integration
 
