@@ -132,17 +132,33 @@ fast suite, the hollow sweep.
     semantic change yet; the fixes are correct under both semantics.
   - Tests: the warning fires on each shape in §4 and stays silent when the
     copy is read afterwards.
-- **S2: count accuracy.** Tests that a live copy keeps `rc(buffer) >= 2`
-  wherever COW must clone:
-  - local + parameter; local + struct field; local + list element;
-  - local + closure capture; local + async task slot; `for` element +
-    collection;
-  - a compile-time (CTFE) `String` mutated through a copy, because the
-    evaluator interprets std's `String` and its count model must agree;
-  - the canary for the known optimizer hazard (AGENTS.md: cancelling a
-    dup/drop pair is unsound when the container does not outlive the local).
+- **S2: count accuracy. DONE 2026-10-03** (`tests/rc.test.yo`, "COW S2").
+  - **Measured:** a value type holding RC data (`struct(b : Box(i32))`, the
+    shape `String` has) keeps an accurate live count in every position COW
+    relies on. The dup/drop optimizer never cancels a value-with-RC pair
+    ("both copies need their own drop"):
+    - a nested-scope copy: 2 inside, 1 after;
+    - a same-scope copy;
+    - a callee's local copy of a parameter;
+    - a list element;
+    - a closure capture;
+    - an async task slot.
 
-  Each counting defect found here is fixed before S3.
+    An overcount (a completed task still holds its copy until its scope ends)
+    only costs an extra clone. An undercount, a count of 1 with two live
+    copies, happens only for the reference-type alias elision
+    (`b2 := b1` on a `Box`/`ArrayList` shares one count by design), and
+    reference types never copy-on-write.
+  - **Borrowed positions** (a by-value parameter, a `for` or `match` binding)
+    share without a dup, so the count stays 1, but S1's E0908 forbids
+    writing through them. Copy-on-write never meets them.
+  - **Compile-time evaluation** builds no runtime `String` (`String.from` is a
+    runtime value; comptime text is `comptime_str`), so copy-on-write never
+    runs there.
+  - **No compiler change was needed.** The test pins the property so a future
+    optimizer change cannot silently break S3. When collections become
+    values (`VALUES_BY_DEFAULT` V2) they fall under the same value-with-RC
+    rule.
 - **S3: copy-on-write in `String`.**
   - Add the uniqueness step to every mutator, and make `truncate`,
     `insert_str`, `insert`, `remove` and `pop` `inout(self)`.
