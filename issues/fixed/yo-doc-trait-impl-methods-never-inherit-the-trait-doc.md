@@ -72,7 +72,7 @@ the way rustdoc does.
 
 Measured on `yo doc ./std`: **110 methods now inherit**, out of the ~454 this
 issue counted. The remainder is blocked on a separate defect —
-`issues/yo-doc-renders-std-prelude-as-an-empty-module.md` — because
+`issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md` — because
 `Iterator` (213 impls), `Eq` (169), `Default` (160), `Ord` (134),
 `Dispose` (81), `Clone` (70), `Hash` (67) and the rest are declared in
 `std/prelude.yo`, which `yo doc` renders as 0 types, 0 traits, 0 functions.

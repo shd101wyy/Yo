@@ -109,6 +109,18 @@ env_mod :: import("std/env");
 // ---------------------------------------------------------------------------
 // Cached prelude env — populated on first load, reused thereafter.
 (g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
+/// The export namespace the FIRST prelude evaluation already produced:
+/// `AnonModuleResult.module_value` / `.module_type` — the source-namespace
+/// StructVal paired with the Struct type whose per-field types are the ones
+/// the export walk read off the bindings. Rebuilt-from-env namespaces (see
+/// `_prelude_load_outcome`) carry values only, and a `FuncVal` value holds no
+/// type, so deriving the type from the value alone types every fn-valued
+/// prelude binding `unit` — which made `yo doc` collapse `Option`, `Eq`, `Ord`
+/// and the other parameterised declarations into `<fn(...)>` constants
+/// (issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md). Populated in the
+/// same block as `g_cached_prelude_env`, cleared with it in `mm_reset`.
+(g_cached_prelude_module_value : Option(EvalValue)) = Option(EvalValue).None;
+(g_cached_prelude_module_type : Option(TypeValue)) = Option(TypeValue).None;
 /// Frame count of `g_cached_prelude_env` when it was cached. The cache is a
 /// PRIVATE snapshot and nothing may push into it; `mm_fresh_module_env`
 /// treats any growth as an internal error (silent contamination of every
@@ -269,6 +281,8 @@ mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
 mm_has_prelude_env :: (fn() -> bool)(!g_cached_prelude_env.is_none());
 mm_clear_prelude_env :: (fn() -> unit)({
   g_cached_prelude_env = Option(Environment).None;
+  g_cached_prelude_module_value = Option(EvalValue).None;
+  g_cached_prelude_module_type = Option(TypeValue).None;
   g_cached_prelude_frame_count = usize(0);
 });
 /// Publish the shared codegen ExprInfoTable. Every module loaded from here on
@@ -1824,6 +1838,8 @@ mm_reset :: (fn() -> unit)({
   clear_type_display_names();
   clear_type_binding_names();
   g_cached_prelude_env = Option(Environment).None;
+  g_cached_prelude_module_value = Option(EvalValue).None;
+  g_cached_prelude_module_type = Option(TypeValue).None;
   g_cached_prelude_frame_count = usize(0);
   g_shared_expr_info_table = Option(ExprInfoTable).None;
   set_name_path_sharing(false);
@@ -2397,7 +2413,7 @@ mm_load_prelude_file :: (
   // env (see issues/yo-self-multi-file-prelude-bindings.md).
   (prelude_per_module_table : bool) = g_shared_expr_info_table.is_none();
   (prelude_mint_mark : usize) = if(prelude_per_module_table, specialization_recording_begin(), usize(0));
-  _rp := evaluate_anonymous_module_begin_exprs(
+  prelude_result := evaluate_anonymous_module_begin_exprs(
     exprs,
     prelude_env,
     prelude_ctx,
@@ -2446,6 +2462,12 @@ mm_load_prelude_file :: (
     snapshot := clone_env(prelude_env);
     g_cached_prelude_frame_count = snapshot.frames.len();
     g_cached_prelude_env = Option(Environment).Some(snapshot);
+    // The export namespace from the same (first, only) evaluation: labels,
+    // values AND per-field types. A namespace rebuilt from the env alone
+    // cannot recover fn field types — a FuncVal carries none — so keep the
+    // recorded pair for `_prelude_load_outcome`.
+    g_cached_prelude_module_value = Option(EvalValue).Some(prelude_result.module_value);
+    g_cached_prelude_module_type = Option(TypeValue).Some(prelude_result.module_type);
   });
   true
 });
@@ -2642,18 +2664,36 @@ mm_eval_entry_exprs :: (
 /// under fresh type identities and corrupts where-constrained generic-impl
 /// resolution for every file checked afterwards
 /// (issues/fixed/seed-built-stage1-array-fill-method-miss.md) — so the
-/// namespace is reconstructed from the bindings the cached env already holds.
+/// namespace comes from the cached env.
+///
+/// The VALUE/TYPE pair is the one the first evaluation recorded (real export
+/// field types; see `g_cached_prelude_module_value`): a namespace rebuilt
+/// from env bindings alone carries values only, and deriving the type from a
+/// `FuncVal` value yields `unit`, which made every parameterised prelude
+/// declaration (`Option`, `Eq`, `Ord`, …) render as a `<fn(...)>` constant
+/// (issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md). The env
+/// reconstruction stays as the fallback for a cache that predates the
+/// recorded pair.
 _prelude_load_outcome :: (fn(input_path : String, std_path : String) -> ModuleLoadOutcome)({
   prelude_env := match(
     g_cached_prelude_env,
     .Some(pe) => pe,
     .None => Environment.new(input_path.clone())
   );
-  prelude_val := _build_module_val_from_env(prelude_env);
+  prelude_val := match(
+    g_cached_prelude_module_value,
+    .Some(mv) => mv,
+    .None => _build_module_val_from_env(prelude_env)
+  );
+  prelude_ty := match(
+    g_cached_prelude_module_type,
+    .Some(mt) => mt,
+    .None => type_of_eval_value(prelude_val)
+  );
   ModuleLoadOutcome(
     ok : true,
     module_value : prelude_val,
-    module_type : type_of_eval_value(prelude_val),
+    module_type : prelude_ty,
     env : prelude_env,
     ctx : eval_context_new(std_path.clone(), input_path.clone())
   )
