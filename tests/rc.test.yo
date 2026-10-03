@@ -4,6 +4,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ yield } :: import("std/async");
 Point :: struct(x : i32, y : i32);
 Wrapper :: struct(v : Box(i32));
 test("Test 'rc' function", {
@@ -1486,4 +1487,41 @@ test("a borrowed value is changed through an owned copy", {
   );
   assert(from_arm == "from-an-arm-long-enough-for-the-heap", "the arm's copy has the new string");
   match(o, .Some(d) => assert(d.s == "original-string-long-enough-for-the-heap", "the matched value is untouched"), .None => assert(false, "unreachable"));
+});
+// plans/STRING_VALUE_SEMANTICS.md S2: copy-on-write clones a buffer when its
+// count is above 1, so for a VALUE type holding RC data the live count must
+// never read 1 while two copies are alive. The dup/drop optimizer never cancels
+// a value-with-RC pair ("both copies need their own drop"), unlike the
+// reference-type alias above that legitimately shares one count.
+_CowLike :: struct(b : Box(i32), n : i32);
+_cow_task :: (fn(w : _CowLike, io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    rc(w.b)
+  })
+);
+_cow_local_copy :: (fn(w : _CowLike) -> usize)({
+  q := w;
+  rc(q.b)
+});
+test("rc: copies of a value holding RC data are counted in every position (COW S2)", {
+  w := _CowLike(b : box(i32(7)), n : i32(1));
+  assert(rc(w.b) == usize(1), "alone");
+  {
+    w2 := w;
+    assert((rc(w.b) == usize(2)) && (rc(w2.b) == usize(2)), "a nested-scope copy counts");
+  };
+  assert(rc(w.b) == usize(1), "the nested copy released its count");
+  w3 := w;
+  assert(rc(w.b) == usize(2), "a same-scope copy counts");
+  assert(_cow_local_copy(w) >= usize(3), "a callee's local copy of a parameter counts");
+  h := ArrayList(_CowLike).new();
+  h.push(w);
+  assert(rc(w.b) >= usize(3), "a list element counts");
+  (f : Impl(Fn() -> usize)) = (() => rc(w.b));
+  assert(f() >= usize(4), "a closure capture counts");
+  task := _cow_task(w, io);
+  assert(rc(w.b) >= usize(5), "an async task slot counts");
+  assert(io.await(task, io) >= usize(5), "and the task sees a shared count");
+  assert((w3.n == i32(1)) && (h.len() == usize(1)), "all copies stay live to here");
 });
