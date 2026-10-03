@@ -120,6 +120,7 @@ import("std/fmt");
   BF_DERIVE,
   BF_DERIVE_RULE,
   BF_RC,
+  BF_REF_COUNT,
   BF_THE,
   BF_DOWNCAST,
   BF_UPCAST,
@@ -219,7 +220,7 @@ import("std/fmt");
 } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, name_resolves_to_binding } :: import("../context.yo");
 { format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure } :: import("../../error.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -627,6 +628,32 @@ _evaluate_exists_or_call :: (
     true => evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)
   )
 );
+/// `rc(x)` is the OLD spelling of the `ref_count(x)` count read, kept until
+/// the seed knows `ref_count` (plans/VALUES_BY_DEFAULT.md V1 step 0). It gives
+/// way to a binding: when `rc` names a variable or a top-level definition in
+/// scope, the call is an ORDINARY call of that binding, so a module (and,
+/// later, the prelude) can define its own `rc`. Codegen follows this decision
+/// through the callee's ExprInfo, which only the ordinary call records
+/// (`_rc_call_gave_way` in src/codegen/exprs/generation.yo).
+_evaluate_rc_or_call :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  callee_module := match(
+    expr,
+    .FnCall(_, callee, _, _, _) => ast_expr_token(callee).module_path.clone(),
+    _ => env.module_path.clone()
+  );
+  cond(
+    name_resolves_to_binding(env, String.from(BF_RC), callee_module) =>
+      evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn),
+    true => evaluate_rc(expr, env, ctx, exn)
+  )
+});
 _evaluate_expression :: (
   fn(
     expr : AstExpr,
@@ -1061,6 +1088,9 @@ _evaluate_expression :: (
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UPCAST, .None)) =>
           evaluate_upcast(expr, env, ctx, exn),
         ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BF_RC, .None)) =>
+          _evaluate_rc_or_call(expr, env, ctx, exn),
+        // `ref_count` is nine bytes; a wrong length gate makes the arm dead.
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_REF_COUNT, .None)) =>
           evaluate_rc(expr, env, ctx, exn),
         ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .None)) =>
           evaluate_subtype_of(expr, env, ctx, exn),

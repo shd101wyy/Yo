@@ -118,7 +118,7 @@ Mutation methods take ownership of `self` instead of borrowing:
 push : (fn(own(self) : Self, val : T) -> Self)
 ```
 
-Inside the method, `rc(self) == usize(1)` is checked:
+Inside the method, `ref_count(self) == usize(1)` is checked:
 
 - **Unique (rc = 1)**: the buffer is mutated in-place and the same object is
   returned. No allocation, no copy — O(1).
