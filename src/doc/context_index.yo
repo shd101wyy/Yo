@@ -214,7 +214,7 @@ _collapse_ws :: (fn(s : String) -> String)({
   (i : usize) = usize(0);
   while(i < s.len(), {
     b := s.byte_at(i);
-    is_ws := ((b == u8(32)) || (b == u8(9)) || ((b == u8(10)) || (b == u8(13))));
+    is_ws := ((b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13)));
     if(is_ws, {
       pending_space = (joined.len() > usize(0));
     }, {
@@ -523,7 +523,7 @@ _export_kind :: (fn(tv : TypeValue) -> String)(
     is_function_type(tv) => `fn`,
     is_trait_type(tv) => `trait`,
     is_module_type(tv) => `module`,
-    (is_struct_type(tv) || (is_enum_type(tv) || is_union_type(tv))) => `type`,
+    (is_struct_type(tv) || is_enum_type(tv) || is_union_type(tv)) => `type`,
     true => `constant`
   )
 );

@@ -38,7 +38,7 @@ _CR :: u8(13);
 // Rendering values
 // ---------------------------------------------------------------------------
 _is_bare_key_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || ((b == u8(95)) || (b == u8(45)))))
+  ((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95)) || (b == u8(45))
 );
 _hex_digit_char :: (fn(v : u8) -> u8)(
   if(v < u8(10), u8(48) + v, u8(55) + v)
@@ -115,7 +115,7 @@ _scan_line :: (fn(line : String, from : usize, st : _Scan) -> usize)({
           ((st.ml == _QUOTE) && (b == _BACKSLASH)) => {
             i = (i + usize(2));
           },
-          ((b == st.ml) && (((i + usize(2)) < n) && ((line.byte_at(i + usize(1)) == st.ml) && (line.byte_at(i + usize(2)) == st.ml)))) => {
+          ((b == st.ml) && ((i + usize(2)) < n) && (line.byte_at(i + usize(1)) == st.ml) && (line.byte_at(i + usize(2)) == st.ml)) => {
             st.ml = u8(0);
             i = (i + usize(3));
           },
@@ -129,7 +129,7 @@ _scan_line :: (fn(line : String, from : usize, st : _Scan) -> usize)({
         i = n;
       },
       ((b == _QUOTE) || (b == _APOS)) => {
-        triple := (((i + usize(2)) < n) && ((line.byte_at(i + usize(1)) == b) && (line.byte_at(i + usize(2)) == b)));
+        triple := (((i + usize(2)) < n) && (line.byte_at(i + usize(1)) == b) && (line.byte_at(i + usize(2)) == b));
         cond(
           triple => {
             st.ml = b;
@@ -165,7 +165,7 @@ _scan_line :: (fn(line : String, from : usize, st : _Scan) -> usize)({
         st.depth = (st.depth - i32(1));
         i = (i + usize(1));
       },
-      ((b == _EQUALS) && ((st.depth == i32(0)) && (eq_at == n))) => {
+      ((b == _EQUALS) && (st.depth == i32(0)) && (eq_at == n)) => {
         eq_at = i;
         i = (i + usize(1));
       },
@@ -311,7 +311,7 @@ _classify :: (fn(lines : ArrayList(String)) -> Result(ArrayList(_Line), String))
     });
     start := _skip_ws(line, usize(0));
     cond(
-      ((start >= line.len()) || ((line.byte_at(start) == _HASH) || (line.byte_at(start) == _CR))) => {
+      ((start >= line.len()) || (line.byte_at(start) == _HASH) || (line.byte_at(start) == _CR)) => {
         out.push(_Line(kind : _LineKind.Other, end : li));
       },
       (line.byte_at(start) == _LBRACKET) => {
@@ -375,7 +375,7 @@ _find_table_header :: (fn(kinds : ArrayList(_Line), table : String) -> Option(us
     match(
       kinds(i).kind,
       .Header(path, array) => {
-        if(!array && ((path.len() == usize(1)) && (path(usize(0)) == table)), {
+        if(!array && (path.len() == usize(1)) && (path(usize(0)) == table), {
           return(Option(usize).Some(i));
         });
       },
@@ -443,7 +443,7 @@ _entry_ranges :: (
     match(
       kinds(j).kind,
       .Header(path, _) => {
-        if((path.len() >= usize(2)) && ((path(usize(0)) == table) && (path(usize(1)) == key)), {
+        if((path.len() >= usize(2)) && (path(usize(0)) == table) && (path(usize(1)) == key), {
           ranges.push(_Range(start : j, end : _section_end(kinds, j + usize(1))));
         });
       },

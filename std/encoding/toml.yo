@@ -711,7 +711,7 @@ _read_escape :: (
       p.advance();
       _read_hex_escape(p, out, usize(8), esc_pos)
     },
-    ((e == _SPACE) || (e == _TAB) || ((e == _LF) || (e == _CR))) => {
+    ((e == _SPACE) || (e == _TAB) || (e == _LF) || (e == _CR)) => {
       // A line-ending backslash: only in a multi-line string, and only when
       // the backslash is the last non-whitespace byte on its line.
       (saw_newline : bool) = false;
@@ -1297,7 +1297,7 @@ _classify_number :: (fn(tok : String, start : usize) -> Result(TomlValue, TomlEr
 // ============================================================================
 /// `YYYY-` at the cursor: the start of a local date or a date-time.
 _looks_like_date :: (fn(p : _Parser) -> bool)(
-  _is_digit(p.at(usize(0))) && _is_digit(p.at(usize(1))) && (_is_digit(p.at(usize(2))) && _is_digit(p.at(usize(3))))
+  _is_digit(p.at(usize(0))) && _is_digit(p.at(usize(1))) && _is_digit(p.at(usize(2))) && _is_digit(p.at(usize(3)))
   && (p.at(usize(4)) == _MINUS)
 );
 /// `HH:` at the cursor: the start of a local time.
@@ -1485,9 +1485,8 @@ _parse_datetime :: (fn(p : _Parser) -> Result(TomlValue, TomlError))({
       sep := p.cur_byte();
       sep_ok := ((sep == u8(84)) || (sep == u8(116)) || (sep == _SPACE));
       time_follows := (
-        sep_ok && (
+        sep_ok &&
           _is_digit(p.at(usize(1))) && _is_digit(p.at(usize(2))) && (p.at(usize(3)) == _COLON)
-        )
       );
       cond(
         time_follows => {
@@ -2632,7 +2631,7 @@ _dt_eq :: (fn(a : TomlDateTime, b : TomlDateTime) -> bool)({
   d2 := ((x.day == y.day) && (x.hour == y.hour));
   d3 := ((x.minute == y.minute) && (x.second == y.second));
   d4 := ((x.nanosecond == y.nanosecond) && (x.utc_offset_secs == y.utc_offset_secs));
-  (a.kind == b.kind) && (d1 && d2 && (d3 && d4))
+  (a.kind == b.kind) && d1 && d2 && d3 && d4
 });
 /// Structural equality. Tables compare as MAPS — the same key set with equal
 /// values, whatever order they were parsed in — because TOML table order is

@@ -899,7 +899,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
     ),
     .Atom(_, _) => false
   );
-  if(arr_ctor_callee && (is_array_type(ei.ty) && (ei.runtime_arg_exprs_in_order.is_some() && ei.value.is_none())), {
+  if(arr_ctor_callee && is_array_type(ei.ty) && ei.runtime_arg_exprs_in_order.is_some() && ei.value.is_none(), {
     match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r), .None => ());
   });
   if(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), return(generate_recur(expr, indent.clone(), context)));

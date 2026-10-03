@@ -6091,7 +6091,7 @@ try_to_call_function_with_arguments :: (
       });
       // For method calls, generic may appear at index 1 (self is at 0).
       (skip_arg_idx : Option(usize)) = Option(usize).None;
-      if(!has_f0 && (is_method_call && (arg_exprs.len() > usize(1))), {
+      if(!has_f0 && is_method_call && (arg_exprs.len() > usize(1)), {
         has_f1 := match(
           arg_exprs.get(usize(1)),
           .Some(a) => ast_expr_is_fn_call_of(a, "generic", Option(usize).None),
@@ -7728,7 +7728,7 @@ try_to_call_function_with_arguments :: (
                     // no name-keyed env identity of its own (a sibling
                     // wrapper's binding would answer), so it is left for the
                     // resolution / rte routes.
-                    if(!s9_seen2 && ((s9_rnm2 != "Impl") && (s9_rnm2.len() > usize(0))), {
+                    if(!s9_seen2 && (s9_rnm2 != "Impl") && (s9_rnm2.len() > usize(0)), {
                       s9_env_res := get_value_of_some_type_from_env(callee_env_m, s9_rst2);
                       if(!is_some_type(s9_env_res), {
                         subst_add(s9, s9_rnm2.clone(), s9_rlvl2, s9_env_res);
@@ -8084,13 +8084,12 @@ try_to_call_function_with_arguments :: (
             match(
               gv_opt,
               .Some(gv) => {
-                if(gv.is_implicit && (
+                if(gv.is_implicit &&
                   gv.is_compile_time_only &&
                     (
                       !gv.is_from_effect_spread &&
                         are_types_compatible(gv.ty, resolved_impl_type)
-                    )
-                ), {
+                    ), {
                   found_given = true;
                   given_val = gv.value.get(usize(0));
                   given_ty = gv.ty;

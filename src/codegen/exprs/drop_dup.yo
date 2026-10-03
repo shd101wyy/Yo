@@ -37,7 +37,7 @@
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
 _method_c_name :: (fn(type : TypeValue, method_name : str, context : FunctionGenerationContext) -> Option(String))({
-  if(!(is_struct_type(type) || (is_enum_type(type) || (is_dyn_type(type) || (is_some_type(type) || is_iso_type(type))))), {
+  if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type) || is_iso_type(type)), {
     return(Option(String).None);
   });
   methods := get_type_trait_methods_by_name(type_id_or_empty(type), String.from(method_name));
@@ -61,7 +61,7 @@ get_dup_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationC
 /// counted value (`__yo_decr_rc(0x1)` crash). `_synthesize_and_register_dispose`
 /// registers under type_key to match (same keying as `get_trace_function_for_type`).
 get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))({
-  if(!(is_struct_type(type) || (is_enum_type(type) || (is_dyn_type(type) || (is_some_type(type) || is_iso_type(type))))), {
+  if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type) || is_iso_type(type)), {
     return(Option(String).None);
   });
   methods := get_type_trait_methods_by_name(type_key(type), String.from("___dispose"));
@@ -93,7 +93,7 @@ get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerat
 get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))({
   // trace is registered under type_key(type) (instantiation-precise), not the
   // raw shared struct id — see collection.yo _specialize_and_register_trace.
-  if(!(is_struct_type(type) || (is_enum_type(type) || (is_dyn_type(type) || (is_some_type(type) || is_iso_type(type))))), {
+  if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type) || is_iso_type(type)), {
     return(Option(String).None);
   });
   methods := get_type_trait_methods_by_name(type_key(type), String.from("trace"));

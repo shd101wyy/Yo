@@ -185,7 +185,7 @@ _find_field_label :: (fn(e : AstExpr, member : String, out : ArrayList(Token)) -
     .FnCall(_, func_box, args, _, _) => {
       is_decl := (
         ast_expr_is_fn_call_of(e, "struct", .None) ||
-          (ast_expr_is_fn_call_of(e, "union", .None) || ast_expr_is_fn_call_of(e, "newtype", .None))
+          ast_expr_is_fn_call_of(e, "union", .None) || ast_expr_is_fn_call_of(e, "newtype", .None)
       );
       if(is_decl, {
         (i : usize) = usize(0);
@@ -571,7 +571,7 @@ _find_label_call :: (fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -
                   pair.get(usize(0)),
                   .Some(lhs) => {
                     lt := ast_expr_token(lhs);
-                    if((lt.row == target.row) && ((lt.column == target.column) && (lt.value == target.value)), {
+                    if((lt.row == target.row) && (lt.column == target.column) && (lt.value == target.value), {
                       out.push(e);
                     });
                   },
@@ -1000,10 +1000,9 @@ handle_document_links :: (
       prev2 := _tok_before(tokens, prev.idx);
       next := _tok_after(tokens, i);
       if((prev.tok.kind == TokenKind.LParen) && (prev2.tok.kind == TokenKind.Identifier)
-      && (
+      &&
         (prev2.tok.value == String.from("import")) && (next.tok.kind == TokenKind.RParen)
-        && (t.value.len() > usize(0))
-      ), {
+        && (t.value.len() > usize(0)), {
         // The resolver answers a `file://` URI spelling (like every module
         // path in the loader); file_exists_sync and fs_path_to_uri both
         // want the plain path.

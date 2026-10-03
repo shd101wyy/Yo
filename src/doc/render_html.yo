@@ -227,10 +227,8 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
 _is_upper :: (fn(b : u8) -> bool)((b >= u8(65)) && (b <= u8(90)));
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(65)) && (b <= u8(90))) ||
-    (
-      ((b >= u8(97)) && (b <= u8(122))) ||
-        (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
-    )
+    ((b >= u8(97)) && (b <= u8(122))) ||
+      ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
 );
 /// Replace known PascalCase symbol names in an (escaped) type string with
 /// clickable links.
@@ -354,14 +352,14 @@ _first_sentence :: (fn(text : String) -> String)({
   (found : bool) = false;
   while((i < n) && !found, {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
-    if((b == u8(46)) || ((b == u8(33)) || (b == u8(63))), {
+    if((b == u8(46)) || (b == u8(33)) || (b == u8(63)), {
       // skip closers: ` " ' ) ] } >  (’ ” are multibyte; handled as bytes 0xE2..)
       (j : usize) = (i + usize(1));
       (closing : bool) = true;
       while((j < n) && closing, {
         nb := match(bytes.get(j), .Some(x) => x, .None => u8(0));
         cond(
-          ((nb == u8(96)) || ((nb == u8(34)) || ((nb == u8(39)) || ((nb == u8(41)) || ((nb == u8(93)) || ((nb == u8(125)) || (nb == u8(62)))))))) => {
+          ((nb == u8(96)) || (nb == u8(34)) || (nb == u8(39)) || (nb == u8(41)) || (nb == u8(93)) || (nb == u8(125)) || (nb == u8(62))) => {
             j = (j + usize(1));
           },
           // UTF-8 ’ (E2 80 99) or ” (E2 80 9D)
@@ -383,7 +381,7 @@ _first_sentence :: (fn(text : String) -> String)({
       at_end := (j >= n);
       ws := if(at_end, true, {
         wb := match(bytes.get(j), .Some(x) => x, .None => u8(0));
-        (wb == u8(32)) || ((wb == u8(9)) || ((wb == u8(10)) || (wb == u8(13))))
+        (wb == u8(32)) || (wb == u8(9)) || (wb == u8(10)) || (wb == u8(13))
       });
       if(ws, {
         cut := ArrayList(u8).new();
@@ -531,7 +529,7 @@ _asset_for_module_page :: (fn(asset : Option(String)) -> Option(String))(
   match(
     asset,
     .Some(a) => if(
-      a.starts_with("/") || (a.starts_with("http://") || (a.starts_with("https://") || a.starts_with("data:"))),
+      a.starts_with("/") || a.starts_with("http://") || a.starts_with("https://") || a.starts_with("data:"),
       Option(String).Some(a.clone()),
       // `./x` prefixed blindly reads `.././x`; strip the redundant leading
       // `./` so the emitted href is the one a human would have written.

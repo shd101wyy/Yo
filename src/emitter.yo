@@ -17,7 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { O_WRONLY, O_CREAT, O_TRUNC, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("std/sys/constants");
 /// True iff `b` is a C identifier byte: [A-Za-z0-9_].
 _emitter_is_ident_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))))
+  ((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))
 );
 /// True iff `cn` looks like an eval-minted temp C name: contains `_temp_`
 /// followed by ONLY digits to the end (mirrors begin.yo `_looks_like_minted_temp`).
@@ -198,7 +198,7 @@ _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
         in_chr = false;
       }));
     }, {
-      if((b == u8(47)) && (((i + usize(1)) < n) && (line.byte_at(i + usize(1)) == u8(47))), {
+      if((b == u8(47)) && ((i + usize(1)) < n) && (line.byte_at(i + usize(1)) == u8(47)), {
         i = n;
       }, {
         if(b == u8(34), {
@@ -580,7 +580,7 @@ impl(
     // and macro/derive expansions carry `auto-generated://` pseudo-paths
     // (which embed the expansion TEXT, newlines included — unusable in a
     // directive, and the position is not a real source location anyway).
-    if((path.len() == usize(0)) || ((path == String.from("_")) || (path == String.from("drop")) || path.starts_with(String.from("auto-generated://"))), {
+    if((path.len() == usize(0)) || (path == String.from("_")) || (path == String.from("drop")) || path.starts_with(String.from("auto-generated://")), {
       return(());
     });
     if(path.contains(String.from("\n")), {

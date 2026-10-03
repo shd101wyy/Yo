@@ -56,13 +56,9 @@ find_header_end :: (fn(data : ArrayList(u8)) -> usize)({
     cond(
       (
         (data(i) == u8(13)) &&
-          (
-            (data(i + usize(1)) == u8(10)) &&
-              (
-                (data(i + usize(2)) == u8(13)) &&
-                  (data(i + usize(3)) == u8(10))
-              )
-          )
+          (data(i + usize(1)) == u8(10)) &&
+            (data(i + usize(2)) == u8(13)) &&
+              (data(i + usize(3)) == u8(10))
       ) => {
         return(i);
       },
@@ -486,7 +482,7 @@ _is_bodyless :: (fn(kind : MessageKind, data : ArrayList(u8), header_end : usize
     .HeadResponse => true,
     .Response => match(
       _status_code(data, header_end),
-      .Some(code) => ((code < u16(200)) || ((code == u16(204)) || (code == u16(304)))),
+      .Some(code) => ((code < u16(200)) || (code == u16(204)) || (code == u16(304))),
       .None => false
     )
   )

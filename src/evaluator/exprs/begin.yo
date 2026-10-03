@@ -747,7 +747,7 @@ _is_function_boundary_for_early_drop :: (fn(expr : AstExpr, _ctx : EvalContext) 
   match(
     expr,
     .FnCall(_, func, _, _, _) => if(
-      ast_expr_is_fn_call_of(func, BK_FN, Option(usize).None) || (ast_expr_is_fn_call_of(func, BK_CTL, Option(usize).None) || (ast_expr_is_fn_call_of(func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_TRAIT, Option(usize).None))),
+      ast_expr_is_fn_call_of(func, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_TRAIT, Option(usize).None),
       return(true),
       ()
     ),
@@ -1383,7 +1383,7 @@ _optimize_dup_drop_pairs :: (
               // slot (`sm_storage_id`), which is sound only while the alias owns
               // nothing.
               slot_move := (block_awaits && (base.id == v.id));
-              gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && (!base_consumed && !slot_move))))));
+              gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && (consumed_dups == usize(0)) && (!base_consumed && !slot_move)))));
               if(gates_ok, {
                 // Count RUNTIME dups — every collected dup counts.
                 (runtime_count : usize) = usize(0);
@@ -1747,7 +1747,7 @@ _stmt_always_exits :: (fn(e : AstExpr) -> bool)(
   )
 );
 _must_use_kind :: (fn(stmt : AstExpr, ty : TypeValue) -> Option(String))({
-  if(ast_expr_is_fn_call_of(stmt, BK_ASSIGN, .None) || (ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, .None) || ast_expr_is_fn_call_of(stmt, BK_CONST, .None)), {
+  if(ast_expr_is_fn_call_of(stmt, BK_ASSIGN, .None) || ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, .None) || ast_expr_is_fn_call_of(stmt, BK_CONST, .None), {
     return(Option(String).None);
   });
 
@@ -2729,7 +2729,7 @@ _evaluate_begin_expression_impl :: (
           fr2.variables.get(evi),
           .Some(ev) => {
             not_auto := !ev.token.module_path.starts_with(String.from("auto-generated://"));
-            eligible := (ev.consumed_at_token.is_some() && (ev.initialized_at_token.is_some() && (not_auto && (!_variable_is_captured_by_current_function(ev, ctx) && _variable_can_need_drop_ignoring_consumed(ev)))));
+            eligible := (ev.consumed_at_token.is_some() && ev.initialized_at_token.is_some() && not_auto && (!_variable_is_captured_by_current_function(ev, ctx) && _variable_can_need_drop_ignoring_consumed(ev)));
             init_ok := match(ev.initialized_at_token, .Some(it) => _m3_token_is_at_or_before(begin_tok, it), .None => false);
             if(eligible && init_ok, {
               drop_code := `___drop(${ev.name})`;
@@ -2768,7 +2768,7 @@ _evaluate_begin_expression_impl :: (
           match(
             wfr.variables.get(wvi),
             .Some(wv) => {
-              (skip : bool) = (wv.was_read || (wv.is_parameter || (wv.is_module_level || (wv.is_implicit || (wv.is_ghost_binding || (wv.is_effect_param || (wv.is_from_effect_spread || wv.is_ref)))))));
+              (skip : bool) = (wv.was_read || wv.is_parameter || wv.is_module_level || wv.is_implicit || wv.is_ghost_binding || wv.is_effect_param || wv.is_from_effect_spread || wv.is_ref);
               if(wv.name.starts_with(String.from("_")), {
                 skip = true;
               });
