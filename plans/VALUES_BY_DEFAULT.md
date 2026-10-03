@@ -413,7 +413,52 @@ rest. Deletion becomes reasonable only if Q11 adopts atomic counts for every
 buffer (then `Arc(ArrayList(T))` covers the sharing role and persistence
 alone does not justify 4,300 lines); that is a later decision with numbers.
 
-### 3.10 What gets simpler
+### 3.10 Exclusivity: no `RefCell`
+
+Rust's `RefCell` does not guard the write; it guards a borrow that is alive
+while the write happens (a `&T` into a `Vec` element outliving a `push`).
+Safe Yo has no first-class borrow. A borrow exists in two scoped shapes
+only: an `inout` argument for the duration of one call, and a `for` over a
+container for the duration of the loop. Everything else is a copy or a
+counted handle, which cannot dangle. For those two shapes the check already
+exists, in both forms:
+
+- **Statically**, `require_valid_ref_argument_places`
+  (`src/types/flowability.yo`) rejects an `inout` place whose root another
+  argument or a global could reach, and an aliased projection gets a
+  caller-owned +1 for the call (Stage 0/1,
+  `issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md`).
+- **Dynamically**, every cell header carries `borrow_count`. A borrowed
+  `for` or an interior `inout` argument takes it, and a method whose
+  mutation mask says it may invalidate storage asserts it is zero at entry
+  (`__yo_borrow_assert_unborrowed`, the Law of Exclusivity in
+  `src/codegen/functions/generation.yo`). That is `RefCell::borrow_mut`'s
+  panic with no annotation: Yo has no `mut`, the body is the signature.
+
+So a plain write through `Rc(T)` (§4 decision 4) is sound: either no borrow
+into that cell is live, or the write trips the assert. A `RefCell` type
+would add a second flag beside the one the header already has, and a guard
+object for borrows Yo never hands out. **There is no `RefCell`.**
+
+Two changes under this plan:
+
+- **The assert moves to the write site.** Today it is emitted at function
+  entry for every cell-typed parameter the body may mutate, and it is
+  skipped for closures and async state machines, whose C prototypes do not
+  carry the parameters: a mutation through a captured handle while a borrow
+  into it is live is unchecked. Once sharing is only `Rc`/`Arc`/`Dyn`, every
+  write that could invalidate a borrow passes through a visible wrapper
+  deref, so the assert is emitted at the write through an `Rc` (a field
+  store, an `inout(self)` call, an index place) and nowhere else. That
+  covers closures and async uniformly.
+- **Value-rooted places need no check.** A place rooted in a value local is
+  reachable only through that local, so neither the reachability rule nor
+  the assert applies to it; most writes in a program are of this kind, and
+  they become free. In V5, when the last `ref(struct)` roots are gone,
+  `require_valid_ref_argument_places` keeps only its `Rc`/`Arc`/`Dyn`-rooted
+  and module-level-root arms.
+
+### 3.11 What gets simpler
 
 - **The verifier.** Aliasing exists only through `Rc`/`Arc`, so every other
   value is pure. `requires(distinct(a, b))` (#1107) and the list-alias
@@ -447,8 +492,9 @@ Each is the position this plan is written to; the maintainer confirms or overrid
    `Receiver` stays uncloneable.
 4. **Mutation through `Rc`: plain writes.** `rc.n = v` writes the shared
    object, as every `ref(struct)` field write does today (Swift classes).
-   No `RefCell`: Yo has no borrow checker to make one meaningful, and D3
-   already forbids writes through an `Arc` root in safe code.
+   No `RefCell` (§3.10): the cell header's `borrow_count` and the
+   exclusivity assert already guard the only borrows safe code has, and D3
+   forbids writes through an `Arc` root in safe code.
 5. **`Arc` reads: a borrowed place, plus the `Sync` bound.** §3.8.
 6. **The heap cell is usable in `pragma(Pragma.AllowUnsafe)` files**, not
    only the prelude. A pragma'd file is already outside the safety claim,
@@ -514,6 +560,14 @@ Compiler (`src/`), Generation A:
 - `Deref`: the trait check plus the two hooks of §3.3 (field label-miss
   rewrite; receiver retry). Codegen needs nothing new: the rewritten chain
   is `w.*.field`, which already lowers to `w->value.field`.
+- The exclusivity assert moves from function entry to the write-through-`Rc`
+  site (§3.10): `__yo_borrow_assert_unborrowed` is emitted where a field
+  store, an `inout(self)` call or an index place goes through an `Rc`
+  deref, including inside closures and async bodies; the entry-time emission
+  in `_maybe_emit_method_entry_borrow_assert` stays until V5 for the
+  remaining `ref(struct)` parameters. Tests: a closure and an async fn that
+  mutate a captured `Rc(ArrayList(T))` while a `for` borrows it panic
+  deterministically (today they do not).
 - `Box.make_unique` insertion before a write or an `inout(self)` call whose
   root place passes through a `Box` (the root walk is
   `get_root_expr_of_place`, `src/evaluator/exprs/assignment.yo:295`, the one
