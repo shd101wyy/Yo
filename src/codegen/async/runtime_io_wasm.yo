@@ -483,6 +483,31 @@ static void __yo_io_notify(__yo_loop_t* loop) {
 
 // Cleanup pending timers
 static void __yo_io_cleanup(void) {
+  // The task still parked on each timer is released first, through its
+  // ordinary abort path, while the future's cancel hook can still deregister
+  // the timer (__yo_io_teardown_abort_waiters). The abort can cancel and free
+  // nodes off this list, so walk a snapshot of the futures: each still holds
+  // the task await slot's reference until its own abort, and the helper holds
+  // its own across it.
+  {
+    size_t abortable = 0;
+    for (__yo_wasm_timer_entry_t* node = __yo_wasm_timer_head; node; node = node->next) {
+      abortable++;
+    }
+    if (abortable > 0) {
+      __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(abortable * sizeof(__yo_io_future_t*));
+      if (snapshot) {
+        size_t i = 0;
+        for (__yo_wasm_timer_entry_t* node = __yo_wasm_timer_head; node; node = node->next) {
+          snapshot[i++] = node->future;
+        }
+        for (i = 0; i < abortable; i++) {
+          __yo_io_teardown_abort_waiters(snapshot[i]);
+        }
+        __yo_free(snapshot);
+      }
+    }
+  }
   while (__yo_wasm_timer_head) {
     __yo_wasm_timer_entry_t* node = __yo_wasm_timer_head;
     __yo_wasm_timer_head = node->next;

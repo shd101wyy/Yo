@@ -1087,8 +1087,25 @@ static void __yo_timer_arm(__yo_io_future_t* future, uint64_t milliseconds) {
 }
 
 // Teardown for __yo_io_cleanup: every armed timer ends -ECANCELED and the
-// heap's reference is released.
+// heap's reference is released. The task still parked on each timer is
+// released first, through its ordinary abort path, while the future's cancel
+// hook can still deregister the timer (__yo_io_teardown_abort_waiters); the
+// abort cancels and REMOVES heap nodes, so the pass walks a snapshot of the
+// futures (each still holds the heap's reference until its own abort, and the
+// helper holds its own across it).
 static void __yo_timer_teardown(void) {
+  if (__yo_timer_count > 0) {
+    __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(__yo_timer_count * sizeof(__yo_io_future_t*));
+    if (snapshot) {
+      for (size_t i = 0; i < __yo_timer_count; i++) {
+        snapshot[i] = __yo_timers[i]->future;
+      }
+      for (size_t i = 0; i < __yo_timer_count; i++) {
+        __yo_io_teardown_abort_waiters(snapshot[i]);
+      }
+      __yo_free(snapshot);
+    }
+  }
   for (size_t i = 0; i < __yo_timer_count; i++) {
     __yo_timer_t* t = __yo_timers[i];
     t->future->cancel_fn = NULL;
@@ -1261,8 +1278,44 @@ static void __yo_io_cleanup(void) {
   }
   // If async main returns while operations are still parked, cancel them
   // explicitly instead of letting close(kqueue) destroy their knotes
-  // silently: their waiters would stay counted and forever pending.
+  // silently: their waiters would stay counted and forever pending. The task
+  // parked on each is released first, through its ordinary abort path, while
+  // the future's cancel hook can still deregister the operation
+  // (__yo_io_teardown_abort_waiters); the abort unlinks and frees pending ops
+  // (and can release their registrations), so the pass walks a snapshot of
+  // the futures and the drain below re-reads every slot.
   __yo_kq_n_changes = 0;
+  {
+    size_t abortable = 0;
+    for (size_t fd = 0; fd < __yo_kq_slot_cap; fd++) {
+      for (int d = 0; d < 2; d++) {
+        __yo_io_registration_t* reg = __yo_kq_slots[fd].dir[d];
+        if (!reg) continue;
+        for (__yo_io_pending_op_t* p = reg->waiters_head; p; p = p->next_waiter) {
+          abortable++;
+        }
+      }
+    }
+    if (abortable > 0) {
+      __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(abortable * sizeof(__yo_io_future_t*));
+      if (snapshot) {
+        size_t i = 0;
+        for (size_t fd = 0; fd < __yo_kq_slot_cap; fd++) {
+          for (int d = 0; d < 2; d++) {
+            __yo_io_registration_t* reg = __yo_kq_slots[fd].dir[d];
+            if (!reg) continue;
+            for (__yo_io_pending_op_t* p = reg->waiters_head; p; p = p->next_waiter) {
+              snapshot[i++] = p->future;
+            }
+          }
+        }
+        for (i = 0; i < abortable; i++) {
+          __yo_io_teardown_abort_waiters(snapshot[i]);
+        }
+        __yo_free(snapshot);
+      }
+    }
+  }
   for (size_t fd = 0; fd < __yo_kq_slot_cap; fd++) {
     for (int d = 0; d < 2; d++) {
       __yo_io_registration_t* reg = __yo_kq_slots[fd].dir[d];

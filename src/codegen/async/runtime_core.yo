@@ -67,6 +67,9 @@ static void __yo_io_cleanup(void);
 static bool __yo_has_pending_io(void);
 static int __yo_io_poll(void);
 static int __yo_io_wait(void);
+// The thread-exit release (defined beside the abort machinery at the end of
+// this runtime): installed as __yo_async_thread_exit_hook.
+static void __yo_async_thread_exit_release(void);
 
 // Waker / park state + forward declarations. The DEFINITIONS live further
 // down, beside the rest of the waker machinery; they are declared here because
@@ -264,9 +267,10 @@ static void __yo_async_scheduler_init(void) {
 // Free this thread's recycled continuation nodes. The pool is thread-local, so
 // a node still in it when the thread exits is unreachable: LeakSanitizer
 // reported one for every program that awaited synchronously (a test body, a
-// plain main(io)), where no event loop ends to free it. Installed as the
-// thread-exit hook by __yo_async_arm_thread_exit (a state machine given to its
-// pool arms it too).
+// plain main(io)), where no event loop ends to free it. The loop drivers call
+// this at their end; the thread-exit hook (__yo_async_thread_exit_release,
+// armed by __yo_async_arm_thread_exit) calls it after releasing the tasks
+// still queued or parked on the dying thread.
 static void __yo_async_free_cont_pool(void) {
   // A yield still parked when its thread exits is completed by no drain: the
   // list holds a reference to each future, released here like the timer
@@ -308,7 +312,7 @@ static void __yo_async_free_cont_pool(void) {
 // table and the node pools
 // (issues/fixed/a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md).
 static inline void __yo_async_arm_thread_exit(void) {
-  __yo_async_thread_exit_hook = __yo_async_free_cont_pool;
+  __yo_async_thread_exit_hook = __yo_async_thread_exit_release;
 }
 
 // Enqueue a continuation on the current thread's event loop (no refcount mgmt).
@@ -1273,6 +1277,88 @@ static void __yo_join_handle_release_raw(void* fut) {
   if (fut) {
     __yo_decr_rc(fut);
   }
+}
+
+// ============================================================================
+// Thread-exit task release
+// ============================================================================
+// A task still pending or queued when its thread's program body returned is
+// unreachable: nothing will ever drive this loop again, yet the task, the
+// future its await slot owns and everything it captured stayed allocated
+// (issues/fixed/tasks-still-pending-or-queued-at-thread-exit-are-never-released.md).
+// Backend teardown aborts the tasks parked on pending operations (below); this
+// half releases what the ready queue still holds.
+
+// Abort the tasks still parked on a pending future, and leave the future
+// terminal with its waiters taken. Backend teardown only: the operation is
+// about to be stranded — its completion will never be delivered — so every
+// waiter is a task that can never resume. Aborting it (the ordinary abort
+// path) cancels what it is suspended on while the backend's cancel hooks are
+// still live and releases the task's own reference without running another
+// line of its body: the aborted-entry guard returns at once. A waiter parked
+// through a NAMED future has no await slot, so its abort left it registered
+// on this future and never enqueued — fail the operation and wake the slot,
+// which enqueues the already-aborted task for the ready-queue drain in
+// __yo_async_thread_exit_release.
+static void __yo_io_teardown_abort_waiters(__yo_io_future_t* f) {
+  if (atomic_load(&f->state) != 0) {
+    return;  // terminal: its completion path owns the wake
+  }
+  // The abort below can drop every other reference (the backend registration
+  // and the waiter task's await slot): hold one of our own across it.
+  __yo_incr_rc((void*)f);
+  void (*fn)(void*) = atomic_load(&f->continuation_fn);
+  if (fn == __yo_waiters_dispatch) {
+    __yo_waiter_list_t* l = (__yo_waiter_list_t*)atomic_load(&f->continuation_sm);
+    for (__yo_waiter_t* w = l->head; w; w = w->next) {
+      __yo_future_abort(w->sm);
+    }
+  } else if (fn) {
+    __yo_future_abort(atomic_load(&f->continuation_sm));
+  }
+  if (atomic_load(&f->state) == 0) {
+    atomic_store(&f->state, -2);
+    __yo_future_wake_waiters((void*)f);
+  }
+  __yo_decr_rc((void*)f);
+}
+
+// The thread-exit release. The backend goes first: its teardown aborts every
+// task still parked on a pending operation and thereby ENQUEUES each one it
+// could not release itself (a waiter parked through a named future). The
+// ready queue is then drained the way the loop would have, except that each
+// task is aborted first, so its resume runs only the aborted-entry guard —
+// which releases the pending await's future and the task's own reference —
+// and never the body: no user code runs after main returned. A waiter list
+// node re-queues its waiters, each of which this same drain then aborts and
+// releases. A node whose payload the abort could not mark Aborted (a
+// completed task never sits on the queue, so this is belt and braces) is left
+// unresumed rather than resumed blind. Idempotent, like the pool free it ends
+// with: the full-GC runtime's thread cleanup calls the hook again on an empty
+// runtime.
+static void __yo_async_thread_exit_release(void) {
+  __yo_io_cleanup();
+  while (__yo_thread_async_queue.head) {
+    __yo_continuation_t* cont = __yo_thread_async_queue.head;
+    __yo_thread_async_queue.head = cont->next;
+    if (!__yo_thread_async_queue.head) {
+      __yo_thread_async_queue.tail = NULL;
+    }
+    __yo_thread_async_queue.count--;
+    if (cont->resume_fn == __yo_waiters_dispatch) {
+      // A waiter list: re-queue every waiter, each of which the next
+      // iteration aborts and releases through its own guard.
+      __yo_waiters_dispatch(cont->state_machine);
+    } else {
+      __yo_future_header_t* sm = (__yo_future_header_t*)cont->state_machine;
+      __yo_future_abort(cont->state_machine);
+      if (sm->state == -2) {
+        cont->resume_fn(cont->state_machine);
+      }
+    }
+    __yo_free(cont);
+  }
+  __yo_async_free_cont_pool();
 }`
   );
 });

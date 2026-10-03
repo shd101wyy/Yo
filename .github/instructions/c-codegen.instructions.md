@@ -187,9 +187,22 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 **Implications for runtime code:**
 
 - Do **not** add mutexes, atomics, or other synchronization to async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are `_Thread_local` and only accessed from their owning thread's event loop.
-- All per-thread event loop state must be declared `_Thread_local` (or `__declspec(thread)` on Windows): `__yo_pending_io_count`, `__yo_active_watch_count`, `__yo_io_initialized`, `__yo_async_scheduler_initialized`, the I/O backend handle (`__yo_io_ring`, `__yo_io_kq`, `__yo_io_iocp`), and linked lists like `__yo_active_fs_events`, `__yo_active_polls`, `__yo_win_timer_head`.
+- All per-thread event loop state must be declared `_Thread_local` (or `__declspec(thread)` on Windows): `__yo_pending_io_count`, `__yo_active_watch_count`, `__yo_io_initialized`, `__yo_async_scheduler_initialized`, the I/O backend handle (`__yo_io_ring`, `__yo_kq`, `__yo_io_iocp`), and linked lists like `__yo_active_fs_events`, `__yo_active_polls`, `__yo_win_timer_head`.
 - Process-global state (signal handlers, WSA init, TTY/console settings, umask) stays `static` — it is shared across all threads.
 - The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
+- **A task still pending or queued at thread exit is released by
+  `__yo_async_thread_exit_release`** (the hook `__yo_async_arm_thread_exit`
+  installs): every backend teardown first aborts the tasks parked on its
+  pending futures (`__yo_io_teardown_abort_waiters` — aborts the waiter
+  through its ordinary path, then fails a still-pending future so the aborted
+  task is enqueued), and the hook then drains the ready queue by running each
+  task's aborted-entry guard — never its body. A new backend teardown that
+  strands a pending future must call the helper first (walk a SNAPSHOT of the
+  futures: the abort can cancel and free registrations out from under the
+  walk). The full-GC runtime's `__yo_cleanup_thread_gc` calls the hook
+  BEFORE its dispose/free passes — releasing tasks after them would drop
+  captures the GC already freed — so keep that ordering if you touch either
+  (`issues/fixed/tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`).
 
 ## The single-pass async lowering (`io.async` state machines)
 
