@@ -221,7 +221,13 @@ join_in_task :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))({
     (i : usize) = usize(0);
     while(i < handles.len(), i = (i + usize(1)), {
       h := handles(i);
-      match(io.await(h.join(io), io), .Some(v) => { sum = (sum + v); }, .None => ());
+      match(
+        io.await(h.join(io), io),
+        .Some(v) => {
+          sum = (sum + v);
+        },
+        .None => ()
+      );
     });
     sum
   })
@@ -256,7 +262,13 @@ join_all_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     (sum : i32) = i32(0);
     (i : usize) = usize(0);
     while(i < outs.len(), i = (i + usize(1)), {
-      match(outs(i), .Some(v) => { sum = (sum + v); }, .None => ());
+      match(
+        outs(i),
+        .Some(v) => {
+          sum = (sum + v);
+        },
+        .None => ()
+      );
     });
     sum
   })
@@ -286,8 +298,24 @@ timeouts_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     a := io.await(timeout(slow, Duration.from_millis(i64(10)), io), io);
     b := io.await(timeout(fast, Duration.from_millis(i64(500)), io), io);
     (score : i32) = i32(0);
-    match(a, .Ok(_) => (), .Err(e) => match(e, .Elapsed => { score = (score + i32(10)); }, .Aborted => ()));
-    match(b, .Ok(v) => { score = (score + v); }, .Err(_) => ());
+    match(
+      a,
+      .Ok(_) => (),
+      .Err(e) => match(
+        e,
+        .Elapsed => {
+          score = (score + i32(10));
+        },
+        .Aborted => ()
+      )
+    );
+    match(
+      b,
+      .Ok(v) => {
+        score = (score + v);
+      },
+      .Err(_) => ()
+    );
     score
   })
 );

@@ -69,7 +69,7 @@ test("a cancelled receiver does not consume the next message", {
     match(v, .Some(x) => x, .None => i32(-1))
   });
   h := io.spawn(f, io);
-  r := timeout(h, Duration.from_millis(i64(5)), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(5)), io), io);
   assert(r.is_err(), "the first receiver timed out");
   g := io.async((io : Io) => {
     v := io.await(ch.recv(io), io);
@@ -78,7 +78,7 @@ test("a cancelled receiver does not consume the next message", {
   hg := io.spawn(g, io);
   io.await(sleep(u64(2)), io);
   _s := io.await(ch.send(i32(42), io), io);
-  r2 := timeout(hg, Duration.from_millis(i64(200)), io);
+  r2 := io.await(timeout(hg, Duration.from_millis(i64(200)), io), io);
   assert(match(r2, .Ok(v) => (v == i32(42)), .Err(_) => false), "the live receiver got the message");
 });
 
@@ -92,7 +92,7 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
     i32(1)
   });
   hb := io.spawn(b, io);
-  rb := timeout(hb, Duration.from_millis(i64(5)), io);
+  rb := io.await(timeout(hb, Duration.from_millis(i64(5)), io), io);
   assert(rb.is_err(), "b timed out while parked on the lock");
   // c queues behind b's (now dead) waiter.
   c := io.async((io : Io) => {
@@ -103,7 +103,7 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
   hc := io.spawn(c, io);
   io.await(yield(io), io);
   m.unlock();
-  rc := timeout(hc, Duration.from_millis(i64(200)), io);
+  rc := io.await(timeout(hc, Duration.from_millis(i64(200)), io), io);
   assert(match(rc, .Ok(v) => (v == i32(2)), .Err(_) => false), "c got the lock the dead waiter was offered");
   assert(!m.is_locked(), "nobody holds the mutex");
 });
@@ -119,7 +119,7 @@ test("cancelling a task blocked on a channel releases it", {
       t.n + match(v, .Some(x) => x, .None => i32(0))
     });
     h := io.spawn(f, io);
-    r := timeout(h, Duration.from_millis(i64(2)), io);
+    r := io.await(timeout(h, Duration.from_millis(i64(2)), io), io);
     assert(r.is_err(), "the receiver timed out");
     i = (i + i32(1));
   });

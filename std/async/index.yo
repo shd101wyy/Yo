@@ -92,7 +92,7 @@ impl(
   join : (fn(self : Self, io : Io) -> Impl(Future(Option(T), Io)))(
     io.async((io : Io) => {
       w := unsafe(__yo_join_wait_new());
-      unsafe(__yo_join_wait_add(w, (*void)(self.__future)));
+      unsafe(__yo_join_wait_add(w, self.as_ptr()));
       _w := io.await(w, io);
       // Terminal now: this read returns without driving the loop.
       self.await(io)
@@ -106,7 +106,7 @@ _wait_any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T))) -> IoFut
   (i : usize) = usize(0);
   while(i < handles.len(), i = (i + usize(1)), {
     h := handles(i);
-    unsafe(__yo_join_wait_add(w, (*void)(h.__future)));
+    unsafe(__yo_join_wait_add(w, h.as_ptr()));
   });
   w
 });
@@ -301,8 +301,8 @@ timeout :: (
     dh := io.spawn(deadline_fut, io);
     // One wait over the task and the deadline: resolves when either ends.
     w := unsafe(__yo_join_wait_new());
-    unsafe(__yo_join_wait_add(w, (*void)(handle.__future)));
-    unsafe(__yo_join_wait_add(w, (*void)(dh.__future)));
+    unsafe(__yo_join_wait_add(w, handle.as_ptr()));
+    unsafe(__yo_join_wait_add(w, dh.as_ptr()));
     _w := io.await(w, io);
     // Which arm ended the wait — the ONLY place the two failure modes are
     // distinguishable. Afterwards `join` reports `.None` for a deadline abort

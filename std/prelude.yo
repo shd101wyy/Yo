@@ -12175,6 +12175,11 @@ impl(
   state : (fn(self : JoinHandle(T)) -> FutureState)(
     __yo_join_handle_state_raw((*void)(self.__future))
   ),
+  /// The task's future as an untyped pointer, for the runtime externs that
+  /// take a task (`std/async`'s join waits, `__yo_join_wait_add`). The
+  /// handle keeps owning its reference; the pointer is valid while some copy
+  /// of the handle is alive. Reading through it is unsafe.
+  as_ptr : (fn(self : JoinHandle(T)) -> *(void))((*void)(self.__future)),
   /// True once the task is terminal — `Completed` or `Aborted`.
   is_finished : (fn(self : JoinHandle(T)) -> bool)({
     s := __yo_join_handle_state_raw((*void)(self.__future));
