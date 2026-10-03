@@ -33,3 +33,13 @@ Option 1, as the campaign after `plans/STRING_VALUE_SEMANTICS.md`:
 The String campaign builds the machinery this needs and generalizes it: the dead-write warning, the count-accuracy guarantee and the uniqueness step.
 
 The cost is the migration. `src/` passes collections to helper functions that mutate them throughout, and may keep one container in two places on purpose. The warning finds the first pattern; the second needs an audit (a shared container becomes a `ref` wrapper). The change also needs its own memory and time measurements on the compiler.
+
+## Related: the fate of `std/imm/`
+
+`std/imm/` (`string`, `list`, `vec`, `map`, `set`, `sorted_map`, `sorted_set`) is the immutable, atomically counted family. Once `String`, and per this question the collections, are copy-on-write values, immutability no longer protects anything within a thread: nobody else holds your copy. The family's one remaining role is sharing one buffer across threads without copying, because the value types' counts stay non-atomic. Moving a unique value to another thread, an isolation check (`rc == 1`), does not need `std/imm/`.
+
+Decide together with the question above:
+- keep `std/imm/` as the "share across threads" family; or
+- replace it with `Arc(T)` over value types. That is possible once reading through an `Arc` borrows the inner value instead of copying its handle, since a copy would touch the inner non-atomic count from several threads.
+
+In this repo, `std/imm/string` is used mostly by its own tests; the only std module importing it is `std/encoding/utf8`.
