@@ -500,6 +500,22 @@ release, and a push at the declaration would release an unassigned temp on an
 exit inside a branch
 (`issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md`).
 
+### A call emitter must emit its arguments' deferred dups
+
+The evaluator decides one ownership rule for every call form
+(`consume_argument_for_parameter`, `src/evaluator/calls/helper.yo`): a borrowed
+argument of an `own` parameter gets a +1 the callee releases, and a borrowed
+projection passed to a borrowing parameter gets a +1 the caller releases after
+the call. Both ride on the argument as a deferred `___dup`, so any emitter that
+generates call arguments must honor it — the plain call through
+`_materialize_arg`, the method-dispatch emitters through `_dispatch_arg_code`
+(`src/codegen/exprs/other_fn_call.yo`). A bare `_call_generate_expr(arg)` in an
+argument loop drops the dup: an `own` callee then releases a reference it was
+never given, and the caller-side drop silently vanishes with its undeclared temp
+(`issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md`).
+A new argument loop is checked by comparing `f(x.field)` with `T.f(x.field)`
+and `x.field.g(...)` under `--sanitize address`.
+
 ### Inside a state machine, a temp declared as a C local must also be stored to its slot
 
 A minted temp the async capture analysis gave a `sm->var_<id>` slot has its
