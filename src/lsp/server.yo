@@ -452,7 +452,8 @@ _initialize_result :: (fn(params : JsonValue) -> JsonValue)({
 /// Whole-document formatting via `yo fmt`'s format_yo_source. Returns the
 /// LSP result: an ARRAY with one whole-document TextEdit, an EMPTY array
 /// when already canonical, or Null (own unwind frame) when the source does
-/// not parse — the client keeps the buffer untouched.
+/// not lex, or renders different but does not parse (`_fmt_parse_gate`) —
+/// the client keeps the buffer untouched.
 _format_document :: (fn(text : String, doc_abs : String) -> JsonValue)({
   fmt_exn := Exception(
     throw : (

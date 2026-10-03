@@ -8,6 +8,7 @@
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { format_yo_source, collect_yo_files } :: import("../../src/formatter.yo");
+{ YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
 _fmt :: (fn(src : String) -> String)({
   exn := Exception(
@@ -53,6 +54,11 @@ test("format_yo_source: idempotent on nested calls and match", {
 // a whole-tree `fmt --check` only proves already-canonical text stays
 // canonical, never that messy input NORMALIZES correctly.
 // Assumes the runner's cwd is the repo root (how `yo test` and CI run).
+// 93_prefix_chain_tight_but_infix_space_kept is the one non-verbatim pair:
+// its original `v := x & *p;` / `w := 3 - -3;` predate the E0003 rule (a bare
+// binary RHS of `:=` needs parens), and the parse gate refuses to reformat
+// source the parser rejects, so the RHS parens were added to both sides
+// (issues/fixed/fmt-reformats-parse-invalid-files.md).
 // ---------------------------------------------------------------------------
 { Path } :: import("std/path");
 fs_dir :: import("std/fs/dir");
@@ -119,6 +125,51 @@ test("format_yo_source: multibyte content inside a template string is preserved"
   out := _fmt(src);
   assert(out.contains(String.from("名前 → ${String.new()}")), "multibyte body intact");
   assert(_fmt(out) == out, "idempotent");
+});
+test("format_yo_source: refuses a changed rendering of source the parser rejects", {
+  // issues/fmt-reformats-parse-invalid-files.md — the renderer is token-level,
+  // so it "formatted" (rc=0, file rewritten) source the parser rejects: a
+  // backtick closing the template string mid-line leaves `abc`yo test`def`,
+  // a token sandwich fmt spaced out while `yo check` fails E0008. The parse
+  // gate must throw through the caller's exn — the same shape a lexer error
+  // already has (bare diagnostic, `yo fmt` exit 1) — instead of returning a
+  // changed rendering that launders the break into an fmt-idempotent file.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(
+              s.contains(`paren-less function and operator calls`),
+              "the parse diagnostic surfaces"
+            );
+            assert(s.contains(`--> <formatter-test>:1:11`), "anchored at the offending token");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  format_yo_source(
+    String.from("x := `abc`yo test`def`;\n"),
+    `<formatter-test>`,
+    exn
+  );
+  assert(false, "expected a parse error to be raised");
+});
+test("format_yo_source: parse-invalid but already-canonical source passes through", {
+  // The gate fires only when the rendering CHANGES. Source that does not
+  // parse but is already canonical (the shape of
+  // tests/cli-cases/fix-says-what-it-cannot-repair/fixture/main.yo, whose
+  // E0003 `x := 1 && 2 && 3;` is the case's whole point) must stay
+  // fmt-clean: `yo check` owns the parseability verdict, and erroring here
+  // would red CI's tree-wide `fmt --check ./std ./tests ./src` on that
+  // fixture.
+  src := String.from("x := 1 && 2 && 3;\n");
+  assert(_fmt(src.clone()) == src, "canonical parse-invalid source is untouched");
 });
 // ---------------------------------------------------------------------------
 // Paren elision (plans/archive/FMT_PAREN_ELISION.md D1-D3) — the decision table.
