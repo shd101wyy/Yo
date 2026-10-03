@@ -4522,9 +4522,9 @@ run_compile :: (
     (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
     // `--emit-c` (a debug path) reads the spill whole to print it; the file
     // write below copies it in pieces.
-    (c_spilled : ArrayList(u8)) = ArrayList(u8).new();
+    (c_spilled : String) = String.new();
     if(emit_c && c_spill_exists, {
-      c_spilled = io.await(read(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
+      c_spilled = String.from_bytes(io.await(read(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn)));
     });
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
@@ -4546,7 +4546,7 @@ run_compile :: (
       (pi0 : usize) = usize(0);
       while(pi0 < c_parts.len(), {
         if((pi0 == usize(4)) && (c_spilled.len() > usize(0)), {
-          print(String.from_bytes(c_spilled));
+          print(c_spilled);
         });
         match(c_parts.get(pi0), .Some(part) => print(part), .None => ());
         pi0 = (pi0 + usize(1));
