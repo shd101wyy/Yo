@@ -1805,7 +1805,7 @@ find_multiline_paren_indices :: (
         ((pt.kind == TokenKind.LParen) && matching_parens.contains_key(pi)) => {
           pr := match(matching_parens.get(pi), .Some(x) => x, .None => pi);
           pprev := previous_meaningful_token(tokens, pi);
-          (!skipped_indices.contains(pi) && !skipped_indices.contains(pr)) && (
+          !skipped_indices.contains(pi) && !skipped_indices.contains(pr) && (
             should_force_control_flow_multiline(tokens, pi, pr, pprev) ||
               (has_top_level_field_block(tokens, pi, pr) || should_force_operator_rhs_block(tokens, pi, pr, pprev))
           )
