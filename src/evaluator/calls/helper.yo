@@ -186,7 +186,7 @@ pragma(Pragma.AllowUnsafe);
   _collect_type_arg_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
+{ D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path } :: import("../memory_safety.yo");
@@ -7498,6 +7498,7 @@ try_to_call_function_with_arguments :: (
         exn
       );
       require_valid_ref_argument_places(vrf_param_is_ref, adjusted_args, caller_env_m, ctx, exn);
+      require_no_inout_write_through_borrow(vrf_param_labels, vrf_param_is_ref, adjusted_args, caller_env_m, ctx, exn);
       // Restore the io.async arg-eval context flag (set before Step 7).
       ctx.is_inside_io_async_call = h_prev_io_async_ctx;
       // ----------------------------------------------------------------
