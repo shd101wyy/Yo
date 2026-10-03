@@ -403,6 +403,10 @@ dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
 // the beginning of the NEXT message, so they are moved into `carry` rather
 // than dropped. `carry` is emptied first — a caller reuses one list across a
 // connection's whole lifetime.
+// Takes the read buffer and lets it drop: the paths of `read_http_message`
+// that hand on no prefix of it (an error, a dechunked rewrite) still move it,
+// as the other paths do into `_split_message` / `String.from_bytes` (E0907).
+_release_message :: (fn(own(_b) : ArrayList(u8)) -> unit)(());
 _split_message :: (fn(own(data) : ArrayList(u8), limit : usize, carry : ArrayList(u8)) -> String)({
   carry.clear();
   if(limit < data.len(), {
@@ -668,8 +672,14 @@ read_http_message_buffered :: (
     // Transfer-Encoding header stays visible on the response.
     header_end := find_header_end(result);
     _framed_out := cond(
-      (failed == i32(1)) => Result(String, HttpError).Err(HttpError.ResponseTooLarge),
-      (failed == i32(2)) => Result(String, HttpError).Err(HttpError.MalformedContentLength(failed_msg)),
+      (failed == i32(1)) => {
+        _release_message(result);
+        Result(String, HttpError).Err(HttpError.ResponseTooLarge)
+      },
+      (failed == i32(2)) => {
+        _release_message(result);
+        Result(String, HttpError).Err(HttpError.MalformedContentLength(failed_msg))
+      },
       // A message with no body ends at its header section, and its framing
       // headers must NOT be honoured: a HEAD response's `Content-Length`
       // describes the body the GET would have had, and a 204's is a lie. The
@@ -702,10 +712,17 @@ read_http_message_buffered :: (
               decoded.push(data(j));
               j = (j + usize(1));
             });
+            _release_message(result);
             Result(String, HttpError).Ok(String.from_bytes(decoded))
           },
-          .Incomplete => Result(String, HttpError).Err(HttpError.MalformedChunkedBody(`connection closed before the terminating zero chunk`)),
-          .Malformed(msg) => Result(String, HttpError).Err(HttpError.MalformedChunkedBody(msg))
+          .Incomplete => {
+            _release_message(result);
+            Result(String, HttpError).Err(HttpError.MalformedChunkedBody(`connection closed before the terminating zero chunk`))
+          },
+          .Malformed(msg) => {
+            _release_message(result);
+            Result(String, HttpError).Err(HttpError.MalformedChunkedBody(msg))
+          }
         )
       },
       (header_end > usize(0)) => {
