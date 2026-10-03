@@ -1,0 +1,137 @@
+//! The compile command's AddressSanitizer functionality probe must exercise
+//! the compiler that will actually link the binary — the `--c-compiler`
+//! value — instead of the hardcoded system `cc`. Probing `cc` while linking
+//! with `clang` measured the wrong toolchain: on the GitHub Windows runners
+//! (no usable `cc` for the LLVM clang the legs link through) the probe
+//! failed, `-fsanitize=address` was silently dropped, and the legs ran the
+//! whole corpus uninstrumented (issues/fixed/windows-images-lost-libasan.md).
+//!
+//! `--c-compiler` accepts only the five driver NAMES (cc/gcc/clang/zig/emcc),
+//! so the fake cc must be reachable BY NAME: the test copies this batch
+//! binary into a scratch dir as `clang` (`clang.exe` on Windows) and
+//! prepends the dir to PATH, then compiles with `--c-compiler clang`. The
+//! fake logs one line per invocation — `asan` when its argv carries
+//! `-fsanitize=address`, `plain` otherwise — and exits 0 without producing
+//! anything. The probe therefore "compiles" fine, its run of the probe
+//! binary fails (the fake cc wrote no binary), so the verdict through the
+//! CHOSEN compiler is "unusable" and the driver invocation that follows must
+//! carry no `-fsanitize=address`: the log reads exactly `asan` then `plain`.
+//! Before the fix the probe went to the system `cc`, so the fake cc never
+//! saw the probe's own `asan` line — the log held one `plain` on machines
+//! with no ASan-capable `cc`, or a bare `asan` where the system `cc` arms
+//! ASan and handed the flag to the fake driver.
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
+pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Exception, IoExn } :: import("std/error");
+{ args, env, cwd } :: import("std/env");
+{ exit } :: import("std/libc/stdlib");
+{ platform, Platform } :: import("std/process");
+{ write_string, copy } :: import("std/fs/file");
+{ create_dir_all, remove_file } :: import("std/fs/dir");
+{ Path } :: import("std/path");
+{ run_compile } :: import("../../src/main.yo");
+{ file_exists_sync, read_file_sync } :: import("../../src/manifest.yo");
+
+test("the --sanitize address probe consults the chosen --c-compiler, not the system cc", {
+  match(
+    env.get(`YO_FAKE_CC_MODE`),
+    .Some(_) => {
+      // Child mode — the fake C compiler. One log line per invocation.
+      cc_argv := args();
+      (saw_asan_flag : bool) = false;
+      (ai : usize) = usize(0);
+      while(ai < cc_argv.len(), {
+        match(
+          cc_argv.get(ai),
+          .Some(a) => {
+            if(a == "-fsanitize=address", {
+              saw_asan_flag = true;
+            });
+          },
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      child_exn := Exception(
+        throw : (
+          _e -> {
+            unsafe(exit(int(1)));
+          }
+        )
+      );
+      log_path := String.from("tmp-asan-probe-it/fake-cc.log");
+      prev := if(
+        file_exists_sync(log_path.clone()),
+        String.from_bytes(read_file_sync(log_path.clone(), child_exn)),
+        String.new()
+      );
+      marker := if(saw_asan_flag, String.from("asan"), String.from("plain"));
+      io.await(
+        write_string(Path.new(log_path.clone()), `${prev}${marker}\n`, io),
+        IoExn(io : io, exn : child_exn)
+      );
+      unsafe(exit(int(0)));
+    },
+    .None => ()
+  );
+  // Parent mode — drive `run_compile` with this batch binary (renamed to a
+  // driver name) as the chosen C compiler. Everything lands under a `tmp*`
+  // scratch dir (gitignored); `copy` carries the exec bits along.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error while driving run_compile with the fake cc: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  scratch := `${cwd_str}/tmp-asan-probe-it`;
+  io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
+  log_path := `${scratch}/fake-cc.log`;
+  if(file_exists_sync(log_path.clone()), {
+    io.await(remove_file(Path.new(log_path.clone()), io), IoExn(io : io, exn : exn));
+  });
+  io.await(
+    write_string(
+      Path.new(`${scratch}/fx.yo`),
+      String.from("main :: (fn() -> unit)({ });\nexport(main);\n"),
+      io
+    ),
+    IoExn(io : io, exn : exn)
+  );
+  shim := if(
+    platform == Platform.Windows,
+    `${scratch}/clang.exe`,
+    `${scratch}/clang`
+  );
+  self_argv := args();
+  io.await(
+    copy(Path.new(self_argv(usize(0))), Path.new(shim.clone()), io),
+    IoExn(io : io, exn : exn)
+  );
+  sep := if(platform == Platform.Windows, String.from(";"), String.from(":"));
+  cur_path := match(env.get(`PATH`), .Some(pv) => pv, .None => String.new());
+  _sp := env.set(String.from("PATH"), `${scratch}${sep}${cur_path}`);
+  compile_argv := ArrayList(String).new();
+  compile_argv.push(String.from("yo"));
+  compile_argv.push(String.from("compile"));
+  compile_argv.push(`${scratch}/fx.yo`);
+  compile_argv.push(String.from("--sanitize"));
+  compile_argv.push(String.from("address"));
+  compile_argv.push(String.from("--c-compiler"));
+  compile_argv.push(String.from("clang"));
+  compile_argv.push(String.from("-o"));
+  compile_argv.push(`${scratch}/fx-out.exe`);
+  _sv := env.set(String.from("YO_FAKE_CC_MODE"), String.from("1"));
+  run_compile(compile_argv, io, exn);
+  log := String.from_bytes(read_file_sync(log_path.clone(), exn));
+  assert(
+    log == String.from("asan\nplain\n"),
+    `the fake cc must see the probe's -fsanitize=address invocation (asan) followed by the un-sanitized driver invocation (plain); got "${log}"`
+  );
+});

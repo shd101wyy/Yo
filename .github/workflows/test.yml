@@ -1091,19 +1091,16 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          # 2026-09-03: the windows-latest / windows-11-arm images' mingw64
-          # toolchain lost libasan ("cannot find -lasan" on every batch),
-          # so ASan is disabled on Windows until the images ship it again —
-          # macOS/Linux keep the sanitizer (issues/windows-images-lost-libasan.md).
-          case "$RUNNER_OS" in
-            Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
-            *) TEST_SAN_FLAG="" ;;
-          esac
-          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          # This job's matrix went Linux-only when the self-build moved off
+          # macOS/Windows (see the stage-1 note above), so the 2026-09-03
+          # Windows `--disable-sanitize` workaround
+          # (issues/fixed/windows-images-lost-libasan.md) has nothing left to
+          # gate here — ASan runs, as it always did on Linux.
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
           # Sibling and in-file tests under std/ — the private-member tests
           # (plans/reference/MEMBER_VISIBILITY.md): `yo test` collects
           # `std/**/*.test.yo` and any module with a top-level `test(...)`.
-          "$S1" test ./std --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          "$S1" test ./std --bail --verbose --c-compiler clang
 
   # ---------------------------------------------------------------------
   # The four NON-LINUX release targets: full language suite per PR, under a
@@ -1508,10 +1505,19 @@ jobs:
         shell: bash
         run: |
           if [ -f yo-suite.exe ]; then YO=./yo-suite.exe; else YO=./yo-suite; fi
-          # 2026-09-03: windows images' mingw64 lost libasan — see the twin
-          # note in the `test` job (issues/windows-images-lost-libasan.md).
-          case "$RUNNER_OS" in
-            Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
+          # The 2026-09-03 mingw64-lost-libasan workaround
+          # (issues/fixed/windows-images-lost-libasan.md) is lifted on
+          # windows-x64: this job's driver is the choco LLVM clang the
+          # "Install LLVM/Clang" step puts first on PATH (MSVC target, the
+          # triple pinned by the compiler itself), whose ASan runtime ships
+          # inside the LLVM distribution — no `-lasan` anywhere — and whose
+          # runtime DLL the compiler discovers for both its ASan probe and
+          # the test children. windows-arm64 KEEPS the flag: choco installs
+          # the x86_64 LLVM build there, whose resource dir carries no
+          # clang_rt.asan-aarch64
+          # (issues/windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md).
+          case "${{ matrix.target }}" in
+            windows-arm64) TEST_SAN_FLAG="--disable-sanitize" ;;
             *) TEST_SAN_FLAG="" ;;
           esac
           # `--shard i/n` stripes the SORTED file list, so the shards partition

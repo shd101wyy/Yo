@@ -2322,7 +2322,12 @@ _find_clang_asan_dll_path :: (fn(compiler : String, io : Io) -> Option(String))(
     match(
       ve,
       .Some(vname) => {
-        win_lib := `${clang_lib}\\${vname}\\lib\\windows`;
+        // Concatenated, not one template: a backtick template does not
+        // interpolate `${...}` when a backslash precedes the `$`, so
+        // `${clang_lib}\\${vname}\\lib\\windows` built a LITERAL `${vname}`
+        // into the path and the probe silently found nothing
+        // (issues/backslash-then-interpolation-in-a-template-is-not-interpolated.md).
+        win_lib := (`${clang_lib}\\` + vname + String.from("\\lib\\windows"));
         win_found := io.await(exists(Path.new(win_lib.clone()), io), io);
         if(win_found, {
           return(Option(String).Some(win_lib));
@@ -2486,17 +2491,27 @@ _probe_openssl :: (fn(io : Io) -> bool)({
   )
 });
 /// AddressSanitizer functionality probe: compile a trivial C program
-/// with `-fsanitize=address` via the SYSTEM `cc` (probed
-/// regardless of --cc) and run it under a 3-second shell watchdog. A
+/// with `-fsanitize=address` via the compiler that will link the real
+/// binary (`cc` — the user's --cc/--c-compiler value, else the
+/// auto-discovered one) and run it under a 3-second shell watchdog. A
 /// healthy ASan binary exits 0 immediately; a clang/ASan-runtime mismatch
 /// (e.g. Nix clang 21 whose libclang_rt.asan deadlocks in its own dyld
 /// initializer BEFORE main on this macOS) never returns — the watchdog
 /// SIGKILLs it and the probe reports unusable, so the compile proceeds
 /// WITHOUT the sanitizer plus a warning, instead of
 /// emitting a binary that hangs at startup (issues/fixed/yo-self-asan-init-hang.md).
-/// Result is cached process-wide.
+/// Probing the CHOSEN compiler and not the hardcoded system `cc` is the
+/// point: on a machine whose `cc` is absent or ASan-broken while the
+/// --c-compiler toolchain arms ASan fine (every GitHub Windows runner — no
+/// `cc`, batches link through the LLVM clang), the old probe silently
+/// dropped the sanitizer for a healthy toolchain
+/// (issues/fixed/windows-images-lost-libasan.md). On Windows the probe's
+/// own run step also needs the ASan runtime DLL's directory on PATH (the
+/// LLVM resource dir is not on PATH by default); off Windows, or for a
+/// non-clang driver, that discovery folds to a no-op. Result is cached
+/// process-wide.
 (g_asan_usable : Option(bool)) = Option(bool).None;
-_asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
+_asan_runtime_is_usable :: (fn(base : String, cc : String, io : Io) -> bool)({
   match(
     g_asan_usable,
     .Some(u) => {
@@ -2515,7 +2530,7 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
   probe_src := `${base}.asan_probe.c`;
   probe_bin := `${base}.asan_probe`;
   io.await(write_string(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
-  cc_cmd := Command.new(String.from("cc"));
+  cc_cmd := Command.new(cc.clone());
   cc_cmd.arg(String.from("-x"));
   cc_cmd.arg(String.from("c"));
   cc_cmd.arg(String.from("-std=c11"));
@@ -2530,6 +2545,23 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
     // backgrounded killer turns an ASan init deadlock into SIGKILL (137,
     // not success). A healthy probe exits 0 long before the 3s fire.
     run_cmd := Command.new(String.from("sh"));
+    // Windows + a clang-family driver: the probe binary is linked against
+    // clang_rt.asan_dynamic-<arch>.dll, which lives in the LLVM resource
+    // dir rather than on PATH — the same discovery the test runner applies
+    // for its batch children, needed HERE because the child compile that
+    // owns this probe is spawned before that later PATH edit. The env is
+    // set PROCESS-WIDE (the runner's own proven shape) rather than on the
+    // one Command, so the child inherits it through the normal block.
+    // `.None` off Windows (or for a driver with no LLVM layout) leaves the
+    // run untouched.
+    match(
+      _find_clang_asan_dll_path(cc.clone(), io),
+      .Some(dll_dir) => {
+        cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
+        _sv_path := proc_env.set(String.from("PATH"), `${dll_dir};${cur_path}`);
+      },
+      .None => ()
+    );
     run_cmd.arg(String.from("-c"));
     run_cmd.arg(String.from("ASAN_OPTIONS=detect_leaks=0 \"$0\" & p=$!; { sleep 3; kill -9 $p; } 2>/dev/null & wait $p"));
     // `"$0"` is a command word, so a slash-free path is looked up in PATH: a
@@ -4799,8 +4831,10 @@ run_compile :: (
     (sanitize == "address") => {
       // Functionality probe first: a clang/ASan
       // runtime mismatch produces binaries that deadlock in ASan's own
-      // init before main — skip the flags with a warning instead.
-      if(_asan_runtime_is_usable(output, io), {
+      // init before main — skip the flags with a warning instead. The
+      // probe runs through THIS cc (the driver about to link the real
+      // binary), not the system `cc`.
+      if(_asan_runtime_is_usable(output, cc.clone(), io), {
         cmd.arg(String.from("-fsanitize=address"));
         cmd.arg(String.from("-fno-omit-frame-pointer"));
       }, {
@@ -5127,6 +5161,10 @@ run_compile :: (
   plan.capture_cc = line_directives;
   _finish_cc_plan(plan, profile_json.clone(), io, exn);
 });
+// Exported for tests/internal/compile.test.yo, which drives the compile
+// command in-process (the test runner's own child compiles are separate yo
+// processes, so the corpus has no other handle on this entry point).
+export(run_compile);
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
 /// for a file) — the check walker, filtered to `.test.yo`.
 /// Every member's test files, for `yo test --workspace` (§4.6). The workspace

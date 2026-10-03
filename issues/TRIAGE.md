@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 186 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 188 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -28,7 +28,7 @@ Three things are worth knowing before trusting any row.
 
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
-| CI/Release/Build | 10 | 1 |
+| CI/Release/Build | 9 | 1 |
 | Async / effects | 6 | 0 |
 | Codegen / emitted C | 17 | 3 |
 | Evaluator / types | 21 | 2 |
@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 57 | 9 |
-| **Total** | **186** | **30** |
+| Other | 60 | 9 |
+| **Total** | **188** | **30** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 27 |
 | S2 | 87 |
-| S3 | 70 |
+| S3 | 72 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -157,7 +157,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 ## By area
 
 
-### CI/Release/Build (10)
+### CI/Release/Build (9)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -169,7 +169,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`seed-emitted-unknown-type-comment-breaks-the-musl-gcc-leg.md`](./seed-emitted-unknown-type-comment-breaks-the-musl-gcc-leg.md) | S3 | OPEN (blocked on a seed bump) | yes |
 | [`v0.2.23-seed-build-lottery-corrupts-shifted-trees.md`](./v0.2.23-seed-build-lottery-corrupts-shifted-trees.md) | S1 | — | — |
 | [`version-install-cross-device-link.md`](./version-install-cross-device-link.md) | S2 | — | — |
-| [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | S3 | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | S3 | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
 ### Async / effects (6)
@@ -326,7 +325,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (57)
+### Other (60)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -350,6 +349,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`an-io-await-with-the-wrong-effect-bundle-passes-check.md`](./an-io-await-with-the-wrong-effect-bundle-passes-check.md) | S3 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
 | [`arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md`](./arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md) | S3 | — | yes |
+| [`backslash-then-interpolation-in-a-template-is-not-interpolated.md`](./backslash-then-interpolation-in-a-template-is-not-interpolated.md) | S3 | OPEN (one of the two affected sites was fixed | — |
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`canonicalize-throw-inside-io-async-corrupts-the-heap-on-windows.md`](./canonicalize-throw-inside-io-async-corrupts-the-heap-on-windows.md) | S2 | OPEN | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
@@ -381,9 +381,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`verify-prints-z3-error-lines-under-an-unproven-obligation.md`](./verify-prints-z3-error-lines-under-an-unproven-obligation.md) | S3 | — | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |
+| [`windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md`](./windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md) | S3 | OPEN (split out of `issues/fixed/windows-imag | — |
 | [`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`](./windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md) | S1 | — | — |
 | [`windows-process-handle-list-is-an-unlocked-process-global.md`](./windows-process-handle-list-is-an-unlocked-process-global.md) | S1 | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | S1 | OPEN | — |
 | [`yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`](./yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md) | S3 | — | — |
 | [`yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md`](./yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md) | S3 | OPEN | — |
+| [`yo-test-asan-probe-leaves-its-probe-c-when-the-cc-spawn-fails.md`](./yo-test-asan-probe-leaves-its-probe-c-when-the-cc-spawn-fails.md) | S3 | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | S2 | — | — |
