@@ -184,6 +184,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_contract_exprs,
   WhereConstraintEntry,
   collect_wrapper_trait_somes,
+  _substitute_wrapper_carriers,
   _collect_type_arg_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -2758,6 +2759,20 @@ create_specialized_function_inline :: (
           if((get_all_some_types(spec_ret_ty).len() > usize(0)) || _type_has_array_len_var(spec_ret_ty), {
             zdecl_ret := match(func_type, .Func({ result : zr }) => zr, _ => t_unit());
             zret_somes := get_all_some_types(zdecl_ret);
+            // An `Impl(Future(..T..))` / `Impl(Fn(.. -> ..T..))` return is
+            // ONE SomeT to `get_all_some_types`, which does not look inside
+            // the wrapper's trait arguments: their `T` stayed unresolved, and
+            // a bare-variant tail in the body (`.Ok(x)`) took that generic
+            // `T` as its payload type — a second C type for the result
+            // (issues/fixed/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md).
+            zret_is_wrapper := is_some_type(zdecl_ret);
+            if(zret_is_wrapper, {
+              zw_inner := collect_wrapper_trait_somes(zdecl_ret);
+              (zwi : usize) = usize(0);
+              while(zwi < zw_inner.len(), zwi = (zwi + usize(1)), {
+                match(zw_inner.get(zwi), .Some(zwt) => zret_somes.push(zwt), .None => ());
+              });
+            });
             if(zret_somes.len() > usize(0), {
               zs_ret := subst_new();
               (zs_any : bool) = false;
@@ -2793,7 +2808,12 @@ create_specialized_function_inline :: (
                 zrsi = (zrsi + usize(1));
               });
               if(zs_any, {
-                spec_ret_ty = substitute(zs_ret, zdecl_ret);
+                // A wrapper keeps its identity (the async state machine is
+                // registered against its id); only its carriers resolve.
+                spec_ret_ty = cond(
+                  zret_is_wrapper => _substitute_wrapper_carriers(zs_ret, zdecl_ret),
+                  true => substitute(zs_ret, zdecl_ret)
+                );
               });
             });
           });
