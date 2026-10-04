@@ -1,5 +1,7 @@
 # A prelude `Allocator` collides with `std/build.yo`'s `Allocator` enum and every `{ Allocator }` import
 
+**Resolved 2026-10-04:** option 1 taken (maintainer, via the coordinator): the build enum is `build.AllocatorKind`, `Allocator`/`AllocatorVTable`/`impl(Allocator, Send())` are in the prelude, and the inherent impl stays in `std/allocator.yo`.
+
 **Kind:** design question — an open decision, not a defect. Raised 2026-10-04
 while implementing `plans/VALUES_BY_DEFAULT.md` V1, std Generation A, first
 bullet ("Move `Allocator` and `AllocatorVTable` into the prelude (§3.11);

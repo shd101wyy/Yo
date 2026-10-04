@@ -112,8 +112,8 @@ test_step.depend_on(tests);
 | `root`      | `comptime_str` | _（必填）_         | 主源文件路径                           |
 | `target`    | `comptime_str` | `target_host`      | 目标三元组（如 `"wasm32-unknown-emscripten"`） |
 | `optimize`  | `Optimize`     | `Optimize.Debug`   | 优化级别                               |
-| `allocator` | `Allocator`    | `Allocator.System` | 内存分配器                             |
-| `heap_size` | `usize`        | `16777216`（16 MiB） | 固定区域堆大小（仅 `Allocator.Fixed`） |
+| `allocator` | `AllocatorKind` | `AllocatorKind.System` | 内存分配器                             |
+| `heap_size` | `usize`        | `16777216`（16 MiB） | 固定区域堆大小（仅 `AllocatorKind.Fixed`） |
 | `sanitize`  | `Sanitize`     | `Sanitize.None`    | 检测器                                 |
 
 ### `StaticLibrary`
@@ -161,11 +161,11 @@ test_step.depend_on(tests);
 
 | 值                   | 描述                          |
 | -------------------- | ----------------------------- |
-| `Allocator.Mimalloc` | 高性能分配器（mimalloc）      |
-| `Allocator.System`   | 平台系统分配器（默认）        |
-| `Allocator.Fixed`    | 作用于单个静态区域的通用 TLSF 分配器（见下文） |
+| `AllocatorKind.Mimalloc` | 高性能分配器（mimalloc）      |
+| `AllocatorKind.System`   | 平台系统分配器（默认）        |
+| `AllocatorKind.Fixed`    | 作用于单个静态区域的通用 TLSF 分配器（见下文） |
 
-`Allocator.Fixed` 让所有分配都来自 `.bss` 中一个静态定长的区域 —— 不依赖
+`AllocatorKind.Fixed` 让所有分配都来自 `.bss` 中一个静态定长的区域 —— 不依赖
 libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执行产物的 `heap_size`
 字段设置（字节数；64 KiB 到 4 GiB，向下取整到 16 字节粒度；默认 16 MiB）。
 有了有界的区域，内存耗尽是一次**带诊断信息的 panic**
@@ -819,7 +819,7 @@ wasm :: build.executable({
   root : "./src/main.yo",
   target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize : build.Optimize.ReleaseSmall,
-  allocator : build.Allocator.System
+  allocator : build.AllocatorKind.System
 });
 
 // 每个产物的 C 标志——适用于 Emscripten 特定的链接器设置

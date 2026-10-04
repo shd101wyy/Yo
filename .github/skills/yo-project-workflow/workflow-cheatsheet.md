@@ -243,7 +243,7 @@ wasm_api :: build.executable({
   root: "./src/wasm_api.yo",
   target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
-  allocator: build.Allocator.System
+  allocator: build.AllocatorKind.System
 });
 wasm_api.add_c_flags("-O3 -flto -mbulk-memory -sALLOW_MEMORY_GROWTH -sENVIRONMENT=web,node -sMODULARIZE=1 -sEXPORT_NAME=createModule -sEXPORTED_FUNCTIONS=_my_func,_wasm_alloc,_wasm_free -sEXPORTED_RUNTIME_METHODS=HEAPU8");
 
