@@ -1476,9 +1476,12 @@ Compiler (`src/`), Generation A:
 
 std, Generation A (all over `ref(struct((*) : V))`, lowerable by the seed):
 
-- Move `Allocator` and `AllocatorVTable` into the prelude (§3.11);
-  `std/allocator.yo` re-exports them. Generation A: a type moving between
-  std modules is plain std code to the seed.
+- Move `Allocator` and `AllocatorVTable` into the prelude (§3.11). DONE
+  2026-10-05 in two generations (`plans/backlog/SEED_VERSION_AUTOMATION.md`):
+  the borrow-mask analysis keys allocator vtable calls on the declaring
+  module, so the compiler half (#1188) had to reach a seed first.
+  `std/allocator.yo` keeps the methods and no longer exports the two names,
+  because an importer cannot rebind a prelude name.
 - `Rc(V)` = today's `Box` definition and impls, renamed; `rc(own(v), alloc)`
   its constructor (step 0b).
 - `Box(V)` = a new `ref(struct((*) : V))` whose `Clone` is a dup, with
