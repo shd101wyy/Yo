@@ -183,7 +183,7 @@ $ yo fmt --check            # 只检查格式，不写入变更
 
 - **基本类型**：`bool`、`i8`–`i64`、`u8`–`u64`、`f32`、`f64`、`isize`、`usize`、`str`
 - **C 兼容类型**：`int`、`uint`、`short`、`long`、`longlong`、`char` 等
-- **核心 trait**：`Eq`、`Ord`、`Add`、`Sub`、`Mul`、`Div`、`Iterator`、`IntoIterator`、`TryFrom`、`TryInto`、`Dispose`、`Send`、`Rc`、`Acyclic` 等
+- **核心 trait**：`Eq`、`Ord`、`Add`、`Sub`、`Mul`、`Div`、`Iterator`、`IntoIterator`、`TryFrom`、`TryInto`、`Dispose`、`Send`、`Acyclic` 等
 - **元编程**：`Type`、`Expr`、`ExprList`、`Var`
 - **异步**：`Io`、`FutureState`、`JoinHandle`
 - **工具函数**：`assert`、`unsafe`、`try`、`for`、`not`、`arc`、`Box`、`box`

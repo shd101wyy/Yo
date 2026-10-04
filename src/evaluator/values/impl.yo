@@ -292,9 +292,9 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
   g_register_trait_value_fn = Option(RegisterTraitValueFn).Some(f);
 });
 /// Type of `check_self_constraints_violation_msg` from trait_checking.yo:
-/// `.Some(error message)` when `target_type` violates a positive or negative
-/// selfConstraint on `trait_ty` (e.g. `Dispose`'s `where(Self <: Rc)` against
-/// a value struct), `.None` when satisfied. Routed via a function pointer to
+/// `.Some(error message)` when `target_type` may not implement `trait_ty` (a
+/// `Dispose`/`Trace` impl on a value type) or violates a positive or negative
+/// selfConstraint on it, `.None` when satisfied. Routed via a function pointer to
 /// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
 /// the caller throws with its own token/exn, invoking it per trait entry.
 CheckSelfConstraintsFn :: (fn(target_type : TypeValue, trait_ty : TypeValue, env : Environment) -> Option(String));
@@ -303,6 +303,21 @@ CheckSelfConstraintsFn :: (fn(target_type : TypeValue, trait_ty : TypeValue, env
 /// Install the function pointer (called from trait_checking.yo init block).
 set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
   g_check_self_constraints_fn = Option(CheckSelfConstraintsFn).Some(f);
+});
+/// `cell_only_trait_violation_msg` from trait_checking.yo: `.Some(error
+/// message)` when `trait_ty` is `Dispose` or `Trace` and `target_type` is not
+/// a reference type. The GENERIC impl path calls it on the receiver pattern
+/// (it does not run the full selfConstraint check, which a pattern over
+/// unbound type parameters cannot answer). A pattern's ref-ness cannot depend
+/// on its type arguments (a `cond` over a type parameter in a type
+/// constructor is rejected when the pattern is evaluated), so the pattern
+/// check covers every instantiation. Same function-pointer routing as above:
+/// impl.yo cannot import trait_checking.yo.
+(g_cell_only_trait_fn : Option(CheckSelfConstraintsFn)) =
+  Option(CheckSelfConstraintsFn).None;
+/// Install the function pointer (called from trait_checking.yo init block).
+set_cell_only_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
+  g_cell_only_trait_fn = Option(CheckSelfConstraintsFn).Some(f);
 });
 // ---------------------------------------------------------------------------
 // `currentlyRegisteringConcreteImpls` registry
@@ -4433,6 +4448,26 @@ evaluate_module_value :: (
         );
         g_trait_ty_opt := _try_lookup_trait_type(trait_fn_expr2, forall_env, ctx, exn);
         g_trait_ty := match(g_trait_ty_opt, .Some(t) => t, .None => t_unit());
+        // `Dispose`/`Trace` only on a reference type, as Case 3 checks through
+        // `g_check_self_constraints_fn`; a value or blanket receiver pattern
+        // (`Pair(T)` over a value struct, a bare `T`) used to register
+        // unchecked and its `dispose` never ran
+        // (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
+        match(
+          g_trait_ty_opt,
+          .Some(gtt) => match(
+            g_cell_only_trait_fn,
+            .Some(cof) => match(
+              cof(receiver_type_pattern, gtt, forall_env),
+              .Some(co_msg) => {
+                exn.throw(dyn(format_error_message(ast_expr_token(mf_expr), co_msg)));
+              },
+              .None => ()
+            ),
+            .None => ()
+          ),
+          .None => ()
+        );
         g_method_names := ArrayList(String).new();
         g_method_types := ArrayList(TypeValue).new();
         g_method_values := ArrayList(EvalValue).new();
@@ -4920,8 +4955,9 @@ evaluate_module_value :: (
             .Some(ctt) => if(receiver_type_id != "", {
               // Self-constraint gate:
               // a trait with a `where(Self <: X)` clause can only be implemented
-              // on a receiver satisfying X — e.g. `impl(ValueStruct, Dispose(...))`
-              // must be rejected because `Dispose` requires `Self <: Rc`.
+              // on a receiver satisfying X, and `Dispose`/`Trace` only on a
+              // reference type — e.g. `impl(ValueStruct, Dispose(...))` is
+              // rejected.
               match(
                 g_check_self_constraints_fn,
                 .Some(cf) => match(
@@ -5447,7 +5483,7 @@ export(GenericImplEntry, MethodCandidate);
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
-export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, get_trait_key);
+export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_cell_only_trait_fn, get_trait_key);
 export(register_generic_impl, purge_concrete_trait_impls_owned_by);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);

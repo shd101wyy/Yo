@@ -18,7 +18,7 @@
 //! call them that.
 //!
 //! Broadly stable: the core traits (`Clone`, `Eq`, `Ord`, `Hash`, `Dispose`,
-//! `Send`, `Rc`, the operator traits), `Option`, `Result`, `Box`, `Range`,
+//! `Send`, the operator traits), `Option`, `Result`, `Box`, `Range`,
 //! the numeric types and their inherent methods, and the async vocabulary
 //! (`Io`, `Future`, `JoinHandle`). These have Rust's names and meanings and
 //! are not expected to move.
@@ -244,12 +244,10 @@ Acyclic :: trait(
   id := "Acyclic"
 );
 export(Acyclic);
-/// The Rc trait means the type is reference counted `object` type.
-Rc :: trait(
-  id := "Rc"
-);
-export(Rc);
 /// Dispose trait - defines a dispose method for cleaning up resources.
+/// Only a reference type (`ref(struct(...))`, `ref(enum(...))` and their
+/// `atomic(...)` forms) may implement it; the compiler checks this at the
+/// `impl`.
 Dispose :: trait(
   id := "Dispose",
   /// Release the resources `self` owns — a file descriptor, a socket, a lock,
@@ -260,8 +258,7 @@ Dispose :: trait(
   /// It must be safe to run exactly once: the runtime calls it at refcount
   /// zero, and a type that also exposes an explicit `close`/`release` is
   /// responsible for making the second call a no-op.
-  dispose : (fn(self : Self) -> unit),
-  where(Self <: Rc)
+  dispose : (fn(self : Self) -> unit)
 );
 export(Dispose);
 /// === Cycle-GC tracing ===
@@ -293,10 +290,11 @@ impl(
 /// `Option` and all value types); hand-implemented for containers whose elements
 /// live in a heap buffer (`ArrayList`, `HashMap`, …). The constructor wires
 /// `header.traverse_fn` to this `trace`.
+/// Like `Dispose`, only a reference type may implement it (checked at the
+/// `impl`).
 Trace :: trait(
   id := "Trace",
-  trace : (fn(self : Self, tracer : GcTracer) -> unit),
-  where(Self <: Rc)
+  trace : (fn(self : Self, tracer : GcTracer) -> unit)
 );
 export(Trace);
 /// Index trait — enables `container(idx)` subscript syntax at runtime.
@@ -9372,13 +9370,10 @@ export(Result);
 /// assert(a.* == i32(7), "a and b name the SAME value");
 /// ```
 ///
-/// The name is kept deliberately: `Rc` is already a **trait** in this prelude
-/// (the "this type is a reference-counted `object` type" bound used by
-/// `where(Self <: Rc)`), so `Box` cannot be renamed to `Rc` without colliding
-/// with it — and reference counting is Yo's *universal* object model rather
-/// than one container's opt-in policy, so a distinct name for "the RC one"
-/// would be misleading in the other direction. Every `ref(struct(...))` in
-/// this language is refcounted; `Box` is simply the one-field case of that.
+/// The name is kept until `plans/VALUES_BY_DEFAULT.md` V1 renames this type
+/// to `Rc` and introduces a copy-on-write value `Box`. Until then, every
+/// `ref(struct(...))` in this language is refcounted; `Box` is simply the
+/// one-field case of that.
 ///
 /// Consequences worth knowing:
 /// - Sharing is silent. Two `Box` handles to one value is the normal case.

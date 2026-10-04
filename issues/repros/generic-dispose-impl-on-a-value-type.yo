@@ -1,0 +1,21 @@
+{ println } :: import("std/fmt");
+(g_disposed : i32) = i32(0);
+Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+impl(
+  generic(T : Type),
+  Pair(T),
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+main :: (fn() -> unit)({
+  {
+    p := Pair(i32)(a : i32(1), b : i32(2));
+    q := p;
+    println(q.a);
+  };
+  println(g_disposed);
+});
+export(main);

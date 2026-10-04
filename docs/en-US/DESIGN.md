@@ -3014,12 +3014,11 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 > assert((a.* == i32(7)), "a and b name the SAME value");
 > ```
 >
-> The name is kept on purpose. `Rc` is already a **trait** in the prelude —
-> the "this type is a reference-counted `object` type" bound written
-> `where(Self <: Rc)` — so `Box` cannot take that name. And reference counting
-> is Yo's *universal* object model, not one container's opt-in policy: every
-> `ref(struct(...))` is reference counted, and `Box` is simply the one-field
-> case. Naming it "the RC one" would imply the others are not.
+> The name stays until values-by-default V1 (`plans/VALUES_BY_DEFAULT.md`)
+> renames this type to `Rc` and introduces a copy-on-write value `Box`. Until
+> then reference counting is Yo's *universal* object model, not one
+> container's opt-in policy: every `ref(struct(...))` is reference counted,
+> and `Box` is simply the one-field case.
 >
 > What this means in practice: sharing is silent, a `Box` cycle leaks unless
 > broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask

@@ -118,6 +118,43 @@ This turned out NOT to be seed-gated. `markdown_yo` v0.0.9 removed its
 token API. So the compiler bumped the dependency to `^0.0.9` and deleted
 `set_len` in the same change that added `spare_capacity` + `assume_init`.
 
+## Seed-gated follow-up (2026-10-04): `Allocator`/`AllocatorVTable` move into the prelude
+
+`plans/VALUES_BY_DEFAULT.md` §3.11, V1 std Generation A first bullet. The move
+is NOT plain std code to the seed:
+
+- The borrow-mask analysis recognises an allocator vtable call by the
+  struct's declaring module: `_msp_allocator_slot`
+  (`src/evaluator/effects/mutation_summary.yo`) matched only ids starting
+  `struct_decl_std__allocator_`.
+- With `AllocatorVTable` declared in the prelude, the v0.2.50 seed reads
+  every `self.vtable.*.alloc(...)` as an unresolved call ("mutates
+  everything"). `ArrayList.extend_from_ptr` and `String.clone` then write
+  their receiver, so `seg.clone()` on a `match` binding is E0908.
+- Measured 2026-10-04 with the seed and the moved std: `std/path.yo:787`, so
+  `yo build --std-path ./std` fails (the issue
+  `issues/fixed/an-allocator-vtable-call-counts-as-mutating-everything.md`
+  fixed, reintroduced by the move).
+
+**Generation A DONE 2026-10-04** (`feat/vbd-v1-rc-marker`):
+- `_msp_allocator_slot` also accepts `struct_decl_std__prelude_`.
+- The build option enum is renamed `build.AllocatorKind`, because a prelude
+  `Allocator` would collide with it.
+- std still declares both structs in `std/allocator.yo`.
+
+**Generation B** (seed = a release carrying Generation A): branch
+`feat/vbd-v1-allocator-prelude-genb` holds the move.
+- The two structs and `impl(Allocator, Send())` move into `std/prelude.yo`.
+- `std/allocator.yo` keeps the inherent impl, the owner prefix, the global
+  vtable, `with_allocator` and `current_allocator`, and no longer exports the
+  two names. A prelude name cannot be rebound by an importer's destructure.
+- Every `{ Allocator }`/`{ AllocatorVTable }` import is dropped (9 std
+  modules, `tests/arena.test.yo`, `tests/explicit_allocators.test.yo`, the
+  `a-default-parameter-resolves-names-in-the-defining-module` fixture).
+- `docs/*/EXPLICIT_ALLOCATORS.md` says where the types live.
+
+Rebase it and land it once `SEED_VERSION` carries Generation A.
+
 ## Seed-gated follow-up (2026-10-01): `ArrayList.push` states its elements
 
 **Generation A DONE 2026-10-01** (`feat/verifier-for-produced`,

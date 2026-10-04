@@ -9,7 +9,7 @@
 //!   - Discriminants are auto-assigned (one more than previous, starting at 0)
 //!
 //! RC + trait derivation (same scheme as `struct.yo`):
-//!   - Trait MARKERS (Send/Rc/Acyclic/Comptime/Runtime) are auto-derived by
+//!   - Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived by
 //!     `auto_derive_traits_for_enum_type` once the final type is built, with
 //!     the struct rules (reference rules for `ref(enum(…))`).
 //!   - RC functions (___drop/___dup) for reference-semantics enums
@@ -816,7 +816,7 @@ evaluate_enum_type :: (
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
   register_enum_final(shell_id.clone(), enum_ty);
-  // Auto-derive trait markers (Send, Rc, Acyclic, Comptime, Runtime) from the
+  // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime) from the
   // FINAL type: a reference enum's Acyclic needs it for the RC-cycle walk.
   auto_derive_traits_for_enum_type(
     enum_id.clone(),
