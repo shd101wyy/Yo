@@ -1782,7 +1782,13 @@ Raw pointer operations may dereference invalid memory.`
                 match(
                   _deref_chain_has_field(base_ty, label_str.clone(), env),
                   .Ok(_) => {
-                    orig_obj := match(all_args.get(usize(0)), .Some(a) => a, .None => object_expr);
+                    // The tree's own object node, unless its evaluation
+                    // returned a different node that carries the ExprInfo.
+                    orig_obj := match(
+                      all_args.get(usize(0)),
+                      .Some(a) => cond(expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)).is_some() => a, true => object_expr),
+                      .None => object_expr
+                    );
                     all_args(usize(0)) = make_deref_expr(orig_obj, ast_expr_token(expr), ast_expr_token(property_expr));
                     obj_id := ast_expr_id(orig_obj);
                     mark_node_preevaluated(obj_id);
