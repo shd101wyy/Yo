@@ -142,7 +142,7 @@ _append_meta_key :: (fn(inout(sb) : StringBuilder, m : FuncMeta) -> unit)({
 /// instance's token. A fresh set and depth 0 there recursed forever once enum
 /// tokens carried their arguments. `depth` bounds only how far a token spells
 /// nested arguments.
-_ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth : usize, abs_depth : usize, visited : HashSet(String)) -> String)({
+_ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth : usize, abs_depth : usize, inout(visited) : HashSet(String)) -> String)({
   tok := String.from(tag);
   tok.push_string(sid);
   (i : usize) = usize(0);
@@ -159,7 +159,7 @@ _ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth
   });
   tok
 });
-_ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, visited : HashSet(String)) -> String)(
+_ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, inout(visited) : HashSet(String)) -> String)(
   match(
     t,
     .Struct({ id : a_sid, type_arguments : a_tas }) => if(depth < usize(8), {

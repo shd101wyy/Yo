@@ -56,7 +56,10 @@ pragma(Pragma.AllowUnsafe);
 /// `Dyn(Fn)` is the correct approach. Construct with `dyn(closure_expr)`.
 SuspensionPointDetector :: ref(
   struct(
-    /// Detect suspension point(s) in a FnCall expression and push them to `points`.
+    /// Detect suspension point(s) in a FnCall expression and RETURN them; the
+    /// walk appends them to its `points`. (Returned rather than pushed into a
+    /// `points` argument: a callback writing a list it was handed by value
+    /// writes its own copy once collections are values.)
     /// The detector is responsible for constructing the full SuspensionPoint including
     /// system-specific fields. Use `extract_target_variable_id` for the common
     /// parent `:=` assignment pattern.
@@ -66,9 +69,8 @@ SuspensionPointDetector :: ref(
     detect : Dyn(
       Fn(
         expr : AstExpr,
-        parent_expr : Option(AstExpr),
-        points : ArrayList(SuspensionPoint)
-      ) -> unit
+        parent_expr : Option(AstExpr)
+      ) -> ArrayList(SuspensionPoint)
     ),
     /// Return true if this FnCall expression's body should be skipped
     /// (no recursion into func/args). Used for nested async blocks that
@@ -871,7 +873,8 @@ walk_expr_ :: (
         // Default — detect suspension, then recurse into children
         // -------------------------------------------------------------------
         true => {
-          detector.detect(expr_cloned.clone(), parent_expr, points);
+          detected := detector.detect(expr_cloned.clone(), parent_expr);
+          points.extend(detected);
           if(detector.should_skip_body(expr_cloned.clone()), {
             // For skipped bodies, still walk deferred dup expressions
             match(

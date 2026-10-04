@@ -564,20 +564,18 @@ _typed_to_lsp :: (
           .None => false
         );
         if(attach, {
-          match(
-            out.get(match(last_primary, .Some(pi) => pi, .None => usize(0))),
-            .Some(primary) => {
-              primary.related.push(
-                RelatedInfo(
-                  path : d.span.path.clone(),
-                  row : d.span.row,
-                  col : d.span.col,
-                  end_col : (d.span.col + d.span.len),
-                  message : d.message.clone()
-                )
-              );
-            },
-            .None => ()
+          // In place through the index: a `get` copy of the diagnostic is
+          // not the stored one once collections are values. `attach` holds
+          // only when the index is in range.
+          primary_i := match(last_primary, .Some(pi) => pi, .None => usize(0));
+          out(primary_i).related.push(
+            RelatedInfo(
+              path : d.span.path.clone(),
+              row : d.span.row,
+              col : d.span.col,
+              end_col : (d.span.col + d.span.len),
+              message : d.message.clone()
+            )
           );
         }, {
           if(same_file, {

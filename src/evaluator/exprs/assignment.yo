@@ -429,7 +429,7 @@ require_no_inout_write_through_borrow :: (
       if(!ast_expr_token(arg).module_path.starts_with(String.from("auto-generated://")) && (is_judged || is_listed), {
         match(
           _borrowed_root_walk(arg, env, ctx, _g_audit_inout_borrow),
-          .Some(bv) => if(is_judged || !_is_dispose_receiver(bv, ctx), {
+          .Some(bv) => if(is_judged || !_is_dispose_receiver(bv, ast_expr_token(arg)), {
             what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
             label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
             target := cond((label == "self") => String.from("the `inout(self)` receiver"), true => `the \`inout\` parameter \`${label}\``);
@@ -474,48 +474,42 @@ require_no_inout_write_through_borrow :: (
     i = (i + usize(1));
   });
 });
-/// The receiver of a `Dispose.dispose` method: the runtime calls it when the
-/// last handle goes away, so `self` is the owner there, not a borrowed copy,
-/// and its writes are the object's own teardown. The V2b flip moves those
-/// bodies onto the buffer cells (`plans/VALUES_BY_DEFAULT.md` §6 V2b), so the
-/// audit leaves them out. Recognized from the source of the body being
-/// evaluated: a parameter carries a synthetic token, the body its real one,
-/// which sits on the `dispose : (` line or at most two lines under it.
-_is_dispose_receiver :: (fn(v : Variable, ctx : EvalContext) -> bool)({
+/// A write at `tok` inside a `Dispose.dispose` body, to its receiver `v`.
+/// The runtime calls `dispose` when the last handle goes away, so `self` is
+/// the owner there, not a borrowed copy, and its writes are the object's own
+/// teardown. The V2b flip moves those bodies onto the buffer cells
+/// (`plans/VALUES_BY_DEFAULT.md` §6 V2b), so the audit leaves them out.
+/// Recognized from the source above the write: the nearest member header is
+/// `dispose : (`. (A parameter carries a synthetic token, and the deferred
+/// generic trial evaluates the body under a placeholder function value, so
+/// neither names the function.)
+_is_dispose_receiver :: (fn(v : Variable, tok : Token) -> bool)({
   if(!(v.is_parameter && (v.name == "self")), {
     return(false);
   });
-  body_tok := match(
-    ctx.is_evaluating_function_body_or_async_block,
-    .Some(sub) => match(
-      sub.func_value,
-      .Some(fv) => match(fv, .FuncVal(fvd, _) => Option(Token).Some(ast_expr_token(fvd.*.body)), _ => Option(Token).None),
-      .None => Option(Token).None
-    ),
-    .None => Option(Token).None
-  );
-  match(
-    body_tok,
-    .Some(bt) => {
-      lines := bt.input.split(String.from("\n"));
-      row := usize(bt.row);
-      (k : usize) = usize(0);
-      while(k <= usize(2), {
-        if(k <= row, {
-          match(
-            lines.get(row - k),
-            .Some(l) => if(l.contains("dispose : ("), {
-              return(true);
-            }),
-            .None => ()
-          );
+  lines := tok.input.split(String.from("\n"));
+  (row : usize) = usize(tok.row);
+  (steps : usize) = usize(0);
+  while(steps < usize(400), {
+    match(
+      lines.get(row),
+      .Some(l) => {
+        if(l.contains("dispose : ("), {
+          return(true);
         });
-        k = (k + usize(1));
-      });
-      false
-    },
-    .None => false
-  )
+        if(l.contains(" : (fn(") || l.ends_with(" : ("), {
+          return(false);
+        });
+      },
+      .None => ()
+    );
+    if(row == usize(0), {
+      return(false);
+    });
+    row = (row - usize(1));
+    steps = (steps + usize(1));
+  });
+  false
 });
 /// The audit noun of a write through a closure's captured copy.
 _CAPTURE_NOUN :: "a captured variable";
@@ -1076,7 +1070,7 @@ evaluate_assignment :: (
         _borrowed_root_walk(evaluated_lhs, env, ctx, true),
         // A root holding no RC data (`w := Array(u32, 80)`) is never "owning",
         // so the walk cannot tell a local from a borrowed binding there.
-        .Some(abv) => if(type_contains_rc_type(abv.ty) && !_is_dispose_receiver(abv, ctx), {
+        .Some(abv) => if(type_contains_rc_type(abv.ty) && !_is_dispose_receiver(abv, ast_expr_token(lhs)), {
           at := ast_expr_token(lhs);
           anoun := cond(abv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
           eprintln(`[inout-borrow] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(lhs)} = (${abv.name}: ${anoun}, ${type_to_string(expected_ty)})`);

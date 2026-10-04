@@ -372,7 +372,8 @@ impl(
   clear : (fn(inout(self) : Self) -> unit)(
     match(
       self._bytes.take(),
-      .Some(al) => {
+      .Some(found) => {
+        al := found;
         al.clear();
         self._bytes = .Some(al);
       },
@@ -1639,7 +1640,8 @@ impl(
         // truncates its ~110 MB code buffer this way).
         match(
           self._bytes.take(),
-          .Some(al) => {
+          .Some(found) => {
+            al := found;
             al.truncate(new_len);
             self._bytes = .Some(al);
           },

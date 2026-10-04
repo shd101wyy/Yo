@@ -2465,7 +2465,7 @@ _arm_ir_bind :: (
     e_ty : TypeValue,
     inout(ctx) : VcCtx,
     saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm))
+    inout(saved_vals) : ArrayList(Option(VcTerm))
   ) -> Option(VcTerm)
 )({
   parts := ArrayList(VcTerm).new();
@@ -3324,8 +3324,9 @@ _loop_invariant_terms :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr), fram
     .Some(ws) => match(
       frame,
       .Some(fr) => {
-        ws.push(_app2(VcOp.BvUle, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list)));
-        Option(ArrayList(VcTerm)).Some(ws)
+        terms := ws;
+        terms.push(_app2(VcOp.BvUle, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list)));
+        Option(ArrayList(VcTerm)).Some(terms)
       },
       .None => Option(ArrayList(VcTerm)).Some(ws)
     ),

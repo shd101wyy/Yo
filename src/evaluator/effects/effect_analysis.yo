@@ -665,23 +665,27 @@ analyze_effect_call_points :: (
     true => Option(TypeValue).None
   );
   // Side-channel: stores effect-specific fields for each detected suspension point
-  effect_extras := HashMap(String, EffectCallPointExtra_).new();
+  // A `Box`: the detector closure and this function hold the same map on
+  // purpose, and a closure captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
+  effect_extras := box(HashMap(String, EffectCallPointExtra_).new());
   result := analyze_suspension_points(
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn((expr, parent_expr, points) => {
+      detect : dyn((expr, parent_expr) => {
+        found := ArrayList(SuspensionPoint).new();
         detect_effect_expr_(
           expr,
           parent_expr,
-          points,
-          effect_extras,
+          found,
+          effect_extras.*,
           effect_parameter_name.clone(),
           effect_field_path.clone(),
           include_transitive_calls,
           effect_param_fn_type.clone(),
           get_info
         );
+        found
       }),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
       follow_macro_expansions : false
@@ -701,7 +705,7 @@ analyze_effect_call_points :: (
     );
     expr_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      effect_extras.get(expr_key.clone()),
+      effect_extras.*.get(expr_key.clone()),
       .None => (),
       .Some(extra) => {
         ecp := EffectCallPoint(

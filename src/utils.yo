@@ -977,16 +977,11 @@ owned_keys_record :: (fn(log : OwnedKeys, key : String) -> unit)({
   if((g_current_owner.len() == usize(0)) || !g_owner_logs_enabled, {
     return(());
   });
-  match(
-    log.by_owner.get(g_current_owner.clone()),
-    .Some(keys) => keys.push(key),
-    .None => {
-      keys := ArrayList(String).new();
-      keys.push(key);
-      log.by_owner.insert(g_current_owner.clone(), keys);
-      ()
-    }
-  );
+  // Taken out of the map and stored back: a `get` copy is not the stored
+  // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  keys := match(log.by_owner.remove(g_current_owner.clone()), .Some(k) => k, .None => ArrayList(String).new());
+  keys.push(key);
+  log.by_owner.insert(g_current_owner.clone(), keys);
 });
 /// Remove and return the keys recorded under `owner`.
 owned_keys_take :: (fn(log : OwnedKeys, owner : String) -> ArrayList(String))(

@@ -255,7 +255,11 @@ _note_fid_in :: (fn(inout(registry) : HashMap(String, ArrayList(String)), sid : 
         fi = (fi + usize(1));
       });
       if(!seen, {
-        fids.push(fid);
+        // Stored back: a `get` copy is not the stored list once collections
+        // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+        grown := fids;
+        grown.push(fid);
+        registry.insert(sid, grown);
       });
     },
     .None => {

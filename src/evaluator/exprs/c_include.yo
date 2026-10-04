@@ -77,7 +77,11 @@ record_c_include_for_extern :: (fn(name : String, header : String) -> unit)({
         i = (i + usize(1));
       });
       if(!seen, {
-        list.push(header);
+        // Stored back: a `get` copy is not the stored list once collections
+        // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+        grown := list;
+        grown.push(header);
+        g_extern_c_includes.insert(name, grown);
       });
     },
     .None => {

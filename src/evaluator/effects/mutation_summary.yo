@@ -315,7 +315,7 @@ impl(
     is_io_async_call(e) || is_io_await_call(e) || is_io_state_call(e) || is_io_spawn_call(e) || is_join_handle_await_call(e)
   ),
   walk : (
-    fn(e : AstExpr, table : ExprInfoTable, touched : ArrayList(String)) -> bool
+    fn(e : AstExpr, table : ExprInfoTable, inout(touched) : ArrayList(String)) -> bool
   )({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
