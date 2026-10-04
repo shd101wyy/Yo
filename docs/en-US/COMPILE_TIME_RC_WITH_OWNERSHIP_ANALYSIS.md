@@ -1,5 +1,22 @@
 # Compile-time Reference Counting with Ownership and Lifetime Analysis
 
+> **Status (2026-10-05).** This page describes today's compiler. Yo is moving
+> to unique ownership with explicit copies
+> ([`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) §0, §0.9).
+> - **What goes away:** the rule that every assignment, constructor argument,
+>   return and block tail inserts `___dup`, and the dup/drop pair optimizer
+>   that cancels those dups. A `String`, a collection, `Box` and `Dyn` will
+>   move at their last use and otherwise need `.clone()`. Copying an
+>   `Rc`/`Arc` handle will need `.clone()` too.
+> - **What stays:** borrowing parameters, scope-end drops, `own` (renamed
+>   `sink`), use-after-move, and E0908.
+> - **What shrinks:** the aliasing protections (Stage 0/1, the borrow flag)
+>   narrow to places reached through an `Rc`/`Arc` or a module-level
+>   variable.
+>
+> This page is edited as each phase lands, and becomes an "ownership and
+> moves" page when `ref(...)` is removed.
+
 Yo uses non-atomic reference counting for heap-allocated objects, and employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 
 Non-atomic RC is sound in Yo because GC-managed objects are **thread-local** and cannot be shared across threads unless they are explicitly `Send` (see [PARALLELISM.md](./PARALLELISM.md)).
@@ -263,7 +280,7 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
     parameter gets a caller-owned `+1` for the call. Plain locals stay `+0` (the
     caller's binding keeps them alive), as do owned temps, `inout` parameters, and
     extern/builtin callees (no Yo code runs inside them).
-  - **Stage 1** — per-callee **mutation summaries** (`src/evaluator/effects/mutation-summary.ts`)
+  - **Stage 1** — per-callee **mutation summaries** (`src/evaluator/effects/mutation_summary.yo`)
     ask "may this call transitively mutate RC container storage?"; the read-only
     majority get the `+0` borrow back. Stage 0 alone cost +23% self-compile time;
     Stage 1 returns all of it and more (45.3 s → 55.2 s → 38.5 s on
@@ -370,14 +387,14 @@ x := match(
 Cancelling a dup against the scope-end drop is a **move**: the dup disappears AND the
 variable is marked consumed, so no path drops it. That is sound **only if the dup
 executes unconditionally on every path that reaches the scope end**. The optimizer
-(`searchRecursively` in `src/evaluator/exprs/begin.ts`) therefore:
+(`_optimize_dup_drop_pairs` in `src/evaluator/exprs/begin.yo`) therefore:
 
 - collects dups **branch-aware** for `cond`/`match`: a dup present in only SOME
-  fallthrough arms flags the variable (`varsWithPartialBranchDups`) and the pair is
+  fallthrough arms flags the variable (`vars_with_partial_branch_dups`) and the pair is
   preserved — dup on the taken arm, scope-end drop on every path;
-- counts a dup in EVERY arm once per arm, so `runtimeDupCount > 1` also preserves the
+- counts a dup in EVERY arm once per arm, so a runtime dup count above 1 also preserves the
   pair;
-- follows `$.macroExpansion` instead of the raw macro-call args, because `if(...)`
+- follows `ExprInfo.macro_expansion` instead of the raw macro-call args, because `if(...)`
   keeps its macro head in the AST and only its recorded `cond` expansion exposes the
   branch structure. Walking the raw args treated an arm-internal dup as unconditional
   and cancelled it — leaking one reference on every path that skipped the arm
@@ -463,40 +480,14 @@ while(true, {
 
 **Cost (before optimization):** 2 RC operations per iteration (dup + drop) + 1 initial dup + 1 final drop = 2N + 2 total for N iterations.
 
-#### Loop Traversal Borrow Chain Optimization
+#### No traversal optimization in the self-hosted compiler
 
-The compiler now detects this traversal pattern and eliminates **all** RC operations (2N + 2 → 0). The key insight: every node accessed through the traversal variable is kept alive by the parameter's ownership of the entire data structure. The net RC effect across all iterations is zero for every node, so removing all dup/drop operations is safe.
-
-**Pattern detection criteria:**
-
-1. A variable is initialized from a parameter (or field of a parameter) that does not own the RC value (`isOwningTheRcValue: false`)
-2. Inside a `while`-`match` loop, the variable is the match scrutinee
-3. In one match branch, the variable is reassigned from a field of the match binding (traversal step)
-4. The variable does not unwind the loop scope (no references after the loop except the begin block return value)
-5. **The loop body neither mutates the traversed structure nor lets a node escape the iteration** (`traversalLoopHasUnsafeUse`): no assignment through a projection or index (`node.next = …` severs the chain and frees the borrowed sublist mid-walk — a use-after-free, see `issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md`), and no call receiving a traversal name or a value of a traversal type (the callee could sever or retain the node). Read-only traversals — field reads, scalar comparisons, `return &(node.value)` — still optimize to zero RC operations.
-
-**What gets removed:**
-
-- Initial `___dup` on the parameter expression
-- Per-iteration `___dup` on the reassignment RHS
-- Per-iteration `___drop` of the old value (save + drop pair)
-- Scope-exit `___drop` at end of begin block
-- Before-return `___drop` in early-exit branches
-
-**Optimized output (0 RC operations):**
-
-```c
-void traverse(Node* head) {
-    // current_opt = head (no dup)
-    while (1) {
-        if (current_opt.tag == None) {
-            return;  // no drop
-        }
-        Node* current = current_opt.Some;
-        current_opt = current->next;  // no dup, no drop of old
-    }
-    // no scope-exit drop
-}
-```
-
-This optimization is implemented in `optimizeLoopTraversalBorrowChain` in `src/evaluator/exprs/begin.ts`.
+The retired TypeScript compiler recognized this loop and removed all of its
+RC operations (2N + 2 → 0). That optimization was never ported to the
+self-hosted compiler (the note in `src/evaluator/exprs/begin.yo` beside the
+pair optimizer), so each iteration pays the dup and the drop above.
+`issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md` records the
+use-after-free its mutation guard had to close. Under unique ownership the
+language replaces it: a local borrow re-pointed into the node it already
+borrows walks the list with no count traffic (`plans/VALUES_BY_DEFAULT.md`,
+decision 25).

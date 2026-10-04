@@ -16,7 +16,11 @@ Amended 2026-10-05 with the maintainer: **unique ownership (Hylo's model)
 replaces copy-on-write** (§0). Decisions 15–24 there are confirmed.
 V2a (collection mutators take `inout(self)`, the audit lists collection
 writes) has landed; its status and the corrections it makes to §6 V2a are
-under "V2a status".**
+under "V2a status". Amended again 2026-10-05 after a review of what happens
+to the compile-time RC machinery under §0 (§0.9): decisions 25–28 confirmed
+with the maintainer, phases placed for decision 17 and for `Box`'s and
+`Dyn`'s explicit copies (§0.8), and superseded notes on V1's `Box`
+definition, §3.10, §3.12, §3.13, V3 and V4.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -125,6 +129,11 @@ copies the first kind implicitly (decision 16).
 15. **`own(x)` is renamed `sink(x)`.** Confirmed 2026-10-04: Yo's `own` is
     already linear, consuming the argument binding even when it dups. Gen A
     accepts `sink` in V3; Gen B renames every site and deletes `own`.
+    Corrected 2026-10-05: the implicit dup is not carried over. For an
+    explicit-copy or move-only type, passing a binding that is not an owner
+    (a plain parameter, a borrow, a match binding) to `sink` is E0901 with a
+    note naming `x.clone()`; only an owner moves. The dup survives only for
+    `ref(...)` types until V5.
 16. **Confirmed 2026-10-05: trivially copyable types copy implicitly; every owning value's copy is explicit.** The first row of
     the table above. Recommendation: yes. Requiring `.clone()` on `i32` would
     touch nearly every line of `src/` and buys nothing, because a bitwise
@@ -172,8 +181,11 @@ copies the first kind implicitly (decision 16).
          written nor moved; while `inout(y)` is live its root is not
          accessed.
       3. **Aliases:** a value-rooted root has none under unique ownership,
-         so rule 2 is checked statically and completely. An `Rc`/`Arc`- or
-         module-rooted root keeps the runtime borrow flag (§3.10).
+         so rule 2 is checked statically and completely. An `Rc`/`Arc`-rooted
+         root keeps the runtime borrow flag on the `Rc`/`Arc` cell (§3.10).
+         A module-level root has no cell to hold a flag; it keeps the static
+         module-level arm of `require_valid_ref_argument_places` (§3.10),
+         which rejects borrowing it across a call that may reach it.
       4. **`await`:** a borrow live across a suspension follows §3.13 A2:
          an error through `Rc`/`Arc`, allowed for a task-local value root.
     - **Live range: last use, not scope end** (Hylo: a binding's lifetime
@@ -342,6 +354,77 @@ copies the first kind implicitly (decision 16).
       switch on.
     - Recommendation: yes, in this first-cut form.
 
+25. **Confirmed 2026-10-05: a local borrow can be re-pointed to a place
+    inside what it already borrows.** Without it, walking a linked
+    structure has no spelling: neither `borrow(y)` nor `inout(y)` can move
+    to the next node (`inout(y) = v` writes through to the borrowed place,
+    and `borrow(y)` rejects `=`). So a loop over `Option(Box(Node))` would
+    need a `.clone()` per step or recursion, and "walk to the tail and
+    append" could not be written at all.
+    - **Spelling.** The binding form on the left of `=` re-points, as it
+      declares on the left of `:=`: `borrow(cur) = place` and
+      `inout(cur) = place`. Plain `cur = v` keeps its meaning (writes
+      through for `inout`, rejected for `borrow`).
+    - **Rule.** The new place must be reached from `cur` itself (its
+      fields, a `Box` or `Rc` deref, a projection, or a pattern binding
+      over `cur`). So the borrowed root never changes and what is frozen
+      only narrows. That is a reborrow, checked statically like the
+      declaration. When the step enters an `Rc` cell, the runtime flag moves
+      with it: the new cell is acquired and the old one released.
+    - **Example.**
+      ```rust
+      inout(cur) := list.head;                 // Option(Box(Node))
+      while(cur.is_some(), {
+        match(cur, .Some(n) => { inout(cur) = n.next; }, .None => ());
+      });
+      cur = .Some(box(Node(value : v, next : .None)));   // writes the tail slot
+      ```
+    - **Phase.** With `borrow(y) :=` (V2b's projections PR, decision 24),
+      which needs the same place-root analysis.
+26. **Confirmed 2026-10-05: a `match` scrutinee borrows by default;
+    `match(sink(x), …)` consumes it.** A scrutinee is a read position like a
+    parameter, so its bindings borrow the payload, as today. To move the
+    payload out of a value that is not needed afterwards, write
+    `match(sink(x), .Some(v) => v, .None => d)`. `x` is consumed and the
+    bindings own their parts, which is decision 19's whole-value move
+    applied to a pattern. An owned temporary scrutinee (a call result) is
+    consumed without the spelling, because nothing else can observe it.
+    Without this, extracting an owning payload from a dying value needs
+    `.clone()` or `take()`. Inferring consumption from "`x` is not used
+    again" was rejected: whether a binding borrows or owns would then
+    change when an unrelated later line is added. Phase: V3 (move-only
+    payloads need it first), then V2b for the explicit-copy kind.
+27. **Confirmed 2026-10-05: the compiler may elide a `.clone()` whose source
+    is dead, as an optimization, never as semantics.**
+    - **What.** `y := x.clone()` with no later use of `x` may become a move.
+    - **Only for compiler-known `Clone`.** That means `Rc`/`Arc` count bumps,
+      std buffers, `Box`, and derived `Clone` built from these. Never for a
+      user `Clone` impl, which may have effects (`Waker`, `Sender`).
+    - **`ref_count`.** It is a debugging read: it may report fewer handles
+      than the source text creates where a clone was elided.
+    - **Lint.** A redundant-clone warning, with a `yo fix` repair, removes
+      such clones from the source.
+    - **Phase.** With V2b, when diagnostics and `yo fix` start inserting
+      `.clone()`.
+28. **Confirmed 2026-10-05: call arguments are exclusive.**
+    - **Value roots.** An `inout` or `sink` argument that overlaps any other
+      argument of the same call is a compile error. Two plain (read)
+      arguments may overlap. Today `src/types/flowability.yo` and
+      `docs/*/FLOWABILITY.md` allow a by-value argument to overlap an
+      `inout` one, with a +1 forced (TYPE_SYSTEM_SOUNDNESS Phase 5.2). That
+      becomes the error, because the +1 would be a hidden deep copy.
+    - **Through an `Rc`/`Arc`.** A read argument projected through an `Rc`
+      cell (`f(node, node.name)`, where `f` writes `name` through the other
+      handle) marks that cell borrowed for the call, and a write through the
+      cell during the call trips §3.10's assert. This replaces Stage 0's
+      caller-owned +1, which is a deep clone once `String` is a value.
+    - **Stage 1.** The mutation summaries may skip the acquire for a
+      read-only callee, but only if they also count writes to uncounted
+      owned buffers reached through an `Rc`. Otherwise they report such a
+      callee as read-only and drop a needed check.
+    - **Phase.** The value-root rule lands with V2b's static exclusivity.
+      The `Rc` arm lands with V1 step 1, when `Rc` exists by name.
+
 ### 0.4 First gate: measure the migration
 
 Before any phase is resized, an audit counts the copies the new rule turns
@@ -409,19 +492,77 @@ here. The phase sizes below are written without them, on purpose.
   ranges keep the borrows short.
 - **Tree clones in the compiler (decision 21).** With `Rc` children,
   `check ./src` time and RSS should stay flat; V4 measures each tree.
+- **Re-pointed borrows (decision 25).** The "reached from `cur` itself" rule
+  must see through pattern bindings and projections. If it is too narrow,
+  cursor loops fall back to clones; if too wide, it is unsound. The PR
+  carries negative tests (re-pointing to a sibling root, to a place a
+  callee could reach).
 
 ### 0.8 Revised order
 
 1. **§0.4 measurement** (one audit PR; numbers recorded here).
-2. **V1 step 1**: rename every `Box` to `Rc`, then the unique `Box`.
-3. **V3** (in progress): move-only plus `sink`, on the general predicate.
-4. **V2b**: projections first (decision 24); then unique buffers; the explicit-copy kind is switched on for
-   `String` and the collections, with the migration. This absorbs
+2. **V1 step 1**: rename every `Box` to `Rc` (which adds decision 28's `Rc`
+   arm), then the unique `Box`. The new `Box` is explicit-copy from its
+   first commit: after the rename no `Box` site exists, so there is nothing
+   to migrate and no window where its copies are implicit.
+3. **V3** (in progress): move-only plus `sink`, on the general predicate;
+   `match(sink(x), …)` for move-only payloads (decision 26).
+4. **V2b**: projections first (decision 24, with `borrow(y) :=` and
+   decision 25's re-pointing); then unique buffers; the explicit-copy kind
+   is switched on for `String`, the collections and `Dyn` (decision 7), with
+   the migration. It also brings decision 26 for the explicit-copy kind,
+   decision 27's clone elision and lint, decision 28's value-root rule, and
+   the split of the borrowed-`for` guard by root kind (§3.10). This absorbs
    `STRING_VALUE_SEMANTICS` S3's dropped COW half.
-5. **V4** (trees, decision 21), **V5** (remove `ref`/`atomic`), then the
+5. **V2c: decision 17.** Implicit `Rc`/`Arc` handle copies become E0901,
+   with `.clone()` inserted by `yo fix`. Sized by §0.4's `Rc`/`Arc` count. It
+   lands before V5, so V5's ~60 new `Rc` contexts are written with explicit
+   clones from the start. If the count makes this prohibitive, decision 17's
+   fallback (implicit `Rc` copies) is decided here, and the dup/drop pair
+   optimizer then stays for `Rc` permanently.
+6. **V4** (trees, decision 21), **V5** (remove `ref`/`atomic`), then the
    `sink` sweep (Gen B) once a seed carries V3.
 
 Generation A/B and the seed gate (§5) apply as before.
+
+### 0.9 What happens to the compile-time RC machinery
+
+Reviewed 2026-10-05 against develop's code
+(`docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` describes it).
+
+- **Gone with the hidden copies.** The rule "every assignment, constructor
+  argument, return and block tail inserts `___dup`"
+  (`set_expr_as_needs_to_call_dup`, its dup branch), the dup/drop pair
+  optimizer (`_optimize_dup_drop_pairs`), the alias-binding dup elision and
+  the optimizer's `io.async` rules. The owning-temp transfer branch is
+  already a move and stays. Unique types drop out at V2b (`Box` at V1
+  step 2), `Rc`/`Arc` at V2c, `ref(...)` types at V5.
+- **Survives, re-keyed.** Scope-end drops, early-return-only drops, the
+  reassignment old-value drop, `consumed_at_token`, E0901/E0907 and the
+  flow joins. They key on "needs a drop" (explicit-copy or move-only kind)
+  instead of `type_contains_rc_type`. A drop frees a buffer, disposes a
+  move-only value, or decrements an `Rc`/`Arc`. "Last use" is the move
+  checker: a copy point moves, and a later use is E0901. No forward
+  liveness analysis is involved, except decision 18's live ranges.
+- **Shrinks to `Rc`/`Arc` and module roots.** Stage 0/1 (decision 28
+  replaces the +1), the runtime borrow flag and its asserts, the
+  borrowed-`for` guard (§3.10), interior-`inout` acquires, E0908 (it
+  becomes "a borrow is read-only"), and `pragma(Pragma.StrictBorrow)`,
+  which V2b deletes or keeps for `Rc` roots.
+- **Gone already.** The loop traversal borrow-chain optimization was never
+  ported from the retired TypeScript compiler. The doc's "Special Case:
+  Loops" section is stale today. Decision 25 is its replacement in the
+  language.
+- **The RC runtime survives** for `Rc`/`Arc` cells, the cycle collector
+  (`Rc` only), the compiler's trees (decision 21) and async futures' own
+  counts until §3.13 A1.
+- **The doc** keeps the parts that last (borrowing parameters, drops,
+  `sink`, use-after-move, E0908) and is rescoped into an "ownership and
+  moves" doc. It is edited at each phase that changes it: V1 step 1/2
+  (`Box`), V2b (`String`, collections, `Dyn`), V2c (`Rc` copies), the
+  V3 Gen B `sink` sweep, and the rewrite at V5. The same edits reach
+  `README.md`, `docs/zh-CN/README.md` and
+  `.github/instructions/debugging.instructions.md`, which cite it.
 
 ---
 
@@ -959,6 +1100,17 @@ alone does not justify 4,300 lines); that is a later decision with numbers.
 
 ### 3.10 Exclusivity: no `RefCell`
 
+> **Amended by §0 (2026-10-05):** `Dyn` is uniquely owned (decision 7,
+> amended), so read "`Rc`/`Arc`/`Dyn`" below as "`Rc`/`Arc`". A module-level
+> root keeps the static arm, not a runtime flag (decision 18, rule 3).
+> Decision 28 replaces the Stage 0 +1 with a borrow flag on the `Rc` cell.
+> After V2b a value collection has no header, so the borrowed-`for` guard
+> (`__borrow_guard` in `std/prelude.yo`, which calls `__yo_borrow_acquire`
+> unconditionally) must split by root kind: no guard for a value root, and
+> the guard on the enclosing `Rc` cell for an `Rc` root. The automatic
+> borrow assert before `realloc`/`free` in an object method
+> (`_maybe_emit_auto_borrow_assert`) goes with the collections' headers.
+
 Rust's `RefCell` does not guard the write; it guards a borrow that is alive
 while the write happens (a `&T` into a `Vec` element outliving a `push`).
 Safe Yo has no first-class borrow. A borrow exists in two scoped shapes
@@ -1068,7 +1220,11 @@ changes is what a block is.
   is outside the verifier subset, with the existing "outside-subset" report.
 - **The cycle collector.** Only `Rc` cells whose payload reaches an `Rc` are
   tracked (§0.2; an `Arc`'s payload is `Acyclic`, so it is never tracked). Values, `Box` trees of values and collections of values are never
-  tracked, which is most of a program and all of the compiler's trees.
+  tracked, which is most of a program. *(Amended by §0: under decision 21
+  the compiler's trees have `Rc` children, so their payload reaches an `Rc`
+  and the structural predicate would track them. V4 makes
+  `can_type_form_rc_cycle` honour a declared `Acyclic`, checked as `arc`'s
+  bound is, so that trees with no back edges stay untracked.)*
 - **Agent-written code.** Action at a distance needs an `Rc`/`Arc` in a
   type, and the vocabulary (`Box`, `Rc`, `Arc`, `Arc(Mutex(T))`) is the one
   models already know.
@@ -1257,7 +1413,9 @@ The design:
   - Today a bundle holds `Io` and handler functions. A field holding a cell
     (a `String`, a collection, an `Rc`) would be copied bitwise with no dup.
   - The copy becomes the bundle type's generated dup, with the matching
-    drop in the future's dispose.
+    drop in the future's dispose. *(Amended by §0: a `String` or collection
+    field has no count to bump, so "dup" means the field's `clone()`, and a
+    bundle that one call consumes moves instead.)*
   - A move-only bundle field is an error at the `io.spawn`/`io.await` site,
     because one bundle starts many futures.
 
@@ -1275,7 +1433,10 @@ The design:
 §3.10 (the exclusivity assert at the write) and §3.11 (an async frame is a
 cell the allocator scope places) already cover async bodies.
 
-**Captures in async bodies (V2).** An `io.async` body is a closure and
+**Captures in async bodies (V2).** *(Amended by §0: §3.7's capture by copy
+is replaced by decision 22. An `io.async` body escapes, so it owns its
+captures, and an explicit-copy capture whose source is used again is E0901.)*
+An `io.async` body is a closure and
 captures by copy (§3.7). After V2b, a body that writes a captured
 collection writes its own copy. `_execute_batch` (`src/build_runner.yo`)
 does exactly that: it takes `results : HashMap(String, StepResult)` by
@@ -1487,7 +1648,9 @@ std, Generation A (all over `ref(struct((*) : V))`, lowerable by the seed):
 - `Box(V)` = a new `ref(struct((*) : V))` whose `Clone` is a dup, with
   `make_unique(inout(self))`, `Eq`/`Hash`/`Default` by payload, and
   `box(own(v), alloc)` its constructor. `make_unique` clones through the
-  source cell's owner (§3.11).
+  source cell's owner (§3.11). *(Superseded by §0: `Box(V)` is a uniquely
+  owned cell with no count. Its `Clone` is deep, there is no `make_unique`,
+  and it is explicit-copy from its first commit (§0.8 step 2).)*
 - `arc` gains the `alloc` parameter.
 - `Arc(V)` unchanged.
 - `Dispose`/`Trace` lose `where(Self <: Rc)`.
@@ -1510,7 +1673,8 @@ changes meaning:
    `strip_proved_ensures_asserts` (`src/evaluator/builtins/contracts.yo:2482`)
    writes the body through it and every holder must see the write.
 3. In tests, a `Box` test that asserts sharing stays on `Rc`; `tests/rc.test.yo`
-   gains the value-`Box` cases (independent copy, make-unique on write,
+   gains the value-`Box` cases (independent copy *(§0: by `.clone()`; no
+   make-unique)*, make-unique on write,
    `ref_count(b)` before and after a write (the file is pragma'd, §3.2), a `Box` tree copied and edited on one
    side).
 
@@ -1554,6 +1718,9 @@ Compiler, Generation A:
   - a re-check of `__yo_started_child`.
 - `Iso(T)`'s bound (§3.6) widens from "reference object" to "reaches a
   non-atomic cell".
+- *(Amended by §0: the new `Send` is "reaches no `Rc`", since `Dyn` is
+  unique; the transfer isolation below is deleted (§0.5, decision 8), and
+  its tests become "a `Channel(String)` send moves the buffer".)*
 - `Send`/`Sync` (§3.8): today's `Send` derivation becomes `Sync`; the new
   `Send` is "reaches no `Rc` and no non-atomic `Dyn`"; `Arc`, `Mutex`,
   `RwLock`, `Channel`, `Thread.spawn` and the `Impl(Fn, Send)` boundaries
@@ -1709,6 +1876,9 @@ disagreed with it.
     l.push(x)`): the copy is owning, so no borrowed-root audit sees it. A
     copy-aliasing audit (a local whose initializer is a place, not a fresh
     value, then written) is the V2b prerequisite this plan lacks.
+    *(Resolved by §0: `l := m.get(k)` of an explicit-copy value is a copy
+    whose source lives on, so it is E0901 when V2b switches the kind on. No
+    separate audit is needed; §0.4 counts these sites.)*
 - **Seed rules met on the way** (v0.2.50 enforces them on `inout`
   receivers): an `inout` argument or receiver may not borrow two object hops
   deep when another argument is refcounted, nor a field of a module-level
@@ -1750,6 +1920,14 @@ structs the seed lowers; the `Dispose` on the buffer cell is V3's rule):
   clone is the cost to watch.
 
 ### V4: the compiler's trees
+
+> **Superseded in part by §0 (decision 21):** the trees get `Rc(Self)`
+> children, not `Box(Self)`. Under §0 a `Box` is unique with a deep clone,
+> so following the text below literally would make every
+> `TypeValue.clone()` O(n). Read "`Box`" below as "`Rc`" for `TypeValue`,
+> `AstExpr` and `EvalValue`. V4 also adds the `Acyclic` short-circuit to
+> `can_type_form_rc_cycle` (§3.12). `clone` stays O(1): it is an `Rc` count
+> bump, written `.clone()` (decision 17).
 
 Per type, in this order, each its own PR, measured:
 
@@ -1830,7 +2008,7 @@ Per type, in this order, each its own PR, measured:
 | `Iso(T)` of a `ref(struct)` | `Iso(T)` of a value reaching a cell | unchanged call sites |
 | `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; with an allocator, `box(v, alloc : .Some(a))` | docs and skills teach only the functions; E0405 after V5 |
 | `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
-| `rc(x)` (the count) | `ref_count(x)` on an `Rc`/`Arc` in safe code; std and pragma'd code may also read a `Box`, collection or `Dyn` cell; a compile error on a value with no cell | V1 step 0 rename |
+| `rc(x)` (the count) | `ref_count(x)` on an `Rc`/`Arc` (§0: nothing else has a count); a compile error on a value with no cell | V1 step 0 rename |
 | A future awaited twice, or awaited by two tasks | await once; share the result as `Rc(JoinHandle(T))` | E0901 at the second use |
 | A `JoinHandle` copied, or joined twice | one owner; `join(own(h), io)` consumes it | E0901 |
 | `race(handles, io)` then reusing `handles` | `match(io.await(race(handles, io), io), (w, rest) => …)` | E0901 at the reuse |
@@ -1895,3 +2073,10 @@ Per type, in this order, each its own PR, measured:
    patterns) or explicitly (`Box(p)`)? Implicit is what `ref(enum)` gives
    today and what 3,500 arms assume; explicit is what Rust does. Decide in
    V4's first PR, with the `TypeValue` conversion as the test.
+13. **Field writes through a plain parameter of implicitly copyable type.**
+   Today `p.n = (p.n + 1)` is legal on a by-value `p : Point`, because the
+   callee writes its own copy. Under borrow-by-default (decision 24) a plain
+   parameter is a read-only borrow, as Hylo's `let` is. Recommendation: make
+   it E0908 and write `q := p` (an implicit copy for this kind) or take
+   `inout(p)`. This keeps codegen free to pass large plain structs by
+   pointer. Measure the sites with §0.4's audit before V2b decides.

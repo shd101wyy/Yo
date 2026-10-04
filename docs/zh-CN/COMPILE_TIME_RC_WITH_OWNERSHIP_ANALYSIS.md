@@ -1,5 +1,17 @@
 # 编译期引用计数与所有权及生命周期分析
 
+> **状态（2026-10-05）。** 本页描述的是当前的编译器。Yo 正在转向带显式复制的唯一所有权
+> （[`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) §0、§0.9）。
+> - **将被移除：** “每次赋值、构造器参数、返回值和块尾都插入 `___dup`”这条规则，以及抵消这些
+>   dup 的 dup/drop 配对优化器。`String`、集合、`Box` 和 `Dyn` 将在最后一次使用时移动，
+>   其他情况需要 `.clone()`。复制 `Rc`/`Arc` 句柄同样需要 `.clone()`。
+> - **保留：** 默认借用的参数、作用域末尾的 drop、`own`（改名为 `sink`）、移动后使用检查，
+>   以及 E0908。
+> - **收窄：** 别名保护（阶段 0/1、借用标志）只作用于经由 `Rc`/`Arc` 或模块级变量到达的
+>   位置。
+>
+> 本页会随各阶段落地逐步更新，并在 `ref(...)` 被移除时改写为“所有权与移动”一页。
+
 Yo 对堆分配的对象使用非原子引用计数，并通过编译期**所有权分析**和**生命周期分析**来消除不必要的引用计数操作。
 
 非原子引用计数在 Yo 中是安全的，因为 GC 管理的对象是**线程局部**的，除非显式标记为 `Send`，否则不会跨线程共享（参见 [PARALLELISM.md](./PARALLELISM.md)）。
@@ -256,7 +268,7 @@ printf("%d\n", x.*); // 始终有效：x 拥有一个有效引用
     变量、`inout` 参数以及 extern/内建被调用函数（其内部不运行任何 Yo 代码）同样保持
     `+0`。
   - **阶段 1** —— 按被调用函数计算**变更摘要（mutation summary）**
-    （`src/evaluator/effects/mutation-summary.ts`），回答“这次调用是否可能（递归地）
+    （`src/evaluator/effects/mutation_summary.yo`），回答“这次调用是否可能（递归地）
     修改 RC 容器存储？”；占绝大多数的只读被调用函数因此恢复 `+0` 借用。仅有阶段 0 时
     自举编译耗时增加 23%，阶段 1 不仅将其全部收回，还更进一步（`check ./std`：
     45.3 秒 → 55.2 秒 → 38.5 秒），因此该缺口的封闭没有带来运行时开销。
@@ -358,14 +370,14 @@ x := match(
 
 将 dup 与作用域末尾的 drop 抵消等价于一次**移动（move）**：dup 消失，同时变量被标记为
 已消耗（consumed），因此任何路径都不再对它执行 drop。这只有在 **dup 在所有能到达作用域
-末尾的路径上都无条件执行**时才是健全的。优化器（`src/evaluator/exprs/begin.ts` 中的
-`searchRecursively`）因此：
+末尾的路径上都无条件执行**时才是健全的。优化器（`src/evaluator/exprs/begin.yo` 中的
+`_optimize_dup_drop_pairs`）因此：
 
 - 对 `cond`/`match` 进行**分支感知**的 dup 收集：只在部分 fallthrough 分支中出现的 dup
-  会把变量标记进 `varsWithPartialBranchDups`，配对被保留 —— 被执行的分支上有 dup，所有
+  会把变量标记进 `vars_with_partial_branch_dups`，配对被保留 —— 被执行的分支上有 dup，所有
   路径上都有作用域末尾的 drop；
-- 每个分支都有 dup 时按分支各计一次，`runtimeDupCount > 1` 同样保留配对；
-- 沿 `$.macroExpansion` 递归，而不是宏调用的原始参数 —— `if(...)` 在 AST 中保留宏调用
+- 每个分支都有 dup 时按分支各计一次，运行时 dup 计数大于 1 同样保留配对；
+- 沿 `ExprInfo.macro_expansion` 递归，而不是宏调用的原始参数 —— `if(...)` 在 AST 中保留宏调用
   头，只有记录下来的 `cond` 展开才暴露分支结构。沿原始参数递归会把分支内的 dup 当作
   无条件 dup 并错误地取消它 —— 在所有跳过该分支的路径上各泄漏一个引用
   （`issues/fixed/where-constraints-arraylist-96b-leak.md`，2026-08-06 修复）；
@@ -449,44 +461,11 @@ while(true, {
 
 **开销（优化前）：** 每次迭代 2 次 RC 操作（dup + drop）+ 1 次初始 dup + 1 次最终 drop = N 次迭代共 2N + 2 次操作。
 
-#### 循环遍历借用链优化
+#### 自举编译器中没有遍历优化
 
-编译器现在能检测此遍历模式并消除**所有** RC 操作（2N + 2 → 0）。核心洞察：通过遍历变量访问的每个节点都由参数对整个数据结构的所有权保持存活。所有迭代中每个节点的净 RC 效果为零，因此移除所有 dup/drop 操作是安全的。
-
-**模式检测条件：**
-
-1. 变量从不拥有 RC 值的参数（或参数字段）初始化（`isOwningTheRcValue: false`）
-2. 在 `while`-`match` 循环中，该变量是 match 的被匹配值
-3. 在某个 match 分支中，变量被重新赋值为 match 绑定的字段（遍历步骤）
-4. 变量不会逃逸循环作用域（循环后无引用，除了 begin 块返回值）
-5. **循环体既不修改被遍历的结构，也不让节点逃逸出当前迭代**（`traversalLoopHasUnsafeUse`）：
-   不允许通过投影或索引赋值（`node.next = …` 会切断链表并在遍历中途释放被借用的子链 ——
-   use-after-free，见 `issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md`），也不允许
-   任何调用接收遍历名字或遍历类型的值（被调用者可能借此切断或保留节点）。只读遍历 ——
-   字段读取、标量比较、`return &(node.value)` —— 仍然优化到零 RC 操作。
-
-**被移除的操作：**
-
-- 参数表达式上的初始 `___dup`
-- 每次迭代重新赋值右侧的 `___dup`
-- 每次迭代旧值的 `___drop`（保存 + drop 对）
-- begin 块结束时的作用域退出 `___drop`
-- 提前返回分支中的 `___drop`
-
-**优化后输出（0 次 RC 操作）：**
-
-```c
-void traverse(Node* head) {
-    // current_opt = head（无 dup）
-    while (1) {
-        if (current_opt.tag == None) {
-            return;  // 无 drop
-        }
-        Node* current = current_opt.Some;
-        current_opt = current->next;  // 无 dup，无旧值 drop
-    }
-    // 无作用域退出 drop
-}
-```
-
-此优化实现在 `src/evaluator/exprs/begin.ts` 中的 `optimizeLoopTraversalBorrowChain` 函数。
+已退役的 TypeScript 编译器能识别这种循环，并移除其全部 RC 操作（2N + 2 → 0）。这项优化从未
+移植到自举编译器（见 `src/evaluator/exprs/begin.yo` 中配对优化器旁的注释），因此每次迭代都
+要付出上面的 dup 和 drop。`issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md` 记录了
+它的修改保护所修复的 use-after-free。在唯一所有权下，由语言本身取代它：一个局部借用重新指向
+它已借用的节点内部，即可遍历链表而不产生任何计数操作（`plans/VALUES_BY_DEFAULT.md`，
+决定 25）。
