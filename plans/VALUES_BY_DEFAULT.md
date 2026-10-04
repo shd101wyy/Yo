@@ -13,8 +13,7 @@ Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
 with decisions 13 (move-only futures) and 14 (second-class borrowing
 futures).
 Amended 2026-10-05 with the maintainer: **unique ownership (Hylo's model)
-replaces copy-on-write** (§0). Decisions 15–18 there are confirmed; 19–24
-are proposed.**
+replaces copy-on-write** (§0). Decisions 15–24 there are confirmed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -40,7 +39,8 @@ recommendation, final once the maintainer confirms it (§4's
 rule: a changed decision is a dated amendment, not a silent edit).
 The maintainer confirmed 16, 17 and 18 on 2026-10-05 ("make things in Yo
 explicit, like copy in hylo", with owning values only and no local
-borrows in the first cut); 19–24 remain proposed.
+borrows in the first cut), and 19–24 the same day ("yes lets do what
+you would suggest"), each as recommended.
 
 ### 0.1 Why
 
@@ -140,14 +140,14 @@ copies the first kind implicitly (decision 16).
     explicit copy. Hylo has `let` borrow bindings; Yo can add them later as
     one rule ("a local bound to a projection is a second-class borrow until
     its last use"), measured against the migration.
-19. **Proposed: no partial moves.** A field of explicit-copy or move-only
+19. **Confirmed 2026-10-05: no partial moves.** A field of explicit-copy or move-only
     type cannot be moved out of a value that stays alive. Use
     `x.field.clone()`, a destructuring that moves the whole value
     (`{ a, b } := x`), or the std helpers `take(inout x.field)` (leaves
     `Default`) and `replace(inout x.field, v)`. This is Rust's
     `mem::take`/`mem::replace`, and it keeps every move a move of a whole
     binding, which is what `consumed_at_token` tracks.
-20. **Proposed: collection element access by place.**
+20. **Confirmed 2026-10-05: collection element access by place.**
     - `xs(i)` is a place in every position. Read position borrows the
       element, and the left of `=` or an `inout` receiver writes it, with no
       uniqueness step. §3.1's `Index` split for COW is not needed; the
@@ -158,7 +158,7 @@ copies the first kind implicitly (decision 16).
     - Non-copying access for every element type: `with(i, body : Fn(inout(v) : T) -> R)`,
       `take(i)`, `swap(i, j)`, `pop`, `drain`. That is §3.4's list, now
       general.
-21. **Proposed: the compiler's large trees use `Rc` children, not `Box`.**
+21. **Confirmed 2026-10-05: the compiler's large trees use `Rc` children, not `Box`.**
     `TypeValue.clone()` is O(1) today and is called throughout `src/`. With
     `Box` children every clone would be a deep copy. `TypeValue` and
     `AstExpr` are immutable after construction (`AstExpr` rewrites go
@@ -166,7 +166,7 @@ copies the first kind implicitly (decision 16).
     honestly. The small trees (`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`)
     take `Box`. V4 measures `check ./src` time and stage-2 RSS for each.
 
-22. **Proposed: non-escaping closures borrow; escaping closures own; a
+22. **Confirmed 2026-10-05: non-escaping closures borrow; escaping closures own; a
     closure's kind follows its captures.** Raised by the maintainer
     2026-10-05 ("how would closure work in this case?").
     - **Kind.** A closure is implicitly copyable when all its captures are,
@@ -197,7 +197,7 @@ copies the first kind implicitly (decision 16).
     - Recommendation: yes. Without it, every `xs.map(x => … s …)` would
       consume `s` or force a `.clone()` that copies nothing the closure needs.
 
-23. **Proposed: no new closure types; `Fn` stays the one call trait.**
+23. **Confirmed 2026-10-05: no new closure types; `Fn` stays the one call trait.**
     Raised by the maintainer 2026-10-05 ("Do we need to introduce new type
     to distinguish closure's kind?").
     - **Escaping is the parameter mode.** A plain `f : Impl(Fn(...))`
@@ -230,7 +230,7 @@ copies the first kind implicitly (decision 16).
       closure may mutate or consume its captures; forbidding that keeps
       Yo's closure types as they are.
 
-24. **Proposed: projections, Hylo's subscripts in a first cut.** Raised by
+24. **Confirmed 2026-10-05: projections, Hylo's subscripts in a first cut.** Raised by
     the maintainer 2026-10-05 ("Do we need to support subscript projection
     from hylo?").
     - **Why.** Under decision 18 a projection is the only way to reach
@@ -257,9 +257,15 @@ copies the first kind implicitly (decision 16).
       `xs(i).clone()` is the explicit copy. `get(i) -> Option(T)` stays for
       implicitly copyable `T`. `with(i, body)` and `get_cloned` are needed
       only where a projection cannot express the access.
-    - **Open: the spelling.** Two candidates: a `project` member kind in
-      `impl`, or the `Index` trait's methods yielding (`index_read` /
-      `index_inout`). Settled with the maintainer before the PR.
+    - **The spelling: return conventions.** A function whose result is
+      `inout(T)` is a mutable projection; one whose result is `borrow(T)` is
+      a read projection. This mirrors the parameter conventions (plain,
+      `inout`, `sink`) and needs no new member kind, so any function can
+      project (`m.entry(k)`, `grid.cell(r, c)`). `Index.index` becomes
+      `fn(inout(self), idx) -> inout(Self.Output)` (today `-> *(Self.Output)`),
+      and read position uses a `borrow` form. Chosen 2026-10-05 as the
+      recommendation; V2b's first PR validates it on std's collections and
+      `String` before it spreads.
     - **Phase.** V2b's first PR, before unique buffers and explicit copies
       switch on.
     - Recommendation: yes, in this first-cut form.
