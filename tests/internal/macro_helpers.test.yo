@@ -282,8 +282,9 @@ test("macro helpers: a gensym'd token shares its source token's input", {
         .ExprVal(atom) => {
           synth := ast_expr_token(atom);
           assert(synth.input == source, "the synthesized token carries the source text");
-          assert(unsafe(__yo_ptr_eq(synth.input.as_bytes(), source.as_bytes())), "the synthesized token SHARES the source text instead of copying it");
-          assert(unsafe(__yo_ptr_eq(synth.module_path.as_bytes(), tok.module_path.as_bytes())), "the synthesized token shares the module path");
+          // `ptr()` is buffer identity; `to_bytes()` would compare two fresh copies.
+          assert(synth.input.ptr() == source.ptr(), "the synthesized token SHARES the source text instead of copying it");
+          assert(synth.module_path.ptr() == tok.module_path.ptr(), "the synthesized token shares the module path");
         },
         _ => assert(false, "gensym did not produce an ExprVal")
       ),

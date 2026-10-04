@@ -509,7 +509,7 @@ impl(
     );
     // Ensure authority-based URLs have a path starting with "/" or empty
     cond(
-      (has_authority && (!path_str.is_empty() && (path_str.as_bytes()(usize(0)) != _SLASH))) => {
+      (has_authority && (!path_str.is_empty() && (path_str.byte_at(usize(0)) != _SLASH))) => {
         return(.Err(UrlError.Other(`authority path must start with '/'`)));
       },
       true => ()
@@ -852,7 +852,7 @@ _UrlRef :: struct(
 _validate_component :: (
   fn(s : String, what : String, forbidden : String) -> Result(unit, UrlError)
 )({
-  forbidden_b := forbidden.as_bytes();
+  forbidden_b := forbidden;
   (i : usize) = usize(0);
   while(runtime(i < s.len()), {
     b := s.byte_at(i);
@@ -865,7 +865,7 @@ _validate_component :: (
     (j : usize) = usize(0);
     while(runtime(j < forbidden_b.len()), {
       cond(
-        (forbidden_b(j) == b) => {
+        (forbidden_b.byte_at(j) == b) => {
           return(
             Result(unit, UrlError).Err(
               UrlError.Other(`byte ${b} at offset ${i} ends a ${what} in the RFC 3986 grammar — percent-encode it`)
@@ -885,18 +885,18 @@ _validate_component :: (
 /// `1a:b` are not, and a relative path may legally contain a colon after the
 /// first segment (`a/b:c`), which is why the split below stops at `/`.
 _is_scheme :: (fn(s : String) -> bool)({
-  b := s.as_bytes();
+  b := s;
   if(b.len() == usize(0), {
     return(false);
   });
-  c0 := b(usize(0));
+  c0 := b.byte_at(usize(0));
   is_alpha0 := (((c0 >= u8(65)) && (c0 <= u8(90))) || ((c0 >= u8(97)) && (c0 <= u8(122))));
   if(!is_alpha0, {
     return(false);
   });
   i := usize(1);
   while(i < b.len(), i = (i + usize(1)), {
-    c := b(i);
+    c := b.byte_at(i);
     ok := (
       ((c >= u8(65)) && (c <= u8(90))) || ((c >= u8(97)) && (c <= u8(122))) || ((c >= u8(48)) && (c <= u8(57))) ||
         (c == u8(43)) || (c == u8(45)) || (c == u8(46))

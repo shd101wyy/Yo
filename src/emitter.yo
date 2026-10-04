@@ -221,13 +221,13 @@ _emitter_track_scope :: (fn(inout(stack) : ArrayList(String), line : String) -> 
 /// Count `\n` bytes — the physical-line accounting `#line` restore numbers
 /// need (plans/reference/LINE_DIRECTIVES.md).
 _emitter_count_newlines :: (fn(s : String) -> usize)({
-  bytes := s.as_bytes();
+  bytes := s;
   n := bytes.len();
   (i : usize) = usize(0);
   (count : usize) = usize(0);
   while(i < n, {
     match(
-      bytes.get(i),
+      bytes.get_byte(i),
       .Some(b) => if(b == u8(10), {
         count = (count + usize(1));
       }),
@@ -237,9 +237,10 @@ _emitter_count_newlines :: (fn(s : String) -> usize)({
   });
   count
 });
-/// Overwrite byte `i` of the SHARED backing buffer (`as_bytes()` hands back
-/// the internal handle) — the in-place `#line` restore-number patch must not
-/// copy the ~100 MB code buffer the spill lever exists to avoid copying.
+/// Overwrite byte `i` of a buffer taken out of the code string
+/// (`into_bytes()`, no copy when unique) — the in-place `#line` restore-number
+/// patch must not copy the ~100 MB code buffer the spill lever exists to avoid
+/// copying.
 _emitter_set_byte :: (fn(bytes : ArrayList(u8), i : usize, b : u8) -> unit)({
   match(
     bytes.ptr(),
@@ -435,7 +436,7 @@ impl(
       if((self.code_spill_fd < i32(0)) && !self._open_code_spill(), {
         return(());
       });
-      bytes := self.code.as_bytes();
+      bytes := self.code;
       n := bytes.len();
       base_ptr := bytes.ptr().unwrap();
       (done : usize) = usize(0);
@@ -453,7 +454,7 @@ impl(
   /// Replace the spilled code with `bytes` (the FTT-stub attribute insert,
   /// `_insert_attr_before_first_decl`, when the first declaration was
   /// already spilled). Rare; it rewrites the whole file.
-  rewrite_code_spill : (fn(inout(self) : Self, bytes : ArrayList(u8)) -> unit)({
+  rewrite_code_spill : (fn(inout(self) : Self, own(bytes) : ArrayList(u8)) -> unit)({
     close_sync(self.code_spill_fd);
     cpath := self.code_spill_path.to_cstr();
     fd := open_sync(cpath.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, i32(DEFAULT_FILE_MODE));
@@ -643,10 +644,15 @@ impl(
       return(());
     });
     base := (_emitter_count_newlines(self.headers) + _emitter_count_newlines(self.declarations) + usize(2));
-    bytes := self.code.as_bytes();
+    // Patch the buffer in place: take it out of `self.code` (with the field
+    // emptied the buffer is unique, so `into_bytes` moves it out with no
+    // copy), write the line numbers, and put it back below.
+    taken := self.code;
+    self.code = String.new();
+    bytes := taken.into_bytes();
     n := bytes.len();
     marker := line_restore_marker();
-    mb := marker.as_bytes();
+    mb := marker;
     mlen := mb.len();
     (ls : usize) = usize(0);
     (c_nl : usize) = usize(0);
@@ -672,7 +678,7 @@ impl(
         (all_eq : bool) = true;
         while((mi < mlen) && all_eq, {
           a := match(bytes.get(ls + mi), .Some(b0) => b0, .None => u8(0));
-          b := match(mb.get(mi), .Some(b1) => b1, .None => u8(1));
+          b := match(mb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
           if(a != b, {
             all_eq = false;
           });
@@ -704,6 +710,7 @@ impl(
         ls = le;
       });
     });
+    self.code = String.from_bytes(bytes);
   }),
   /// The full C source as its parts in order — headers, "\n", declarations,
   /// "\n", code: the bytes of `print()`, sharing the three buffers instead of

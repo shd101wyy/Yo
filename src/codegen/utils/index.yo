@@ -998,7 +998,7 @@ _mangle_c_identifier_bytes :: (fn(s : String) -> String)({
   sanitized := String.new();
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
   // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
-  n := s.as_bytes().len();
+  n := s.len();
   (i : usize) = usize(0);
   while(i < n, {
     b := s.byte_at(i);
@@ -1495,7 +1495,7 @@ _extract_future_trait_of_some_t :: (fn(t : TypeValue) -> Option(TypeValue))(
 /// identifier can't contain `*`; sanitize would otherwise turn it into `_u42_`).
 _strip_stars :: (fn(s : String) -> String)({
   out := String.from("");
-  n := s.as_bytes().len();
+  n := s.len();
   (i : usize) = usize(0);
   while(i < n, {
     b := s.byte_at(i);
@@ -2172,7 +2172,7 @@ _is_decimal_literal :: (fn(s : String) -> bool)({
   ok := (s.len() > usize(0));
   (i : usize) = usize(0);
   while((i < s.len()) && ok, {
-    ch := s(i);
+    ch := s.byte_at(i);
     if(!((ch >= u8(48)) && (ch <= u8(57))), {
       ok = false;
     });
@@ -2185,7 +2185,7 @@ _parse_decimal :: (fn(s : String) -> usize)({
   (i : usize) = usize(0);
   while(i < s.len(), {
     // Wrapping keeps the pre-trap behaviour for absurdly long digit runs.
-    v = (v.wrapping_mul(usize(10)) + usize(s(i) - u8(48)));
+    v = (v.wrapping_mul(usize(10)) + usize(s.byte_at(i) - u8(48)));
     i = (i + usize(1));
   });
   v
@@ -2197,7 +2197,7 @@ _idx_c_string_literal :: (fn(s : String) -> String)({
   bytes.push(u8(34));
   (i : usize) = usize(0);
   while(i < s.len(), {
-    ch := s(i);
+    ch := s.byte_at(i);
     if((ch == u8(34)) || (ch == u8(92)), {
       bytes.push(u8(92));
     });

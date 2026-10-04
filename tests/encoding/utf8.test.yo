@@ -438,9 +438,9 @@ test("encode_lossy_into output is always valid UTF-8", {
 // ============================================================================
 test("validate accepts well-formed input", {
   assert(_valid_kind(validate(_b0())) == "ok", "the empty buffer is valid");
-  assert(_valid_kind(validate(`hello`.as_bytes())) == "ok", "ASCII is valid");
-  assert(_valid_kind(validate(`héllo wörld`.as_bytes())) == "ok", "2-byte forms are valid");
-  assert(_valid_kind(validate(`€ 你好`.as_bytes())) == "ok", "3-byte forms are valid");
+  assert(_valid_kind(validate(`hello`.to_bytes())) == "ok", "ASCII is valid");
+  assert(_valid_kind(validate(`héllo wörld`.to_bytes())) == "ok", "2-byte forms are valid");
+  assert(_valid_kind(validate(`€ 你好`.to_bytes())) == "ok", "3-byte forms are valid");
 });
 test("validate rejects each malformed shape", {
   assert(_valid_kind(validate(_b1(u8(0x80)))) == "InvalidStart", "a lone continuation byte");
@@ -499,8 +499,8 @@ test("String round-trips through the shared decoder", {
   // a@0 (1B) é@1 (2B) €@3 (3B) 😀@6 (4B).
   assert(s.chars().count() == usize(4), "four runes");
   assert(s.len() == usize(10), "1 + 2 + 3 + 4 bytes");
-  assert(s.as_bytes().len() == usize(10), "1 + 2 + 3 + 4 bytes");
-  assert(_valid_kind(validate(s.as_bytes())) == "ok", "the template string is valid UTF-8");
+  assert(s.len() == usize(10), "1 + 2 + 3 + 4 bytes");
+  assert(_valid_kind(validate(s.to_bytes())) == "ok", "the template string is valid UTF-8");
   assert(
     match(s.at(usize(6)), .Some(r) => r.to_u32(), .None => u32(0)) == u32(0x1F600),
     "the last rune is U+1F600"
@@ -533,5 +533,5 @@ test("String.from_utf8 validates and from_bytes does not", {
   );
   // The unchecked constructor still takes anything, by contract.
   loose := String.from_bytes(_b1(u8(0x80)));
-  assert(loose.as_bytes().len() == usize(1), "from_bytes does not validate");
+  assert(loose.len() == usize(1), "from_bytes does not validate");
 });

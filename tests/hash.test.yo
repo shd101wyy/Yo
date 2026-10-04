@@ -55,7 +55,7 @@ test("SipHash-1-3 with the default keys: empty, ascii, a long message", {
   h := SipHasher13.new();
   assert(h.finish() == u64(15130871412783076140), "empty");
   s := String.from("hello");
-  al := s.as_bytes();
+  al := s;
   h2 := SipHasher13.new();
   match(
     al.ptr(),
@@ -64,7 +64,7 @@ test("SipHash-1-3 with the default keys: empty, ascii, a long message", {
   );
   assert(h2.finish() == u64(16350172494705860510), "hello");
   fox := String.from("The quick brown fox jumps over the lazy dog");
-  fal := fox.as_bytes();
+  fal := fox;
   h3 := DefaultHasher.new();
   match(
     fal.ptr(),

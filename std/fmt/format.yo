@@ -70,12 +70,12 @@ _to_radix :: (fn(mag : u64, radix : u64, upper : bool) -> String)(
     (mag == u64(0)) => String.from("0"),
     true => {
       alpha := if(upper, _DIGITS_UPPER, _DIGITS_LOWER);
-      bytes := String.from(alpha).as_bytes();
+      bytes := String.from(alpha);
       tmp := ArrayList(u8).new();
       (m : u64) = mag;
       while(m > u64(0), {
         d := usize(m % radix);
-        tmp.push(bytes(d));
+        tmp.push(bytes.byte_at(d));
         m = (m / radix);
       });
       sb := StringBuilder.new();

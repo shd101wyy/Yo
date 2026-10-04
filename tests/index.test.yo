@@ -201,13 +201,15 @@ test("Test Index on Deque with ring buffer wrap", {
   assert(d(usize(1)) == i32(4), "d(1) should be 4");
   assert(d(usize(2)) == i32(5), "d(2) should be 5");
 });
-// === String Index tests ===
-test("Test Index trait on String", {
+// === String bytes: no Index trait (String S3a), read by name ===
+test("String has no Index; byte_at / get_byte read bytes", {
   (s : String) = `Hello`;
-  assert(s(usize(0)) == u8(72), "s(0) should be 'H' (72)");
-  assert(s(usize(1)) == u8(101), "s(1) should be 'e' (101)");
-  assert(s(usize(2)) == u8(108), "s(2) should be 'l' (108)");
-  assert(s(usize(4)) == u8(111), "s(4) should be 'o' (111)");
+  comptime_expect_error(s(usize(0)), "is not callable");
+  assert(s.byte_at(usize(0)) == u8(72), "byte 0 should be 'H' (72)");
+  assert(s.byte_at(usize(1)) == u8(101), "byte 1 should be 'e' (101)");
+  assert(s.byte_at(usize(2)) == u8(108), "byte 2 should be 'l' (108)");
+  assert(s.get_byte(usize(4)) == Option(u8).Some(u8(111)), "byte 4 should be 'o' (111)");
+  assert(s.get_byte(usize(5)) == Option(u8).None, "past the end");
 });
 // === RC dup correctness tests ===
 // These tests verify that Index trait auto-deref correctly increments

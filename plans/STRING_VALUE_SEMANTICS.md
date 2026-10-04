@@ -1,7 +1,9 @@
 # `String` is a value (amended 2026-10-05: unique ownership, §0)
 
-**Status: APPROVED 2026-10-03. S0 landed (#1148); S1 (E0908 on `inout` writes
-through a borrowed value) in review; S2–S4 not started.** Decision by the user, after
+**Status: APPROVED 2026-10-03, amended 2026-10-05 (§0). S0 landed (#1148); S1
+(E0908 on `inout` writes through a borrowed value) landed (#1161); S2 done;
+S3a (the model-independent half of S3) in review (#1190); S3b dropped (§0);
+S4 (docs) in review (#1175).** Decision by the user, after
 `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
 (S1). This supersedes DESIGN §Type inference's "String is a
 reference-semantics type", and is the fix for that issue. No backward
@@ -36,8 +38,10 @@ copy-on-write:
   - `from_bytes`/`from_utf8` take their list by `own` (`sink` after the rename);
   - no writable byte index;
   - the 313 `as_bytes` call sites migrated;
-  - the two fixed issues (the writable byte index, and the write lost on an
-    empty copy).
+  - the writable byte index issue, fixed. The write lost on an empty copy
+    stays open, partly fixed: `clone()` is independent, but a plain
+    `t := s` still shares a non-empty buffer until V2b (measured on the S3a
+    tree, 2026-10-05).
 - **S3b, dropped:** the uniqueness step in every mutator and the O(1)
   `clone()` (a dup). `clone()` stays a byte copy. An empty `String` still
   allocates nothing.
@@ -85,7 +89,7 @@ points to `std/imm/string` for sharing.
 was empty. This is Swift's `String`.
 
 **Copy-on-write.** A copy is an RC dup of the buffer. A mutator first makes
-the buffer unique: if `rc(buffer) > 1` it replaces its own `_bytes` with a
+the buffer unique: if `ref_count(buffer) > 1` it replaces its own `_bytes` with a
 private clone, then writes in place. A unique buffer (the common case: a
 string being built up by its only owner) is written in place with no copy.
 `rc` is the live count (std/prelude's `Box` notes): the optimizer may cancel
@@ -236,6 +240,37 @@ fast suite, the hollow sweep.
   - **Measure** `yo check ./src` time and stage-2 compile RSS before and
     after (`--optimize 2`, no `--emit-c`), and re-baseline the memory
     ratchet if a number moves past ±10 %.
+  - **As implemented (S3a, 2026-10-05; the COW version's uniqueness step
+    and O(1) `clone()` were removed, §0):**
+    - `clone()` stays the eager byte copy, and `clear` keeps its buffer.
+    - `into_bytes(own(self))` moves the buffer out when no other copy shares
+      it, and copies otherwise, so the list it returns is never written
+      behind another `String`'s back while V2b has not made buffers unique.
+    - `push_string` grows `self` before it reads `other`'s pointer:
+      `s.push_string(s)` read the freed buffer on develop
+      (`issues/fixed/a-string-pushed-onto-itself-reads-its-freed-buffer.md`),
+      which the COW version's uniqueness step had hidden.
+    - `get_byte(i) -> Option(u8)` joins `byte_at(i)` for in-place reads.
+      `String` loses `Index(usize)` (`s(i)` is E0606), which closes the
+      writable byte place.
+    - Inside `std/string/` a private `_byte_list()` returns the shared buffer
+      for read-only helpers; member visibility keeps it in that directory.
+    - Migration of the 313 `as_bytes()` sites:
+      - `.as_bytes().len()` → `.len()`, `.as_bytes().get(` → `.get_byte(`;
+      - a binding only ever read becomes an O(1) `String` copy (it shares the
+        buffer today; it becomes a borrow in V2b) read with
+        `byte_at`/`get_byte`;
+      - the rest copy with `to_bytes()`.
+      Helpers that took the list read-only (`interpolation_body_end`, the
+      regex prefix scan and match builder) take a `String`, so the lexer,
+      parser, formatter and regex copy nothing per token or per match.
+      `to_bytes()` becomes O(1) once V2b makes `ArrayList` a value.
+    - The one site that wrote a string through its list,
+      `Emitter.patch_restore_line_numbers`, now takes the buffer out
+      (`into_bytes`, no copy when unique), patches it, and puts it back.
+    - The scripts compiled against the tree std migrate too:
+      `scripts/build_site.yo` (test.yml's site job, the release site deploy)
+      reads bytes through `String.get_byte`.
 - **S4: docs and close.**
   - DESIGN §Type inference and §Writing through a copy of a `String`, en-US
     and zh-CN, STRINGS.md, and the pack's ownership section.
@@ -243,9 +278,12 @@ fast suite, the hollow sweep.
   - Update the `yo-core-patterns` / `yo-syntax` skills, re-recording the
     seven skill-tree goldens (memory note: skill edits move CLI goldens).
 
-**Seed gate.** S3 is a `std/` change compiled by the seed. It uses only
-`rc(...)`, `own(...)` and `inout(self)`, all present in v0.2.49. S1 is a
-`src/` change.
+**Seed gate.** S3a is a `std/` change compiled by the seed. It uses
+`ref_count(...)` (v0.2.51; `rc(...)` before step 0b), `own(...)` and
+`inout(self)`, and is gated on the v0.2.52 seed. The COW version of S3
+needed a v0.2.51 seed: built by the v0.2.50 seed it corrupted its own heap,
+because that seed lacks #1172's argument retains and #1178's newtype retain,
+which its O(1) `clone()` relied on. S1 is a `src/` change.
 
 ## 6. What does not change (in this plan)
 

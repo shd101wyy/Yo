@@ -219,7 +219,7 @@ test("BufWriter batches, auto-flushes when full, and flush drains", {
   fw := io.await(File.open(path, OpenMode.Write, io), t_e);
   bw := BufWriter(File).with_capacity(fw, usize(4));
   msg := `hello world`.to_string();
-  mb := msg.as_bytes();
+  mb := msg;
   n := io.await(bw.write(mb.ptr().unwrap(), mb.len(), io), t_e);
   assert(n == usize(11), "write reports everything accepted");
   assert(bw.buffered() < usize(4), "auto-flush kept the buffer under capacity");
@@ -246,9 +246,9 @@ test("BufWriter multiple small writes then a single flush", {
   fw := io.await(File.open(path, OpenMode.Write, io), t_e);
   bw := BufWriter(File).new(fw);
   a := `foo`.to_string();
-  ab := a.as_bytes();
+  ab := a;
   b := `bar`.to_string();
-  bb := b.as_bytes();
+  bb := b;
   io.await(bw.write(ab.ptr().unwrap(), ab.len(), io), t_e);
   io.await(bw.write(bb.ptr().unwrap(), bb.len(), io), t_e);
   assert(bw.buffered() == usize(6), "both writes still buffered");
@@ -275,7 +275,7 @@ test("BufWriter does NOT flush on drop — the documented contract", {
   {
     bw := BufWriter(File).new(fw);
     m := `lost`.to_string();
-    lb := m.as_bytes();
+    lb := m;
     io.await(bw.write(lb.ptr().unwrap(), lb.len(), io), t_e);
     assert(bw.buffered() == usize(4), "bytes sit in the buffer");
   };

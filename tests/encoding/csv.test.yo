@@ -98,7 +98,7 @@ test("writer quotes only when needed and round-trips", {
   assert(_field(back, usize(1), usize(1)) == "said \"hi\"\nthen left", "round-trip field");
   assert(_field(back, usize(2), usize(1)) == "", "round-trip empty field");
   crlf := csv.write_with(rows, CsvOptions(delimiter : u8(44), line_ending : LineEnding.CrLf));
-  assert(crlf.as_bytes().len() == (text.as_bytes().len() + usize(3)), "CRLF adds one byte per record");
+  assert(crlf.len() == (text.len() + usize(3)), "CRLF adds one byte per record");
   tsv := csv.write_with(rows, CsvOptions.with_delimiter(u8(9)));
   assert(tsv.starts_with("name\tnote\n"), "tab delimiter in output");
   assert(tsv.contains("\"said"), "quote/newline still force quoting under TSV");

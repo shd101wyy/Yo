@@ -431,7 +431,7 @@ _chunked :: (fn(chunks : ArrayList(String), trailer : String) -> String)({
   i := usize(0);
   while(i < chunks.len(), i = (i + usize(1)), {
     c := chunks(i);
-    out = `${out}${_hex(c.as_bytes().len())}\r\n${c}\r\n`;
+    out = `${out}${_hex(c.to_bytes().len())}\r\n${c}\r\n`;
   });
   `${out}0\r\n${trailer}\r\n`
 });
@@ -577,13 +577,13 @@ test("fetch round-trips a binary body byte-for-byte", {
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), "200");
-  got := r.body.as_bytes();
+  got := r.body;
   assert(got.len() == usize(8), `body is 8 bytes (got ${got.len()})`);
-  assert(got(usize(0)) == u8(0x80), "leading continuation byte survives");
-  assert(got(usize(1)) == u8(0), "NUL survives");
-  assert(got(usize(2)) == u8(13), "embedded CR survives");
-  assert(got(usize(6)) == u8(0xFF), "0xFF survives");
-  assert(got(usize(7)) == u8(65), "trailing ASCII");
+  assert(got.byte_at(usize(0)) == u8(0x80), "leading continuation byte survives");
+  assert(got.byte_at(usize(1)) == u8(0), "NUL survives");
+  assert(got.byte_at(usize(2)) == u8(13), "embedded CR survives");
+  assert(got.byte_at(usize(6)) == u8(0xFF), "0xFF survives");
+  assert(got.byte_at(usize(7)) == u8(65), "trailing ASCII");
 });
 // ============================================================================
 // RFC 9112 §5 field-line parsing (issues/fixed/http-content-length-ows-and-
@@ -957,11 +957,11 @@ test("parse_response slices a binary body as bytes", {
   match(
     parse_response(raw),
     .Ok(r) => {
-      got := r.body.as_bytes();
+      got := r.body;
       assert(got.len() == usize(5), `body kept all 5 bytes, got ${got.len()}`);
-      assert(got(usize(0)) == u8(0x80), "first byte");
-      assert(got(usize(2)) == u8(0x0d), "the CR inside the body survived");
-      assert(got(usize(4)) == u8(0xff), "last byte");
+      assert(got.byte_at(usize(0)) == u8(0x80), "first byte");
+      assert(got.byte_at(usize(2)) == u8(0x0d), "the CR inside the body survived");
+      assert(got.byte_at(usize(4)) == u8(0xff), "last byte");
     },
     .Err(e) => {
       eprintln(`  unexpected: ${e.to_string()}`);
@@ -1573,7 +1573,7 @@ test("HttpClient: a HEAD response ends at its headers and the connection is reus
 // repeated here is that these two cases are the ones the pool introduced.
 _PipeReader :: ref(struct(data : ArrayList(u8), pos : usize, reads : usize));
 _pipe :: (fn(text : String) -> _PipeReader)(
-  _PipeReader(data : text.as_bytes(), pos : usize(0), reads : usize(0))
+  _PipeReader(data : text.to_bytes(), pos : usize(0), reads : usize(0))
 );
 impl(
   _PipeReader,
