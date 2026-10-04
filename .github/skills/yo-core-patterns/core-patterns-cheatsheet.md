@@ -25,7 +25,7 @@ println("plain str is also fine");
 | Type           | When you see it                              | Key behavior                           |
 | -------------- | -------------------------------------------- | -------------------------------------- |
 | `str`          | `"hello"` in runtime contexts                | View of STATIC bytes, no constraints   |
-| `String`       | Template strings `` `hello` ``               | Owned UTF-8 value, copy-on-write       |
+| `String`       | Template strings `` `hello` ``               | Owned UTF-8, `clone()` copies the bytes |
 | `comptime_str` | `"hello"` inside `comptime` functions/macros | Compile-time only, distinct from `str` |
 
 Key rules:
@@ -33,7 +33,7 @@ Key rules:
 - In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str`. It does NOT auto-convert to `str`. A comptime function returning `str` materializes its `comptime_str` result automatically.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
-- `String` is a VALUE: `t := s` is an independent copy (O(1); the buffer is shared until one side writes). Mutators take `inout(self)`, so writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `inout(s) : String`, return the new string, or write a local copy. Bytes: `byte_at(i)` / `get_byte(i)` read in place, `to_bytes()` copies, `into_bytes()` moves out; there is no runtime `s(i)` (E0606) and no `as_bytes`.
+- `String`: `t := s.clone()` is an independent copy (O(n)); a plain `t := s` still shares a non-empty buffer until VALUES_BY_DEFAULT V2b makes it a move, so write only through a clone. Mutators take `inout(self)`, so writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `inout(s) : String`, return the new string, or write a local clone. Bytes: `byte_at(i)` / `get_byte(i)` read in place, `to_bytes()` copies, `into_bytes()` moves out; there is no runtime `s(i)` (E0606) and no `as_bytes`.
 - **PITFALL:** Never write `String.from(`hello`)` — backtick strings are already `String`, not `str`. `String.from` takes `str`, so wrapping a backtick in `String.from` causes a type error ("Cannot unify String and str"). Only use `String.from(str_expr)` for actual `str` values.
 
 ## Import patterns

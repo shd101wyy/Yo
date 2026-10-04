@@ -136,8 +136,8 @@ into the UTF-8 buffer, no boundary requirement — and panics past the end.
 
 A runtime `String` has no `s(i)`: it does not implement `Index(usize)`, so
 `s(usize(0))` is E0606 ("s is not callable"). `Index` hands out a writable
-place, and a write through it (`s(i) = b`) would skip the copy-on-write step
-below and could leave invalid UTF-8 behind. A read-only `s(i)` returns once
+place, and a write through it (`s(i) = b`) would reach every string sharing
+the buffer and could leave invalid UTF-8 behind. A read-only `s(i)` returns once
 `Index` separates reads from writes. The range sugar `s(a..b)` is unaffected:
 it builds a new string.
 
@@ -150,19 +150,19 @@ s.get_byte(usize(9)); // .None — past the end
 s(usize(1)..usize(3)); // "é" — a new String
 ```
 
-## A `String` is a value
+## Copies, clones and the byte list
 
-A copy of a `String` is independent: after `t := s`, nothing done to `t` is
-visible through `s`, and the reverse. Copies share the byte buffer until one of
-them writes (copy-on-write): every mutator (`push_str`, `push_string`,
-`push_byte`, `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`,
-`insert`, `remove`, `pop`) takes `inout(self)` and first makes the buffer
-unique, cloning it only when another copy still holds it. `clone()` is O(1).
-Writing through a borrowed copy (a by-value parameter, a `for` or `match`
-binding) is E0908; the rules are in
+Every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`,
+`reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`)
+takes `inout(self)` and writes in place. `clone()` copies the bytes (O(n));
+the clone is independent of the original, empty or not. A plain copy
+(`t := s`) still shares a non-empty buffer until `plans/VALUES_BY_DEFAULT.md`
+V2b makes `String` uniquely owned (then `t := s` is a move, or an error naming
+`s.clone()`), so write only through a clone. Writing through a borrowed copy
+(a by-value parameter, a `for` or `match` binding) is E0908; the rules are in
 [DESIGN.md](./DESIGN.md#writing-through-a-copy-of-a-string).
 
-Nothing outside a `String` holds its buffer, so the byte list is copied or
+Nothing outside a `String` may write its buffer, so the byte list is copied or
 moved, never lent:
 
 | method | result |

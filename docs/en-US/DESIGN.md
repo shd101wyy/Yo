@@ -477,9 +477,6 @@ A type can have the following **Kind**:
 - Unions defined with `union(...)`
 - Fixed-size arrays: `Array(T, N)` or `[T; N]`
 - Tuples: `Tuple(T1, T2, ...)` or `(T1; T2; ...)`
-- `String` (`std/string`): its bytes live on the heap, and a copy shares them
-  until one side writes (copy-on-write; see
-  [Writing through a copy of a `String`](#writing-through-a-copy-of-a-string))
 
 **Reference-Semantics Types** (heap-allocated, reference-counted):
 
@@ -590,9 +587,9 @@ _ := unsafe(unistd.close(fd));
 ### Type inference
 
 ```rust
-// String is a value whose bytes live on the heap
+// String's bytes live on the heap, behind a reference-counted buffer
 (my_string : String) = String.from("Hello, world"); // Heap-allocated bytes
-my_string_2 := my_string; // An independent copy: the two share the buffer until one writes (copy-on-write)
+my_string_2 := my_string; // Today a copy shares the buffer; my_string.clone() is an independent copy
 // Primitive types are copied
 my_int := 1; // Stack-allocated
 my_int_2 := my_int; // my_int_2 is a copy
@@ -602,7 +599,7 @@ my_int_array := [1, 2, 3]; // Array(i32, 3)
 // ArrayList is an reference-semantics type
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
 // Enum/ADT can be value or reference-semantics type depending on definition
-Person :: struct(name : String, age : i32); // Value type (its String field is a value too)
+Person :: struct(name : String, age : i32); // Value type (but holds a reference-semantics field)
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -2499,21 +2496,30 @@ s3 := (s + s2); // Create a new string.
 
 #### Writing through a copy of a `String`
 
-`String` is a value, like `i32` or `Array(T, N)`: after `t := s`, nothing done
-to `t` is visible through `s`, and the reverse, whether or not `s` was empty.
-A copy does not copy the bytes. The copies share one buffer until one of them
-writes (copy-on-write): every mutator first makes the buffer unique, cloning it
-only when another copy still holds it. A string built up by its only owner is
-written in place, `clone()` is O(1), and an empty `String` allocates nothing
-until its first write.
+`clone()` is the independent copy. It copies the bytes (O(n)), so nothing
+done to the clone is visible through the original, and the reverse, whether or
+not the original was empty. Every mutator takes `inout(self)` and writes in
+place, and an empty `String` allocates nothing until its first write.
 
-A write lands in the binding that is written:
+A plain copy (`t := s`, a struct copy, a value read out of a collection) still
+copies only the handle. A non-empty buffer is shared, so a write through the
+copy is visible through the original. An empty string has no buffer yet, so
+the copy's first write allocates one of its own, and the original never sees
+it.
+
+**Known defect (S1, `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`).**
+That split is the open half of the issue. `plans/VALUES_BY_DEFAULT.md` V2b
+closes it by making `String` uniquely owned: `t := s` becomes a move, or an
+error naming `s.clone()` when `s` is used again. Until then, do not write
+through a plain copy.
+
+A write lands where it is written:
 
 - **A plain parameter** `fn(out : String)` borrows the caller's value. Writing
   it (`out.push_str("!")`, or passing it to an `inout` parameter) is E0908. To
   change the caller's string, take `inout(out) : String`; to produce a new one,
-  return it; to work on a private copy, copy it into a local (`t := out;`) and
-  write the local.
+  return it; to work on a private copy, clone it into a local
+  (`t := out.clone();`) and write the local.
 - **A `for` or `match` binding** borrows too: `for(xs, s => s.push_str("!"))`
   is E0908. `for(xs, inout(s) => s.push_str("!"))` writes each element in
   place, and so does `xs(i).push_str("!")`.
@@ -2530,22 +2536,22 @@ append_inout :: (fn(inout(out) : String) -> unit)({
   out.push_str("!");
 });
 
-// A by-value parameter is borrowed: write a local copy and return it.
+// A by-value parameter is borrowed: write a local clone and return it.
 with_bang :: (fn(s : String) -> String)({
-  t := s;
+  t := s.clone();
   t.push_str("!");
   t
 });
 
 main :: (fn() -> unit)({
   a := String.from("hi");
-  b := a; // b shares a's buffer
-  b.push_str("?"); // the first write copies it: a is untouched
+  b := a.clone(); // b has its own copy of the bytes
+  b.push_str("?"); // a is untouched
   println(`"${a}" "${b}"`); // "hi" "hi?"
 
   e := String.new();
-  f := e;
-  f.push_str("x"); // empty or not, a copy is independent
+  f := e.clone();
+  f.push_str("x"); // empty or not, a clone is independent
   println(`"${e}" "${f}"`); // "" "x"
 
   c := String.new();
@@ -2564,18 +2570,13 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-Because nothing outside a `String` may hold its buffer, the byte API copies or
+Because nothing outside a `String` may write its buffer, the byte API copies or
 moves instead of lending: `to_bytes()` returns an independent `ArrayList(u8)`,
 `into_bytes()` consumes the string and moves the buffer out (no copy when no
 other copy shares it), and `from_bytes(own(bytes))` / `from_utf8(own(bytes))`
 take the list over. Bytes are read in place with `len()`, `byte_at(i)`,
 `get_byte(i)` and `bytes()`; a runtime `String` has no `s(i)` (see
 [STRINGS.md](./STRINGS.md)).
-
-The clone a write makes is placed where the shared buffer lives, not in the
-current `with_allocator` scope: a copy of an arena-built string that is written
-outside the scope clones into the arena
-([Explicit Allocators](#explicit-allocators)).
 
 #### Template string interpolation with `${}` syntax:
 

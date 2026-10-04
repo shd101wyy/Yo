@@ -277,15 +277,17 @@ fast suite, the hollow sweep.
   - Move the issue to `issues/fixed/` with S3's test.
   - Update the `yo-core-patterns` / `yo-syntax` skills, re-recording the
     seven skill-tree goldens (memory note: skill edits move CLI goldens).
-  - **As written (2026-10-04):** DESIGN §Type inference, §Value Types,
-    §String, §Writing through a copy of a `String` (now the value rules and
-    E0908) and the `for` section's example; STRINGS.md (byte access by name,
-    a "`String` is a value" section with the byte-list API); INDEX_TRAIT.md
-    (String has no `Index(usize)`); EXPLICIT_ALLOCATORS.md (where the
-    copy-on-write clone lands); PARALLELISM.md (String is not Send because it
-    holds an `ArrayList`); both languages. Instructions and skills:
-    `yo-design`, `yo-syntax`, the syntax and core-patterns cheatsheets. The
-    issue was already moved to `issues/fixed/` by S3.
+  - **As written (2026-10-04, revised 2026-10-05 for §0):** DESIGN §Type
+    inference, §String, §Writing through a copy of a `String` (`clone()` is
+    the independent copy; a plain copy still shares a non-empty buffer until
+    V2b, the issue's open half; E0908 for writes through a borrow) and the
+    `for` section's example; STRINGS.md (byte access by name, "Copies, clones
+    and the byte list"); INDEX_TRAIT.md (String has no `Index(usize)`);
+    PARALLELISM.md (String is not Send because it holds an `ArrayList`); both
+    languages. Instructions and skills: `yo-design`, `yo-syntax`, the syntax
+    and core-patterns cheatsheets. The copy-on-write text of the first draft
+    (O(1) `clone()`, `t := s` independent, where a COW clone is allocated) is
+    gone.
 
 **Seed gate.** S3a is a `std/` change compiled by the seed. It uses
 `ref_count(...)` (v0.2.51; `rc(...)` before step 0b), `own(...)` and

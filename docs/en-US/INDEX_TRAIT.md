@@ -241,7 +241,7 @@ b := s.byte_at(usize(0)); // u8(72) — byte-level access ('H'); panics past the
 c := s.get_byte(usize(9)); // .None — the checked form
 ```
 
-`index` returns a writable place, and `String` is a copy-on-write value: a write through that place (`s(i) = b`) would skip the step that gives the string its own buffer, so it would change every copy sharing the buffer, and it could leave invalid UTF-8 behind. Rust's `String` has no writable byte index either. A read-only `s(i)` returns once `Index` separates reads from writes (a by-value read form beside the place form). For character-level access, use the `chars()` iterator. The range sugar `s(a..b)` is unaffected; it and every other string index (`substring`, `index_of`, …) are byte offsets — see [STRINGS.md](./STRINGS.md) for the full contract.
+`index` returns a writable place: a write through it (`s(i) = b`) would change every string sharing the buffer, and it could leave invalid UTF-8 behind. Rust's `String` has no writable byte index either. A read-only `s(i)` returns once `Index` separates reads from writes (a by-value read form beside the place form). For character-level access, use the `chars()` iterator. The range sugar `s(a..b)` is unaffected; it and every other string index (`substring`, `index_of`, …) are byte offsets — see [STRINGS.md](./STRINGS.md) for the full contract.
 
 ## Error Handling
 

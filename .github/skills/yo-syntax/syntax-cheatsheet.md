@@ -1025,7 +1025,7 @@ process_map(counts);
 
 ### `String` out-parameters take `inout`
 
-`String` is a copy-on-write **value** (`plans/STRING_VALUE_SEMANTICS.md`): copies are independent, empty or not, and share the buffer only until one of them writes. A by-value `String` parameter BORROWS the caller's value, so writing it (`push_str`, passing it to an `inout` parameter) is **E0908**. Before String S1 this compiled and the write was silently lost when the string was empty — an emitter buffer once vanished from the chunked-C output that way, with only a far-downstream `unknown type name` as the symptom. This is the opposite of `ArrayList`/`HashMap`/`HashSet` (RC `ref` types, until `plans/VALUES_BY_DEFAULT.md` V2), where mutations through a by-value parameter DO propagate.
+`clone()` is a `String`'s independent copy (`plans/STRING_VALUE_SEMANTICS.md` §0): it copies the bytes, empty or not. A plain copy still shares a non-empty buffer until VALUES_BY_DEFAULT V2b, so write only through a clone. A by-value `String` parameter BORROWS the caller's value, so writing it (`push_str`, passing it to an `inout` parameter) is **E0908**. Before String S1 this compiled and the write was silently lost when the string was empty — an emitter buffer once vanished from the chunked-C output that way, with only a far-downstream `unknown type name` as the symptom. This is the opposite of `ArrayList`/`HashMap`/`HashSet` (RC `ref` types, until `plans/VALUES_BY_DEFAULT.md` V2), where mutations through a by-value parameter DO propagate.
 
 ```rust
 // E0908 — a by-value parameter borrows the caller's string:
@@ -1048,9 +1048,9 @@ split :: (fn(text : String) -> Split)({
   Split(head_part : h, body_part : b)
 });
 
-// ALSO CORRECT — work on a local copy and return it:
+// ALSO CORRECT — work on a local clone and return it:
 shout :: (fn(s : String) -> String)({
-  t := s;                    // O(1): shares the buffer until the write
+  t := s.clone();            // O(n): its own copy of the bytes
   t.push_str("!");
   t
 });
@@ -1609,7 +1609,7 @@ with a separator variable.
 
 ### Pushing RC struct fields into ArrayList does not need `.clone()`
 
-String fields (and fields of other RC-holding types) of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically, and a `String` copy is independent anyway (copy-on-write):
+String fields (and fields of other RC-holding types) of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
 
 ```rust
 names.push(param.name);
@@ -1619,8 +1619,7 @@ names.push(param.name);
 `h.name.clone()` — verified 2026-06); the historical
 `fn(self: String)` vs `fn(self: *(String))` ambiguity error no longer
 reproduces. `x.clone()` is the idiomatic replacement for the retired
-`String.from(x.as_str())` roundtrip; on a `String` it is O(1) (a shared
-buffer, copied by the first write to either side).
+`String.from(x.as_str())` roundtrip; on a `String` it copies the bytes (O(n)).
 
 ### `.Some(expr)` needs an expected type
 
@@ -1852,7 +1851,7 @@ the runtime `substring` would panic.
 
 **A runtime `String` has no `s(i)`** (String S3): it does not implement
 `Index(usize)`, so `s(usize(0))` is E0606 ("s is not callable") — a writable
-byte place would bypass copy-on-write and could break UTF-8. Read bytes with
+byte place would reach every string sharing the buffer and could break UTF-8. Read bytes with
 `byte_at(i)` (panics past the end) or `get_byte(i) -> Option(u8)`. `as_bytes`
 is gone: `to_bytes()` returns an independent `ArrayList(u8)`, `into_bytes()`
 (`own(self)`) moves the buffer out with no copy when unique, and

@@ -127,7 +127,7 @@ first := s.chars().next(); // Option(rune)
 
 运行期的 `String` 没有 `s(i)`：它不实现 `Index(usize)`，所以 `s(usize(0))` 是
 E0606（"s is not callable"）。`Index` 交出的是一个可写的位置，通过它写入
-（`s(i) = b`）会绕过下文的写时复制步骤，还可能留下非法的 UTF-8。等 `Index`
+（`s(i) = b`）会影响所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。等 `Index`
 把读和写分开之后，只读的 `s(i)` 会回来。区间语法糖 `s(a..b)` 不受影响：它构建
 一个新字符串。
 
@@ -140,17 +140,18 @@ s.get_byte(usize(9)); // .None —— 越界
 s(usize(1)..usize(3)); // "é" —— 一个新的 String
 ```
 
-## `String` 是值
+## 副本、克隆与字节列表
 
-`String` 的副本是独立的：执行 `t := s` 之后，对 `t` 所做的任何事都不会通过 `s`
-看到，反之亦然。各个副本共享字节缓冲区，直到其中一个写入（写时复制）：每个修改方法
-（`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、`clear`、
-`truncate`、`insert_str`、`insert`、`remove`、`pop`）都接受 `inout(self)`，并先让
-缓冲区变为独占，只有当另一个副本仍持有它时才克隆。`clone()` 是 O(1)。通过借用的副本
-（按值参数、`for` 或 `match` 的绑定）写入是 E0908；规则见
+每个修改方法（`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、
+`clear`、`truncate`、`insert_str`、`insert`、`remove`、`pop`）都接受
+`inout(self)` 并就地写入。`clone()` 复制字节（O(n)）；无论是否为空，克隆都独立于
+原值。普通的复制（`t := s`）目前仍共享非空的缓冲区，直到
+`plans/VALUES_BY_DEFAULT.md` 的 V2b 让 `String` 成为唯一所有的值（届时 `t := s`
+是移动，或报错并提示 `s.clone()`），所以只通过克隆写入。通过借用的副本（按值参数、
+`for` 或 `match` 的绑定）写入是 E0908；规则见
 [DESIGN.md](./DESIGN.md#通过-string-的副本写入)。
 
-`String` 之外的任何东西都不持有它的缓冲区，所以字节列表只会被复制或移动，不会出借：
+`String` 之外的任何东西都不能写它的缓冲区，所以字节列表只会被复制或移动，不会出借：
 
 | 方法 | 结果 |
 | --- | --- |

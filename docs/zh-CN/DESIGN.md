@@ -464,8 +464,6 @@ begin(
 - 用 `union(...)` 定义的联合体
 - 固定大小数组：`Array(T, N)` 或 `[T; N]`
 - 元组：`Tuple(T1, T2, ...)` 或 `(T1; T2; ...)`
-- `String`（`std/string`）：字节存放在堆上，副本与原值共享这些字节，直到其中一方写入
-  （写时复制；见[通过 `String` 的副本写入](#通过-string-的副本写入)）
 
 **引用语义类型**（堆分配，引用计数）：
 
@@ -576,9 +574,9 @@ _ := unsafe(unistd.close(fd));
 ### 类型推断
 
 ```rust
-// String 是一个值，字节存放在堆上
+// String 的字节存放在堆上，由引用计数的缓冲区持有
 (my_string : String) = String.from("Hello, world"); // 字节在堆上分配
-my_string_2 := my_string; // 独立的副本：两者共享缓冲区，直到其中一个写入（写时复制）
+my_string_2 := my_string; // 目前副本与原值共享缓冲区；my_string.clone() 才是独立的副本
 // 原始类型是复制的
 my_int := 1; // 栈分配
 my_int_2 := my_int; // my_int_2 是一个副本
@@ -588,7 +586,7 @@ my_int_array := [1, 2, 3]; // Array(i32, 3)
 // ArrayList 是一个引用语义类型
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // 堆分配，RC
 // 枚举/ADT 可以是值类型或引用语义类型，取决于定义方式
-Person :: struct(name : String, age : i32); // 值类型（它的 String 字段也是值）
+Person :: struct(name : String, age : i32); // 值类型（但包含引用语义类型字段）
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -2402,18 +2400,25 @@ s3 := (s + s2); // 创建一个新字符串。
 
 #### 通过 `String` 的副本写入
 
-`String` 是一个值，与 `i32` 或 `Array(T, N)` 一样：执行 `t := s` 之后，对 `t`
-所做的任何事都不会通过 `s` 看到，反之亦然，无论 `s` 是否为空。复制并不复制字节：
-各个副本共享同一个缓冲区，直到其中一个写入（写时复制）。每个修改方法都会先让缓冲区
-变为独占，只有当另一个副本仍持有它时才克隆。由唯一所有者逐步构建的字符串会被就地写入，
-`clone()` 是 O(1)，空 `String` 在第一次写入之前不分配任何内存。
+`clone()` 才是独立的副本：它复制字节（O(n)），所以对克隆所做的任何事都不会通过原值
+看到，反之亦然，无论原值是否为空。每个修改方法都接受 `inout(self)` 并就地写入，空
+`String` 在第一次写入之前不分配任何内存。
 
-写入落在被写的那个绑定上：
+普通的复制（`t := s`、结构体的复制、从集合中读出的值）目前仍只复制句柄。非空的缓冲区
+是共享的，所以通过副本的写入会通过原值看到；空字符串还没有缓冲区，副本的第一次写入会
+为自己分配一个，原值永远看不到这次写入。
+
+**已知缺陷（S1，`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`）。**
+这种分歧是该问题尚未修复的一半。`plans/VALUES_BY_DEFAULT.md` 的 V2b 让 `String`
+成为唯一所有的值，从而修复它：`t := s` 变为移动；如果之后还使用 `s`，则报错并提示
+`s.clone()`。在此之前，不要通过普通副本写入。
+
+写入落在被写的位置上：
 
 - **普通参数** `fn(out : String)` 借用调用方的值。写入它（`out.push_str("!")`，
   或把它传给 `inout` 形参）是 E0908。要修改调用方的字符串，请接受
-  `inout(out) : String`；要产生新字符串，请返回它；要在私有副本上操作，请先复制到
-  局部变量（`t := out;`）再写这个局部变量。
+  `inout(out) : String`；要产生新字符串，请返回它；要在私有副本上操作，请先克隆到
+  局部变量（`t := out.clone();`）再写这个局部变量。
 - **`for` 或 `match` 的绑定**同样是借用：`for(xs, s => s.push_str("!"))` 是
   E0908。`for(xs, inout(s) => s.push_str("!"))` 会就地写入每个元素，
   `xs(i).push_str("!")` 也一样。
@@ -2430,22 +2435,22 @@ append_inout :: (fn(inout(out) : String) -> unit)({
   out.push_str("!");
 });
 
-// 按值参数是借用的：写一个局部副本并返回它。
+// 按值参数是借用的：写一个局部克隆并返回它。
 with_bang :: (fn(s : String) -> String)({
-  t := s;
+  t := s.clone();
   t.push_str("!");
   t
 });
 
 main :: (fn() -> unit)({
   a := String.from("hi");
-  b := a; // b 与 a 共享缓冲区
-  b.push_str("?"); // 第一次写入会复制缓冲区：a 不受影响
+  b := a.clone(); // b 拥有自己的一份字节
+  b.push_str("?"); // a 不受影响
   println(`"${a}" "${b}"`); // "hi" "hi?"
 
   e := String.new();
-  f := e;
-  f.push_str("x"); // 无论是否为空，副本都是独立的
+  f := e.clone();
+  f.push_str("x"); // 无论是否为空，克隆都是独立的
   println(`"${e}" "${f}"`); // "" "x"
 
   c := String.new();
@@ -2464,15 +2469,11 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-由于 `String` 之外的任何东西都不能持有它的缓冲区，字节 API 只复制或移动，不出借：
+由于 `String` 之外的任何东西都不能写它的缓冲区，字节 API 只复制或移动，不出借：
 `to_bytes()` 返回一个独立的 `ArrayList(u8)`；`into_bytes()` 消耗字符串并把缓冲区
 移出（没有其他副本共享时不复制）；`from_bytes(own(bytes))` / `from_utf8(own(bytes))`
 接管传入的列表。就地读取字节用 `len()`、`byte_at(i)`、`get_byte(i)` 和 `bytes()`；
 运行期的 `String` 没有 `s(i)`（见 [STRINGS.md](./STRINGS.md)）。
-
-写入所做的克隆放在共享缓冲区所在的位置，而不是当前的 `with_allocator` 作用域：
-在 arena 中构建的字符串，其副本若在作用域外被写入，克隆仍会放进该 arena
-（[显式分配器](#显式分配器)）。
 
 #### 使用 `${}` 语法的模板字符串插值：
 

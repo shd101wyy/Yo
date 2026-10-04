@@ -124,12 +124,6 @@ its buffer goes back to the allocator it was created with, whichever scope is
 current at the time. `xs.allocator()` returns that allocator, or `.None` for a
 container on the global allocator.
 
-A `String` copy shares its source's buffer until one of them writes
-(copy-on-write). The clone that first write makes goes to the allocator of the
-shared buffer, like `ArrayList.clone`, not to the current scope: a copy of an
-arena-built string written after the scope has ended still clones into the
-arena.
-
 The container's own size does not change: the allocator is recorded in the
 owner prefix of its buffer, with one bit of an existing word marking it.
 
