@@ -21,6 +21,7 @@
   RuntimeStructField,
   get_type_string,
   get_storage_type_string,
+  dyn_slot_param_type_string,
   get_runtime_struct_fields,
   sanitize_for_c_identifier,
   c_variant_member_name,
@@ -1539,6 +1540,7 @@ _dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed :
       field_ty,
       .Func({ param_types, result, meta : __fm1 }) => {
         param_labels := __fm1.*.param_labels;
+        param_is_ref := __fm1.*.param_is_ref;
         // Only methods whose first param is `self`, and that a Dyn can call
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.
@@ -1554,7 +1556,7 @@ _dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed :
             if(pi == usize(0), {
               plist.push_str("void* self");
             }, {
-              pty := match(param_types.get(pi), .Some(t) => get_type_string(t, context), .None => String.from("void*"));
+              pty := dyn_slot_param_type_string(param_types.get(pi), param_is_ref.get(pi), context);
               pn := match(param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("arg"));
               plist.push_string(pty);
               plist.push_str(" ");
@@ -1595,7 +1597,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
         cond(
           is_fn_trait_type(tt) => match(
             tt,
-            .FnTraitT({ call_param_labels, call_param_types, call_result }) => {
+            .FnTraitT({ call_param_labels, call_param_types, call_result, call_param_is_ref }) => {
               ret_str := get_type_string(call_result, context);
               plist := String.new();
               np := call_param_labels.len();
@@ -1604,7 +1606,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
                 if(pi > usize(0), {
                   plist.push_str(", ");
                 });
-                pty := match(call_param_types.get(pi), .Some(t) => get_type_string(t, context), .None => String.from("void*"));
+                pty := dyn_slot_param_type_string(call_param_types.get(pi), call_param_is_ref.get(pi), context);
                 pn := match(call_param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("arg"));
                 plist.push_string(pty);
                 plist.push_str(" ");
