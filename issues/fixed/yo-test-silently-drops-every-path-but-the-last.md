@@ -3,6 +3,8 @@
 **Severity:** S3. A wrong but visible result: the run reports a smaller test
 count than intended, with no error.
 
+**Status: FIXED** (#1181): a second path is an error naming both paths.
+
 ## Symptom
 
 `yo test` takes one path (`Usage: yo test [path] [options]`). Given several,
