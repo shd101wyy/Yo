@@ -1,0 +1,42 @@
+// Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, phase V3, Generation A).
+//
+// A value type that implements `Dispose` or declares `MoveOnly`, and every
+// value aggregate holding one, cannot be copied: each move point (`:=`, `=`,
+// an `own` argument, a field or element store, a return, a closure capture)
+// moves it, a use after the move is E0901, and its one owner disposes it
+// exactly once. `g_mo_disposed` counts the `dispose` runs of `_MoFd`.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+(g_mo_disposed : i32) = i32(0);
+_MoFd :: struct(n : i32);
+impl(
+  _MoFd,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_mo_disposed = (g_mo_disposed + i32(1));
+    })
+  )
+);
+_MoHolder :: struct(fd : _MoFd, tag : i32);
+_MoToken :: struct(id : i32);
+impl(_MoToken, MoveOnly());
+_MoChoice :: enum(Open(_MoFd), Closed);
+_mo_take :: (fn(own(f) : _MoFd) -> i32)(f.n);
+_mo_peek :: (fn(f : _MoFd) -> i32)(f.n);
+_mo_make :: (fn(n : i32) -> _MoFd)({
+  x := _MoFd(n : n);
+  x
+});
+// ---------------------------------------------------------------------------
+// The marker
+// ---------------------------------------------------------------------------
+test("move-only: Dispose and MoveOnly make a value type move-only, and aggregates inherit it", {
+  comptime_assert(Type.impls(_MoFd, MoveOnly), "a Dispose value type is move-only");
+  comptime_assert(Type.impls(_MoToken, MoveOnly), "a declared MoveOnly type is move-only");
+  comptime_assert(Type.impls(_MoHolder, MoveOnly), "a struct holding one is move-only");
+  comptime_assert(Type.impls(Option(_MoFd), MoveOnly), "an Option of one is move-only");
+  comptime_assert(Type.impls(Tuple(_MoFd, i32), MoveOnly), "a tuple holding one is move-only");
+  comptime_assert(Type.impls(_MoChoice, MoveOnly), "an enum carrying one is move-only");
+  comptime_assert(!Type.impls(i32, MoveOnly), "i32 is copyable");
+  comptime_assert(!Type.impls(Box(_MoFd), MoveOnly), "a reference type shares its payload: never move-only");
+});

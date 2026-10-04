@@ -536,7 +536,7 @@ move_captured_move_only_variable :: (fn(v : Variable, tok : Token, env : Environ
         raise_flow_violation(with_code(format_error_message_with_help(tok, msg, move_only_help(v.name.clone(), v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
       _log_user_move(v, tok, env);
-      v.consumed_at_token = Option(Box(Token)).Some(box(tok));
+      v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
     }
   );
 });
