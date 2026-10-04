@@ -610,8 +610,10 @@ evaluate_identifier_and_operator :: (
 /// rejected: a user-named binding of move-only type read from source code.
 _read_after_move_is_checked :: (fn(variable : Variable, token : Token, env : Environment) -> bool)(
   !token.module_path.starts_with(String.from("auto-generated://"))
-  && (!is_temp_variable_name(env.module_path, variable.name)
-  && (type_is_move_only(variable.ty) || debug_knob(`YO_CHECK_READ_AFTER_MOVE`).is_some()))
+  && (
+    !is_temp_variable_name(env.module_path, variable.name)
+    && (type_is_move_only(variable.ty) || debug_knob(`YO_CHECK_READ_AFTER_MOVE`).is_some())
+  )
 );
 /// The row of the first line that is neither blank nor a `//` comment — where
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.
