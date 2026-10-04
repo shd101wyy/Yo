@@ -689,17 +689,17 @@ audit_print_implicit_copy :: (fn(line : String) -> unit)({
     eprintln(line);
   });
 });
-_IC_COLLECTIONS :: "ArrayList(|HashMap(|HashSet(|BTreeMap(|Deque(|LinkedList(|OrderedMap(|PriorityQueue(";
-/// The collection named by a struct type name (`ArrayList(String)` →
-/// `ArrayList`), or none.
+_IC_COLLECTIONS :: "ArrayList|HashMap|HashSet|BTreeMap|Deque|LinkedList|OrderedMap|PriorityQueue";
+/// The std collection a struct type name denotes (`ArrayList` or
+/// `ArrayList(String)` → `ArrayList`), or none.
 _implicit_copy_collection_name :: (fn(name : String) -> Option(String))({
-  prefixes := String.from(_IC_COLLECTIONS).split("|");
+  bases := String.from(_IC_COLLECTIONS).split("|");
   (i : usize) = usize(0);
-  while(i < prefixes.len(), {
+  while(i < bases.len(), {
     match(
-      prefixes.get(i),
-      .Some(pfx) => if(name.starts_with(pfx.clone()), {
-        return(Option(String).Some(pfx.substring(usize(0), pfx.len() - usize(1))));
+      bases.get(i),
+      .Some(base) => if((name == base) || name.starts_with(`${base}(`), {
+        return(Option(String).Some(base));
       }),
       .None => ()
     );
