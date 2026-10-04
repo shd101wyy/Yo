@@ -564,6 +564,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
+- **`Box`/`Arc` auto-dereference** (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3): `b.x`, `b.x = v`, `b.m()` and `b.items.push(v)` on a `Box(P)` mean `b.*.x`, `b.*.x = v`, `b.*.m()`, `b.*.items.push(v)`; nested wrappers recurse (`bb.x` on `Box(Box(P))`). The wrapper's own members win (`b.clone()` is the Box's clone). In a safe file a write through an `Arc` is still D3 (`a.n = v`, `a.bump()` with `inout(self)`). Not forwarded: a FUNCTION-typed payload field called as `b.f(x)` (write `b.*.f(x)`). `std/`/`src/` must keep the explicit `.*` until the seed knows auto-deref.
 - **A tuple TYPE is `Tuple(A, B)`**, e.g. `(fn(x : i32) -> Tuple(String, usize))`. `(A, B)` in a type position is a tuple VALUE holding two types and fails with `Cannot store a type value in tuple, please use module instead`. Tuple values are `(a, b)`.
 - **`(a, b) := expr` bindings are immutable**: a later `a = ...` is E0902 `Cannot reassign "a"`. Bind each name with an annotation (`(a : usize) = ...;`) when it must be reassigned.
 - **A bare `import("std/fmt");` binds no names.** It evaluates the module (its impls and derive rules register), but `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401 `Variable "eprintln" not found` otherwise).

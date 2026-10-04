@@ -2957,6 +2957,37 @@ m.* = 20;
 assert(m.* == 20);
 ```
 
+### 自动解引用
+
+`Box` 和 `Arc` 实现了 prelude 中的 `Deref` 标记 trait
+（`Deref :: trait(Target : Type)`，`Target` 即载荷类型）。对 `Deref` 类型，
+包装器自身没有的字段或方法会到载荷上查找：`w.field` 即 `w.*.field`，
+`w.method()` 即 `w.*.method()`。
+
+```rust
+Point :: struct(x : i32, y : i32);
+impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
+p := box(Point(x : 3, y : 4));
+assert(p.x == 3);          // p.*.x
+p.x = 5;                   // 是一个位置：写入 p.*.x
+assert(p.norm1() == 9);    // p.*.norm1()
+pp := box(box(Point(x : 1, y : 2)));
+assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
+```
+
+- **包装器自身的成员优先。** `p.clone()` 是 `Box` 的 `clone`（得到一个新的
+  `Box`），而不是载荷的；`p.*` 永远就是载荷本身。
+- **位置。** 转发得到的字段是一个位置：`p.x = v` 以及 `inout(self)` 调用
+  （如 `p.items.push(v)`）都写入载荷。在没有 `pragma(Pragma.AllowUnsafe)`
+  的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `inout(self)` 的
+  `a.bump()`）：请通过 `Mutex` 或原子类型修改 `Arc` 的载荷。
+- **只有 `Box` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
+  编译错误：用户自定义的包装器应通过自己的字段和方法暴露载荷。
+- 当包装器和载荷都没有这个名字时，错误信息会说明这一点：
+  ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
+  field "z" either.``（E0406；方法则为 E0610）。
+- 载荷中保存函数的字段不能通过 `w.f(...)` 访问；请写 `w.*.f(...)`。
+
 ### Box 与赋值
 
 ```rust
@@ -3457,6 +3488,9 @@ t := Thread(unit).spawn(io => {
 t.join();
 assert(shared.* == i32(42), "main still sees shared value");
 ```
+
+`Arc(T)` 实现了 `Deref`，因此读取会转发到载荷（`shared.field`、
+`shared.method()`；见[自动解引用](#自动解引用)）；在安全代码中通过它写入会被拒绝。
 
 完整详情请参阅 [ARC.md](./ARC.md)。
 

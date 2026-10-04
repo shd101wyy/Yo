@@ -48,7 +48,7 @@ E0610 — no matching call
 
 No candidate accepts this call: the receiver has no such method, or no overload fits the arguments.
 
-The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first.
+The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Box` or `Arc` (a `Deref` type) a method the wrapper lacks is looked up on its payload (auto-dereference, `b.m()` is `b.*.m()`); when the payload lacks it too, the message says so and names the payload.
 
 Example — this fails:
   Point :: struct(x : i32);
