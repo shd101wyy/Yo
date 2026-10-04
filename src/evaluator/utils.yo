@@ -760,6 +760,7 @@ _implicit_copy_category_at :: (fn(ty : TypeValue, depth : u32) -> String)({
     return(String.from("other"));
   });
   t := t_refine_inner(ty);
+  display := type_to_string(ty);
   if(is_dyn_type(t), {
     return(String.from("Dyn"));
   });
@@ -771,12 +772,14 @@ _implicit_copy_category_at :: (fn(ty : TypeValue, depth : u32) -> String)({
   });
   match(
     t,
-    .Struct({ name, field_types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => match(
-      _implicit_copy_collection_name(name.clone()),
+    // By the PRINTED name of the unrefined type: matching the refined
+    // struct's `name` field missed `ArrayList(i32)` in the fixture.
+    .Struct({ field_types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => match(
+      _implicit_copy_collection_name(display.clone()),
       .Some(collection) => collection,
       .None => cond(
-        (name == "String") => String.from("String"),
-        name.starts_with("Arc(") => String.from("Arc"),
+        (display == "String") => String.from("String"),
+        display.starts_with("Arc(") => String.from("Arc"),
         (is_ref && is_atomic) => String.from("Arc"),
         (is_ref && _implicit_copy_plain_members(field_types)) => String.from("ref-object(plain)"),
         is_ref => String.from("ref-object"),
