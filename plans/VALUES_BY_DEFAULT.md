@@ -1406,6 +1406,13 @@ Per type, in this order, each its own PR, measured:
    `Arc(ArrayList(T))` becomes legal and the transfer isolation walk is
    no longer needed; `std/imm` then becomes optional. Decide after V2b,
    with numbers.
+
+   **Maintainer's position (2026-10-04): keep the count non-atomic**, so
+   `String` and the collections keep the best single-thread performance.
+   The measurement above still runs once V2b exists. It confirms or
+   reopens this, and the default going into V2b is non-atomic (copy-on-write
+   buffers are not `Sync`; they cross threads through the §3.8 transfer
+   isolation).
 12. **`Box` in patterns.** V4 needs `match` to see through `Box` in pattern
    position. Spelled implicitly (a `Box(Expr)` scrutinee matches `Expr`
    patterns) or explicitly (`Box(p)`)? Implicit is what `ref(enum)` gives
