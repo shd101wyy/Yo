@@ -1,4 +1,4 @@
-# `String` is a value: copy-on-write semantics
+# `String` is a value (amended 2026-10-05: unique ownership, §0)
 
 **Status: APPROVED 2026-10-03. S0 landed (#1148); S1 (E0908 on `inout` writes
 through a borrowed value) in review; S2–S4 not started.** Decision by the user, after
@@ -6,6 +6,47 @@ through a borrowed value) in review; S2–S4 not started.** Decision by the user
 (S1). This supersedes DESIGN §Type inference's "String is a
 reference-semantics type", and is the fix for that issue. No backward
 compatibility is kept (AGENTS.md): signatures change and call sites migrate.
+
+**Amended 2026-10-05 (§0): `String` becomes a uniquely owned value, not
+copy-on-write**, with `plans/VALUES_BY_DEFAULT.md` §0.
+
+---
+
+## 0. Amendment 2026-10-05: unique ownership instead of copy-on-write
+
+The maintainer adopted Hylo's model for every buffer
+(`plans/VALUES_BY_DEFAULT.md` §0). `String` still behaves as a value: after
+`t := s.clone()` the two are independent. It gets there without
+copy-on-write:
+
+- **The buffer has one owner and no count.** A mutator writes in place with
+  no uniqueness step. `clone()` copies the bytes (O(n), explicit).
+- **`String` is explicit-copy.** `t := s` moves when `s` is not used again;
+  otherwise it is a compile error naming `s.clone()`. That rule switches on
+  in VALUES_BY_DEFAULT V2b, together with the collections and the migration
+  §0.4 there measures. Until then `String` keeps today's RC buffer.
+
+**S3 splits in two:**
+
+- **S3a, lands (model-independent):**
+  - every mutator takes `inout(self)`, including `truncate`, `insert_str`,
+    `insert`, `remove` and `pop`;
+  - `as_bytes` is replaced by `to_bytes`, `into_bytes(own(self))` (`sink` after the rename) and
+    `get_byte`;
+  - `from_bytes`/`from_utf8` take their list by `own` (`sink` after the rename);
+  - no writable byte index;
+  - the 313 `as_bytes` call sites migrated;
+  - the two fixed issues (the writable byte index, and the write lost on an
+    empty copy).
+- **S3b, dropped:** the uniqueness step in every mutator and the O(1)
+  `clone()` (a dup). `clone()` stays a byte copy. An empty `String` still
+  allocates nothing.
+
+§2's "copy-on-write" rows and paragraphs, S3's uniqueness bullets in §5,
+§7's "values with copy-on-write" end state, and §8's COW risks are
+superseded by this section. S1 (E0908 on `inout` writes through a borrowed
+value) and S2 (count accuracy) stand; S2 matters only for `Rc`/`Arc` once
+V2b lands.
 
 ---
 
