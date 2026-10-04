@@ -436,6 +436,78 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
   assert(b(usize(1)) == i32(3), "b(1) should be 3");
   assert(rc(b) == 1, "rc(b) should be 1");
 });
+// Regression canary for the M3 early-return-drop attachment
+// (issues/yo-self-compile-performance-rc-string-eq.md, "UNSOUND idea" +
+// "Negative result 2026-10-04" sections): any future optimization of that
+// walk — a hoist, or a shortcut pruning on `Expr.$.controlFlow` — must keep
+// attaching a consumed local's drop at returns HIDDEN inside an `if`/`match`
+// arm whose block tail is a plain statement: a begin's control flow is
+// tail-position only, so such a block carries NO return flag and only a
+// genuine subtree walk finds the cleanup point. A missed attachment leaks the
+// still-initialized local on the early path (the counter falls short); an
+// over-attachment double-drops it (the caller then reads a freed object).
+(g_m3_hidden_disposed : i32) = i32(0);
+M3HiddenRet :: ref(struct(tag : i32));
+impl(
+  M3HiddenRet,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_m3_hidden_disposed = (g_m3_hidden_disposed + i32(1));
+    })
+  )
+);
+m3_consume :: (fn(own(v) : M3HiddenRet) -> i32)(v.tag);
+m3_hidden_if :: (fn(early : bool) -> i32)({
+  s := M3HiddenRet(tag : i32(11));
+  if(early, {
+    return(i32(0));
+  });
+  r := m3_consume(s);
+  r + i32(1)
+});
+m3_hidden_match :: (fn(k : i32) -> i32)({
+  s := M3HiddenRet(tag : i32(22));
+  match(
+    k,
+    0 => {
+      return(i32(7));
+    },
+    _ => ()
+  );
+  {
+    r := m3_consume(s);
+    r
+  }
+});
+m3_two_locals :: (fn(early : bool) -> i32)({
+  a := M3HiddenRet(tag : i32(33));
+  b := M3HiddenRet(tag : i32(44));
+  if(early, {
+    return(i32(0));
+  });
+  ra := m3_consume(a);
+  rb := m3_consume(b);
+  ra + rb
+});
+test("a moved-out local is dropped on a return hidden in an if or match arm", {
+  before := g_m3_hidden_disposed;
+  // Early path: the return precedes the move, so the attachment must release
+  // the still-initialized local exactly once per call.
+  assert(m3_hidden_if(true) == i32(0), "hidden-if early path returns 0");
+  assert((g_m3_hidden_disposed - before) == i32(1), "hidden-if early path disposed the local exactly once");
+  assert(m3_hidden_if(false) == i32(12), "hidden-if fallthrough returns tag + 1");
+  assert((g_m3_hidden_disposed - before) == i32(2), "hidden-if fallthrough disposed via the own-arg transfer");
+  assert(m3_hidden_match(0) == i32(7), "hidden-match early path returns 7");
+  assert((g_m3_hidden_disposed - before) == i32(3), "hidden-match early path disposed the local exactly once");
+  assert(m3_hidden_match(1) == i32(22), "hidden-match fallthrough returns the tag");
+  assert((g_m3_hidden_disposed - before) == i32(4), "hidden-match fallthrough disposed via the own-arg transfer");
+  // Two consumed locals in one block: the hoist attaches EACH variable against
+  // the collected cleanup nodes.
+  assert(m3_two_locals(true) == i32(0), "two-locals early path returns 0");
+  assert((g_m3_hidden_disposed - before) == i32(6), "both moved-out locals disposed on the hidden early path");
+  assert(m3_two_locals(false) == i32(77), "two-locals fallthrough returns 33 + 44");
+  assert((g_m3_hidden_disposed - before) == i32(8), "both locals disposed via their own-arg transfers");
+});
 // --- Inline `ref(enum)` payload-free variant construction ---
 // Regression for issues/fixed/ref-enum-unit-variant-inline-construction-leak.md.
 //

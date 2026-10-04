@@ -2,7 +2,7 @@
 
 **Severity:** S3 — self-compile took ~55 min with ~91% of CPU in refcount churn and String equality — every gate chain slowed (perf work-log)
 
-**Status: DIAGNOSED 2026-07-23 (profile-verified). Not yet fixed.**
+**Status: OPEN — the 2026-07 levers landed in stages (dated sections below); the M3-walk hoist was implemented twice and measured NO WIN on 2026-10-04 (final section); the identifier/type-key interning arc under plans/EVALUATOR_MEMORY_REDUCTION_HANDOVER.md is the remaining lever.**
 
 ## Symptom
 
@@ -334,3 +334,54 @@ type keys** (String== is ~38% of the emit purely from call volume — id
 compares remove both the compare and the frame-scan hashing), then the
 sound O(subtree + V×returns) hoist of
 `_attach_early_return_only_drop_to_returns`.
+
+## Negative result 2026-10-04 — the O(subtree + V×returns) hoist: NO WIN on today's tree, not landed
+
+The hoist above ("sound alternative") was implemented TWICE on branch
+`s3/batch-2-fixes` and measured on this issue's canonical A/B workload
+(`check ./std`, alternating 3+3 reps, same-generation MSVC `-O0` chunked
+binaries built from the branch with and without the change):
+
+- **v1 — collect-the-nodes**: one walk per block gathering the
+  return/unwind cleanup nodes into an `ArrayList(AstExpr)`, then attaching
+  each eligible variable's drop against the list. Paired deltas
+  +4.6/+0.4/+0.9 %, min 704.6 → 711.3 s. The node list's `AstExpr`
+  push/get value-copies cancel the saved walks.
+- **v2 — candidate pairing**: the eligible variables' drops are evaluated
+  first (frame order; `consumed_escape_drops` unchanged), then ONE walk
+  (`_attach_early_return_drops_to_returns`) attaches every candidate at each
+  return/unwind it reaches — 2 fat args per node vs the retired walker's 4,
+  no node list. Paired deltas −0.2/+2.3/+2.6 %, min 691.6 → 706.7 s (the
+  before-side itself drifted 708.0 → 691.6 s across the round).
+
+Both were PROVEN behaviour-identical before measuring: emitted C
+byte-identical (same-generation binaries) on an M3-shaped probe — a hidden
+`return` in an `if`, in a `match` arm, and a handler-body `unwind` before
+an own-arg move — and on the full `tests/rc.test.yo` runner batch plus the
+dyn/error/ref_field_borrow/closure module emissions; `rc` 69/69 (+ the new
+canary below), dyn 32/32, error 15/15, ref_field_borrow 15/15, closure
+26/26, `check ./src` 278/278.
+
+Why no win: the walk's share has collapsed since the 2026-07-25 attribution
+(13.9 % of decr_rc calls) — the match-place dup elision and the String ==
+rounds removed most of the traffic it generated — and blocks with more than
+one eligible consumed local are rare, so removing (V−1) walks saves nothing
+measurable while any added value-motion costs. Per this log's own precedent
+(the String == pointer fast path, the frame-index threshold) a no-benefit
+change in this machinery is not worth a gate cycle: **both reverted.**
+
+Kept from the round: the regression canary
+`tests/rc.test.yo` "a moved-out local is dropped on a return hidden in an if
+or match arm" (the `{ if(c, { return(x); }); tail; }` shape the "UNSOUND
+idea" section warns a controlFlow-pruned shortcut would leak — green on the
+unmodified compiler), and two pre-existing defects found while gating:
+`issues/while-with-an-operator-condition-as-tail-of-a-unit-fn-is-rejected.md`
+and
+`issues/an-effect-handler-local-moved-out-after-a-conditional-unwind-leaks.md`.
+
+The remaining live lever is unchanged: **interning identifiers / fids /
+type keys** (plus the `g_stable_to_key` full-`type_key` rekey), which
+continues under `plans/EVALUATOR_MEMORY_REDUCTION_HANDOVER.md`. Caveat for
+whoever retries the hoist: these numbers are `-O0` chunked builds on
+Windows/MSVC; the shipped `-O2` configuration was not measured (each -O2
+A/B pair costs ~80 min on this box).
