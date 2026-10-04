@@ -15,7 +15,7 @@
 { AstExpr, ast_expr_is_fn_call_of, ast_expr_id, ast_expr_token, BK_OP_AND, BK_OP_OR } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ note_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
@@ -24,20 +24,11 @@
 /// function. MONOTONE: never removed. See
 /// `FunctionGenerationContext.short_circuit_emitted_drop_targets`.
 _mark_sc_target_emitted :: (fn(target : String, context : FunctionGenerationContext) -> unit)({
-  match(
-    context.short_circuit_emitted_drop_targets,
-    .Some(_) => (),
-    .None => {
-      context.short_circuit_emitted_drop_targets = Option(HashSet(String)).Some(HashSet(String).new());
-    }
-  );
-  match(
-    context.short_circuit_emitted_drop_targets,
-    .Some(em_set) => {
-      em_set.insert(target);
-    },
-    .None => ()
-  );
+  // Taken out and stored back: a `match` binding is a copy of the set once
+  // collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  em_set := match(context.short_circuit_emitted_drop_targets.take(), .Some(s) => s, .None => HashSet(String).new());
+  em_set.insert(target);
+  context.short_circuit_emitted_drop_targets = Option(HashSet(String)).Some(em_set);
 });
 /// `base` followed by `n` levels of two-space indent.
 _indent_n :: (fn(base : String, n : usize) -> String)({
@@ -92,7 +83,7 @@ _expr_may_have_side_effects :: (fn(expr : AstExpr, context : FunctionGenerationC
 /// Collect the variable names newly CREATED by an expression tree (temps from
 /// function-call results). For nested `&&`/`||`, only the first (unconditional)
 /// arg is descended into.
-_collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(String), context : FunctionGenerationContext) -> unit)(
+_collect_created_var_names_from_expr :: (fn(expr : AstExpr, inout(result) : HashSet(String), context : FunctionGenerationContext) -> unit)(
   match(
     expr,
     .FnCall(_, func, args, _, _) => {
@@ -212,8 +203,8 @@ _emit_node_list_drops :: (
                 );
                 if(!already_emitted && !n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(nd_drop)) && !is_deferred_drop_for_closure_capture(nd_drop, context.current_closure_captures), {
                   n_cn := sanitize_for_c_identifier(ntarget.clone(), false);
-                  n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.contains(n_cn));
-                  if(!n_undeclared && scope_stack_contains(context.base.declared_scopes, n_cn), {
+                  n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.*.contains(n_cn));
+                  if(!n_undeclared && scope_stack_contains(context.base.declared_scopes.*, n_cn), {
                     // `_call_generate_expr` on a drop expr may EMIT and return "".
                     // An enum/Option-typed target lowers to a multi-line
                     // `switch` block that the drop generator writes to the
@@ -228,13 +219,7 @@ _emit_node_list_drops :: (
                     nd_code := _call_generate_expr(nd_drop, indent.clone(), context);
                     context.emitted_deferred_drop_ids.insert(ast_expr_id(nd_drop));
                     _mark_sc_target_emitted(ntarget.clone(), context);
-                    match(
-                      context.short_circuit_handled_drop_var_names,
-                      .Some(ns) => {
-                        ns.insert(ntarget);
-                      },
-                      .None => ()
-                    );
+                    note_short_circuit_handled(context, ntarget);
                     if(nd_code.len() > usize(0), {
                       nline := indent.clone();
                       nline.push_string(nd_code);
@@ -307,7 +292,7 @@ _emit_drops_for_conditional_branch :: (
                 // holds no +1 to release; emitting the drop is an undeclared-
                 // identifier C error (the rc1 stage-2 clang break).
                 sc_target_cn := sanitize_for_c_identifier(target.clone(), false);
-                sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.contains(sc_target_cn));
+                sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.*.contains(sc_target_cn));
                 if(!sc_undeclared, {
                   drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
                   // Same decoupling as the node source below: the generator
@@ -322,13 +307,7 @@ _emit_drops_for_conditional_branch :: (
                     em.emit_string_line(line);
                   });
                 });
-                match(
-                  context.short_circuit_handled_drop_var_names,
-                  .Some(s) => {
-                    s.insert(target);
-                  },
-                  .None => ()
-                );
+                note_short_circuit_handled(context, target);
                 removed = (removed + usize(1));
               }, {
                 new_pending.push(drop_expr);

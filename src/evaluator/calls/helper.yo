@@ -577,7 +577,7 @@ _type_has_array_len_var :: (fn(t : TypeValue) -> bool)(_type_has_array_len_var_d
 /// as the body's own calls — one instantiation lineage (the imm_map
 /// `_alloc_pairs` expected/actual struct-id split).
 _trial_eval_ret_type_expr :: (
-  fn(ret_texpr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
+  fn(ret_texpr : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(TypeValue)) -> unit
 )({
   inner_exn := Exception(throw : (_err -> unwind(())));
   evaluated := evaluate_expression_raw(ret_texpr, env, ctx, inner_exn);
@@ -977,7 +977,7 @@ check_if_function_parameter_matches_argument :: (
     callee_env : Environment,
     caller_env : Environment,
     ctx : EvalContext,
-    runtime_arg_exprs_in_order : ArrayList(AstExpr),
+    inout(runtime_arg_exprs_in_order) : ArrayList(AstExpr),
     exn : Exception,
     /// The parameter's `= <value>` ASSIGNED value, or `.None`. Appended last
     /// with a default so existing call sites need no change. See the Step-5b
@@ -2230,7 +2230,7 @@ _spec_resolve_arg_ty :: (fn(t_in : TypeValue) -> TypeValue)({
 /// A forwarded closure param has no FuncVal; when its type resolved to a
 /// `capture_*` struct, push `clcap<i>_<struct id>` onto the specialization
 /// cache key so two layout-identical capture structs never share a spec.
-_push_forwarded_closure_key :: (fn(compile_time_args : ArrayList(EvalValue), cfi : usize, arg_ty : TypeValue) -> unit)(
+_push_forwarded_closure_key :: (fn(inout(compile_time_args) : ArrayList(EvalValue), cfi : usize, arg_ty : TypeValue) -> unit)(
   match(
     _spec_resolve_arg_ty(arg_ty),
     .Struct({ id : cap_sid }) => if(cap_sid.starts_with("capture_"), {
@@ -4601,7 +4601,7 @@ _create_specialization_trapped :: (
     callee_env : Environment,
     caller_env : Environment,
     ctx : EvalContext,
-    out : ArrayList(EvalValue)
+    inout(out) : ArrayList(EvalValue)
   ) -> Option(AnyError)
 )({
   trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
@@ -4680,7 +4680,17 @@ create_specialization_at_call :: (
     _create_specialization_trapped(fv, ft, av, callee_env, caller_env, ctx, out),
     .Some(err) => {
       ctx.currently_specializing_function = prev_spec;
-      match(ctx.currently_specializing_function_stack, .Some(st) => st.truncate(prev_stack_len), .None => ());
+      // Taken out and stored back: a `match` binding is a copy of the stack
+      // once collections are values.
+      match(
+        ctx.currently_specializing_function_stack.take(),
+        .Some(st) => {
+          stack := st;
+          stack.truncate(prev_stack_len);
+          ctx.currently_specializing_function_stack = .Some(stack);
+        },
+        .None => ()
+      );
       exn.throw(_with_instantiation_note(err, call_tok, description, callee_in_std));
       EvalValue.UnitVal
     },
@@ -5308,12 +5318,12 @@ resolve_param_types_from_expected :: (
     expected_env : Environment,
     caller_env : Environment,
     ctx : EvalContext,
-    out : ArrayList(TypeValue),
+    inout(out) : ArrayList(TypeValue),
     /// OUT: each `generic(...)` binder the expected type binds to a CONCRETE
     /// type, and that type — for a caller whose arguments cannot bind a
     /// result-only binder.
-    forall_out_names : ArrayList(String),
-    forall_out_types : ArrayList(TypeValue)
+    inout(forall_out_names) : ArrayList(String),
+    inout(forall_out_types) : ArrayList(TypeValue)
   ) -> unit
 )({
   default_pts := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
@@ -5410,7 +5420,7 @@ _func_type_has_runtime_some_param :: (fn(t : TypeValue) -> bool)(
 /// specialization pass). Validation still happens at Step 8b.
 /// Collect every Atom token value in `e` into `out` (pre-order). Used by the
 /// Step-6c prebind to find which forall labels a constraint expr references.
-_collect_atom_names_into :: (fn(e : AstExpr, out : ArrayList(String)) -> unit)(
+_collect_atom_names_into :: (fn(e : AstExpr, inout(out) : ArrayList(String)) -> unit)(
   match(
     e,
     .Atom(_, a_tok) => {
@@ -5916,7 +5926,7 @@ _check_forall_bindings_after_arg :: (
     env : Environment,
     arg_index : usize,
     param_labels : ArrayList(String),
-    seen : ArrayList(ForallBindingSeen),
+    inout(seen) : ArrayList(ForallBindingSeen),
     tok : Token,
     exn : Exception
   ) -> unit
@@ -6367,7 +6377,7 @@ try_to_call_function_with_arguments :: (
       // last-binding-wins), routing fold's `F` to filter's predicate.
       (self_only_ids : ArrayList(String)) = ArrayList(String).new();
       if(is_method_call && (pt.len() > usize(0)), {
-        _sx_push_ids :: (fn(ty : TypeValue, out_ids : ArrayList(String)) -> unit)({
+        _sx_push_ids :: (fn(ty : TypeValue, inout(out_ids) : ArrayList(String)) -> unit)({
           sx_all := get_all_some_types(ty);
           (sx_i : usize) = usize(0);
           while(sx_i < sx_all.len(), {

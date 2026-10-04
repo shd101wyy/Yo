@@ -570,7 +570,7 @@ _extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
 });
 /// Scan one file's declarations for pointer leaks. The declaration's
 /// `params_start` is captured at extraction time.
-_scan_file :: (fn(file : String, src_str : String, findings : ArrayList(PublicSafeFinding)) -> unit)({
+_scan_file :: (fn(file : String, src_str : String, inout(findings) : ArrayList(PublicSafeFinding)) -> unit)({
   src := src_str.as_bytes();
   extern_spans := _find_extern_spans(src);
   decls := _extract_top_level_fn_decls(src);
@@ -664,7 +664,7 @@ _psr_method_name :: (fn(body : String) -> Option(String))(
 /// comment, methods are two-space `name : (fn(` lines, and `);` at column 0
 /// closes the block. Trait impls nested inside (deeper indentation) are not
 /// methods of the receiver and are skipped.
-scan_class1_extractions :: (fn(file : String, src_str : String, out : ArrayList(Class1Extraction)) -> unit)({
+scan_class1_extractions :: (fn(file : String, src_str : String, inout(out) : ArrayList(Class1Extraction)) -> unit)({
   lines := src_str.split("\n");
   (in_impl : bool) = false;
   (target_seen : bool) = false;
@@ -731,20 +731,22 @@ scan_class1_extractions :: (fn(file : String, src_str : String, out : ArrayList(
 });
 /// The same .yo tree walk as unsafe_report.yo's (see its comment for the `.`
 /// and skip-set handling); deliberately duplicated rather than shared.
-_psr_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
+_psr_walk_yo_files :: (fn(root : String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))(
   io.async((e : IoExn) => {
     is_dot := (root == ".");
     walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
-      return(());
+      return(ArrayList(String).new());
     });
     md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
     if(!md.is_dir(), {
       if(root.ends_with(`.yo`), {
-        out.push(root.clone());
+        single := ArrayList(String).new();
+        single.push(root.clone());
+        return(single);
       });
-      return(());
+      return(ArrayList(String).new());
     });
     entries := e.io.await(fs_walker.walk(Path.new(walk_root.clone()), e.io), e);
     root_prefix_len := walk_root.as_bytes().len();
@@ -774,19 +776,13 @@ _psr_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn :
       i = (i + usize(1));
     });
     collected.sort();
-    (ci : usize) = usize(0);
-    while(runtime(ci < collected.len()), {
-      out.push(collected(ci).clone());
-      ci = (ci + usize(1));
-    });
-    ()
+    collected
   })
 );
 /// Generate the report.
 generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception) -> Impl(Future(PublicSafeReport, IoExn)))(
   io.async((e : IoExn) => {
-    files := ArrayList(String).new();
-    e.io.await(_psr_walk_yo_files(root_path.clone(), files, e.io, e.exn), e);
+    files := e.io.await(_psr_walk_yo_files(root_path.clone(), e.io, e.exn), e);
     findings := ArrayList(PublicSafeFinding).new();
     class1 := ArrayList(Class1Extraction).new();
     (public_decls_scanned : usize) = usize(0);

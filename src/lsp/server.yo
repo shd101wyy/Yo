@@ -189,7 +189,7 @@ _related_json :: (fn(related : ArrayList(RelatedInfo), lines : ArrayList(String)
 /// Analyze `text` as the document at `uri`, retain the analysis state for
 /// feature requests, and push publishDiagnostics.
 _analyze_and_publish :: (
-  fn(uri : String, text : String, std_path : String, docs : HashMap(String, DocState), io : Io) -> unit
+  fn(uri : String, text : String, std_path : String, inout(docs) : HashMap(String, DocState), io : Io) -> unit
 )({
   fs_path := uri_to_fs_path(uri.clone());
   // Phase B1 (plans/reference/INCREMENTAL_COMPILATION.md): the editor holds this
@@ -284,7 +284,7 @@ _new_pending_analysis :: (fn() -> PendingAnalysis)(
 /// `didOpen`) falls back to an immediate analysis: there is no outcome to
 /// serve requests from in the meantime.
 _note_document_change :: (
-  fn(uri : String, text : String, std_path : String, docs : HashMap(String, DocState), pending : PendingAnalysis, io : Io) -> unit
+  fn(uri : String, text : String, std_path : String, inout(docs) : HashMap(String, DocState), pending : PendingAnalysis, io : Io) -> unit
 )(
   match(
     docs.get(uri.clone()),
@@ -323,7 +323,7 @@ _note_document_change :: (
 /// document closed inside the window is skipped: its state is gone and
 /// `didClose` already cleared its diagnostics.
 _flush_pending_analyses :: (
-  fn(std_path : String, docs : HashMap(String, DocState), pending : PendingAnalysis, io : Io) -> unit
+  fn(std_path : String, inout(docs) : HashMap(String, DocState), pending : PendingAnalysis, io : Io) -> unit
 )({
   if(pending.uris.len() == usize(0), {
     return(());
@@ -597,7 +597,7 @@ _respond :: (fn(id_opt : Option(JsonValue), result : JsonValue) -> unit)({
 _handle_message :: (
   fn(
     body : String,
-    docs : HashMap(String, DocState),
+    inout(docs) : HashMap(String, DocState),
     std_path : String,
     pending : PendingAnalysis,
     io : Io

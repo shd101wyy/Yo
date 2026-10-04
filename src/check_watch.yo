@@ -325,7 +325,7 @@ run_watch_once :: (
 });
 /// Fill `stats` with the current `"${mtime}:${size}"` per path.
 watch_snapshot :: (
-  fn(files : ArrayList(String), stats : HashMap(String, String), io : Io) -> unit
+  fn(files : ArrayList(String), inout(stats) : HashMap(String, String), io : Io) -> unit
 )({
   (si : usize) = usize(0);
   while(si < files.len(), {
@@ -350,7 +350,7 @@ watch_snapshot :: (
 wait_for_change :: (
   fn(
     files : ArrayList(String),
-    stats : HashMap(String, String),
+    inout(stats) : HashMap(String, String),
     poll_ms : u64,
     io : Io
   ) -> ArrayList(String)

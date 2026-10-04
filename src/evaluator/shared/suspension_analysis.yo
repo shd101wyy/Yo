@@ -203,10 +203,10 @@ _capture_env_variable :: (
     env : Environment,
     ty_override : Option(TypeValue),
     pattern_binding : bool,
-    captured_variables : HashMap(String, SuspensionCapturedVariable),
-    captured_variable_ids_in_order : ArrayList(String),
-    name_frame_to_original_id : HashMap(String, String),
-    variable_id_remapping : HashMap(String, String)
+    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    inout(captured_variable_ids_in_order) : ArrayList(String),
+    inout(name_frame_to_original_id) : HashMap(String, String),
+    inout(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )({
   // A MODULE-LEVEL global is not a local and must never be hoisted into the
@@ -360,10 +360,10 @@ _capture_pattern_bindings :: (
   fn(
     pat : AstExpr,
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    captured_variables : HashMap(String, SuspensionCapturedVariable),
-    captured_variable_ids_in_order : ArrayList(String),
-    name_frame_to_original_id : HashMap(String, String),
-    variable_id_remapping : HashMap(String, String)
+    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    inout(captured_variable_ids_in_order) : ArrayList(String),
+    inout(name_frame_to_original_id) : HashMap(String, String),
+    inout(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )(
   match(
@@ -417,10 +417,10 @@ _capture_argument_temp :: (
     arg : AstExpr,
     call : AstExpr,
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    captured_variables : HashMap(String, SuspensionCapturedVariable),
-    captured_variable_ids_in_order : ArrayList(String),
-    name_frame_to_original_id : HashMap(String, String),
-    variable_id_remapping : HashMap(String, String)
+    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    inout(captured_variable_ids_in_order) : ArrayList(String),
+    inout(name_frame_to_original_id) : HashMap(String, String),
+    inout(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )({
   value := match(
@@ -458,11 +458,11 @@ walk_expr_ :: (
   fn(
     expr : AstExpr,
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    points : ArrayList(SuspensionPoint),
-    captured_variables : HashMap(String, SuspensionCapturedVariable),
-    captured_variable_ids_in_order : ArrayList(String),
-    name_frame_to_original_id : HashMap(String, String),
-    variable_id_remapping : HashMap(String, String),
+    inout(points) : ArrayList(SuspensionPoint),
+    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    inout(captured_variable_ids_in_order) : ArrayList(String),
+    inout(name_frame_to_original_id) : HashMap(String, String),
+    inout(variable_id_remapping) : HashMap(String, String),
     detector : SuspensionPointDetector,
     parent_expr : Option(AstExpr)
   ) -> unit

@@ -228,7 +228,7 @@ impl(
     )
   }),
   /// The bucket hash of `key` under this map's keys.
-  _hash : (fn(inout(self) : Self, inout(key) : K) -> u64)({
+  _hash : (fn(self : Self, inout(key) : K) -> u64)({
     h := DefaultHasher.new_with_keys(self.k0, self.k1);
     key.hash(h);
     h.finish()
@@ -479,82 +479,81 @@ impl(
   }),
   /// Resize and rehash the HashMap to a new capacity
   _resize : (fn(inout(self) : Self, new_capacity : usize) -> Result(unit, HashMapError))({
-    // The new table lives where the old one does.
-    result := Self._alloc_with_capacity_in(self._alloc_of(), new_capacity);
-    match(
-      result,
-      .Err(err) => .Err(err),
-      .Ok(new_map) => {
-        new_map.k0 = self.k0;
-        new_map.k1 = self.k1;
-        // An unallocated map (capacity 0) has no buckets to move or drop.
-        if(self.capacity > usize(0), {
-          i := usize(0);
-          ctrl_ptr := Self._ctrl_ptr(self);
-          data_ptr := Self._data_ptr(self);
-          while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr.add(i)).*;
+    // The new table lives where the old one does. Bound to a local, not a
+    // `match` binding: its fields are written below.
+    new_map := match(
+      Self._alloc_with_capacity_in(self._alloc_of(), new_capacity),
+      .Ok(m) => m,
+      .Err(err) => return(.Err(err))
+    );
+    new_map.k0 = self.k0;
+    new_map.k1 = self.k1;
+    // An unallocated map (capacity 0) has no buckets to move or drop.
+    if(self.capacity > usize(0), {
+      i := usize(0);
+      ctrl_ptr := Self._ctrl_ptr(self);
+      data_ptr := Self._data_ptr(self);
+      while(i < self.capacity, i = (i + usize(1)), {
+        ctrl_byte := (ctrl_ptr.add(i)).*;
+        cond(
+          ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+            bucket := (data_ptr.add(i)).*;
+            hash := self._hash(bucket.key);
+            h2 := h2_hash(hash);
+            new_index := Self._find_insert_bucket(new_map, hash);
+            new_ctrl_ptr := Self._ctrl_ptr(new_map);
+            new_data_ptr := Self._data_ptr(new_map);
+            (new_ctrl_ptr.add(new_index)).* = h2;
+            consume((new_data_ptr.add(new_index)).* = bucket);
+            new_map.size = (new_map.size + usize(1));
+          },
+          true => ()
+        );
+      });
+      // Drop old buckets before freeing old data array
+      // (bucket := ... above duped them, so we need to drop the old refs)
+      cond(
+        (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
+          j := usize(0);
+          while(j < self.capacity, j = (j + usize(1)), {
+            ctrl_byte := (ctrl_ptr.add(j)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                bucket := (data_ptr.add(i)).*;
-                hash := self._hash(bucket.key);
-                h2 := h2_hash(hash);
-                new_index := Self._find_insert_bucket(new_map, hash);
-                new_ctrl_ptr := Self._ctrl_ptr(new_map);
-                new_data_ptr := Self._data_ptr(new_map);
-                (new_ctrl_ptr.add(new_index)).* = h2;
-                consume((new_data_ptr.add(new_index)).* = bucket);
-                new_map.size = (new_map.size + usize(1));
+                bucket_ptr := data_ptr.add(j);
+                cond(
+                  Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
+                  true => ()
+                );
+                cond(
+                  Type.contains_rc_type(V) => unsafe.drop((bucket_ptr.*).value),
+                  true => ()
+                );
               },
               true => ()
             );
           });
-          // Drop old buckets before freeing old data array
-          // (bucket := ... above duped them, so we need to drop the old refs)
-          cond(
-            (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
-              j := usize(0);
-              while(j < self.capacity, j = (j + usize(1)), {
-                ctrl_byte := (ctrl_ptr.add(j)).*;
-                cond(
-                  ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                    bucket_ptr := data_ptr.add(j);
-                    cond(
-                      Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
-                      true => ()
-                    );
-                    cond(
-                      Type.contains_rc_type(V) => unsafe.drop((bucket_ptr.*).value),
-                      true => ()
-                    );
-                  },
-                  true => ()
-                );
-              });
-            },
-            true => ()
-          );
-        });
-        owned := self._owned();
-        match(
-          self.ctrl,
-          .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
-          .None => ()
-        );
-        match(
-          self.data,
-          .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
-          .None => ()
-        );
-        self.ctrl = new_map.ctrl;
-        self.data = new_map.data;
-        self.capacity = new_map.capacity;
-        self._set_tombstones(usize(0));
-        new_map.ctrl = .None;
-        new_map.data = .None;
-        .Ok(())
-      }
-    )
+        },
+        true => ()
+      );
+    });
+    owned := self._owned();
+    match(
+      self.ctrl,
+      .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
+      .None => ()
+    );
+    match(
+      self.data,
+      .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
+      .None => ()
+    );
+    self.ctrl = new_map.ctrl;
+    self.data = new_map.data;
+    self.capacity = new_map.capacity;
+    self._set_tombstones(usize(0));
+    new_map.ctrl = .None;
+    new_map.data = .None;
+    .Ok(())
   }),
   /// Insert or overwrite, reporting allocation failure instead of panicking:
   /// `.Ok(.Some(old))` when the key was present, `.Ok(.None)` when it is new.
@@ -715,13 +714,23 @@ impl(
   /// Distinct from `get` whenever the key type has equal-but-distinguishable
   /// values (a case-insensitive string key, say): this returns the key the map
   /// actually holds, not the one used to look it up.
-  get_key_value : (fn(self : Self, key : K) -> Option(MapEntry(K, V)))(
+  get_key_value : (fn(self : Self, key : K) -> Option(MapEntry(K, V)))({
+    // A read: it looks the bucket up itself rather than through
+    // `get_entry_ptr`, which hands out a writable pointer (`inout(self)`).
+    cond(
+      (self.capacity == usize(0)) => return(.None),
+      true => ()
+    );
+    hash := self._hash(key);
     match(
-      self.get_entry_ptr(key),
-      .Some(p) => Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key, value : p.*.value)),
+      Self._find_bucket(self, key, hash),
+      .Some(index) => {
+        p := Self._data_ptr(self).add(index);
+        Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key, value : p.*.value))
+      },
       .None => Option(MapEntry(K, V)).None
     )
-  ),
+  }),
   /// Remove `key` and return the entry that was stored — Rust's `remove_entry`.
   remove_entry : (fn(inout(self) : Self, key : K) -> Option(MapEntry(K, V)))(
     match(

@@ -847,10 +847,14 @@ track_variable_usage_resolved :: (
             usage : effective_usage,
             token : token
           );
+          // Taken out and stored back: a `match` binding is a copy of the
+          // map once collections are values.
           match(
-            context.captured_variables,
-            .Some(map) => {
-              map.insert(variable_name, new_entry);
+            context.captured_variables.take(),
+            .Some(found) => {
+              captured := found;
+              captured.insert(variable_name, new_entry);
+              context.captured_variables = Option(HashMap(String, CapturedVarInfo)).Some(captured);
             },
             .None => ()
           );
@@ -1306,7 +1310,7 @@ finished_walk_expr_info_count :: (fn(path : String) -> Option(usize))({
     match(
       wopt,
       .Some(w) => if(canonical_module_path(w.module_path.clone()) == canon, {
-        return(match(w.ctx, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.len()), .None => Option(usize).None));
+        return(match(w.ctx, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.*.len()), .None => Option(usize).None));
       }),
       .None => ()
     );

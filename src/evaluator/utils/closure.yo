@@ -239,7 +239,7 @@ _capture_id_of :: (fn(ty : TypeValue) -> String)(
   if(is_closure_capture_struct(ty), match(ty, .Struct({ id : cid }) => cid, _ => String.new()), String.new())
 );
 _note_fid_for_some_id :: (fn(sid : String, fid : String) -> unit)(_note_fid_in(g_closure_fids_by_some, sid, fid));
-_note_fid_in :: (fn(registry : HashMap(String, ArrayList(String)), sid : String, fid : String) -> unit)({
+_note_fid_in :: (fn(inout(registry) : HashMap(String, ArrayList(String)), sid : String, fid : String) -> unit)({
   if(sid.is_empty(), {
     return(());
   });

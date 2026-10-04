@@ -948,7 +948,12 @@ expr_info_set_closure_function_value :: (
 /// Side-table storing evaluation results for each expression node.
 /// Keys are ExprId values assigned during parsing. The AST is immutable, so
 /// results live in this side-table instead of on the node.
-ExprInfoTable :: newtype(data : HashMap(ExprId, ExprInfo));
+/// The table is SHARED on purpose: the evaluation contexts of one compile
+/// and the module manager's cached table are one object (a derived context
+/// copies the handle). The map therefore sits in a `Box`, so a copy of the
+/// table stays the same table once collections are values
+/// (plans/VALUES_BY_DEFAULT.md §6 V2a).
+ExprInfoTable :: newtype(data : Box(HashMap(ExprId, ExprInfo)));
 // ---------------------------------------------------------------------------
 // Scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6). When an outermost
 // function body finishes evaluating, the ExprInfos written during it stop
@@ -1095,7 +1100,7 @@ _drop_target_atom_of :: (fn(d : AstExpr) -> Option(AstExpr))(
     )
   )
 );
-_scope_target_names :: (fn(lst : Option(ArrayList(AstExpr)), out : ArrayList(String)) -> unit)(
+_scope_target_names :: (fn(lst : Option(ArrayList(AstExpr)), inout(out) : ArrayList(String)) -> unit)(
   match(
     lst,
     .Some(l) => {
@@ -1304,7 +1309,7 @@ _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
   out
 });
 /// Append each of `vs` not already in `into` (by id).
-_scope_push_new :: (fn(into : ArrayList(Variable), vs : ArrayList(Variable)) -> unit)({
+_scope_push_new :: (fn(inout(into) : ArrayList(Variable), vs : ArrayList(Variable)) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
     v := vs.get(i).unwrap();
@@ -1460,7 +1465,7 @@ scope_release_report :: (fn() -> unit)(
 export(scope_release_note_query, scope_release_mode, scope_release_note_mismatch, scope_release_note_hard, scope_release_note_binding, scope_release_set_table, scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, scope_release_report);
 /// Create a new empty ExprInfoTable.
 expr_info_table_new :: (fn() -> ExprInfoTable)(
-  ExprInfoTable(data : HashMap(ExprId, ExprInfo).new())
+  ExprInfoTable(data : box(HashMap(ExprId, ExprInfo).new()))
 );
 /// Store an ExprInfo for the given expression id.
 /// Copy-on-write accessor for `ExprInfo.path_collection`: every ExprInfo starts
@@ -1540,7 +1545,8 @@ expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) 
   if(id == usize(0), {
     return(());
   });
-  table.data.insert(id, info);
+  data := table.data;
+  data.*.insert(id, info);
   ()
 });
 /// plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
@@ -1554,7 +1560,7 @@ codegen_read_log_set :: (fn(on : bool) -> unit)({
 codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys);
 _logged_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
   _i := g_codegen_read_keys.insert(id);
-  table.data.get(id)
+  table.data.*.get(id)
 });
 /// Retrieve the ExprInfo for the given expression id, or None. Stays
 /// expression-bodied: a block body on this hot accessor's shape is what
@@ -1562,15 +1568,16 @@ _logged_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo)
 expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
   cond(
     g_codegen_read_log_on => _logged_table_get(table, id),
-    true => table.data.get(id)
+    true => table.data.*.get(id)
   )
 );
 /// Drop every entry whose key `keep` does not hold; returns how many went.
 /// The Phase 0 step 3 upper-bound experiment (`YO_CODEGEN_KEEP`).
 expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize)) -> usize)({
-  before := table.data.len();
-  table.data.retain((k, _v) => keep.contains(k));
-  before - table.data.len()
+  data := table.data;
+  before := data.*.len();
+  data.*.retain((k, _v) => keep.contains(k));
+  before - data.*.len()
 });
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
@@ -2012,7 +2019,7 @@ get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_i
 /// process-wide table keyed by arm id that nothing emptied outside the LSP
 /// purge: 81 K entries at exit on `check src/main.yo`, every one dead once
 /// its construct returned (plans/EVALUATOR_MEMORY_REDUCTION.md §0.21).
-push_arm_init_range :: (fn(ranges : ArrayList(usize), arm_expr_id : usize, start : usize, end : usize) -> unit)({
+push_arm_init_range :: (fn(inout(ranges) : ArrayList(usize), arm_expr_id : usize, start : usize, end : usize) -> unit)({
   ranges.push(arm_expr_id);
   ranges.push(start);
   ranges.push(end);
@@ -2802,14 +2809,15 @@ purge_executed_clone_metadata :: (fn(table : ExprInfoTable, root : AstExpr, lo :
     return(());
   });
   defines_fn := match(
-    table.data.get(id),
+    table.data.*.get(id),
     .Some(info) => match(info.value, .Some(v) => match(v, .FuncVal(_, _) => true, _ => false), .None => false),
     .None => false
   );
   if(defines_fn, {
     return(());
   });
-  _e := table.data.remove(id);
+  data := table.data;
+  _e := data.*.remove(id);
   _purge_expr_side_tables_at(id);
   match(
     root,

@@ -128,7 +128,8 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
           // the type-decl phase's box pass): emit the missing typedef into the
           // DECLARATIONS section now — see CodeGenContext.dyn_box_typedefs.
           if(!context.base.dyn_box_typedefs.contains(box_name.clone()), {
-            context.base.dyn_box_typedefs.insert(box_name.clone());
+            cg_base := context.base;
+            cg_base.dyn_box_typedefs.insert(box_name.clone());
             em.emit_declaration_line("typedef struct {");
             em.emit_declaration_line("  __yo_ref_header_t header;");
             em.emit_declaration_string_line(`  ${value_str} value;`);
@@ -636,13 +637,15 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
         typeid_name := `__yo_typeid_${concrete_cname}`;
         if(!generated.contains(typeid_name.clone()) && !context.base.type_id_static_names.contains(typeid_name.clone()), {
           generated.insert(typeid_name.clone());
-          context.base.type_id_static_names.insert(typeid_name.clone());
-          context.base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
+          cg_base := context.base;
+          cg_base.type_id_static_names.insert(typeid_name.clone());
+          cg_base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
           context.base.emit_typeid_static(typeid_name.clone(), ` // TypeId for ${concrete_cname}`);
         }, {
           // Name already emitted by the typeid/downcast expression emitters —
           // still record the key mapping so vtables reference the shared static.
-          context.base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
+          cg_base := context.base;
+          cg_base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
         });
       },
       .None => ()

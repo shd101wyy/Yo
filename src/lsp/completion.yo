@@ -229,8 +229,8 @@ _push_variant :: (
     fields : ArrayList(TypeValue),
     labels : ArrayList(String),
     dot_prefix : bool,
-    out : ArrayList(JsonValue),
-    seen : HashSet(String)
+    inout(out) : ArrayList(JsonValue),
+    inout(seen) : HashSet(String)
   ) -> unit
 )({
   if(seen.contains(name.clone()), {
@@ -268,7 +268,7 @@ _push_variant :: (
 /// Direct members of a receiver type: struct/module fields, enum variants,
 /// union fields, trait methods.
 _type_member_items :: (
-  fn(ty : TypeValue, out : ArrayList(JsonValue), seen : HashSet(String)) -> unit
+  fn(ty : TypeValue, inout(out) : ArrayList(JsonValue), inout(seen) : HashSet(String)) -> unit
 )({
   match(
     ty,
@@ -338,7 +338,7 @@ _type_member_items :: (
 });
 
 _push_method :: (
-  fn(name : String, ty : TypeValue, out : ArrayList(JsonValue), seen : HashSet(String)) -> unit
+  fn(name : String, ty : TypeValue, inout(out) : ArrayList(JsonValue), inout(seen) : HashSet(String)) -> unit
 )({
   bad := (!_is_ident_name(name.clone()) || _hidden_name(name.clone()));
   if(bad || seen.contains(name.clone()), {
@@ -354,7 +354,7 @@ _push_method :: (
 /// generic-impl enumeration in `_add_methods` surfaces those methods for
 /// matched impls anyway.
 _push_registry_methods :: (
-  fn(type_id : String, out : ArrayList(JsonValue), seen : HashSet(String)) -> unit
+  fn(type_id : String, inout(out) : ArrayList(JsonValue), inout(seen) : HashSet(String)) -> unit
 )({
   if(type_id.len() > usize(0), {
     entries := get_type_trait_methods_for_type(type_id);
@@ -378,8 +378,8 @@ _add_methods :: (
     recv : TypeValue,
     deref : TypeValue,
     env : Environment,
-    out : ArrayList(JsonValue),
-    seen : HashSet(String)
+    inout(out) : ArrayList(JsonValue),
+    inout(seen) : HashSet(String)
   ) -> unit
 )({
   recv_id := type_id_or_empty(recv);
@@ -420,9 +420,9 @@ _receiver_at :: (
     target : Token,
     exprs : ArrayList(AstExpr),
     info_table : ExprInfoTable,
-    out_recv : ArrayList(TypeValue),
-    out_deref : ArrayList(TypeValue),
-    out_env : ArrayList(Environment)
+    inout(out_recv) : ArrayList(TypeValue),
+    inout(out_deref) : ArrayList(TypeValue),
+    inout(out_env) : ArrayList(Environment)
   ) -> unit
 )({
   cands := ArrayList(AstExpr).new();
@@ -546,7 +546,7 @@ _expr_near_line :: (fn(e : AstExpr, line : usize) -> bool)(
 /// `(x : SomeEnum) = …` whose RHS is near the cursor line, or a `match`
 /// whose subject is enum-typed and whose branches reach the line.
 _expected_enum_at :: (
-  fn(e : AstExpr, info_table : ExprInfoTable, line : usize, out : ArrayList(TypeValue)) -> unit
+  fn(e : AstExpr, info_table : ExprInfoTable, line : usize, inout(out) : ArrayList(TypeValue)) -> unit
 )({
   if(out.len() > usize(0), {
     return(());
@@ -660,13 +660,13 @@ _scan_idents :: (
     info_table : ExprInfoTable,
     line : usize,
     character : usize,
-    names : ArrayList(String),
-    name_rows : ArrayList(usize),
-    name_cols : ArrayList(usize),
-    name_expr_ids : ArrayList(usize),
-    name_index : HashMap(String, usize),
-    env_holder : ArrayList(Environment),
-    env_depth : ArrayList(usize)
+    inout(names) : ArrayList(String),
+    inout(name_rows) : ArrayList(usize),
+    inout(name_cols) : ArrayList(usize),
+    inout(name_expr_ids) : ArrayList(usize),
+    inout(name_index) : HashMap(String, usize),
+    inout(env_holder) : ArrayList(Environment),
+    inout(env_depth) : ArrayList(usize)
   ) -> unit
 )({
   match(
@@ -868,7 +868,7 @@ _is_trivia_token :: (fn(t : Token) -> bool)(
 /// `listed`. Token-based on purpose: the list is being typed, so the
 /// document rarely parses at that moment.
 _import_list_path :: (
-  fn(tokens : ArrayList(Token), line : usize, character : usize, listed : ArrayList(String)) -> String
+  fn(tokens : ArrayList(Token), line : usize, character : usize, inout(listed) : ArrayList(String)) -> String
 )({
   // The last token that STARTS before the cursor.
   (last_before : Option(usize)) = Option(usize).None;

@@ -119,7 +119,7 @@ _type_is_ref_indirection :: (fn(t : TypeValue) -> bool)(
 /// before this check existed. `visited` cuts re-entered named types (finite
 /// DAGs, and cycles that DO have indirection somewhere on the path).
 _type_reaches_root_by_value :: (
-  fn(t : TypeValue, root : String, shell : String, visited : ArrayList(String)) -> bool
+  fn(t : TypeValue, root : String, shell : String, inout(visited) : ArrayList(String)) -> bool
 )(
   cond(
     _type_is_ref_indirection(t) => false,
@@ -129,7 +129,7 @@ _type_reaches_root_by_value :: (
 /// The per-type dispatch of `_type_reaches_root_by_value` (separate fn so
 /// no cond arm is a braced single expression — E0007).
 _type_value_cycle_step :: (
-  fn(t : TypeValue, root : String, shell : String, visited : ArrayList(String)) -> bool
+  fn(t : TypeValue, root : String, shell : String, inout(visited) : ArrayList(String)) -> bool
 )(
   match(
     t,

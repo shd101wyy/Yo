@@ -23,7 +23,7 @@
 { jb, jstr, jnum, line_at, rune_col_to_client } :: import("./protocol.yo");
 
 _push_fold :: (
-  fn(out : ArrayList(JsonValue), seen : HashSet(String), start_line : usize, end_line : usize, kind : str) -> unit
+  fn(inout(out) : ArrayList(JsonValue), inout(seen) : HashSet(String), start_line : usize, end_line : usize, kind : str) -> unit
 )({
   key := `${start_line}:${end_line}:${kind}`;
   if(seen.contains(key.clone()), {
@@ -114,7 +114,7 @@ _semantic_walk :: (
     e : AstExpr,
     roles : AtomRoles,
     info_table : ExprInfoTable,
-    out : HashMap(String, usize)
+    inout(out) : HashMap(String, usize)
   ) -> unit
 )({
   match(
@@ -196,7 +196,7 @@ SemCursor :: struct(
 _emit_sem_segment :: (
   fn(
     lines : ArrayList(String),
-    data : ArrayList(JsonValue),
+    inout(data) : ArrayList(JsonValue),
     row : usize,
     col : usize,
     width : usize,

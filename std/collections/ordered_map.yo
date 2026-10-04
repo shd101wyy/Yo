@@ -390,7 +390,10 @@ impl(
         self._map._order.get(self._index),
         .Some(k) => {
           self._index = (self._index + usize(1));
-          return(self._map._map.get_entry_ptr(k));
+          // Through a local of the (shared) map object: an `inout` receiver
+          // may not borrow two object hops deep when an argument is refcounted.
+          om := self._map;
+          return(om._map.get_entry_ptr(k));
         },
         .None => {
           return(.None);

@@ -137,7 +137,7 @@ _emit_array_wrapper :: (fn(context : CodeGenContext, name : String) -> unit)({
 /// been emitted. A pointer spelling (`__yo_t3*`) never matches a bare name, so
 /// a wrapper of pointers stays ready — pointer-to-incomplete is legal C.
 _drain_ready_array_wrappers :: (
-  fn(context : CodeGenContext, pending : ArrayList(String), available : HashSet(String), deferred : HashSet(String)) -> unit
+  fn(context : CodeGenContext, inout(pending) : ArrayList(String), inout(available) : HashSet(String), deferred : HashSet(String)) -> unit
 )({
   (progress : bool) = true;
   while(progress, {
@@ -1268,7 +1268,7 @@ _Static_assert(offsetof(__yo_io_future_t, continuation_sm) == offsetof(__yo_futu
 /// True if a struct's SomeType content is only inside function-typed fields.
 /// Replicated from types/collection.yo (`_struct_some_type_is_only_in_function_fields`)
 /// to avoid a collection↔generation import cycle.
-_walk_struct_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool)(
+_walk_struct_some_only :: (fn(type : TypeValue, inout(visited) : HashSet(String)) -> bool)(
   match(
     type,
     .Struct({ id, field_types }) => {
@@ -1298,7 +1298,7 @@ _walk_struct_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bo
 );
 /// True if an enum's SomeType content is only inside function-typed variant
 /// fields. Replicated from types/collection.yo (cycle avoidance).
-_walk_enum_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool)(
+_walk_enum_some_only :: (fn(type : TypeValue, inout(visited) : HashSet(String)) -> bool)(
   match(
     type,
     .EnumT({ id, variant_fields }) => {
@@ -1369,7 +1369,7 @@ _walk_pointee_newtype :: (fn(ft : TypeValue) -> Option(TypeValue))(
 );
 /// Add a dependency edge (self_type_id depends on dep_ty's type) if dep_ty is a
 /// collected type other than self. `cname_to_typeid` maps a C name to its typeId.
-_walk_add_dep :: (fn(deps_set : HashSet(String), dep_ty : TypeValue, self_type_id : String, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)({
+_walk_add_dep :: (fn(inout(deps_set) : HashSet(String), dep_ty : TypeValue, self_type_id : String, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)({
   dep_cname := get_type_string(dep_ty, context);
   match(
     cname_to_typeid.get(dep_cname),
@@ -1383,7 +1383,7 @@ _walk_add_dep :: (fn(deps_set : HashSet(String), dep_ty : TypeValue, self_type_i
 /// for struct fields (an enum field optimized as a nullable pointer is NOT a
 /// by-value dep there); enum/tuple fields pass false. Shared by the
 /// enum/newtype/value-struct/tuple by-value dependency chain.
-_walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
+_walk_by_value_dep :: (fn(inout(deps_set) : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
   cond(
     // A SomeT field with a per-object resolved concrete is EMITTED as that
     // concrete (get_type_string SomeT arm) — order the decl after it
@@ -1451,7 +1451,7 @@ _TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, 
 /// revisits them, emitting their declaration twice
 /// (issues/fixed/a-type-walk-revisits-entries-after-a-rehash-and-emits-a-vtable-twice.md).
 /// Call it until it returns nothing to also reach the types the walk registered.
-_unseen_type_ids :: (fn(context : CodeGenContext, seen : HashSet(String)) -> ArrayList(String))({
+_unseen_type_ids :: (fn(context : CodeGenContext, inout(seen) : HashSet(String)) -> ArrayList(String))({
   ids := ArrayList(String).new();
   it := context.types.keys();
   (done : bool) = false;
@@ -1526,7 +1526,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
 /// struct right there), which must land BEFORE the vtable typedef opens — the
 /// caller collects every member first, then emits the typedef
 /// (issues/fixed/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md).
-_dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed : HashSet(String), context : CodeGenContext) -> Option(String))({
+_dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, inout(processed) : HashSet(String), context : CodeGenContext) -> Option(String))({
   if((label == "Self") || _is_reserved_dyn_method(label), {
     return(Option(String).None);
   });

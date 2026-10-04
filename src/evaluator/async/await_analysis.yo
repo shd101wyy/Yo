@@ -280,8 +280,8 @@ detect_await_expr_ :: (
   fn(
     expr : AstExpr,
     parent_expr : Option(AstExpr),
-    points : ArrayList(SuspensionPoint),
-    await_extras : HashMap(String, AwaitPointExtra),
+    inout(points) : ArrayList(SuspensionPoint),
+    inout(await_extras) : HashMap(String, AwaitPointExtra),
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )({
@@ -520,8 +520,8 @@ analyze_await_points :: (
 collect_variable_bindings_ :: (
   fn(
     expr : AstExpr,
-    variables : ArrayList(CapturedVariable),
-    seen : HashMap(String, bool),
+    inout(variables) : ArrayList(CapturedVariable),
+    inout(seen) : HashMap(String, bool),
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )(

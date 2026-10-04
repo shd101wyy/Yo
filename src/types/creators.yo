@@ -329,7 +329,7 @@ _dyn_trait_sort_key :: (fn(t : TypeValue) -> String)({
 /// printed type agree for every spelling
 /// (issues/fixed/dyn-trait-order-is-part-of-its-c-type.md). Insertion sort:
 /// the lists are a handful of traits.
-_sort_dyn_traits :: (fn(types : ArrayList(TypeValue), levels : ArrayList(usize)) -> unit)({
+_sort_dyn_traits :: (fn(inout(types) : ArrayList(TypeValue), inout(levels) : ArrayList(usize)) -> unit)({
   if(types.len() < usize(2), {
     return(());
   });
@@ -607,7 +607,7 @@ _shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
 /// rebuilding (and formerly recursing forever into) the whole type universe
 /// for every defined field (issues/fixed/patch-self-shell-exponential-walk.md).
 _contains_self_shell :: (
-  fn(t : TypeValue, shell_id : String, visited : ArrayList(String)) -> bool
+  fn(t : TypeValue, shell_id : String, inout(visited) : ArrayList(String)) -> bool
 )(
   match(
     t,
@@ -693,7 +693,7 @@ _contains_self_shell :: (
 /// shared/cyclic node resolves at use sites via the finals registries (the
 /// documented deep-resolution path above).
 _patch_self_shell_guarded :: (
-  fn(t : TypeValue, shell_id : String, final_ty : TypeValue, visited : ArrayList(String)) -> TypeValue
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue, inout(visited) : ArrayList(String)) -> TypeValue
 )(
   match(
     t,

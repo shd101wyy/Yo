@@ -855,7 +855,7 @@ _refine_annotation_hook_init := (fn() -> bool)({
 /// carried on `ty` when it is a SomeT (the where clause mutated the param
 /// placeholder's lists in place). No-op for non-SomeT types.
 _collect_where_constraints_from_some_t :: (
-  fn(label : String, ty : TypeValue, out : ArrayList(WhereConstraintEntry)) -> unit
+  fn(label : String, ty : TypeValue, inout(out) : ArrayList(WhereConstraintEntry)) -> unit
 )({
   match(
     ty,
@@ -4922,7 +4922,7 @@ _cta_seen :: (fn(cta_v : ArrayList(String), cta_id : String) -> bool)({
 /// and an unguarded walk both recurses forever and re-visits shared subtrees
 /// exponentially.
 _collect_type_arg_somes :: (
-  fn(ty : TypeValue, acc : ArrayList(TypeValue), visited_ids : ArrayList(String)) -> unit
+  fn(ty : TypeValue, inout(acc) : ArrayList(TypeValue), inout(visited_ids) : ArrayList(String)) -> unit
 )(
   match(
     ty,

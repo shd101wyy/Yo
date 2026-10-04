@@ -329,7 +329,7 @@ generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
 // the helpers live in context.yo (module-walk cell + binding-name scan),
 // shared with the anonymous-closure trial in values/anonymous_function.yo.
 _trial_eval_fn_body :: (
-  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(body : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   // Reset the flow-violation flag so a stale flag from an earlier (propagated,
   // non-def-time) throw can't be mistaken for a violation in THIS body.
@@ -432,6 +432,12 @@ _type_binder_env_value :: (
       fresh_some := t_some_t(name.clone(), level);
       // Stamp the fn's where-clause constraints for this label onto the fresh
       // SomeT (see the where_entries doc comment on _build_def_time_body_env).
+      // Collected into locals and built into the SomeT after the loop: its
+      // `match` payload bindings are copies once collections are values.
+      fs_req := ArrayList(TypeValue).new();
+      fs_req_lv := ArrayList(usize).new();
+      fs_neg := ArrayList(TypeValue).new();
+      fs_neg_lv := ArrayList(usize).new();
       (we_i : usize) = usize(0);
       while(we_i < where_entries.len(), {
         we := match(
@@ -443,23 +449,22 @@ _type_binder_env_value :: (
           }
         );
         if(we.lhs_label == name, {
-          match(
-            fresh_some,
-            .SomeT(_, _, _, _, fs_req, fs_req_lv, fs_neg, fs_neg_lv, _, _) => {
-              if(we.is_negated, {
-                fs_neg.push(we.trait_ty);
-                fs_neg_lv.push(usize(0));
-              }, {
-                fs_req.push(we.trait_ty);
-                fs_req_lv.push(usize(0));
-              });
-            },
-            _ => ()
-          );
+          if(we.is_negated, {
+            fs_neg.push(we.trait_ty);
+            fs_neg_lv.push(usize(0));
+          }, {
+            fs_req.push(we.trait_ty);
+            fs_req_lv.push(usize(0));
+          });
         });
         we_i = (we_i + usize(1));
       });
-      Option(EvalValue).Some(create_type_value(fresh_some))
+      stamped := match(
+        fresh_some,
+        .SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2) => TypeValue.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2),
+        other => other
+      );
+      Option(EvalValue).Some(create_type_value(stamped))
     }
   )
 });

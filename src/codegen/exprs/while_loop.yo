@@ -7,7 +7,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
 { Emitter } :: import("../../emitter.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
@@ -177,7 +177,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
                   get_deferred_drop_target_atom_name(de),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(nm, false);
-                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
+                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.contains(cn)
                   },
                   .None => false
                 );
@@ -188,18 +188,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
                   // an owned temp created in a `||`/`&&` RHS in a
                   // loop body was re-dropped at the loop scope end:
                   // issues/fixed/ts-while-loop-body-drops-missing-guards.md.
-                  sc_skip := match(
-                    context.short_circuit_handled_drop_var_names,
-                    .Some(handled) => match(
-                      get_deferred_drop_target_atom_name(de),
-                      .Some(target) => if(handled.contains(target.clone()), {
-                        _r := handled.remove(target);
-                        true
-                      }, false),
-                      .None => false
-                    ),
-                    .None => false
-                  );
+                  sc_skip := match(get_deferred_drop_target_atom_name(de), .Some(target) => take_short_circuit_handled(context, target), .None => false);
                   if(!sc_skip, {
                     code := _call_generate_expr(de, indent.clone(), context);
                     if(code.len() > usize(0), {

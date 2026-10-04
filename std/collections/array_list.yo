@@ -646,7 +646,7 @@ impl(
   }),
   /// Move every element of `other` onto the end of `self`, leaving `other`
   /// EMPTY — Rust's `append`. `extend` copies instead.
-  append : (fn(inout(self) : Self, other : Self) -> unit)({
+  append : (fn(inout(self) : Self, inout(other) : Self) -> unit)({
     (i : usize) = usize(0);
     n := other.len();
     while(i < n, {
@@ -1453,8 +1453,8 @@ _heapsort_by :: (
 _merge_sort_indices :: (
   fn(
     generic(T : Type),
-    order : ArrayList(usize),
-    scratch : ArrayList(usize),
+    inout(order) : ArrayList(usize),
+    inout(scratch) : ArrayList(usize),
     ptr : *(T),
     n : usize,
     less : Impl(Fn(a : T, b : T) -> bool)
@@ -1850,7 +1850,7 @@ impl(
   sort_by_key : (
     fn(
       generic(K : Type),
-      self : Self,
+      inout(self) : Self,
       key : Impl(Fn(v : T) -> K),
       where(K <: Ord(K))
     ) -> unit

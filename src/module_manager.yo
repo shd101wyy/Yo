@@ -829,7 +829,7 @@ _list_contains :: (fn(list : ArrayList(String), item : String) -> bool)({
   found
 });
 /// Add `index` to `module`'s list in the apply-side grouping map.
-_rev_add_index :: (fn(indexes_by_module : HashMap(String, ArrayList(usize)), module : String, index : usize) -> unit)({
+_rev_add_index :: (fn(inout(indexes_by_module) : HashMap(String, ArrayList(usize)), module : String, index : usize) -> unit)({
   list := match(
     indexes_by_module.get(module.clone()),
     .Some(existing) => existing,
@@ -841,7 +841,7 @@ _rev_add_index :: (fn(indexes_by_module : HashMap(String, ArrayList(usize)), mod
 /// Append `module` to the ordered module list unless excluded, already
 /// present, or a demand-loaded module whose cache entry is already gone (a
 /// cascade-dropped module — its reload owns it now).
-_rev_add_module :: (fn(modules : ArrayList(String), excluded : HashSet(String), module : String) -> unit)({
+_rev_add_module :: (fn(inout(modules) : ArrayList(String), excluded : HashSet(String), module : String) -> unit)({
   (skip : bool) = excluded.contains(module.clone());
   if(!skip, {
     (mi : usize) = usize(0);
@@ -919,9 +919,9 @@ _rebinds_contain :: (fn(rebinds : ArrayList(RebindEntry), module : String) -> bo
 _admit_closure_key :: (
   fn(
     key : String,
-    closure_keys : ArrayList(String),
-    fallbacks : ArrayList(String),
-    names_by_module : HashMap(String, ArrayList(String))
+    inout(closure_keys) : ArrayList(String),
+    inout(fallbacks) : ArrayList(String),
+    inout(names_by_module) : HashMap(String, ArrayList(String))
   ) -> bool
 )({
   module := def_key_module(key.clone());
@@ -2004,8 +2004,8 @@ _eval_module_exprs_capturing_error :: (
     mod_exprs : ArrayList(AstExpr),
     env : Environment,
     ctx : EvalContext,
-    out : ArrayList(EvalValue),
-    out_tys : ArrayList(TypeValue)
+    inout(out) : ArrayList(EvalValue),
+    inout(out_tys) : ArrayList(TypeValue)
   ) -> bool
 )({
   local_exn := Exception(
@@ -2027,7 +2027,7 @@ _eval_module_exprs_capturing_error :: (
 /// keep the driver's `Exception` in a module global for this, and a stored
 /// handler can outlive the frame that installed it
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.5).
-_read_source_capturing_error :: (fn(fs_path : String, out : ArrayList(ArrayList(u8))) -> bool)({
+_read_source_capturing_error :: (fn(fs_path : String, inout(out) : ArrayList(ArrayList(u8))) -> bool)({
   local_exn := Exception(
     throw : (
       err -> {
@@ -2042,7 +2042,7 @@ _read_source_capturing_error :: (fn(fs_path : String, out : ArrayList(ArrayList(
 });
 /// Parse `src` as the module `module_path`, capturing a parse error the same
 /// way.
-_parse_capturing_error :: (fn(src : String, module_path : String, out : ArrayList(ArrayList(AstExpr))) -> bool)({
+_parse_capturing_error :: (fn(src : String, module_path : String, inout(out) : ArrayList(ArrayList(AstExpr))) -> bool)({
   local_exn := Exception(
     throw : (
       err -> {
@@ -2303,7 +2303,7 @@ _walk_def_values :: (fn(defs : ArrayList(PendingDef)) -> ArrayList(EvalValue))({
   });
   out
 });
-_push_non_generic_fn_values :: (fn(src : ArrayList(EvalValue), dst : ArrayList(EvalValue)) -> unit)({
+_push_non_generic_fn_values :: (fn(src : ArrayList(EvalValue), inout(dst) : ArrayList(EvalValue)) -> unit)({
   (i : usize) = usize(0);
   while(i < src.len(), {
     match(

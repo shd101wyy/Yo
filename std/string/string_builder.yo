@@ -200,7 +200,7 @@ impl(
     self.write_string(String.from_cstr(buf_ptr).unwrap());
   }),
   /// Append `n` with exactly `precision` decimal places.
-  write_f64 : (fn(self : Self, n : f64, precision : i32) -> unit)({
+  write_f64 : (fn(inout(self) : Self, n : f64, precision : i32) -> unit)({
     buf := Array(u8, usize(64)).fill(u8(0));
     buf_ptr := &buf(usize(0));
     unsafe(snprintf((*char)(buf_ptr), usize(64), "%.*f", precision, n));

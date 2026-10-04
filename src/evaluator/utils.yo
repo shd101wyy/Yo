@@ -1212,7 +1212,7 @@ keep_last_arm_moves :: (fn(env : Environment, last_arm : AstExpr, group_log_star
 /// At a `break` or `continue`: the move state of every variable declared
 /// outside the loop that the body has touched so far (per path: the arm the
 /// jump sits in starts from the state before its branch).
-snapshot_loop_flow :: (fn(lc : LoopBodyCtx, into : ArrayList(LoopFlowSnapshot), env : Environment, site : Token) -> unit)({
+snapshot_loop_flow :: (fn(lc : LoopBodyCtx, inout(into) : ArrayList(LoopFlowSnapshot), env : Environment, site : Token) -> unit)({
   ids := ArrayList(usize).new();
   states := ArrayList(Option(Token)).new();
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
