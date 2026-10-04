@@ -99,9 +99,13 @@ those are the only counted things in the language.
   A uniquely owned buffer is `Sync` when its elements are, so
   `Arc(ArrayList(T))` and `Arc(String)` become legal read-only sharing, and
   writes still go through `Mutex`/atomics (D3).
-- **The cycle collector sees `Rc`/`Arc` cells only.** `Box`, `String` and
-  collection buffers are part of their owner's value and are traversed
-  inline. Only a cell whose payload reaches an `Rc`/`Arc` is tracked.
+- **The cycle collector sees `Rc` cells only.** It is thread-local and
+  non-atomic (`docs/en-US/CYCLE_COLLECTION.md`). An `Arc` is never tracked:
+  its payload must be `Acyclic` (`arc`'s `where(V <: (Sync, Acyclic))`,
+  today `(Send, Acyclic)`), so an `Arc` can never close a cycle, and its
+  atomic count is never trial-decremented. `Box`, `String` and collection
+  buffers are part of their owner's value and are traversed inline. An
+  `Rc` cell is tracked only if its payload can reach an `Rc`.
 - **Allocators.** An explicit `clone()` lands where its source lives,
   through the source's owner. That is today's `ArrayList.clone` rule, and
   it replaces decision 12's COW wording; there is no hidden clone left to
@@ -885,8 +889,8 @@ changes is what a block is.
   tracking in `src/verifier/vc.yo` (`list_alias_locals`, `distinct_pairs`)
   go away once the collections are values; an `Rc(ArrayList(T))` parameter
   is outside the verifier subset, with the existing "outside-subset" report.
-- **The cycle collector.** Only cells whose payload reaches an `Rc`/`Arc` are
-  tracked. Values, `Box` trees of values and collections of values are never
+- **The cycle collector.** Only `Rc` cells whose payload reaches an `Rc` are
+  tracked (§0.2; an `Arc`'s payload is `Acyclic`, so it is never tracked). Values, `Box` trees of values and collections of values are never
   tracked, which is most of a program and all of the compiler's trees.
 - **Agent-written code.** Action at a distance needs an `Rc`/`Arc` in a
   type, and the vocabulary (`Box`, `Rc`, `Arc`, `Arc(Mutex(T))`) is the one
