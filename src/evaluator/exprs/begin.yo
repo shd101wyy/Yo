@@ -1640,9 +1640,18 @@ _enclosing_fn_result_type :: (fn(ctx : EvalContext) -> Option(TypeValue))(
     .None => Option(TypeValue).None
   )
 );
-/// For statement `stmt` = `name := .Variant(…)`: the function result type as
-/// an expected-type hint when a LATER statement of the block returns `name`
-/// (or `name` is the function body's tail); `.None` otherwise.
+/// For statement `stmt` = `name := .Variant(…)` (or `name := io.async(…)`):
+/// the function result type as an expected-type hint when a LATER statement of
+/// the block returns `name` (or `name` is the function body's tail); `.None`
+/// otherwise. The io.async shape additionally requires the result type to
+/// carry a Future with a CONCRETE output: the call-side machinery then
+/// unwraps `Impl(Future(T, E))` and pre-binds `T`, so the closure's
+/// `.Variant` tail gets its expected enum — the same flow the direct
+/// (tail-expression) form already takes
+/// (issues/fixed/io-async-variant-inference-passes-check-but-fails-compile.md).
+/// A SomeT output (a generic fn's own parameter) must NOT flow: the
+/// SomeT-clearing rule in values/anonymous_function.yo exists because a
+/// SomeT expected type coerces operator-bodied closure results.
 _variant_local_hint :: (
   fn(
     stmt : AstExpr,
@@ -1659,11 +1668,22 @@ _variant_local_hint :: (
   sargs := match(stmt, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(sargs.get(usize(0)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs := match(sargs.get(usize(1)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
-  if(!ast_expr_is_atom(lhs) || !_is_bare_variant_literal(rhs), {
+  rhs_is_async := is_io_async_call(rhs);
+  if(!ast_expr_is_atom(lhs) || !(_is_bare_variant_literal(rhs) || rhs_is_async), {
     return(Option(ExpectedTypeCtx).None);
   });
   name := ast_expr_token(lhs).value.clone();
   result_ty := match(_enclosing_fn_result_type(ctx), .Some(t) => t, .None => return(Option(ExpectedTypeCtx).None));
+  if(rhs_is_async, {
+    async_out_concrete := match(
+      extract_future_trait_from_type(result_ty),
+      .Some(.FutureTraitT({ output : ao_out })) => !is_some_type(ao_out),
+      _ => false
+    );
+    if(!async_out_concrete, {
+      return(Option(ExpectedTypeCtx).None);
+    });
+  });
   n := begin_args.len();
   (found : bool) = false;
   (k : usize) = (idx + usize(1));
