@@ -77,7 +77,7 @@ Measured before landing: `yo check ./src` reported 0 errors, and 308 of the
 309 language test files passed. The one file was
 `tests/async/sm_ownership.test.yo`, whose `_move_each_iteration` read `t.n`
 after `_keep_thing(t)`. It now reads before the move, and a new test there
-expects E0901 for the read after the move inside a task. That case was the
+expects E0901 for the read after the move inside a task (as a cli-case). That case was the
 rule `issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md`
 had kept ("the name may still read it while the new owner holds it"), and
 that note is superseded for a `sink` move (see the dated note there).
@@ -87,5 +87,12 @@ that note is superseded for a `sink` move (see the dated note there).
 - `tests/type_soundness.test.yo`, "soundness: a read after a sink move is
   E0901": the reproducer's shape. It fails under a stage-1 built before the
   fix (the `comptime_expect_error` sees no error) and passes after.
-- `tests/async/sm_ownership.test.yo`, "a local read after a sink move inside
-  a task is E0901".
+- `tests/cli-cases/read-after-sink-move-in-a-task-is-e0901`: the same read
+  inside an `io.async` body. `comptime_expect_error` observes only the body's
+  definition-time wrapper there, so this is a `check` cli-case. A stage-1
+  built before the fix reports the fixture `evaluator OK`.
+
+The read error is raised through the flow-violation channel
+(`raise_flow_violation`), so a closure or `io.async` body that a
+definition-time trial evaluates re-raises it at `check` instead of
+swallowing it into an abort stub.
