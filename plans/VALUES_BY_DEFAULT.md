@@ -266,6 +266,22 @@ copies the first kind implicitly (decision 16).
       and read position uses a `borrow` form. Chosen 2026-10-05 as the
       recommendation; V2b's first PR validates it on std's collections and
       `String` before it spreads.
+    - **Why `borrow` appears on results but not on parameters** (asked by
+      the maintainer, 2026-10-05). Each position has a default convention,
+      and only a non-default mode is written:
+
+      | Position | Default (unwritten) | Written when different |
+      | --- | --- | --- |
+      | parameter | borrow | `inout(x)`, `sink(x)` |
+      | result | owned value | `borrow(T)`, `inout(T)` |
+
+      One vocabulary, two defaults: callers lend arguments, and functions
+      normally return values they own. Hylo has the same shape: `let` is the
+      default parameter convention, and projections spell their access.
+      `borrow(x)` is **not** accepted in parameter position, because that
+      would be a second spelling of the default. The rejected alternative
+      spelled every projection `-> inout(T)`, with mutability inferred from
+      the receiver; that makes `inout` sometimes mean read-only.
     - **Phase.** V2b's first PR, before unique buffers and explicit copies
       switch on.
     - Recommendation: yes, in this first-cut form.
