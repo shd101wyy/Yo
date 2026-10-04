@@ -731,6 +731,7 @@ _msp_mask_add_root :: (fn(m : ParamMutationMask, r : _MspRoot, deep : bool) -> u
     }),
     (r.kind == MSP_ROOTED) => {
       m.all = true;
+      _msp_debug_all_reason(String.from("mutation of rooted storage"));
     },
     true => ()
   );
@@ -1260,6 +1261,12 @@ _msp_statement_head :: (fn(h : String) -> bool)(
 _msp_debug_all :: (fn(why : String, e : AstExpr) -> unit)({
   if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
     eprintln(`[borrow-all] ${why}: ${ast_expr_to_string(e)}`);
+  });
+});
+/// `_msp_debug_all` for a site that has no expression in hand.
+_msp_debug_all_reason :: (fn(why : String) -> unit)({
+  if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
+    eprintln(`[borrow-all] ${why}`);
   });
 });
 /// A function's analysis: its parameter mask and the root of what it returns

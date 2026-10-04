@@ -105,7 +105,7 @@ impl(
   /// a new key, or `.Err(_)` on allocation failure.
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
-  try_insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+  try_insert : (fn(inout(self) : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     is_new := !self._map.contains_key(key);
     result := self._map.try_insert(key, value);
     cond(
@@ -126,7 +126,7 @@ impl(
   /// position.
   ///
   /// PANICS on allocation failure (D9). Use `try_insert` to handle OOM.
-  insert : (fn(self : Self, key : K, value : V) -> Option(V))(
+  insert : (fn(inout(self) : Self, key : K, value : V) -> Option(V))(
     match(
       Self.try_insert(self, key, value),
       .Ok(prev) => prev,
@@ -139,7 +139,7 @@ impl(
   /// O(n) in the number of keys AFTER the removed one: they each shift down a
   /// slot, and the position index has to learn where they went. Use
   /// `swap_remove` when the order does not matter.
-  remove : (fn(self : Self, key : K) -> Option(V))({
+  remove : (fn(inout(self) : Self, key : K) -> Option(V))({
     removed := self._map.remove(key);
     match(
       removed,
@@ -169,7 +169,7 @@ impl(
   /// preserves insertion order and pays O(n) to rebuild the key list, while
   /// this touches three slots and is done. Reach for it when you are draining
   /// a map, or when order stops mattering once a key is gone.
-  swap_remove : (fn(self : Self, key : K) -> Option(V))({
+  swap_remove : (fn(inout(self) : Self, key : K) -> Option(V))({
     removed := self._map.remove(key);
     match(
       removed,
@@ -215,7 +215,7 @@ impl(
     )
   ),
   /// Remove all entries.
-  clear : (fn(self : Self) -> unit)({
+  clear : (fn(inout(self) : Self) -> unit)({
     self._map.clear();
     self._order = ArrayList(K).new();
     self._index = HashMap(K, usize).new();
