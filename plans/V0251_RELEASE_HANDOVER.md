@@ -11,7 +11,7 @@ values-by-default migration starts with **V1 step 0b** (§5 below).
 
 ## 0. Outcome (updated 2026-10-04, after the release)
 
-RELEASE_LINE
+**v0.2.51 was published 2026-10-04 08:14 UTC** (release run 37183400572, curated notes). `SEED_VERSION` is v0.2.51 (`fe56b53cd`). The macos-x64 seed leg first failed: the download step compiled a truncated copy of a correct emit. It recovered with `gh run rerun --failed`. #1184 hardens the handoff with download-artifact v8 and a sha256 carried with the C (`issues/fixed/a-truncated-artifact-download-reached-clang-as-a-syntax-error.md`). The battery before it also exposed the formal-verification job's 60-minute timeout (#1183). markdown_yo **v0.0.10** is published, with markdown_yo#14 and the `rc` local rename.
 
 **What landed for v0.2.51:**
 
@@ -22,7 +22,10 @@ RELEASE_LINE
 | #1171, #1177 | s3 batches 1 and 3 (another session). |
 | #1179 | Fixes the macOS/Linux build break #1171 introduced (`poll` declared with `*u8`). |
 | #1167 | Async audit A2–A5 + A1 Generation B (yo-37). |
-| `fix-test-one-path` | `yo test` with a second path is an error (yo-37). |
+| #1181 | `yo test` with a second path is an error (yo-37's branch, landed by yo-ab). |
+| #1182 | 205 dangling issue references repaired; `check-issue-refs.sh` reports 0 (yo-37's branch). |
+| #1183 | The formal-verification job's timeout is 90 minutes (it ran ~45 of 60 and a slow runner cancelled it). |
+| #1180 | Windows console UTF-8 (another session). |
 
 **S3's heap corruption (§3.1) is solved: it was the seed.**
 - A compiler built from S3 by the v0.2.50 seed corrupts its heap. A compiler built from the same S3 tree by a stage-1 of #1178, which carries the newtype-retain fix and #1172, passes `tests/string/string.test.yo` **302/302** with no corruption.
@@ -46,8 +49,7 @@ RELEASE_LINE
   - `BF_RC`, `_evaluate_rc_or_call`, `_rc_call_gave_way` and `name_resolves_to_binding` are deleted.
   - Prelude `rc(own(value)) -> Box(V)` mirrors `box`.
   - **Blocked on markdown_yo:** v0.0.9 binds a local `(rc : bool)` in `src/block/table.yo`, a shadowing error once the prelude exports `rc`. markdown_yo#14 now also renames it (`89853b7`).
-  - Needed before 0b can land: merge markdown_yo#14 and tag **v0.0.10** (the maintainer's call), then bump `yo.toml` to `^0.0.10` and refresh `yo.lock`.
-  - Once markdown_yo no longer binds `ref_count` either, reserving `ref_count` is a one-line follow-up.
+  - Done on the branch since: `yo.toml` is `^0.0.10` with a refreshed `yo.lock`, `ref_count` is reserved, and #1171's new `rc :=` local is renamed. A pre-check with a tree compiler gave `check ./std` 178/178 and `check ./src` 278/278 after that rename.
   - Heavy gates still owed (all on the v0.2.51 seed): `check ./src`, build, fixpoint, `gates_fast`, the suite. Re-record the two skill goldens the light pass could not run (`build-stamp-dotted-dir`, `init-build-test`).
 
 **Order after the release:**
