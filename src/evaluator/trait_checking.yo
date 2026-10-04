@@ -62,6 +62,7 @@ pragma(Pragma.AllowUnsafe);
   set_type_implements_trait_full_fn,
   set_register_trait_value_fn,
   set_check_self_constraints_fn,
+  set_cell_only_trait_fn,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
@@ -1235,9 +1236,13 @@ _is_prelude_trait_named :: (fn(trait_type : TypeValue, name : str, env : Environ
 /// It replaces the deleted `Rc` marker trait, which the prelude required
 /// through `where(Self <: Rc)` on both traits and the compiler registered for
 /// exactly these types (`auto_derive_traits_for_struct_type` with
-/// `is_reference_semantics`), so the accepted set is unchanged. V3 of
-/// `plans/VALUES_BY_DEFAULT.md` re-scopes `Dispose` to move-only values (§3.6).
-_cell_only_trait_violation_msg :: (
+/// `is_reference_semantics`), so the set a concrete impl may target is
+/// unchanged. The generic impl path, which never ran the selfConstraint check,
+/// calls this too, on the receiver pattern at the impl
+/// (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
+/// V3 of `plans/VALUES_BY_DEFAULT.md` re-scopes `Dispose` to move-only values
+/// (§3.6).
+cell_only_trait_violation_msg :: (
   fn(
     target_type : TypeValue,
     trait_type : TypeValue,
@@ -1265,7 +1270,7 @@ _cell_only_trait_violation_msg :: (
 });
 /// Message-returning core of the impl-site self check: `.Some(msg)` when the
 /// target may not implement the trait (the `Dispose`/`Trace` cell-type gate,
-/// `_cell_only_trait_violation_msg`) or violates a positive or negative
+/// `cell_only_trait_violation_msg`) or violates a positive or negative
 /// selfConstraint on it, `.None` otherwise. Split out (throw-free) so
 /// `impl.yo`'s concrete-impl path can call it through the injected
 /// function-pointer hook (`set_check_self_constraints_fn`) without an import
@@ -1279,7 +1284,7 @@ check_self_constraints_violation_msg :: (
   ) -> Option(String)
 )({
   match(
-    _cell_only_trait_violation_msg(target_type, trait_type, env),
+    cell_only_trait_violation_msg(target_type, trait_type, env),
     .Some(cell_msg) => {
       return(Option(String).Some(cell_msg));
     },
@@ -2321,6 +2326,7 @@ _trait_checking_init := (fn() -> bool)({
   set_type_implements_trait_full_fn(_type_implements_trait_full_adapter);
   set_register_trait_value_fn(register_type_trait_value);
   set_check_self_constraints_fn(check_self_constraints_violation_msg);
+  set_cell_only_trait_fn(cell_only_trait_violation_msg);
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();
