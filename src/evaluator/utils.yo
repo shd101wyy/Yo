@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_iso_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_iso_type, is_future_trait_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
@@ -675,6 +675,37 @@ ImplicitCopyPending :: struct(
 /// specialization re-evaluate one body, so a site is reported once per
 /// distinct line (a generic body once per instantiated type).
 (g_implicit_copy_printed : HashSet(String)) = HashSet(String).new();
+/// What a `match` binding borrows from, by binding id: `temp` (an owned
+/// temporary such as a call result — the binding owns its part, so a store
+/// of it is not a copy here; any copy happened inside the callee), `local`
+/// (an owning local, `root_id`: the binding is a part of it, a copy if the
+/// local is read again), `macro` (a scrutinee a macro introduced — `for`'s
+/// element: a borrow) or `place` (a parameter, field, global: a borrow).
+ImplicitCopyRoot :: struct(kind : String, root_id : usize);
+(g_implicit_copy_match_roots : HashMap(usize, ImplicitCopyRoot)) = HashMap(usize, ImplicitCopyRoot).new();
+/// Record what `binding`, a pattern binding of a `match` whose evaluated
+/// scrutinee is described by `scr_info`, borrows from.
+audit_note_match_binding :: (fn(binding : Variable, scr_info : ExprInfo) -> unit)({
+  root := match(
+    scr_info.variable_name,
+    .Some(sn) => match(
+      find_variable_in_env(scr_info.env, sn),
+      .Some(sv) => match(
+        g_implicit_copy_match_roots.get(sv.id),
+        .Some(inherited) => inherited,
+        .None => cond(
+          (sv.token.module_path != binding.token.module_path) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
+          is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond(sv.is_owning_the_rc_value => String.from("temp"), true => String.from("place")), root_id : sv.id),
+          (sv.is_owning_the_rc_value && !sv.is_module_level && !sv.is_ref) => ImplicitCopyRoot(kind : String.from("local"), root_id : sv.id),
+          true => ImplicitCopyRoot(kind : String.from("place"), root_id : sv.id)
+        )
+      ),
+      .None => ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))
+    ),
+    .None => ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))
+  );
+  g_implicit_copy_match_roots.insert(binding.id, root);
+});
 audit_implicit_copy_enabled :: (fn() -> bool)(g_audit_implicit_copy);
 /// Remove and return the pending sites of variable `id` (its frame's epilogue
 /// judges them), or none.
@@ -818,7 +849,23 @@ _implicit_copy_category_at :: (fn(ty : TypeValue, depth : u32) -> String)({
       _implicit_copy_via(_implicit_copy_first_member(els, depth))
     },
     .Func({ result : _ }) => String.from("closure"),
-    .SomeT({ name : _ }) => String.from("future"),
+    // An open type parameter in a definition-time trial: each instantiation
+    // reports its concrete type, so this is the generic body itself.
+    .SomeT({ required_trait_types : st_traits }) => {
+      (sti : usize) = usize(0);
+      (is_future : bool) = false;
+      while(sti < st_traits.len(), {
+        match(
+          st_traits.get(sti),
+          .Some(st) => if(is_future_trait_type(st), {
+            is_future = true;
+          }),
+          .None => ()
+        );
+        sti = (sti + usize(1));
+      });
+      cond(is_future => String.from("future"), true => String.from("generic"))
+    },
     _ => String.from("other")
   )
 });
@@ -863,6 +910,25 @@ audit_record_implicit_copy :: (
         captured => {
           kind = String.from("capture-state");
         },
+        (!v.is_owning_the_rc_value && g_implicit_copy_match_roots.get(v.id).is_some()) => match(
+          g_implicit_copy_match_roots.get(v.id),
+          .Some(r) => cond(
+            (r.kind == "temp") => {
+              kind = String.from("temp-payload");
+            },
+            (r.kind == "macro") => {
+              kind = String.from("for-element");
+            },
+            (r.kind == "local") => {
+              kind = String.from("match-local");
+              pending_id = Option(usize).Some(r.root_id);
+            },
+            true => {
+              kind = String.from("match-place");
+            }
+          ),
+          .None => ()
+        ),
         !v.is_owning_the_rc_value => {
           kind = cond(v.is_parameter => String.from("param-borrow"), true => String.from("binding-borrow"));
         },
@@ -2512,7 +2578,7 @@ export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
-export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
+export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(doc_comment_lookup_key_from_token);
