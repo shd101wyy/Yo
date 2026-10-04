@@ -121,7 +121,7 @@ call to a `void`-returning C function.
 
 ## Proposed fix (UNVALIDATED)
 
-`issues/patches/generic-r-callback-unit-closure-void-temp.patch` widens that one
+`generic-r-callback-unit-closure-void-temp.patch` (applied in 5ff342507, then removed) widens that one
 test to mirror the registered-callee path, plus the unresolved-`SomeT` case the
 registered path never had to face:
 

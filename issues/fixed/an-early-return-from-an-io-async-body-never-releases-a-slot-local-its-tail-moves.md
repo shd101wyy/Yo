@@ -2,7 +2,7 @@
 
 **Severity:** S2. A `return(…)` from an `io.async` body leaks each heap local that crossed an await and that the body's tail would have moved out. The v0.2.46 seed leaks too.
 
-**Status: FIXED (2026-09-30).** Found by re-verifying `issues/retired/async-tail-match-return-hangs-state-machine.md`.
+**Status: FIXED (2026-09-30).** Found by re-verifying `issues/fixed/async-tail-match-return-hangs-state-machine.md`.
 
 ## Symptom
 

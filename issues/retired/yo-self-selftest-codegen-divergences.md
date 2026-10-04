@@ -112,7 +112,7 @@ An FTT comment emitted **inline in an `if` condition**. `//` swallows the closin
 and the `{`, so the parse is wrecked: hence "expected expression", the orphaned
 `case`, and the phantom undeclared identifiers. All 6 markers in the file are the
 same expression. This is the FTT-cascade class
-(`issues/yo-self-failed-transpile-cascade-fix.md`), not a temp desync.
+(`yo-self-failed-transpile-cascade-fix.md` (never filed)), not a temp desync.
 
 **The exact failure point**, from an instrumented stage-1 build that gave each FTT
 origin a distinct marker: **`FTT_OFC_1612`** —

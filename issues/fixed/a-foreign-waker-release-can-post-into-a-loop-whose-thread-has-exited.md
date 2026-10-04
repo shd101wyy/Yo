@@ -48,7 +48,7 @@ t.join();
 `atomic_fetch_sub(&loop->blocking_inflight, 1)` and THEN `__yo_io_notify(loop)`. Between the two
 the owner may exit on the same predicate (`!has_blocking_inflight`), so the notify can land on
 the dead loop as well; the macOS notify additionally reads the handle unsynchronized
-(`issues/macos-io-notify-races-io-cleanup-on-the-notify-handle.md`). When the owner is the main
+(`issues/fixed/macos-io-notify-races-io-cleanup-on-the-notify-handle.md`). When the owner is the main
 thread both windows degrade to a leak (the token, the park future and the `release_pending` step
 are never drained).
 

@@ -47,7 +47,7 @@ RC-typed elements — presumably the per-element dup/init emission.
 
 It **blocks a regression test**. The Stage-0 audit found that an INDEXED
 borrowed argument was unprotected (see
-`issues/borrowed-arg-invalidated-by-aliased-container-mutation.md`, Stage-0
+`issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md`, Stage-0
 audit section). The only shape that reproduces it is a fixed-size `Array`
 field, because:
 

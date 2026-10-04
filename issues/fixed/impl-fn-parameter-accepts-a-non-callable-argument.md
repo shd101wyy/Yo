@@ -229,7 +229,7 @@ is an ordinary `Impl(Fn(e : E) -> T)` slot.
 
 The mirror-image hole — a bare `fn(...)` (function-pointer) parameter accepting a
 CLOSURE — is still open as
-`issues/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md`; it wants
+`issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md`; it wants
 the same treatment at the same two sites.
 
 ## Verification

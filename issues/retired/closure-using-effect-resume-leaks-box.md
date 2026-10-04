@@ -64,6 +64,6 @@ to the closure-capture + `return`(resume) path.
   `return(...)` resumes the continuation, so the closure's scope-exit drop
   sequence may be skipped or double-cancelled by the dup/drop pair optimizer —
   cf. the cancellation-soundness notes in AGENTS.md and
-  issues/fixed/spawn-capture-captures-never-dropped-leak.md).
+  issues/fixed/spawn-closure-captures-never-dropped-leak.md).
 - Suspect landing window: the dup/drop deeper-scope rule (#574) or the
   struct-field-await release fix (#580) era.

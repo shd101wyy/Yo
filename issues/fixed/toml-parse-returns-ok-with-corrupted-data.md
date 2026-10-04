@@ -148,7 +148,7 @@ that `cond` and in the value parser it calls:
   (`len >= 2`) and yields `"`; `"a" # "c"` passes and swallows the comment; no
   escape sequence is ever decoded.
 - **`:138`** — integers go through `String.parse_i64`, which wraps on overflow
-  (`issues/parse-i64-and-parse-u64-wrap-on-overflow.md`). Fixing that one turns
+  (`issues/fixed/integer-parsers-wrap-instead-of-rejecting-overflow.md`). Fixing that one turns
   the last row into an `.Err`.
 
 Being line-based is also why this cannot be patched case by case: multi-line

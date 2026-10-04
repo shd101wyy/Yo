@@ -99,7 +99,7 @@ recorded by the 2026-09-30 closeout audit):
    **Closed 2026-09-29 (#995):** `_aw_generate_general_match` lowers every
    form in awaiting arms (see the async section below). One adjacent shape
    remains rejected and is tracked as its own open issue:
-   `issues/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`
+   `issues/fixed/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`
    — an `if(io.await(...), ...)` whose AWAIT sits in a cond CONDITION inside
    a classic arm (a hoisting limitation owned by
    `plans/ASYNC_STATE_MACHINE_GENERATION.md`, not a pattern-form gap).

@@ -231,7 +231,7 @@ second (`issues/fixed/a-generic-function-returning-impl-future-t-miscompiles-at-
 — the value-param form of the same family is fixed, in #619). The function is
 written, eager, measured working end to end, and left unexported with the reason
 in its doc comment; its tests are parked at
-`issues/repros/spawn-blocking-tests.yo`. `std/net/dns.yo` still names
+`tests/spawn_blocking.test.yo`. `std/net/dns.yo` still names
 `spawn_blocking` as the reason `lookup_host` blocks.
 
 **Root cause, measured 2026-09-13.** The defect is not a clobber and not a
@@ -454,7 +454,7 @@ the work in §4 does not re-open them.
   `_heapsort_by` at a second `T` tripped a specializer bug — the element
   comparator was handed the index type and the emitted C passed a `size_t`
   where the closure wanted the element struct
-  (`issues/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md`);
+  (`issues/fixed/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md`);
   the merge is monomorphic to avoid it.
 - **D18 — `timeout` returns `Result(T, Elapsed)`; `Thread(T).spawn` carries
   its result and `join() -> T`.** `timeout -> Option(T)` conflates timed-out /
@@ -649,7 +649,7 @@ window as D9–D18):
     2026-09-06**: `read_http_message_result` returns the framing defect as a
     value (D13), the server answers 413/400 and keeps serving, `## Stability:
     unstable` added. Peer-reset I/O errors still propagate — recovery needs a
-    catch primitive (`issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`)
+    catch primitive (`issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`)
     (`issues/fixed/one-malformed-request-killed-http-server-serve.md`).
 
 ---
@@ -1022,7 +1022,7 @@ The shape decisions, and why each one is what it is:
   has made a single request never reaches reference count zero today, because
   a `ref` value passed as a parameter to an `io.async` future is never
   released — a general RC leak in the async lowering, filed with a reproducer
-  as `issues/a-ref-value-passed-to-an-async-future-is-never-released.md`. The
+  as `issues/fixed/a-ref-value-passed-to-an-async-future-is-never-released.md`. The
   same defect is why `TcpStream`'s and `TlsStream`'s own `Dispose`s cannot fire
   on a drop for any stream that has been read from. `dispose` here is correct
   and will start firing on scope exit when that is fixed; until then
@@ -1726,7 +1726,7 @@ the `CLOCK_MONOTONIC` init itself is Linux-only and is covered by CI's Linux
 legs.
 
 **A live runtime bug sits under this group:**
-`issues/yield-resumption-order-diverges-on-macos-ci.md` — two tasks that
+`issues/fixed/yield-resumption-order-diverges-on-macos-ci.md` — two tasks that
 `yield` in submission order have twice resumed in reverse order on macOS CI
 legs, from PRs touching nothing async. The ready queue was read and IS strict
 FIFO, so the issue's original "make it FIFO" fix is refuted; the open
@@ -2225,7 +2225,7 @@ emitted C, so it could not be randomized even if that were wanted.
    green `yo check`: the helper and the impl body are mutually recursive
    through the impl, and impl fields get no signature-first binding phase the
    way two plain `fn`s do
-   (issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md, with a
+   (issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md, with a
    minimal reproducer). `Eq` is therefore ONE self-recursive `_json_eq`, which
    is what `Clone` already did.
    **`## Stability` markers: DONE (2026-09-09).** §1's last row counted eight
@@ -2336,7 +2336,7 @@ emitted C, so it could not be randomized even if that were wanted.
    task: an `io.await` reached only through a macro expansion is not counted
    as a suspension point, so codegen emits the enclosing `io.async` body as a
    plain closure with a blocking await
-   (`issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
+   (`issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
    `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`). It was
    removed rather than shipped with a caveat, because "correct from `main`,
    hangs in a task" is the wrong way round for a server loop. `for_each`,

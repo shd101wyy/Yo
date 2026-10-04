@@ -1,6 +1,6 @@
 # `arc(k)` of a capture-free closure still emits two `Arc` instantiations, so clang rejects a valid program
 
-**Found:** 2026-09-25, while probing `issues/function-values-bypass-the-d1-reach-walk.md`.
+**Found:** 2026-09-25, while probing `issues/fixed/function-values-bypass-the-d1-reach-walk.md`.
 **Status:** FIXED 2026-09-25. Was: OPEN. **Class:** valid code fails to compile (codegen). The residual of
 `issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md` (P-26).
 **Measured:** tree-built compiler at `ps/phase2-iso` `d8280ec37`, macOS arm64.

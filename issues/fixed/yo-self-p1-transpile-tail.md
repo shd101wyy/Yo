@@ -1135,7 +1135,7 @@ level with enclosing bindings intact). Relaxing the individual checks is
 whack-a-mole (each fix exposes the next) and risks the consume/init merge
 soundness. Affects ALL `.index_of`/`.contains`/`.find` users — high value.
 Related: the now-compiling `target.yo` and OPEN
-`issues/yo-codegen-block-rhs-drops-statements.md`.
+`issues/fixed/codegen-block-rhs-drops-nontail-statements.md`.
 
 ## Method
 

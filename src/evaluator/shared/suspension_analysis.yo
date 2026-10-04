@@ -14,8 +14,7 @@
 //! * `SuspensionPointDetector :: object(detect : Dyn(...), should_skip_body : Dyn(...))`.
 //!   Yo does not support generic object fields; `Dyn(Fn)` replaces `Impl(Fn)` in fields.
 //!   The typed side-channel (e.g. ArrayList(AwaitPoint)) is maintained INSIDE the detect
-//!   closure by the caller. See issues/suspension-analysis-typed-side-channel.md for the
-//!   reconstruction strategy required in Phase 2m/2n.
+//!   closure by the caller; callers reconstruct the typed lists after the walk.
 //!
 //! * `walk_expr_` carries `points : ArrayList(SuspensionPoint)` (base type). The
 //!   detect closure pushes base SuspensionPoint objects; callers reconstruct typed
@@ -26,8 +25,6 @@
 //!
 //! * `analyze_suspension_points` takes a `get_info` parameter — the
 //!   per-expression evaluation annotation lookup.
-//!   See issues/suspension-analysis-get-info-identity.md for the structural vs.
-//!   identity-based lookup strategy required in Phase 3.
 //!
 //! * `captured_variables` is a `HashMap(String, SuspensionCapturedVariable)` for O(1) dedup;
 //!   `captured_variable_ids_in_order` is a parallel `ArrayList(String)` that preserves

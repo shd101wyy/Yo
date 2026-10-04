@@ -177,7 +177,7 @@ Three things about this are worth more than the fix:
 * **The negatives did the work.** Eight bisect steps that each ruled an
   ingredient OUT left exactly one difference standing, and it was a difference
   nobody would have thought to vary. The last of them is kept as
-  `issues/repros/spawn-blocking-closest-non-reproducing-shape.yo` — a negative
+  `spawn-blocking-closest-non-reproducing-shape.yo` (never committed) — a negative
   control.
 
 ### Bug 2 (codegen) — a prototype and its definition computed from different rules
@@ -822,7 +822,7 @@ If you do, cache the env lookup in a module-level `bool` the way
 `std/thread.yo`'s `spawn_blocking` was correct and worked at one instantiation
 per program; a second `T` in the same program miscompiled. That is why it was
 not exported. It is exported now, and `tests/spawn_blocking.test.yo` — live
-from `issues/repros/spawn-blocking-tests.yo` — uses two different `T`s
+from `tests/spawn_blocking.test.yo` — uses two different `T`s
 precisely because that pair is what used to break.
 
 `spawn_blocking` needed the THIRD layer of this fix to work — see "The trap
@@ -834,7 +834,7 @@ here because parking is what hid it: two of its four tests used
 `io.await(handle, io)` on an `io.spawn` result, which does not type-check —
 `io.spawn` returns a JOIN HANDLE, awaited as `handle.await(io)` and yielding
 `Option(T)`. The compiler reports that as an INTERNAL COMPILER ERROR
-(`issues/io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error.md`).
+(`issues/fixed/io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error.md`).
 Both were invisible for as long as the file sat outside every gate. **A test
 that has never once been run is a draft**, however well argued — parking it
 next to the code is not the same as keeping it honest.

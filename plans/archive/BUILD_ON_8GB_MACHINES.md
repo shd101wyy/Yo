@@ -237,7 +237,7 @@ On that seed the two fixpoint jobs, the heaviest self-emits in CI, peak at
 swapfile is now 8 GB, 15 sites across `test.yml`, `release.yml` and
 `fixpoint-arm64.yml`, kept as a safety net. `README.md` and `CONTRIBUTING.md`
 (and their zh-CN twins) state the 8 GB requirement for building Yo itself.
-`issues/compiler-holds-emit-memory-during-cc.md`, the August report of the
+`issues/fixed/compiler-holds-emit-memory-during-cc.md`, the August report of the
 Phase 1 bug, moved to `issues/fixed/`.
 
 **Items 1–2 landed (2026-09-25) as one job**, "Compiler build inside 8 GB"

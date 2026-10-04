@@ -98,7 +98,7 @@ Suspects, in order:
 - **File an issue for a `check` gap.** `yo check` does not evaluate a generic body per instantiation, so an E0907 inside a generic std body appears only at `yo build`. S3 hit this in `std/http/wire.yo`, `std/io/bufio.yo` and `src/main.yo`.
   - **Workaround:** `yo compile src/main.yo --skip-c-compiler --std-path ./std` evaluates exactly what the build does, about 3× faster than a build.
   - It needs an `issues/` doc with a severity (S3 likely, as a quality rough edge) and a test.
-- **Dangling issue refs.** `scripts/check-issue-refs.sh` reports **204** dangling `issues/…` references on develop, for example `docs/*/DESIGN.md` → `issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`. It is a cleanup, not a release blocker; batch it in one docs PR.
+- **Dangling issue refs.** `scripts/check-issue-refs.sh` reports **204** dangling `issues/…` references on develop, for example `docs/*/DESIGN.md` → `issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`. It is a cleanup, not a release blocker; batch it in one docs PR.
 - **Step 0a follow-up (0b).** Once markdown_yo#14 is merged, step 0b can reserve `ref_count` (add it to `is_reserved_builtin_binding_name` in `src/token.yo`).
 
 ## 5. Releasing v0.2.51

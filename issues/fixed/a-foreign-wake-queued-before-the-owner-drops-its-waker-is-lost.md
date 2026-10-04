@@ -70,7 +70,7 @@ Before the fix a hang shows as a bare `timeout` with no verdict; after it, the
 run must exit non-zero naming the test within the cap.
 
 Nearest sibling, same shape, already fixed:
-`issues/fixed/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`.
+`issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`.
 
 ## Root cause (2026-09-20)
 

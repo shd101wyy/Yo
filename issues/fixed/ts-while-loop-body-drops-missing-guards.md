@@ -66,6 +66,6 @@ begin.yo's `declared_c_var_names` gate) — the fix must land in BOTH compilers
 in the same batch or the corpus diff-test / STRICT_FIXPOINT will flag the
 divergence.
 
-Related: `issues/yo-codegen-block-rhs-drops-statements.md` family;
+Related: `issues/fixed/codegen-block-rhs-drops-nontail-statements.md` family;
 `_is_dots_atom`'s comment in `yo-self/evaluator/types/function.yo` records the
 same `&&`-short-circuit hazard from the consumer side.

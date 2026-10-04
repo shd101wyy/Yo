@@ -257,7 +257,7 @@ Each step is independently landable and gated by `tests/internal` or a new cli-c
 
     Sequence it AFTER the stage-1 emit/compile split, or each wasm leg inherits
     the overlapping-peaks memory failure that split exists to fix
-    (`issues/compiler-holds-emit-memory-during-cc.md`).
+    (`issues/fixed/compiler-holds-emit-memory-during-cc.md`).
 
     Historical record of the original finding:
 

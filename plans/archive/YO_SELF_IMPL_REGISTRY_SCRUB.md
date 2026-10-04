@@ -2,7 +2,7 @@
 
 **Status: RESEARCHED AND ADVERSARIALLY VERIFIED 2026-08-15 — NOT IMPLEMENTED.**
 Prerequisite for Phase 2 of `plans/archive/SHARED_MODULE_CACHE_TESTS.md`; the bug
-record is `issues/yo-self-missing-duplicate-impl-checks.md`.
+record is `issues/fixed/yo-self-missing-duplicate-impl-checks.md`.
 
 ## How this document was produced, and how much to trust it
 

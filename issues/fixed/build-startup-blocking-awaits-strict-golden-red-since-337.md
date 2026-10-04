@@ -63,7 +63,7 @@ Two language realities shaped the fix:
   caller's remaining continuation). So the plain-fn swallow handlers could not
   simply move inside async bodies.
 - **Branch-nested awaits still drop continuations**
-  (issues/async-await-in-nested-if-drops-continuation.md), so every await in
+  (issues/retired/async-await-nested-if-lost-continuation.md), so every await in
   the converted bodies is a top-level statement and every decision is data.
 
 The pattern that satisfies both (established by `Command.output`'s stderr

@@ -63,7 +63,7 @@ and LANDED). More broadly, **a std API cannot return or accept a collection of
 trait objects at all**, which is a real expressiveness limit rather than a
 formatting inconvenience.
 
-Sibling: `issues/option-of-a-trait-object-never-emits-its-inherent-methods.md`.
+Sibling: `issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md`.
 A second reader framed the shared class well — "specialize a generic container
 method whose element type is a `Dyn`" — and that still looks right; this entry
 adds that the MODULE BOUNDARY is the trigger, which narrows where to look
