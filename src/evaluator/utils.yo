@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../error.yo");
 { suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
-{ generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path }
+{ generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
@@ -694,7 +694,7 @@ audit_note_match_binding :: (fn(binding : Variable, scr_info : ExprInfo) -> unit
         g_implicit_copy_match_roots.get(sv.id),
         .Some(inherited) => inherited,
         .None => cond(
-          (sv.token.module_path != binding.token.module_path) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
+          (canonical_module_path(sv.token.module_path.clone()) != canonical_module_path(binding.token.module_path.clone())) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
           is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond(sv.is_owning_the_rc_value => String.from("temp"), true => String.from("place")), root_id : sv.id),
           (sv.is_owning_the_rc_value && !sv.is_module_level && !sv.is_ref) => ImplicitCopyRoot(kind : String.from("local"), root_id : sv.id),
           true => ImplicitCopyRoot(kind : String.from("place"), root_id : sv.id)
