@@ -658,6 +658,61 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
   );
   trait_vals
 });
+/// The non-executing path's Dyn fallback when the position's expected type is
+/// not a Dyn: the payload's own bounds. An `Impl(...)` (SomeT) payload names
+/// its traits, so `dyn(v)` builds the Dyn from them — the same derivation the
+/// executing path applies through its `dyn_type` match below. A payload with
+/// no bounds of its own (a concrete type) has nothing to say WHICH Dyn to
+/// build, so the dyn is rejected AT ITS OWN TOKEN instead of silently
+/// becoming an empty DynT that passes `yo check` and dies in the C compiler
+/// (issues/fixed/dyn-as-a-direct-downcast-argument-reports-got-option.md).
+/// When the inner produced no ExprInfo (`have_payload_ty` false) its own
+/// failure has already been reported — the empty stand-in keeps this from
+/// piling a second, misleading error on top of it.
+_dyn_type_from_payload_or_throw :: (
+  fn(
+    payload_type : TypeValue,
+    expr_tok : Token,
+    expected_ty : Option(TypeValue),
+    have_payload_ty : bool,
+    exn : Exception
+  ) -> TypeValue
+)(
+  match(
+    payload_type,
+    .SomeT(
+      required_trait_types : rtt,
+      required_trait_levels : rtl,
+      negative_trait_types : ntt,
+      negative_trait_levels : ntl
+    ) => t_dyn(rtt, rtl, ntt, ntl),
+    _ => {
+      if(have_payload_ty, {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message(
+                expr_tok,
+                match(
+                  expected_ty,
+                  .Some(et) => `cannot infer the Dyn type of dyn(...) here: the expected type ${type_to_string(et)} is not a Dyn(...).\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`,
+                  .None => `cannot infer the Dyn type of dyn(...) here: this position supplies no expected type.\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`
+                )
+              ),
+              E_TYPE_MISMATCH
+            )
+          )
+        );
+      });
+      TypeValue.DynT(
+        required_trait_types : ArrayList(TypeValue).new(),
+        required_trait_levels : ArrayList(usize).new(),
+        negative_trait_types : ArrayList(TypeValue).new(),
+        negative_trait_levels : ArrayList(usize).new()
+      )
+    }
+  )
+);
 evaluate_dyn_value :: (
   fn(
     expr : AstExpr,
@@ -788,17 +843,6 @@ evaluate_dyn_value :: (
     ctx.expected_type = inner_expected;
     inner_ne := evaluate_expression_raw(value_arg, env, ctx, exn);
     ctx.expected_type = saved_et_ne;
-    (ret_type : TypeValue) = match(
-      ctx.expected_type,
-      .Some(et) => et.ty,
-      .None => TypeValue.DynT(
-        required_trait_types : ArrayList(TypeValue).new(),
-        required_trait_levels : ArrayList(usize).new(),
-        negative_trait_types : ArrayList(TypeValue).new(),
-        negative_trait_levels : ArrayList(usize).new()
-      )
-    );
-    out_info := new_expr_info(env, ret_type.clone());
     // Even in validating mode, resolve the trait evidence from the registry so
     // C codegen (which reads body ExprInfo produced in THIS mode — fn bodies
     // are evaluated in validating mode) has the vtable FuncVals. The
@@ -810,6 +854,36 @@ evaluate_dyn_value :: (
     // of whatever really failed inside the inner.
     ne_have_inner_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)), .Some(_) => true, .None => false);
     _reject_dyn_of_dyn(ne_value_type.clone(), expr_tok, exn);
+    // The Dyn to build must be NAMED by something. The expected type supplies
+    // it when it is a Dyn; otherwise the payload's own trait bounds do (an
+    // `Impl(...)` value carries them — the same fallback the executing path
+    // below applies through its `dyn_type` derivation). With neither — a bare
+    // `dyn(x)` argument of `downcast(...)`, of a plain call, a method receiver
+    // — the fallback used to be an EMPTY DynT (zero traits): `is_dyn_type`
+    // still matched it, so `yo check` passed and the build then died inside
+    // the C compiler on `/* Error: dyn() call missing trait values */`
+    // (issues/fixed/dyn-as-a-direct-downcast-argument-reports-got-option.md).
+    (ret_type : TypeValue) = match(
+      ctx.expected_type,
+      .Some(et) => match(
+        et.ty,
+        .DynT(
+          required_trait_types : rtt,
+          required_trait_levels : rtl,
+          negative_trait_types : ntt,
+          negative_trait_levels : ntl
+        ) =>
+          TypeValue.DynT(
+            required_trait_types : rtt,
+            required_trait_levels : rtl,
+            negative_trait_types : ntt,
+            negative_trait_levels : ntl
+          ),
+        _ => _dyn_type_from_payload_or_throw(ne_value_type.clone(), expr_tok, Option(TypeValue).Some(et.ty), ne_have_inner_ty, exn)
+      ),
+      .None => _dyn_type_from_payload_or_throw(ne_value_type.clone(), expr_tok, Option(TypeValue).None, ne_have_inner_ty, exn)
+    );
+    out_info := new_expr_info(env, ret_type.clone());
     // Auto-box a non-object, non-dyn payload (always boxed), evaluating the
     // synthetic `box(value)` with the EXPECTED
     // `Box(value_type)` so the box's `generic(V)` binds. The synthetic atom/call

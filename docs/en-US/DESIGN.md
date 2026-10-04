@@ -3177,6 +3177,8 @@ See [DYN_DESIGN.md](./DYN_DESIGN.md) for comprehensive documentation on dynamic 
 
 Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified traits. Use the `dyn()` function to create a `Dyn` instance from an object.
 
+The position of the `dyn(v)` call must say which `Dyn(...)` to build — a parameter of `Dyn(...)` type, an annotated binding `(x : Dyn(Trait)) = dyn(v)`, a declared return type, a struct field, or a collection element slot. A bare `dyn(v)` in a position with no such expected type (for example directly inside `downcast(dyn(v), T)`, whose first parameter accepts any `Dyn`) is a compile error: `cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`.
+
 `Dyn` types in Yo are reference-counted, like other reference-semantics types. They enable dynamic dispatch through trait objects. This applies to closures too: a `Dyn(Fn(...))` closure is heap-boxed and reference counted, whereas the `Impl(Fn(...))` form is monomorphized, passed by value and carries no reference count of its own.
 
 **Key features:**

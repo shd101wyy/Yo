@@ -31,8 +31,8 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 12 | 1 |
 | Async / effects | 6 | 0 |
 | Codegen / emitted C | 18 | 3 |
-| Evaluator / types | 21 | 2 |
-| Std library | 50 | 12 |
+| Evaluator / types | 20 | 2 |
+| Std library | 51 | 12 |
 | Tooling (fmt/doc/lsp) | 12 | 1 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
@@ -208,7 +208,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | S2 | OPEN | — |
 | [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | S3 | OPEN | — |
 
-### Evaluator / types (21)
+### Evaluator / types (20)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -222,7 +222,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md`](./comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md) | S2 | — | — |
 | [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) | S2 | open (found 2026-09-09 while adding `Encoding | yes |
 | [`derive-hash-over-a-field-without-hash-is-accepted-at-the-derive-line.md`](./derive-hash-over-a-field-without-hash-is-accepted-at-the-derive-line.md) | S3 | — | — |
-| [`dyn-as-a-direct-downcast-argument-reports-got-option.md`](./dyn-as-a-direct-downcast-argument-reports-got-option.md) | S3 | OPEN | — |
 | [`dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md`](./dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md) | S2 | OPEN | — |
 | [`env-sharing-live-frame-membership-leak.md`](./env-sharing-live-frame-membership-leak.md) | S1 | OPEN — found during the env-sharing implement | — |
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | S2 | OPEN | — |
@@ -234,10 +233,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (50)
+### Std library (51)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
+| [`cli-case-goldens-cannot-be-recorded-from-a-windows-host.md`](./cli-case-goldens-cannot-be-recorded-from-a-windows-host.md) | S3 | OPEN | — |
 | [`cli-option-declared-with-an-empty-default-never-materializes.md`](./cli-option-declared-with-an-empty-default-never-materializes.md) | S2 | OPEN | — |
 | [`cli-parse-returns-err-for-help-so-the-documented-example-aborts.md`](./cli-parse-returns-err-for-help-so-the-documented-example-aborts.md) | S2 | OPEN | — |
 | [`cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md`](./cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md) | S2 | OPEN | — |
