@@ -119,7 +119,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, render_any_error, reanchor_primary_at, YoError } :: import("../../error.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
-{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
+{ get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { synthesize_types, SynthesizeOptions, TypePair }
 :: import("../types/synthesizer.yo");
 { Exception } :: import("std/error");
@@ -1688,23 +1688,31 @@ _impl_site_string :: (fn(tok : Token) -> String)(
 /// `Deref` (the auto-dereference marker, plans/VALUES_BY_DEFAULT.md §3.3) is
 /// implemented by the prelude's cells only: an impl anywhere else is an
 /// error, so every auto-dereference forwards through one of the known cells
-/// and never through a user wrapper. Checked on the RESOLVED trait (by its
-/// nominal id), so an alias of `Deref` is caught too.
-_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : Option(TypeValue), tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
-  match(
+/// and never through a user wrapper. Checked on the RESOLVED trait — its
+/// nominal key against the prelude `Deref`'s — so an alias is caught too.
+_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : Option(TypeValue), tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  if(is_prelude_or_generated_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
+    return(());
+  });
+  is_deref := match(
     trait_ty,
-    .Some(tt) => if((get_trait_key(tt) == "Deref") && !is_prelude_or_generated_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            tok,
-            `Cannot implement Deref here: only the prelude's Box and Arc implement it. Auto-dereference forwards a wrapper's members to its payload, and only those cells forward; a user wrapper reaches its payload through its own field or methods.`
-          )
-        )
-      );
-    }),
-    .None => ()
+    .Some(tt) => match(
+      get_trait_type_from_env(env, String.from("Deref")),
+      .Some(deref_tt) => (get_trait_key(tt) == get_trait_key(deref_tt)),
+      .None => false
+    ),
+    .None => false
   );
+  if(is_deref, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `Cannot implement Deref here: only the prelude's Box and Arc implement it. Auto-dereference forwards a wrapper's members to its payload, and only those cells forward; a user wrapper reaches its payload through its own field or methods.`
+        )
+      )
+    );
+  });
 });
 /// Does the generic entry's trait, with the forall BINDINGS a receiver match
 /// produced substituted in, name the same trait instantiation as `concrete`?
@@ -4468,7 +4476,7 @@ evaluate_module_value :: (
           .Atom(_, _) => make_err_expr()
         );
         g_trait_ty_opt := _try_lookup_trait_type(trait_fn_expr2, forall_env, ctx, exn);
-        _throw_if_deref_impl_outside_prelude(g_trait_ty_opt, ast_expr_token(mf_expr), ctx, exn);
+        _throw_if_deref_impl_outside_prelude(g_trait_ty_opt, ast_expr_token(mf_expr), forall_env, ctx, exn);
         g_trait_ty := match(g_trait_ty_opt, .Some(t) => t, .None => t_unit());
         // `Dispose`/`Trace` only on a reference type, as Case 3 checks through
         // `g_check_self_constraints_fn`; a value or blanket receiver pattern
@@ -4966,7 +4974,7 @@ evaluate_module_value :: (
             .Atom(_, _) => make_err_expr()
           );
           current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env, ctx, exn);
-          _throw_if_deref_impl_outside_prelude(current_trait_ty, ast_expr_token(field_expr), ctx, exn);
+          _throw_if_deref_impl_outside_prelude(current_trait_ty, ast_expr_token(field_expr), local_env, ctx, exn);
           // Record that this type implements the trait (by its base id) in the
           // type's trait list, so `Type.impls(T, Trait)` resolves by identity at
           // trait-checking step 4 — the impl'd trait is pushed onto the
