@@ -182,7 +182,7 @@ _ms_extern_may_mutate :: (
   });
   found_cb
 });
-_ms_touched_add :: (fn(touched : ArrayList(String), fid : String) -> unit)({
+_ms_touched_add :: (fn(inout(touched) : ArrayList(String), fid : String) -> unit)({
   (i : usize) = usize(0);
   n := touched.len();
   (present : bool) = false;
@@ -212,7 +212,7 @@ impl(
       fid : String,
       body : AstExpr,
       table : ExprInfoTable,
-      touched : ArrayList(String)
+      inout(touched) : ArrayList(String)
     ) -> bool
   )({
     match(
@@ -267,7 +267,7 @@ impl(
     fn(
       args : ArrayList(AstExpr),
       table : ExprInfoTable,
-      touched : ArrayList(String)
+      inout(touched) : ArrayList(String)
     ) -> bool
   )({
     (i : usize) = usize(0);
@@ -315,7 +315,7 @@ impl(
     is_io_async_call(e) || is_io_await_call(e) || is_io_state_call(e) || is_io_spawn_call(e) || is_join_handle_await_call(e)
   ),
   walk : (
-    fn(e : AstExpr, table : ExprInfoTable, touched : ArrayList(String)) -> bool
+    fn(e : AstExpr, table : ExprInfoTable, inout(touched) : ArrayList(String)) -> bool
   )({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
@@ -699,13 +699,13 @@ param_mutation_mask_new :: (fn() -> ParamMutationMask)(
   ParamMutationMask(all : false, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new())
 );
 _msp_bits_get :: (fn(bits : ArrayList(bool), i : usize) -> bool)(match(bits.get(i), .Some(b) => b, .None => false));
-_msp_bits_set :: (fn(bits : ArrayList(bool), i : usize) -> unit)({
+_msp_bits_set :: (fn(inout(bits) : ArrayList(bool), i : usize) -> unit)({
   while(bits.len() <= i, {
     bits.push(false);
   });
   bits(i) = true;
 });
-_msp_bits_or :: (fn(dst : ArrayList(bool), src : ArrayList(bool)) -> unit)({
+_msp_bits_or :: (fn(inout(dst) : ArrayList(bool), src : ArrayList(bool)) -> unit)({
   (i : usize) = usize(0);
   while(i < src.len(), {
     if(_msp_bits_get(src, i), {
@@ -731,6 +731,7 @@ _msp_mask_add_root :: (fn(m : ParamMutationMask, r : _MspRoot, deep : bool) -> u
     }),
     (r.kind == MSP_ROOTED) => {
       m.all = true;
+      _msp_debug_all_reason(String.from("mutation of rooted storage"));
     },
     true => ()
   );
@@ -1099,7 +1100,7 @@ _msp_atom_local_name :: (fn(ctx : _MspCtx, atom : AstExpr) -> Option(String))({
 });
 /// Names bound by a match/destructuring pattern: every atom except variant
 /// heads (`.Some`), `_`, and the label side of a `label : alias` pair.
-_msp_pattern_names :: (fn(pat : AstExpr, out : ArrayList(String)) -> unit)({
+_msp_pattern_names :: (fn(pat : AstExpr, inout(out) : ArrayList(String)) -> unit)({
   match(
     pat,
     .Atom(_, t) => if(!t.value.starts_with(".") && !(t.value == "_"), {
@@ -1262,6 +1263,12 @@ _msp_debug_all :: (fn(why : String, e : AstExpr) -> unit)({
     eprintln(`[borrow-all] ${why}: ${ast_expr_to_string(e)}`);
   });
 });
+/// `_msp_debug_all` for a site that has no expression in hand.
+_msp_debug_all_reason :: (fn(why : String) -> unit)({
+  if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
+    eprintln(`[borrow-all] ${why}`);
+  });
+});
 /// A function's analysis: its parameter mask and the root of what it returns
 /// (`PARAM(j)` = storage reachable from its j-th argument).
 _MspAnalysis :: struct(mask : ParamMutationMask, ret : _MspRoot);
@@ -1359,7 +1366,7 @@ impl(
   /// memoized only when no such edge was crossed — or when the verdict is
   /// already `all`).
   analyze : (
-    fn(fid : String, body : AstExpr, table : ExprInfoTable, touched : ArrayList(String)) -> _MspAnalysis
+    fn(fid : String, body : AstExpr, table : ExprInfoTable, inout(touched) : ArrayList(String)) -> _MspAnalysis
   )({
     match(
       g_msp_by_fid.get(fid.clone()),
@@ -1492,7 +1499,7 @@ impl(
   }),
   /// Return-position expressions: the body's tail (through begin/cond/match)
   /// and every `return(x)`.
-  return_exprs : (fn(e : AstExpr, table : ExprInfoTable, out : ArrayList(AstExpr), is_tail : bool) -> unit)({
+  return_exprs : (fn(e : AstExpr, table : ExprInfoTable, inout(out) : ArrayList(AstExpr), is_tail : bool) -> unit)({
     match(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(info) => {
@@ -1826,7 +1833,7 @@ impl(
   }),
   /// The LOCALS whose storage the value of `e` may alias (what a store of `e`
   /// makes reachable from the store's target).
-  flowing : (fn(e : AstExpr, ctx : _MspCtx, out : ArrayList(String)) -> unit)({
+  flowing : (fn(e : AstExpr, ctx : _MspCtx, inout(out) : ArrayList(String)) -> unit)({
     info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
     match(
       info_opt,
@@ -2541,7 +2548,7 @@ impl(
     });
     m
   }),
-  strict_walk : (fn(e : AstExpr, borrowed_ids : ArrayList(usize), table : ExprInfoTable, out : ArrayList(TokenAndError)) -> unit)({
+  strict_walk : (fn(e : AstExpr, borrowed_ids : ArrayList(usize), table : ExprInfoTable, inout(out) : ArrayList(TokenAndError)) -> unit)({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
       info_opt,

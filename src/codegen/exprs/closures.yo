@@ -7,7 +7,7 @@
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, some_resolution, scope_variables } :: import("../../expr_info.yo");
-{ type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
+{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -232,7 +232,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
                 // A C local of an enclosing state-machine body (phase 6) is
                 // read by its own name while its block is open.
                 local_c := sanitize_for_c_identifier(label.clone(), false);
-                if(match(context.in_async_state_machine, .Some(_) => (scope_stack_contains(context.base.declared_scopes, local_c.clone()) || context.base.declared_c_var_names.contains(local_c.clone())), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env)))
+                if(match(context.in_async_state_machine, .Some(_) => (scope_stack_contains(context.base.declared_scopes.*, local_c.clone()) || context.base.declared_c_var_names.*.contains(local_c.clone())), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env)))
               }
             )
           )
@@ -257,7 +257,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
         t
       }
     );
-    context.base.declared_c_var_names.insert(temp.clone());
+    declare_c_var_name(context.base, temp.clone());
     decl := indent.clone();
     decl.push_string(capture_c_name.clone());
     decl.push_str(" ");
@@ -287,7 +287,8 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     });
     // Register the impl-closure-call mapping (key = concrete capture struct id).
     key := match(resolve_some_type_to_concrete(capture_ty), .Struct({ id : kid }) => kid, _ => struct_id.clone());
-    context.base.impl_closure_call_map.insert(
+    cg_base := context.base;
+    cg_base.impl_closure_call_map.insert(
       key,
       ImplClosureCallInfo(
         function_c_name : function_c_name,
@@ -318,7 +319,8 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
       )
     );
     key := concrete_id;
-    context.base.impl_closure_call_map.insert(
+    cg_base := context.base;
+    cg_base.impl_closure_call_map.insert(
       key,
       ImplClosureCallInfo(
         function_c_name : function_c_name,
@@ -388,7 +390,8 @@ register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) 
                 match(
                   context.base.functions.get(fid.clone()),
                   .Some(entry) => {
-                    context.base.impl_closure_call_map.insert(
+                    cg_base := context.base;
+                    cg_base.impl_closure_call_map.insert(
                       key,
                       ImplClosureCallInfo(
                         function_c_name : entry.c_name,

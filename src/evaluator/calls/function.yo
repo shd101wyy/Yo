@@ -218,7 +218,7 @@ ReceiverMethodResult :: struct(
 /// record) reaches the dispatch UNEVALUATED, unlike a bare-atom receiver
 /// (`io.await`) which the atom eval already stamped.
 _try_eval_receiver_node :: (
-  fn(arg : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(arg : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   rcv_exn := Exception(
     throw : (
@@ -921,7 +921,7 @@ _trial_call_overload_candidate :: (
     args : ArrayList(AstExpr),
     callee_env : Environment,
     ctx : EvalContext,
-    ok_out : ArrayList(bool)
+    inout(ok_out) : ArrayList(bool)
   ) -> unit
 )({
   // FRESH-ID clones — the dry-run must write fresh `$` slots instead of
@@ -964,7 +964,7 @@ _run_overload_trial :: (
     args : ArrayList(AstExpr),
     callee_env : Environment,
     ctx : EvalContext,
-    ok_out : ArrayList(bool)
+    inout(ok_out) : ArrayList(bool)
   ) -> unit
 )({
   trial_exn := Exception(throw : (_err -> unwind(())));
@@ -1868,10 +1868,10 @@ _gc_collect_binder_sites :: (
   fn(
     t : TypeValue,
     forall_names : ArrayList(String),
-    out_names : ArrayList(String),
-    out_levels : ArrayList(usize),
-    out_ids : ArrayList(String),
-    out_protos : ArrayList(TypeValue)
+    inout(out_names) : ArrayList(String),
+    inout(out_levels) : ArrayList(usize),
+    inout(out_ids) : ArrayList(String),
+    inout(out_protos) : ArrayList(TypeValue)
   ) -> unit
 )({
   if(forall_names.len() == usize(0), {
@@ -2818,7 +2818,7 @@ _fv_bind_unbound_forall_placeholders :: (
 /// The argument's type arguments at the declared type's PHANTOM positions
 /// that hold the binder `name` (`_Phantom(T)` against `_Phantom(i32)` gives
 /// `i32`), appended to `out`.
-_phantom_binder_args :: (fn(decl : TypeValue, arg : TypeValue, name : String, out : ArrayList(TypeValue)) -> unit)({
+_phantom_binder_args :: (fn(decl : TypeValue, arg : TypeValue, name : String, inout(out) : ArrayList(TypeValue)) -> unit)({
   (flags : ArrayList(bool)) = ArrayList(bool).new();
   (d_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
   (a_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
@@ -2866,8 +2866,8 @@ _funcval_bind_foralls :: (
     fresh_env : Environment,
     env : Environment,
     n_forall : usize,
-    fa_bound_names : ArrayList(String),
-    fa_bound_types : ArrayList(TypeValue),
+    inout(fa_bound_names) : ArrayList(String),
+    inout(fa_bound_types) : ArrayList(TypeValue),
     expected_param_types : ArrayList(TypeValue),
     declared_param_types : ArrayList(TypeValue),
     param_ct_flags : ArrayList(bool),
@@ -2882,8 +2882,8 @@ _funcval_bind_foralls :: (
     // OUT: binder conflicts (Phase 2.4) — one message per binder that two
     // arguments bind to incompatible types, and the 0-based index of the
     // argument that disagreed. The caller throws (this helper has no exn).
-    fa_conflicts : ArrayList(String),
-    fa_conflict_args : ArrayList(usize)
+    inout(fa_conflicts) : ArrayList(String),
+    inout(fa_conflict_args) : ArrayList(usize)
   ) -> unit
 )({
   // Structural-inference scratch env, built LAZILY on the first generic the
@@ -4533,7 +4533,7 @@ _evaluate_funcval_runtime_call :: (
 /// caller falls back to the first overload (the `->` handler is capture-free, so
 /// it unwinds `()` and the result rides out via `out`, like `_trial_eval_fn_body`).
 _try_eval_operand_type :: (
-  fn(arg : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
+  fn(arg : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(TypeValue)) -> unit
 )({
   oe_exn := Exception(throw : (_e -> unwind(())));
   oe_evaled := evaluate_expression_raw(arg, env, ctx, oe_exn);
@@ -4665,7 +4665,7 @@ _evaluate_function_call_trapped :: (
     given_type : TypeValue,
     given_value : Option(EvalValue),
     ctx : EvalContext,
-    out : ArrayList(AstExpr)
+    inout(out) : ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
   trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));

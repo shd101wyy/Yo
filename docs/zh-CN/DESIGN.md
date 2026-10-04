@@ -104,6 +104,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [使用 `${}` 语法的模板字符串插值：](#使用--语法的模板字符串插值)
       - [格式说明符 —— `${value:spec}`](#格式说明符--valuespec)
 - [集合](#集合)
+  - [修改集合：修改方法接收 `inout(self)`](#修改集合修改方法接收-inoutself)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
   - [HashSet](#hashset)
@@ -2472,6 +2473,38 @@ impl(Point, Format());
 完整的集合类型及其 API 请参阅 [std/collections](../std/collections)。
 
 Yo 在标准库中提供了高效的、引用计数的集合类型。
+
+### 修改集合：修改方法接收 `inout(self)`
+
+所有会改变集合的方法都接收 `inout(self) : Self`：`ArrayList`、`HashMap`、
+`HashSet`、`Deque`、`BTreeMap`、`LinkedList`、`PriorityQueue`、`OrderedMap`、
+`HeaderMap` 和 `StringBuilder` 的修改方法（`push`、`pop`、`insert`、`remove`、
+`clear`、`sort`、`retain`、`write_str` 等，也包括会取走缓冲区的
+`StringBuilder.to_string`）。只读方法（`len`、`get`、`contains`、`iter` 等）
+接收 `self : Self`。
+
+目前集合仍然是句柄，所以通过副本写入会影响原集合。集合变成写时复制的值之后
+（`plans/VALUES_BY_DEFAULT.md` §6 V2b），通过副本写入只会改变副本。代码要写成
+在两种规则下都正确：
+
+- **填充列表的辅助函数用 `inout` 接收它：** `fill :: (fn(inout(out) :
+  ArrayList(i32)) -> unit)(...)`。普通的 `out : ArrayList(i32)` 参数是被调用者
+  自己的副本。
+- **通过位置写集合的元素：** `rows(i).push(x)`、`m(k).push(x)`，或
+  `for(xs, inout(x) => x.push(...))`。`match` 绑定（`.Some(l) => l.push(x)`）
+  和按值的 `for` 绑定都是副本。
+- **存放在映射或 `Option` 字段里的列表要先取出、修改、再存回：**
+  `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
+  l.push(x); m.insert(k, l);`，或者先 `self.f.take()`，再 `self.f = .Some(l)`。
+- **两个持有者有意共享的列表用 `Box`：** `Box(ArrayList(T))`，通过
+  `b.*.push(x)` 写入。闭包和 `io.async` 体按值捕获，所以往列表里记录内容的闭包
+  要这样共享（或者返回这个列表）。
+
+`YO_AUDIT_INOUT_BORROW=1 yo check <path>` 会列出值语义切换后行为会变的每一处写入，
+而不是报错：`[inout-borrow]` 表示通过按值参数或 `match`/`for` 绑定的写入（`inout`
+实参或接收者，或对该位置的赋值），`[inout-borrow-unresolved]` 表示被调用者的
+修改摘要无法解析、写入是推定的，`[inout-borrow-capture]` 表示对闭包捕获的变量的
+写入。
 
 ### ArrayList
 

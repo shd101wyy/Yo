@@ -104,17 +104,7 @@ register_type_trait :: (fn(type_id : String, trait_name : str, env : Environment
   match(
     get_trait_type_from_env(env, String.from(trait_name)),
     .Some(trait_ty) => {
-      match(
-        g_type_trait_registry.get(type_id),
-        .Some(list) => {
-          list.push(trait_ty);
-        },
-        .None => {
-          new_list := ArrayList(TypeValue).new();
-          new_list.push(trait_ty);
-          g_type_trait_registry.insert(type_id, new_list);
-        }
-      );
+      register_type_trait_value(type_id, trait_ty);
     },
     .None => ()
   );
@@ -125,17 +115,11 @@ register_type_trait :: (fn(type_id : String, trait_name : str, env : Environment
 /// `Type.impls(T, SomeTrait)` resolves by id at step 4 — the base trait id
 /// `trait_ty` carries matches the id the query evaluates `SomeTrait` to.
 register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit)({
-  match(
-    g_type_trait_registry.get(type_id),
-    .Some(list) => {
-      list.push(trait_ty);
-    },
-    .None => {
-      new_list := ArrayList(TypeValue).new();
-      new_list.push(trait_ty);
-      g_type_trait_registry.insert(type_id, new_list);
-    }
-  );
+  // Taken out of the registry and stored back: a `get` copy is not the stored
+  // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  list := match(g_type_trait_registry.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  list.push(trait_ty);
+  g_type_trait_registry.insert(type_id, list);
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
 /// `base_name` for Fn/Future traits.
@@ -1914,7 +1898,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
 /// let `should_skip_function_codegen` drop functions with a resolved-SomeT
 /// return). An extern opaque type is an `ExternOpaqueT`, not a SomeType.
 type_contains_some_type_for_codegen_param :: (
-  fn(ty : TypeValue, checked_ids : ArrayList(String)) -> bool
+  fn(ty : TypeValue, inout(checked_ids) : ArrayList(String)) -> bool
 )({
   // Cycle guard on nominal type id.
   nominal_id := match(

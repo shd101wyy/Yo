@@ -132,7 +132,7 @@ _synthesize_phantom_type_args :: (
     flags : ArrayList(bool),
     ee : Environment,
     ge : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -160,7 +160,7 @@ synthesize_types :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -409,7 +409,7 @@ can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> boo
 /// Check if a SomeType (identified by `some_type_id`) occurs anywhere in `ty`.
 /// Prevents infinite types like T = Option(T).
 /// `visited` is a list of type IDs already being checked (prevents cycles).
-_occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeValue, visited : ArrayList(String), exn : Exception) -> bool)({
+_occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeValue, inout(visited) : ArrayList(String), exn : Exception) -> bool)({
   ty_id := synthesis_type_id(ty);
   // Prevent infinite recursion on cyclic types
   (found_visited : bool) = false;
@@ -732,7 +732,7 @@ _synthesize_implicit_params :: (
     given_types : ArrayList(TypeValue),
     expected_env : Environment,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> unit
@@ -799,7 +799,7 @@ _synthesize_fn_traits :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -876,7 +876,7 @@ _synthesize_future_traits :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -912,7 +912,7 @@ _synthesize_types_impl :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult

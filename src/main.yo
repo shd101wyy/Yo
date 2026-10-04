@@ -252,7 +252,7 @@ export(extract_bare_import_path, extract_import_path);
 /// yields `p`, and recursing into its `import(p)` child yields `p`
 /// again); callers dedup by resolved path.
 collect_import_paths_recursive :: (
-  fn(expr : AstExpr, out : ArrayList(String)) -> unit
+  fn(expr : AstExpr, inout(out) : ArrayList(String)) -> unit
 )({
   match(
     extract_import_path(expr),
@@ -406,8 +406,8 @@ collect_module_deps :: (
     path_str : String,
     base_dir : String,
     std_base : String,
-    visited : ArrayList(String),
-    all_exprs : ArrayList(AstExpr),
+    inout(visited) : ArrayList(String),
+    inout(all_exprs) : ArrayList(AstExpr),
     io : Io,
     exn : Exception
   ) -> unit
@@ -682,7 +682,7 @@ _index_std_dir :: (
   });
 });
 /// In-place insertion sort — the lists are directory listings.
-_sort_strings :: (fn(xs : ArrayList(String)) -> unit)({
+_sort_strings :: (fn(inout(xs) : ArrayList(String)) -> unit)({
   (i : usize) = usize(1);
   while(i < xs.len(), {
     (j : usize) = i;
@@ -698,7 +698,7 @@ _sort_strings :: (fn(xs : ArrayList(String)) -> unit)({
 _walk_check_dir :: (
   fn(
     dir : String,
-    out : ArrayList(String),
+    inout(out) : ArrayList(String),
     io : Io,
     exn : Exception
   ) -> unit
@@ -1019,7 +1019,7 @@ _PendingFix :: struct(row : usize, col : usize, len : usize, replacement : Strin
 /// position backwards so an earlier edit cannot invalidate a later span.
 /// Returns the number applied.
 _apply_fixes_to_file :: (
-  fn(path : String, fixes : ArrayList(_PendingFix), io : Io, exn : Exception) -> usize
+  fn(path : String, inout(fixes) : ArrayList(_PendingFix), io : Io, exn : Exception) -> usize
 )({
   if(fixes.len() == usize(0), {
     return(usize(0));
@@ -2356,7 +2356,7 @@ _path_has_extension :: (fn(p : String) -> bool)({
 /// fn boundary — the swallowing-probe pattern used throughout this file).
 /// Success is signalled by
 /// the push; a throw of any kind leaves `ok` empty.
-_try_remove_once :: (fn(path : String, io : Io, ok : ArrayList(bool)) -> unit)({
+_try_remove_once :: (fn(path : String, io : Io, inout(ok) : ArrayList(bool)) -> unit)({
   try_exn := Exception(
     throw : (
       _e -> {
@@ -2663,7 +2663,7 @@ _compile_chunks_parallel :: (
     out_base : String,
     jobs : usize,
     force_recompile : bool,
-    hits_out : ArrayList(usize),
+    inout(hits_out) : ArrayList(usize),
     verbose : bool,
     io : Io,
     exn : Exception
@@ -5370,7 +5370,7 @@ TEST_BATCH_SIZE :: usize(100);
 /// Entries in the shared codegen ExprInfoTable (0 outside `compile`), for
 /// `--profile`'s per-phase memory lines.
 _shared_table_entries :: (fn() -> usize)(
-  match(mm_shared_expr_info_table(), .Some(t) => t.data.len(), .None => usize(0))
+  match(mm_shared_expr_info_table(), .Some(t) => t.data.*.len(), .None => usize(0))
 );
 _current_rss_mb :: (fn() -> usize)(
   cond(
@@ -6971,7 +6971,7 @@ _effect_kinds_of_type :: (fn(t : TypeValue, depth : usize) -> ArrayList(String))
 /// The effect labels/types of a `Future(T, E)` result: a bare `FutureTraitT`,
 /// or the one inside an `Impl(...)` SomeT's required traits.
 _collect_future_effects :: (
-  fn(t : TypeValue, labels : ArrayList(String), types : ArrayList(TypeValue)) -> unit
+  fn(t : TypeValue, inout(labels) : ArrayList(String), inout(types) : ArrayList(TypeValue)) -> unit
 )({
   match(
     t,
@@ -6993,7 +6993,7 @@ _collect_future_effects :: (
     _ => ()
   );
 });
-_push_unique :: (fn(xs : ArrayList(String), x : String) -> unit)({
+_push_unique :: (fn(inout(xs) : ArrayList(String), x : String) -> unit)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     if(xs(i) == x, {

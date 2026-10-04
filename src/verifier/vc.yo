@@ -1538,7 +1538,7 @@ _sorted_strings :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
 });
 /// A term-level variable declaration collector: every `Var` in `t` needs a
 /// matching `declare-fun` in the query.
-_collect_declared :: (fn(t : VcTerm, out : HashMap(String, VcSort)) -> unit)(
+_collect_declared :: (fn(t : VcTerm, inout(out) : HashMap(String, VcSort)) -> unit)(
   match(
     t,
     .Var(name, sort) => {
@@ -2465,7 +2465,7 @@ _arm_ir_bind :: (
     e_ty : TypeValue,
     inout(ctx) : VcCtx,
     saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm))
+    inout(saved_vals) : ArrayList(Option(VcTerm))
   ) -> Option(VcTerm)
 )({
   parts := ArrayList(VcTerm).new();
@@ -2480,8 +2480,8 @@ _bind_one :: (
     name : String,
     term : VcTerm,
     inout(ctx) : VcCtx,
-    saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm))
+    inout(saved_names) : ArrayList(String),
+    inout(saved_vals) : ArrayList(Option(VcTerm))
   ) -> unit
 )({
   saved_names.push(name.clone());
@@ -2494,9 +2494,9 @@ _arm_ir_bind_into :: (
     scrut : VcTerm,
     e_ty : TypeValue,
     inout(ctx) : VcCtx,
-    saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm)),
-    parts : ArrayList(VcTerm)
+    inout(saved_names) : ArrayList(String),
+    inout(saved_vals) : ArrayList(Option(VcTerm)),
+    inout(parts) : ArrayList(VcTerm)
   ) -> bool
 )(
   match(
@@ -2609,9 +2609,9 @@ _subject_test :: (
     p : Pattern,
     scrut : VcTerm,
     inout(ctx) : VcCtx,
-    saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm)),
-    parts : ArrayList(VcTerm)
+    inout(saved_names) : ArrayList(String),
+    inout(saved_vals) : ArrayList(Option(VcTerm)),
+    inout(parts) : ArrayList(VcTerm)
   ) -> bool
 )({
   subject := _pattern_subject_name(p);
@@ -3324,8 +3324,9 @@ _loop_invariant_terms :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr), fram
     .Some(ws) => match(
       frame,
       .Some(fr) => {
-        ws.push(_app2(VcOp.BvUle, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list)));
-        Option(ArrayList(VcTerm)).Some(ws)
+        terms := ws;
+        terms.push(_app2(VcOp.BvUle, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list)));
+        Option(ArrayList(VcTerm)).Some(terms)
       },
       .None => Option(ArrayList(VcTerm)).Some(ws)
     ),

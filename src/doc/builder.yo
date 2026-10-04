@@ -1310,7 +1310,7 @@ _extract_trait_body_members :: (
 extract_impl_info_from_tokens :: (
   fn(
     tokens : ArrayList(Token),
-    doc_lookup : HashMap(String, String)
+    inout(doc_lookup) : HashMap(String, String)
   ) -> HashMap(String, TokenImplInfo)
 )({
   result := HashMap(String, TokenImplInfo).new();
@@ -2038,7 +2038,7 @@ _doc_type_doc_count :: (fn(t : DocType) -> usize)({
   n
 });
 /// Per-name method doc fill-in, carrying the trait attribution with the text.
-_fill_doc_methods_from :: (fn(dst : DocType, src : DocType) -> unit)({
+_fill_doc_methods_from :: (fn(inout(dst) : DocType, src : DocType) -> unit)({
   (i : usize) = usize(0);
   while(i < dst.methods.len(), {
     match(

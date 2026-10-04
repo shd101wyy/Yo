@@ -78,12 +78,12 @@ impl(
   // True when the buffer came from an explicit `Allocator`.
   _owned : (fn(self : Self) -> bool)(((self._capacity & _CAP_TAG) != usize(0))),
   // Store a new capacity, keeping the allocator tag.
-  _set_cap : (fn(self : Self, cap : usize) -> unit)({
+  _set_cap : (fn(inout(self) : Self, cap : usize) -> unit)({
     self._capacity = (cap | (self._capacity & _CAP_TAG));
   }),
   // Grow (or shrink) the buffer to `bytes` through the allocator that owns it;
   // a list with no buffer yet takes a global one.
-  _buf_resize : (fn(self : Self, bytes : usize) -> ?*void)(
+  _buf_resize : (fn(inout(self) : Self, bytes : usize) -> ?*void)(
     match(
       self._ptr,
       .None => malloc(bytes),
@@ -132,7 +132,7 @@ impl(
   /// A struct that merely CONTAINS a pointer, such as `RawSlice(T)`, would not
   /// be gated: safe code may hold `String.raw_bytes()`. The pointer is valid
   /// until the next reallocation, like `ptr()`.
-  spare_capacity : (fn(self : Self) -> Option(*(T)))(
+  spare_capacity : (fn(inout(self) : Self) -> Option(*(T)))(
     match(
       self._ptr,
       .Some(p) => Option(*(T)).Some(p.add(self._length)),
@@ -145,7 +145,7 @@ impl(
   /// unless `spare` is this list's current end and `n <= capacity() - len()`.
   assume_init : (
     fn(
-      self : Self,
+      inout(self) : Self,
       n : usize,
       spare : *(T),
       requires(n <= (self.capacity() - self.len())),
@@ -336,7 +336,7 @@ impl(
   /// O(1) — the buffer doubles (4 elements first), so a growth INVALIDATES
   /// every pointer previously handed out by `ptr()`, `iter()` or the `Index`
   /// impl.
-  try_push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
+  try_push : (fn(inout(self) : Self, value : T) -> Result(unit, ArrayListError))(
     // Check if we need to grow
     cond(
       (self._length >= self._cap()) => {
@@ -393,7 +393,7 @@ impl(
   /// `self(i)`) is invalid afterwards.
   push : (
     fn(
-      self : Self,
+      inout(self) : Self,
       value : T,
       // The element clause is proof-only (it quantifies), so it is never
       // spliced as a runtime assert; the verifier uses it to prove what a
@@ -413,7 +413,7 @@ impl(
   ),
   /// Remove and return the last element, or `.None` when empty — O(1), and
   /// the capacity is kept.
-  pop : (fn(self : Self) -> Option(T))(
+  pop : (fn(inout(self) : Self) -> Option(T))(
     cond(
       (self._length == usize(0)) => .None,
       true => {
@@ -457,7 +457,7 @@ impl(
   /// `.Err(.AllocError(.OutOfMemory))` when the shrinking `realloc` fails —
   /// the list is left untouched and usable. A zero-sized element type is a
   /// no-op: its anchor buffer cannot shrink.
-  shrink_to_fit : (fn(self : Self) -> Result(unit, ArrayListError))(
+  shrink_to_fit : (fn(inout(self) : Self) -> Result(unit, ArrayListError))(
     // If length equals capacity or both are zero, nothing to do. A zero-sized
     // element type has nothing to shrink either (its buffer is the one-byte
     // anchor; `realloc(p, 0)` would free it — see `_zst_anchor`).
@@ -502,7 +502,7 @@ impl(
         )
     )
   ),
-  _free_elements : (fn(self : Self) -> unit)(
+  _free_elements : (fn(inout(self) : Self) -> unit)(
     cond(
       Type.contains_rc_type(T) => {
         if(self._length > usize(0), {
@@ -526,7 +526,7 @@ impl(
   /// clamped the count, which hid caller bugs.
   drain : (
     fn(
-      self : Self,
+      inout(self) : Self,
       r : Range(usize),
       requires(r.start <= r.end, r.end <= self.len()),
       ensures(self.len() == (old(self.len()) - (r.end - r.start))),
@@ -624,7 +624,7 @@ impl(
   /// appends, as in Rust.
   insert : (
     fn(
-      self : Self,
+      inout(self) : Self,
       idx : usize,
       value : T,
       requires(idx <= self.len()),
@@ -646,7 +646,7 @@ impl(
   }),
   /// Move every element of `other` onto the end of `self`, leaving `other`
   /// EMPTY — Rust's `append`. `extend` copies instead.
-  append : (fn(self : Self, other : Self) -> unit)({
+  append : (fn(inout(self) : Self, inout(other) : Self) -> unit)({
     (i : usize) = usize(0);
     n := other.len();
     while(i < n, {
@@ -670,7 +670,7 @@ impl(
   ///
   /// Rust's spelling. `ensure_total_capacity` takes a TOTAL, which is the same
   /// call with a different meaning and an easy one to get wrong at a call site.
-  reserve : (fn(self : Self, additional : usize) -> unit)(
+  reserve : (fn(inout(self) : Self, additional : usize) -> unit)(
     self.ensure_total_capacity(self._length + additional)
   ),
   /// Exchange the elements at `i` and `j`.
@@ -679,7 +679,7 @@ impl(
   /// however the element type is refcounted.
   swap : (
     fn(
-      self : Self,
+      inout(self) : Self,
       i : usize,
       j : usize,
       requires(i < self.len(), j < self.len()),
@@ -708,7 +708,7 @@ impl(
   /// the hole — O(1), and it does not preserve order. Rust's `swap_remove`.
   swap_remove : (
     fn(
-      self : Self,
+      inout(self) : Self,
       idx : usize,
       requires(idx < self.len()),
       ensures(self.len() == (old(self.len()) - usize(1))),
@@ -723,7 +723,7 @@ impl(
   }),
   /// Shorten to `new_len`, dropping the elements past it. Longer `new_len` is
   /// a no-op, as in Rust.
-  truncate : (fn(self : Self, new_len : usize) -> unit)({
+  truncate : (fn(inout(self) : Self, new_len : usize) -> unit)({
     cond(
       (new_len >= self._length) => (),
       true => {
@@ -737,7 +737,7 @@ impl(
   ///
   /// Distinct from `resize_with_byte`, which memsets raw storage and is only
   /// meaningful for a plain-old-data element type.
-  resize : (fn(self : Self, new_len : usize, value : T) -> unit)({
+  resize : (fn(inout(self) : Self, new_len : usize, value : T) -> unit)({
     cond(
       (new_len < self._length) => {
         self.truncate(new_len);
@@ -752,7 +752,7 @@ impl(
     );
   }),
   /// Overwrite every element with `value`, keeping the length. Rust's `fill`.
-  fill : (fn(self : Self, value : T) -> unit)({
+  fill : (fn(inout(self) : Self, value : T) -> unit)({
     (i : usize) = usize(0);
     n := self._length;
     while(i < n, i = (i + usize(1)), {
@@ -760,7 +760,7 @@ impl(
     });
   }),
   /// Split off `[at, len)` into a new list, leaving `[0, at)` here.
-  split_off : (fn(self : Self, at : usize) -> Self)({
+  split_off : (fn(inout(self) : Self, at : usize) -> Self)({
     if(at > self._length, {
       __yo_panic("ArrayList.split_off: index out of bounds");
     });
@@ -775,7 +775,7 @@ impl(
   /// the index reports the caller's mistake as a value.
   remove : (
     fn(
-      self : Self,
+      inout(self) : Self,
       idx : usize,
       requires(idx < self.len()),
       ensures(self.len() == (old(self.len()) - usize(1))),
@@ -852,7 +852,7 @@ impl(
   /// a call site. PANICS on capacity overflow and on allocation failure
   /// (`try_push` is the only allocator-aware entry point). Reallocates, so
   /// pointers into the buffer do not survive it.
-  ensure_total_capacity : (fn(self : Self, min_cap : usize) -> unit)({
+  ensure_total_capacity : (fn(inout(self) : Self, min_cap : usize) -> unit)({
     cond(
       (min_cap <= self._cap()) => (),
       // A zero-sized element type's anchor satisfies every capacity.
@@ -908,7 +908,7 @@ impl(
   /// per-element dup, so for a refcounted `T` this MOVES the source elements:
   /// the caller must not also release them. Reaching for it on a plain-data
   /// element type is the point — that is where it beats a `push` loop.
-  extend_from_ptr : (fn(self : Self, src : *(T), count : usize) -> unit)({
+  extend_from_ptr : (fn(inout(self) : Self, src : *(T), count : usize) -> unit)({
     cond(
       (count == usize(0)) => (),
       true => {
@@ -928,7 +928,7 @@ impl(
   /// Drop every element and set the length to 0, KEEPING the capacity —
   /// Rust's `Vec::clear`. Use `shrink_to_fit` afterwards to release the
   /// buffer too.
-  clear : (fn(self : Self) -> unit)({
+  clear : (fn(inout(self) : Self) -> unit)({
     Self._free_elements(self);
     self._length = usize(0);
   }),
@@ -938,7 +938,7 @@ impl(
   /// Writes over the elements without dropping them, so it is only sound for
   /// a plain-data `T`: on a refcounted element type it strands every handle
   /// it overwrites. `fill(value)` is the type-safe form.
-  fill_with_byte : (fn(self : Self, byte_val : int) -> unit)(
+  fill_with_byte : (fn(inout(self) : Self, byte_val : int) -> unit)(
     match(
       self._ptr,
       .None => (),
@@ -954,7 +954,7 @@ impl(
   /// anything, so — like `fill_with_byte` — this is for a plain-data `T`
   /// only; `resize(new_len, value)` is the type-safe form. Growing may
   /// reallocate and can panic on allocation failure.
-  resize_with_byte : (fn(self : Self, new_len : usize, byte_val : int) -> unit)({
+  resize_with_byte : (fn(inout(self) : Self, new_len : usize, byte_val : int) -> unit)({
     cond(
       (new_len <= self._length) => {
         self._length = new_len;
@@ -1204,7 +1204,7 @@ impl(
   /// Remove CONSECUTIVE duplicates, keeping the first of each run — Rust's
   /// `dedup`. Only adjacent equals collapse, so `[1,2,1]` is unchanged; sort
   /// first if you want set semantics.
-  dedup : (fn(self : Self) -> unit)({
+  dedup : (fn(inout(self) : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true => {
@@ -1329,7 +1329,7 @@ impl(
   ///
   /// Exchanges raw slots, like `swap`, so no element is dup'd or dropped —
   /// RC-neutral however `T` is refcounted.
-  reverse : (fn(self : Self) -> unit)({
+  reverse : (fn(inout(self) : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true =>
@@ -1453,8 +1453,8 @@ _heapsort_by :: (
 _merge_sort_indices :: (
   fn(
     generic(T : Type),
-    order : ArrayList(usize),
-    scratch : ArrayList(usize),
+    inout(order) : ArrayList(usize),
+    inout(scratch) : ArrayList(usize),
     ptr : *(T),
     n : usize,
     less : Impl(Fn(a : T, b : T) -> bool)
@@ -1547,7 +1547,7 @@ impl(
   /// O(n log n) with one `usize` index array plus scratch allocated for the
   /// merge — `sort_unstable` is the allocation-free heapsort for when order
   /// among equals does not matter.
-  sort : (fn(self : Self) -> unit)({
+  sort : (fn(inout(self) : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true =>
@@ -1561,7 +1561,7 @@ impl(
   /// Sort ascending by `Ord` WITHOUT preserving the order of equal elements
   /// — Rust's `sort_unstable`. Heapsort: O(n log n) worst case, in place, no
   /// allocation, no recursion (see `_heapsort_by`).
-  sort_unstable : (fn(self : Self) -> unit)({
+  sort_unstable : (fn(inout(self) : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true =>
@@ -1831,7 +1831,7 @@ impl(
   /// must come before `b`. STABLE: equal elements keep their input order,
   /// matching Rust's `sort_by`. Use `sort_unstable_by` for the
   /// allocation-free heapsort.
-  sort_by : (fn(self : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
+  sort_by : (fn(inout(self) : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true => match(
@@ -1850,7 +1850,7 @@ impl(
   sort_by_key : (
     fn(
       generic(K : Type),
-      self : Self,
+      inout(self) : Self,
       key : Impl(Fn(v : T) -> K),
       where(K <: Ord(K))
     ) -> unit
@@ -1911,7 +1911,7 @@ impl(
   }),
   /// Sort by a caller-supplied strict "less" WITHOUT preserving the order of
   /// equal elements (heapsort). Rust's `sort_unstable_by`.
-  sort_unstable_by : (fn(self : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
+  sort_unstable_by : (fn(inout(self) : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true => match(
@@ -1931,7 +1931,7 @@ impl(
   /// non-functional, so CI was the first to see it); the second walked
   /// backwards over `drain`, which was O(n²) with an allocation per rejection
   /// (issues/fixed/array-list-retain-is-quadratic.md).
-  retain : (fn(self : Self, pred : Impl(Fn(v : T) -> bool)) -> unit)({
+  retain : (fn(inout(self) : Self, pred : Impl(Fn(v : T) -> bool)) -> unit)({
     n := self._length;
     kept := Self.with_capacity(n);
     (i : usize) = usize(0);
@@ -1948,7 +1948,7 @@ impl(
     self.extend(kept);
   }),
   /// Append a copy of every element of `other`.
-  extend : (fn(self : Self, other : ArrayList(T)) -> unit)({
+  extend : (fn(inout(self) : Self, other : ArrayList(T)) -> unit)({
     (i : usize) = usize(0);
     n := other.len();
     while(i < n, i = (i + usize(1)), {

@@ -74,7 +74,7 @@ test("two pipelined responses in one read: the first is framed exactly, the seco
   e := IoExn(io : io, exn : exn);
   // A chunk larger than both responses together, so ONE read delivers both.
   r := _scripted(`${_R1}${_R2}`, usize(4096));
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   first := io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e);
   raw1 := match(
     first,
@@ -85,7 +85,7 @@ test("two pipelined responses in one read: the first is framed exactly, the seco
     }
   );
   assert(raw1 == String.from(_R1), `the first message is framed at its Content-Length, got ${raw1.len()} bytes`);
-  assert(carry.len() == String.from(_R2).len(), `the second response's bytes are carried, not swallowed (carry=${carry.len()})`);
+  assert(carry.*.len() == String.from(_R2).len(), `the second response's bytes are carried, not swallowed (carry=${carry.*.len()})`);
   // The second message is already in hand: reading it must cost no read at all.
   reads_before := r.reads;
   second := io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e);
@@ -99,7 +99,7 @@ test("two pipelined responses in one read: the first is framed exactly, the seco
   );
   assert(raw2 == String.from(_R2), `the second message is framed from the carried bytes, got ${raw2.len()} bytes`);
   assert(r.reads == reads_before, "a message already carried costs no read");
-  assert(carry.len() == usize(0), "nothing is left after the second message");
+  assert(carry.*.len() == usize(0), "nothing is left after the second message");
   // Both parse, and both keep their own status and version.
   p1 := parse_response(raw1).unwrap();
   p2 := parse_response(raw2).unwrap();
@@ -123,7 +123,7 @@ test("one-byte reads frame the same two messages", {
   );
   e := IoExn(io : io, exn : exn);
   r := _scripted(`${_R1}${_R2}`, usize(1));
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   raw1 := match(
     io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
@@ -159,7 +159,7 @@ test("a chunked response followed by another response carries the tail", {
   e := IoExn(io : io, exn : exn);
   chunked := "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
   r := _scripted(`${chunked}${_R2}`, usize(4096));
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   raw1 := match(
     io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
@@ -170,7 +170,7 @@ test("a chunked response followed by another response carries the tail", {
   );
   p1 := parse_response(raw1).unwrap();
   assert(p1.body == `hello`, `the chunked body is decoded: ${p1.body}`);
-  assert(carry.len() == String.from(_R2).len(), `the following response is carried (carry=${carry.len()})`);
+  assert(carry.*.len() == String.from(_R2).len(), `the following response is carried (carry=${carry.*.len()})`);
   raw2 := match(
     io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
@@ -223,7 +223,7 @@ test("a close-delimited response consumes everything", {
   e := IoExn(io : io, exn : exn);
   body := "HTTP/1.0 200 OK\r\nServer: x\r\n\r\nno length here";
   r := _scripted(String.from(body), usize(4096));
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   raw := match(
     io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
@@ -233,7 +233,7 @@ test("a close-delimited response consumes everything", {
     }
   );
   assert(raw == String.from(body), "a close-delimited response is every byte read");
-  assert(carry.len() == usize(0), "and leaves nothing to carry");
+  assert(carry.*.len() == usize(0), "and leaves nothing to carry");
   p := parse_response(raw).unwrap();
   assert(p.version == `HTTP/1.0`, `the version is kept as received: ${p.version}`);
 });
@@ -255,7 +255,7 @@ _frame_one :: (
   fn(text : String, chunk : usize, kind : wire.MessageKind, io : Io, e : IoExn) -> String
 )({
   r := _scripted(text, chunk);
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   match(
     io.await(wire.read_http_message_buffered(r, usize(0), kind, carry, io), e),
     .Ok(x) => x,
@@ -306,7 +306,7 @@ test("a 204 is framed at its headers at every chunk size, Content-Length notwith
   // The same bytes read as a plain response DO wait for a body — the contrast
   // is what proves the framing decision is the status/kind, not the headers.
   r := _scripted(String.from(_RHEAD), usize(4096));
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   plain := io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e);
   assert(
     match(plain, .Ok(x) => (x.len() == String.from(_RHEAD).len()), .Err(_) => false),
@@ -328,15 +328,15 @@ test("a body-less response leaves the next message in the carry, and reading it 
   // seven bytes are eaten as its body and every later message is misframed —
   // response smuggling, and on a pooled connection a hang.
   r := _scripted(`${_R204}${_R1}`, usize(4096));
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   first := io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e);
   assert(
     match(first, .Ok(x) => (x == String.from(_R204)), .Err(_) => false),
     "the 204 is exactly its header section"
   );
   assert(
-    carry.len() == String.from(_R1).len(),
-    `the following response is carried whole (carry=${carry.len()}, expected ${String.from(_R1).len()})`
+    carry.*.len() == String.from(_R1).len(),
+    `the following response is carried whole (carry=${carry.*.len()}, expected ${String.from(_R1).len()})`
   );
   reads_before := r.reads;
   second := io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e);

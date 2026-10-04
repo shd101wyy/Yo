@@ -272,7 +272,7 @@ _enum_id :: (fn(enum_ty : TypeValue) -> String)(
 // ---------------------------------------------------------------------------
 // Walkers
 // ---------------------------------------------------------------------------
-_push_names :: (fn(p : Pattern, out : ArrayList(String)) -> unit)({
+_push_names :: (fn(p : Pattern, inout(out) : ArrayList(String)) -> unit)({
   match(
     p,
     .Wildcard => (),
@@ -1264,7 +1264,7 @@ _int_column_ok :: (fn(rows : ArrayList(ArrayList(Pattern)), head : Pattern, d : 
 });
 /// Insert `k` into the sorted, duplicate-free `cuts` when it lies in
 /// `(lo, hi]`, i.e. starts a segment of `[lo, hi]` other than the first.
-_add_cut :: (fn(cuts : ArrayList(u64), k : u64, lo : u64, hi : u64) -> unit)({
+_add_cut :: (fn(inout(cuts) : ArrayList(u64), k : u64, lo : u64, hi : u64) -> unit)({
   if((k <= lo) || (k > hi), {
     return(());
   });
@@ -1760,7 +1760,7 @@ ArmReach :: enum(
 );
 /// The alternatives of an arm's top-level or-pattern, flattened, looking
 /// through `(name := …)`; empty when the pattern is not an or-pattern.
-_top_alternatives :: (fn(p : Pattern, out : ArrayList(Pattern)) -> unit)(
+_top_alternatives :: (fn(p : Pattern, inout(out) : ArrayList(Pattern)) -> unit)(
   match(
     p,
     .Or(alts) => {
@@ -1856,7 +1856,7 @@ arm_reachability :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeVal
 /// pattern, in pre-order — codegen's collectors must see them (they are not
 /// in the source AST), so the evaluator hangs them off the arm's pattern node
 /// as its `macro_expansion`.
-pattern_test_exprs :: (fn(p : Pattern, out : ArrayList(AstExpr)) -> unit)({
+pattern_test_exprs :: (fn(p : Pattern, inout(out) : ArrayList(AstExpr)) -> unit)({
   match(
     p,
     .Wildcard => (),

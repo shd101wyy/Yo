@@ -291,28 +291,31 @@ impl(
   /// `JsonValue.insert`. Insertion order is preserved and a replacement keeps
   /// the key's original position. A non-table receiver is a no-op returning
   /// `.None`.
-  insert : (fn(self : Self, key : String, value : TomlValue) -> Option(TomlValue))(
-    match(
-      self,
-      .Table(keys, values) => {
-        i := usize(0);
-        while(i < keys.len(), i = (i + usize(1)), {
-          cond(
-            (keys(i) == key) => {
-              old := values(i);
-              values(i) = value;
-              return(Option(TomlValue).Some(old));
-            },
-            true => ()
-          );
-        });
-        keys.push(key);
-        values.push(value);
-        Option(TomlValue).None
-      },
-      _ => Option(TomlValue).None
-    )
-  ),
+  insert : (fn(inout(self) : Self, key : String, value : TomlValue) -> Option(TomlValue))({
+    if(!match(self, .Table(_, _) => true, _ => false), {
+      return(Option(TomlValue).None);
+    });
+    // The payload lists are taken into locals, written, and stored back: a
+    // `match` binding is a copy of them once collections are values.
+    keys := match(self, .Table(k, _) => k, _ => ArrayList(String).new());
+    values := match(self, .Table(_, v) => v, _ => ArrayList(TomlValue).new());
+    i := usize(0);
+    while(i < keys.len(), i = (i + usize(1)), {
+      cond(
+        (keys(i) == key) => {
+          old := values(i);
+          values(i) = value;
+          self = Self.Table(keys, values);
+          return(Option(TomlValue).Some(old));
+        },
+        true => ()
+      );
+    });
+    keys.push(key);
+    values.push(value);
+    self = Self.Table(keys, values);
+    Option(TomlValue).None
+  }),
   /// Return the number of keys in the table, or `0` if not a table.
   table_len : (fn(self : Self) -> usize)(
     match(
@@ -627,7 +630,7 @@ impl(
 /// scalar (a surrogate half or a value above U+10FFFF is rejected, so no
 /// CESU-8 can be produced), then UTF-8 encoded into `out`.
 _read_hex_escape :: (
-  fn(p : _Parser, out : ArrayList(u8), count : usize, esc_pos : usize) -> Result(unit, TomlError)
+  fn(p : _Parser, inout(out) : ArrayList(u8), count : usize, esc_pos : usize) -> Result(unit, TomlError)
 )({
   (code : u32) = u32(0);
   i := usize(0);
@@ -661,7 +664,7 @@ _read_hex_escape :: (
 /// line-ending backslash, which trims itself plus all following whitespace
 /// AND newlines up to the next non-whitespace byte.
 _read_escape :: (
-  fn(p : _Parser, out : ArrayList(u8), multiline : bool) -> Result(unit, TomlError)
+  fn(p : _Parser, inout(out) : ArrayList(u8), multiline : bool) -> Result(unit, TomlError)
 )({
   esc_pos := p.pos;
   p.advance();
@@ -1600,7 +1603,7 @@ _insert_inline :: (
     table : TomlValue,
     keys : ArrayList(String),
     value : TomlValue,
-    dotted : ArrayList(String),
+    inout(dotted) : ArrayList(String),
     pos : usize
   ) -> Result(unit, TomlError)
 )({
@@ -2200,14 +2203,14 @@ export(parse);
 // ============================================================================
 // Serialization
 // ============================================================================
-_push_string :: (fn(s : String, out : ArrayList(u8)) -> unit)({
+_push_string :: (fn(s : String, inout(out) : ArrayList(u8)) -> unit)({
   b := s.as_bytes();
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     out.push(b(i));
   });
 });
-_push_lit :: (fn(s : str, out : ArrayList(u8)) -> unit)({
+_push_lit :: (fn(s : str, inout(out) : ArrayList(u8)) -> unit)({
   i := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
     out.push(s.bytes(i));
@@ -2215,7 +2218,7 @@ _push_lit :: (fn(s : str, out : ArrayList(u8)) -> unit)({
 });
 _HEX_DIGITS :: "0123456789ABCDEF";
 /// `\uXXXX` for a byte no other escape covers.
-_write_u_escape :: (fn(b : u8, out : ArrayList(u8)) -> unit)({
+_write_u_escape :: (fn(b : u8, inout(out) : ArrayList(u8)) -> unit)({
   out.push(_BACKSLASH);
   out.push(u8(117));
   out.push(_ZERO);
@@ -2230,7 +2233,7 @@ _write_u_escape :: (fn(b : u8, out : ArrayList(u8)) -> unit)({
 /// The writer never emits a multi-line or literal string: one output form
 /// round-trips every input form, and choosing between them would only make
 /// the output prettier, never more correct.
-_write_basic_string :: (fn(s : String, out : ArrayList(u8)) -> unit)({
+_write_basic_string :: (fn(s : String, inout(out) : ArrayList(u8)) -> unit)({
   out.push(_QUOTE);
   b := s.as_bytes();
   i := usize(0);
@@ -2292,7 +2295,7 @@ _is_bare_key :: (fn(key : String) -> bool)({
   });
   ok
 });
-_write_key :: (fn(key : String, out : ArrayList(u8)) -> unit)(
+_write_key :: (fn(key : String, inout(out) : ArrayList(u8)) -> unit)(
   cond(
     _is_bare_key(key) => _push_string(key, out),
     true => _write_basic_string(key, out)
@@ -2308,7 +2311,7 @@ _key_string :: (fn(key : String) -> String)({
 /// `3.141592653589793` into `3.14159`, and a fixed `%.17g` would turn `3.14`
 /// into `3.1400000000000001`). A rendering with neither `.` nor an exponent
 /// gets `.0` appended, because TOML would otherwise read it as an integer.
-_write_f64 :: (fn(v : f64, out : ArrayList(u8)) -> unit)({
+_write_f64 :: (fn(v : f64, inout(out) : ArrayList(u8)) -> unit)({
   cond(
     v.is_nan() => {
       _push_lit("nan", out);
@@ -2366,7 +2369,7 @@ _write_f64 :: (fn(v : f64, out : ArrayList(u8)) -> unit)({
 /// A date-time in the form its `kind` names. `DateTime.to_string` cannot be
 /// reused: it always writes a full RFC 3339 date-time (so a local date would
 /// gain a time and a zone) and it drops the fraction.
-_write_datetime :: (fn(d : TomlDateTime, out : ArrayList(u8)) -> unit)({
+_write_datetime :: (fn(d : TomlDateTime, inout(out) : ArrayList(u8)) -> unit)({
   v := d.value;
   has_date := match(d.kind, .LocalTime => false, _ => true);
   has_time := match(d.kind, .LocalDate => false, _ => true);
@@ -2442,7 +2445,7 @@ _write_datetime :: (fn(d : TomlDateTime, out : ArrayList(u8)) -> unit)({
 });
 /// A value in its INLINE form — the only form a scalar, an array, or a
 /// non-top-level table has.
-_write_inline :: (fn(value : TomlValue, out : ArrayList(u8)) -> unit)(
+_write_inline :: (fn(value : TomlValue, inout(out) : ArrayList(u8)) -> unit)(
   match(
     value,
     .Str(s) => _write_basic_string(s, out),
@@ -2521,7 +2524,7 @@ _is_array_of_tables :: (fn(value : TomlValue) -> bool)(
 /// be read back into the WRONG table — the output must put every scalar
 /// before the first header. Within each pass the order is the table's own
 /// insertion order, so the rendering is a deterministic function of the tree.
-_write_table_body :: (fn(table : TomlValue, prefix : String, out : ArrayList(u8)) -> unit)(
+_write_table_body :: (fn(table : TomlValue, prefix : String, inout(out) : ArrayList(u8)) -> unit)(
   match(
     table,
     .Table(keys, values) => {

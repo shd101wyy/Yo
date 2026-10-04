@@ -28,7 +28,7 @@
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
-{ get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_await_consumed_temp } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
@@ -419,7 +419,7 @@ compute_cross_boundary_variables :: (
   // Suspension positions, and the future temps each await consumes.
   sus := ArrayList(u64).new();
   consumed_temps := HashSet(String).new();
-  note_await := (fn(ae : AstExpr, sus : ArrayList(u64), consumed : HashSet(String), w : _LiveWalk, context : FunctionGenerationContext) -> unit)({
+  note_await := (fn(ae : AstExpr, inout(sus) : ArrayList(u64), inout(consumed) : HashSet(String), w : _LiveWalk, context : FunctionGenerationContext) -> unit)({
     sus.push(_lv_pos(ast_expr_token(ae.clone()), w));
     match(
       ae,
@@ -1437,7 +1437,7 @@ _emit_await_result_store :: (
   em.emit_string_line(`${ind}  ${dest} = ${tmp};`);
   em.emit_string_line(`${ind}}`);
 });
-_append_exprs :: (fn(dst : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
+_append_exprs :: (fn(inout(dst) : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
   (i : usize) = usize(0);
   while(i < src.len(), {
     match(
@@ -1491,7 +1491,7 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
   prefix := context.fusion_field_prefix.clone();
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
-  add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize), prefix : String) -> unit)({
+  add := (fn(e : AstExpr, t : TypeValue, inout(out) : ArrayList(InlineAwaitResultField), inout(seen) : HashSet(usize), prefix : String) -> unit)({
     if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.contains(_site_of(ast_expr_token(e.clone()))), {
       seen.insert(ast_expr_id(e));
       out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
@@ -1688,7 +1688,7 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       .Some(rty) => {
         local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
         em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${local};`);
-        context.base.declared_c_var_names.insert(local.clone());
+        declare_c_var_name(context.base, local.clone());
         _emit_await_result_store(local.clone(), `${acc}->result`, rty, false, indent.clone(), context);
         out = local;
       },

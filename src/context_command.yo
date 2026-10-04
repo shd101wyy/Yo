@@ -548,7 +548,7 @@ _entry_less :: (fn(a : ContextIndexEntry, b : ContextIndexEntry) -> bool)(
 );
 /// Sort entries in place by (module, name, kind) — insertion sort, STABLE,
 /// so items of one name keep the index's order (a type before its methods).
-_sort_entries :: (fn(xs : ArrayList(ContextIndexEntry)) -> unit)({
+_sort_entries :: (fn(inout(xs) : ArrayList(ContextIndexEntry)) -> unit)({
   (i : usize) = usize(1);
   while(i < xs.len(), {
     cur := xs(i);
@@ -562,7 +562,7 @@ _sort_entries :: (fn(xs : ArrayList(ContextIndexEntry)) -> unit)({
   });
 });
 /// Sort module rows in place by module path.
-_sort_modules :: (fn(xs : ArrayList(ContextIndexModule)) -> unit)({
+_sort_modules :: (fn(inout(xs) : ArrayList(ContextIndexModule)) -> unit)({
   (i : usize) = usize(1);
   while(i < xs.len(), {
     cur := xs(i);
@@ -912,7 +912,7 @@ _module_page :: (fn(mods : ArrayList(ContextIndexModule), module : String, io : 
 });
 /// The sections of `module`'s page, read once per query.
 _sections_of :: (
-  fn(cache : HashMap(String, ArrayList(PageSection)), mods : ArrayList(ContextIndexModule), module : String, io : Io, exn : Exception) -> ArrayList(PageSection)
+  fn(inout(cache) : HashMap(String, ArrayList(PageSection)), mods : ArrayList(ContextIndexModule), module : String, io : Io, exn : Exception) -> ArrayList(PageSection)
 )(
   match(
     cache.get(module.clone()),
@@ -1062,7 +1062,7 @@ _deep_score :: (
     e : ContextIndexEntry,
     query : String,
     world : LoadedWorld,
-    cache : HashMap(String, ArrayList(PageSection)),
+    inout(cache) : HashMap(String, ArrayList(PageSection)),
     io : Io,
     exn : Exception
   ) -> usize
@@ -1236,7 +1236,7 @@ _run_context_describe_module :: (fn(module : String, world : LoadedWorld, as_jso
 /// then its rendered section (signature, full doc, examples) — read from
 /// the DEFINING module's page, so a barrel re-export shows the real doc.
 _print_item :: (
-  fn(e : ContextIndexEntry, world : LoadedWorld, cache : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> unit
+  fn(e : ContextIndexEntry, world : LoadedWorld, inout(cache) : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> unit
 )({
   d := _defining_entry(world.entries, e);
   println(`${e.module} — ${e.name}`);
@@ -1260,7 +1260,7 @@ _print_item :: (
 });
 /// The item's JSON: its entry object plus `text`, the rendered section.
 _item_json :: (
-  fn(e : ContextIndexEntry, world : LoadedWorld, cache : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> JsonValue
+  fn(e : ContextIndexEntry, world : LoadedWorld, inout(cache) : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> JsonValue
 )({
   d := _defining_entry(world.entries, e);
   o := _entry_json(e);
@@ -1275,7 +1275,7 @@ _item_json :: (
 /// the index stores methods unqualified, so the type is checked against the
 /// method's rendered heading)?
 _entry_names_item :: (
-  fn(e : ContextIndexEntry, item : String, world : LoadedWorld, cache : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> bool
+  fn(e : ContextIndexEntry, item : String, world : LoadedWorld, inout(cache) : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> bool
 )({
   if(!item.contains(String.from(".")), {
     return(e.name == item);

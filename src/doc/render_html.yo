@@ -609,18 +609,18 @@ _render_sidebar :: (fn(model : DocModel, active_module : Option(String)) -> Stri
     if(g.len() == usize(0), {
       top_level.push(m);
     }, {
-      match(
-        groups.get(g.clone()),
-        .Some(lst) => {
-          lst.push(m);
-        },
+      // Taken out of the map and stored back: a `get` copy would not be the
+      // stored list once collections are values.
+      lst := match(
+        groups.remove(g.clone()),
+        .Some(l0) => l0,
         .None => {
-          lst := ArrayList(DocModule).new();
-          lst.push(m);
-          groups.insert(g.clone(), lst);
-          group_keys.push(g);
+          group_keys.push(g.clone());
+          ArrayList(DocModule).new()
         }
       );
+      lst.push(m);
+      groups.insert(g, lst);
     });
     mi = (mi + usize(1));
   });
@@ -1451,18 +1451,18 @@ _render_index_content :: (fn(model : DocModel) -> String)({
     if(g.len() == usize(0), {
       top_level.push(m);
     }, {
-      match(
-        groups.get(g.clone()),
-        .Some(lst) => {
-          lst.push(m);
-        },
+      // Taken out of the map and stored back: a `get` copy would not be the
+      // stored list once collections are values.
+      lst := match(
+        groups.remove(g.clone()),
+        .Some(l0) => l0,
         .None => {
-          lst := ArrayList(DocModule).new();
-          lst.push(m);
-          groups.insert(g.clone(), lst);
-          group_keys.push(g);
+          group_keys.push(g.clone());
+          ArrayList(DocModule).new()
         }
       );
+      lst.push(m);
+      groups.insert(g, lst);
     });
     mi = (mi + usize(1));
   });

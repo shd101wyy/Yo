@@ -142,7 +142,7 @@ pragma(Pragma.AllowUnsafe);
 /// context (e.g. impl field whose surrounding trait is a parametric
 /// trait the bootstrap can't yet evaluate).
 _collect_anon_param_names :: (
-  fn(param_decl : AstExpr, out : ArrayList(String)) -> unit
+  fn(param_decl : AstExpr, inout(out) : ArrayList(String)) -> unit
 )(
   match(
     param_decl,
@@ -429,7 +429,7 @@ _anon_swallow_message :: (fn() -> String)(
 /// The `return(v)` arguments of a body, outside any nested function or
 /// closure: the values a `ctl` handler resumes with. A cond/match arm's `=>`
 /// is a branch, not a boundary.
-_collect_resume_args :: (fn(e : AstExpr, out : ArrayList(AstExpr)) -> unit)(
+_collect_resume_args :: (fn(e : AstExpr, inout(out) : ArrayList(AstExpr)) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
@@ -470,7 +470,7 @@ _is_concrete_resume_type :: (fn(t : TypeValue) -> bool)(
   !is_unit_type(t) && !is_never_type(t) && !is_void_type(t) && (get_all_some_types(t).len() == usize(0))
 );
 _trial_eval_anon_body :: (
-  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(body : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   clear_flow_violation();
   _clear_anon_swallow();
@@ -556,7 +556,7 @@ _synth_nested_return_somes :: (
 /// The caller saves/restores `ctx.is_evaluating_function_type` (an unwind here
 /// would skip an in-helper restore).
 _trial_eval_annotation_type :: (
-  fn(type_expr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
+  fn(type_expr : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(TypeValue)) -> unit
 )({
   inner_exn := Exception(throw : (_err -> unwind(())));
   ctx.is_evaluating_function_type = true;

@@ -362,18 +362,23 @@ _contains_version :: (fn(xs : ArrayList(String), name : String) -> bool)({
 /// List all locally cached Yo versions (directories holding a `bin/yo`).
 /// Returns an ArrayList sorted by semver (ascending). Old npm-shaped cache
 /// entries (package.json + node_modules) are ignored — that channel is dead.
+/// The versions under `versions_dir` that `known` does not list yet. The
+/// async body returns them rather than pushing into a caller's list: a
+/// collection it captured is its own copy once collections are values
+/// (plans/VALUES_BY_DEFAULT.md §3.13).
 _scan_versions_root :: (
   fn(
     versions_dir : String,
-    out : ArrayList(String),
+    known : ArrayList(String),
     io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IoExn))
+  ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
+    found := ArrayList(String).new();
     root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io);
     if(!root_exists, {
-      return(());
+      return(found);
     });
     entries := e.io.await(read_dir(Path.new(versions_dir.clone()), e.io), e);
     i := usize(0);
@@ -386,14 +391,15 @@ _scan_versions_root :: (
             entry_path := `${versions_dir}/${entry.name}`;
             bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
             // A version present in BOTH roots must appear once.
-            if(bin_exists && !_contains_version(out, entry.name.clone()), {
-              out.push(entry.name);
+            if(bin_exists && !_contains_version(known, entry.name.clone()) && !_contains_version(found, entry.name.clone()), {
+              found.push(entry.name);
             });
           });
         }
       );
       i = (i + usize(1));
     });
+    found
   })
 );
 list_cached_versions :: (
@@ -419,8 +425,10 @@ list_cached_versions :: (
       .Some(d) => d,
       .None => _never_path()
     );
-    e.io.await(_scan_versions_root(inst_root, versions, e.io, e.exn), e);
-    e.io.await(_scan_versions_root(get_global_versions_cache_dir(), versions, e.io, e.exn), e);
+    installed := e.io.await(_scan_versions_root(inst_root, versions, e.io, e.exn), e);
+    versions.extend(installed);
+    cached := e.io.await(_scan_versions_root(get_global_versions_cache_dir(), versions, e.io, e.exn), e);
+    versions.extend(cached);
     _sort_by_semver(versions)
   })
 );

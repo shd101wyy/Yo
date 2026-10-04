@@ -403,7 +403,7 @@ dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
 // the beginning of the NEXT message, so they are moved into `carry` rather
 // than dropped. `carry` is emptied first — a caller reuses one list across a
 // connection's whole lifetime.
-_split_message :: (fn(data : ArrayList(u8), limit : usize, carry : ArrayList(u8)) -> String)({
+_split_message :: (fn(data : ArrayList(u8), limit : usize, inout(carry) : ArrayList(u8)) -> String)({
   carry.clear();
   cond(
     (limit >= data.len()) => String.from_bytes(data),
@@ -572,7 +572,9 @@ _frame_status :: (fn(data : ArrayList(u8), kind : MessageKind) -> _FrameStatus)(
 /// The keep-alive form: `carry` holds whatever a previous call read PAST the
 /// previous message on this connection, and on return holds whatever this call
 /// read past THIS message. One list per connection, reused across its
-/// messages; pass a fresh empty one for a connection that is used once.
+/// messages; pass a fresh empty one for a connection that is used once. It is
+/// a `Box` because the caller and the returned future hold the same list on
+/// purpose (plans/VALUES_BY_DEFAULT.md §3.13).
 ///
 /// This is what makes connection reuse safe. A single `read` can return bytes
 /// belonging to two pipelined messages, and framing the second one by
@@ -584,7 +586,7 @@ read_http_message_buffered :: (
     stream : R,
     max_bytes : usize,
     kind : MessageKind,
-    carry : ArrayList(u8),
+    carry : Box(ArrayList(u8)),
     io : Io,
     where(R <: Reader)
   ) -> Impl(Future(Result(String, HttpError), IoExn))
@@ -597,11 +599,11 @@ read_http_message_buffered :: (
     // needed at all.
     result := ArrayList(u8).new();
     ci := usize(0);
-    while(runtime(ci < carry.len()), {
-      result.push(carry(ci));
+    while(runtime(ci < carry.*.len()), {
+      result.push((carry.*)(ci));
       ci = (ci + usize(1));
     });
-    carry.clear();
+    carry.*.clear();
     // A framing defect ends the read loop and comes back as the `.Err`. The
     // body is deliberately free of mid-loop `return`s: an async body's state
     // machine does not lower them, and the closure then fails codegen as
@@ -682,7 +684,7 @@ read_http_message_buffered :: (
       // read loop already stopped here, so anything past the headers belongs
       // to the next message and is carried, not appended.
       ((header_end > usize(0)) && _is_bodyless(kind, result, header_end)) =>
-        Result(String, HttpError).Ok(_split_message(result, header_end + usize(4), carry)),
+        Result(String, HttpError).Ok(_split_message(result, header_end + usize(4), carry.*)),
       ((header_end > usize(0)) && is_chunked(result, header_end)) => {
         body_start := (header_end + usize(4));
         match(
@@ -691,10 +693,10 @@ read_http_message_buffered :: (
             // Bytes after the terminating chunk belong to the next message.
             // `_split_message` is not usable here: the value handed on is the
             // DECODED rewrite, not a prefix of `result`.
-            carry.clear();
+            carry.*.clear();
             k := end;
             while(runtime(k < result.len()), {
-              carry.push(result(k));
+              carry.*.push(result(k));
               k = (k + usize(1));
             });
             decoded := ArrayList(u8).with_capacity(body_start + data.len());
@@ -723,14 +725,14 @@ read_http_message_buffered :: (
             // `cl < avail`, not `(body_start + cl) < result.len()`: the sum can
             // overflow usize on a hostile Content-Length.
             .Length(cl) => cond(
-              (cl < avail) => _split_message(result, body_start + cl, carry),
+              (cl < avail) => _split_message(result, body_start + cl, carry.*),
               true => String.from_bytes(result)
             ),
             // A REQUEST with no framing header ends with its headers; a RESPONSE
             // with none is delimited by close, so every byte read is body.
             .Absent => match(
               kind,
-              .Request => _split_message(result, body_start, carry),
+              .Request => _split_message(result, body_start, carry.*),
               _ => String.from_bytes(result)
             ),
             // Unreachable: the read loop records `.Invalid` as soon as the header
@@ -752,7 +754,7 @@ read_http_message :: (
   fn(generic(R : Type), stream : R, max_bytes : usize, kind : MessageKind, io : Io, where(R <: Reader)) ->
     Impl(Future(Result(String, HttpError), IoExn))
 )(
-  read_http_message_buffered(stream, max_bytes, kind, ArrayList(u8).new(), io)
+  read_http_message_buffered(stream, max_bytes, kind, box(ArrayList(u8).new()), io)
 );
 export(
   MessageKind,

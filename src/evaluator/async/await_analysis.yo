@@ -280,8 +280,8 @@ detect_await_expr_ :: (
   fn(
     expr : AstExpr,
     parent_expr : Option(AstExpr),
-    points : ArrayList(SuspensionPoint),
-    await_extras : HashMap(String, AwaitPointExtra),
+    inout(points) : ArrayList(SuspensionPoint),
+    inout(await_extras) : HashMap(String, AwaitPointExtra),
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )({
@@ -381,14 +381,18 @@ analyze_await_points :: (
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> AwaitAnalysisResult
 )({
-  // Side-channel: stores async-specific fields for each await suspension point
-  await_extras := HashMap(String, AwaitPointExtra).new();
+  // Side-channel: stores async-specific fields for each await suspension point.
+  // A `Box`: the detector closure and this function hold the same map on
+  // purpose, and a closure captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
+  await_extras := box(HashMap(String, AwaitPointExtra).new());
   result := analyze_suspension_points(
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn((expr, parent_expr, points) => {
-        detect_await_expr_(expr, parent_expr, points, await_extras, get_info);
+      detect : dyn((expr, parent_expr) => {
+        found := ArrayList(SuspensionPoint).new();
+        detect_await_expr_(expr, parent_expr, found, await_extras.*, get_info);
+        found
       }),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
       follow_macro_expansions : true
@@ -457,7 +461,7 @@ analyze_await_points :: (
     );
     expr_char_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      await_extras.get(expr_char_key.clone()),
+      await_extras.*.get(expr_char_key.clone()),
       .None => (),
       // should not happen: every SP was registered via detect_await_expr_
       .Some(extra) => {
@@ -520,8 +524,8 @@ analyze_await_points :: (
 collect_variable_bindings_ :: (
   fn(
     expr : AstExpr,
-    variables : ArrayList(CapturedVariable),
-    seen : HashMap(String, bool),
+    inout(variables) : ArrayList(CapturedVariable),
+    inout(seen) : HashMap(String, bool),
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )(

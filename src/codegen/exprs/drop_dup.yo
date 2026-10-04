@@ -27,10 +27,10 @@
 { expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables } :: import("../../expr_info.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
@@ -867,7 +867,7 @@ has_pending_emittable_drop :: (fn(expr : AstExpr, context : FunctionGenerationCo
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(nm, false);
                     is_tmp := (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone()));
-                    declared := context.base.declared_c_var_names.contains(cn);
+                    declared := context.base.declared_c_var_names.*.contains(cn);
                     !is_tmp || declared
                   },
                   .None => true
@@ -940,23 +940,12 @@ generate_deferred_drop_expressions :: (
                   get_deferred_drop_target_atom_name(drop_expr),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(nm, false);
-                    (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
+                    (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.contains(cn)
                   },
                   .None => false
                 );
                 if(!skip_capture && !undeclared_temp, {
-                  sc_skip := match(
-                    context.short_circuit_handled_drop_var_names,
-                    .Some(handled) => match(
-                      get_deferred_drop_target_atom_name(drop_expr),
-                      .Some(t) => if(handled.contains(t.clone()), {
-                        _r := handled.remove(t);
-                        true
-                      }, false),
-                      .None => false
-                    ),
-                    .None => false
-                  );
+                  sc_skip := match(get_deferred_drop_target_atom_name(drop_expr), .Some(t) => take_short_circuit_handled(context, t), .None => false);
                   if(!sc_skip, {
                     code := _call_generate_expr(drop_expr, indent.clone(), context);
                     // Record unconditionally, emit conditionally: an
@@ -1015,7 +1004,7 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
                 get_deferred_dup_target_atom_name(dup_expr),
                 .Some(dnm) => {
                   dcn := sanitize_for_c_identifier(dnm, false);
-                  (is_temp_variable_name(ei.env.module_path.clone(), dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.contains(dcn)
+                  (is_temp_variable_name(ei.env.module_path.clone(), dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.*.contains(dcn)
                 },
                 .None => false
               );
@@ -1035,7 +1024,7 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
                       ddei.variable_name,
                       .Some(ddvn) => {
                         ddtn := get_variable_name_for_codegen_at(ast_expr_id(dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env));
-                        if(!(ddtn == code) && !context.base.declared_c_var_names.contains(ddtn.clone()), Option(String).Some(get_variable_type_string(ddei.ty, ddvn, context.base)), Option(String).None)
+                        if(!(ddtn == code) && !context.base.declared_c_var_names.*.contains(ddtn.clone()), Option(String).Some(get_variable_type_string(ddei.ty, ddvn, context.base)), Option(String).None)
                       },
                       .None => Option(String).None
                     ),
@@ -1290,7 +1279,7 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
         bline.push_string(raw_code.clone());
         bline.push_str(";");
         bem.emit_string_line(bline);
-        context.base.declared_c_var_names.insert(btv.clone());
+        declare_c_var_name(context.base, btv.clone());
       });
       final_code = if(b_self, raw_code.clone(), btv);
     },
@@ -1316,7 +1305,7 @@ arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Funct
           dline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
           dline.push_str(";");
           dem.emit_string_line(dline);
-          context.base.declared_c_var_names.insert(dtv.clone());
+          declare_c_var_name(context.base, dtv.clone());
           final_code = dtv;
           dup_named = true;
         },

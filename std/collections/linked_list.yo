@@ -68,7 +68,7 @@ impl(
   /// Add an element at the front — O(1), one node allocation. Rust's
   /// `push_front`. Existing element positions shift by one; no pointer or
   /// iterator into another node is disturbed.
-  push_front : (fn(self : Self, value : T) -> unit)({
+  push_front : (fn(inout(self) : Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
       next : self.head,
@@ -89,7 +89,7 @@ impl(
   /// Add an element at the back — O(1), one node allocation. Rust's
   /// `push_back`. This is the cheap append; `ArrayList.push` is cheaper
   /// still if you do not need stable node identity.
-  push_back : (fn(self : Self, value : T) -> unit)({
+  push_back : (fn(inout(self) : Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
       next : .None,
@@ -111,7 +111,7 @@ impl(
   ///
   /// Clears the new head's `prev` handle, which is what breaks the
   /// reference cycle every adjacent node pair forms (see `dispose`).
-  pop_front : (fn(self : Self) -> Option(T))(
+  pop_front : (fn(inout(self) : Self) -> Option(T))(
     match(
       self.head,
       .None => .None,
@@ -136,7 +136,7 @@ impl(
   ),
   /// Remove and return the last element, or `.None` when empty — O(1),
   /// because the list keeps a tail handle.
-  pop_back : (fn(self : Self) -> Option(T))(
+  pop_back : (fn(inout(self) : Self) -> Option(T))(
     match(
       self.tail,
       .None => .None,
@@ -216,7 +216,7 @@ impl(
   /// an out-of-range index is a CALLER MISTAKE and stays a `Result` here,
   /// while an allocation failure panics; `ArrayList.insert` panics on the
   /// same mistake, and that difference is deliberate.
-  insert : (fn(self : Self, index : usize, value : T) -> Result(unit, LinkedListError))(
+  insert : (fn(inout(self) : Self, index : usize, value : T) -> Result(unit, LinkedListError))(
     cond(
       (index > self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
       (index == usize(0)) => {
@@ -274,7 +274,7 @@ impl(
   /// `ArrayList.remove` panics — the same deliberate D1 difference as
   /// `insert`. The first and last indices are routed through
   /// `pop_front`/`pop_back`.
-  remove : (fn(self : Self, index : usize) -> Result(T, LinkedListError))(
+  remove : (fn(inout(self) : Self, index : usize) -> Result(T, LinkedListError))(
     cond(
       (index >= self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
       (index == usize(0)) =>
@@ -342,7 +342,7 @@ impl(
   /// dropping the head alone would leave the whole chain with a nonzero
   /// refcount. `pop_front` clears each new head's `prev`, which unlinks the
   /// chain as it goes.
-  clear : (fn(self : Self) -> unit)({
+  clear : (fn(inout(self) : Self) -> unit)({
     while(self.length > usize(0), {
       self.pop_front();
     });
@@ -382,7 +382,7 @@ impl(
   ///
   /// Swaps each node's `next` and `prev` handles and then exchanges head and
   /// tail, so no element is moved or copied and node identity is preserved.
-  reverse : (fn(self : Self) -> unit)({
+  reverse : (fn(inout(self) : Self) -> unit)({
     current_opt := self.head;
     i := usize(0);
     while(i < self.length, i = (i + usize(1)), {

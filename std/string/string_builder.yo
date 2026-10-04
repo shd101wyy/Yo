@@ -119,14 +119,14 @@ impl(
     self._buf.len() == usize(0)
   ),
   /// Append a `str` (raw byte slice) to the buffer.
-  write_str : (fn(self : Self, s : str) -> unit)({
+  write_str : (fn(inout(self) : Self, s : str) -> unit)({
     byte_len := s.len();
     if(byte_len > usize(0), {
       self._buf.extend_from_ptr(s.ptr(), byte_len);
     });
   }),
   /// Append a `String` to the buffer.
-  write_string : (fn(self : Self, s : String) -> unit)(
+  write_string : (fn(inout(self) : Self, s : String) -> unit)(
     match(
       s._bytes,
       .None => (),
@@ -149,7 +149,7 @@ impl(
     )
   ),
   /// Append a single byte to the buffer.
-  write_byte : (fn(self : Self, b : u8) -> unit)({
+  write_byte : (fn(inout(self) : Self, b : u8) -> unit)({
     self._buf.push(b);
   }),
   /// Append a single Unicode code point, encoded as UTF-8.
@@ -160,11 +160,11 @@ impl(
   /// sb.write_rune(rune(0x1F600));  // 😀
   /// sb.write_rune(rune(0x41));     // 'A'
   /// ```
-  write_rune : (fn(self : Self, r : rune) -> unit)({
+  write_rune : (fn(inout(self) : Self, r : rune) -> unit)({
     utf8.encode_into(r, self._buf);
   }),
   /// Append a `String` followed by a newline byte (`\n`).
-  write_line : (fn(self : Self, s : String) -> unit)({
+  write_line : (fn(inout(self) : Self, s : String) -> unit)({
     self.write_string(s);
     self._buf.push(u8(10));
   }),
@@ -176,7 +176,7 @@ impl(
   /// string costs O(N) once. The returned `String` is therefore independent —
   /// a later `write_*` on the same builder cannot mutate a string already
   /// handed to a caller.
-  to_string : (fn(self : Self) -> String)({
+  to_string : (fn(inout(self) : Self) -> String)({
     // HANDS THE BUFFER OVER, it does not copy it: the returned `String` takes
     // the `ArrayList` and the builder starts again from a fresh one. This used
     // to copy byte-by-byte through `get(i)`, which made building an N-byte
@@ -193,14 +193,14 @@ impl(
     String.from_bytes(bytes)
   }),
   /// Append an unsigned 64-bit integer in lowercase hexadecimal.
-  write_hex : (fn(self : Self, n : u64) -> unit)({
+  write_hex : (fn(inout(self) : Self, n : u64) -> unit)({
     buf := Array(u8, usize(20)).fill(u8(0));
     buf_ptr := &buf(usize(0));
     unsafe(snprintf((*char)(buf_ptr), usize(20), "%llx", n));
     self.write_string(String.from_cstr(buf_ptr).unwrap());
   }),
   /// Append `n` with exactly `precision` decimal places.
-  write_f64 : (fn(self : Self, n : f64, precision : i32) -> unit)({
+  write_f64 : (fn(inout(self) : Self, n : f64, precision : i32) -> unit)({
     buf := Array(u8, usize(64)).fill(u8(0));
     buf_ptr := &buf(usize(0));
     unsafe(snprintf((*char)(buf_ptr), usize(64), "%.*f", precision, n));
@@ -214,7 +214,7 @@ impl(
   /// emitted two spaces instead of three and the column did not line up — the
   /// two width bases in one module disagreed
   /// (issues/fixed/write-padded-counted-bytes-where-formatspec-counts-runes.md).
-  write_padded : (fn(self : Self, s : str, width : usize, pad : rune, align : Alignment) -> unit)({
+  write_padded : (fn(inout(self) : Self, s : str, width : usize, pad : rune, align : Alignment) -> unit)({
     n_runes := _str_rune_count(s);
     cond(
       (n_runes >= width) => self.write_str(s),
@@ -262,7 +262,7 @@ impl(
   ///
   /// Until 2026-09-14 this released the buffer, contradicting its own doc
   /// comment (`issues/fixed/stddoc-str-string-builder-clear-drops-capacity.md`).
-  clear : (fn(self : Self) -> unit)({
+  clear : (fn(inout(self) : Self) -> unit)({
     // `ArrayList.clear` drops the elements and sets `_length = 0` WITHOUT
     // releasing the buffer, which is what "clear without freeing memory"
     // means and what Rust's `String::clear` does. Reassigning a fresh

@@ -216,7 +216,7 @@ _Idle :: ref(
   struct(
     key : String,
     transport : _Transport,
-    carry : ArrayList(u8),
+    carry : Box(ArrayList(u8)),
     since : Instant
   )
 );
@@ -365,7 +365,7 @@ impl(
   // off) and the caller must close it — Go's answer too: the connection in
   // hand is closed rather than evicting one already in the pool, so a burst
   // of parallel requests cannot churn the whole pool.
-  _put : (fn(self : Self, key : String, transport : _Transport, carry : ArrayList(u8)) -> bool)(
+  _put : (fn(self : Self, key : String, transport : _Transport, carry : Box(ArrayList(u8))) -> bool)(
     cond(
       (self._idle.len() >= self.max_idle) => false,
       true => {
@@ -686,7 +686,7 @@ _fetch_once :: (
       reused := taken.is_some();
       // One leftover-byte buffer per CONNECTION: a pooled connection brings
       // its own, a fresh one starts empty.
-      carry := ArrayList(u8).new();
+      carry := box(ArrayList(u8).new());
       (conn_opt : Option(_Transport)) = Option(_Transport).None;
       match(
         taken,

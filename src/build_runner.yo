@@ -876,8 +876,8 @@ _collect_linked_shared_libs :: (
     artifact : BuildArtifact,
     project_dir : String,
     effective_target : String,
-    dirs_out : ArrayList(String),
-    names_out : ArrayList(String)
+    inout(dirs_out) : ArrayList(String),
+    inout(names_out) : ArrayList(String)
   ) -> unit
 )({
   seen := ArrayList(String).new();
@@ -934,10 +934,10 @@ _collect_linked_shared_libs :: (
 _walk_dag :: (
   fn(
     registry : BuildRegistry,
-    nodes : HashMap(String, DAGNode),
-    visited : HashMap(String, bool),
+    inout(nodes) : HashMap(String, DAGNode),
+    inout(visited) : HashMap(String, bool),
     name : String,
-    missing : ArrayList(String)
+    inout(missing) : ArrayList(String)
   ) -> unit
 )({
   if(visited.contains_key(name), return(()));
@@ -1012,7 +1012,7 @@ build_dag_checked :: (
   fn(
     registry : BuildRegistry,
     root_step_name : String,
-    missing : ArrayList(String)
+    inout(missing) : ArrayList(String)
   ) -> ArrayList(DAGNode)
 )({
   nodes := HashMap(String, DAGNode).new();
@@ -1041,7 +1041,7 @@ _COLOR_BLACK :: i32(2);
 _dfs_cycle :: (
   fn(
     node_map : HashMap(String, DAGNode),
-    color : HashMap(String, i32),
+    inout(color) : HashMap(String, i32),
     name : String
   ) -> Option(String)
 )({
@@ -1320,7 +1320,7 @@ _resolve_workspace_member :: (
   })
 );
 /// Append `v` to `out` unless it is already there.
-_push_unique_string :: (fn(out : ArrayList(String), v : String) -> unit)({
+_push_unique_string :: (fn(inout(out) : ArrayList(String), v : String) -> unit)({
   (i : usize) = usize(0);
   while(i < out.len(), {
     match(
@@ -1334,10 +1334,14 @@ _push_unique_string :: (fn(out : ArrayList(String), v : String) -> unit)({
   });
   out.push(v);
 });
+/// Every `.yo` file under `dir`. The async body returns the list rather
+/// than pushing into a caller's: a collection it captured is its own copy
+/// once collections are values (plans/VALUES_BY_DEFAULT.md §3.13).
 _cache_collect_yo_files :: (
-  fn(dir : String, out : ArrayList(String), io : Io) -> Impl(Future(unit, IoExn))
+  fn(dir : String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
+    out := ArrayList(String).new();
     work := ArrayList(String).new();
     work.push(dir.clone());
     (wi : usize) = usize(0);
@@ -1387,6 +1391,7 @@ _cache_collect_yo_files :: (
         j = (j + usize(1));
       });
     });
+    out
   })
 );
 _read_bytes_task :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
@@ -1416,7 +1421,7 @@ _cache_read_file :: (
 /// Append `s2` and a newline to the stamp accumulator. A module-level fn
 /// rather than a local closure, so the io.async body using it stays a plain
 /// statement sequence.
-_stamp_push_str :: (fn(dst : ArrayList(u8), s2 : String) -> unit)({
+_stamp_push_str :: (fn(inout(dst) : ArrayList(u8), s2 : String) -> unit)({
   b := s2.as_bytes();
   (bi : usize) = usize(0);
   while(bi < b.len(), {
@@ -1623,14 +1628,13 @@ artifact_input_stamp :: (
     // No depfile yet — hash every `.yo` under the project and the whole std
     // tree, which is what every build used to do, per artifact (audit B10).
     if(!have_depfile, {
-      e.io.await(_cache_collect_yo_files(project_dir.clone(), files, e.io), e);
+      project_files := e.io.await(_cache_collect_yo_files(project_dir.clone(), e.io), e);
+      files.extend(project_files);
     });
     std_root := resolve_std_path();
     if(!have_depfile && (std_root.len() > usize(0)), {
-      e.io.await(
-        _cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), files, e.io),
-        e
-      );
+      std_files := e.io.await(_cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), e.io), e);
+      files.extend(std_files);
     });
     // The manifest and the lock are inputs to RESOLUTION, not to evaluation, so
     // no depfile names them — but changing either changes what `import("dep")`
@@ -2428,7 +2432,7 @@ _run_doc_step :: (fn(opts : DocCommandOptions, io : Io) -> bool)({
   true
 });
 /// Append every element of `src` onto `dst` (ArrayList has no extend()).
-_push_all_strings :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> unit)({
+_push_all_strings :: (fn(inout(dst) : ArrayList(String), src : ArrayList(String)) -> unit)({
   (pa_i : usize) = usize(0);
   while(pa_i < src.len(), {
     match(
@@ -2660,6 +2664,11 @@ _execute_node_unless_blocked :: (
 /// node is a task; the compile/test/run children they spawn are what actually
 /// overlap. A task that unwinds is recorded as a failure rather than losing
 /// the node.
+///
+/// The batch's results come back in batch order for the caller to record:
+/// the async body reads `results` but does not write it, since a collection
+/// it captured is its own copy once collections are values
+/// (plans/VALUES_BY_DEFAULT.md §3.13).
 _execute_batch :: (
   fn(
     batch : ArrayList(DAGNode),
@@ -2667,7 +2676,7 @@ _execute_batch :: (
     ctx : ExecutionContext,
     io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IoExn))
+  ) -> Impl(Future(ArrayList(StepResult), IoExn))
 )(
   io.async((e : IoExn) => {
     handles := ArrayList(JoinHandle(StepResult)).new();
@@ -2683,6 +2692,7 @@ _execute_batch :: (
     // nests the event loop the way the blocking `JoinHandle.await` did
     // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md).
     outs := e.io.await(join_all(handles, e.io), e.io);
+    batch_results := ArrayList(StepResult).new();
     i = usize(0);
     while(i < batch.len(), {
       node := batch(i);
@@ -2704,10 +2714,10 @@ _execute_batch :: (
           description : `failed ${node.name}`
         )
       );
-      results.insert(node.name, result);
+      batch_results.push(result);
       i = (i + usize(1));
     });
-    ()
+    batch_results
   })
 );
 execute_dag :: (
@@ -2782,7 +2792,13 @@ execute_dag :: (
           bi = (bi + usize(1));
         });
         k = (k + batch.len());
-        e.io.await(_execute_batch(batch, results, ctx, e.io, e.exn), e);
+        batch_results := e.io.await(_execute_batch(batch, results, ctx, e.io, e.exn), e);
+        (ri : usize) = usize(0);
+        while(ri < batch_results.len(), {
+          br := batch_results(ri);
+          results.insert(br.name.clone(), br);
+          ri = (ri + usize(1));
+        });
       });
       // Mark complete and update in-degrees
       k = usize(0);

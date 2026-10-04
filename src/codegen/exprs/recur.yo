@@ -5,7 +5,7 @@
 { String } :: import("std/string");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_variable_name_for_codegen_at, get_type_string, get_variable_type_string, fresh_local_name } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
@@ -88,17 +88,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                       if(!(arg_code == sanitized_arg_temp), {
                         already_arg := match(context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
                         if(!already_arg, {
-                          match(
-                            context.declared_temp_vars,
-                            .Some(s) => {
-                              s.insert(sanitized_arg_temp.clone());
-                            },
-                            .None => {
-                              ns0 := HashSet(String).new();
-                              ns0.insert(sanitized_arg_temp.clone());
-                              context.declared_temp_vars = Option(HashSet(String)).Some(ns0);
-                            }
-                          );
+                          record_declared_temp_var(context, sanitized_arg_temp.clone());
                           eff_ty := match(expr_info_converted_runtime_type(aei2), .Some(ct) => ct, .None => aei2.ty);
                           dline := indent.clone();
                           dline.push_string(get_variable_type_string(eff_ty, avn.clone(), context.base));
@@ -156,17 +146,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
           temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env));
           already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
           if(!already, {
-            match(
-              context.declared_temp_vars,
-              .Some(s) => {
-                s.insert(temp_var_name.clone());
-              },
-              .None => {
-                ns := HashSet(String).new();
-                ns.insert(temp_var_name.clone());
-                context.declared_temp_vars = Option(HashSet(String)).Some(ns);
-              }
-            );
+            record_declared_temp_var(context, temp_var_name.clone());
             em := context.base.emitter;
             em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
             line := indent.clone();
@@ -215,17 +195,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       // the escape wrap has a statement to guard (same shape as the
       // named-temp path above).
       fresh := fresh_local_name(String.from("__yo_recur"), context.base.current_function_name.clone());
-      match(
-        context.declared_temp_vars,
-        .Some(s) => {
-          s.insert(fresh.clone());
-        },
-        .None => {
-          ns2 := HashSet(String).new();
-          ns2.insert(fresh.clone());
-          context.declared_temp_vars = Option(HashSet(String)).Some(ns2);
-        }
-      );
+      record_declared_temp_var(context, fresh.clone());
       fem := context.base.emitter;
       fem.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       fline := indent.clone();

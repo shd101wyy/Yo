@@ -327,7 +327,7 @@ export(decode_lossy);
 /// non-scalar (a surrogate half, or a value above U+10FFFF) still encodes to
 /// the bit pattern its bits ask for; use `encode_lossy_into` when the code
 /// point came from somewhere that can produce one.
-encode_into :: (fn(r : rune, out : ArrayList(u8)) -> usize)({
+encode_into :: (fn(r : rune, inout(out) : ArrayList(u8)) -> usize)({
   code := r.to_u32();
   cond(
     (code < u32(0x80)) => {
@@ -363,7 +363,7 @@ export(encode_into);
 /// that has not been through `rune.from_u32` — JSON `\uXXXX` escapes, UTF-16
 /// code units, C `towlower`/`towupper` results. Substituting keeps the output
 /// buffer valid UTF-8 instead of quietly emitting CESU-8.
-encode_lossy_into :: (fn(code : u32, out : ArrayList(u8)) -> usize)(
+encode_lossy_into :: (fn(code : u32, inout(out) : ArrayList(u8)) -> usize)(
   match(
     rune.from_u32(code),
     .Some(r) => encode_into(r, out),

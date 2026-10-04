@@ -56,10 +56,10 @@
 { TypeValue, FuncMeta } :: import("./definitions.yo");
 { fnv1a64, debug_knob, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../utils.yo");
 { ToString } :: import("std/fmt");
-_append_b :: (fn(sb : StringBuilder, x : bool) -> unit)(
+_append_b :: (fn(inout(sb) : StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
-_append_strings :: (fn(sb : StringBuilder, xs : ArrayList(String)) -> unit)({
+_append_strings :: (fn(inout(sb) : StringBuilder, xs : ArrayList(String)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -68,7 +68,7 @@ _append_strings :: (fn(sb : StringBuilder, xs : ArrayList(String)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_bools :: (fn(sb : StringBuilder, xs : ArrayList(bool)) -> unit)({
+_append_bools :: (fn(inout(sb) : StringBuilder, xs : ArrayList(bool)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -76,7 +76,7 @@ _append_bools :: (fn(sb : StringBuilder, xs : ArrayList(bool)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_i64s :: (fn(sb : StringBuilder, xs : ArrayList(i64)) -> unit)({
+_append_i64s :: (fn(inout(sb) : StringBuilder, xs : ArrayList(i64)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -85,7 +85,7 @@ _append_i64s :: (fn(sb : StringBuilder, xs : ArrayList(i64)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_usizes :: (fn(sb : StringBuilder, xs : ArrayList(usize)) -> unit)({
+_append_usizes :: (fn(inout(sb) : StringBuilder, xs : ArrayList(usize)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -94,7 +94,7 @@ _append_usizes :: (fn(sb : StringBuilder, xs : ArrayList(usize)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
+_append_meta_key :: (fn(inout(sb) : StringBuilder, m : FuncMeta) -> unit)({
   _append_strings(sb, m.forall_labels);
   sb.write_str(";");
   _append_strings(sb, m.param_labels);
@@ -142,7 +142,7 @@ _append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
 /// instance's token. A fresh set and depth 0 there recursed forever once enum
 /// tokens carried their arguments. `depth` bounds only how far a token spells
 /// nested arguments.
-_ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth : usize, abs_depth : usize, visited : HashSet(String)) -> String)({
+_ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth : usize, abs_depth : usize, inout(visited) : HashSet(String)) -> String)({
   tok := String.from(tag);
   tok.push_string(sid);
   (i : usize) = usize(0);
@@ -159,7 +159,7 @@ _ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth
   });
   tok
 });
-_ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, visited : HashSet(String)) -> String)(
+_ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, inout(visited) : HashSet(String)) -> String)(
   match(
     t,
     .Struct({ id : a_sid, type_arguments : a_tas }) => if(depth < usize(8), {
@@ -182,7 +182,7 @@ _ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, visited : Has
 );
 
 _intern_key_into :: (
-  fn(t : TypeValue, sb : StringBuilder, depth : usize, visited : HashSet(String)) -> unit
+  fn(t : TypeValue, inout(sb) : StringBuilder, depth : usize, inout(visited) : HashSet(String)) -> unit
 )(
   if(
     depth > usize(600),
@@ -655,7 +655,7 @@ _intern_key_into :: (
 );
 /// Render the structural key of `t` as a String. Thin wrapper over
 /// `_intern_key_into` (kept for callers outside this module).
-type_intern_key :: (fn(t : TypeValue, depth : usize, visited : HashSet(String)) -> String)({
+type_intern_key :: (fn(t : TypeValue, depth : usize, inout(visited) : HashSet(String)) -> String)({
   sb := StringBuilder.new();
   _intern_key_into(t, sb, depth, visited);
   sb.to_string()

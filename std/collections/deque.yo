@@ -100,7 +100,7 @@ impl(
     self._len == usize(0)
   ),
   // Ensure at least `min_cap` slots are available.
-  _grow : (fn(self : Self, min_cap : usize) -> unit)({
+  _grow : (fn(inout(self) : Self, min_cap : usize) -> unit)({
     new_cap := cond(
       (self._cap() == usize(0)) => usize(8),
       true => (self._cap() * usize(2))
@@ -164,7 +164,7 @@ impl(
   /// A full ring grows (doubling and linearising), which PANICS on allocation
   /// failure or capacity overflow rather than reporting it (D9), and
   /// invalidates every pointer into the buffer.
-  push_back : (fn(self : Self, val : T) -> unit)({
+  push_back : (fn(inout(self) : Self, val : T) -> unit)({
     cond(
       (self._len == self._cap()) => self._grow(self._len + usize(1)),
       true => ()
@@ -179,7 +179,7 @@ impl(
   /// `push_front`.
   ///
   /// Grows exactly like `push_back` when the ring is full.
-  push_front : (fn(self : Self, val : T) -> unit)({
+  push_front : (fn(inout(self) : Self, val : T) -> unit)({
     cond(
       (self._len == self._cap()) => self._grow(self._len + usize(1)),
       true => ()
@@ -194,7 +194,7 @@ impl(
   }),
   /// Remove and return the front element, or `.None` when empty — O(1). The
   /// capacity is kept.
-  pop_front : (fn(self : Self) -> Option(T))(
+  pop_front : (fn(inout(self) : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => .None,
       true => {
@@ -209,7 +209,7 @@ impl(
     )
   ),
   /// Remove and return the back element, or `.None` when empty — O(1).
-  pop_back : (fn(self : Self) -> Option(T))(
+  pop_back : (fn(inout(self) : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => .None,
       true => {

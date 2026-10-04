@@ -28,7 +28,7 @@
 // eval :388); this emits it.
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_variable_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, get_variable_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { expr_info_is_compile_time_only_assignment, scope_variables } :: import("../../expr_info.yo");
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
@@ -225,7 +225,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
               // scope-end drop of an undeclared minted temp is skipped, which
               // leaked the old value of every such reassignment
               // (issues/fixed/reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md).
-              context.base.declared_c_var_names.insert(temp_var_name.clone());
+              declare_c_var_name(context.base, temp_var_name.clone());
             },
             .None => {
               save_sm.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));

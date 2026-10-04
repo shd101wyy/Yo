@@ -50,8 +50,9 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(c_symbol_name(type_id_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
-    context.base.type_id_static_names.insert(static_var_name.clone());
-    context.base.type_id_statics.insert(type_id.clone(), static_var_name.clone());
+    cg_base := context.base;
+    cg_base.type_id_static_names.insert(static_var_name.clone());
+    cg_base.type_id_statics.insert(type_id.clone(), static_var_name.clone());
     context.base.emit_typeid_static(static_var_name.clone(), String.new());
   });
   context.base.add_c_include(String.from("<stdint.h>"));

@@ -20,7 +20,7 @@
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { Environment } :: import("../../env.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { DynImplEntry } :: import("../utils/index.yo");
 { type_key, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -194,17 +194,7 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
   if(
     !already,
-    match(
-      context.declared_temp_vars,
-      .Some(s) => {
-        s.insert(temp_var_name.clone());
-      },
-      .None => {
-        ns := HashSet(String).new();
-        ns.insert(temp_var_name.clone());
-        context.declared_temp_vars = Option(HashSet(String)).Some(ns);
-      }
-    )
+    record_declared_temp_var(context, temp_var_name.clone())
   );
   l1 := indent.clone();
   l1.push_string(dyn_type_c_name);

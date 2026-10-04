@@ -327,55 +327,51 @@ impl(
   /// and a replacement keeps the key's original position.
   ///
   /// Panics when `self` is not an object.
-  insert : (fn(self : Self, key : String, value : JsonValue) -> Option(JsonValue))(
-    match(
-      self,
-      .Object(keys, values) => {
-        i := usize(0);
-        while(i < keys.len(), i = (i + usize(1)), {
-          if(keys(i) == key, {
-            old := values(i);
-            values(i) = value;
-            return(Option(JsonValue).Some(old));
-          });
-        });
-        keys.push(key);
-        values.push(value);
-        Option(JsonValue).None
-      },
-      _ => __yo_panic("JsonValue.insert: requires the .Object variant")
-    )
-  ),
+  insert : (fn(inout(self) : Self, key : String, value : JsonValue) -> Option(JsonValue))({
+    // The payload lists are taken into locals, written, and stored back: a
+    // `match` binding is a copy of them once collections are values.
+    keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
+    values := match(self, .Object(_, v) => v, _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
+    i := usize(0);
+    while(i < keys.len(), i = (i + usize(1)), {
+      if(keys(i) == key, {
+        old := values(i);
+        values(i) = value;
+        self = Self.Object(keys, values);
+        return(Option(JsonValue).Some(old));
+      });
+    });
+    keys.push(key);
+    values.push(value);
+    self = Self.Object(keys, values);
+    Option(JsonValue).None
+  }),
   /// Remove `key`, returning its value (`.None` when absent) —
   /// `serde_json`'s `Map::remove`. The remaining keys keep their order.
   ///
   /// Panics when `self` is not an object.
-  remove : (fn(self : Self, key : String) -> Option(JsonValue))(
-    match(
-      self,
-      .Object(keys, values) => {
-        i := usize(0);
-        while(i < keys.len(), i = (i + usize(1)), {
-          if(keys(i) == key, {
-            keys.remove(i);
-            return(Option(JsonValue).Some(values.remove(i)));
-          });
-        });
-        Option(JsonValue).None
-      },
-      _ => __yo_panic("JsonValue.remove: requires the .Object variant")
-    )
-  ),
+  remove : (fn(inout(self) : Self, key : String) -> Option(JsonValue))({
+    keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
+    values := match(self, .Object(_, v) => v, _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
+    i := usize(0);
+    while(i < keys.len(), i = (i + usize(1)), {
+      if(keys(i) == key, {
+        keys.remove(i);
+        removed := values.remove(i);
+        self = Self.Object(keys, values);
+        return(Option(JsonValue).Some(removed));
+      });
+    });
+    Option(JsonValue).None
+  }),
   /// Append `value` to an array.
   ///
   /// Panics when `self` is not an array.
-  push : (fn(self : Self, value : JsonValue) -> unit)(
-    match(
-      self,
-      .Array(items) => items.push(value),
-      _ => __yo_panic("JsonValue.push: requires the .Array variant")
-    )
-  ),
+  push : (fn(inout(self) : Self, value : JsonValue) -> unit)({
+    items := match(self, .Array(xs) => xs, _ => __yo_panic("JsonValue.push: requires the .Array variant"));
+    items.push(value);
+    self = Self.Array(items);
+  }),
   /// Resolve an RFC 6901 JSON Pointer — `serde_json::Value::pointer`.
   ///
   /// `""` is the whole document. Otherwise the pointer must start with `/`
@@ -1175,7 +1171,7 @@ export(
 // ============================================================================
 // Serialisation
 // ============================================================================
-_write_str_escaped :: (fn(s : String, out : ArrayList(u8)) -> unit)({
+_write_str_escaped :: (fn(s : String, inout(out) : ArrayList(u8)) -> unit)({
   out.push(u8(34)); // '"'
   bytes := s.as_bytes();
   i := usize(0);
@@ -1228,7 +1224,7 @@ _write_str_escaped :: (fn(s : String, out : ArrayList(u8)) -> unit)({
   });
   out.push(u8(34)); // '"'
 });
-_stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
+_stringify_into :: (fn(value : JsonValue, inout(out) : ArrayList(u8)) -> unit)({
   match(
     value,
     .Null => {
@@ -1318,7 +1314,7 @@ stringify :: (fn(value : JsonValue) -> String)({
   String.from_bytes(out)
 });
 /// Write `n` spaces to `out`.
-_write_spaces :: (fn(n : usize, out : ArrayList(u8)) -> unit)({
+_write_spaces :: (fn(n : usize, inout(out) : ArrayList(u8)) -> unit)({
   i := usize(0);
   while(i < n, i = (i + usize(1)), {
     out.push(u8(32));
@@ -1333,7 +1329,7 @@ _stringify_pretty_into :: (
     value : JsonValue,
     indent : usize,
     depth : usize,
-    out : ArrayList(u8)
+    inout(out) : ArrayList(u8)
   ) -> unit
 )({
   match(

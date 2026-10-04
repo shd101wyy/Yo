@@ -149,7 +149,7 @@ _same_frame_children :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
   );
   out
 });
-_collect_unwind_catches :: (fn(e : AstExpr, out : ArrayList(String)) -> unit)({
+_collect_unwind_catches :: (fn(e : AstExpr, inout(out) : ArrayList(String)) -> unit)({
   if(is_function_boundary_arrow(e) && !(ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None)), {
     match(
       _boundary_body(e),

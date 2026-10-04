@@ -58,6 +58,8 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { get_evidence_parameters, awaited_future_c_type_override } :: import("../functions/declarations.yo");
 {
+  declare_c_var_name,
+  push_declared_scope,
   type_key,
   get_type_string,
   can_optimize_as_nullable_pointer,
@@ -133,7 +135,7 @@ _io_async_call_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeV
   )
 );
 /// Append `(label, path)` to `mappings` unless an identical entry exists.
-_add_mapping :: (fn(mappings : ArrayList(EffectFieldMapping), label : String, path : String) -> unit)({
+_add_mapping :: (fn(inout(mappings) : ArrayList(EffectFieldMapping), label : String, path : String) -> unit)({
   (exists : bool) = false;
   (i : usize) = usize(0);
   while((i < mappings.len()) && !exists, {
@@ -194,7 +196,7 @@ _find_capture_field :: (fn(capture_type : TypeValue, label : String, field_type 
 /// fields to their access paths (dotted labels + dotted paths into the SM bundle
 /// field).
 _visit_effect_struct_fields :: (
-  fn(struct_type : TypeValue, base_path : String, base_label : String, mappings : ArrayList(EffectFieldMapping)) -> unit
+  fn(struct_type : TypeValue, base_path : String, base_label : String, inout(mappings) : ArrayList(EffectFieldMapping)) -> unit
 )({
   flabels := match(struct_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
   ftypes := match(struct_type, .Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
@@ -734,12 +736,15 @@ _dep_type_string :: (fn(t : TypeValue, context : FunctionGenerationContext) -> O
 /// Record that `dep_struct_name` must be emitted before `b_struct_name`: add the
 /// reverse edge `dep -> b` and bump b's indegree (idempotent).
 _add_deferred_dep :: (
-  fn(dependents : HashMap(String, HashSet(String)), indegree : HashMap(String, usize), dep_struct_name : String, b_struct_name : String) -> unit
+  fn(inout(dependents) : HashMap(String, HashSet(String)), inout(indegree) : HashMap(String, usize), dep_struct_name : String, b_struct_name : String) -> unit
 )({
   match(
     dependents.get(dep_struct_name.clone()),
-    .Some(ds) => {
-      if(ds.contains(b_struct_name.clone()), return());
+    .Some(ds0) => {
+      if(ds0.contains(b_struct_name.clone()), return());
+      // A local of the set, written and stored back: the binding is a copy
+      // once collections are values.
+      ds := ds0;
       ds.insert(b_struct_name.clone());
       dependents.insert(dep_struct_name, ds);
       cur := match(indegree.get(b_struct_name.clone()), .Some(n) => n, .None => usize(0));
@@ -752,7 +757,7 @@ _add_deferred_dep :: (
 /// or an `await_future_X` field whose type C-string matches another block's
 /// struct name introduces an edge.
 _build_deferred_deps :: (
-  fn(b : DeferredAsyncBlock, by_struct_name : HashMap(String, DeferredAsyncBlock), dependents : HashMap(String, HashSet(String)), indegree : HashMap(String, usize), context : FunctionGenerationContext) -> unit
+  fn(b : DeferredAsyncBlock, by_struct_name : HashMap(String, DeferredAsyncBlock), inout(dependents) : HashMap(String, HashSet(String)), inout(indegree) : HashMap(String, usize), context : FunctionGenerationContext) -> unit
 )({
   // Local variable fields.
   cvs := b.analysis.captured_variables;
@@ -1452,7 +1457,7 @@ _build_async_capture_struct_literal :: (
                   // C local of the body) hands back the value itself.
                   dup_code := _call_generate_expr(dup_expr, indent.clone(), context);
                   vname_c := sanitize_for_c_identifier(vname.clone(), false);
-                  declared := (context.base.declared_c_var_names.contains(vname.clone()) || scope_stack_contains(context.base.declared_scopes, vname_c));
+                  declared := (context.base.declared_c_var_names.*.contains(vname.clone()) || scope_stack_contains(context.base.declared_scopes.*, vname_c));
                   parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
                 },
                 .None => {
@@ -1491,7 +1496,7 @@ _build_async_capture_struct_literal :: (
                   // own name while its block is open; the name lookup
                   // through the call's env could land on an unrelated temp.
                   local_c := sanitize_for_c_identifier(label.clone(), false);
-                  cname := if(scope_stack_contains(context.base.declared_scopes, local_c.clone()) || context.base.declared_c_var_names.contains(local_c.clone()), local_c, {
+                  cname := if(scope_stack_contains(context.base.declared_scopes.*, local_c.clone()) || context.base.declared_c_var_names.*.contains(local_c.clone()), local_c, {
                     cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
                     get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), cap_env)
                   });
@@ -1747,7 +1752,7 @@ fused_await_sites :: (fn(analysis : AwaitAnalysisResult, context : FunctionGener
 /// `fused_await_sites`' walk: the sites among `analysis`'s awaits under the
 /// prefix in force, then each one's nested sites under its own prefix.
 _collect_fused_sites :: (
-  fn(analysis : AwaitAnalysisResult, seen : HashSet(String), out : ArrayList(FusedAwaitSite), context : FunctionGenerationContext) -> unit
+  fn(analysis : AwaitAnalysisResult, inout(seen) : HashSet(String), inout(out) : ArrayList(FusedAwaitSite), context : FunctionGenerationContext) -> unit
 )({
   (i : usize) = usize(0);
   while(i < analysis.await_points.len(), i = (i + usize(1)), {
@@ -1874,7 +1879,7 @@ _emit_fused_site_fields :: (fn(sites : ArrayList(FusedAwaitSite), context : Func
 /// handled: a wrapper block reached at two depths shares them, and the dispose
 /// must release each once.
 _emit_fused_site_releases :: (
-  fn(site : FusedAwaitSite, indent : String, zero : bool, done_locals : HashSet(String), context : FunctionGenerationContext) -> unit
+  fn(site : FusedAwaitSite, indent : String, zero : bool, inout(done_locals) : HashSet(String), context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   match(
@@ -2076,7 +2081,7 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
       .Some(rty) => {
         outer_local = fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
         em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${outer_local};`);
-        context.base.declared_c_var_names.insert(outer_local.clone());
+        declare_c_var_name(context.base, outer_local.clone());
       },
       .None => ()
     )
@@ -2121,7 +2126,7 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
         code := match(arg_codes.get(pi), .Some(c) => c, .None => String.from("0"));
         em.emit_string_line(`${inner}${get_variable_type_string(pt, cname.clone(), context.base)} = ${code};`);
         em.emit_string_line(`${inner}(void)${cname.clone()};`);
-        context.base.declared_c_var_names.insert(cname);
+        declare_c_var_name(context.base, cname);
       });
     },
     _ => ()
@@ -2228,7 +2233,7 @@ _copy_expr_list :: (fn(src : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
   _append_expr_list(out, src);
   out
 });
-_append_expr_list :: (fn(dst : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
+_append_expr_list :: (fn(inout(dst) : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
   (i : usize) = usize(0);
   while(i < src.len(), i = (i + usize(1)), {
     match(src.get(i), .Some(e) => dst.push(e), .None => ());
@@ -2690,17 +2695,9 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     closure_param_slots : closure_param_slots_opt,
     source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
   );
-  match(
-    context.deferred_async_blocks,
-    .Some(lst) => {
-      lst.push(dab);
-    },
-    .None => {
-      lst := ArrayList(DeferredAsyncBlock).new();
-      lst.push(dab);
-      context.deferred_async_blocks = Option(ArrayList(DeferredAsyncBlock)).Some(lst);
-    }
-  );
+  blocks := match(context.deferred_async_blocks.take(), .Some(lst) => lst, .None => ArrayList(DeferredAsyncBlock).new());
+  blocks.push(dab);
+  context.deferred_async_blocks = Option(ArrayList(DeferredAsyncBlock)).Some(blocks);
   // Emit the constructor call (lazy: the future stays cold until await/spawn).
   result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => String.from("async_result")), false);
   constructor_call := match(
@@ -2985,12 +2982,12 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   prev_scopes := context.base.declared_scopes;
   prev_declared_ref := em.declared_ref;
   prev_scope_ref := em.scope_ref;
-  context.base.declared_c_var_names = HashSet(String).new();
-  context.base.declared_c_var_names.insert(String.from("sm"));
-  context.base.declared_scopes = ArrayList(String).new();
-  context.base.declared_scopes.push(String.from("sm"));
-  em.declared_ref = Option(HashSet(String)).Some(context.base.declared_c_var_names);
-  em.scope_ref = Option(ArrayList(String)).Some(context.base.declared_scopes);
+  context.base.declared_c_var_names = box(HashSet(String).new());
+  declare_c_var_name(context.base, String.from("sm"));
+  context.base.declared_scopes = box(ArrayList(String).new());
+  push_declared_scope(context.base, String.from("sm"));
+  em.declared_ref = Option(Box(HashSet(String))).Some(context.base.declared_c_var_names);
+  em.scope_ref = Option(Box(ArrayList(String))).Some(context.base.declared_scopes);
   saved_binding_ids := context.state_machine_binding_ids;
   context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
   saved_sm_unwind_catch := context.sm_unwind_catch;
@@ -3746,7 +3743,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       // IN-SCOPE C local/param wins — the captures side-table can hold names
       // that are REAL C parameters of the current fn (the SM bundle param
       // `e`), and rewriting those referenced a nonexistent capture field.
-      lbl_in_scope := scope_stack_contains(context.base.declared_scopes, lbl_c.clone());
+      lbl_in_scope := scope_stack_contains(context.base.declared_scopes.*, lbl_c.clone());
       lbl_read := cond(
         lbl_in_scope => lbl_c.clone(),
         match(

@@ -178,7 +178,7 @@ _binding_name_token :: (fn(exprs : ArrayList(AstExpr), head : String) -> Option(
 /// Within `e`, the label atom of the `member : T` pair declared by a
 /// `struct(...)` / `union(...)` / `newtype(...)` call (the first match in
 /// evaluation order).
-_find_field_label :: (fn(e : AstExpr, member : String, out : ArrayList(Token)) -> unit)({
+_find_field_label :: (fn(e : AstExpr, member : String, inout(out) : ArrayList(Token)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -227,7 +227,7 @@ _find_field_label :: (fn(e : AstExpr, member : String, out : ArrayList(Token)) -
 });
 /// Within `e`, the variant named `variant` declared by an `enum(...)` call —
 /// a bare atom (`Red`) or the callee of a payload variant (`Blue(v : i32)`).
-_find_variant_decl :: (fn(e : AstExpr, variant : String, out : ArrayList(Token)) -> unit)({
+_find_variant_decl :: (fn(e : AstExpr, variant : String, inout(out) : ArrayList(Token)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -293,7 +293,7 @@ _subtree_has_position :: (fn(e : AstExpr, at : Token) -> bool)({
 /// holds `body_at` — the `impl(...)` pair that declares a method whose body
 /// starts there.
 _find_method_label :: (
-  fn(e : AstExpr, member : String, body_at : Token, out : ArrayList(Token)) -> unit
+  fn(e : AstExpr, member : String, body_at : Token, inout(out) : ArrayList(Token)) -> unit
 )({
   match(
     e,
@@ -554,7 +554,7 @@ _module_member_decl :: (
 
 /// The label call enclosing a LABEL atom (`Point(x : 1)` for the `x`): the
 /// call whose direct argument is the `:` pair with that atom on the left.
-_find_label_call :: (fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -> unit)({
+_find_label_call :: (fn(e : AstExpr, target : Token, inout(out) : ArrayList(AstExpr)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),

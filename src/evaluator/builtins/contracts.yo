@@ -1311,7 +1311,7 @@ single2 :: (fn(a : AstExpr, b : AstExpr) -> ArrayList(AstExpr))({
 _hoist_old_in :: (
   fn(
     e : AstExpr,
-    snapshots : ArrayList(AstExpr),
+    inout(snapshots) : ArrayList(AstExpr),
     bind_op : String
   ) -> AstExpr
 )(
@@ -2127,7 +2127,7 @@ _stash_callsite_contracts :: (
 /// `_trial_eval_fn_body` pattern); `YO_DEBUG_SWALLOW=1` prints what was
 /// dropped.
 _callsite_ensures_or_drop :: (
-  fn(p : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(p : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   drop_exn := Exception(
     throw : (

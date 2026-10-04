@@ -418,7 +418,8 @@ parse_z3_sexprs :: (fn(text : String) -> ArrayList(Z3Sexpr))({
         list := Z3Sexpr.List(frame);
         match(
           stack.pop(),
-          .Some(parent) => {
+          .Some(found) => {
+            parent := found;
             parent.push(list);
             stack.push(parent);
           },
@@ -442,7 +443,8 @@ parse_z3_sexprs :: (fn(text : String) -> ArrayList(Z3Sexpr))({
         atom := Z3Sexpr.Atom(text.substring(start, i));
         match(
           stack.pop(),
-          .Some(parent) => {
+          .Some(found) => {
+            parent := found;
             parent.push(atom);
             stack.push(parent);
           },

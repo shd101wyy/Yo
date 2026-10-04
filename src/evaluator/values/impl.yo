@@ -403,21 +403,22 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
   match(
     key_idx,
     .Some(idx) => {
-      // Append to existing list (owner list stays index-parallel).
-      match(
-        g_impl_registry_entry_lists.get(idx),
-        .Some(list) => {
-          list.push(entry);
-        },
-        .None => ()
-      );
-      match(
-        g_impl_registry_entry_owners.get(idx),
-        .Some(olist) => {
-          olist.push(owner);
-        },
-        .None => ()
-      );
+      // Append to existing list (owner list stays index-parallel). Each list
+      // is taken out of its slot, grown, and stored back: a `get` copy is not
+      // the stored list once collections are values, and emptying the slot
+      // first leaves the taken list the only holder of its buffer.
+      if(idx < g_impl_registry_entry_lists.len(), {
+        list := g_impl_registry_entry_lists(idx);
+        g_impl_registry_entry_lists(idx) = ArrayList(GenericImplEntry).new();
+        list.push(entry);
+        g_impl_registry_entry_lists(idx) = list;
+      });
+      if(idx < g_impl_registry_entry_owners.len(), {
+        olist := g_impl_registry_entry_owners(idx);
+        g_impl_registry_entry_owners(idx) = ArrayList(String).new();
+        olist.push(owner);
+        g_impl_registry_entry_owners(idx) = olist;
+      });
     },
     .None => {
       // New key — add parallel entries.
@@ -439,25 +440,25 @@ purge_generic_impls_owned_by :: (fn(owner : String) -> unit)({
   });
   (ki : usize) = usize(0);
   while(ki < g_impl_registry_entry_lists.len(), {
-    match(
-      g_impl_registry_entry_lists.get(ki),
-      .Some(list) => match(
-        g_impl_registry_entry_owners.get(ki),
-        .Some(olist) => {
-          (i : usize) = olist.len();
-          while(i > usize(0), {
-            i = (i - usize(1));
-            hit := match(olist.get(i), .Some(o) => (o == owner), .None => false);
-            if(hit && (i < list.len()), {
-              list.drain(i .. (i + usize(1)));
-              olist.drain(i .. (i + usize(1)));
-            });
-          });
-        },
-        .None => ()
-      ),
-      .None => ()
-    );
+    if(ki < g_impl_registry_entry_owners.len(), {
+      // Taken out of their slots, filtered, and stored back (see
+      // `register_generic_impl`).
+      list := g_impl_registry_entry_lists(ki);
+      olist := g_impl_registry_entry_owners(ki);
+      g_impl_registry_entry_lists(ki) = ArrayList(GenericImplEntry).new();
+      g_impl_registry_entry_owners(ki) = ArrayList(String).new();
+      (i : usize) = olist.len();
+      while(i > usize(0), {
+        i = (i - usize(1));
+        hit := match(olist.get(i), .Some(o) => (o == owner), .None => false);
+        if(hit && (i < list.len()), {
+          list.drain(i .. (i + usize(1)));
+          olist.drain(i .. (i + usize(1)));
+        });
+      });
+      g_impl_registry_entry_lists(ki) = list;
+      g_impl_registry_entry_owners(ki) = olist;
+    });
     ki = (ki + usize(1));
   });
 });
@@ -3274,7 +3275,7 @@ _materialize_default_body :: (
     fn_id : String,
     env : Environment,
     ctx : EvalContext,
-    out : ArrayList(AstExpr)
+    inout(out) : ArrayList(AstExpr)
   ) -> unit
 )({
   inner_exn := Exception(
@@ -4019,8 +4020,8 @@ _collect_impl_where_constraints :: (
     forall_env : Environment,
     ctx : EvalContext,
     exn : Exception,
-    out_some_types : ArrayList(TypeValue),
-    out_traits : ArrayList(TypeValue)
+    inout(out_some_types) : ArrayList(TypeValue),
+    inout(out_traits) : ArrayList(TypeValue)
   ) -> unit
 )({
   where_args := match(

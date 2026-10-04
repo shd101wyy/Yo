@@ -24,7 +24,7 @@
 { generate_atom } :: import("./atom.yo");
 
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
@@ -277,7 +277,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // Skipping an undeclared temp's drop cannot double-free or leak (no C variable exists).
   // See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
   guard_cn := sanitize_for_c_identifier(var_name.clone(), false);
-  if(guard_cn.contains(String.from("_temp_")) && !context.base.declared_c_var_names.contains(guard_cn.clone()), {
+  if(guard_cn.contains(String.from("_temp_")) && !context.base.declared_c_var_names.*.contains(guard_cn.clone()), {
     return(false);
   });
   if(!use_env, {
@@ -317,7 +317,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
       },
       .None => ()
     );
-    return(scope_stack_contains(context.base.declared_scopes, guard_cn.clone()));
+    return(scope_stack_contains(context.base.declared_scopes.*, guard_cn.clone()));
   });
   env := match(context.base.get_expr_info(expr), .Some(ei) => ei.env, .None => return(true));
   variables := _cleanup_drop_variables(expr, env, var_name, drop_expr, context);
@@ -353,7 +353,7 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // reference an out-of-scope identifier. A target absent from the stack holds
   // no C value here, so skipping its drop cannot double-free or leak.
   c_name := sanitize_for_c_identifier(var_name, false);
-  if(!_drop_target_is_state_machine_field(latest_var, var_name.clone(), context) && !scope_stack_contains(context.base.declared_scopes, c_name), {
+  if(!_drop_target_is_state_machine_field(latest_var, var_name.clone(), context) && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
     return(false);
   });
   match(
@@ -587,7 +587,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
                     .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(drop_expr), .Some(ta) => ast_expr_id(ta), .None => ast_expr_id(expr)), ei.env, vn, smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some()),
                     .None => false
                   );
-                  !in_slot && !scope_stack_contains(context.base.declared_scopes, cn)
+                  !in_slot && !scope_stack_contains(context.base.declared_scopes.*, cn)
                 },
                 .None => false
               );
@@ -680,7 +680,7 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
             // Register the declared temp BEFORE the dup pass below — the dup
             // emitter's undeclared-temp gate silently suppresses the +1 for
             // names not yet in declared_c_var_names (round-3 field-tail UAF).
-            context.base.declared_c_var_names.insert(expr_temp_var.clone());
+            declare_c_var_name(context.base, expr_temp_var.clone());
           });
         },
         .None => {
@@ -774,7 +774,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             dline.push_str(";");
             em2 := context.base.emitter;
             em2.emit_string_line(dline);
-            context.base.declared_c_var_names.insert(arg_temp_var.clone());
+            declare_c_var_name(context.base, arg_temp_var.clone());
           });
           arg_code = if(is_inout_arg_atom || arg_self, raw_arg_code, arg_temp_var);
         },
@@ -1055,7 +1055,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             snap := fresh_local_name(String.from("__yo_sm_ret"), context.base.current_function_name.clone());
             snap_em := context.base.emitter;
             snap_em.emit_string_line(`${indent.clone()}${return_type.clone()} ${snap.clone()} = ${snap_value};`);
-            context.base.declared_c_var_names.insert(snap.clone());
+            declare_c_var_name(context.base, snap.clone());
             sm_result_snapshot = Option(String).Some(snap);
           });
         },

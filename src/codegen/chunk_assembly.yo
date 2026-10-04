@@ -184,7 +184,7 @@ _ca_parse_static_fn_line :: (
 });
 /// Collect the names of every column-0 `static` FUNCTION DEFINITION in `text`
 /// into `into` (the header-defined set the dequalifier keys on).
-_ca_collect_static_def_names :: (fn(text : String, into : HashSet(String)) -> unit)({
+_ca_collect_static_def_names :: (fn(text : String, inout(into) : HashSet(String)) -> unit)({
   static_pat := String.from("static ");
   inline_pat := String.from("inline ");
   attr_pat := String.from("__attribute__((");
@@ -395,7 +395,7 @@ _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
 /// required: FSM emitters write `switch (...) {` at column 0, which has no
 /// identifier before its paren.
 _ca_collect_residue_protos :: (
-  fn(text : String, names_out : ArrayList(String), protos_out : HashMap(String, String)) -> unit
+  fn(text : String, inout(names_out) : ArrayList(String), inout(protos_out) : HashMap(String, String)) -> unit
 )({
   yo_pat := String.from("__yo_");
   bytes := text.as_bytes();
@@ -472,7 +472,7 @@ _ca_collect_residue_protos :: (
 /// as `__yo_str` spill data, and matching names inside them would mark every
 /// runtime function as referenced. Emitted C strings never span lines (their
 /// newlines are `\n` escapes), so the in-string state resets per line.
-_ca_collect_yo_refs :: (fn(text : String, into : HashSet(String)) -> unit)({
+_ca_collect_yo_refs :: (fn(text : String, inout(into) : HashSet(String)) -> unit)({
   yo_pat := String.from("__yo_");
   bytes := text.as_bytes();
   n := bytes.len();

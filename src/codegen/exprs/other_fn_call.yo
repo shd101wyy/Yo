@@ -13,9 +13,9 @@
 { type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, type_contains_rc_type } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -538,7 +538,7 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
         // sibling blocks — see scope_stack_contains); the in-scope
         // local/param holds the same value, so reuse it.
         vname_c := sanitize_for_c_identifier(vname.clone(), false);
-        already_in_scope := scope_stack_contains(context.base.declared_scopes, vname_c.clone());
+        already_in_scope := scope_stack_contains(context.base.declared_scopes.*, vname_c.clone());
         (emitted : bool) = false;
         if(!(arg_code == vname_c) && !is_comptime_only && !is_sm && !param_is_ref && !is_deref_read && !already_in_scope, {
           if(!(arg_code == sanitized), {
@@ -2230,18 +2230,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             .Some(tv) => if(type_contains_rc_type(r), {
               already := match(context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
               if(!already, {
-                match(
-                  context.declared_temp_vars,
-                  .Some(s) => {
-                    s.insert(tv.clone());
-                  },
-                  .None => {
-                    ns := HashSet(String).new();
-                    ns.insert(tv.clone());
-                    context.declared_temp_vars = Option(HashSet(String)).Some(ns);
-                  }
-                );
-                context.base.declared_c_var_names.insert(tv.clone());
+                record_declared_temp_var(context, tv.clone());
+                declare_c_var_name(context.base, tv.clone());
                 em.emit_string_line(`${indent}${get_type_string(r, context.base)} ${tv} = ${out};`);
                 _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
               });
@@ -2392,17 +2382,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               );
               already := match(context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
               if(!already, {
-                match(
-                  context.declared_temp_vars,
-                  .Some(s) => {
-                    s.insert(tv.clone());
-                  },
-                  .None => {
-                    ns := HashSet(String).new();
-                    ns.insert(tv.clone());
-                    context.declared_temp_vars = Option(HashSet(String)).Some(ns);
-                  }
-                );
+                record_declared_temp_var(context, tv.clone());
                 // Clear __yo_effect_escaped before the call so a stale flag from
                 // a previous unwind (already handled by a higher-level handler)
                 // doesn't leak into this call's escape check.
@@ -2715,17 +2695,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     fp_tv := match(ei.variable_name, .Some(tv) => tv, .None => `_eu_${ast_expr_id(expr).to_string()}`);
     already := match(context.declared_temp_vars, .Some(s) => s.contains(fp_tv.clone()), .None => false);
     if(!already, {
-      match(
-        context.declared_temp_vars,
-        .Some(s) => {
-          s.insert(fp_tv.clone());
-        },
-        .None => {
-          ns := HashSet(String).new();
-          ns.insert(fp_tv.clone());
-          context.declared_temp_vars = Option(HashSet(String)).Some(ns);
-        }
-      );
+      record_declared_temp_var(context, fp_tv.clone());
       fpc := get_type_string(result_type, context.base);
       // Interior-`inout` borrow flags around the indirect call (see the
       // direct-call unit exit).

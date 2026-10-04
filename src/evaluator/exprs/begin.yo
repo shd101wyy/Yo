@@ -193,12 +193,12 @@ _dup_call_target_name :: (fn(e : AstExpr) -> Option(String))(
 _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> unit)({
   match(
     res.dup_calls.get(var_id.clone()),
-    .Some(lst) => {
+    .Some(found_lst) => {
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < lst.len()) && !found, {
+      while((i < found_lst.len()) && !found, {
         match(
-          lst.get(i),
+          found_lst.get(i),
           .Some(x) => if(ast_expr_id(x) == ast_expr_id(e), {
             found = true;
           }),
@@ -207,7 +207,10 @@ _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> uni
         i = (i + usize(1));
       });
       if(!found, {
+        // Stored back: the binding is a copy once collections are values.
+        lst := found_lst;
         lst.push(e);
+        res.dup_calls.insert(var_id, lst);
       });
     },
     .None => {
@@ -1414,13 +1417,14 @@ _optimize_dup_drop_pairs :: (
                     rmi = (rmi + usize(1));
                   });
                   // Clear the list.
-                  // REQUIRED, not tidying: `dups` is the live ArrayList held in
-                  // `merged.dup_calls`, so emptying it means a LATER variable
-                  // sharing this same base sees no dups and therefore keeps its
-                  // own scope-end drop instead of cancelling a second time
-                  // against the one dup. Without it, reversing the walk above
-                  // just moves the double-drop from `b` to `a`.
-                  dups.clear();
+                  // REQUIRED, not tidying: emptying `merged.dup_calls`' list for
+                  // this base means a LATER variable sharing the same base sees
+                  // no dups and therefore keeps its own scope-end drop instead
+                  // of cancelling a second time against the one dup. Without
+                  // it, reversing the walk above just moves the double-drop
+                  // from `b` to `a`. Written through the map, not the `dups`
+                  // binding: that is a copy once collections are values.
+                  merged.dup_calls.insert(base_id.clone(), ArrayList(AstExpr).new());
                   // Consume at the dup's USE SITE when there is exactly one
                   // runtime dup: early returns AFTER the
                   // transfer must not re-drop the moved value; ones BEFORE it
@@ -2094,13 +2098,17 @@ _evaluate_begin_expression_impl :: (
                     .None => ()
                   );
                 }, {
-                  ir_list.push(
+                  // Stored back through the context: the binding is a copy
+                  // once collections are values.
+                  grown := ir_list;
+                  grown.push(
                     ImplConcreteTypeInfo(
                       concrete_type : ret_info.ty,
                       env : env,
                       token : ast_expr_token(expr_to_eval)
                     )
                   );
+                  ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(grown);
                 });
               },
               .None => ()

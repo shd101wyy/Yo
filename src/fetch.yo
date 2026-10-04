@@ -148,7 +148,7 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   })
 });
 /// Push a str literal as bytes into an ArrayList(u8).
-_push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
+_push_str_bytes :: (fn(inout(buf) : ArrayList(u8), s : str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
@@ -160,7 +160,7 @@ _push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
   });
 });
 /// Push a String's bytes into an ArrayList(u8).
-_push_string_bytes :: (fn(buf : ArrayList(u8), s : String) -> unit)({
+_push_string_bytes :: (fn(inout(buf) : ArrayList(u8), s : String) -> unit)({
   bytes := s.as_bytes();
   n := bytes.len();
   k := usize(0);
@@ -932,7 +932,7 @@ GcReport :: ref(
   )
 );
 /// The store names (hex) and remote keys one project's lock references.
-_lock_references :: (fn(lock : LockFile, project_dir : String, tree_names : ArrayList(String), remote_keys : ArrayList(String)) -> unit)({
+_lock_references :: (fn(lock : LockFile, project_dir : String, inout(tree_names) : ArrayList(String), inout(remote_keys) : ArrayList(String)) -> unit)({
   prefix := String.from("sha256-");
   (i : usize) = usize(0);
   while(i < lock.packages.len(), {

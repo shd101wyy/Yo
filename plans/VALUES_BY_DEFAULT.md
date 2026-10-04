@@ -13,7 +13,10 @@ Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
 with decisions 13 (move-only futures) and 14 (second-class borrowing
 futures).
 Amended 2026-10-05 with the maintainer: **unique ownership (Hylo's model)
-replaces copy-on-write** (§0). Decisions 15–24 there are confirmed.**
+replaces copy-on-write** (§0). Decisions 15–24 there are confirmed.
+V2a (collection mutators take `inout(self)`, the audit lists collection
+writes) has landed; its status and the corrections it makes to §6 V2a are
+under "V2a status".**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -381,7 +384,7 @@ here. The phase sizes below are written without them, on purpose.
   auto-dereference (#1191). V1 step 1's mechanical rename of every `Box` to
   `Rc` stands as written; the value `Box` it then introduces is the unique
   one.
-- **V2a** (`feat/vbd-v2a-inout-mutators`: collection mutators take
+- **V2a** (landed: collection mutators take
   `inout(self)`, the E0908 audit down to 20 sites): exactly what unique ownership needs.
 - **V3** (move-only, `Dispose`, resources, async §3.13) and decision 15
   (`sink`). V3's machinery (move points, `consumed_at_token`, use-after-move
@@ -1649,6 +1652,66 @@ before and after the flip):
 - `yo fmt` and the LSP learn nothing new here.
 
 > **Superseded by §0 (2026-10-05):** V2b makes the buffers uniquely owned plain allocations with a deep `clone()`, and switches on the explicit-copy kind for `String` and the collections, with the migration §0.4 measures. The copy-on-write flip below is the design it replaces.
+
+**V2a status (landed 2026-10-05; measured 2026-10-04).** Measured
+on that branch; the amendments below correct this section where the code
+disagreed with it.
+
+- Mutators: every mutator of the ten collections (the nine above plus
+  `OrderedMap`, which holds an `ArrayList` and a `HashMap` and becomes a
+  value with them) takes `inout(self)`, `StringBuilder.to_string` included
+  (it detaches the buffer). Buffer-handing methods need no new gate: the
+  pointer-value rule already keeps `ptr()`/`spare_capacity()`/`get_entry_ptr`
+  out of safe code. `spare_capacity`, `assume_init`, `extend_from_ptr` and
+  `get_entry_ptr` hand out or adopt writable storage and take `inout(self)`;
+  `ptr()` and `iter()` stay `self : Self` (read pointers; the borrowed
+  `for(xs, inout(x) => …)` loop needs an `iter_mut(inout(self))` split at
+  V2b). `HashMap._hash` went back to `self : Self` (it only reads the keys).
+  `Dispose.dispose` receivers are the owner at refcount zero; the audit
+  exempts them.
+- **Correction to (i):** the S1 audit never skipped an unresolved mask; an
+  `all` mask counts as a write (`d3_check_pending`). (i) is the
+  `[inout-borrow-unresolved]` tag on those lines.
+- **Correction to (ii):** raw-pointer stores through `unsafe(...)` were
+  already followed. Calling every mutator of every collection through a
+  borrowed binding lists all 68 call sites; 53 have a resolved mask, and the
+  15 unresolved ones (`HashMap.remove/try_insert/retain/clear/get_or_insert/
+  update_with`, `Deque.push_*`/`pop_*`, `BTreeMap.insert`,
+  `PriorityQueue.push/pop`, `HeaderMap.remove`, `ArrayList.retain`) are
+  unresolved for other reasons: trait calls on a generic key (`key.hash(h)`,
+  `==`, `<`), the allocator chain in `Deque._grow`, and closure arguments.
+  An unresolved mask changes no verdict on a collection mutator (each one
+  writes `self`), so the audit is complete without new rules; the
+  `audit-inout-borrow-lists-collection-writes` cli-case pins the listing.
+- The audit lists collection places (through collection steps too) and
+  assignments that reach a collection buffer, plus `[inout-borrow-capture]`
+  for writes to a closure's capture. Count, `src/` + `std/`: 957 sites
+  before the fixes, see the branch report for after.
+- **Not reachable by the audit, V2b blockers:**
+  - payload lists of the compiler's `ref(enum)` trees written in place:
+    `TypeValue.SomeT`/`TraitT` constraint lists, `AstExpr` call arguments,
+    `ComptimeRef`/`PtrVal`/`Variable.value` (the comptime-place model) and
+    `module_loader`'s cached `StructVal`/`Struct` arrays. Recommended shape:
+    `Box(ArrayList(...))` on those payloads, done with V4;
+  - `copy_eval_context` / `create_function_body_evaluation_context` copy
+    eight collection fields of `EvalContext` (`captured_variables`,
+    `own_consumed_captures`, `function_return_impl_concrete_type`,
+    `currently_specializing_function_stack`, `doc_comment_lookup`,
+    `comptime_fn_caches`, `current_impl_trait_field_labels/_types`); a
+    derived context shares them today. Each needs a `Box` or a decision
+    that the copy is a snapshot;
+  - `__yo_ptr_eq(hit.cap_vals, cap_vals)` (`src/env.yo`) compares handle
+    identity;
+  - a write through a LOCAL copied out of a field or a map (`l := m.get(k)…;
+    l.push(x)`): the copy is owning, so no borrowed-root audit sees it. A
+    copy-aliasing audit (a local whose initializer is a place, not a fresh
+    value, then written) is the V2b prerequisite this plan lacks.
+- **Seed rules met on the way** (v0.2.50 enforces them on `inout`
+  receivers): an `inout` argument or receiver may not borrow two object hops
+  deep when another argument is refcounted, nor a field of a module-level
+  object, and an `io.async` body or closure may not capture an `inout`
+  parameter. The fixes bind the intermediate object to a local
+  (`cg_base := context.base`) or return the collection from the future.
 
 V2b, the flip (Generation A for the compiler, the std shapes are plain
 structs the seed lowers; the `Dispose` on the buffer cell is V3's rule):
