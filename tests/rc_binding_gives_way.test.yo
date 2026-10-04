@@ -1,0 +1,29 @@
+//! `rc` gives way to a binding of its name (plans/VALUES_BY_DEFAULT.md V1
+//! step 0). The count builtin is `ref_count(x)` now; its old spelling `rc(x)`
+//! is only the builtin while no binding named `rc` is in scope, so this
+//! module's own top-level `rc` below is an ordinary function every call runs.
+//! (Yo has no shadowing: nothing in this module can reach the builtin `rc`.)
+{ assert } :: import("std/assert");
+// A caller defined BEFORE `rc`: the lazy top-level walk has not bound `rc`
+// yet when this body is evaluated, so the decision must see the pending
+// definition, not only the env.
+_bump_twice :: (fn(x : i32) -> i32)(rc(rc(x)));
+test("a module-level function named rc is called, not the count builtin", {
+  assert(rc(i32(1)) == i32(2), "rc(i32(1)) runs the module's rc");
+  assert(_bump_twice(i32(5)) == i32(7), "rc defined after its caller still runs");
+  x := i32(40);
+  assert(rc(x) == i32(41), "rc of a runtime local runs the module's rc");
+});
+test("ref_count still reads the count in a module that defines rc", {
+  b := Box(i32)(3);
+  assert(ref_count(b) == usize(1), "ref_count(b) == 1");
+  {
+    b2 := b;
+    {
+      b3 := b2;
+      assert(ref_count(b) == usize(2), "ref_count(b) == 2");
+    };
+  };
+  assert(ref_count(i32(7)) == usize(1), "a value's ref_count is 1");
+});
+rc :: (fn(x : i32) -> i32)(x + i32(1));

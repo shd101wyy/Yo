@@ -145,8 +145,12 @@ language**, so the regression test works everywhere:
   disposed, so the counter stays put. Examples: `tests/rc.test.yo`
   (`g_alias_disposed`), `tests/dyn.test.yo` (`g_dyn_payload_disposed`),
   `tests/error.test.yo` (`g_thrown_payload_disposed`).
-- **`rc(x)`** reads a reference count directly (`tests/rc.test.yo`), including
-  through a field or a `Box` deref: `assert(rc(b.*) == 1, ...)`.
+- **`ref_count(x)`** reads a reference count directly (`tests/rc.test.yo`),
+  including through a field or a `Box` deref: `assert(ref_count(b.*) == 1, ...)`.
+  `rc(x)` is its old name, retired in two seed releases (plans/VALUES_BY_DEFAULT.md
+  V1 step 0): new tests write `ref_count`; `std/` and `src/` keep `rc` until
+  `SEED_VERSION` knows `ref_count`. `rc` gives way to a binding of its name, so a
+  module that defines `rc` calls its own function.
 
 Do **not** use `comptime_assert` for this — it is inert inside a function body,
 so a `comptime_assert` in a `test(...)` body verifies nothing

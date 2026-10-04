@@ -134,6 +134,19 @@ Point :: ref(struct(x : i32, y : i32));
 Point(x : i32(3), y : i32(4)); // temp_var owns the Point(x: i32(3), y: i32(4)), RC = 1
 ```
 
+### Reading the Count: `ref_count(x)`
+
+The builtin `ref_count(x)` returns the current reference count of the cell `x` holds, as a `usize`. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. Atomically counted handles (`Arc(T)`, `atomic(ref(...))`, `Iso`) are read with an atomic load.
+
+```rust
+b := Box(i32)(3);
+assert(ref_count(b) == usize(1), "one owner");
+```
+
+The count reflects the compiler's dup/drop optimizations, so a copy the optimizer cancelled does not show up; it is meant for uniqueness checks (copy-on-write) and tests, not program logic.
+
+`rc(x)` is the old name of `ref_count(x)` and is being retired: `rc` is to become an ordinary prelude function. It already gives way to any binding named `rc` in scope: a module that defines its own `rc` calls that definition. Write `ref_count(x)` in new code.
+
 ### Assignment Creates Ownership
 
 Using `:=` for initialization calls `___dup` to create a new owner:
