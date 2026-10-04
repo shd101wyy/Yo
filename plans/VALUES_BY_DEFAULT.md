@@ -321,6 +321,20 @@ copies the first kind implicitly (decision 16).
       would be a second spelling of the default. The rejected alternative
       spelled every projection `-> inout(T)`, with mutability inferred from
       the receiver; that makes `inout` sometimes mean read-only.
+    - **Rejected 2026-10-05: `sink` as the parameter default, `in(x)` for
+      borrow** (raised by the maintainer to drop the `sink` keyword).
+      Measured on develop: 63 `own(` parameters in `src/` and `std/`,
+      against about 700 `inout(` and about 17,000 parameter declarations,
+      so almost every parameter reads. A consuming default would put `in`
+      on nearly every reading parameter of an owning type (`String`, the
+      collections, `Box`, `Dyn`, and `Rc`/`Arc` per decision 17, so most of
+      the compiler under decision 21). A missed `in` surfaces at the caller
+      as a use after move, whose easy fix is a silent `.clone()`. A generic
+      reader would consume an owning `T` and copy a plain one. Every
+      callback parameter would be escaping by default, against decision 22.
+      `in` on parameters next to `borrow(T)` on results would be two
+      spellings of one mode. Hylo, Swift and Mojo default to borrow; Rust's
+      by-value default is why `&` fills Rust signatures.
     - **Phase.** V2b's first PR, before unique buffers and explicit copies
       switch on.
     - Recommendation: yes, in this first-cut form.
