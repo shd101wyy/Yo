@@ -370,7 +370,7 @@ here. The phase sizes below are written without them, on purpose.
   auto-dereference (#1191). V1 step 1's mechanical rename of every `Box` to
   `Rc` stands as written; the value `Box` it then introduces is the unique
   one.
-- **V2a** (`feat/vbd-v2a-inout-mutators`: collection mutators take
+- **V2a** (landed: collection mutators take
   `inout(self)`, the E0908 audit down to 20 sites): exactly what unique ownership needs.
 - **V3** (move-only, `Dispose`, resources, async §3.13) and decision 15
   (`sink`). V3's machinery (move points, `consumed_at_token`, use-after-move
@@ -1639,7 +1639,7 @@ before and after the flip):
 
 > **Superseded by §0 (2026-10-05):** V2b makes the buffers uniquely owned plain allocations with a deep `clone()`, and switches on the explicit-copy kind for `String` and the collections, with the migration §0.4 measures. The copy-on-write flip below is the design it replaces.
 
-**V2a status (branch `feat/vbd-v2a-inout-mutators`, 2026-10-04).** Measured
+**V2a status (landed 2026-10-05; measured 2026-10-04).** Measured
 on that branch; the amendments below correct this section where the code
 disagreed with it.
 
