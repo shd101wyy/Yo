@@ -37,7 +37,8 @@ superseded text is kept below, under a banner, as the record of what was
 decided before. Decisions 16–21 were proposed, each with a
 recommendation, final once the maintainer confirms it (§4's
 rule: a changed decision is a dated amendment, not a silent edit).
-The maintainer confirmed 16, 17 and 18 on 2026-10-05 ("make things in Yo
+The maintainer confirmed 16, 17 and 18 on 2026-10-05 (18 revised the same
+day to add read-only local borrows) ("make things in Yo
 explicit, like copy in hylo", with owning values only and no local
 borrows in the first cut), and 19–24 the same day ("yes lets do what
 you would suggest"), each as recommended.
@@ -133,13 +134,27 @@ copies the first kind implicitly (decision 16).
     context objects `Rc`). The §0.4 measurement counts it before V5 is sized.
     If the count is prohibitive, the fallback is implicit `Rc` copies (one
     rule change, no design change).
-18. **Confirmed 2026-10-05: no first-class local borrows in the first cut.** A
-    projection (`s.items`, `xs(i)`) borrows only in expression position: as
-    a method receiver, a plain or `inout` argument, an operand, or a `for`
-    source. `y := s.items` is a move, which decision 19 forbids, or an
-    explicit copy. Hylo has `let` borrow bindings; Yo can add them later as
-    one rule ("a local bound to a projection is a second-class borrow until
-    its last use"), measured against the migration.
+18. **Revised 2026-10-05: local borrow bindings, mutable and read-only.**
+    Yo already has `inout(y) := place`: a second-class mutable local
+    borrow, implemented 2026-09-07 (`plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md`,
+    with the borrowed `for`). The first version of this decision ("no
+    first-class local borrows") was written without it. With the
+    maintainer's confirmation it now reads:
+    - **`borrow(y) := place`** is added: a read-only second-class local
+      borrow, the `inout` binding's machinery minus writes. It cannot be
+      stored, returned or captured by an escaping closure, and the place's
+      root cannot be written or moved while `y` is live.
+    - **`inout(y) := place` stays**, and after V2b it also accepts element
+      places (`inout(e) := xs(i)`, through decision 24's projections).
+      Under unique ownership a value-rooted container has no hidden aliases,
+      so exclusivity is checked statically; the runtime borrow flag remains
+      only for `Rc`/`Arc`-rooted and module-level containers (§3.10).
+    - Spelling follows decision 24's per-position rule. A local binding's
+      default is owned (`y := x` moves or copies), so a borrow is written:
+      `borrow(y) := …`, `inout(y) := …`.
+    - So `y := s.items` is still a move (an error under decision 19) or an
+      explicit clone, and the borrow is `borrow(items) := s.items`.
+
 19. **Confirmed 2026-10-05: no partial moves.** A field of explicit-copy or move-only
     type cannot be moved out of a value that stays alive. Use
     `x.field.clone()`, a destructuring that moves the whole value
