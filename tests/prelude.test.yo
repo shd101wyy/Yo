@@ -100,9 +100,12 @@ test("try_into to a type with no matching impl is a compile error", {
 // A generic impl is gated too, at the impl (the receiver pattern). It used to skip the check entirely: `Dispose` on a value
 // struct constructor was accepted and its `dispose` never ran
 // (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
+// Since V3 of plans/VALUES_BY_DEFAULT.md a value type may implement `Dispose`:
+// it is then move-only, and the dispose runs once, for its one owner.
 GenericValuePair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
 GenericRefPair :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(a : T, b : T)));
 (g_generic_ref_pair_disposed : i32) = i32(0);
+(g_generic_value_pair_disposed : i32) = i32(0);
 impl(
   generic(T : Type),
   GenericRefPair(T),
@@ -112,23 +115,29 @@ impl(
     })
   )
 );
-test("Test a generic 'Dispose'/'Trace' impl needs a reference receiver", {
+impl(
+  generic(T : Type),
+  GenericValuePair(T),
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_generic_value_pair_disposed = (g_generic_value_pair_disposed + i32(1));
+    })
+  )
+);
+test("Test a generic 'Dispose' impl runs once, and 'Trace'/a blanket receiver are rejected", {
   before := g_generic_ref_pair_disposed;
   {
     p := GenericRefPair(i32)(a : i32(1), b : i32(2));
     q := p;
   };
   assert((g_generic_ref_pair_disposed - before) == i32(1), "a generic Dispose on a ref struct runs once");
-  comptime_assert(Type.impls(GenericValuePair(i32), Dispose) == false);
-  comptime_expect_error(
-    impl(
-      generic(T : Type),
-      GenericValuePair(T),
-      Dispose(
-        dispose : (fn(self : Self) -> unit)(())
-      )
-    )
-  );
+  value_before := g_generic_value_pair_disposed;
+  {
+    v := GenericValuePair(i32)(a : i32(1), b : i32(2));
+    w := v;
+  };
+  assert((g_generic_value_pair_disposed - value_before) == i32(1), "a generic Dispose on a value struct runs once, for its one owner");
+  comptime_assert(Type.impls(GenericValuePair(i32), MoveOnly), "the value pair is move-only");
   comptime_expect_error(
     impl(
       generic(T : Type),
@@ -136,7 +145,8 @@ test("Test a generic 'Dispose'/'Trace' impl needs a reference receiver", {
       Trace(
         trace : (fn(self : Self, tracer : GcTracer) -> unit)(())
       )
-    )
+    ),
+    "cannot implement \"Trace\""
   );
   comptime_expect_error(
     impl(
@@ -145,13 +155,15 @@ test("Test a generic 'Dispose'/'Trace' impl needs a reference receiver", {
       Dispose(
         dispose : (fn(self : Self) -> unit)(())
       )
-    )
+    ),
+    "cannot implement \"Dispose\""
   );
 });
-// `Dispose` and `Trace` are implementable on reference types only; the gate is
-// at the impl site (it replaced the deleted `Rc` marker trait's
-// `where(Self <: Rc)`, plans/VALUES_BY_DEFAULT.md §3.6).
-test("Test 'Dispose' and 'Trace' accept reference types only", {
+// `Trace` is implementable on reference types only, and `Dispose` on a
+// reference type or a value nominal type; the gate is at the impl site (it
+// replaced the deleted `Rc` marker trait's `where(Self <: Rc)`,
+// plans/VALUES_BY_DEFAULT.md §3.6, re-scoped by V3).
+test("Test 'Dispose' and 'Trace' receivers", {
   MyBox :: ref(
     struct(
       value : i32
@@ -168,13 +180,12 @@ test("Test 'Dispose' and 'Trace' accept reference types only", {
   AnotherBox :: struct(value : i32);
   comptime_expect_error(
     impl(
-      AnotherBox,
+      i32,
       Dispose(
-        dispose : (fn(self : Self) -> unit)({
-          unsafe(printf("Disposing AnotherBox with value: %d\n", self.value));
-        })
+        dispose : (fn(self : Self) -> unit)(())
       )
-    )
+    ),
+    "cannot implement \"Dispose\""
   );
   comptime_expect_error(
     impl(
@@ -182,7 +193,8 @@ test("Test 'Dispose' and 'Trace' accept reference types only", {
       Trace(
         trace : (fn(self : Self, tracer : GcTracer) -> unit)(())
       )
-    )
+    ),
+    "cannot implement \"Trace\""
   );
 });
 // S0 C6 (plans/archive/STD_API_AUDIT.md §2): floats are not bit patterns and
