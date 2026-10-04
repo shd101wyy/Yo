@@ -11,7 +11,9 @@ and the constructors' `alloc` parameter in place of `new_in` (the types are
 not callable). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3 have landed.
 Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
 with decisions 13 (move-only futures) and 14 (second-class borrowing
-futures).**
+futures).
+Amended 2026-10-05 with the maintainer: **unique ownership (Hylo's model)
+replaces copy-on-write** (§0). Decisions 16–21 there are proposed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -24,6 +26,217 @@ futures).**
   (the `ref(...)`/`atomic(...)` constructors) and the Rust-`Rc` note in
   `std/prelude.yo`'s `Box` docs. `plans/reference/ARC_TYPE.md` stays true in
   substance (`Arc` keeps its layout, bound and deref) and gets a banner.
+
+---
+
+## 0. Amendment 2026-10-05: unique ownership replaces copy-on-write
+
+**Direction approved by the maintainer 2026-10-05** ("yes lets adopt hylo's
+model"). This section overrides every part of §1–§9 that it names. The
+superseded text is kept below, under a banner, as the record of what was
+decided before. Decisions 16–21 are **proposed**. Each states a
+recommendation, and none is final until the maintainer confirms it (§4's
+rule: a changed decision is a dated amendment, not a silent edit).
+
+### 0.1 Why
+
+Copy-on-write puts a reference count on every `String`, collection and
+`Box` buffer. That count raised a question this plan could not answer well:
+atomic (every buffer pays an atomic increment and `String` becomes `Sync`)
+or non-atomic (best single-thread speed, but copies cannot be read from two
+threads, so §3.8 needed a transfer-isolation walk that clones shared buffers
+at every thread boundary). COW also hides costs: a uniqueness check in every
+mutator, and an O(n) clone inside the first write to a shared buffer.
+
+Hylo's model removes the question rather than answering it. **A buffer has
+exactly one owner, so it needs no count.** A copy is explicit and eager. A
+last use moves. Sharing exists only where `Rc` or `Arc` is spelled out, and
+those are the only counted things in the language.
+
+### 0.2 The model
+
+**Three kinds of type**, decided by what a value owns:
+
+| Kind | Which types | A copy is | Example |
+| --- | --- | --- | --- |
+| **implicitly copyable** | owns no heap memory, has no `Dispose`: integers, floats, `bool`, `rune`, raw pointers, `str` views, and structs, enums, tuples and arrays made only of these | a bitwise copy, as today | `p2 := p` for `p : Point` |
+| **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, and any type containing one (unless it is move-only) | a **compile error unless it is the value's last use** (then it is a move); an independent copy is spelled `x.clone()`, which is eager and O(n) | `t := s.clone()` |
+| **move-only** (§3.4, V3) | `Dispose`, `MoveOnly`, or a move-only field | a compile error unless it is the last use; `clone()` exists only if the type implements `Clone` (`Sender`) | `f2 := f` moves the `File` |
+
+- **Moves are implicit at the last use, and copies are never implicit**
+  except for the first kind. `y := x`, passing `x` to a `sink` parameter,
+  storing it in a field, element or capture, and returning it are moves when
+  `x` is not used afterwards. Otherwise they are E0901 with a note naming
+  `x.clone()` (explicit-copy) or `Rc`/`Arc`/`inout` (move-only).
+- **Borrowing is the default and is free.** A plain parameter borrows, an
+  `inout` parameter is an exclusive borrow, and a `sink` parameter
+  (decision 15) consumes. This is Hylo's `let`/`inout`/`sink`; Yo has no
+  `set`. Borrows are second-class: they cannot be stored, returned or
+  captured, so no lifetimes appear in the language.
+- **No buffer is ever shared, so no buffer is ever counted.** `String`'s and
+  the collections' buffers are plain allocations owned by their value, like
+  Rust's `Vec` and `String`. A mutator writes in place with no uniqueness
+  test. `clone()` copies the elements. There is no `make_unique`.
+- **`Box(T)` is a uniquely owned heap cell with no count**, like Rust's
+  `Box`. A copy is `b.clone()`, a deep copy. A recursive type uses it for
+  indirection (`Expr :: enum(Num(i32), Add(Box(Expr), Box(Expr)))`).
+- **`Rc(T)` and `Arc(T)` are the only counted cells.** `Rc` is shared and
+  mutable on one thread; `Arc` is shared across threads, atomically counted,
+  with mutation through `Mutex`/atomics. Whether copying one needs
+  `.clone()` is decision 17.
+- **`Dyn(Trait)` is a uniquely owned, type-erased cell.** It is
+  explicit-copy when the trait or the payload provides `Clone` (a `clone`
+  vtable slot), and move-only otherwise. Sharing a trait object is
+  `Rc(Dyn(Trait))`.
+- **Threads.** `Send` means "may be moved to another thread". A `String`, a
+  collection or a `Box` of `Send` values is `Send`: moving it hands over the
+  only owner, and there is no count to race on. §3.8's transfer-isolation
+  walk is deleted. `Sync` means "copies may be read from several threads".
+  A uniquely owned buffer is `Sync` when its elements are, so
+  `Arc(ArrayList(T))` and `Arc(String)` become legal read-only sharing, and
+  writes still go through `Mutex`/atomics (D3).
+- **The cycle collector sees `Rc`/`Arc` cells only.** `Box`, `String` and
+  collection buffers are part of their owner's value and are traversed
+  inline. Only a cell whose payload reaches an `Rc`/`Arc` is tracked.
+- **Allocators.** An explicit `clone()` lands where its source lives,
+  through the source's owner. That is today's `ArrayList.clone` rule, and
+  it replaces decision 12's COW wording; there is no hidden clone left to
+  place. The scope places new cells and buffers as §3.11 says.
+
+Yo differs from Hylo in one deliberate place. Hylo makes every type,
+including `Int`, non-copyable by default, with `@implicitcopy` regions as
+the escape hatch (`hylo-lang/Documentation`, `val-for-swift-users.md`). Yo
+copies the first kind implicitly (decision 16).
+
+### 0.3 Decisions
+
+15. **`own(x)` is renamed `sink(x)`.** Confirmed 2026-10-04: Yo's `own` is
+    already linear, consuming the argument binding even when it dups. Gen A
+    accepts `sink` in V3; Gen B renames every site and deletes `own`.
+16. **Proposed: trivially copyable types copy implicitly.** The first row of
+    the table above. Recommendation: yes. Requiring `.clone()` on `i32` would
+    touch nearly every line of `src/` and buys nothing, because a bitwise
+    copy has no hidden cost. The rule is structural (no heap, no `Dispose`),
+    so no annotation is needed.
+17. **Proposed: copying an `Rc`/`Arc` needs `.clone()`.** Recommendation:
+    yes, as in Rust. A new handle is a new owner (a count change, a collector
+    edge), and §1's promise is that sharing is visible where it is created.
+    The cost is churn where `src/` stores context handles (V5 makes ~60
+    context objects `Rc`). The §0.4 measurement counts it before V5 is sized.
+    If the count is prohibitive, the fallback is implicit `Rc` copies (one
+    rule change, no design change).
+18. **Proposed: no first-class local borrows in the first cut.** A
+    projection (`s.items`, `xs(i)`) borrows only in expression position: as
+    a method receiver, a plain or `inout` argument, an operand, or a `for`
+    source. `y := s.items` is a move, which decision 19 forbids, or an
+    explicit copy. Hylo has `let` borrow bindings; Yo can add them later as
+    one rule ("a local bound to a projection is a second-class borrow until
+    its last use"), measured against the migration.
+19. **Proposed: no partial moves.** A field of explicit-copy or move-only
+    type cannot be moved out of a value that stays alive. Use
+    `x.field.clone()`, a destructuring that moves the whole value
+    (`{ a, b } := x`), or the std helpers `take(inout x.field)` (leaves
+    `Default`) and `replace(inout x.field, v)`. This is Rust's
+    `mem::take`/`mem::replace`, and it keeps every move a move of a whole
+    binding, which is what `consumed_at_token` tracks.
+20. **Proposed: collection element access by place.**
+    - `xs(i)` is a place in every position. Read position borrows the
+      element, and the left of `=` or an `inout` receiver writes it, with no
+      uniqueness step. §3.1's `Index` split for COW is not needed; the
+      `String` byte index stays read-only (S3).
+    - `get(i) -> Option(T)` copies, so it exists only when `T` is implicitly
+      copyable. Otherwise the per-instantiation check reports it with a note
+      naming `xs(i)` or `get_cloned(i)`.
+    - Non-copying access for every element type: `with(i, body : Fn(inout(v) : T) -> R)`,
+      `take(i)`, `swap(i, j)`, `pop`, `drain`. That is §3.4's list, now
+      general.
+21. **Proposed: the compiler's large trees use `Rc` children, not `Box`.**
+    `TypeValue.clone()` is O(1) today and is called throughout `src/`. With
+    `Box` children every clone would be a deep copy. `TypeValue` and
+    `AstExpr` are immutable after construction (`AstExpr` rewrites go
+    through `ExprInfo.macro_expansion`), so `Rc` children share them
+    honestly. The small trees (`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`)
+    take `Box`. V4 measures `check ./src` time and stage-2 RSS for each.
+
+### 0.4 First gate: measure the migration
+
+Before any phase is resized, an audit counts the copies the new rule turns
+into errors. `YO_AUDIT_IMPLICIT_COPY=1` lists every point where the
+evaluator inserts a dup (`set_expr_as_needs_to_call_dup` and the parameter,
+capture and field-store paths) for a value of the explicit-copy kind whose
+source is used again afterwards, so that the copy is not a move. Run it over
+`src/`, `std/` and `tests/`, split by type (`String`, each collection,
+`Box`, `Dyn`, `Rc`/`Arc` handles for decision 17), and record the numbers
+here. The phase sizes below are written without them, on purpose.
+
+### 0.5 What changes, section by section
+
+| Superseded | Becomes |
+| --- | --- |
+| §1 "A copy of any value is independent" | unchanged in meaning; independence is now by explicit copy, not COW |
+| §2 job 1 "These become copy-on-write values" | uniquely owned values, explicit-copy kind |
+| §3.1 COW paragraph and the `Index` split | §0.2; decision 20 |
+| §3.2 "`Box` … independent (copy-on-write)" and "`Box`'s count is invisible" | `Box` is unique and uncounted with a deep `clone()`; `ref_count` reads only `Rc`/`Arc`, since nothing else has a count |
+| §3.3 "Writes through `Box` are copy-on-write" | writes through `Box` are plain writes (unique owner) |
+| §3.5 "every copy-on-write buffer" on the cell primitive; "a unique cell skips the uniqueness check" | the cell primitive backs `Rc`/`Arc` only; `Box` and buffers are plain owned allocations; nothing has a uniqueness check |
+| §3.6 "copy-on-write cells are `Send` (isolated at the transfer) and not `Sync`" | buffers are `Send` by move and `Sync` when their elements are |
+| §3.7 `Dyn` COW and the closures' "captured collection is a copy-on-write value" | `Dyn` unique (explicit-copy or move-only); a closure capture of an explicit-copy value is a move, or an explicit `.clone()` at the capture |
+| §3.8 transfer isolation | deleted; `Send` is a move |
+| §3.9 `std/imm` "only `Sync` data family" | `Arc(ArrayList(T))` now covers concurrent reads; `std/imm`'s remaining role is persistence (versions sharing structure). It stays; whether that alone justifies 4,300 lines is a later decision |
+| §3.11 "A copy-on-write clone lands where its source lives" | "an explicit clone lands where its source lives" (decision 12, amended) |
+| decision 1 | `Box` is unique, uncounted, deep `clone`; the V1 rename order is unchanged |
+| decision 7 | `Dyn` is unique (explicit-copy with a `Clone` slot, else move-only) |
+| decision 8 | `Send` is a move; no isolation walk |
+| decision 12 | as §3.11 above |
+| §6 V1 `Box.make_unique` and its tests | deleted; the value `Box` has a deep `Clone` |
+| §6 V2b "the flip" | V2b: buffers become uniquely owned plain allocations, `clone()` deep; the explicit-copy kind is switched on for `String` and the collections, with the migration §0.4 measured |
+| §8 risks "uniqueness check per mutation", "count accuracy is semantic", "collector over-subtraction", "transfer isolation cost", "`Sync` usability" | gone; the new risks are in §0.7 |
+| §9 Q11 (atomic COW counts) | **resolved by construction**: no buffer has a count. The maintainer's 2026-10-04 preference (non-atomic, best single-thread speed) is met fully, since a uniquely owned buffer pays nothing |
+
+### 0.6 What survives unchanged
+
+- **V1 Generation A, landed:** step 0 (`ref_count`, the prelude `rc`,
+  #1186), the `Rc` marker trait's deletion (#1188), `Deref` and
+  auto-dereference (#1191). V1 step 1's mechanical rename of every `Box` to
+  `Rc` stands as written; the value `Box` it then introduces is the unique
+  one.
+- **V2a** (`feat/vbd-v2a-inout-mutators`: collection mutators take
+  `inout(self)`, the E0908 audit down to 20 sites): exactly what unique ownership needs.
+- **V3** (move-only, `Dispose`, resources, async §3.13) and decision 15
+  (`sink`). V3's machinery (move points, `consumed_at_token`, use-after-move
+  E0901, flow joins, no partial moves) is built around one predicate,
+  "requires an explicit copy", with move-only as its strict case. V2b
+  extends that predicate to the explicit-copy kind.
+- **§3.10 exclusivity**: value-rooted places need no check, and writes
+  through `Rc` assert. **§3.13 async**: futures were already move-only and
+  borrowing futures second-class.
+- **`STRING_VALUE_SEMANTICS` S1 and S2**, and S3's model-independent part
+  (`plans/STRING_VALUE_SEMANTICS.md` §0).
+
+### 0.7 New risks
+
+- **Migration size.** Every implicit copy of a `String` or collection whose
+  source lives on becomes an error. §0.4 measures it before the phases are
+  sized. Diagnostics and `yo fix` insert `.clone()` where a copy is wanted;
+  many sites want a move or a borrow instead, which is the point of looking.
+- **Ergonomics without local borrows (decision 18).** Code that binds a
+  field to a local to read it twice must clone, or read in place. The
+  measurement says how often; `let` borrow bindings are the remedy if needed.
+- **Tree clones in the compiler (decision 21).** With `Rc` children,
+  `check ./src` time and RSS should stay flat; V4 measures each tree.
+
+### 0.8 Revised order
+
+1. **§0.4 measurement** (one audit PR; numbers recorded here).
+2. **V1 step 1**: rename every `Box` to `Rc`, then the unique `Box`.
+3. **V3** (in progress): move-only plus `sink`, on the general predicate.
+4. **V2b**: unique buffers; the explicit-copy kind is switched on for
+   `String` and the collections, with the migration. This absorbs
+   `STRING_VALUE_SEMANTICS` S3's dropped COW half.
+5. **V4** (trees, decision 21), **V5** (remove `ref`/`atomic`), then the
+   `sink` sweep (Gen B) once a seed carries V3.
+
+Generation A/B and the seed gate (§5) apply as before.
 
 ---
 
@@ -102,6 +315,8 @@ Each job gets its own principled replacement.
 
 ### 3.1 Every declared type is a value
 
+> **Superseded by §0 (2026-10-05):** buffers are uniquely owned, not copy-on-write; an explicit-copy value copies with `.clone()`; element access is by place (decision 20). The text below is the copy-on-write design it replaces.
+
 `struct(...)`, `enum(...)` and `newtype(...)` declare values, and nothing
 else does. A value that owns heap data (`String`, the collections, `Box`)
 copies it lazily with copy-on-write: a copy shares the buffer, and the first
@@ -130,6 +345,8 @@ the left of `=` or as an `inout` receiver, which runs make-unique first.
 no `s[i] = b` either), which closes the UTF-8 hole.
 
 ### 3.2 Three wrappers carry indirection and sharing
+
+> **Superseded by §0 (2026-10-05):** `Box` is a uniquely owned, uncounted cell with a deep `clone()`, not copy-on-write; "`Box`'s count is invisible" no longer applies, and `ref_count` reads only `Rc`/`Arc`. Constructors, names and the `alloc` parameter stand.
 
 | Wrapper | Meaning | Copies | Threads |
 | --- | --- | --- | --- |
@@ -304,7 +521,7 @@ is the point where it becomes the only reading. `is_box_type` and the
   `Arc` root (`src/evaluator/exprs/assignment.yo`,
   `throw_if_write_through_atomic_root`), mutation inside an `Arc` goes
   through a `Mutex` or an atomic.
-- **Writes through `Box`** are copy-on-write: before a field write or an
+- **Writes through `Box`** (superseded by §0: plain writes, the owner is unique) were copy-on-write: before a field write or an
   `inout(self)` call whose root place passes through a `Box`, the evaluator
   inserts `Box.make_unique(inout b)` (clone the cell when `ref_count(cell) > 1`);
   the same uniqueness step `String` S3 adds by hand to its mutators, made
@@ -377,6 +594,8 @@ wrapping a private `Rc` would be a handle whose copies alias without the type
 saying so, the hidden aliasing this plan removes.
 
 ### 3.5 The heap cell is the one primitive, and it is private
+
+> **Superseded by §0 (2026-10-05):** the cell primitive backs `Rc` and `Arc` only. `Box`, `String` and collection buffers are plain allocations owned by their value and traversed inline; no uniqueness check exists anywhere.
 
 `Box`, `Rc`, `Arc` and every copy-on-write buffer are implemented on one
 heap-cell primitive: one allocation with the RC header (`__yo_ref_header_t`,
@@ -457,6 +676,8 @@ makes copy-on-write and the collector agree:
 
 ### 3.7 `Dyn`, closures, async
 
+> **Superseded by §0 (2026-10-05):** `Dyn` is a uniquely owned erased cell (explicit-copy with a `Clone` slot, else move-only); a closure capture of an explicit-copy value is a move or an explicit `.clone()`. Async stands.
+
 - **`Dyn(Trait)` is a value**, a copy-on-write cell like `Box` whose payload
   type is erased (Rust's `Box<dyn Trait>`, Swift's existentials). Today a
   copy retains the shared payload (the vtable's retain/release slots,
@@ -482,6 +703,8 @@ makes copy-on-write and the collector agree:
   second-class. The runtime stays single-threaded. §3.13 has the design.
 
 ### 3.8 Threads: `Send` by move, `Sync` for sharing
+
+> **Superseded by §0 (2026-10-05):** there is no transfer isolation. `Send` is a move of the only owner; a uniquely owned buffer is `Sync` when its elements are, so `Arc(String)` and `Arc(ArrayList(T))` are legal read-only sharing.
 
 Measured today: `Channel(String)` is E0602 "String does not implement Send".
 `String`'s buffer is a non-atomic `ArrayList(u8)`, so neither `String` nor
@@ -524,6 +747,8 @@ bounds plus a wider `Send` for the transfer points; D1/D2/D4/D9 of
 §4 decision 8, and it lands in V3 with the marker machinery.
 
 ### 3.9 `std/imm/` stays
+
+> **Superseded by §0 (2026-10-05):** `std/imm` is no longer the only `Sync` data family (`Arc(ArrayList(T))` covers concurrent reads); it stays for persistence.
 
 `std/imm/` (`string`, `list`, `vec`, `map`, `set`, `sorted_map`,
 `sorted_set`; 4,300 lines, used in this repo only by its own tests and
@@ -608,7 +833,7 @@ changes is what a block is.
   six constructor sites that consult the scope today (`ref` struct and
   enum, `box`/`arc`, `dyn`, `Iso`, async) become the one cell primitive
   (§3.5) plus the async frame.
-- **A copy-on-write clone lands where its source lives**, not in the
+- **A copy-on-write clone lands where its source lives** (§0: read "an explicit clone"; there is no hidden clone), not in the
   current scope. This covers `Box.make_unique`, every collection's and
   `String`'s uniqueness step, `Dyn`'s clone slot (§3.7) and the transfer
   isolation clone (§3.8). Three reasons:
@@ -888,7 +1113,7 @@ The first draft's §7 questions, answered, plus three raised in review.
 of them later is a plan amendment with a dated note here, not a silent
 edit.
 
-1. **Names: `Box` (value indirection), `Rc`, `Arc`.** Rust's `Box` is
+1. **Names: `Box` (value indirection), `Rc`, `Arc`.** *(Amended by §0: `Box` is uniquely owned and uncounted, with a deep `clone()`.)* Rust's `Box` is
    uniquely owned, which a copy-on-write `Box` matches observably. A new
    name (`Indirect(T)`) would avoid a silent meaning change at today's 729
    `Box` sites, but V1 removes that hazard by ordering: every current `Box`
@@ -910,11 +1135,11 @@ edit.
 6. **The heap cell is usable in `pragma(Pragma.AllowUnsafe)` files**, not
    only the prelude. A pragma'd file is already outside the safety claim,
    and intrusive data structures need the cell. Safe code cannot name it.
-7. **`Dyn(Trait)` is a copy-on-write value** (§3.7), not a sharing wrapper;
+7. *(Amended by §0: `Dyn` is uniquely owned, explicit-copy or move-only.)* **`Dyn(Trait)` is a copy-on-write value** (§3.7), not a sharing wrapper;
    sharing a trait object is `Rc(Dyn(Trait))`. Raised in review by the
    plan's author: an `Rc`-like `Dyn` would keep the hidden aliasing the plan
    removes.
-8. **`Send` is transfer, `Sync` is sharing; transfer isolates by cloning
+8. *(Amended by §0: no isolation walk; `Send` is a move.)* **`Send` is transfer, `Sync` is sharing; transfer isolates by cloning
    shared cells** (§3.8). Raised in review: without it `Channel(String)`
    stays E0602 and no copy-on-write data could cross a thread except through
    `^v`.
@@ -936,7 +1161,7 @@ Added by amendment, 2026-10-03, with the maintainer:
    stops naming the count builtin; with no shadowing, the prelude `rc`
    claims the name in every module.
 12. **Explicit allocators: the scope places cells; a copy-on-write clone
-   inherits its source's owner** (§3.11).
+   inherits its source's owner** *(amended by §0: an explicit clone inherits its source's owner)* (§3.11).
 
 Added by amendment, 2026-10-03, with the maintainer (async, §3.13; PR
 #1169, after review):
@@ -1056,7 +1281,7 @@ Compiler (`src/`), Generation A:
   remaining `ref(struct)` parameters. Tests: a closure and an async fn that
   mutate a captured `Rc(ArrayList(T))` while a `for` borrows it panic
   deterministically (today they do not).
-- `Box.make_unique` insertion before a write or an `inout(self)` call whose
+- *(Deleted by §0: the unique `Box` needs no `make_unique`.)* `Box.make_unique` insertion before a write or an `inout(self)` call whose
   root place passes through a `Box` (the root walk is
   `get_root_expr_of_place`, `src/evaluator/exprs/assignment.yo:295`, the one
   D3 uses). Emitted as an ordinary call; the uniqueness helper is the
@@ -1241,6 +1466,8 @@ before and after the flip):
   same audit over the `std/async` types it turns into values, before V2.
 - `yo fmt` and the LSP learn nothing new here.
 
+> **Superseded by §0 (2026-10-05):** V2b makes the buffers uniquely owned plain allocations with a deep `clone()`, and switches on the explicit-copy kind for `String` and the collections, with the migration §0.4 measures. The copy-on-write flip below is the design it replaces.
+
 V2b, the flip (Generation A for the compiler, the std shapes are plain
 structs the seed lowers; the `Dispose` on the buffer cell is V3's rule):
 
@@ -1367,6 +1594,8 @@ Per type, in this order, each its own PR, measured:
 
 ## 8. Risks
 
+> **Superseded by §0 (2026-10-05):** the copy-on-write risks (uniqueness checks, count accuracy, collector over-subtraction, transfer isolation, `Sync` usability) are gone; §0.7 lists the risks of unique ownership.
+
 - **Performance.** A uniqueness check on every mutation of a `String`,
   collection or `Box`; a clone on the first write to a shared buffer; the
   compiler's trees moving from handles to `Box` children. Measured per
@@ -1398,7 +1627,7 @@ Per type, in this order, each its own PR, measured:
 
 ## 9. Open questions
 
-11. **Atomically counted copy-on-write buffers?** (§3.8, §3.9) Measure the
+11. **Resolved by §0: no buffer has a count.** *(Original question:)* **Atomically counted copy-on-write buffers?** (§3.8, §3.9) Measure the
    self-compile with the cell primitive's count made atomic (one `#define`
    in the emitted runtime, `RC_HEADER_SPLIT.md`'s shim pipeline for tracked
    live bytes and wall time). If the cost is within the memory ratchet and a
