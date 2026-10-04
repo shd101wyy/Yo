@@ -42,17 +42,17 @@ main :: (fn() -> unit)({
   pv := match(m, .Some(p2) => p2, .None => __yo_panic("alloc failed"));
   data_ptr := unsafe((*MapEntry)(pv));
   (data_ptr.add(usize(0))).* = MapEntry(k : kk, n : 1);
-  print(rc(kk));
+  print(ref_count(kk));
   print(" ");
   (j : i32) = i32(0);
   while(j < i32(10), {
     _r := probe(data_ptr, usize(0));
     j = (j + i32(1));
   });
-  print(rc(kk));
+  print(ref_count(kk));
   print(" ");
   _r2 := probe(data_ptr, usize(0));
-  println(`${rc(kk)} done`);
+  println(`${ref_count(kk)} done`);
 });
 
 export(main);

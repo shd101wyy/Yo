@@ -497,7 +497,7 @@ test("an arm that moves its payload into a thrown dyn: the aborted task releases
   g_disposed = i32(0);
   keep := Thing(n : i32(7));
   assert(_throw_moved(keep, io), "the throw unwinds to the handler");
-  assert(rc(keep) == 1, "the thrown payload and the task's scrutinee released it once between them");
+  assert(ref_count(keep) == 1, "the thrown payload and the task's scrutinee released it once between them");
   assert(g_disposed == i32(0), "keep is still alive");
 });
 

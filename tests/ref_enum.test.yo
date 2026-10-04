@@ -212,8 +212,8 @@ test("fieldless ref(enum) compiles, matches, and is RC-managed", {
   off := match(b, .On => false, .Off => true);
   assert(on && off, "fieldless ref enum variants distinguish in match");
   a2 := a;
-  assert(rc(a) == 2, "fieldless ref enum is a heap RC object (rc visible)");
-  assert(rc(a2) == rc(a), "alias shares the same RC object");
+  assert(ref_count(a) == 2, "fieldless ref enum is a heap RC object (rc visible)");
+  assert(ref_count(a2) == ref_count(a), "alias shares the same RC object");
 });
 
 // Regression (issues/fixed/ref-enum-derives-value-enum-marker-traits.md): the
@@ -275,7 +275,7 @@ test("ref(enum) can implement Dispose; it runs once at the last release", {
   {
     g := Guarded.GuardSome(String.from("x"));
     alias := g;
-    assert(rc(alias) == 2, "alias shares the handle");
+    assert(ref_count(alias) == 2, "alias shares the handle");
   };
   assert((g_ref_enum_disposed - before) == i32(1), "Dispose ran exactly once for the ref enum");
   {
@@ -325,8 +325,8 @@ test("a ref(enum) whose only payload is a ref handle keeps its own identity", {
   // as its payload's pointer, the enum would share the payload's count.
   s := Slot.Held(p : Payload(n : i32(7)));
   alias := s;
-  assert(rc(s) == 2, "the enum handle is shared by s and alias");
-  payload_rc := match(alias, .Held(q) => rc(q), .Vacant => usize(0));
+  assert(ref_count(s) == 2, "the enum handle is shared by s and alias");
+  payload_rc := match(alias, .Held(q) => ref_count(q), .Vacant => usize(0));
   assert(payload_rc == 1, "the payload has its own count: only the variant field holds it");
   n := match(alias, .Held(q) => q.n, .Vacant => i32(0));
   assert(n == i32(7), "payload read through the alias");

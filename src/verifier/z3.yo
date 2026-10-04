@@ -116,9 +116,9 @@ _z3_exists_sync :: (fn(path : String) -> bool)({
   path_buf := path.to_cstr();
   cstr := path_buf.ptr().unwrap();
   buf := malloc(usize(512)).unwrap();
-  rc := unsafe(stat.stat((*char)(cstr), buf));
+  status := unsafe(stat.stat((*char)(cstr), buf));
   free(.Some(buf));
-  rc == int(0)
+  status == int(0)
 });
 /// Read a whole file synchronously; `.None` on any failure (the caller
 /// decides what a missing/unreadable file means).

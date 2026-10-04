@@ -49,9 +49,9 @@ _file_exists_sync :: (fn(absolute_path : String) -> bool)({
   // 512 bytes comfortably exceeds `struct stat` on every supported target;
   // only the return code is read.
   buf := malloc(usize(512)).unwrap();
-  rc := unsafe(stat(ptr, buf));
+  status := unsafe(stat(ptr, buf));
   free(.Some(buf));
-  rc == int(0)
+  status == int(0)
 });
 // ---------------------------------------------------------------------------
 // Import roots — bare names the build runner resolved for this compile

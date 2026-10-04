@@ -60,9 +60,9 @@ file_exists_sync :: (fn(path : String) -> bool)({
   // 512 bytes comfortably exceeds `struct stat` on every supported target;
   // only the return code is read.
   buf := malloc(usize(512)).unwrap();
-  rc := unsafe(stat((*char)(cstr), buf));
+  status := unsafe(stat((*char)(cstr), buf));
   free(.Some(buf));
-  rc == int(0)
+  status == int(0)
 });
 extern(
   "Yo",

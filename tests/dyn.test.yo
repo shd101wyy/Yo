@@ -377,7 +377,7 @@ test("downcasting a value payload out of a Dyn dups it", {
       downcast(d, DynStructPayload),
       .Some(p) => {
         assert(p.r.tag == i32(11), "the downcast copy carries the payload");
-        assert(rc(p.r) == 2, "the downcast copy and the Dyn's box each hold a reference");
+        assert(ref_count(p.r) == 2, "the downcast copy and the Dyn's box each hold a reference");
       },
       .None => assert(false, "expected the downcast to succeed")
     );

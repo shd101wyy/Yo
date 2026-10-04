@@ -852,15 +852,15 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
   });
   match(
     some_resolution(future_type),
-    .Some(rc) => {
-      if(is_some_type(rc), {
-        rcid := match(rc, .SomeT({ id }) => id, _ => String.from(""));
+    .Some(resolved) => {
+      if(is_some_type(resolved), {
+        rcid := match(resolved, .SomeT({ id }) => id, _ => String.from(""));
         if(context.base.types.contains_key(rcid), {
           return(false);
         });
       });
-      if(is_struct_type(rc), {
-        capture_id := match(rc, .Struct({ id }) => id, _ => String.from(""));
+      if(is_struct_type(resolved), {
+        capture_id := match(resolved, .Struct({ id }) => id, _ => String.from(""));
         it := context.base.types.into_iter();
         (go : bool) = true;
         while(go, {

@@ -1353,10 +1353,10 @@ _scope_record_answer :: (fn(key : ExprId, husk : Environment, name : String) -> 
     .Some(recs) => {
       (ri : usize) = usize(0);
       while(ri < recs.len(), {
-        rc := recs.get(ri).unwrap();
-        if(rc.name == name, {
+        rec := recs.get(ri).unwrap();
+        if(rec.name == name, {
           g_scope_path = usize(3);
-          return(rc.vars);
+          return(rec.vars);
         });
         ri = (ri + usize(1));
       });
@@ -1474,7 +1474,7 @@ expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
     },
     // Shared (`path_collection_of_name`, or aliased by another ExprInfo):
     // write into a private deep copy.
-    (rc(info.path_collection) > usize(1)) => {
+    (ref_count(info.path_collection) > usize(1)) => {
       fresh := path_collection_new();
       (i : usize) = usize(0);
       while(i < info.path_collection.len(), {
