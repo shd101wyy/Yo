@@ -15,7 +15,8 @@ implementation breakdown another agent can pick up phase by phase
 > ([`../reference/YO_CONTEXT.md`](../reference/YO_CONTEXT.md), landed
 > 2026-09-23: tasks 1–2 are the pack + API index under one verb; task 3's
 > recipe landed as the context-first `AGENTS.md`, WITHOUT the verify
-> recipe — `issues/init-agentsmd-template-omits-the-verify-recipe.md`);
+> recipe — which landed 2026-10-04,
+> `issues/fixed/init-agentsmd-template-omits-the-verify-recipe.md`);
 > B2's substance moved to
 > [`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) R2 (slice 1 —
 > recursive `ghost_fn` lemmas + lexicographic `decreases` — LANDED as
@@ -619,10 +620,11 @@ through one unfolding + the IH, without opening any runtime body.
 > index/describe/search under the one verb — a strictly larger surface
 > than this phase designed. Task 3 landed as the context-first `AGENTS.md`
 > template (`src/init.yo`); the verify recipe half ("keep laws in `spec/`,
-> run `yo verify --strict ./spec` before committing") did NOT land —
-> `issues/init-agentsmd-template-omits-the-verify-recipe.md` — and waits
-> on `issues/fixed/law-over-an-imported-callee-cannot-verify.md` (fixed 2026-10-03) besides, since
-> a `spec/` directory of cross-file laws cannot verify today.
+> run `yo verify --strict ./spec` before committing") landed 2026-10-04 —
+> `issues/fixed/init-agentsmd-template-omits-the-verify-recipe.md`: the
+> recipe line plus the D3 `spec/` scaffold (claims/proofs wall README and a
+> seed law) — after its blocker
+> `issues/fixed/law-over-an-imported-callee-cannot-verify.md` (fixed 2026-10-03).
 
 **Scope.** Three small CLI additions; no compiler change.
 

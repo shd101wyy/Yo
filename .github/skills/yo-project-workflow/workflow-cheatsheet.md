@@ -44,6 +44,8 @@ my-project/
 ├── src/
 │   ├── main.yo
 │   └── lib.yo
+├── spec/
+│   └── example.yo
 └── tests/
     └── main.test.yo
 ```
@@ -51,6 +53,7 @@ my-project/
 - `yo.toml` is the package manifest: `[package]` name, `[modules]` (what `import("<name>")` resolves to), `[dependencies]`
 - `build.yo` defines artifacts, named steps, and doc generation
 - `src/main.yo` is the executable entry point
+- `spec/` holds laws — claims stated outside the code; `yo verify ./spec --strict` is the gate (green from the scaffold's seed law)
 - `src/lib.yo` is the library module root
 
 ## Minimal `build.yo`

@@ -2,7 +2,8 @@
 //!
 //! Creates a new Yo project with:
 //!   yo.toml, build.yo, src/main.yo, src/lib.yo,
-//!   tests/main.test.yo, tests/lib.test.yo, .gitignore, README.md
+//!   tests/main.test.yo, tests/lib.test.yo, spec/README.md, spec/example.yo,
+//!   .gitignore, README.md
 //!
 //! Unless skipped with `--no-skills`, it then installs the bundled agent
 //! skill files into the project's agent config dirs and writes `AGENTS.md`
@@ -153,6 +154,51 @@ A project written in Yo programming language.
 `
   + String.from("## Project layout\n\n| Path | What it is |\n| ---- | ---------- |\n| `yo.toml` | The package manifest — name, version, `[modules]` (what importers get) and `[dependencies]`. |\n| `yo.lock` | Written by `yo install`. Commit it. |\n| `build.yo` | The build definition: artifacts and steps, written in Yo. |\n| `src/main.yo` | The executable's entry point. |\n| `src/lib.yo` | The library root. Importers get it under the package name, through the `[modules] default` entry — which is how `tests/lib.test.yo` imports it. |\n| `tests/*.test.yo` | Tests. `yo build test` runs every file in `tests/`. |\n\n## Build\n\n```bash\nyo build\n```\n\n## Run\n\n```bash\nyo build run\n```\n\n## Test\n\n```bash\nyo build test\n```\n\n## Documentation\n\n```bash\nyo build doc\n```\n\n## Dependencies\n\nDependencies are declared in `yo.toml` and resolved by Yo's own package manager:\n\n```bash\nyo add user/repo       # latest release tag, recorded as a semver range\nyo add user/repo@^1.2  # an explicit range\nyo add ./path          # a local path dependency\nyo remove name\nyo install             # fetch what yo.toml declares, write yo.lock\n```\n\n`yo build` fetches for you. The other commands — `yo check`, `yo test`,\n`yo compile`, `yo doc` — resolve imports but never fetch, so run `yo install`\nonce after cloning.\n")
 );
+/// Generate the content of `spec/README.md` — the claims/proofs wall
+/// (BEND D3, plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md): claims
+/// live in `spec/` and are written by the human; proofs are the contracts
+/// and invariants in the code. A plain `str`, like `generate_readme`'s
+/// body: the markdown carries inline code, and a backtick would close a
+/// template literal.
+generate_spec_readme :: (fn() -> String)(
+  String.from(
+    "# spec/ — the claims wall\n\nThis directory holds the project's LAWS: claims about what the code must\ndo, stated outside the code they describe. Claims are written by humans —\na law is a promise, not a test — and each one is proved from the\ncontracts (`requires`/`ensures`) and invariants the code carries, never\nfrom its implementation bodies. `yo verify ./spec --strict` is the gate:\nit proves every law here and counts `assumed()`, `outside-subset` and\n`unproven` as failures, so a green run means every claim is discharged.\n\nKeep the wall in place: edit the claims here, and put the proofs — the\ncontracts, invariants and lemmas — next to the code they constrain.\n`example.yo` is a seed law that already proves green; replace it with laws\nabout your own code. To keep every claim change under human review, add a\n`/spec/ @<maintainer>` line to your CODEOWNERS file.\n"
+  )
+);
+/// Generate the content of `spec/example.yo` — a seed LAW over a
+/// contracted callee, so `yo verify ./spec --strict` is green on a fresh
+/// project (an empty `spec/` makes the gate error with "no .yo files
+/// found"). A template literal: the law source carries no backtick and no
+/// `${`.
+generate_spec_example_law :: (fn() -> String)(
+  `// A seed LAW: a claim stated OUTSIDE the code it is about, proved from
+// the callee's CONTRACT (requires/ensures) alone — never from its body.
+// It keeps yo verify ./spec --strict green on a fresh project; replace it
+// with laws about your own code. The bounds are not decoration: a law
+// sees only what the callee's ensures states, so an unbounded
+// non-negative cannot be doubled without overflow.
+pragma(Pragma.Verify);
+
+absolute :: (
+  fn(
+    x : i32,
+    requires((x > i32(-1000)) && (x < i32(1000))),
+    ensures((r >= i32(0)) && (r < i32(1000)))
+  ) -> (r : i32)
+)(cond((x >= i32(0)) => x, true => -x));
+
+// LAW: doubling an absolute value over the contracted domain stays
+// non-negative. The law's own requires discharges absolute's at the call
+// site.
+doubled_nonneg :: law(
+  fn(
+    x : i32,
+    requires((x > i32(-1000)) && (x < i32(1000))),
+    ensures((absolute(x) + absolute(x)) >= i32(0))
+  ) -> unit
+);
+`
+);
 /// Generate the content of `AGENTS.md` — the agent-facing entry point
 /// listing the installed Yo skill files. `targets` are the agent config
 /// dirs the skills were copied into (".agents", …) and only feed the
@@ -195,7 +241,7 @@ programming language that compiles to readable C11. Build, test, and format
 it with the yo toolchain:
 
 `;
-  fence := String.from("```bash\nyo context       # the language pack + API index — read this first\nyo build run     # build and run the app\nyo build test    # run the test suite\nyo check ./src   # type-check after every edit\nyo fmt           # format the source\n```\n\n");
+  fence := String.from("```bash\nyo context       # the language pack + API index — read this first\nyo build run     # build and run the app\nyo build test    # run the test suite\nyo check ./src   # type-check after every edit\nyo verify ./spec --strict   # prove the laws in spec/ (fails on assumed)\nyo fmt           # format the source\n```\n\n");
   skills_section := cond(
     (skills.len() > usize(0)) => (
       `## Yo agent skills
@@ -308,6 +354,7 @@ init_project :: (
     e.io.await(create_dir_all(project_dir, e.io), e);
     e.io.await(create_dir_all(project_dir.join(Path.new(String.from("src"))), e.io), e);
     e.io.await(create_dir_all(project_dir.join(Path.new(String.from("tests"))), e.io), e);
+    e.io.await(create_dir_all(project_dir.join(Path.new(String.from("spec"))), e.io), e);
     // build.yo — abort if already exists
     build_yo_path := project_dir.join(Path.new(String.from("build.yo")));
     build_yo_exists := e.io.await(exists(build_yo_path, e.io), e.io);
@@ -363,6 +410,25 @@ init_project :: (
       },
       true => ()
     );
+    // spec/README.md + spec/example.yo — the claims wall and a seed law, so
+    // the `yo verify ./spec --strict` line AGENTS.md teaches is green (not
+    // a "no .yo files found" error) on a fresh project.
+    spec_readme_path := project_dir.join(Path.new(String.from("spec/README.md")));
+    spec_readme_exists := e.io.await(exists(spec_readme_path, e.io), e.io);
+    cond(
+      !spec_readme_exists => {
+        e.io.await(write_string(spec_readme_path, generate_spec_readme(), e.io), e);
+      },
+      true => ()
+    );
+    spec_example_path := project_dir.join(Path.new(String.from("spec/example.yo")));
+    spec_example_exists := e.io.await(exists(spec_example_path, e.io), e.io);
+    cond(
+      !spec_example_exists => {
+        e.io.await(write_string(spec_example_path, generate_spec_example_law(), e.io), e);
+      },
+      true => ()
+    );
     // .gitignore
     gitignore_path := project_dir.join(Path.new(String.from(".gitignore")));
     gitignore_exists := e.io.await(exists(gitignore_path, e.io), e.io);
@@ -391,6 +457,8 @@ init_project :: (
     println(String.from("    src/lib.yo"));
     println(String.from("    tests/main.test.yo"));
     println(String.from("    tests/lib.test.yo"));
+    println(String.from("    spec/README.md"));
+    println(String.from("    spec/example.yo"));
     println(String.from("    .gitignore"));
     println(String.from("    README.md"));
     println(String.from(""));
@@ -419,6 +487,8 @@ export(
   generate_lib_test_file,
   generate_gitignore,
   generate_readme,
+  generate_spec_readme,
+  generate_spec_example_law,
   generate_agents_md,
   install_agent_files,
   init_project

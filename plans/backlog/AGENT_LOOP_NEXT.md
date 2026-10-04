@@ -17,9 +17,11 @@ B4–B6; this file adds what no plan owned.
 2. `issues/yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`
    (S3) — tokenize the query, dedup the rows; recall is the surface's whole
    job. Cheap, high leverage.
-3. `issues/init-agentsmd-template-omits-the-verify-recipe.md` (S3) — one
-   line + `spec/README.md` scaffold in `src/init.yo`, post-release (rides a
-   seed window and re-records the `init-*` goldens).
+3. ~~The `yo init` AGENTS.md template omits the verify recipe (S3)~~ — FIXED
+   2026-10-04 (`issues/fixed/init-agentsmd-template-omits-the-verify-recipe.md`):
+   the recipe teaches `yo verify ./spec --strict` and `yo init` scaffolds
+   `spec/` (claims/proofs wall README + a seed law keeping the gate green);
+   the `init-*` goldens were re-recorded.
 4. `issues/explain-registry-e13xx-e15xx-bands-unallocated.md` (S3) — start
    with E15xx over the install/fetch family.
 5. `issues/yo-doc-help-omits-the-implemented---version-flag.md` (S3) and

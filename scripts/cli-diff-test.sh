@@ -193,6 +193,7 @@ DEFAULT_IGNORES=(
   './yo-out/*' '*/yo-out/*'
   '*.o' '*.a' '*.dylib' '*.so' '*.out' '*.bin'
   '*.yo.c' '*.bin.c'
+  '*.pdb'
   './.DS_Store' '*/.DS_Store'
 )
 
@@ -219,16 +220,38 @@ strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 # $1 = project dir, $2 = home dir
 normalize_stream() {
   local proj="$1" home="$2"
+  # On Windows the sandboxed child is a native exe that spells the sandbox
+  # paths the Windows way (C:/Users/.../Temp/tmp.X/...) while $proj/$home
+  # carry the MSYS spelling (/tmp/tmp.X/...). A substitution anchored on the
+  # MSYS spelling then never matches the child's output, so any
+  # stdout_keep_match over <PROJ>/<HOME> scores the case as a vacuous
+  # NO-GOLDEN instead of the assertion it is (init-existing,
+  # install-offline-empty-cache; found 2026-10-04 re-recording the init-*
+  # goldens). cygpath -m gives the forward-slash Windows spelling the Yo
+  # toolchain prints; there is no cygpath elsewhere, where both spellings
+  # coincide anyway.
+  #
+  # The `.exe` strip one stage down is the same Windows-only convergence:
+  # `yo build` names its artifact `yo-out/<target>/bin/app.exe` there and
+  # `bin/app` on POSIX, so the suffix is dropped from yo-out/ paths at a
+  # word boundary and goldens stay platform-neutral (a no-op on POSIX).
+  local proj_m="" home_m=""
+  if command -v cygpath >/dev/null 2>&1; then
+    proj_m="$(cygpath -m "$proj")"
+    home_m="$(cygpath -m "$home")"
+  fi
   strip_ansi \
     | sed -e "s|$proj|<PROJ>|g" \
           -e "s|$home|<HOME>|g" \
           -e "s|$REPO_ROOT|<REPO>|g" \
     | if [[ -n "$REPO_ROOT_URI_UPPER" ]]; then sed -e "s|$REPO_ROOT_URI_UPPER|<REPO>|g" -e "s|$REPO_ROOT_URI_LOWER|<REPO>|g"; else cat; fi \
+    | if [[ -n "$proj_m" ]]; then sed -e "s|$proj_m|<PROJ>|g" -e "s|$home_m|<HOME>|g"; else cat; fi \
     | sed -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|seconds|s([^A-Za-z0-9_]|$))/<TIME>\3/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{40}([^A-Za-z0-9_]|$)/\1<SHA1>\2/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{64}([^A-Za-z0-9_]|$)/\1<SHA256>\2/g' \
              -e 's/\(key [0-9a-f]{12}\)/(key <CONTEXT_KEY>)/g' \
              -e 's/(^|[^A-Za-z0-9_])(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)([^A-Za-z0-9_]|$)/\1<TARGET>\5/g' \
+             -e 's#(yo-out/[^[:space:]]*)\.exe([[:space:]]|$)#\1\2#g' \
     | sed -E -e '\|^check: parsing .*std/prelude\.yo$|{n; s/^check: parsed [0-9]+ top-level exprs$/check: parsed <PRELUDE_EXPRS> top-level exprs/;}' \
     | if [[ -n "$YO_SELF_VERSION_RE" ]]; then sed -E -e "s/(^|[^A-Za-z0-9_])yo ${YO_SELF_VERSION_RE}([^A-Za-z0-9_.-]|\$)/\1yo <VERSION>\2/g"; else cat; fi \
     | refit_lsp_frames

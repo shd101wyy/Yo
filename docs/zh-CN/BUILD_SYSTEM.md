@@ -33,6 +33,9 @@ my-project/
 ├── tests/
 │   ├── main.test.yo      ← 可执行文件的测试
 │   └── lib.test.yo       ← 库的测试
+├── spec/
+│   ├── README.md         ← 声明之墙：law（法则声明）在此，证明在代码里
+│   └── example.yo        ← 种子法则；`yo verify ./spec --strict` 可将其证毕
 ├── .gitignore
 ├── AGENTS.md             ← AI 编码代理的指引（列出各技能）
 ├── .agents/skills/       ← 捆绑的 agent 技能文件（见 yo skills install）
@@ -790,13 +793,14 @@ Options:
 - `src/main.yo` — 可执行文件入口
 - `src/lib.yo` — 库代码
 - `tests/main.test.yo` — 测试文件
+- `spec/README.md`、`spec/example.yo` — 验证规约：README 说明“声明之墙”（law 是人写在此处的声明，证明是代码中的契约与不变式），种子法则让新项目的 `yo verify ./spec --strict` 直接为绿
 - `.gitignore`、`README.md`
 
 随后（除非传入 `--no-skills`）会把捆绑的 agent 技能文件安装到项目的 agent
 配置目录（新项目中为 `.agents/skills/`），并写入两个面向 AI 编码代理的入口
 文件：
 
-- `AGENTS.md` — 列出已安装的技能及其描述；仅在不存在时创建
+- `AGENTS.md` — 列出已安装的技能及其描述，工具链配方包含 `yo verify ./spec --strict`；仅在不存在时创建
 
 ## 多目标构建
 

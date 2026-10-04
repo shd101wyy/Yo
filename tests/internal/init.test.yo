@@ -12,6 +12,8 @@ import("std/fmt");
   generate_yo_toml,
   generate_gitignore,
   generate_readme,
+  generate_spec_readme,
+  generate_spec_example_law,
   generate_agents_md
 } :: import("../../src/init.yo");
 { SkillEntry, description_from_frontmatter } :: import("../../src/skills_command.yo");
@@ -148,6 +150,32 @@ test("generate_agents_md: empty skill list still valid markdown", {
   assert(md.contains(String.from("# AGENTS.md")), "title present");
   assert(md.contains(String.from("yo skills install")), "points at the install command");
   assert(!md.contains(String.from("- **")), "no skill bullets");
+});
+test("generate_agents_md: teaches the strict verify gate over spec/", {
+  md := generate_agents_md(_make_skills(), _make_one_target());
+  assert(md.contains(String.from("yo verify ./spec --strict")), "recipe names the verify gate");
+});
+// ---------------------------------------------------------------------------
+// generate_spec_readme / generate_spec_example_law — the spec/ scaffold
+// (issues/fixed/init-agentsmd-template-omits-the-verify-recipe.md: the
+// AGENTS.md recipe teaches `yo verify ./spec --strict`, so the scaffold must
+// ship a spec/ that keeps that gate green — the README states the wall, the
+// seed law is the first proving claim.)
+// ---------------------------------------------------------------------------
+test("generate_spec_readme: states the claims/proofs wall and the CODEOWNERS line", {
+  md := generate_spec_readme();
+  assert(md.contains(String.from("yo verify ./spec --strict")), "names the gate");
+  assert(md.contains(String.from("CODEOWNERS")), "names the CODEOWNERS line to add");
+});
+test("generate_spec_readme: points at the seed law", {
+  md := generate_spec_readme();
+  assert(md.contains(String.from("example.yo")), "references the seed law file");
+});
+test("generate_spec_example_law: is a law file over a contracted callee", {
+  src := generate_spec_example_law();
+  assert(src.contains(String.from("pragma(Pragma.Verify);")), "verify pragma present");
+  assert(src.contains(String.from(":: law(")), "declares a law");
+  assert(src.contains(String.from("requires(")), "the callee carries a contract");
 });
 // ---------------------------------------------------------------------------
 // description_from_frontmatter — the SKILL.md frontmatter scan

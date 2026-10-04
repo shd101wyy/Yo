@@ -161,6 +161,9 @@ my-project/
 ├── tests/
 │   ├── main.test.yo      # Unit tests for the executable
 │   └── lib.test.yo       # Unit tests for the library
+├── spec/
+│   ├── README.md         # The claims wall: laws live here, proofs in the code
+│   └── example.yo        # A seed law (`yo verify ./spec --strict` proves it)
 ├── .agents/skills/       # Agent skill files (AGENTS.md lists them)
 ├── AGENTS.md             # Guidance for AI coding agents
 ├── .gitignore
