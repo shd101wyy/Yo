@@ -780,23 +780,14 @@ _abort_move_each_iteration :: (fn(io : Io) -> unit)({
   h.abort();
   _r := h.await(io);
 });
-// A read of a local after it moved into a `sink` parameter is E0901, in a
-// task as in sync code: the new owner may already have released the value
+// A read of a local after it moved into a `sink` parameter is E0901 in a task
+// as in sync code: the new owner may already have released the value
 // (issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md,
 // which supersedes the "still readable while the new owner holds it" rule of
 // issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md
-// for a `sink` move).
-test("a local read after a sink move inside a task is E0901", {
-  comptime_expect_error(
-    io.async((e : Io) => {
-      t := Thing(n : i32(1));
-      _keep_thing(t);
-      t.n
-    }),
-    "use of moved value"
-  );
-  g_kept_things.clear();
-});
+// for a `sink` move). `comptime_expect_error` cannot see an error inside an
+// `io.async` body (it observes the body's definition-time wrapper), so the
+// cli-case `read-after-sink-move-in-a-task-is-e0901` pins it.
 test("an aborted task releases a local re-bound after its previous value moved", {
   g_disposed = i32(0);
   _abort_move_each_iteration(io);
