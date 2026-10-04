@@ -90,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_contains_rc_type, type_is_move_only, move_only_reason } :: import("../types/utils.yo");
+{ type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -495,27 +495,39 @@ expect_expr_to_have_been_evaluated :: (
 // ---------------------------------------------------------------------------
 // Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, V3)
 // ---------------------------------------------------------------------------
-/// The E0901 note for a value of move-only type `ty` named `name`: why the
-/// type is move-only and the three ways to use it without a copy. `.None`
-/// for a copyable type.
+/// The E0901 note for a value named `name` of a type that is not implicitly
+/// copyable (`type_requires_explicit_copy`): for a move-only type, why it is
+/// move-only and the ways to use it without a copy; for an explicit-copy type,
+/// the `.clone()` that copies it. `.None` for an implicitly copyable type.
 move_only_help :: (fn(name : String, ty : TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
       `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), pass it \`inout\`, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
     ),
-    .None => Option(String).None
+    .None => cond(
+      type_requires_explicit_copy(ty) => Option(String).Some(
+        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or pass it \`inout\`. A by-value parameter borrows it without a copy.`
+      ),
+      true => Option(String).None
+    )
   )
 );
-/// The E0901 note for a move-only value that has no name of its own (a field,
-/// an element, a dereference): why its type is move-only.
+/// The E0901 note for a value that has no name of its own (a field, an
+/// element, a dereference) and is not implicitly copyable: why its type is
+/// move-only, or the `.clone()` that copies an explicit-copy value.
 move_only_type_help :: (fn(ty : TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
       `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a by-value parameter, pass it \`inout\`, move its whole owner, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
-    .None => Option(String).None
+    .None => cond(
+      type_requires_explicit_copy(ty) => Option(String).Some(
+        `\`${type_to_string(ty)}\` is copied explicitly: call \`.clone()\` on it for a copy, lend it to a by-value parameter, or move its whole owner.`
+      ),
+      true => Option(String).None
+    )
   )
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
@@ -554,9 +566,10 @@ _place_text :: (fn(e : AstExpr) -> String)({
 });
 /// Move the user-named local `v` at `tok` outside an expression that names it
 /// (a closure capture): the flow-logged consumption `set_expr_as_consumed`
-/// makes. A move-only value's owner gives it up here; a second move or a later
-/// read is E0901, a borrowed binding cannot give it up (E0901 too).
-move_captured_move_only_variable :: (fn(v : Variable, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+/// makes. The owner of a value that is not implicitly copyable gives it up
+/// here; a second move or a later read is E0901, a borrowed binding cannot
+/// give it up (E0901 too).
+move_captured_explicit_copy_variable :: (fn(v : Variable, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
   match(
     v.consumed_at_token,
     .Some(ct) => {
@@ -567,7 +580,7 @@ move_captured_move_only_variable :: (fn(v : Variable, tok : Token, env : Environ
     },
     .None => {
       if(!v.is_owning_the_rc_value || (v.is_ref || v.is_module_level), {
-        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` is move-only, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, an \`inout\` binding or a module-level binding). Take it \`sink(...)\` to own it.`;
+        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` ${_explicit_copy_kind(v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, an \`inout\` binding or a module-level binding). Take it \`sink(...)\` to own it.`;
         raise_flow_violation(with_code(format_error_message_with_help(tok, msg, move_only_help(v.name.clone(), v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
       _log_user_move(v, tok, env);
@@ -583,15 +596,20 @@ _is_deref_place :: (fn(e : AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
-/// Throw E0901 for a copy of the move-only value `rhs` out of storage it does
-/// not own: a by-value parameter or a `match`/`for` binding (they borrow), an
+/// "is move-only" or "is copied explicitly (`.clone()`)": the kind of a type
+/// that is not implicitly copyable, for a message.
+_explicit_copy_kind :: (fn(ty : TypeValue) -> String)(
+  cond(type_is_move_only(ty) => String.from("is move-only"), true => String.from("is copied only explicitly (`.clone()`)"))
+);
+/// Throw E0901 for a copy of the not-implicitly-copyable value `rhs` out of
+/// storage it does not own: a by-value parameter or a `match`/`for` binding (they borrow), an
 /// `inout` binding, a module-level binding, or a projection (a field, an
 /// element, a dereference). The value cannot be copied, and moving it out
 /// would leave its owner partly moved: Yo has no partial moves, so the owner
 /// is moved whole or not at all.
-_throw_move_only_copy :: (fn(rhs : AstExpr, ty : TypeValue, what : String, ctx : EvalContext, exn : Exception) -> unit)({
+_throw_explicit_copy_violation :: (fn(rhs : AstExpr, ty : TypeValue, what : String, ctx : EvalContext, exn : Exception) -> unit)({
   name := _place_text(rhs);
-  msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string(ty)}\` is move-only, and it cannot be moved either: ${what}`;
+  msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}, and it cannot be moved either: ${what}`;
   help := cond(ast_expr_is_atom(rhs) => move_only_help(name, ty), true => move_only_type_help(ty));
   raise_flow_violation(
     with_code(format_error_message_with_help(ast_expr_token(rhs), msg, help), E_USE_OF_MOVED_VALUE),
@@ -599,8 +617,10 @@ _throw_move_only_copy :: (fn(rhs : AstExpr, ty : TypeValue, what : String, ctx :
     exn
   );
 });
-/// The move of a move-only value at a point where a copyable RC value would be
-/// dupped (`set_expr_as_needs_to_call_dup`): `:=`, `=`, an `own` argument, a
+/// The move of a value that is not implicitly copyable
+/// (`type_requires_explicit_copy`: today a move-only one) at a point where a
+/// copyable RC value would be dupped (`set_expr_as_needs_to_call_dup`): `:=`,
+/// `=`, a `sink` argument, a
 /// field or element store, a return, a constructor or literal element. The
 /// owner gives the value up, with no dup:
 ///
@@ -609,8 +629,8 @@ _throw_move_only_copy :: (fn(rhs : AstExpr, ty : TypeValue, what : String, ctx :
 /// - an owning named local is CONSUMED (`set_expr_as_consumed`): a later use
 ///   is E0901, and its scope-end drop is skipped;
 /// - anything else is borrowed storage, and the copy is E0901
-///   (`_throw_move_only_copy`).
-transfer_move_only_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name : String, ctx : EvalContext, exn : Exception) -> unit)({
+///   (`_throw_explicit_copy_violation`).
+transfer_explicit_copy_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name : String, ctx : EvalContext, exn : Exception) -> unit)({
   match(
     find_variable_in_env(ei.env, variable_name.clone()),
     .None => (),
@@ -626,13 +646,13 @@ transfer_move_only_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name : St
             ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) => String.from("it is a field of another value, and moving it out would leave that value partly moved (Yo has no partial moves). Move the whole value instead."),
             true => String.from("it is borrowed from the value that holds it (an element, or a binding into another value).")
           );
-          _throw_move_only_copy(rhs, ei.ty, what, ctx, exn);
+          _throw_explicit_copy_violation(rhs, ei.ty, what, ctx, exn);
         });
       },
-      v.is_module_level => _throw_move_only_copy(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
-      v.is_ref => _throw_move_only_copy(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
+      v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
+      v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
-      true => _throw_move_only_copy(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
+      true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
     )
   );
 });
@@ -812,9 +832,10 @@ set_expr_as_needs_to_call_dup :: (
         .Some(info) => info,
         .None => new_expr_info_placeholder_for_unreachable_(rhs)
       );
-      // A move-only value is moved here, never dupped (§3.4).
-      if(type_is_move_only(ei.ty), {
-        transfer_move_only_value(rhs, ei, variable_name, ctx, exn);
+      // A value that is not implicitly copyable (a move-only one, §3.4) is
+      // moved here, never dupped.
+      if(type_requires_explicit_copy(ei.ty), {
+        transfer_explicit_copy_value(rhs, ei, variable_name, ctx, exn);
         return(());
       });
       // --- Compile-time value handling ---
@@ -2376,7 +2397,7 @@ in_compile_time_fn_body :: (fn(ctx : EvalContext) -> bool)(
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
-export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_move_only_variable, transfer_move_only_value);
+export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);

@@ -34,7 +34,7 @@
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
 { use_of_moved_value_error } :: import("../utils.yo");
-{ type_is_move_only } :: import("../../types/utils.yo");
+{ type_requires_explicit_copy } :: import("../../types/utils.yo");
 /// Evaluate an identifier or operator expression.
 ///
 /// Returns the (possibly annotated) expression after filling in its
@@ -607,12 +607,13 @@ evaluate_identifier_and_operator :: (
   expr
 });
 /// Whether a read of `variable` at `token` after the variable was moved is
-/// rejected: a user-named binding of move-only type read from source code.
+/// rejected: a user-named binding whose type is not implicitly copyable
+/// (`type_requires_explicit_copy`), read from source code.
 _read_after_move_is_checked :: (fn(variable : Variable, token : Token, env : Environment) -> bool)(
   !token.module_path.starts_with(String.from("auto-generated://"))
   && (
     !is_temp_variable_name(env.module_path, variable.name)
-    && (type_is_move_only(variable.ty) || debug_knob(`YO_CHECK_READ_AFTER_MOVE`).is_some())
+    && (type_requires_explicit_copy(variable.ty) || debug_knob(`YO_CHECK_READ_AFTER_MOVE`).is_some())
   )
 );
 /// The row of the first line that is neither blank nor a `//` comment — where

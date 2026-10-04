@@ -1,7 +1,7 @@
 //! evaluator/utils/closure — closure capture helpers.
 //!
 //! Phase 3 simplifications:
-//!   - `consume_captured_variables`             → no-op (move-only captures are
+//!   - `consume_captured_variables`             → no-op (explicit-copy captures are
 //!     consumed in `generate_captured_variable_dup_expressions`)
 //!   - `build_path_collection_from_captured_variables` → empty list
 //!   - `validate_capture_trait_requirements`    → no-op
@@ -63,8 +63,8 @@
   register_struct_fields
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type, type_is_move_only, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
-{ move_captured_move_only_variable } :: import("../utils.yo");
+{ type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
+{ move_captured_explicit_copy_variable } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
@@ -97,7 +97,8 @@ CaptureTypeAndValueResult :: struct(
 /// Mark closure-captured variables as consumed (move semantics).
 ///
 /// Not called: a capture copies (a dup per captured RC variable), and the one
-/// capture that moves, a move-only value's, is consumed where the capture is
+/// capture that moves, that of a value which is not implicitly copyable
+/// (`type_requires_explicit_copy`), is consumed where the capture is
 /// built (`generate_captured_variable_dup_expressions`). Returns env unchanged.
 consume_captured_variables :: (
   fn(
@@ -1120,7 +1121,8 @@ generate_captured_variable_dup_expressions :: (
     env : Environment,
     ctx : EvalContext,
     exn : Exception,
-    /// The closure's token: where a move-only capture is moved.
+    /// The closure's token: where a capture that is not implicitly copyable
+    /// is moved.
     closure_tok : Token
   ) -> CapturedVarDupResult
 )({
@@ -1136,18 +1138,19 @@ generate_captured_variable_dup_expressions :: (
           .Some(var_name) => match(
             cvwv.get(var_name.clone()),
             .Some(ci) => cond(
-              // A move-only capture is MOVED into the capture struct
+              // A capture that is not implicitly copyable (a move-only one)
+              // is MOVED into the capture struct
               // (plans/VALUES_BY_DEFAULT.md §3.4, §3.7): no dup, the field
               // is initialized from the variable itself, and the variable is
               // consumed, so its scope-end drop is skipped and the closure's
               // drop disposes it. The capture struct is move-only too, by
               // containment.
-              type_is_move_only(ci.ty) => {
+              type_requires_explicit_copy(ci.ty) => {
                 cap_vars := get_variables_from_env(env, var_name.clone());
                 match(
                   cap_vars.last(),
                   .Some(cap_v) => if(!cap_v.is_compile_time_only, {
-                    move_captured_move_only_variable(cap_v, closure_tok, env, ctx, exn);
+                    move_captured_explicit_copy_variable(cap_v, closure_tok, env, ctx, exn);
                   }),
                   .None => ()
                 );

@@ -525,6 +525,17 @@ _type_is_move_only_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
 type_is_move_only :: (fn(ty : TypeValue) -> bool)(
   g_move_only_possible && _type_is_move_only_inner(ty, u32(0))
 );
+/// True if a value of `ty` is not implicitly copyable: an implicit copy of it
+/// is a compile error and every copy point MOVES it (plans/VALUES_BY_DEFAULT.md
+/// §3.4 and the three kinds of type: implicitly copyable, explicit-copy,
+/// move-only). The move points, use-after-move (E0901), flow joins, the
+/// no-partial-moves rule and closure-capture moves all key on this predicate;
+/// only "may it be copied with `.clone()`" and the `Dispose` rule key on
+/// `type_is_move_only`, its strict sub-case. Today it holds exactly for
+/// move-only types: the explicit-copy kind (a value owning a buffer: `String`,
+/// the collections, a value `Box`, `Dyn`) joins in its own, separately
+/// measured migration.
+type_requires_explicit_copy :: (fn(ty : TypeValue) -> bool)(type_is_move_only(ty));
 /// Why `ty` is move-only, for the E0901 note: the declaring type and trait,
 /// reached through the component path ("`Holder` holds a move-only value in
 /// its field `fd` (`Fd`): `Fd` implements Dispose"). `.None` when it is not
@@ -2523,7 +2534,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_is_move_only, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
+export(type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);
