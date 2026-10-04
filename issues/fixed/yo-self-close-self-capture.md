@@ -1,6 +1,6 @@
 # yo-self: ref-struct `self` captured+mutated in io.async closure — (\*self) deref + FTT cond
 
-**Status:** OPEN — the last 2 stage-2 families (member-ref @close + FTT cond
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN — the last 2 stage-2 families (member-ref @close + FTT cond
 @File.close closure; likely also the undeclared temp/get_info pair, same
 method cluster). Stage-2 at 5 total.
 

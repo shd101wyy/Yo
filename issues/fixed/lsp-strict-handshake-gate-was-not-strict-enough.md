@@ -1,6 +1,6 @@
 # The strict-handshake gate's parser was not strict enough for the job it was about to be given
 
-**Severity:** polish — two holes in `scripts/lsp-strict-handshake.py`, found
+**Severity:** S3 (polish). **Status:** FIXED in #1064 (the LSP audit closeout); filed under `issues/fixed/` 2026-10-05. Original severity line: polish — two holes in `scripts/lsp-strict-handshake.py`, found
 2026-09-30 while wiring it into the release workflow's Windows legs (audit
 §6.2) — a gate about to gate every release should not be passable by a
 sloppy stream:

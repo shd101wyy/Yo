@@ -1,6 +1,6 @@
 # yo-self: trait-dispatched pointer comparisons throw unify(i32, \*(i32)) — ptr/unsafe batch mains hollow
 
-**Status:** OPEN — diagnosed 2026-07-28. Pre-existing since the pointer-operator
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN — diagnosed 2026-07-28. Pre-existing since the pointer-operator
 migration (`8acde607a`); NOT a cluster-B regression (verified identical under
 the pre-batch binary; bisect cleared all five cluster-B pieces).
 **Effect:** `tests/ptr.test.yo` and `tests/unsafe.test.yo` score HOLLOW on the

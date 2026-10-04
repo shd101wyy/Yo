@@ -2,7 +2,7 @@
 
 # TS codegen: constructor_result_drop.yo crashes at -O0 (pre-existing, TS-side)
 
-**Status: OPEN.** Pre-existing — reproduces identically under pre-port binaries
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: **Status: OPEN.** Pre-existing — reproduces identically under pre-port binaries
 (verified with /tmp/s1fix11-era diff runs: `ts_rc=139 self_rc=0`). NOT caused by
 the yo-self dup/drop optimizer port; the port actually resolved the OTHER
 long-standing corpus DIFF (`ptr_deref_copy_rc_struct.yo` now PASSes, corpus

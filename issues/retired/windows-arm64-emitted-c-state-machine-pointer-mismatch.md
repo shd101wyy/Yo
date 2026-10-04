@@ -7,7 +7,7 @@
 
 # windows-arm64 emitted C: async state-machine pointer types crossed between temp-file modules
 
-**Status:** OPEN, not yet root-caused. Surfaced 2026-08-20 by
+**Status:** RETIRED: filed under `issues/retired/` by #187. Before that the line read: OPEN, not yet root-caused. Surfaced 2026-08-20 by
 `.github/workflows/ab-windows-allocator.yml` run 32348332689 (job
 `Q2: can mimalloc build on windows-arm64 via the C++ route?`).
 

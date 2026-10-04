@@ -11,7 +11,7 @@
 > `_shell_walk_visited` / `_tts_seen` statement-arm helpers keep their
 > historical shape (it predates the bug and is equivalent).
 
-**Status:** OPEN — worked around; needs a minimal repro + fix in yo-self codegen.
+**Status:** RETIRED: filed under `issues/retired/` by #76. Before that the line read: OPEN — worked around; needs a minimal repro + fix in yo-self codegen.
 
 ## Evidence
 

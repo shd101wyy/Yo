@@ -6,7 +6,7 @@
 > mechanisms proposed below (seed-emit interaction; composite params never dropped)
 > were not borne out; they are kept as the investigation record.
 
-**Status: OPEN** — filed 2026-09-26; develop's battery has been red on this
+**Status:** FIXED: filed under `issues/fixed/` by #961. Before that the line read: **Status: OPEN** — filed 2026-09-26; develop's battery has been red on this
 since the 16:52 run. It blocks every merge in the repository, including the
 whole DROP_LIBURING stack (not caused by it: develop had none of its
 commits when the red started, and the stack's reduced batteries skip the

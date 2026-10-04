@@ -1,6 +1,6 @@
 # 2.3 blocker: the v0.2.0 seed binary mis-handles compiling current yo-self
 
-**Status: OPEN** (2026-08-11). Found by PR #98's first seed-driven CI run
+**Status:** FIXED: filed under `issues/fixed/` by #100. Before that the line read: **Status: OPEN** (2026-08-11). Found by PR #98's first seed-driven CI run
 and reproduced locally.
 
 - **Linux CI (hollow sweep)**: seed-built stage-1 completes but the produced

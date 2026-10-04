@@ -1,6 +1,6 @@
 # yo-self drops the whole test-batch `main` body — "N passed" can be vacuous
 
-**Status:** OPEN, pre-existing on HEAD (`a5457bad1`), measured 2026-07-26.
+**Status:** RETIRED: filed under `issues/retired/` by #76. Before that the line read: OPEN, pre-existing on HEAD (`a5457bad1`), measured 2026-07-26.
 **Severity:** invalidates part of the #69 green count. 8 of the 19 gate-battery
 files pass without executing a single assertion.
 
