@@ -51,7 +51,9 @@ pragma(Pragma.AllowUnsafe);
   resolve_cell_chain,
   type_is_move_only,
   move_only_declarations_exist,
-  is_value_nominal_type
+  is_value_nominal_type,
+  set_move_only_nominal_fn,
+  MoveOnlyNominalFn
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
@@ -66,6 +68,7 @@ pragma(Pragma.AllowUnsafe);
   set_register_trait_value_fn,
   set_check_self_constraints_fn,
   set_receiver_kind_trait_fn,
+  nominal_declares_move_only,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
@@ -2372,6 +2375,7 @@ _trait_checking_init := (fn() -> bool)({
   set_register_trait_value_fn(register_type_trait_value);
   set_check_self_constraints_fn(check_self_constraints_violation_msg);
   set_receiver_kind_trait_fn(receiver_kind_trait_violation_msg);
+  set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();

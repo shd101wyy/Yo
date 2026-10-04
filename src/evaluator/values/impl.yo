@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, set_move_only_nominal_fn, MoveOnlyNominalFn } :: import("../../types/utils.yo");
+{ get_all_some_types, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -112,7 +112,9 @@ pragma(Pragma.AllowUnsafe);
   pop_forcing_def,
   forcing_depths,
   truncate_forcing_depths,
-  call_evaluate_fn_body
+  call_evaluate_fn_body,
+  force_pending_move_only_impls,
+  type_head_name_for_impl_forcing
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
@@ -518,9 +520,6 @@ purge_move_only_decls_owned_by :: (fn(owner : String) -> unit)({
   });
   if(changed, {
     g_move_only_memo.clear();
-    if(g_move_only_decls.len() == usize(0), {
-      set_move_only_nominal_fn(Option(MoveOnlyNominalFn).None);
-    });
   });
 });
 /// Total generic-impl entries across all buckets (LSP leak gate).
@@ -5579,6 +5578,12 @@ _named_trait_key_is :: (fn(env : Environment, name : str, key : String) -> bool)
 /// `ty` declares move-only in a recorded impl, or `""`. `Dispose` wins over
 /// `MoveOnly` when both are declared (it is the one worth naming).
 nominal_declares_move_only :: (fn(ty : TypeValue) -> String)({
+  // A `Dispose`/`MoveOnly` impl the lazy module walk has not forced yet (it
+  // sits below the first use of its type) is forced now: whether the type is
+  // move-only decides how every use of it is evaluated.
+  if(force_pending_move_only_impls(type_head_name_for_impl_forcing(ty)), {
+    g_move_only_memo.clear();
+  });
   key := type_key(ty);
   match(
     g_move_only_memo.get(key.clone()),
@@ -5618,7 +5623,7 @@ nominal_declares_move_only :: (fn(ty : TypeValue) -> String)({
 _add_move_only_decl :: (fn(d : MoveOnlyDecl) -> unit)({
   g_move_only_decls.push(d);
   g_move_only_memo.clear();
-  set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
+  note_move_only_possible();
 });
 /// Record a concrete `impl(T, Dispose(...))` / `impl(T, MoveOnly())` on a
 /// value nominal `T` (the impl-site gate has rejected every other receiver of
@@ -5645,7 +5650,7 @@ export(GenericImplEntry, MethodCandidate);
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
-export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key);
+export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only);
 export(register_generic_impl, purge_concrete_trait_impls_owned_by);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);

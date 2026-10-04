@@ -502,7 +502,18 @@ move_only_help :: (fn(name : String, ty : TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`own(${name})\`), pass it \`inout\`, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
+      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), pass it \`inout\`, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
+    ),
+    .None => Option(String).None
+  )
+);
+/// The E0901 note for a move-only value that has no name of its own (a field,
+/// an element, a dereference): why its type is move-only.
+move_only_type_help :: (fn(ty : TypeValue) -> Option(String))(
+  match(
+    move_only_reason(ty),
+    .Some(why) => Option(String).Some(
+      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a by-value parameter, pass it \`inout\`, move its whole owner, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => Option(String).None
   )
@@ -515,8 +526,32 @@ use_of_moved_value_error :: (fn(name : String, ty : TypeValue, use_tok : Token, 
   entries.push(TokenAndError(token : moved_tok, error_message : String.from("value moved here")));
   with_code(format_error_messages_with_help(entries, move_only_help(name, ty)), E_USE_OF_MOVED_VALUE)
 });
-/// A short rendering of the place `e` names, for a message.
-_place_text :: (fn(e : AstExpr) -> String)(ast_expr_to_string(e));
+/// A short rendering of the place `e` names, for a message: the source
+/// rendering without the one pair of parentheses the printer wraps a call in.
+_place_text :: (fn(e : AstExpr) -> String)({
+  t := ast_expr_to_string(e);
+  if(!(t.starts_with("(") && t.ends_with(")")), {
+    return(t);
+  });
+  // Strip only a pair that encloses the whole text (`(a)(b)` keeps its own).
+  bytes := t.as_bytes();
+  (depth : i32) = i32(0);
+  (i : usize) = usize(0);
+  while(i < (bytes.len() - usize(1)), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    if(b == u8(40), {
+      depth = (depth + i32(1));
+    });
+    if(b == u8(41), {
+      depth = (depth - i32(1));
+    });
+    if(depth == i32(0), {
+      return(t);
+    });
+    i = (i + usize(1));
+  });
+  t.substring(usize(1), (t.len() - usize(1)))
+});
 /// Move the user-named local `v` at `tok` outside an expression that names it
 /// (a closure capture): the flow-logged consumption `set_expr_as_consumed`
 /// makes. A move-only value's owner gives it up here; a second move or a later
@@ -532,7 +567,7 @@ move_captured_move_only_variable :: (fn(v : Variable, tok : Token, env : Environ
     },
     .None => {
       if(!v.is_owning_the_rc_value || (v.is_ref || v.is_module_level), {
-        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` is move-only, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, an \`inout\` binding or a module-level binding). Take it \`own(...)\` to own it.`;
+        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` is move-only, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, an \`inout\` binding or a module-level binding). Take it \`sink(...)\` to own it.`;
         raise_flow_violation(with_code(format_error_message_with_help(tok, msg, move_only_help(v.name.clone(), v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
       _log_user_move(v, tok, env);
@@ -540,6 +575,14 @@ move_captured_move_only_variable :: (fn(v : Variable, tok : Token, env : Environ
     }
   );
 });
+/// `e` is `p.*`: a dereference.
+_is_deref_place :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(
+    e,
+    .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(1)), .Some(lbl) => (ast_expr_is_atom(lbl) && (ast_expr_token(lbl).value == "*")), .None => false),
+    .Atom(_, _) => false
+  )
+);
 /// Throw E0901 for a copy of the move-only value `rhs` out of storage it does
 /// not own: a by-value parameter or a `match`/`for` binding (they borrow), an
 /// `inout` binding, a module-level binding, or a projection (a field, an
@@ -549,8 +592,9 @@ move_captured_move_only_variable :: (fn(v : Variable, tok : Token, env : Environ
 _throw_move_only_copy :: (fn(rhs : AstExpr, ty : TypeValue, what : String, ctx : EvalContext, exn : Exception) -> unit)({
   name := _place_text(rhs);
   msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string(ty)}\` is move-only, and it cannot be moved either: ${what}`;
+  help := cond(ast_expr_is_atom(rhs) => move_only_help(name, ty), true => move_only_type_help(ty));
   raise_flow_violation(
-    with_code(format_error_message_with_help(ast_expr_token(rhs), msg, move_only_help(name, ty)), E_USE_OF_MOVED_VALUE),
+    with_code(format_error_message_with_help(ast_expr_token(rhs), msg, help), E_USE_OF_MOVED_VALUE),
     ctx,
     exn
   );
@@ -578,8 +622,9 @@ transfer_move_only_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name : St
           });
         }, {
           what := cond(
+            _is_deref_place(rhs) => String.from("it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves)."),
             ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) => String.from("it is a field of another value, and moving it out would leave that value partly moved (Yo has no partial moves). Move the whole value instead."),
-            true => String.from("it is borrowed from the value that holds it (an element, a dereference or a binding into another value).")
+            true => String.from("it is borrowed from the value that holds it (an element, or a binding into another value).")
           );
           _throw_move_only_copy(rhs, ei.ty, what, ctx, exn);
         });
@@ -587,7 +632,7 @@ transfer_move_only_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name : St
       v.is_module_level => _throw_move_only_copy(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
       v.is_ref => _throw_move_only_copy(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
-      true => _throw_move_only_copy(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `own(...)` to own it."), ctx, exn)
+      true => _throw_move_only_copy(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
     )
   );
 });
@@ -2331,7 +2376,7 @@ in_compile_time_fn_body :: (fn(ctx : EvalContext) -> bool)(
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
-export(move_only_help, use_of_moved_value_error, move_captured_move_only_variable, transfer_move_only_value);
+export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_move_only_variable, transfer_move_only_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);

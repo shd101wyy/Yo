@@ -326,7 +326,7 @@ _captured_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : EvalConte
 /// The way out E0908 offers for a write into the borrowed binding `bv`.
 _write_through_borrow_fix :: (fn(bv : Variable) -> String)(
   cond(
-    bv.is_parameter => `take it as \`own(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
+    bv.is_parameter => `take it as \`sink(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
     true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(xs, inout(${bv.name}) => ...)\``
   )
 );

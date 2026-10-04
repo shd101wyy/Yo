@@ -413,20 +413,27 @@ type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
 /// Answers whether a value nominal type (a `struct`, `enum` or `newtype` that
 /// is not a reference type) itself declares move-only, and through which
 /// trait: `"Dispose"` or `"MoveOnly"`, concretely or through a generic impl
-/// whose receiver pattern matches it; `""` when it does not. Installed by
-/// `evaluator/values/impl.yo` when the first such impl registers, so a
-/// program with none pays one `is_none` per nominal type visited (the impl
-/// registries live above this module).
+/// whose receiver pattern matches it; `""` when it does not. Installed at
+/// init (the impl registries live above this module) and consulted only once
+/// `note_move_only_possible` has run, so a program with no such impl pays one
+/// flag test per nominal type visited.
 MoveOnlyNominalFn :: (fn(ty : TypeValue) -> String);
 (g_move_only_nominal_fn : Option(MoveOnlyNominalFn)) = Option(MoveOnlyNominalFn).None;
-/// Install (`.Some`) or remove (`.None`, no declaration left after a purge)
-/// the nominal move-only answer.
+/// Install the nominal move-only answer (`evaluator/trait_checking.yo` does at
+/// init).
 set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
   g_move_only_nominal_fn = f;
 });
-/// True once some impl has declared a value type move-only: until then no
-/// type is move-only, and the move-only checks skip their work.
-move_only_declarations_exist :: (fn() -> bool)(g_move_only_nominal_fn.is_some());
+/// Set once some `impl` that declares `Dispose` or `MoveOnly` has been seen
+/// (registered, or recorded pending by the lazy module walk): until then no
+/// type is move-only, and the move-only checks skip their work. Never
+/// cleared: it only gates a fast path.
+(g_move_only_possible : bool) = false;
+note_move_only_possible :: (fn() -> unit)({
+  g_move_only_possible = true;
+});
+/// True once a value type may be move-only (`note_move_only_possible`).
+move_only_declarations_exist :: (fn() -> bool)(g_move_only_possible);
 /// A value nominal type: a `struct`/`enum`/`newtype` without reference
 /// semantics. Only these can declare move-only; a reference type is a shared
 /// cell, so its copies alias and it is never move-only (§3.4: `Rc(T)` and
@@ -443,10 +450,13 @@ is_value_nominal_type :: (fn(ty_in : TypeValue) -> bool)({
 /// The trait through which `ty` (already shell-resolved), a value nominal
 /// type, declares move-only itself, or `""` (see `MoveOnlyNominalFn`).
 _nominal_move_only_trait :: (fn(ty : TypeValue) -> String)(
-  match(
-    g_move_only_nominal_fn,
-    .None => String.new(),
-    .Some(f) => if(is_value_nominal_type(ty), f(ty), String.new())
+  cond(
+    !g_move_only_possible => String.new(),
+    true => match(
+      g_move_only_nominal_fn,
+      .None => String.new(),
+      .Some(f) => if(is_value_nominal_type(ty), f(ty), String.new())
+    )
   )
 );
 _nominal_declares_move_only :: (fn(ty : TypeValue) -> bool)(!_nominal_move_only_trait(ty).is_empty());
@@ -513,14 +523,14 @@ _type_is_move_only_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
 /// moves, joins) tracks these values like RC values; this predicate is what
 /// turns their copies into moves or errors.
 type_is_move_only :: (fn(ty : TypeValue) -> bool)(
-  match(g_move_only_nominal_fn, .None => false, .Some(_) => _type_is_move_only_inner(ty, u32(0)))
+  g_move_only_possible && _type_is_move_only_inner(ty, u32(0))
 );
 /// Why `ty` is move-only, for the E0901 note: the declaring type and trait,
 /// reached through the component path ("`Holder` holds a move-only value in
 /// its field `fd` (`Fd`): `Fd` implements Dispose"). `.None` when it is not
 /// move-only.
 move_only_reason :: (fn(ty : TypeValue) -> Option(String))(
-  match(g_move_only_nominal_fn, .None => Option(String).None, .Some(_) => _move_only_reason_inner(ty, u32(0)))
+  cond(g_move_only_possible => _move_only_reason_inner(ty, u32(0)), true => Option(String).None)
 );
 _move_only_reason_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(String))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
@@ -2513,7 +2523,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_is_move_only, move_only_reason, move_only_declarations_exist, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
+export(type_contains_rc_type, type_is_move_only, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);

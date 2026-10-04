@@ -1445,11 +1445,14 @@ evaluate_function_parameter :: (
         });
         lhs_mut = match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
-      // own modifier — processed BEFORE inout, so
-      // `own(inout(x))` reaches the inout branch with the own flag set and
-      // gets the targeted combination error below, while `inout(own(x))`
+      // sink modifier — processed BEFORE inout, so
+      // `sink(inout(x))` reaches the inout branch with the sink flag set and
+      // gets the targeted combination error below, while `inout(sink(x))`
       // falls through to the trailing "Expected identifier" rejection.
-      if(ast_expr_is_fn_call_of(lhs_mut, "own", Option(usize).None), {
+      // `own(x)` is the old spelling of `sink(x)`, accepted until the sweep
+      // that follows the next seed (plans/VALUES_BY_DEFAULT.md decision 15):
+      // both set the same flag, so the two spell one function type.
+      if(ast_expr_is_fn_call_of(lhs_mut, "sink", Option(usize).None) || ast_expr_is_fn_call_of(lhs_mut, "own", Option(usize).None), {
         is_owning_rc_value = true;
         o_args := _fn_call_args(lhs_mut);
         if(!(o_args.len() == usize(1)), {
@@ -1457,7 +1460,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Expected one argument for "own", got ${o_args.len()}`
+                `Expected one argument for "sink", got ${o_args.len()}`
               )
             )
           );
@@ -1478,7 +1481,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Cannot combine 'own' and 'inout' on the same parameter — they have opposite calling conventions.`
+                `Cannot combine 'sink' and 'inout' on the same parameter — they have opposite calling conventions.`
               )
             )
           );
