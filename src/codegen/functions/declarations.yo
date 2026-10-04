@@ -529,7 +529,7 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // Only the hard-generic skip is ERM-exempt (an effect handler's generic params are
   // type-erased to void*; a macro's Expr param is not a runtime type at all).
   skip_unemittable := (!is_user_main && ((!is_erm && is_function_type_hard_generic(function_type)) || _func_has_expr_param(function_type)));
-  skip1 := (!is_user_main && (!is_effectful && (!has_evidence && !is_erm)) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
+  skip1 := (!is_user_main && (!is_effectful && (!has_evidence && !is_erm)) && (is_function_type_hard_generic(function_type) || _func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some()));
   has_generic_params := (!is_user_main && (!is_effectful && !is_erm) && _func_has_generic_params(function_type));
   // Array with an UNRESOLVED length variable (`Array(i32, n)`) has no C
   // rendering (`// Unknown type:` ate the prototype line — array.test
@@ -601,7 +601,7 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   if(is_closure_fn(func_id.clone()), {
     return(false);
   });
-  skip_unemittable || (skip1 || (skip2 || skip_comptime_result))
+  skip_unemittable || skip1 || skip2 || skip_comptime_result
 });
 /// Compute the override C return type for an async function whose declared
 /// return type implements Future: use the
@@ -866,7 +866,7 @@ generate_function_declaration :: (fn(function_type : TypeValue, c_function_name 
 /// Functions that are C preprocessor macros or static runtime-preamble
 /// functions: never emit `extern` declarations for these.
 _is_threading_macro_function :: (fn(name : String) -> bool)(
-  (name == "__yo_mutex_init") || ((name == "__yo_mutex_destroy") || ((name == "__yo_mutex_lock") || ((name == "__yo_mutex_unlock") || ((name == "__yo_cond_init") || ((name == "__yo_cond_destroy") || ((name == "__yo_cond_wait") || ((name == "__yo_cond_signal") || ((name == "__yo_cond_broadcast") || ((name == "__yo_thread_join") || ((name == "__yo_thread_detach") || (name == "__yo_thread_self")))))))))))
+  (name == "__yo_mutex_init") || (name == "__yo_mutex_destroy") || (name == "__yo_mutex_lock") || (name == "__yo_mutex_unlock") || (name == "__yo_cond_init") || (name == "__yo_cond_destroy") || (name == "__yo_cond_wait") || (name == "__yo_cond_signal") || (name == "__yo_cond_broadcast") || (name == "__yo_thread_join") || (name == "__yo_thread_detach") || (name == "__yo_thread_self")
 );
 /// `is_extern` tag of a Func type: `.Some("c")` / `.Some("yo")` / `.None`.
 _func_extern_tag :: (fn(ft : TypeValue) -> Option(String))(

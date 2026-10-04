@@ -152,7 +152,7 @@ _find_token_at :: (
     );
     skip := (
       (t.kind == TokenKind.Whitespace) ||
-        ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
+        (t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment)
     );
     if(!skip && (usize(t.row) == line), {
       // `character` and `t.column` are RUNE columns, so the token width has
@@ -247,7 +247,7 @@ _select_best_variable :: (
           if(visible, {
             later := (
               best_visible.is_none() ||
-                ((usize(it.row) > best_row) || ((usize(it.row) == best_row) && (usize(it.column) >= best_col)))
+                (usize(it.row) > best_row) || ((usize(it.row) == best_row) && (usize(it.column) >= best_col))
             );
             if(later, {
               best_visible = Option(Variable).Some(v);
@@ -283,11 +283,9 @@ AtomRoles :: ref(
 /// labels (struct literals, labelled arguments, `impl` methods, `struct` /
 /// `enum` field declarations).
 _is_declaring_callee :: (fn(callee : String) -> bool)(
-  (callee == "fn") || ((callee == "unsafe_fn") || (callee == "ctl")) ||
-    (
-      (callee == "Fn") || ((callee == "generic") || (callee == "given")) ||
-        ((callee == "=") || ((callee == ":=") || (callee == "?=")))
-    )
+  (callee == "fn") || (callee == "unsafe_fn") || (callee == "ctl") ||
+    (callee == "Fn") || (callee == "generic") || (callee == "given") ||
+      (callee == "=") || (callee == ":=") || (callee == "?=")
 );
 /// Mark the member position `a` of a `.` call: a bare atom (`p.x`, `.Red`)
 /// or a call whose callee is the member (`p.dist()`, `.Some(v)`) — the
@@ -443,7 +441,7 @@ _find_member_access :: (
                 .Atom(_, at) => at,
                 .FnCall(_, mf, _, _, ct) => match(mf, .Atom(_, ft) => ft, .FnCall(_, _, _, _, _) => ct)
               );
-              if((mt.row == target.row) && ((mt.column == target.column) && (mt.value == target.value)), {
+              if((mt.row == target.row) && (mt.column == target.column) && (mt.value == target.value), {
                 out.push(e);
               });
             },

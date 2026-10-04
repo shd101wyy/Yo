@@ -5398,7 +5398,7 @@ _evaluate_function_call_unanchored :: (
         .Func({ meta : iob_m }) => match(
           iob_m.*.extern_name,
           .Some(iob_en) => if((iob_en == "__yo_io_async") || (iob_en == "__yo_io_await")
-          || ((iob_en == "__yo_io_state") || (iob_en == "__yo_io_spawn"))
+          || (iob_en == "__yo_io_state") || (iob_en == "__yo_io_spawn")
           || (iob_en == "__yo_join_handle_await"), {
             iob_marker = iob_en.clone();
           }),
@@ -5487,7 +5487,7 @@ _evaluate_function_call_unanchored :: (
         ),
         _ => false
       );
-      if(iob_user_fn && (is_io_async_call(expr) || (is_io_await_call(expr) || (is_io_state_call(expr) || (is_io_spawn_call(expr) || is_join_handle_await_call(expr))))), {
+      if(iob_user_fn && (is_io_async_call(expr) || is_io_await_call(expr) || is_io_state_call(expr) || is_io_spawn_call(expr) || is_join_handle_await_call(expr)), {
         record_io_builtin_call(ast_expr_id(expr), String.from(IO_BUILTIN_NONE));
       });
     });
@@ -5884,7 +5884,7 @@ Fix: wrap the call:
                   .Func({ meta : iobp_m }) => match(
                     iobp_m.*.extern_name,
                     .Some(iobp_en) => if((iobp_en == "__yo_io_async") || (iobp_en == "__yo_io_await")
-                    || ((iobp_en == "__yo_io_state") || (iobp_en == "__yo_io_spawn"))
+                    || (iobp_en == "__yo_io_state") || (iobp_en == "__yo_io_spawn")
                     || (iobp_en == "__yo_join_handle_await"), {
                       iobp_lbl := match(fields.get(iobp_i), .Some(f) => f.label.clone(), .None => String.new());
                       if(iobp_lbl.len() > usize(0), {
@@ -7638,7 +7638,7 @@ Fix: wrap the call:
           // that still carry a SomeT after resolution).
           if(fv_forall_arg_exprs.is_some() && (pi < n_supplied_reg) && !type_contains_some_type_deep(resolved_decl_pt), {
             etc_arg_ty := arg_info.ty;
-            etc_skip := (is_unit_type(etc_arg_ty) || is_function_type(etc_arg_ty) || (is_fn_trait_type(etc_arg_ty) || is_some_type(etc_arg_ty)));
+            etc_skip := (is_unit_type(etc_arg_ty) || is_function_type(etc_arg_ty) || is_fn_trait_type(etc_arg_ty) || is_some_type(etc_arg_ty));
             if(!etc_skip && !are_types_compatible(etc_arg_ty, resolved_decl_pt), {
               exn.throw(
                 dyn(

@@ -356,7 +356,7 @@ _is_array_list_shape :: (fn(id : String, name : String, labels : ArrayList(Strin
     true => match(type_display_name(id.clone()), .Some(d) => d, .None => String.new())
   );
   head_ok := ((display == "ArrayList") || display.starts_with("ArrayList("));
-  fields_ok := ((labels.len() == usize(3)) && (match(labels.get(usize(0)), .Some(l0) => (l0 == "_ptr"), .None => false) && (match(labels.get(usize(1)), .Some(l1) => (l1 == "_length"), .None => false) && match(labels.get(usize(2)), .Some(l2) => (l2 == "_capacity"), .None => false))));
+  fields_ok := ((labels.len() == usize(3)) && match(labels.get(usize(0)), .Some(l0) => (l0 == "_ptr"), .None => false) && match(labels.get(usize(1)), .Some(l1) => (l1 == "_length"), .None => false) && match(labels.get(usize(2)), .Some(l2) => (l2 == "_capacity"), .None => false));
   head_ok && fields_ok
 });
 /// The element SORT of a modeled `ArrayList(T)`: `T` must be an integer or
@@ -3902,7 +3902,7 @@ _call_term :: (
       );
     });
     // AoRTE: division/remainder divisor non-zero.
-    if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
+    if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || (op == VcOp.BvSrem) || (op == VcOp.BvUrem), {
       _emit(ctx, String.from("divisor-nonzero"), ArrayList(VcTerm).new(), _nonzero_term(bt), _guard_site(e, String.from("divisor-nonzero")));
     });
     // AoRTE: shift amount within the shifted operand's width.
@@ -3933,7 +3933,7 @@ _call_term :: (
   if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
     // 5b Phase 2: a signed negation traps on MIN (elision-only, §6).
-    if(ctx.elision_obligations && ((head == "-") && _int_is_signed(info.ty)), {
+    if(ctx.elision_obligations && (head == "-") && _int_is_signed(info.ty), {
       match(
         a,
         .Some(neg_t) => match(
@@ -6621,7 +6621,7 @@ _emit_binop_elision_obligation :: (
             true
           );
         },
-        ((op == VcOp.BvAdd) || ((op == VcOp.BvSub) || (op == VcOp.BvMul))) => {
+        ((op == VcOp.BvAdd) || (op == VcOp.BvSub) || (op == VcOp.BvMul)) => {
           ww := if(op == VcOp.BvMul, w * usize(2), w + usize(1));
           exact := _app2(op, _widen_or_trunc(at, w, ww, signed), _widen_or_trunc(bt, w, ww, signed));
           wrapped := _widen_or_trunc(_app2(op, at, bt), w, ww, signed);

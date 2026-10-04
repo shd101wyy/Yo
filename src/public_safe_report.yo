@@ -159,7 +159,7 @@ _psr_skip_string_or_comment :: (fn(src : ArrayList(u8), i : usize) -> usize)({
 });
 /// Names whose raw pointer is part of the contract, not a leak.
 _name_is_raw_pointer_api :: (fn(name : String) -> bool)(
-  name.ends_with(`_cstr`) || (name == "from_cstr") || ((name == "from_raw_parts") || (name == "as_ptr")) || ((name == "from_raw") || name.ends_with(`_raw`)) || (name.starts_with(`raw_`) || name.ends_with(`_ptr`)) || ((name == "argv") || (name == "argc"))
+  name.ends_with(`_cstr`) || (name == "from_cstr") || (name == "from_raw_parts") || (name == "as_ptr") || (name == "from_raw") || name.ends_with(`_raw`) || name.starts_with(`raw_`) || name.ends_with(`_ptr`) || (name == "argv") || (name == "argc")
 );
 /// True when the pointer type at `offset` in `text` is a parameter NAMED as a
 /// safe-mode privilege token — `witness` / `written` / `spare`. Such a
@@ -221,7 +221,7 @@ _should_skip_file :: (fn(file : String) -> bool)({
   (i : usize) = usize(0);
   while(runtime(i < segs.len()), {
     seg := segs(i);
-    if((seg == "libc") || (seg == "linux") || ((seg == "darwin") || (seg == "cuda")) || ((seg == "sys") || (seg == "sync")), {
+    if((seg == "libc") || (seg == "linux") || (seg == "darwin") || (seg == "cuda") || (seg == "sys") || (seg == "sync"), {
       return(true);
     });
     i = (i + usize(1));

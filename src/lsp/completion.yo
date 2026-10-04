@@ -68,7 +68,7 @@ K_ENUM_MEMBER :: usize(20);
 
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) ||
-    (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
+    ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
 );
 
 /// Identifier-shaped name: starts with a letter or `_`, word bytes after.
@@ -859,10 +859,8 @@ _import_items :: (
 /// Trivia the import-list scan skips over.
 _is_trivia_token :: (fn(t : Token) -> bool)(
   (t.kind == TokenKind.Whitespace) ||
-    (
-      (t.kind == TokenKind.SingleLineComment) ||
-        ((t.kind == TokenKind.MultiLineComment) || ((t.kind == TokenKind.DocLineComment) || (t.kind == TokenKind.DocBlockComment)))
-    )
+    (t.kind == TokenKind.SingleLineComment) ||
+      (t.kind == TokenKind.MultiLineComment) || (t.kind == TokenKind.DocLineComment) || (t.kind == TokenKind.DocBlockComment)
 );
 /// The import path of a `{ … } :: import("path")` destructuring whose brace
 /// list holds the cursor (RUNE position `line`/`character`), or "" when the
@@ -898,7 +896,7 @@ _import_list_path :: (
             open_idx = Option(usize).Some(k);
             scanning = false;
           },
-          ((t.kind == TokenKind.Identifier) || ((t.kind == TokenKind.Comma) || _is_trivia_token(t))) => (),
+          ((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Comma) || _is_trivia_token(t)) => (),
           true => {
             scanning = false;
           }
@@ -964,7 +962,7 @@ _import_list_path :: (
   });
   shape_ok := (
     (tail(usize(0)).value == "::") && (tail(usize(1)).value == "import") &&
-      ((tail(usize(2)).kind == TokenKind.LParen) && (tail(usize(3)).kind == TokenKind.StringLit))
+      (tail(usize(2)).kind == TokenKind.LParen) && (tail(usize(3)).kind == TokenKind.StringLit)
   );
   cond(
     shape_ok => str_lit_unquote_bytes(tail(usize(3)).value),
@@ -1146,7 +1144,7 @@ handle_completion :: (
       );
       trivia := (
         (t.kind == TokenKind.Whitespace) ||
-          ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
+          (t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment)
       );
       if(!trivia, {
         // `t.column` and `dot_col` are RUNE columns, so the token width added
@@ -1159,7 +1157,7 @@ handle_completion :: (
         if(before_dot, {
           later := (
             prev_tok.is_none() ||
-              ((usize(t.row) > prev_row) || ((usize(t.row) == prev_row) && (usize(t.column) >= prev_col)))
+              (usize(t.row) > prev_row) || ((usize(t.row) == prev_row) && (usize(t.column) >= prev_col))
           );
           if(later, {
             prev_tok = Option(Token).Some(t);
@@ -1190,11 +1188,9 @@ handle_completion :: (
         trigger := match(
           prev_tok,
           .Some(pt) => (
-            (pt.value == "=") || ((pt.value == "(") || (pt.value == ",")) ||
-              (
-                (pt.value == "{") || (pt.value == ";") ||
-                  ((pt.value == "=>") || (pt.value == ":=") || (pt.value == "return"))
-              )
+            (pt.value == "=") || (pt.value == "(") || (pt.value == ",") ||
+              (pt.value == "{") || (pt.value == ";") ||
+                (pt.value == "=>") || (pt.value == ":=") || (pt.value == "return")
           ),
           .None => true
         );

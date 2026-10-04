@@ -186,11 +186,10 @@ is_place_expression :: (fn(e : AstExpr, env : Environment) -> bool)({
 /// whose arms are all literal/constant/or-of-literal is stamped
 /// `is_primitive_match` so codegen keeps emitting the `switch`.
 is_matchable_primitive_type :: (fn(ty : TypeValue) -> bool)(
-  (
-    ((is_integer_type(ty) || is_float_type(ty)) || is_c_compatible_type(ty)) ||
-      (is_bool_type(ty) || is_comptime_int_type(ty))
-  ) ||
-    (is_comptime_float_type(ty) || is_comptime_string_type(ty))
+  is_integer_type(ty) || is_float_type(ty) || is_c_compatible_type(ty) ||
+    is_bool_type(ty) || is_comptime_int_type(ty)
+    ||
+      is_comptime_float_type(ty) || is_comptime_string_type(ty)
 );
 /// True for a value that is a concrete compile-time literal (the scrutinee
 /// kinds the arm selection can decide on). A tuple/struct of literals is one
@@ -430,7 +429,7 @@ evaluate_match :: (
     tca_resolved_em
   };
   gadt_exp_em := ctx.expected_type;
-  is_gadt_match_em := ((gadt_va_em.is_some() && gadt_exp_em.is_some()) && (gadt_tca_em.len() > usize(0)));
+  is_gadt_match_em := (gadt_va_em.is_some() && gadt_exp_em.is_some() && (gadt_tca_em.len() > usize(0)));
   // Is the scrutinee's value known at compile time? (An enum must be a
   // concrete EnumVal, a primitive a concrete literal.)
   ct_known := match(
@@ -632,7 +631,7 @@ evaluate_match :: (
     // or a guard that folded to false. Its pattern node keeps no
     // `case_executed`, so codegen skips it too; it still takes part in the
     // exhaustiveness and unreachability checks below.
-    ct_variant_miss := ((scrutinee_is_enum && ct_known) && match(mv, .Some(b) => !(b), .None => false));
+    ct_variant_miss := (scrutinee_is_enum && ct_known && match(mv, .Some(b) => !(b), .None => false));
     guard_false := match(guard_val, .Some(b) => !(b), .None => false);
     should_process := ((gadt_reachable && !(ct_variant_miss)) && !(guard_false));
     if(!(should_process), {
@@ -693,7 +692,7 @@ evaluate_match :: (
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(pattern_ast), mae_info);
       // Evaluate arm body
       is_arm_executing := (
-        (ct_known && match(mv, .Some(b) => b, .None => false)) && match(
+        ct_known && match(mv, .Some(b) => b, .None => false) && match(
           guard_ast,
           .Some(_) => match(guard_val, .Some(b) => b, .None => false),
           .None => true

@@ -56,7 +56,7 @@ ParsedPackage :: enum(
 );
 /// Return `true` if `spec` looks like a local file-system path.
 is_local_path :: (fn(spec : String) -> bool)(
-  (spec == ".") || ((spec == "..") || (spec.starts_with(String.from("./")) || (spec.starts_with(String.from("../")) || spec.starts_with(String.from("/")))))
+  (spec == ".") || (spec == "..") || spec.starts_with(String.from("./")) || spec.starts_with(String.from("../")) || spec.starts_with(String.from("/"))
 );
 /// The last path component of a URL or path, stripped of `.git` and of a
 /// trailing `/`.
@@ -115,19 +115,19 @@ parse_package_specifier :: (fn(spec : String) -> Result(ParsedPackage, String))(
     .None => (),
     .Some(idx) => {
       after := spec.substring(idx + usize(1), spec.len());
-      if((idx > usize(0)) && !(after.contains("/") || (after.contains(":") || (after.len() == usize(0)))), {
+      if((idx > usize(0)) && !(after.contains("/") || after.contains(":") || (after.len() == usize(0))), {
         url_part = spec.substring(usize(0), idx);
         suffix = Option(String).Some(after);
       });
     }
   );
   url := cond(
-    (url_part.starts_with(String.from("https://")) || (url_part.starts_with(String.from("http://")) || (url_part.starts_with(String.from("ssh://")) || (url_part.starts_with(String.from("git@")) || url_part.starts_with(String.from("file://")))))) => url_part.clone(),
+    (url_part.starts_with(String.from("https://")) || url_part.starts_with(String.from("http://")) || url_part.starts_with(String.from("ssh://")) || url_part.starts_with(String.from("git@")) || url_part.starts_with(String.from("file://"))) => url_part.clone(),
     url_part.starts_with(String.from("github.com/")) => String.from("https://").concat(url_part.clone()),
     true => {
       // Exactly two parts ("user/repo") → GitHub shorthand
       slash_parts := url_part.split(String.from("/"));
-      if((slash_parts.len() == usize(2)) && ((slash_parts(usize(0)).len() > usize(0)) && (slash_parts(usize(1)).len() > usize(0))), String.from("https://github.com/").concat(url_part.clone()), {
+      if((slash_parts.len() == usize(2)) && (slash_parts(usize(0)).len() > usize(0)) && (slash_parts(usize(1)).len() > usize(0)), String.from("https://github.com/").concat(url_part.clone()), {
         return(
           Result(ParsedPackage, String).Err(
             `Invalid package specifier: "${spec}". Use 'user/repo', 'github.com/user/repo', a full URL, or a local path.`
@@ -291,7 +291,7 @@ run_add :: (
       parsed,
       .Path(p_name, p_rel_path) => {
         is_path = true;
-        if(options.branch.is_some() || (options.rev.is_some() || options.subdir.is_some()), {
+        if(options.branch.is_some() || options.rev.is_some() || options.subdir.is_some(), {
           e.exn.throw(dyn(String.from("Error: --branch, --rev and --path apply to git dependencies only")));
         });
         dep_name = match(options.name, .Some(n) => n, .None => p_name);

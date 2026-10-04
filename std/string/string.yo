@@ -1020,7 +1020,7 @@ impl(
   /// Helper to check if a byte is ASCII whitespace
   /// Space (0x20), Tab (0x09), Newline (0x0A), Carriage Return (0x0D), Form Feed (0x0C), Vertical Tab (0x0B)
   _is_whitespace_byte : (fn(byte : u8) -> bool)(
-    (byte == u8(0x20)) || ((byte == u8(0x09)) || ((byte == u8(0x0A)) || ((byte == u8(0x0D)) || ((byte == u8(0x0C)) || (byte == u8(0x0B))))))
+    (byte == u8(0x20)) || (byte == u8(0x09)) || (byte == u8(0x0A)) || (byte == u8(0x0D)) || (byte == u8(0x0C)) || (byte == u8(0x0B))
   ),
   /// Remove whitespace from both ends of the string (like JavaScript trim)
   trim : (fn(self : Self) -> Self)(
@@ -2672,7 +2672,7 @@ impl(
             b2 := al.get(usize(2)).unwrap_or(u8(0));
             b3 := al.get(usize(3)).unwrap_or(u8(0));
             cond(
-              ((b0 == u8(116)) && ((b1 == u8(114)) && ((b2 == u8(117)) && (b3 == u8(101))))) =>
+              ((b0 == u8(116)) && (b1 == u8(114)) && (b2 == u8(117)) && (b3 == u8(101))) =>
                 .Some(true),
               true => .None
             )
@@ -2684,7 +2684,7 @@ impl(
             b3 := al.get(usize(3)).unwrap_or(u8(0));
             b4 := al.get(usize(4)).unwrap_or(u8(0));
             cond(
-              ((b0 == u8(102)) && ((b1 == u8(97)) && ((b2 == u8(108)) && ((b3 == u8(115)) && (b4 == u8(101)))))) =>
+              ((b0 == u8(102)) && (b1 == u8(97)) && (b2 == u8(108)) && (b3 == u8(115)) && (b4 == u8(101))) =>
                 .Some(false),
               true => .None
             )
@@ -2739,7 +2739,7 @@ _f64_grammar_ok :: (fn(bytes : ArrayList(u8)) -> bool)({
       b := _lc_ascii(bytes(i + usize(1)));
       c := _lc_ascii(bytes(i + usize(2)));
       // "inf" (0x69 0x6E 0x66) or "nan" (0x6E 0x61 0x6E)
-      (word : bool) = (((a == u8(0x69)) && ((b == u8(0x6E)) && (c == u8(0x66)))) || ((a == u8(0x6E)) && ((b == u8(0x61)) && (c == u8(0x6E)))));
+      (word : bool) = (((a == u8(0x69)) && (b == u8(0x6E)) && (c == u8(0x66))) || ((a == u8(0x6E)) && (b == u8(0x61)) && (c == u8(0x6E))));
       if(word, {
         return(true);
       });
@@ -2751,7 +2751,7 @@ _f64_grammar_ok :: (fn(bytes : ArrayList(u8)) -> bool)({
       while(k < usize(8), k = (k + usize(1)), {
         lc := _lc_ascii(bytes(i + k));
         (want : u8) = cond(
-          ((k == usize(0)) || ((k == usize(3)) || (k == usize(5)))) => u8(0x69),
+          ((k == usize(0)) || (k == usize(3)) || (k == usize(5))) => u8(0x69),
           ((k == usize(1)) || (k == usize(4))) => u8(0x6E),
           (k == usize(2)) => u8(0x66),
           (k == usize(6)) => u8(0x74),

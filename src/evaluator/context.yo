@@ -1075,7 +1075,7 @@ hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
         // (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md).
         // The location marker is the generated module path, which the
         // rendered diagnostic carries.
-        (msg.contains(String.from("--> auto-generated://")) || (msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found."))))) => {
+        (msg.contains(String.from("--> auto-generated://")) || msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
           // The swallowed dyn-message often already carries an "Error: " or
           // "error[E0401]: " prefix; format_error_message adds its own —
           // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".
@@ -2051,7 +2051,7 @@ _anchor_label_chars :: (fn(raw : String) -> String)({
   (ci : usize) = usize(0);
   while(ci < raw.len(), {
     b := raw.byte_at(ci);
-    ok := ((((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90)))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))));
+    ok := (((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95)));
     if(ok, {
       out.push_byte(b);
     }, {
@@ -2436,7 +2436,7 @@ _def_lhs_token_is :: (fn(def : PendingDef, tok : Token) -> bool)(
       cargs.get(usize(0)),
       .Some(lhs) => {
         lt := ast_expr_token(lhs);
-        (((lt.row == tok.row) && (lt.column == tok.column)) && (lt.module_path == tok.module_path))
+        ((lt.row == tok.row) && (lt.column == tok.column) && (lt.module_path == tok.module_path))
       },
       .None => false
     ),
@@ -2447,7 +2447,7 @@ pending_prebound_variable :: (fn(name : String, lhs_tok : Token) -> Option(Varia
   match(
     current_forcing_def(),
     .Some(def) => cond(
-      ((((!(def.is_impl) && (def.name == name)) && match(def.state, .Forcing => true, _ => false)) && _def_lhs_token_is(def, lhs_tok))) => def.variable,
+      (((!(def.is_impl) && (def.name == name)) && match(def.state, .Forcing => true, _ => false) && _def_lhs_token_is(def, lhs_tok))) => def.variable,
       true => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2458,7 +2458,7 @@ pending_prebound_variable :: (fn(name : String, lhs_tok : Token) -> Option(Varia
 record_pending_def_variable :: (fn(name : String, lhs_tok : Token, var : Variable) -> unit)(
   match(
     current_forcing_def(),
-    .Some(def) => if((((!(def.is_impl) && (def.name == name)) && def.variable.is_none()) && _def_lhs_token_is(def, lhs_tok)), {
+    .Some(def) => if(((!(def.is_impl) && (def.name == name)) && def.variable.is_none() && _def_lhs_token_is(def, lhs_tok)), {
       def.variable = Option(Variable).Some(var);
     }),
     .None => ()
@@ -2900,7 +2900,7 @@ _force_pending_impls_pass :: (fn(type_name : String, declaring : Option(String))
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && match(declaring, .Some(m) => _impl_expr_declares(def.expr, m), .None => true));
+              is_target := (def.is_impl && match(def.state, .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(def.expr, m), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(walk, def),
@@ -3116,7 +3116,7 @@ impl_inner_field_at :: (fn(rec : ImplInFlight, top_index : usize, label : String
   while((i < rec.fields.len()) && found.is_none(), {
     match(
       rec.fields.get(i),
-      .Some(f) => if((f.is_inner && (f.top_index == top_index)) && (f.label == label), {
+      .Some(f) => if(f.is_inner && (f.top_index == top_index) && (f.label == label), {
         found = Option(ImplPendingField).Some(f);
       }),
       .None => ()
