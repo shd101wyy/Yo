@@ -480,7 +480,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # ~45 min nominal (five tests/internal files, each compiling the compiler); a
+    # slow runner takes ~1.45x, so 60 cancelled a passing run
+    # (issues/fixed/the-formal-verification-job-runs-within-a-quarter-of-its-timeout.md).
+    timeout-minutes: 90
     env:
       YO_TEST_Z3: "1"
       # discover_z3() resolves YO_Z3_PATH then the solvers cache — it never
