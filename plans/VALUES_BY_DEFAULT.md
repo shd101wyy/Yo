@@ -13,7 +13,7 @@ Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
 with decisions 13 (move-only futures) and 14 (second-class borrowing
 futures).
 Amended 2026-10-05 with the maintainer: **unique ownership (Hylo's model)
-replaces copy-on-write** (§0). Decisions 15–18 there are confirmed; 19–22
+replaces copy-on-write** (§0). Decisions 15–18 there are confirmed; 19–23
 are proposed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
@@ -40,7 +40,7 @@ recommendation, final once the maintainer confirms it (§4's
 rule: a changed decision is a dated amendment, not a silent edit).
 The maintainer confirmed 16, 17 and 18 on 2026-10-05 ("make things in Yo
 explicit, like copy in hylo", with owning values only and no local
-borrows in the first cut); 19–22 remain proposed.
+borrows in the first cut); 19–23 remain proposed.
 
 ### 0.1 Why
 
@@ -196,6 +196,39 @@ copies the first kind implicitly (decision 16).
       borrowing closure are the plain (non-`sink`) ones.
     - Recommendation: yes. Without it, every `xs.map(x => … s …)` would
       consume `s` or force a `.clone()` that copies nothing the closure needs.
+
+23. **Proposed: no new closure types; `Fn` stays the one call trait.**
+    Raised by the maintainer 2026-10-05 ("Do we need to introduce new type
+    to distinguish closure's kind?").
+    - **Escaping is the parameter mode.** A plain `f : Impl(Fn(...))`
+      parameter is a borrow. It is second-class, so the callee cannot store,
+      return or spawn it, and a closure passed there may borrow its captures
+      (decision 22). A `sink(f) : Impl(Fn(...))` parameter owns, so the
+      closure may escape and must own its captures. This is Swift's
+      non-escaping/`@escaping` split, spelled with conventions Yo already
+      has.
+    - **`Impl(Fn(...))`** is static: each call site instantiates the concrete
+      closure type, whose kind is structural (decision 22). A generic body
+      that copies `f` is checked per instantiation (§3.4's rule). A generic
+      that needs copies says so with a bound: `Impl(Fn(...), Clone)`, the
+      trait-combination form `Impl(Fn(...), Send)` already uses.
+    - **`Dyn(Fn(...))`** erases the type, so its kind is in the type.
+      `Dyn(Fn(...))` is move-only, with no clone slot. `Dyn(Fn(...), Clone)`
+      is explicit-copy: `dyn(...)` requires the closure to be `Clone`, and
+      the vtable gets a `clone` slot. `Send` composes as today. Decision 7's
+      `Dyn` rule, specialized to `Fn`.
+    - **No `FnMut`/`FnOnce`.** A closure body may read its captures but not
+      write or move out of them. A borrowed capture is already unwritable
+      (E0908), and an owned capture is the closure's private, immutable
+      state. So calling a closure never changes it, and one `Fn` trait
+      suffices. State that changes across calls is an explicit `Rc(T)`
+      capture (`n := rc(i32(0)); inc := () => { n.* = n.* + i32(1) }`) or
+      an `inout` parameter, and a value to consume is a `sink` parameter.
+      This is the explicit spelling decisions 16–18 chose for copies,
+      applied to closure state.
+    - Recommendation: yes. Rust's three call traits exist because a Rust
+      closure may mutate or consume its captures; forbidding that keeps
+      Yo's closure types as they are.
 
 ### 0.4 First gate: measure the migration
 
