@@ -1,6 +1,6 @@
 # A prelude `Allocator` collides with `std/build.yo`'s `Allocator` enum and every `{ Allocator }` import
 
-**Resolved 2026-10-04:** option 1 taken (maintainer, via the coordinator): the build enum is `build.AllocatorKind`, `Allocator`/`AllocatorVTable`/`impl(Allocator, Send())` are in the prelude, and the inherent impl stays in `std/allocator.yo`.
+**Resolved 2026-10-04:** option 1 taken (maintainer, via the coordinator). The build enum is now `build.AllocatorKind`. Moving `Allocator`/`AllocatorVTable`/`impl(Allocator, Send())` into the prelude (with the inherent impl staying in `std/allocator.yo`) turned out to be seed-gated by the borrow-mask analysis's declaring-module test; it is parked as Generation B in `plans/backlog/SEED_VERSION_AUTOMATION.md`.
 
 **Kind:** design question — an open decision, not a defect. Raised 2026-10-04
 while implementing `plans/VALUES_BY_DEFAULT.md` V1, std Generation A, first

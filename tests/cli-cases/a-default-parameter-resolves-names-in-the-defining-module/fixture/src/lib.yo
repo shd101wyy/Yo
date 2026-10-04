@@ -1,8 +1,7 @@
 //! A library whose `?=` defaults name its OWN bindings: the constant `K` and
-//! `Allocator` (imported from `std/allocator` until it moved into the prelude,
-//! plans/VALUES_BY_DEFAULT.md §3.11). Naming `Allocator` in a signature needs
-//! the pragma.
+//! the imported `Allocator`. Naming `Allocator` in a signature needs the pragma.
 pragma(Pragma.AllowUnsafe);
+{ Allocator } :: import("std/allocator");
 K :: i32(5);
 f :: (fn((x : i32) ?= K) -> i32)(x);
 g :: (fn(generic(T : Type), v : T, (x : i32) ?= K) -> i32)(x);

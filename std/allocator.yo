@@ -4,9 +4,7 @@
 //!
 //! stable — `Layout`, `AllocError`, `GlobalAllocator`, and the pluggable
 //! surface: `Allocator` (a context pointer plus a vtable, Zig's
-//! `std.mem.Allocator` shape; it and `AllocatorVTable` are defined in the
-//! prelude, this module holds their methods), `with_allocator`,
-//! `current_allocator`. The
+//! `std.mem.Allocator` shape), `with_allocator`, `current_allocator`. The
 //! vtable (`alloc`, `realloc`, `free`, context first) and the 16-byte owner
 //! prefix are frozen: codegen writes the same prefix for every RC object a
 //! scope places (`plans/archive/EXPLICIT_ALLOCATORS.md`). Implementors: the global
@@ -179,6 +177,36 @@ GlobalAllocator :: impl({
     aligned_free
   );
 });
+/// The functions behind an `Allocator`. Implementing one needs
+/// `pragma(Pragma.AllowUnsafe)`.
+///
+/// - `alloc(ctx, size)` returns a block of at least `size` bytes aligned to
+///   16, or `.None`.
+/// - `realloc(ctx, ptr, new_size)` resizes a block this vtable's `alloc`
+///   returned, keeping its first `min(old, new_size)` bytes. `.None` leaves
+///   the original block untouched and still owned by the caller.
+/// - `free(ctx, ptr)` releases such a block.
+///
+/// There is no size at `free` and no aligned family: every container buffer
+/// and every RC block uses the plain family (see the module notes).
+AllocatorVTable :: struct(
+  alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
+  realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
+  free : (fn(ctx : ?*void, ptr : ?*void) -> unit)
+);
+/// An allocator value: an opaque context plus an immortal vtable. Two words,
+/// copied freely; it is not reference counted, because an allocator must not
+/// itself need an allocator.
+Allocator :: struct(
+  ctx : ?*void,
+  vtable : *AllocatorVTable
+);
+// The audited base (plans/reference/PARALLELISM_RULES.md D1/D9): a bare `fn`
+// field is never `Send` on its own, so without this no allocator could cross
+// into a spawn body. Every std vtable function reaches no thread-affine
+// global and every std implementor guards its `ctx`; a user implementor is
+// under `AllowUnsafe` and carries the same obligation.
+impl(Allocator, Send());
 /// Size of the owner prefix in front of every `Allocator.alloc` block. 16 keeps
 /// the returned pointer aligned for any scalar the plain family serves.
 ALLOC_PREFIX_SIZE :: usize(16);
@@ -329,6 +357,8 @@ export(
   layout_of,
   AllocError,
   GlobalAllocator,
+  AllocatorVTable,
+  Allocator,
   ALLOC_PREFIX_SIZE,
   with_allocator,
   current_allocator

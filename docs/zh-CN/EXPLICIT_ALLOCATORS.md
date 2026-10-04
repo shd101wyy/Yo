@@ -207,8 +207,7 @@ export(main);
 
 ## 编写自己的分配器
 
-分配器是一个上下文指针加一张包含三个函数的表。这两个类型都在 prelude 中，无需导入；
-它们的方法（`Allocator.global()`、`alloc`、`free` 等）由 `std/allocator` 提供：
+分配器是一个上下文指针加一张包含三个函数的表：
 
 ```rust
 AllocatorVTable :: struct(
@@ -236,7 +235,7 @@ Allocator :: struct(ctx : ?*void, vtable : *AllocatorVTable);
 ```rust
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
-{ GlobalAllocator, with_allocator } :: import("std/allocator");
+{ Allocator, AllocatorVTable, GlobalAllocator, with_allocator } :: import("std/allocator");
 
 Point :: ref(struct(x : i32, y : i32));
 _Counts :: struct(allocs : usize, frees : usize);
