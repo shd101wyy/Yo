@@ -206,7 +206,10 @@ _stdin_has_input_windows :: (fn() -> bool)({
 
 /// `poll(2)` with a zero timeout on fd 0 (POSIX platforms).
 _stdin_has_input_posix :: (fn() -> bool)({
-  { poll } :: c_include("<poll.h>", poll : (fn(fds : *u8, nfds : u32, timeout : int) -> int));
+  // `fds` is `*void`: the header's parameter is `struct pollfd *`, which a
+  // `uint8_t *` does not convert to (clang -Wincompatible-pointer-types is an
+  // error; issues/fixed/lsp-stdin-poll-declaration-breaks-the-macos-build.md).
+  { poll } :: c_include("<poll.h>", poll : (fn(fds : *void, nfds : u32, timeout : int) -> int));
   // struct pollfd { int fd; short events; short revents; } — offsets 0/4/6
   // and 8 bytes total on every ABI this compiler targets (4-byte int
   // alignment, little-endian), laid out by hand through one i64 slot.
@@ -218,7 +221,7 @@ _stdin_has_input_posix :: (fn() -> bool)({
     events_field := (*i16)((*u8)(p).add(usize(4)));
     events_field.* = i16(1);
   });
-  rc := unsafe(poll((*u8)(p), u32(1), int(0)));
+  rc := unsafe(poll((*void)(p), u32(1), int(0)));
   if(rc <= int(0), {
     return(false);
   });
