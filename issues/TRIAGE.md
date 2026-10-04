@@ -30,14 +30,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 12 | 1 |
 | Async / effects | 6 | 0 |
-| Codegen / emitted C | 18 | 3 |
+| Codegen / emitted C | 17 | 3 |
 | Evaluator / types | 21 | 2 |
-| Std library | 47 | 11 |
-| Tooling (fmt/doc/lsp) | 10 | 1 |
-| Self-hosting legacy | 11 | 2 |
+| Std library | 46 | 10 |
+| Tooling (fmt/doc/lsp) | 11 | 2 |
+| Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 55 | 9 |
-| **Total** | **183** | **29** |
+| Other | 57 | 10 |
+| **Total** | **183** | **30** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 27 |
-| S2 | 86 |
-| S3 | 68 |
+| S1 | 28 |
+| S2 | 88 |
+| S3 | 65 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -185,21 +185,20 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
 
-### Codegen / emitted C (18)
+### Codegen / emitted C (17)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
+| [`a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`](./a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md) | S2 | OPEN | — |
 | [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) | S2 | OPEN | — |
 | [`assign-to-by-value-closure-param-under-generic-result-types-unit.md`](./assign-to-by-value-closure-param-under-generic-result-types-unit.md) | S2 | — | yes |
 | [`c-include-global-accepted-by-comptime-binding.md`](./c-include-global-accepted-by-comptime-binding.md) | S2 | PARTIALLY FIXED 2026-09-08 — the `::` half is | — |
 | [`c-include-rvalue-macro-constant-cannot-be-addressed.md`](./c-include-rvalue-macro-constant-cannot-be-addressed.md) | S2 | OPEN | — |
 | [`cinclude-int-comparison-fails-to-transpile.md`](./cinclude-int-comparison-fails-to-transpile.md) | S2 | — | — |
-| [`dead-yo-stat-accessor-family-emitted-into-every-program.md`](./dead-yo-stat-accessor-family-emitted-into-every-program.md) | S3 | OPEN | — |
 | [`derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`](./derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md) | S2 | — | — |
 | [`derive-tostring-on-a-generic-struct-emits-invalid-c.md`](./derive-tostring-on-a-generic-struct-emits-invalid-c.md) | S2 | OPEN | yes |
 | [`drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`](./drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md) | S1 | OPEN for the two remaining sites | — |
 | [`emitted-c-flipped-once-under-extreme-load-unexplained.md`](./emitted-c-flipped-once-under-extreme-load-unexplained.md) | S3 | — | — |
-| [`emitted-c-hardcodes-linux-at-fdcwd.md`](./emitted-c-hardcodes-linux-at-fdcwd.md) | S3 | — | — |
 | [`ftt-stub-in-live-closure-falls-off-non-void-function.md`](./ftt-stub-in-live-closure-falls-off-non-void-function.md) | S1 | — | yes |
 | [`match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md`](./match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md) | S2 | — | — |
 | [`rc-value-copied-address-taken-and-returned-is-double-dropped.md`](./rc-value-copied-address-taken-and-returned-is-double-dropped.md) | S1 | OPEN | — |
@@ -234,7 +233,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (47)
+### Std library (46)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -262,7 +261,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | S2 | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | S3 | — | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | S1 | OPEN — | yes |
-| [`stddoc-core-doc-comment-attached-by-bare-member-name.md`](./stddoc-core-doc-comment-attached-by-bare-member-name.md) | S3 | OPEN | yes |
 | [`stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md`](./stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md) | S3 | OPEN | — |
 | [`stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md`](./stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md) | S2 | — | yes |
 | [`stddoc-io-arg-parser-positionals-are-never-required.md`](./stddoc-io-arg-parser-positionals-are-never-required.md) | S2 | — | yes |
@@ -286,22 +284,23 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | S3 | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | S3 | — | — |
 
-### Tooling (fmt/doc/lsp) (10)
+### Tooling (fmt/doc/lsp) (11)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`](./collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md) | S3 | OPEN | — |
+| [`fmt-hugs-a-trailing-nested-match-then-expands-it-on-the-next-pass.md`](./fmt-hugs-a-trailing-nested-match-then-expands-it-on-the-next-pass.md) | S3 | — | yes |
 | [`fmt-not-idempotent-call-wrapped-match-in-block.md`](./fmt-not-idempotent-call-wrapped-match-in-block.md) | S3 | — | yes |
 | [`fmt-pointer-type-paren-verdict-is-context-dependent.md`](./fmt-pointer-type-paren-verdict-is-context-dependent.md) | S3 | OPEN | — |
 | [`nested-backtick-template-interpolates-the-injected-import.md`](./nested-backtick-template-interpolates-the-injected-import.md) | S2 | OPEN — valid source is rejected, and the diag | — |
 | [`template-string-backslash-before-interpolation-eats-both.md`](./template-string-backslash-before-interpolation-eats-both.md) | S1 | — | — |
 | [`test-runner-std-path-shadowed-by-binary-tree-std.md`](./test-runner-std-path-shadowed-by-binary-tree-std.md) | S2 | — | — |
-| [`yo-doc-help-omits-the-implemented---version-flag.md`](./yo-doc-help-omits-the-implemented---version-flag.md) | S3 | — | — |
-| [`yo-doc-renders-std-prelude-as-an-empty-module.md`](./yo-doc-renders-std-prelude-as-an-empty-module.md) | S3 | — | — |
+| [`yo-doc-name-flag-documented-but-the-cli-has-no-such-flag.md`](./yo-doc-name-flag-documented-but-the-cli-has-no-such-flag.md) | S3 | — | — |
+| [`yo-doc-type-function-entries-omit-variants-and-trait-methods.md`](./yo-doc-type-function-entries-omit-variants-and-trait-methods.md) | S3 | — | — |
 | [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | S3 | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | S3 | — | — |
 
-### Self-hosting legacy (11)
+### Self-hosting legacy (10)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -315,7 +314,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yo-self-rc-teardown-not-factored-into-dispose.md`](./yo-self-rc-teardown-not-factored-into-dispose.md) | S3 | — | — |
 | [`yo-self-test-runner-cannot-run-wasm-batches.md`](./yo-self-test-runner-cannot-run-wasm-batches.md) | S2 | — | — |
 | [`yo-self-unwired-port-gaps.md`](./yo-self-unwired-port-gaps.md) | S3 | — | — |
-| [`yoself-missing-compiling-with-print.md`](./yoself-missing-compiling-with-print.md) | S3 | — | — |
 
 ### Vendor (markdown_yo) (3)
 
@@ -325,18 +323,21 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (55)
+### Other (57)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md`](./a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md) | S1 | — | yes |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
+| [`a-default-parameter-value-resolves-names-in-the-callers-module.md`](./a-default-parameter-value-resolves-names-in-the-callers-module.md) | S1 | OPEN | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
+| [`a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md`](./a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md) | S2 | — | yes |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
 | [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
 | [`a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md`](./a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md) | S2 | — | yes |
+| [`a-string-byte-index-is-a-writable-place.md`](./a-string-byte-index-is-a-writable-place.md) | S1 | — | — |
 | [`a-trait-method-returning-option-of-self-item-under-a-where-clause-emits-an-undeclared-call.md`](./a-trait-method-returning-option-of-self-item-under-a-where-clause-emits-an-undeclared-call.md) | S2 | — | — |
 | [`a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md`](./a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md) | S1 | — | yes |
 | [`a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md`](./a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md) | S3 | — | — |
@@ -352,7 +353,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
 | [`check-summarizes-every-function-body-eagerly-at-module-end.md`](./check-summarizes-every-function-body-eagerly-at-module-end.md) | S3 | — | — |
-| [`collect-into-a-string-leaks-the-accumulated-buffer.md`](./collect-into-a-string-leaks-the-accumulated-buffer.md) | S1 | — | — |
 | [`enum-type-arguments-made-check-about-4-percent-slower.md`](./enum-type-arguments-made-check-about-4-percent-slower.md) | S3 | — | — |
 | [`explain-registry-e13xx-e15xx-bands-unallocated.md`](./explain-registry-e13xx-e15xx-bands-unallocated.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
@@ -381,6 +381,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`](./windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md) | S1 | — | — |
 | [`windows-process-handle-list-is-an-unlocked-process-global.md`](./windows-process-handle-list-is-an-unlocked-process-global.md) | S1 | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | S1 | OPEN | — |
-| [`yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`](./yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md) | S3 | — | — |
+| [`yo-context-describe-views-duplicate-byte-identical-rows.md`](./yo-context-describe-views-duplicate-byte-identical-rows.md) | S3 | — | — |
 | [`yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md`](./yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md) | S3 | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | S2 | — | — |
