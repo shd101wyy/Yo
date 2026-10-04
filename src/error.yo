@@ -394,6 +394,24 @@ format_raw_error :: (fn(module_path : String, error_message : String) -> YoError
     )
   )
 );
+/// Create a `YoError` whose code is named by the RAISE SITE and which has no
+/// source location at all — the E13xx ICE wrapper and the E15xx dependency
+/// toolchain (`yo install`/`yo add`/`yo update`: fetch, resolve, lock), whose
+/// failures are about a repository, a manifest or the network, never about a
+/// span of user code (issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md).
+/// The rendered block is `error[EXXXX]: message` plus the `yo explain` tail —
+/// no `-->` anchor — and `--error-format json`/`sarif` carry the code.
+format_coded_error :: (fn(code : str, message : String) -> YoError)(
+  _yo_error_of(
+    Diagnostic(
+      code : _coded(code),
+      severity : Severity.Error,
+      message : message,
+      span : Span(path : String.new(), row : usize(0), col : usize(0), len : usize(0)),
+      source_line : String.new()
+    )
+  )
+);
 /// Create a `YoError` from a list of token + error message pairs: the first
 /// entry is the primary error, every later entry renders as a note.
 format_error_messages :: (fn(token_and_error_list : ArrayList(TokenAndError)) -> YoError)({
@@ -843,6 +861,7 @@ export(
   format_error_messages_with_help,
   format_lexer_error,
   format_raw_error,
+  format_coded_error,
   format_warning_messages,
   render_any_error,
   stash_error_diagnostics,

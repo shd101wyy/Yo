@@ -171,6 +171,30 @@ E_COMPTIME_DIVISION_BY_ZERO :: "E1103";
 /// function declared to return a compile-time value
 /// (issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
 E_COMPTIME_RUNTIME_BINDING :: "E1104";
+// Internal codegen (E13xx) — the ICE family. An emitter precondition no
+// source the evaluator accepted can reach; the wrapper is
+// `codegen_fatal` (src/codegen/constants.yo).
+E_INTERNAL_COMPILER_ERROR :: "E1301";
+// CLI / build / deps (E15xx) — the dependency toolchain `yo install` /
+// `yo add` / `yo update` drives (fetch, resolver, install_command). Raised
+// without a source span; the code is named by the raise site through
+// `format_coded_error` (src/error.yo).
+/// A dependency could not be fetched: the network was refused (`--offline`
+/// with nothing cached, an unreachable repository, a failed clone or
+/// ls-remote).
+E_DEP_FETCH_FAILED :: "E1501";
+/// No `yo.toml` at or above the working directory — the install family's
+/// front door; `yo init` creates one.
+E_MANIFEST_NOT_FOUND :: "E1502";
+/// `yo.lock` disagrees with `yo.toml` or is unusable: out of date under
+/// `--locked`, absent under `--locked`, or an entry the store cannot digest.
+E_LOCK_MISMATCH :: "E1503";
+/// The fetched dependency tree does not hash to what `yo.lock` records —
+/// the store's contents and the lock tell different stories.
+E_STORE_INTEGRITY_MISMATCH :: "E1504";
+/// No tag of the dependency satisfies every requirement on it (a `version`
+/// range nothing matches, or ranges no single tag fits).
+E_NO_MATCHING_VERSION :: "E1505";
 /// The severity of a diagnostic entry. The FIRST entry of an error group is
 /// the primary (`Error`, or `Warning` once a warnings channel exists);
 /// secondary entries ("value moved here", "Defined here:") are `Note`s.
@@ -956,3 +980,5 @@ export(E_USE_OF_MOVED_VALUE, E_CANNOT_REASSIGN, E_MAYBE_UNINITIALIZED, E_NO_MATC
 export(E_OPTIMISTIC_PANIC, E_CONFLICTING_IMPL, E_CANNOT_INFER, E_DYN_UNCALLABLE, E_ARGUMENT_LABEL_MISMATCH, E_AMBIGUOUS_METHOD, E_DISCARDED_MUST_USE);
 export(E_NEVER_FULLY_EVALUATED, E_FORWARD_REFERENCE, E_MOVED_ON_SOME_PATHS, E_WRITE_THROUGH_BORROW);
 export(E_COMPTIME_ARGUMENT, E_COMPTIME_OVERFLOW, E_COMPTIME_DIVISION_BY_ZERO, E_COMPTIME_RUNTIME_BINDING);
+export(E_INTERNAL_COMPILER_ERROR);
+export(E_DEP_FETCH_FAILED, E_MANIFEST_NOT_FOUND, E_LOCK_MISMATCH, E_STORE_INTEGRITY_MISMATCH, E_NO_MATCHING_VERSION);

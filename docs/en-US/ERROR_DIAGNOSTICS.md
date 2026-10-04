@@ -128,6 +128,27 @@ argument of the wrong type is E0601 whether it is a function argument or a
 variant payload), and rewording a message never moves its code. Errors
 without a family render without a code.
 
+Codes are allocated in bands: E00xx–E02xx syntax, E03xx–E05xx name/scope/
+module resolution, E06xx–E08xx types and traits, E09xx–E10xx ownership and
+async, E11xx–E12xx comptime, E13xx internal codegen, E15xx the CLI/build/
+dependency toolchain. Two of those bands name failures that have no source
+span. `E1301` is the internal-compiler-error wrapper — a compiler bug, to
+report rather than chase in your program. The E15xx family is what
+`yo install` / `yo add` / `yo update` raise — the fetch, manifest and lock
+failures an agent hits on a fresh clone:
+
+| code | failure |
+| --- | --- |
+| E1501 | a dependency could not be fetched (`--offline` with nothing cached, an unreachable repository, a failed clone) |
+| E1502 | no `yo.toml` at or above the working directory |
+| E1503 | `yo.lock` disagrees with `yo.toml` (out of date, absent or unusable under `--locked`) |
+| E1504 | the fetched dependency tree does not hash to what `yo.lock` records |
+| E1505 | no tag of the dependency satisfies every requirement on it |
+
+These render with their code and the `explain` tail like any other error, and
+`--error-format json` carries the code, so an error router can branch on the
+family instead of string-matching prose.
+
 ```bash
 $ yo explain E0401
 E0401 — name not found

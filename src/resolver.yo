@@ -45,6 +45,8 @@
   file_exists_sync,
   read_file_sync
 } :: import("./manifest.yo");
+{ format_coded_error } :: import("./error.yo");
+{ E_DEP_FETCH_FAILED, E_LOCK_MISMATCH, E_NO_MATCHING_VERSION } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // Semantic versions
 // ---------------------------------------------------------------------------
@@ -1226,7 +1228,9 @@ _resolve_package :: (
       indexed = from_index;
     });
     if(fetch_tags && (state.options.offline && indexed.is_none()), {
-      e.exn.throw(dyn(`Error: --offline: resolving "${pkg.name}" needs the tags of ${pkg.url}, and the cache has no tag list for it`));
+      e.exn.throw(
+        dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${pkg.name}" needs the tags of ${pkg.url}, and the cache has no tag list for it`))
+      );
     });
     if(fetch_tags && state.options.offline, {
       state.tag_urls.push(pkg.url.clone());
@@ -1241,7 +1245,7 @@ _resolve_package :: (
         listed,
         .Ok(t) => t.clone(),
         .Err(msg) => {
-          e.exn.throw(dyn(`Error: ${msg}`));
+          e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, msg)));
           String.new()
         }
       );
@@ -1261,7 +1265,17 @@ _resolve_package :: (
         choose_ref(pkg.name.clone(), pkg.url.clone(), tags, pkg.requirements),
         .Ok(c) => c,
         .Err(msg) => {
-          e.exn.throw(dyn(`Error: ${msg}`));
+          // choose_ref reports two families through one String: no tag fits
+          // every requirement (E1505 — the message the requirement's author
+          // can act on), and requirer conflicts ("pinned two different
+          // ways"), which stay uncoded prose. The prefix is this module's
+          // own sentence (choose_ref's ranges-only miss), not a guess over
+          // foreign text.
+          if(msg.starts_with(String.from("no tag of ")), {
+            e.exn.throw(dyn(format_coded_error(E_NO_MATCHING_VERSION, msg)));
+          }, {
+            e.exn.throw(dyn(`Error: ${msg}`));
+          });
           ChosenRef.DefaultBranch
         }
       )
@@ -1275,7 +1289,9 @@ _resolve_package :: (
     cached_branch := _cached_text(state.branch_urls, state.branch_names, pkg.url.clone());
     resolve_branch := (is_default && ((ref_text.len() == usize(0)) && cached_branch.is_none()));
     if(resolve_branch && state.options.offline, {
-      e.exn.throw(dyn(`Error: --offline: resolving the default branch of ${pkg.url} ("${pkg.name}") needs the network`));
+      e.exn.throw(
+        dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving the default branch of ${pkg.url} ("${pkg.name}") needs the network`))
+      );
     });
     if(resolve_branch, {
       branch := e.io.await(resolve_default_branch(remote.clone(), e.io, e.exn), e);
@@ -1434,14 +1450,16 @@ resolve_and_fetch :: (
       read.problem,
       .Some(msg) => {
         if(options.locked, {
-          e.exn.throw(dyn(`Error: --locked: ${msg}`));
+          e.exn.throw(dyn(format_coded_error(E_LOCK_MISMATCH, `--locked: ${msg}`)));
         });
         println(`Note: ${msg} — regenerating it.`);
       },
       .None => ()
     );
     if(options.locked && read.absent, {
-      e.exn.throw(dyn(String.from("Error: --locked: there is no yo.lock to obey. Run 'yo install' once without --locked.")));
+      e.exn.throw(
+        dyn(format_coded_error(E_LOCK_MISMATCH, String.from("--locked: there is no yo.lock to obey. Run 'yo install' once without --locked.")))
+      );
     });
     state := _State(
       manifest : manifest,
@@ -1475,7 +1493,14 @@ resolve_and_fetch :: (
     new_lock := _build_lock(state);
     unchanged := lock_files_equal(read.lock, new_lock);
     if(options.locked && !unchanged, {
-      e.exn.throw(dyn(`Error: --locked: yo.lock is out of date:${_lock_diff(read.lock, new_lock)}\nRun 'yo install' without --locked to update it.`));
+      e.exn.throw(
+        dyn(
+          format_coded_error(
+            E_LOCK_MISMATCH,
+            `--locked: yo.lock is out of date:${_lock_diff(read.lock, new_lock)}\nRun 'yo install' without --locked to update it.`
+          )
+        )
+      );
     });
     write_lock := (!unchanged || read.absent);
     if(write_lock, {

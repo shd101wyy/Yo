@@ -38,6 +38,8 @@ hex :: import("std/encoding/hex");
 } :: import("./cache.yo");
 { LockFile, parse_lock_file } :: import("./lock_file.yo");
 { abs_under } :: import("./manifest.yo");
+{ format_coded_error } :: import("./error.yo");
+{ E_DEP_FETCH_FAILED, E_LOCK_MISMATCH, E_STORE_INTEGRITY_MISMATCH } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -474,7 +476,7 @@ ensure_mirror :: (
       return(mirror);
     });
     if(offline, {
-      e.exn.throw(dyn(`Error: --offline: ${url} has no mirror in the cache`));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: ${url} has no mirror in the cache`)));
     });
     if(verbose, {
       println(`  mirroring ${url}...`);
@@ -489,7 +491,7 @@ ensure_mirror :: (
     cmd.arg(tmp.clone());
     status := e.io.await(cmd.status(e.io), e);
     if(!status.success(), {
-      e.exn.throw(dyn(`Error: git clone --mirror failed for ${url}`));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `git clone --mirror failed for ${url}`)));
     });
     e.io.await(rename(Path.new(tmp), Path.new(mirror.clone()), e.io), e);
     mirror
@@ -590,7 +592,7 @@ ensure_commit :: (
       return(());
     });
     if(offline, {
-      e.exn.throw(dyn(`Error: --offline: commit ${commit} of ${url} is not in the cache`));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: commit ${commit} of ${url} is not in the cache`)));
     });
     if(verbose, {
       println(`  fetching ${url}...`);
@@ -603,7 +605,14 @@ ensure_commit :: (
     e.io.await(_mirror_fetch(mirror.clone(), Option(String).Some(commit.clone()), e.io, e.exn), e);
     has_after_direct := e.io.await(_mirror_has_commit(mirror.clone(), commit.clone(), e.io, e.exn), e);
     if(!has_after_direct, {
-      e.exn.throw(dyn(`Error: commit ${commit} of ${url} could not be fetched (not reachable from any ref, and the remote refuses direct commit fetches)`));
+      e.exn.throw(
+        dyn(
+          format_coded_error(
+            E_DEP_FETCH_FAILED,
+            `commit ${commit} of ${url} could not be fetched (not reachable from any ref, and the remote refuses direct commit fetches)`
+          )
+        )
+      );
     });
   })
 );
@@ -638,7 +647,7 @@ _extract_tree :: (
       e.io.await(remove_file(Path.new(index), e.io), e);
     });
     if(!status.success(), {
-      e.exn.throw(dyn(`Error: git checkout of ${commit} failed`));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `git checkout of ${commit} failed`)));
     });
   })
 );
@@ -823,7 +832,9 @@ fetch_package :: (
       commit = match(from_mirror, .Some(c) => c.clone(), .None => String.new());
     });
     if(needs_ls_remote && (offline && (commit.len() == usize(0))), {
-      e.exn.throw(dyn(`Error: --offline: resolving "${name}" (${url} @ ${ref}) to a commit needs the network`));
+      e.exn.throw(
+        dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${name}" (${url} @ ${ref}) to a commit needs the network`))
+      );
     });
     if(needs_ls_remote && !offline, {
       if(verbose, {
@@ -840,7 +851,7 @@ fetch_package :: (
         store_tree_dir(cache_root.clone(), expected.clone()),
         .Ok(d) => d,
         .Err(msg) => {
-          e.exn.throw(dyn(`Error: yo.lock entry for "${name}": ${msg}`));
+          e.exn.throw(dyn(format_coded_error(E_LOCK_MISMATCH, `yo.lock entry for "${name}": ${msg}`)));
           String.new()
         }
       );
@@ -877,7 +888,7 @@ fetch_package :: (
     });
     // The slow path: mirror, extract, hash, land — under the store lock.
     if(offline && !mirror_present, {
-      e.exn.throw(dyn(`Error: --offline: "${name}" (${url} @ ${commit}) is not in the cache`));
+      e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: "${name}" (${url} @ ${commit}) is not in the cache`)));
     });
     lock := e.io.await(acquire_store_lock(cache_root.clone(), e.io, e.exn), e);
     mirror := e.io.await(ensure_mirror(cache_root.clone(), url.clone(), offline, verbose, e.io, e.exn), e);
@@ -889,7 +900,14 @@ fetch_package :: (
     if(mismatch, {
       e.io.await(remove_dir_all(Path.new(tmp.clone()), e.io), e);
       e.io.await(release_store_lock(lock, e.io, e.exn), e);
-      e.exn.throw(dyn(`Error: integrity mismatch for "${name}" at ${commit}: yo.lock records ${expected}, the fetched tree hashes to ${integrity}. If the dependency's history was rewritten, run \`yo update ${name}\`.`));
+      e.exn.throw(
+        dyn(
+          format_coded_error(
+            E_STORE_INTEGRITY_MISMATCH,
+            `integrity mismatch for "${name}" at ${commit}: yo.lock records ${expected}, the fetched tree hashes to ${integrity}. If the dependency's history was rewritten, run \`yo update ${name}\`.`
+          )
+        )
+      );
     });
     final_dir := match(
       store_tree_dir(cache_root.clone(), integrity.clone()),

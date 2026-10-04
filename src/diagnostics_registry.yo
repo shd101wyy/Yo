@@ -59,6 +59,12 @@ json :: import("std/encoding/json");
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
   E_COMPTIME_RUNTIME_BINDING,
+  E_INTERNAL_COMPILER_ERROR,
+  E_DEP_FETCH_FAILED,
+  E_MANIFEST_NOT_FOUND,
+  E_LOCK_MISMATCH,
+  E_STORE_INTEGRITY_MISMATCH,
+  E_NO_MATCHING_VERSION,
   suggest_name
 } :: import("./diagnostics.yo");
 /// One registry entry: a code, its bilingual prose, and one bad→good
@@ -738,6 +744,100 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "parse :: (fn(s : i32) -> Result(i32, i32))(cond((s > i32(0)) => .Ok(s), true => .Err(s)));\nmain :: (fn() -> unit)({\n  _ := parse(i32(1));\n  ()\n});\nexport(main);\n",
       "`_ := parse(i32(1));` says the result is dropped on purpose.",
       "`_ := parse(i32(1));` 表明结果是有意丢弃的。"
+    )
+  );
+  // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────
+  // These codes are raised OUTSIDE the evaluator — the ICE wrapper and the
+  // dependency toolchain — so their examples are command and manifest
+  // transcripts, not Yo programs (the examples harness exempts the band).
+  out.push(
+    _mk_explain(
+      E_INTERNAL_COMPILER_ERROR,
+      "internal compiler error",
+      "编译器内部错误",
+      "The compiler reached a state its own emitters declare impossible — a bug in the Yo compiler, not in your program.",
+      "编译器进入了它自己的发射器声明不可能出现的状态 —— 这是 Yo 编译器的缺陷，而不是你的程序的问题。",
+      "This code is raised only by the codegen ICE wrapper, which guards emitter preconditions no source the evaluator accepted can reach (a builtin that reached codegen with the wrong arity, an expression with no type information). Do not try to fix your program: reduce the failing file to the smallest reproducer and open an issue at https://github.com/shd101wyy/Yo/issues, or update to the newest release — the newest seed may already carry the fix.",
+      "此错误码只由 codegen 的 ICE 包裹层抛出，它守护的是“求值器已接受的源码不可能到达”的发射器前置条件（内建函数以错误的参数个数到达 codegen、没有类型信息的表达式等）。请不要试图修改你的程序：把出错的文件缩减为最小的复现，到 https://github.com/shd101wyy/Yo/issues 提交 issue，或更新到最新版本 —— 最新的 seed 可能已携带修复。",
+      "# No Yo source reproduces E1301 by construction — the wrapper guards\n# emitter preconditions no accepted source can reach.\n$ yo compile app.yo\nerror[E1301]: internal compiler error: emit_expr: no type info for expr 4711\nThis is a bug in the Yo compiler, not in your program — please report it:\nhttps://github.com/shd101wyy/Yo/issues\nhelp: run `yo explain E1301` for more information",
+      "$ yo compile app.yo   # the same program under a compiler without the bug\n$ # a clean compile; if you do hit E1301, report the file at\n$ # https://github.com/shd101wyy/Yo/issues",
+      "E1301 is the wrapper's own code: a compiler bug, never a program bug — report it, don't chase it in your source.",
+      "E1301 是该包裹层专属的错误码：它是编译器的缺陷，绝不是程序的缺陷 —— 请报告它，不要在你的源码里找原因。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DEP_FETCH_FAILED,
+      "a dependency could not be fetched",
+      "依赖无法获取",
+      "The dependency toolchain could not get a package: the network was needed and refused (--offline, nothing cached), or the repository is unreachable.",
+      "依赖工具链无法获取某个包：需要联网却被拒绝（--offline 且缓存中没有），或者仓库无法访问。",
+      "yo install / yo add / yo update fetch git dependencies through a local cache: a bare mirror and a tag index per repository, one content-addressed tree per commit. This code covers every way getting one can fail: an --offline run whose cache lacks the mirror, tag list, commit or tree the lock names (run once WITHOUT --offline to fill the cache); a clone or git ls-remote that failed (network down, no credentials, wrong URL); a repository that does not exist or is not accessible; a commit no ref reaches and the remote refuses to fetch directly. Check the URL in yo.toml first, then the network, then run yo install once online.",
+      "yo install / yo add / yo update 通过本地缓存获取 git 依赖：每个仓库一个裸镜像和一个标签索引，每个提交一棵按内容寻址的树。此错误码覆盖获取失败的所有方式：--offline 运行时缓存缺少锁所指定的镜像、标签列表、提交或树（先不带 --offline 运行一次以填充缓存）；clone 或 git ls-remote 失败（断网、没有凭据、URL 写错）；仓库不存在或无法访问；没有任何 ref 指向该提交且远端拒绝直接抓取。先检查 yo.toml 里的 URL，再检查网络，最后联网运行一次 yo install。",
+      "$ yo install --offline       # fresh clone, the cache is empty\nerror[E1501]: --offline: resolving \"markdown_yo\" needs the tags of https://github.com/o/markdown_yo, and the cache has no tag list for it\nhelp: run `yo explain E1501` for more information",
+      "$ yo install                 # once online: fills the cache\n  markdown_yo → v0.0.9 (8f14e45fceec)\n$ yo install --offline       # now the cache answers\n  markdown_yo → v0.0.9 (8f14e45fceec)",
+      "--offline never touches the network; the first online install records the tag list and mirror the offline run needs.",
+      "--offline 绝不联网；第一次联网安装会记录离线运行所需的标签列表与镜像。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MANIFEST_NOT_FOUND,
+      "no yo.toml at or above the working directory",
+      "工作目录及其上级目录中没有 yo.toml",
+      "yo add / yo remove / yo install / yo update need a project: a yo.toml in the working directory or somewhere above it.",
+      "yo add / yo remove / yo install / yo update 需要一个项目：工作目录或其上级某处存在 yo.toml。",
+      "The dependency commands look for the NEAREST yo.toml walking up from where you ran yo, and none was found — you are outside any project. Run yo init to create one (it also scaffolds the agent skill files), or cd into the project, or point YO_ORIGINAL_CWD at it when driving yo from a script. A yo.toml that exists but does not parse is a different failure — that message names the parse error.",
+      "依赖类命令从你运行 yo 的位置向上查找最近的 yo.toml，但没有找到 —— 你在任何项目之外。运行 yo init 创建一个（它还会生成 agent 技能文件），或 cd 进项目目录，或在脚本驱动 yo 时用 YO_ORIGINAL_CWD 指向项目。yo.toml 存在但解析失败是另一种错误 —— 那条信息会指出解析问题。",
+      "$ cd ~/notes                 # not a project\n$ yo install\nerror[E1502]: no yo.toml found in /home/you/notes or any directory above it. Run 'yo init' to create a project.\nhelp: run `yo explain E1502` for more information",
+      "$ yo init my-app --name my-app\n$ cd my-app && yo install\nNo dependencies declared in /home/you/my-app/yo.toml.",
+      "The install family's front door is a manifest; yo init writes one.",
+      "依赖类命令的入口是清单；yo init 会写出一个。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_LOCK_MISMATCH,
+      "yo.lock disagrees with yo.toml",
+      "yo.lock 与 yo.toml 不一致",
+      "Under --locked the lock file must satisfy the manifest exactly; here it is absent, unusable, or out of date.",
+      "在 --locked 下，锁文件必须与清单完全一致；这里它缺失、不可用，或已过期。",
+      "--locked is the CI contract: install must not change yo.lock. It fails when there is no yo.lock to obey (run yo install once without --locked to write it), when the file is present but does not parse (a normal install regenerates it — check it into git), or when resolving against it would pick different refs than it records (yo.toml, or a dependency's own yo.toml, changed; run yo install without --locked to update it, then commit the new yo.lock). The message shows the diff between the recorded and the re-resolved entries.",
+      "--locked 是 CI 的契约：install 不得更改 yo.lock。它在以下情况失败：没有可遵守的 yo.lock（先不带 --locked 运行一次 yo install 生成它）；文件存在但无法解析（正常安装会重新生成 —— 请把它提交进 git）；或者依据它解析会得到与记录不同的 ref（yo.toml 或某个依赖自己的 yo.toml 变了；不带 --locked 运行 yo install 更新，然后提交新的 yo.lock）。错误信息会给出记录条目与重新解析条目之间的差异。",
+      "$ yo install --locked        # CI, yo.lock is stale\nerror[E1503]: --locked: yo.lock is out of date:\n~ markdown_yo: git+https://github.com/o/markdown_yo#v0.0.8 @ 8f14e45f… → git+…#v0.0.9 @ a1b2c3d4…\nRun 'yo install' without --locked to update it.\nhelp: run `yo explain E1503` for more information",
+      "$ yo install                 # locally: update the lock\n  markdown_yo → v0.0.9 (a1b2c3d4)\n$ git commit yo.lock\n$ yo install --locked        # CI: green",
+      "--locked refuses to write; one unlocked install re-records what changed.",
+      "--locked 拒绝写入；一次非 locked 的安装会重新记录变化。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_STORE_INTEGRITY_MISMATCH,
+      "the fetched tree does not match yo.lock's hash",
+      "获取到的树与 yo.lock 记录的哈希不符",
+      "The dependency's contents hash to something other than what yo.lock recorded for it.",
+      "依赖内容算出的哈希与 yo.lock 为它记录的不一致。",
+      "The store is content-addressed: a tree lands under store/sha256/<hash of its contents>, and yo.lock pins that hash per package. A fetched tree that hashes differently means the lock and the repository tell different stories — most often the dependency's history was rewritten (a force-push re-tagged v1.2.3 onto different commits), or the lock was hand-edited. The store self-heals the other direction by itself: a stored tree that does not hash to its name is re-fetched. Run yo update <name> to re-resolve the package and rewrite its lock entry.",
+      "存储按内容寻址：一棵树落在 store/sha256/<其内容的哈希> 之下，yo.lock 为每个包固定该哈希。获取到的树哈希不同，意味着锁与仓库各执一词 —— 最常见的是依赖的历史被重写（force-push 把 v1.2.3 重新指向了不同的提交），或锁被手改过。反方向存储会自愈：一棵哈希与其名字不符的已存树会被重新获取。运行 yo update <name> 重新解析该包并改写它的锁条目。",
+      "$ yo install                 # upstream force-pushed a new v1.2.3\nerror[E1504]: integrity mismatch for \"util\" at 8f14e45fceec: yo.lock records sha256-2c26b46b…, the fetched tree hashes to sha256-7688b6ef…. If the dependency's history was rewritten, run `yo update util`.\nhelp: run `yo explain E1504` for more information",
+      "$ yo update util             # re-resolve and rewrite the lock entry\n  util → v1.2.3 (a1b2c3d4)\n$ git commit yo.lock",
+      "One name must mean one tree; when history moves, the lock entry moves with it via yo update.",
+      "一个名字必须对应一棵树；当历史变动时，锁条目要通过 yo update 随之更新。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_NO_MATCHING_VERSION,
+      "no tag satisfies every requirement",
+      "没有标签能满足所有要求",
+      "No single tag of the dependency fits every version requirement the graph places on it.",
+      "该依赖没有任何一个标签能同时满足依赖图对它的全部版本要求。",
+      "Every requirer of a package — your yo.toml, and each dependency's own yo.toml — places a requirement on it, and one import name means one version: a single tag must satisfy them all. This code says none does: the repository has no release tag inside the range (the range is wrong, or the release you expect is not tagged), or two requirers' ranges have no tag in common. The message lists each requirer and what it requires. Widen or correct the version in yo.toml (or the dependency's), or pin an exact tag you know exists.",
+      "一个包的每个需求方 —— 你的 yo.toml 以及每个依赖自己的 yo.toml —— 都对它提出要求，而一个 import 名意味着一个版本：必须存在单独一个标签同时满足全部要求。此错误码表示不存在这样的标签：仓库没有范围内的发布标签（范围写错了，或你期望的版本没有打标签），或两个需求方的范围没有共同的标签。错误信息会列出每个需求方及其要求。放宽或修正 yo.toml（或依赖的 yo.toml）中的 version，或固定一个你确定存在的确切 tag。",
+      "# yo.toml asks for ^2; the repository's releases are v1.x\n[dependencies]\nutil = { git = \"https://github.com/o/util\", version = \"^2\" }\n$ yo install\nerror[E1505]: no tag of https://github.com/o/util satisfies every requirement on \"util\":\n  - <root> requires version \"^2\"\nhelp: run `yo explain E1505` for more information",
+      "[dependencies]\nutil = { git = \"https://github.com/o/util\", version = \"^1\" }\n$ yo install\n  util → v1.4.2 (8f14e45fceec)",
+      "One import name is one version: some tag must fit every requirement, and here none does.",
+      "一个 import 名就是一个版本：必须有某个标签满足所有要求，而这里一个都没有。"
     )
   );
   out
