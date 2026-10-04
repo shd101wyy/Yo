@@ -87,6 +87,29 @@ capture_two :: (fn() -> usize)({
   (f : Impl(Fn() -> usize)) = (() => (a.len() + b.len()));
   f() + a.len() + b.len()
 });
+// A `match` binding is a part of its scrutinee: passing it to an owning
+// parameter copies when the scrutinee lives on (a local read again, or a
+// parameter), and moves out of a call's temporary.
+hold :: (fn(own(s) : String) -> Holder)(
+  Holder(name : s, items : ArrayList(i32).new())
+);
+make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
+match_parts :: (fn(p : Option(String)) -> usize)({
+  o := Option(String).Some(String.from("o"));
+  h1 := match(o, .Some(x) => hold(x), .None => hold(String.from("")));
+  n := match(o, .Some(y) => y.len(), .None => usize(0));
+  h2 := match(make_opt(), .Some(z) => hold(z), .None => hold(String.from("")));
+  h3 := match(p, .Some(w) => hold(w), .None => hold(String.from("")));
+  h1.name.len() + n + h2.name.len() + h3.name.len()
+});
+// A `for` element borrows: passing it on copies.
+for_store :: (fn(xs : ArrayList(String)) -> usize)({
+  out := ArrayList(Holder).new();
+  for(xs, s => {
+    out.push(hold(s));
+  });
+  out.len()
+});
 // A `ref` handle (V5's `Rc`) and a plain-data `ref` object.
 ref_handles :: (fn() -> i32)({
   n := Node(label : String.from("n"));
@@ -117,5 +140,7 @@ main :: (fn() -> unit)({
   _l := early_return(true);
   _m := either_arm(true);
   _n := capture_two();
+  _o := match_parts(.Some(String.from("q")));
+  _p := for_store(ArrayList(String).new());
 });
 export(main);
