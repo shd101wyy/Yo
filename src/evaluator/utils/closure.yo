@@ -1100,10 +1100,37 @@ create_capture_type_and_value :: (
 // ---------------------------------------------------------------------------
 // generate_captured_variable_dup_expressions
 // ---------------------------------------------------------------------------
+/// Some captured variable's type is not implicitly copyable.
+_captures_require_explicit_copy :: (fn(cvwv_opt : Option(HashMap(String, FuncCapturedVarInfo))) -> bool)(
+  match(
+    cvwv_opt,
+    .Some(cvwv) => {
+      it := cvwv.values();
+      (more : bool) = true;
+      (found : bool) = false;
+      while(more && !found, {
+        match(
+          it.next(),
+          .Some(ci) => if(type_requires_explicit_copy(ci.ty), {
+            found = true;
+          }),
+          .None => {
+            more = false;
+          }
+        );
+      });
+      found
+    },
+    .None => false
+  )
+);
 /// Result type for `generate_captured_variable_dup_expressions`.
 CapturedVarDupResult :: struct(
   dup_exprs : Option(ArrayList(AstExpr)),
-  env : Environment
+  env : Environment,
+  /// The closure borrows its captures (see `borrow_captures` below): it owns
+  /// nothing, so its value gets no owning temp and no drop.
+  borrowed : bool
 );
 /// Generate `___dup()` expressions for captured ARC variables — one evaluated
 /// `___dup(name)` per captured variable whose type contains an RC-managed
@@ -1123,10 +1150,21 @@ generate_captured_variable_dup_expressions :: (
     exn : Exception,
     /// The closure's token: where a capture that is not implicitly copyable
     /// is moved.
-    closure_tok : Token
+    closure_tok : Token,
+    /// The closure literal is the direct argument of a borrowing parameter,
+    /// so it cannot outlive the call (plans/VALUES_BY_DEFAULT.md decision 22).
+    /// When it captures a value that is not implicitly copyable, it borrows
+    /// ALL its captures: no dup, no move, and every captured variable stays
+    /// usable after the call. (A non-escaping closure capturing only
+    /// copyable values keeps today's dupped captures; decision 22's general
+    /// form is its own measured change.)
+    (borrow_captures : bool) ?= false
   ) -> CapturedVarDupResult
 )({
   dup_exprs := ArrayList(AstExpr).new();
+  if(borrow_captures && _captures_require_explicit_copy(captured_vars_with_values), {
+    return(CapturedVarDupResult(dup_exprs : Option(ArrayList(AstExpr)).None, env : env, borrowed : true));
+  });
   match(
     captured_vars_with_values,
     .Some(cvwv) => if(cvwv.len() > usize(0), {
@@ -1175,7 +1213,8 @@ generate_captured_variable_dup_expressions :: (
   );
   CapturedVarDupResult(
     dup_exprs : if(dup_exprs.len() > usize(0), Option(ArrayList(AstExpr)).Some(dup_exprs), Option(ArrayList(AstExpr)).None),
-    env : env
+    env : env,
+    borrowed : false
   )
 });
 export(FuncCapturedVarInfo);

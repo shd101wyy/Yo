@@ -75,6 +75,7 @@ pragma(Pragma.AllowUnsafe);
   in_def_time_trial,
   PendingImplOutcome,
   force_pending_impls_for_type_name,
+  note_borrowing_argument,
   type_head_name_for_impl_forcing,
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
@@ -7060,6 +7061,11 @@ Fix: wrap the call:
                 .None => Option(ExpectedTypeCtx).None
               )
             );
+            // A closure literal passed to a borrowing parameter cannot
+            // outlive the call (plans/VALUES_BY_DEFAULT.md decision 22).
+            if(!match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false) && !match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false), {
+              note_borrowing_argument(arg_expr_eff);
+            });
             evaled_arg := evaluate_expression_raw(arg_expr_eff, arg_eval_env, ctx, exn);
             ctx.expected_type = arg_saved_expected;
             arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));

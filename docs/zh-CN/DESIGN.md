@@ -1109,9 +1109,10 @@ p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
 资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Dispose`，或声明了 `impl(T, MoveOnly())` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Box`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Dispose` 在计数归零时运行一次。
 
 ```rust
+{ println } :: import("std/fmt");
 Fd :: struct(n : i32);
 impl(Fd, Dispose(
-  dispose : (fn(self : Self) -> unit)(close_fd(self.n))
+  dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // 真实的实现会关闭这个描述符
 ));
 
 peek :: (fn(f : Fd) -> i32)(f.n);        // 按值参数是借用：不复制

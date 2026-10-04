@@ -1140,9 +1140,10 @@ No new keyword is involved: `Point(...)` is the same constructor call in both pl
 A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is **move-only**, and so is every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Box`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.
 
 ```rust
+{ println } :: import("std/fmt");
 Fd :: struct(n : i32);
 impl(Fd, Dispose(
-  dispose : (fn(self : Self) -> unit)(close_fd(self.n))
+  dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // a real one would close the descriptor
 ));
 
 peek :: (fn(f : Fd) -> i32)(f.n);        // a by-value parameter borrows: no copy

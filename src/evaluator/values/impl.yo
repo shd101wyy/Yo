@@ -503,6 +503,21 @@ purge_concrete_trait_impls_owned_by :: (fn(owner : String) -> unit)({
   });
   purge_move_only_decls_owned_by(owner);
 });
+/// `impl(T, !(MoveOnly))` is rejected: `MoveOnly` follows from `Dispose` and
+/// from a type's components (plans/VALUES_BY_DEFAULT.md §3.4), so a negation
+/// could only make a type that must not be copied copyable.
+_reject_negative_move_only :: (fn(trait_ty : TypeValue, env : Environment, tok : Token, exn : Exception) -> unit)({
+  if(move_only_declaring_trait_name(trait_ty, env) == "MoveOnly", {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from("Cannot use '!(MoveOnly)': a type is move-only because it implements Dispose, declares MoveOnly or holds a move-only value, and a negative impl cannot make such a value copyable.")
+        )
+      )
+    );
+  });
+});
 /// Drop the declarations `owner` recorded (beside the impl registries' own
 /// purges, on an LSP/watch invalidation).
 purge_move_only_decls_owned_by :: (fn(owner : String) -> unit)({
@@ -4444,6 +4459,7 @@ evaluate_module_value :: (
         match(
           _try_lookup_trait_type(neg_head, forall_env, ctx, exn),
           .Some(neg_trait_ty) => {
+            _reject_negative_move_only(neg_trait_ty, forall_env, ast_expr_token(mf_expr), exn);
             neg_entry := GenericImplEntry(
               get_trait_key(neg_trait_ty),
               forall_names,
@@ -4968,6 +4984,7 @@ evaluate_module_value :: (
                   )
                 );
               });
+              _reject_negative_move_only(neg_trait_ty, local_env, ast_expr_token(field_expr), exn);
               if(receiver_type_id != "", {
                 register_negative_impl(receiver_type_id.clone(), get_trait_key(neg_trait_ty));
               });

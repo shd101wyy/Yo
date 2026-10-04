@@ -608,13 +608,13 @@ evaluate_identifier_and_operator :: (
 });
 /// Whether a read of `variable` at `token` after the variable was moved is
 /// rejected: a user-named binding whose type is not implicitly copyable
-/// (`type_requires_explicit_copy`), read from source code.
+/// (`type_requires_explicit_copy`), read from source code. A copyable RC
+/// value read after a `sink` move is not checked yet
+/// (issues/a-reference-value-read-after-a-sink-move-reads-freed-memory.md).
 _read_after_move_is_checked :: (fn(variable : Variable, token : Token, env : Environment) -> bool)(
   !token.module_path.starts_with(String.from("auto-generated://"))
-  && (
-    !is_temp_variable_name(env.module_path, variable.name)
-    && (type_requires_explicit_copy(variable.ty) || debug_knob(`YO_CHECK_READ_AFTER_MOVE`).is_some())
-  )
+  && !is_temp_variable_name(env.module_path, variable.name)
+  && type_requires_explicit_copy(variable.ty)
 );
 /// The row of the first line that is neither blank nor a `//` comment — where
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.

@@ -80,7 +80,9 @@ test("move-only: Dispose and MoveOnly make a value type move-only, and value agg
   comptime_assert(!Type.impls(Box(_MoFd), MoveOnly), "Box is a reference type on this tree: never move-only");
   comptime_assert(Type.contains_rc_type(_MoFd), "a move-only value has a drop to run");
 });
+_MoPlain :: struct(n : i32);
 test("move-only: the impl-site gate", {
+  comptime_expect_error(impl(_MoPlain, !MoveOnly), "Cannot use '!(MoveOnly)'");
   comptime_expect_error(impl(_MoRef, MoveOnly()), "it is a reference type");
   comptime_expect_error(impl(i32, Dispose(dispose : (fn(self : Self) -> unit)(()))), "cannot implement \"Dispose\"");
   comptime_expect_error(impl(_MoToken, Trace(trace : (fn(self : Self, tracer : GcTracer) -> unit)(()))), "cannot implement \"Trace\"");
@@ -180,6 +182,28 @@ test("move-only: a closure capture moves the value, and the closure disposes it"
     comptime_expect_error(a.n, "use of moved value");
   };
   assert(g_mo_disposed == (before + i32(1)), "the closure disposes once");
+});
+_mo_with :: (fn(f : Impl(Fn() -> i32)) -> i32)(f());
+_mo_with_sink :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());
+test("move-only: a closure passed straight to a borrowing parameter borrows its captures", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(11));
+    assert(_mo_with(() => a.n) == i32(11), "the closure reads the borrowed value");
+    assert(_mo_with(() => (a.n + i32(1))) == i32(12), "and again: nothing moved");
+    assert(a.n == i32(11), "a is still usable after the call");
+    assert(g_mo_disposed == before, "the borrowing closure disposes nothing");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "the owner disposes once");
+});
+test("move-only: a closure passed to a sink parameter escapes and moves its captures", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(12));
+    assert(_mo_with_sink(() => a.n) == i32(12), "the escaping closure owns the value");
+    comptime_expect_error(a.n, "use of moved value");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "disposed once, with the closure");
 });
 test("move-only: an impl declared after its first use", {
   before := g_mo_disposed;

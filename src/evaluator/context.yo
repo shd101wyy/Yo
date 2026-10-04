@@ -1834,6 +1834,22 @@ impl_receiver_head_name :: (fn(recv : AstExpr) -> String)(
     true => String.new()
   )
 );
+/// AST ids of closure literals evaluated as the DIRECT argument of a call to a
+/// borrowing parameter (neither `sink` nor `inout`): such a closure cannot
+/// outlive the call, so it borrows its captures instead of owning them
+/// (plans/VALUES_BY_DEFAULT.md decision 22; V3 applies it to a closure that
+/// captures a value that is not implicitly copyable).
+(g_borrowing_closure_args : HashMap(usize, bool)) = HashMap(usize, bool).new();
+/// Record that `arg` (an argument expression, label stripped) is passed to a
+/// borrowing parameter.
+note_borrowing_argument :: (fn(arg : AstExpr) -> unit)({
+  if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).None), {
+    g_borrowing_closure_args.insert(ast_expr_id(arg), true);
+  });
+});
+/// True when the closure literal `e` is the direct argument of a borrowing
+/// parameter (`note_borrowing_argument`).
+closure_literal_is_borrowed :: (fn(e : AstExpr) -> bool)(g_borrowing_closure_args.contains_key(ast_expr_id(e)));
 /// Receiver head names of pending (unforced) impls that declare `Dispose` or
 /// `MoveOnly` (`""` for an un-nameable head): `force_pending_move_only_impls`
 /// forces them the first time a type's move-only status is asked.
@@ -3514,6 +3530,8 @@ export(
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
   force_pending_move_only_impls,
+  note_borrowing_argument,
+  closure_literal_is_borrowed,
   type_head_name_for_impl_forcing,
   note_unlabeled_ensures_atom,
   is_unlabeled_ensures_atom

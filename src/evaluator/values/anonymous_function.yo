@@ -121,7 +121,7 @@ pragma(Pragma.AllowUnsafe);
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a } :: import("../context.yo");
+{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -1439,6 +1439,7 @@ evaluate_anonymous_function_implementation :: (
   });
   (closure_capture_type : Option(TypeValue)) = Option(TypeValue).None;
   (closure_capture_dups : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+  (closure_borrows_captures : bool) = false;
   (closure_body_caps : Option(HashMap(String, CapturedVarInfo))) = Option(HashMap(String, CapturedVarInfo)).None;
   // Register the definition-site enclosing function's return type: when the
   // anonymous function is evaluated inside a function-body context, record
@@ -2242,7 +2243,8 @@ Result type: ${type_to_string(decl_result_ty)}`
     // building the capture struct — codegen emits them as the capture-field
     // initializers so the capture owns its own reference (missing this freed
     // the captured Command.status spawn storage under the running closure).
-    dup_res := generate_captured_variable_dup_expressions(cvwv, env, ctx, exn, tok);
+    dup_res := generate_captured_variable_dup_expressions(cvwv, env, ctx, exn, tok, closure_literal_is_borrowed(expr));
+    closure_borrows_captures = dup_res.borrowed;
     closure_capture_dups = dup_res.dup_exprs;
     cap_res := create_capture_type_and_value(Option(TypeValue).None, cvwv, env, tok);
     closure_capture_type = cap_res.capture_type;
@@ -2452,7 +2454,7 @@ Result type: ${type_to_string(decl_result_ty)}`
   // passed as an argument leaked every capture
   // (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md). The
   // io.async state machine owns its captures through its own lowering.
-  if(is_creating_closure && !ctx.is_inside_io_async_call && match(closure_capture_type, .Some(cct) => type_contains_rc_type(cct), .None => false), {
+  if(is_creating_closure && (!ctx.is_inside_io_async_call && !closure_borrows_captures) && match(closure_capture_type, .Some(cct) => type_contains_rc_type(cct), .None => false), {
     attach_temp_variable_to_expr(expr, true, ctx);
   });
   expr
