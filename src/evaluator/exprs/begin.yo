@@ -1483,12 +1483,47 @@ _ICScan :: ref(
     /// Reads of the variable seen.
     reads : usize,
     /// A read after the site: the copy is a real copy.
-    later : bool
+    later : bool,
+    /// The path through the site has left the function (`return`, `unwind`,
+    /// `panic`), so nothing after it reads the variable.
+    done : bool
   )
 );
 _ic_new_scan :: (fn() -> _ICScan)(
-  _ICScan(site_seen : false, reads : usize(0), later : false)
+  _ICScan(site_seen : false, reads : usize(0), later : false, done : false)
 );
+/// `e` ends by leaving the function: its last statement is `return`,
+/// `unwind` or `panic` (`break`/`continue` stay in the function).
+_ic_exits_function :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, _, args, _, _) => cond(
+      (ast_expr_is_fn_call_of(e, BK_RETURN, .None) || ast_expr_is_fn_call_of(e, BF_UNWIND, .None) || ast_expr_is_fn_call_of(e, "panic", .None)) => true,
+      ast_expr_is_fn_call_of(e, BK_BEGIN, .None) => {
+        (k : usize) = args.len();
+        while((k > usize(0)) && (ast_expr_is_fn_call_of(args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
+          k = (k - usize(1));
+        });
+        (k > usize(0)) && _ic_exits_function(args(k - usize(1)))
+      },
+      true => false
+    )
+  )
+);
+/// Fold a nested scan into `acc`.
+_ic_merge :: (fn(acc : _ICScan, sub : _ICScan) -> unit)({
+  acc.reads = (acc.reads + sub.reads);
+  if(sub.site_seen, {
+    acc.site_seen = true;
+  });
+  if(sub.later, {
+    acc.later = true;
+  });
+  if(sub.done, {
+    acc.done = true;
+  });
+});
 _ic_read :: (fn(tok : Token, site : ImplicitCopyPending, acc : _ICScan) -> unit)({
   acc.reads = (acc.reads + usize(1));
   if((tok.module_path == site.module_path) && (tok.byte_offset > site.byte_offset), {
@@ -1503,7 +1538,7 @@ _ic_read :: (fn(tok : Token, site : ImplicitCopyPending, acc : _ICScan) -> unit)
 /// `v` runs the site again, so the copy is live unless the loop reassigns
 /// `v`. Follows `macro_expansion` as the dup collector does.
 _ic_scan :: (fn(e : AstExpr, v : Variable, site : ImplicitCopyPending, acc : _ICScan, ctx : EvalContext) -> unit)({
-  if(acc.later, {
+  if(acc.later || acc.done, {
     return(());
   });
   tok := ast_expr_token(e);
@@ -1578,20 +1613,61 @@ _ic_scan :: (fn(e : AstExpr, v : Variable, site : ImplicitCopyPending, acc : _IC
         recur(second, v, site, acc, ctx);
         return(());
       });
+      // A branch: an arm whose BODY holds the site excludes the arms after
+      // it, and one that leaves the function ends the path.
+      if(ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+        (bi : usize) = usize(0);
+        while((bi < args.len()) && !(acc.later || acc.done), {
+          arm := match(args.get(bi), .Some(a) => a, .None => make_err_expr());
+          (taken : bool) = false;
+          if(ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
+            match(
+              arm,
+              .FnCall(_, _, arm_args, _, _) => {
+                arm_head := match(arm_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+                arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+                recur(arm_head, v, site, acc, ctx);
+                body_scan := _ic_new_scan();
+                recur(arm_body, v, site, body_scan, ctx);
+                _ic_merge(acc, body_scan);
+                if(body_scan.site_seen, {
+                  taken = true;
+                  if(_ic_exits_function(arm_body), {
+                    acc.done = true;
+                  });
+                });
+              },
+              .Atom(_, _) => ()
+            );
+          }, {
+            recur(arm, v, site, acc, ctx);
+          });
+          bi = cond(taken => args.len(), true => (bi + usize(1)));
+        });
+        return(());
+      });
+      // Leaving the function: nothing after a `return` holding the site runs.
+      is_exit := (ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None));
       is_while := ast_expr_is_fn_call_of(e, "while", Option(usize).None);
-      scan := cond(is_while => _ic_new_scan(), true => acc);
+      scan := cond((is_while || is_exit) => _ic_new_scan(), true => acc);
       recur(f, v, site, scan, ctx);
       (ai : usize) = usize(0);
-      while((ai < args.len()) && !scan.later, {
+      while((ai < args.len()) && !(scan.later || scan.done), {
         match(args.get(ai), .Some(a) => recur(a, v, site, scan, ctx), .None => ());
         ai = (ai + usize(1));
       });
-      if(is_while, {
-        acc.reads = (acc.reads + scan.reads);
+      if(is_exit, {
+        _ic_merge(acc, scan);
         if(scan.site_seen, {
-          acc.site_seen = true;
+          acc.done = true;
         });
-        if(scan.later || (scan.site_seen && (scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx)), {
+      });
+      if(is_while, {
+        // The loop runs the site again unless that path left the function
+        // or the loop reassigns the variable.
+        repeats := (scan.site_seen && !scan.done && (scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx));
+        _ic_merge(acc, scan);
+        if(repeats, {
           acc.later = true;
         });
       });
