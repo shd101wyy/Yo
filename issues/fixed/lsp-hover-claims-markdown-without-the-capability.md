@@ -1,6 +1,6 @@
 # Hover claims markdown `MarkupContent` without consulting `hover.contentFormat`
 
-**Severity:** polish — hover always answered
+**Severity:** S3 (polish). **Status:** FIXED in #1064 (the LSP audit closeout); filed under `issues/fixed/` 2026-10-05. Original severity line: polish — hover always answered
 `{"kind":"markdown","value":…}` even for clients whose
 `textDocument.hover.contentFormat` excludes markdown (they asked for
 plaintext and may render the markdown source verbatim). Found 2026-09-30 by

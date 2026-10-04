@@ -2,7 +2,7 @@
 
 # TS while-loop body scope-end drops lack begin.ts's two guards → invalid C / double drop
 
-**Status:** OPEN — found 2026-07-26 while porting yo-self validations (the
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN — found 2026-07-26 while porting yo-self validations (the
 atomic-Send helper's first draft triggered it); reproduced standalone.
 **Where:** `src/codegen/exprs/while.ts:112-119` (`generateLoopBody`, the
 begin-block branch's end-of-body drop pass).

@@ -1,6 +1,6 @@
 # yo-self: Dyn(Fn) struct fields — dyn(closure) construction + field-call lowering unported
 
-**Status:** OPEN (stage-2 family, 4 clang errors as of 2026-07-09: 2x
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN (stage-2 family, 4 clang errors as of 2026-07-09: 2x
 `/* Error: dyn() call missing trait values */` + 2x "operand of type X where
 arithmetic or pointer type is required"). NOT covered by any corpus test (all
 dyn corpus tests are trait-object method dispatch).

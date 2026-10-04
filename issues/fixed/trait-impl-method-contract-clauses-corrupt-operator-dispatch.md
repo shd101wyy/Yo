@@ -1,6 +1,6 @@
 # An impl method with contract clauses inside a trait entry corrupts operator dispatch (hard "Cannot unify bool and fn" at check)
 
-**Status: OPEN (surfaced by the V6 task-1 trait-variance work, 2026-09-14 —
+**Status:** FIXED: filed under `issues/fixed/` by #753. Before that the line read: **Status: OPEN (surfaced by the V6 task-1 trait-variance work, 2026-09-14 —
 it blocks the entire feature: the fixture shape cannot be evaluated).**
 
 ## Summary
