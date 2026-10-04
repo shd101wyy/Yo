@@ -32,7 +32,9 @@
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_message_with_repair_at, with_code } :: import("../../error.yo");
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
-{ debug_knob } :: import("../../utils.yo");
+{ debug_knob, is_temp_variable_name } :: import("../../utils.yo");
+{ use_of_moved_value_error } :: import("../utils.yo");
+{ type_is_move_only } :: import("../../types/utils.yo");
 /// Evaluate an identifier or operator expression.
 ///
 /// Returns the (possibly annotated) expression after filling in its
@@ -416,6 +418,26 @@ evaluate_identifier_and_operator :: (
       );
     });
   });
+  // A read of a moved value (plans/VALUES_BY_DEFAULT.md §3.4): E0901 at the
+  // read, for a field or method access (`f.fd`, `f.close()`) as much as for
+  // the bare name, since both evaluate the identifier here. The move site
+  // itself is exempt (a call node is re-evaluated as an enclosing call's
+  // receiver or argument, the `require_expr_not_consumed` exemption), and so
+  // are compiler temps and generated code, whose "consumed" mark is
+  // ownership bookkeeping. Branch joins and loops already restore the state a
+  // sibling arm or a back edge sees (`reset_sibling_flow_state`,
+  // `check_loop_flow`), so a read in another arm is not a read after a move.
+  match(
+    variable.consumed_at_token,
+    .Some(moved_at) => {
+      same_site := ((moved_at.*.row == token.row) && ((moved_at.*.column == token.column) && (moved_at.*.module_path == token.module_path)));
+      if(!same_site && _read_after_move_is_checked(variable, token, env), {
+        exn.throw(dyn(use_of_moved_value_error(variable.name.clone(), variable.ty, token, moved_at.*)));
+        return(expr);
+      });
+    },
+    .None => ()
+  );
   // c_include constants (e.g. O_RDONLY from <fcntl.h>) have UnknownValue.
   // NOTE: `is_extern` is not consulted here; skip the runtime-value
   // special-case and always use the variable's compile-time value.
@@ -584,6 +606,13 @@ evaluate_identifier_and_operator :: (
   );
   expr
 });
+/// Whether a read of `variable` at `token` after the variable was moved is
+/// rejected: a user-named binding of move-only type read from source code.
+_read_after_move_is_checked :: (fn(variable : Variable, token : Token, env : Environment) -> bool)(
+  !token.module_path.starts_with(String.from("auto-generated://"))
+  && (!is_temp_variable_name(env.module_path, variable.name)
+  && (type_is_move_only(variable.ty) || debug_knob(`YO_CHECK_READ_AFTER_MOVE`).is_some()))
+);
 /// The row of the first line that is neither blank nor a `//` comment — where
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.
 _first_code_row :: (fn(source : String) -> usize)({

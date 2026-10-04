@@ -72,12 +72,14 @@ pragma(Pragma.AllowUnsafe);
 { atof } :: import("std/libc/stdlib");
 {
   format_error_message,
+  format_error_message_with_help,
   format_error_messages,
   format_error_messages_with_help,
   TokenAndError,
   YoError,
   with_code
 } :: import("../error.yo");
+{ raise_flow_violation } :: import("../types/flowability.yo");
 { suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name }
@@ -88,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_contains_rc_type } :: import("../types/utils.yo");
+{ type_contains_rc_type, type_is_move_only, move_only_reason } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -444,20 +446,7 @@ require_expr_not_consumed :: (
           if(same_site, {
             return(());
           });
-          entries := ArrayList(TokenAndError).new();
-          entries.push(
-            TokenAndError(
-              token : ast_expr_token(rhs),
-              error_message : `use of moved value: \`${var_name}\``
-            )
-          );
-          entries.push(
-            TokenAndError(
-              token : consumed_tok.*,
-              error_message : String.from("value moved here")
-            )
-          );
-          exn.throw(dyn(format_error_messages(entries)));
+          exn.throw(dyn(use_of_moved_value_error(var_name, v.ty, ast_expr_token(rhs), consumed_tok.*)));
         }
       );
     }
@@ -503,6 +492,105 @@ expect_expr_to_have_been_evaluated :: (
     }
   )
 );
+// ---------------------------------------------------------------------------
+// Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, V3)
+// ---------------------------------------------------------------------------
+/// The E0901 note for a value of move-only type `ty` named `name`: why the
+/// type is move-only and the three ways to use it without a copy. `.None`
+/// for a copyable type.
+move_only_help :: (fn(name : String, ty : TypeValue) -> Option(String))(
+  match(
+    move_only_reason(ty),
+    .Some(why) => Option(String).Some(
+      `\`${name}\` is move-only (${why}): move it (\`own(${name})\`), pass it \`inout\`, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
+    ),
+    .None => Option(String).None
+  )
+);
+/// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
+/// with the move-only note when `ty` is move-only.
+use_of_moved_value_error :: (fn(name : String, ty : TypeValue, use_tok : Token, moved_tok : Token) -> YoError)({
+  entries := ArrayList(TokenAndError).new();
+  entries.push(TokenAndError(token : use_tok, error_message : `use of moved value: \`${name}\``));
+  entries.push(TokenAndError(token : moved_tok, error_message : String.from("value moved here")));
+  with_code(format_error_messages_with_help(entries, move_only_help(name, ty)), E_USE_OF_MOVED_VALUE)
+});
+/// A short rendering of the place `e` names, for a message.
+_place_text :: (fn(e : AstExpr) -> String)(ast_expr_to_string(e));
+/// Move the user-named local `v` at `tok` outside an expression that names it
+/// (a closure capture): the flow-logged consumption `set_expr_as_consumed`
+/// makes. A move-only value's owner gives it up here; a second move or a later
+/// read is E0901, a borrowed binding cannot give it up (E0901 too).
+move_captured_move_only_variable :: (fn(v : Variable, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  match(
+    v.consumed_at_token,
+    .Some(ct) => {
+      same_site := ((ct.*.row == tok.row) && ((ct.*.column == tok.column) && (ct.*.module_path == tok.module_path)));
+      if(!same_site, {
+        raise_flow_violation(use_of_moved_value_error(v.name.clone(), v.ty, tok, ct.*), ctx, exn);
+      });
+    },
+    .None => {
+      if(!v.is_owning_the_rc_value || (v.is_ref || v.is_module_level), {
+        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` is move-only, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, an \`inout\` binding or a module-level binding). Take it \`own(...)\` to own it.`;
+        raise_flow_violation(with_code(format_error_message_with_help(tok, msg, move_only_help(v.name.clone(), v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
+      });
+      _log_user_move(v, tok, env);
+      v.consumed_at_token = Option(Box(Token)).Some(box(tok));
+    }
+  );
+});
+/// Throw E0901 for a copy of the move-only value `rhs` out of storage it does
+/// not own: a by-value parameter or a `match`/`for` binding (they borrow), an
+/// `inout` binding, a module-level binding, or a projection (a field, an
+/// element, a dereference). The value cannot be copied, and moving it out
+/// would leave its owner partly moved: Yo has no partial moves, so the owner
+/// is moved whole or not at all.
+_throw_move_only_copy :: (fn(rhs : AstExpr, ty : TypeValue, what : String, ctx : EvalContext, exn : Exception) -> unit)({
+  name := _place_text(rhs);
+  msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string(ty)}\` is move-only, and it cannot be moved either: ${what}`;
+  raise_flow_violation(
+    with_code(format_error_message_with_help(ast_expr_token(rhs), msg, move_only_help(name, ty)), E_USE_OF_MOVED_VALUE),
+    ctx,
+    exn
+  );
+});
+/// The move of a move-only value at a point where a copyable RC value would be
+/// dupped (`set_expr_as_needs_to_call_dup`): `:=`, `=`, an `own` argument, a
+/// field or element store, a return, a constructor or literal element. The
+/// owner gives the value up, with no dup:
+///
+/// - an owning temp (a call result, a constructor) transfers, as an RC temp
+///   does;
+/// - an owning named local is CONSUMED (`set_expr_as_consumed`): a later use
+///   is E0901, and its scope-end drop is skipped;
+/// - anything else is borrowed storage, and the copy is E0901
+///   (`_throw_move_only_copy`).
+transfer_move_only_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name : String, ctx : EvalContext, exn : Exception) -> unit)({
+  match(
+    find_variable_in_env(ei.env, variable_name.clone()),
+    .None => (),
+    .Some(v) => cond(
+      is_temp_variable_name(ei.env.module_path, variable_name) => {
+        if(v.is_owning_the_rc_value, {
+          if(v.consumed_at_token.is_none(), {
+            v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+          });
+        }, {
+          what := cond(
+            ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) => String.from("it is a field of another value, and moving it out would leave that value partly moved (Yo has no partial moves). Move the whole value instead."),
+            true => String.from("it is borrowed from the value that holds it (an element, a dereference or a binding into another value).")
+          );
+          _throw_move_only_copy(rhs, ei.ty, what, ctx, exn);
+        });
+      },
+      v.is_module_level => _throw_move_only_copy(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
+      v.is_ref => _throw_move_only_copy(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
+      v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
+      true => _throw_move_only_copy(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `own(...)` to own it."), ctx, exn)
+    )
+  );
+});
 // ---------------------------------------------------------------------------
 // set_expr_as_consumed
 // ---------------------------------------------------------------------------
@@ -620,20 +708,7 @@ set_expr_as_consumed :: (
               },
               // Step 4: throw `use of moved value`.
               true => {
-                entries := ArrayList(TokenAndError).new();
-                entries.push(
-                  TokenAndError(
-                    token : ast_expr_token(expr),
-                    error_message : `use of moved value: \`${name}\``
-                  )
-                );
-                entries.push(
-                  TokenAndError(
-                    token : consumed_tok.*,
-                    error_message : String.from("value moved here")
-                  )
-                );
-                exn.throw(dyn(format_error_messages(entries)));
+                exn.throw(dyn(use_of_moved_value_error(name, v.ty, ast_expr_token(expr), consumed_tok.*)));
               }
             )
           );
@@ -692,6 +767,11 @@ set_expr_as_needs_to_call_dup :: (
         .Some(info) => info,
         .None => new_expr_info_placeholder_for_unreachable_(rhs)
       );
+      // A move-only value is moved here, never dupped (§3.4).
+      if(type_is_move_only(ei.ty), {
+        transfer_move_only_value(rhs, ei, variable_name, ctx, exn);
+        return(());
+      });
       // --- Compile-time value handling ---
       // Runtime results are `Some(UnknownVal)` — treat UnknownVal as NO
       // value here, or a runtime PARAM
@@ -1297,7 +1377,7 @@ check_loop_flow :: (
               )
             );
             entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the loop here")));
-            exn.throw(dyn(with_code(format_error_messages(entries), E_USE_OF_MOVED_VALUE)));
+            exn.throw(dyn(with_code(format_error_messages_with_help(entries, move_only_help(v.name, v.ty)), E_USE_OF_MOVED_VALUE)));
           });
           // Ways out.
           exit_moved := ArrayList(Token).new();
