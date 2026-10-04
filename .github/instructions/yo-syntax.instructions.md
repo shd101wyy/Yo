@@ -391,6 +391,7 @@ The right shape for a function parameter depends on what kind of type the value 
 | Primitive (`i32`, `bool`, …)                                       | `name : Type` for read, `inout(name) : Type` for mutation | Same rule.                                                                                                          |
 | Receiver of mutating method on `ref(struct(...))`/`ref(enum(...))` | `self : Self`                                             | Reference semantics — explicit `inout(self)` is unnecessary noise (though it works).                                |
 | Receiver of mutating method on value type (trait or inherent)      | `inout(self) : Self`                                      | Caller-side writes propagate. Established for `Hash`, `Clone`, `ToString`, `Iterator`.                              |
+| A std collection (`ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`, `LinkedList`, `PriorityQueue`, `OrderedMap`, `HeaderMap`, `StringBuilder`) the callee writes | `inout(name) : Type` | They are `ref` handles today but become copy-on-write values (`plans/VALUES_BY_DEFAULT.md` V2); their mutators already take `inout(self)`. |
 | Raw FFI pointer (legitimate `*(T)`)                                | `name : *(T)`                                             | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.             |
 
 **Anti-patterns to avoid:**
@@ -411,7 +412,7 @@ The same applies at call sites: don't wrap reference-semantics arguments with `&
 When choosing between `inout(self) : Self` and `self : Self` for a method receiver:
 
 - If the receiver type is fundamentally a value type (anything other than `ref(struct(...))` / `ref(enum(...))`), use `inout(self) : Self` for mutators.
-- If the receiver type is a reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), plain `self : Self` is the idiom — the methods documented in `src/env.yo`, `src/emitter.yo`, etc. follow this.
+- If the receiver type is a reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), plain `self : Self` is the idiom — the methods documented in `src/env.yo`, `src/emitter.yo`, etc. follow this. **Exception: the std collections** (the list in the table above) are `ref` today but are values-in-waiting: every mutator takes `inout(self)` and every helper that writes one takes it `inout` (VALUES_BY_DEFAULT V2a). `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists the writes through a borrowed copy that the V2b flip would lose.
 - Trait declarations should match the dominant case of their impl targets. Existing widely-implemented traits (`Hash`, `Clone`, `ToString`, `Iterator`, `Index`) use `inout(self) : Self` for the reasons above; new traits that are reference-semantics-specific can use plain `self : Self`.
 
 ## Recursion requires `recur`
@@ -1375,16 +1376,20 @@ count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
 });
 count(m, i32(3), i32(6));
 
-// 2. Use a closure, which does capture — BY VALUE. A reference type
-//    (`ref(struct(...))`: ArrayList, HashMap, String, …) still aliases its
-//    buffer through the copy, so a closure CAN be used as a recorder:
-calls := ArrayList(i32).new();
-f := (() => { calls.push(i32(1)); i32(7) });
+// 2. Use a closure, which does capture — BY VALUE. A list two places
+//    write on purpose is an explicit shared handle, `Box(ArrayList(T))`, so a
+//    closure can be used as a recorder:
+calls := box(ArrayList(i32).new());
+f := (() => { calls.*.push(i32(1)); i32(7) });
 ```
 
 That by-value rule is why an `i32` counter mutated inside a closure never comes
-back out, while pushing to a captured `ArrayList` does — see
-`.github/skills/yo-core-patterns/` and the `inout` audit note.
+back out. A captured bare `ArrayList` still shares its buffer today, but the
+collections become values (`plans/VALUES_BY_DEFAULT.md` V2b) and a push to the
+capture will then land in the closure's copy: record through a `Box`, or have
+the closure return what it built. `YO_AUDIT_INOUT_BORROW=1 yo check` lists such
+writes as `[inout-borrow-capture]` — see `.github/skills/yo-core-patterns/` and
+the `inout` audit note.
 
 ## A `=>` closure never fills a bare `fn(...)` slot (E0605)
 

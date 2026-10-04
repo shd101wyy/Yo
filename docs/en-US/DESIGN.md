@@ -104,6 +104,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
       - [Format specifications — `${value:spec}`](#format-specifications--valuespec)
 - [Collections](#collections)
+  - [Mutating a collection: mutators take `inout(self)`](#mutating-a-collection-mutators-take-inoutself)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
   - [HashSet](#hashset)
@@ -2576,6 +2577,41 @@ literal — `${parts.join(":")}` — is never mistaken for a separator.
 Please check [std/collections](../std/collections) for the full list of collection types and their APIs.
 
 Yo provides efficient, reference-counted collection types in the standard library.
+
+### Mutating a collection: mutators take `inout(self)`
+
+Every method that changes a collection takes `inout(self) : Self`: the
+mutators of `ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`,
+`LinkedList`, `PriorityQueue`, `OrderedMap`, `HeaderMap` and `StringBuilder`
+(`push`, `pop`, `insert`, `remove`, `clear`, `sort`, `retain`, `write_str`, …,
+including `StringBuilder.to_string`, which detaches the buffer). Read-only
+methods (`len`, `get`, `contains`, `iter`, …) take `self : Self`.
+
+The collections are still handles today, so a write through a copy of one
+reaches the original. That changes when they become copy-on-write values
+(`plans/VALUES_BY_DEFAULT.md` §6 V2b): a write through a copy will land in
+the copy alone. Write the code so it is correct under both rules:
+
+- **A helper that fills a list takes it `inout`:** `fill :: (fn(inout(out) :
+  ArrayList(i32)) -> unit)(...)`. A plain `out : ArrayList(i32)` parameter is
+  the callee's copy.
+- **An element of a collection is written through its place:**
+  `rows(i).push(x)`, `m(k).push(x)`, or `for(xs, inout(x) => x.push(...))`. A
+  `match` binding (`.Some(l) => l.push(x)`) or a value `for` binding is a copy.
+- **A list stored in a map or an `Option` field is taken out, changed and stored
+  back:** `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
+  l.push(x); m.insert(k, l);`, or `self.f.take()` followed by
+  `self.f = .Some(l)`.
+- **A list two owners hold on purpose is a `Box`:** `Box(ArrayList(T))`, written
+  through `b.*.push(x)`. A closure or an `io.async` body captures by value, so a
+  closure that records into a list shares it this way (or returns the list).
+
+`YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists every write the flip would
+change instead of reporting it: `[inout-borrow]` for a write through a by-value
+parameter or a `match`/`for` binding (an `inout` argument or receiver, or an
+assignment into the place), `[inout-borrow-unresolved]` when the callee's
+mutation summary could not be resolved and the write is assumed, and
+`[inout-borrow-capture]` for a write to a variable a closure captured.
 
 ### ArrayList
 

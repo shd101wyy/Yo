@@ -814,15 +814,13 @@ _bind_pattern_name :: (fn(context : FunctionGenerationContext, indent : String, 
   _shadow_add(context, cname);
 });
 /// Record the slot a shadowed name lives in (`shadow_slots`).
-_shadow_slot_set :: (fn(context : FunctionGenerationContext, name : String, field : String) -> unit)(
-  {
-    // Taken out and stored back: a `match` binding is a copy of the map once
-    // collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-    slots := match(context.shadow_slots.take(), .Some(m) => m, .None => HashMap(String, String).new());
-    slots.insert(name, field);
-    context.shadow_slots = Option(HashMap(String, String)).Some(slots);
-  }
-);
+_shadow_slot_set :: (fn(context : FunctionGenerationContext, name : String, field : String) -> unit)({
+  // Taken out and stored back: a `match` binding is a copy of the map once
+  // collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  slots := match(context.shadow_slots.take(), .Some(m) => m, .None => HashMap(String, String).new());
+  slots.insert(name, field);
+  context.shadow_slots = Option(HashMap(String, String)).Some(slots);
+});
 _shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
   shadowed := match(context.local_shadowed_variables.take(), .Some(s) => s, .None => HashSet(String).new());
   shadowed.insert(name);
