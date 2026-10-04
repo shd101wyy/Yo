@@ -654,3 +654,64 @@ test("an unqualified call two trait impls supply is ambiguous (E0616)", {
   assert((_ClC <: _ClA).get(c) == i32(1), "qualified: A");
   assert((_ClC <: _ClB).get(c) == i32(2), "qualified: B");
 });
+// issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md: an `inout`
+// parameter of a Dyn vtable slot is `T*` in the slot, the wrapper and every
+// call site, as it is for a plain fn or an `Impl(Fn)` (the slot and wrapper
+// spelled it `T`, the closure and the call site `T*`: a clang error).
+_DioHolder :: struct(cb : Dyn(Fn(inout(n) : i32) -> unit));
+_DioPusher :: struct(push : Dyn(Fn(inout(xs) : ArrayList(i32)) -> unit));
+_dio_bump_twice :: (fn(inout(y) : i32, h : _DioHolder) -> unit)({
+  h.cb(y);
+  h.cb(y);
+});
+_dio_push_through :: (fn(inout(xs) : ArrayList(i32), p : _DioPusher) -> unit)({
+  p.push(xs);
+});
+_dio_call_param :: (fn(inout(y) : i32, cb : Dyn(Fn(inout(n) : i32) -> unit)) -> unit)({
+  cb(y);
+});
+test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
+  h := _DioHolder(
+    cb : dyn(inout(n) => {
+      n = (n + i32(1));
+    })
+  );
+  (x : i32) = i32(41);
+  h.cb(x);
+  assert(x == i32(42), "a local i32 is incremented in place");
+  _dio_bump_twice(x, h);
+  assert(x == i32(44), "an inout parameter is forwarded, not re-addressed");
+  _dio_call_param(x, h.cb);
+  assert(x == i32(45), "a Dyn(Fn) parameter called with an inout parameter");
+  p := _DioPusher(
+    push : dyn(inout(xs) => {
+      xs.push(i32(7));
+    })
+  );
+  (ys : ArrayList(i32)) = ArrayList(i32).new();
+  p.push(ys);
+  _dio_push_through(ys, p);
+  assert(ys.len() == usize(2), "a local ArrayList is pushed through the callback, directly and forwarded");
+  assert(match(ys.get(usize(1)), .Some(v) => (v == i32(7)), .None => false), "the pushed element reads back");
+});
+_DioBump :: trait(bump : (fn(self : Self, inout(n) : i32) -> unit));
+_DioStep :: struct(k : i32);
+impl(
+  _DioStep,
+  _DioBump(
+    bump : (fn(self : Self, inout(n) : i32) -> unit)({
+      n = (n + self.k);
+    })
+  )
+);
+_dio_trait_bump :: (fn(inout(y) : i32, d : Dyn(_DioBump)) -> unit)({
+  d.bump(y);
+});
+test("Dyn(trait) method with an inout parameter writes through to the caller's place", {
+  (d : Dyn(_DioBump)) = dyn(_DioStep(k : i32(2)));
+  (x : i32) = i32(40);
+  d.bump(x);
+  assert(x == i32(42), "a local i32 is updated in place");
+  _dio_trait_bump(x, d);
+  assert(x == i32(44), "an inout parameter is forwarded, not re-addressed");
+});

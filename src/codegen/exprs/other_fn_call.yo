@@ -10,7 +10,7 @@
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype } :: import("../functions/declarations.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
-{ type_is_control_bound, dyn_type_has_vtable_slot, type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, type_contains_rc_type } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -1279,14 +1279,40 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       dm_call.push_str("((");
       dm_call.push_string(recv_code);
       dm_call.push_str(").data");
+      // The slot's own `inout` flags (`[receiver, explicit...]`, like
+      // `dm_runtime`): an `inout` explicit argument passes the address of its
+      // place, or forwards an `inout` parameter's pointer, exactly as the
+      // registered-call path amps `args2`; the slot is `T*` there
+      // (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
+      dm_slot_pir := match(
+        context.base.get_expr_info(recv_expr),
+        .Some(rvi) => dyn_vtable_slot_param_is_ref(rvi.ty, ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value),
+        .None => ArrayList(bool).new()
+      );
+      dm_args := ArrayList(String).new();
+      dm_pir := ArrayList(bool).new();
+      dm_rargs := ArrayList(AstExpr).new();
       ndm := dm_runtime.len();
       (dmi : usize) = usize(1);
       while(dmi < ndm, {
-        dm_call.push_str(", ");
-        // A slot's own `inout` parameters are not amped here, so an argument
-        // passed by value is the only one that can carry a dup.
-        match(dm_runtime.get(dmi), .Some(da) => dm_call.push_string(_dispatch_arg_code(da, false, expr, indent.clone(), context)), .None => ());
+        dm_pref := match(dm_slot_pir.get(dmi), .Some(r) => r, .None => false);
+        match(
+          dm_runtime.get(dmi),
+          .Some(da) => {
+            dm_args.push(_dispatch_arg_code(da, dm_pref, expr, indent.clone(), context));
+            dm_pir.push(dm_pref);
+            dm_rargs.push(da);
+          },
+          .None => ()
+        );
         dmi = (dmi + usize(1));
+      });
+      dm_amped := _apply_ref_amp(dm_args, dm_pir, dm_rargs, indent.clone(), context);
+      (dma : usize) = usize(0);
+      while(dma < dm_amped.len(), {
+        dm_call.push_str(", ");
+        match(dm_amped.get(dma), .Some(dac) => dm_call.push_string(dac), .None => ());
+        dma = (dma + usize(1));
       });
       dm_call.push_str(")");
       if(is_unit_type(ei.ty), {

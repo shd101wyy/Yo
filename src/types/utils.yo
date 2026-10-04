@@ -2454,6 +2454,60 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : TypeValue, name : String) -> bool)(
     _ => false
   )
 );
+/// The per-parameter `inout` flags of the vtable slot `name` of `dyn_ty`,
+/// indexed like a method call's runtime arguments: `[receiver, explicit...]`
+/// (an Fn `call` slot has no receiver parameter, so its flag 0 is `false`).
+/// Empty when `dyn_ty` has no such slot.
+dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : TypeValue, name : String) -> ArrayList(bool))({
+  out := ArrayList(bool).new();
+  match(
+    dyn_ty,
+    .DynT({ required_trait_types : rtt }) => {
+      (i : usize) = usize(0);
+      while((i < rtt.len()) && out.is_empty(), {
+        tt := match(rtt.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        i = (i + usize(1));
+        match(
+          tt,
+          .FnTraitT({ call_param_labels : cpl, call_param_is_ref : cprf }) => if(name == "call", {
+            out.push(false);
+            (k : usize) = usize(0);
+            while(k < cpl.len(), {
+              out.push(match(cprf.get(k), .Some(r) => r, .None => false));
+              k = (k + usize(1));
+            });
+          }),
+          .TraitT({ field_labels : fls, field_types : fts }) => {
+            (j : usize) = usize(0);
+            while((j < fls.len()) && out.is_empty(), {
+              if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
+                ft := match(fts.get(j), .Some(t) => t, .None => TypeValue.Unit);
+                if(dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none(), {
+                  match(
+                    ft,
+                    .Func({ param_types : fpts, meta : fm }) => {
+                      fpir := fm.*.param_is_ref;
+                      (k : usize) = usize(0);
+                      while(k < fpts.len(), {
+                        out.push(match(fpir.get(k), .Some(r) => r, .None => false));
+                        k = (k + usize(1));
+                      });
+                    },
+                    _ => ()
+                  );
+                });
+              });
+              j = (j + usize(1));
+            });
+          },
+          _ => ()
+        );
+      });
+    },
+    _ => ()
+  );
+  out
+});
 /// The note a type mismatch appends when a `Dyn` with more traits is given
 /// where one with a subset is expected (`Dyn(Sp, Ot)` for `Dyn(Sp)`): flow
 /// never converts a `Dyn`, and the explicit conversion is `upcast`
@@ -2585,7 +2639,7 @@ unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants :
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_upcast_note, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such

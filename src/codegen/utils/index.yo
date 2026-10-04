@@ -2237,6 +2237,24 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : TypeValu
 is_self_named_atom :: (fn(expr : AstExpr, variable_name : String) -> bool)(
   ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value)
 );
+/// The C type of one parameter of a Dyn vtable slot and of the wrapper the
+/// slot points at. An `inout` parameter is `T*`, exactly as the function
+/// prototype spells it (`functions/declarations.yo`): the call site hands the
+/// slot the address of the place, and the impl or closure the wrapper forwards
+/// to takes a `T*` (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
+dyn_slot_param_type_string :: (fn(t : Option(TypeValue), is_ref : Option(bool), context : CodeGenContext) -> String)(
+  match(
+    t,
+    .Some(pt) => {
+      pts := get_type_string(pt, context);
+      if(match(is_ref, .Some(r) => r, .None => false), {
+        pts.push_str("*");
+      });
+      pts
+    },
+    .None => String.from("void*")
+  )
+);
 /// [`#line` directives, plans/reference/LINE_DIRECTIVES.md] The statement
 /// flush point helper: attribute the C about to be emitted for `expr` to the
 /// `.yo` position of its token. A no-op unless the compile ran with
@@ -2276,6 +2294,7 @@ export(
   type_key,
   get_type_string,
   get_storage_type_string,
+  dyn_slot_param_type_string,
   get_variable_type_string,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
