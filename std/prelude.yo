@@ -9619,7 +9619,14 @@ impl(
   /// safe code cannot reach the uninitialized read. It is not inspected.
   assume_init : (fn(own(self) : Self, written : *(BaseType)) -> BaseType)(
     __yo_maybe_uninit_assume_init(Self, BaseType, self, written)
-  )
+  ),
+  /// Test-support probe for the member-visibility rule (E0405): a `_`-prefixed
+  /// method declared in the PRELUDE is private to this module exactly like one
+  /// declared in any other module
+  /// (issues/fixed/prelude-methods-have-no-visibility-owner.md). It has no
+  /// caller inside std/ — it exists so `tests/member_visibility.test.yo` can
+  /// assert from a foreign directory that the compiler rejects the call.
+  _probe : (fn(self : Self) -> i32)(i32(7))
 );
 export(MaybeUninit);
 /// Iterator trait — lazy, pull-based sequence traversal.
