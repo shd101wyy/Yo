@@ -732,8 +732,10 @@ Bound type: ${type_to_string(rhs_info.ty)}`
     // -------------------------------------------------------------------
     // Check if the RHS variable has been consumed (moved).
     require_expr_not_consumed(rhs, env, ctx, exn);
-    // Insert dup-on-store (transfers/shares RC ownership of the RHS).
-    set_expr_as_needs_to_call_dup(rhs, ctx, exn);
+    // Insert dup-on-store (transfers/shares RC ownership of the RHS). A
+    // binding a macro introduced (`for`'s gensym'd collection pin) carries
+    // the macro's module in its name token, not the user's.
+    set_expr_as_needs_to_call_dup(rhs, ctx, exn, cond((ast_expr_token(actual_lhs).module_path == ast_expr_token(rhs).module_path) => "binding", true => "binding(macro)"));
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),

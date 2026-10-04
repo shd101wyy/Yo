@@ -65,6 +65,7 @@
 { type_contains_rc_type, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ audit_implicit_copy_enabled, audit_record_implicit_copy } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1115,7 +1116,10 @@ generate_captured_variable_dup_expressions :: (
     captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
     env : Environment,
     ctx : EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// The closure literal's token: the copy site YO_AUDIT_IMPLICIT_COPY
+    /// reports for each captured value.
+    site_tok : Token
   ) -> CapturedVarDupResult
 )({
   dup_exprs := ArrayList(AstExpr).new();
@@ -1130,6 +1134,9 @@ generate_captured_variable_dup_expressions :: (
           .Some(var_name) => match(
             cvwv.get(var_name.clone()),
             .Some(ci) => if(type_contains_rc_type(ci.ty), {
+              if(audit_implicit_copy_enabled(), {
+                audit_record_implicit_copy(site_tok, ci.ty, "capture", env, var_name.clone(), var_name.clone(), ctx, false);
+              });
               dup_code := `___dup(${var_name})`;
               dup_expr := generate_expr_from_code(dup_code, exn);
               evaluated := evaluate_expression_raw(dup_expr, env, ctx, exn);
