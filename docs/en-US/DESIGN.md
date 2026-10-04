@@ -3066,6 +3066,42 @@ m.* = 20;
 assert(m.* == 20);
 ```
 
+### Auto-dereference
+
+`Box` and `Arc` implement the prelude's `Deref` marker trait
+(`Deref :: trait(Target : Type)`, `Target` is the payload). On a `Deref`
+type, a field or method the wrapper does not have is looked up on the
+payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
+
+```rust
+Point :: struct(x : i32, y : i32);
+impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
+p := box(Point(x : 3, y : 4));
+assert(p.x == 3);          // p.*.x
+p.x = 5;                   // a place: writes p.*.x
+assert(p.norm1() == 9);    // p.*.norm1()
+pp := box(box(Point(x : 1, y : 2)));
+assert(pp.y == 2);         // nested wrappers: pp.*.*.y
+```
+
+- **The wrapper's own members come first.** `p.clone()` is `Box`'s `clone`
+  (a new `Box`), not the payload's; `p.*` is always the payload itself.
+- **Places.** A forwarded field is a place: `p.x = v` and an `inout(self)`
+  call such as `p.items.push(v)` write the payload. In a file without
+  `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is still rejected
+  (`a.n = v`, `a.bump()` with `inout(self)`): mutate an `Arc`'s payload
+  through a `Mutex` or an atomic.
+- **Only `Box` and `Arc` implement `Deref`.** `impl(MyWrapper, Deref(...))`
+  is a compile error: a user wrapper exposes its payload through its own
+  fields and methods.
+- When neither the wrapper nor its payload has the name, the error says so:
+  ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
+  field "z" either.`` (E0406; E0610 for a method).
+- **Callee position.** `p.items(i)` indexes the payload's `items`, and
+  `p.f(x)` calls a payload field that holds a function. The wrapper's own
+  methods still come first, so the order is wrapper field, wrapper method,
+  payload field, then payload method.
+
 ### Box with Assignments
 
 ```rust
@@ -3590,6 +3626,10 @@ t := Thread(unit).spawn(io => {
 t.join();
 assert(shared.* == i32(42), "main still sees shared value");
 ```
+
+`Arc(T)` implements `Deref`, so a read forwards to the payload
+(`shared.field`, `shared.method()`; see [Auto-dereference](#auto-dereference));
+a write through it is rejected in safe code.
 
 See [ARC.md](./ARC.md) for full details.
 

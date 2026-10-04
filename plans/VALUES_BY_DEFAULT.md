@@ -275,14 +275,21 @@ is the point where it becomes the only reading. `is_box_type` and the
   for the three wrappers the forwarded place is the inline payload
   (`w->value` in C). It is not implementable by user types in this plan: a
   user wrapper forwards nothing, which keeps every auto-dereference one of
-  the three known cells.
+  the three known cells. The check identifies the trait by the prelude
+  `Deref`'s key (not its spelling), and accepts an impl only in the prelude
+  and in compiler-generated code (V1, `feat/vbd-v1-deref`), so the `Rc`
+  wrapper of V1 step 1 gets its impl in the prelude too.
 - **Resolution order.** The wrapper's own members come first (`rc.clone()`
   is the wrapper's; a field named `*` is the wrapper's), then the payload's
   members, recursively through nested wrappers (`Rc(Box(T))` reaches `T`).
   `w.*` still names the payload explicitly. A name the wrapper and the
   payload both have resolves to the wrapper's, silently, the way an
   inherent method beats a trait method today; the ambiguity error E0616
-  applies only among traits at one level, unchanged.
+  applies only among traits at one level, unchanged. Spelled out (as
+  implemented): wrapper field, wrapper method, payload field, payload method,
+  at each level. The same order holds in callee position, so `w.items(i)`,
+  `w.items(i) = v` and a call of a function-typed payload field `w.f(x)`
+  forward when the wrapper has no member of that name.
 - **Where it hooks in.** Fields: the label-miss arm of
   `evaluate_property_access` (`property_access.yo:1686-1711`) rewrites
   `w.field` to `w.*.field` when `w`'s type implements `Deref`, and
@@ -970,6 +977,13 @@ Added by amendment, 2026-10-03, with the maintainer (async, §3.13; PR
    - the count-accuracy guarantee and its tests (S2);
    - the copy-on-write uniqueness step (S3).
    S4 (docs) may overlap with V1.
+
+   Amended 2026-10-04: V1's Generation-A compiler pieces that do not use
+   the uniqueness step land before S3: the `Deref` trait and the
+   auto-dereference hooks, the `Rc` marker's deletion, the build enum's
+   rename to `build.AllocatorKind`, and the Generation-A half of the
+   prelude `Allocator` move. What needs S3 waits for it: the value `Box`,
+   `make_unique`, and the `Box` → `Rc` rename of V1 step 1.
 2. **This plan's phases (§6).** Each phase is one PR, or a stack with one
    battery (AGENTS.md).
 

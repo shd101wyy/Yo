@@ -9577,6 +9577,32 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Ar
 // auto-derive) and Acyclic (prevents permanent leaks from Arc cycles).
 impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
 export(Arc, arc);
+/// === Deref ===
+/// Deref — marks a wrapper whose members forward to its payload `Target`
+/// (auto-dereference, plans/VALUES_BY_DEFAULT.md §3.3). Nothing is called at
+/// run time: `w.field` and `w.method()` on a `Deref` type whose own members
+/// lack that name mean `w.*.field` and `w.*.method()`, recursively through
+/// nested wrappers, and the wrapper's own members always win (`b.clone()` is
+/// the `Box`'s `clone`). `w.*` names the payload place.
+///
+/// Implemented by `Box` and `Arc` only; any other `impl(..., Deref(...))` is
+/// a compile error, so every auto-dereference goes through one of the
+/// prelude's cells.
+///
+/// ```yo
+/// P :: struct(n : i32);
+/// b := box(P(n : i32(1)));
+/// b.n = i32(2);              // writes b.*.n
+/// assert(b.n == i32(2), "read through the box");
+/// ```
+Deref :: trait(
+  id := "Deref",
+  /// The payload type `w.*` names.
+  Target : Type
+);
+export(Deref);
+impl(generic(T : Type), Box(T), Deref(Target : T));
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===
 extern(
   "Yo",

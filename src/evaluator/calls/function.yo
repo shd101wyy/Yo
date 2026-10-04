@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
-{ t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
+{ t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int } :: import("../../utils.yo");
@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note } :: import("../../types/utils.yo");
+{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -102,8 +102,10 @@ pragma(Pragma.AllowUnsafe);
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
   type_implements_future,
-  resolve_assoc_type_for_target
+  resolve_assoc_type_for_target,
+  deref_target_type
 } :: import("../trait_checking.yo");
+{ make_deref_expr } :: import("../exprs/property_access.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
 { try_to_implement_module_with_arguments_by_module_type } :: import("./record_type.yo");
 {
@@ -631,6 +633,50 @@ _try_find_receiver_method :: (
     );
   });
   if(hits.len() == usize(0), {
+    // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` wrapper
+    // (`Box`, `Arc`) without the method forwards the call to its payload —
+    // retry with the receiver `w.*`, recursively through nested wrappers.
+    // Reached only after the wrapper's own lookup (and its lazy-impl force)
+    // missed, so the wrapper's members always win (`b.clone()` stays the
+    // Box's). On a hit the callee's receiver argument is replaced IN PLACE by
+    // the `w.*` chain, so the call is the explicit `w.*.m(...)` to every later
+    // reader (codegen, the inout/D3/E0908 root walks); on a miss the callee
+    // is left as written for the E0610 message.
+    if(!is_static && !is_pointer_type(receiver_type), {
+      match(
+        deref_target_type(resolve_struct_shell(receiver_type), env),
+        .Some(_) => {
+          recv_id := ast_expr_id(receiver_expr_r);
+          mark_node_preevaluated(recv_id);
+          deref_out := ArrayList(AstExpr).new();
+          _try_eval_receiver_node(make_deref_expr(receiver_expr_r, ast_expr_token(callee), method_tok), env, ctx, deref_out);
+          unmark_node_preevaluated(recv_id);
+          match(
+            deref_out.get(usize(0)),
+            .Some(deref_node) => {
+              dc_args := ArrayList(AstExpr).new();
+              dc_args.push(deref_node);
+              dc_args.push(method_name_expr);
+              deref_callee := match(
+                callee,
+                .FnCall(_, dc_fb, _, dc_infix, dc_tok) => AstExpr.FnCall(alloc_global_expr_id(), dc_fb, dc_args, dc_infix, dc_tok),
+                _ => callee
+              );
+              match(
+                recur(deref_callee, env, ctx),
+                .Some(deref_hit) => {
+                  prop_args(usize(0)) = deref_hit.receiver_expr;
+                  return(Option(ReceiverMethodResult).Some(deref_hit));
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    });
     if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
       eprintln(`[rm-miss] name=${method_name} recv=${type_to_string(receiver_type)} static=${is_static.to_string()}`);
     });
@@ -4547,7 +4593,38 @@ _no_method_message :: (fn(func_expr : AstExpr, ctx : EvalContext) -> String)({
     .None => String.from("?")
   );
   method_name := match(dot_args.get(usize(1)), .Some(m) => ast_expr_to_string(m), .None => String.from("?"));
-  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.`
+  // On a `Deref` wrapper the method retry (`_try_find_receiver_method`) also
+  // looked through the payload chain; say so, naming the innermost payload.
+  deref_note := match(
+    dot_args.get(usize(0)),
+    .Some(recv) => match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
+      .Some(ri) => {
+        (cur : TypeValue) = resolve_struct_shell(ri.ty);
+        (reached : bool) = false;
+        (more : bool) = true;
+        while(more, {
+          match(
+            deref_target_type(cur, ri.env),
+            .Some(payload) => {
+              cur = resolve_struct_shell(payload);
+              reached = true;
+            },
+            .None => {
+              more = false;
+            }
+          );
+        });
+        cond(
+          reached => ` ${deref_miss_note(ast_expr_to_string(recv), ri.ty, cur, "field or method", method_name.clone())}`,
+          true => String.new()
+        )
+      },
+      .None => String.new()
+    ),
+    .None => String.new()
+  );
+  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.${deref_note}`
 });
 /// The note on the standard-library location of an error that
 /// `evaluate_function_call` reports at the user's call.
