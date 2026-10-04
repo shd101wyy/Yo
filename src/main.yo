@@ -3354,9 +3354,9 @@ _physical_memory_mb_darwin :: (fn() -> usize)({
       .Some(op) => match(
         lens.ptr(),
         .Some(lp) => {
-          rc := unsafe(sysctlbyname((*char)(np), (*void)(op), (*void)(lp), .None, usize(0)));
+          status := unsafe(sysctlbyname((*char)(np), (*void)(op), (*void)(lp), .None, usize(0)));
           cond(
-            (rc == i32(0)) => match(out.get(usize(0)), .Some(b) => usize(b / u64(1048576)), .None => usize(0)),
+            (status == i32(0)) => match(out.get(usize(0)), .Some(b) => usize(b / u64(1048576)), .None => usize(0)),
             true => usize(0)
           )
         },
@@ -5469,9 +5469,9 @@ _current_rss_mb_darwin :: (fn() -> usize)({
   match(
     info.ptr(),
     .Some(out_ptr) => {
-      rc := unsafe(task_info(mach_task_self_, u32(20), (*void)(out_ptr), &count)); // MACH_TASK_BASIC_INFO = 20
+      status := unsafe(task_info(mach_task_self_, u32(20), (*void)(out_ptr), &count)); // MACH_TASK_BASIC_INFO = 20
       cond(
-        (rc == i32(0)) => match(info.get(usize(1)), .Some(resident) => usize(resident / u64(1048576)), .None => usize(0)),
+        (status == i32(0)) => match(info.get(usize(1)), .Some(resident) => usize(resident / u64(1048576)), .None => usize(0)),
         true => usize(0)
       )
     },
@@ -5555,8 +5555,8 @@ _exec_argv :: (fn(exec_cstrs : ArrayList(ArrayList(u8))) -> unit)({
       // is a hard -Werror there, while `void*` converts to any object
       // pointer implicitly on every platform
       // (issues/fixed/windows-ucrt-execve-const-qualifiers-break-self-build.md).
-      rc := unsafe(execve((*char)(prog), (*void)(exec_buf), (*void)(environ)));
-      eprintln(`exec-restart: execve failed rc=${rc.to_string()} — exiting instead`);
+      status := unsafe(execve((*char)(prog), (*void)(exec_buf), (*void)(environ)));
+      eprintln(`exec-restart: execve failed rc=${status.to_string()} — exiting instead`);
       unsafe(exit(int(1)));
     },
     .None => {
@@ -5932,7 +5932,7 @@ run_test :: (
     true => String.from(".bin")
   );
   // Resolved once: wasmtime needs the cwd as an explicit --dir grant below.
-  run_cwd := match(cwd(), .Ok(rc) => rc.to_string(), .Err(_) => String.from("."));
+  run_cwd := match(cwd(), .Ok(dir) => dir.to_string(), .Err(_) => String.from("."));
   if(wasm_target_kind != "", {
     wt_parsed := match(
       parse_target(wasm_target_kind.clone()),

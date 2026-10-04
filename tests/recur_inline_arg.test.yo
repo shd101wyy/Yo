@@ -95,10 +95,10 @@ test("unit recur releases the dup of a composite argument", {
   items.push(Node.One(leaf : leaf));
   items.push(Node.One(leaf : leaf));
   root := Node.Many(items : items);
-  before := rc(leaf);
+  before := ref_count(leaf);
   acc := ArrayList(usize).new();
   count_leaves(root, acc);
   count_leaves(root, acc);
   assert(acc.len() == usize(4), "four leaves visited");
-  assert(rc(leaf) == before, "recur(items(i), acc) leaves no reference behind");
+  assert(ref_count(leaf) == before, "recur(items(i), acc) leaves no reference behind");
 });

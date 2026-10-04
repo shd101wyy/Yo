@@ -217,15 +217,15 @@ impl(
       // stub; see issues/ftt-stub-in-live-closure-falls-off-non-void-function.md).
       (done : bool) = false;
       while(!done, {
-        rc := unsafe(__yo_tls_handshake(ssl));
+        ret := unsafe(__yo_tls_handshake(ssl));
         e.io.await(_flush_wbio(s, e.io), e);
         (need_read : bool) = false;
         cond(
-          (rc == int(1)) => {
+          (ret == int(1)) => {
             done = true;
           },
           true => {
-            err := unsafe(__yo_tls_get_error(ssl, rc));
+            err := unsafe(__yo_tls_get_error(ssl, ret));
             cond(
               (err == _SSL_ERROR_WANT_READ()) => {
                 need_read = true;
@@ -257,15 +257,15 @@ impl(
       (out : usize) = usize(0);
       (settled : bool) = false;
       while(!settled, {
-        rc := unsafe(__yo_tls_read(ssl, (*void)(buf), int(size)));
+        ret := unsafe(__yo_tls_read(ssl, (*void)(buf), int(size)));
         (act : int) = int(0);
         cond(
-          (rc > int(0)) => {
-            out = usize(rc);
+          (ret > int(0)) => {
+            out = usize(ret);
             settled = true;
           },
           true => {
-            err := unsafe(__yo_tls_get_error(ssl, rc));
+            err := unsafe(__yo_tls_get_error(ssl, ret));
             cond(
               (err == _SSL_ERROR_ZERO_RETURN()) => {
                 out = usize(0);
@@ -314,16 +314,16 @@ impl(
       (out : usize) = usize(0);
       (settled : bool) = false;
       while(!settled, {
-        rc := unsafe(__yo_tls_write(ssl, (*void)(buf), int(size)));
+        ret := unsafe(__yo_tls_write(ssl, (*void)(buf), int(size)));
         e.io.await(_flush_wbio(self, e.io), e);
         (need_read : bool) = false;
         cond(
-          (rc > int(0)) => {
-            out = usize(rc);
+          (ret > int(0)) => {
+            out = usize(ret);
             settled = true;
           },
           true => {
-            err := unsafe(__yo_tls_get_error(ssl, rc));
+            err := unsafe(__yo_tls_get_error(ssl, ret));
             cond(
               (err == _SSL_ERROR_WANT_READ()) => {
                 need_read = true;

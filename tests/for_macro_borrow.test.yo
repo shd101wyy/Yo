@@ -207,14 +207,14 @@ test("borrowed for over RC elements: no per-element dup, mutate through the refe
   names.push(String.from("x"));
   names.push(String.from("y"));
   first := names(usize(0));
-  before := rc(first);
+  before := ref_count(first);
   for(names, inout(s) => {
     s.push_str("!");
-    assert(rc(first) == before, "the element is borrowed, not dup'd");
+    assert(ref_count(first) == before, "the element is borrowed, not dup'd");
   });
   assert(names(usize(0)) == "x!", "x!");
   assert(names(usize(1)) == "y!", "y!");
-  assert(rc(first) == before, "counts unchanged after the loop");
+  assert(ref_count(first) == before, "counts unchanged after the loop");
 });
 test("borrowed for: element handed to an inout parameter, break and continue", {
   list := ArrayList(i32).new();
@@ -436,7 +436,7 @@ test("borrowed for over a user collection; inout(self) methods assert on the obj
   assert(bag.version == i32(2), "the flag is released after the loop: no false panic");
   bag.reset();
   assert((bag.version == i32(0)) && (bag.items.len() == usize(0)), "reassigning through inout(self) replaces the caller's handle");
-  assert(rc(bag) == 1, "the old object was released, the new one is owned once");
+  assert(ref_count(bag) == 1, "the old object was released, the new one is owned once");
 });
 // Two read-only shapes the compiler-emitted invalidation assert must not fire
 // for: a body that DECLARES a typed local `(r : T) = init` (`ArrayList.index_of`;

@@ -221,8 +221,8 @@ _stdin_has_input_posix :: (fn() -> bool)({
     events_field := (*i16)((*u8)(p).add(usize(4)));
     events_field.* = i16(1);
   });
-  rc := unsafe(poll((*void)(p), u32(1), int(0)));
-  if(rc <= int(0), {
+  ready := unsafe(poll((*void)(p), u32(1), int(0)));
+  if(ready <= int(0), {
     return(false);
   });
   revents := unsafe((*i16)((*u8)(p).add(usize(6))).*);

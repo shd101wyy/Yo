@@ -1,6 +1,6 @@
 //! Reference-counting builtin emitters.
 //!
-//! The `__yo_*_rc` / `___drop` / `___dup` / element-wise / dyn / sometype / `rc`
+//! The `__yo_*_rc` / `___drop` / `___dup` / element-wise / dyn / sometype / `ref_count`
 //! builtins. Element drop/dup and `___drop`/`___dup` route through the
 //! drop_dup layer (get_drop/dup_function_for_type + generate_drop/dup_code_for_value).
 //!
@@ -438,9 +438,9 @@ generate_yo_sometype_dup :: (fn(expr : AstExpr, indent : String, context : Funct
     .None => codegen_fatal_expr(String.from("__yo_sometype_dup requires exactly 1 argument"))
   )
 );
-/// `rc(<value>)` → the value's reference count (or 1 for value types).
-generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
-  arg_expr := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("rc requires exactly 1 argument"))));
+/// `ref_count(<value>)` → the value's reference count (or 1 for value types).
+generate_ref_count_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  arg_expr := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("ref_count requires exactly 1 argument"))));
   arg_type := _ty(arg_expr, context);
   arg_code := _call_generate_expr(arg_expr, indent.clone(), context);
   if(
@@ -455,7 +455,7 @@ generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGener
       // emits an out-of-line `__atomic_load_8`, which is undefined at link time on
       // Linux (libatomic is not linked) — the tier-1 `imm_string` failure. On macOS
       // it linked and merely read garbage in the high bits, so every
-      // `rc(self) == 1` copy-on-write check in `std/imm/*` silently went false.
+      // `ref_count(self) == 1` copy-on-write check in `std/imm/*` silently went false.
       // Masked: the top bit is the explicit-allocator tag, not a count
       // (plans/archive/EXPLICIT_ALLOCATORS.md §3.4).
       out := String.from("(atomic_load_explicit((_Atomic uint32_t*)&((__yo_rc_prefix_t*)(");
@@ -471,4 +471,4 @@ generate_rc_call :: (fn(expr : AstExpr, indent : String, context : FunctionGener
     String.from("1")
   )
 });
-export(generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_rc_own, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_rc_call);
+export(generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_rc_own, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_ref_count_call);

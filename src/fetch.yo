@@ -426,9 +426,9 @@ acquire_store_lock :: (
   io.async((e : IoExn) => {
     lock_path := store_lock_path(cache_root);
     file := e.io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, e.io), e);
-    rc := flock(file.fd(), LOCK_EX);
-    if(rc < i32(0), {
-      e.exn.throw(dyn(`Error: could not lock ${lock_path} (errno ${(i32(0) - rc).to_string()})`));
+    status := flock(file.fd(), LOCK_EX);
+    if(status < i32(0), {
+      e.exn.throw(dyn(`Error: could not lock ${lock_path} (errno ${(i32(0) - status).to_string()})`));
     });
     StoreLock(file : file)
   })

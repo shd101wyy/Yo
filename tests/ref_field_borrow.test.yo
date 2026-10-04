@@ -136,15 +136,15 @@ test("ref and own arguments of distinct objects are allowed", {
 // the body's read. yo-self shares the body node id with the tail expression
 // (TS clones a begin wrapper), and the scope-end drop attached there was
 // emitted by BOTH the body-level flush-first (before the read!) and the tail
-// call's post-emit flush — rc()==0 double-free (glibc tcache abort in CI).
+// call's post-emit flush — ref_count()==0 double-free (glibc tcache abort in CI).
 test("own param of a single-expression body is released exactly once", {
   read_and_sink :: (fn(own(victim) : Holder) -> usize)(victim.s.len());
   h := Holder(s : String.from("single-expr"), n : i32(3));
   h2 := h;
-  assert(rc(h) == 2, "two handles before the sink call");
+  assert(ref_count(h) == 2, "two handles before the sink call");
   n := read_and_sink(h2);
   assert(n == usize(11), "field read before the own release");
-  assert(rc(h) == 1, "own param released exactly once at scope end");
+  assert(ref_count(h) == 1, "own param released exactly once at scope end");
 });
 
 // Regression (issues/fixed/own-param-discard-leak.md): discarding an own
@@ -159,9 +159,9 @@ test("discarding an own param via ___ := releases it exactly once", {
   });
   h := Holder(s : String.from("discard-own"), n : i32(7));
   h2 := h;
-  assert(rc(h) == 2, "two handles before the sink call");
+  assert(ref_count(h) == 2, "two handles before the sink call");
   sink(h2);
-  assert(rc(h) == 1, "own param's reference released by the discard");
+  assert(ref_count(h) == 1, "own param's reference released by the discard");
 });
 
 // --- Indexed-element places: `xs(i)` as a ref argument ---

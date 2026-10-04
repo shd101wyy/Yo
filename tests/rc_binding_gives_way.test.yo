@@ -1,29 +1,45 @@
-//! `rc` gives way to a binding of its name (plans/VALUES_BY_DEFAULT.md V1
-//! step 0). The count builtin is `ref_count(x)` now; its old spelling `rc(x)`
-//! is only the builtin while no binding named `rc` is in scope, so this
-//! module's own top-level `rc` below is an ordinary function every call runs.
-//! (Yo has no shadowing: nothing in this module can reach the builtin `rc`.)
+//! `rc` is the prelude's cell constructor, not a builtin (plans/VALUES_BY_DEFAULT.md
+//! V1 step 0, decision 11). The count is the `ref_count(x)` builtin. This file
+//! pins how a user binding named `rc` meets the prelude's `rc`:
+//! - a module-level or local DEFINITION of `rc` is a shadowing error, like a
+//!   definition of any other prelude name (`box`, `arc`);
+//! - a function PARAMETER or a match-pattern binding named `rc` is allowed and
+//!   wins inside its scope: a call `rc(x)` there calls the parameter.
 { assert } :: import("std/assert");
-// A caller defined BEFORE `rc`: the lazy top-level walk has not bound `rc`
-// yet when this body is evaluated, so the decision must see the pending
-// definition, not only the env.
-_bump_twice :: (fn(x : i32) -> i32)(rc(rc(x)));
-test("a module-level function named rc is called, not the count builtin", {
-  assert(rc(i32(1)) == i32(2), "rc(i32(1)) runs the module's rc");
-  assert(_bump_twice(i32(5)) == i32(7), "rc defined after its caller still runs");
-  x := i32(40);
-  assert(rc(x) == i32(41), "rc of a runtime local runs the module's rc");
-});
-test("ref_count still reads the count in a module that defines rc", {
-  b := Box(i32)(3);
-  assert(ref_count(b) == usize(1), "ref_count(b) == 1");
+// A module-level `rc` collides with the prelude's.
+comptime_expect_error(rc :: (fn(x : i32) -> i32)(x + i32(1)));
+_apply :: (fn(rc : Impl(Fn(v : i32) -> i32), x : i32) -> i32)(rc(x));
+_status_plus_one :: (fn(rc : i32) -> i32)(rc + i32(1));
+test("the prelude rc(v) builds a cell with ref_count 1", {
+  b := rc(i32(7));
+  assert(b.* == i32(7), "the cell holds the value");
+  assert(ref_count(b) == usize(1), "a fresh cell has one owner");
   {
     b2 := b;
     {
       b3 := b2;
-      assert(ref_count(b) == usize(2), "ref_count(b) == 2");
+      assert(ref_count(b) == usize(2), "a copy in an inner scope shares the cell");
+      assert(b3.* == i32(7), "the copy reads the same value");
     };
   };
-  assert(ref_count(i32(7)) == usize(1), "a value's ref_count is 1");
+  assert(ref_count(b) == usize(1), "the copies released their count");
 });
-rc :: (fn(x : i32) -> i32)(x + i32(1));
+test("rc(v) is box(v): the same type, the same sharing", {
+  (b : Box(i32)) = rc(i32(1));
+  b2 := b;
+  consume(b2.* = i32(2));
+  assert(b.* == i32(2), "a write through one handle is seen through the other");
+});
+test("a local definition of rc is a shadowing error", {
+  comptime_expect_error(rc := i32(3));
+});
+test("a parameter named rc shadows the prelude rc inside its function", {
+  assert(_apply(v => (v * i32(2)), i32(21)) == i32(42), "rc(x) calls the parameter");
+  assert(_status_plus_one(i32(1)) == i32(2), "a non-function parameter named rc reads as the parameter");
+});
+test("a match-pattern binding named rc shadows the prelude rc inside its arm", {
+  y := match(Option(i32).Some(i32(5)), .Some(rc) => (rc + i32(1)), .None => i32(0));
+  assert(y == i32(6), "the arm reads the bound payload");
+  c := rc(i32(9));
+  assert(c.* == i32(9), "outside the arm rc is the prelude constructor again");
+});

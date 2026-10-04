@@ -31,11 +31,11 @@ test("A ref struct constructed in the scope comes from the arena", {
     p := arena.scoped(() => _Point(x : i32(3), y : i32(4)));
     assert(arena.live_blocks() == usize(1), `one block: ${arena.live_blocks()}`);
     assert((p.x + p.y) == i32(7), "fields");
-    assert(rc(p) == usize(1), "rc() never reports the allocator tag");
+    assert(ref_count(p) == usize(1), "ref_count() never reports the allocator tag");
     // A second OWNER (a local alias of `p` is a borrow and adds no count).
     holder := ArrayList(_Point).new();
     holder.push(p);
-    assert(rc(p) == usize(2), "the count still counts");
+    assert(ref_count(p) == usize(2), "the count still counts");
   };
   assert(arena.live_blocks() == usize(0), "the last drop released it into the arena");
 });

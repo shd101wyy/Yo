@@ -387,7 +387,7 @@ is_iso_type :: (fn(t : TypeValue) -> bool)(
 /// atomically: an atomic reference struct, an atomic reference enum, or an
 /// `Iso(T)` wrapper — the three cases `drop_dup.yo` lowers to
 /// `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic`. Every READ of that count
-/// (`rc(x)`) must be an atomic load too, or it races the atomic RC ops
+/// (`ref_count(x)`) must be an atomic load too, or it races the atomic RC ops
 /// (issues/fixed/rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md).
 is_atomically_counted_rc_type :: (fn(t : TypeValue) -> bool)(
   is_atomic_reference_struct_type(t) || is_atomic_reference_enum_type(t) || is_iso_type(t)

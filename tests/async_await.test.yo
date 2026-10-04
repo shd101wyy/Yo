@@ -6391,13 +6391,13 @@ _pump_pw :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
     (i : i32) = i32(0);
     (total : i32) = i32(0);
     while(runtime(!settled), {
-      rc := _step_pw(i);
+      step := _step_pw(i);
       (act : int) = int(0);
       cond(
-        (rc == i32(0)) => {
+        (step == i32(0)) => {
           act = int(1);
         },
-        (rc == i32(1)) => {
+        (step == i32(1)) => {
           act = int(2);
         },
         true => ()

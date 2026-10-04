@@ -158,10 +158,10 @@ watch :: (fn(path : Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   cstr_bytes := path.to_string().to_cstr();
   cstr := cstr_bytes.ptr().unwrap();
   flags := cond(opts.recursive => events.FS_EVENT_RECURSIVE, true => u32(0));
-  rc := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(w, *u8));
-  if(rc < i32(0), {
+  status := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(w, *u8));
+  if(status < i32(0), {
     events.fs_event_close(w._handle);
-    exn.throw(dyn(IoError.from_errno(i32(0) - rc)));
+    exn.throw(dyn(IoError.from_errno(i32(0) - status)));
   });
   w._active = true;
   w

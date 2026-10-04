@@ -9384,11 +9384,12 @@ export(Result);
 /// - Sharing is silent. Two `Box` handles to one value is the normal case.
 /// - A `Box` cycle leaks unless broken (see `Isolation` / the cycle
 ///   collector); Rust's `Box` cannot form a cycle at all.
-/// - `rc(b)` reports the current reference count (the optimizer may cancel a
+/// - `ref_count(b)` reports the current reference count (the optimizer may cancel a
 ///   dup against a scope-end drop, so it is the live count, not a count of
 ///   names); `Iso`/`can_isolate` is how you ask for uniqueness.
 ///
-/// Use `box(value)` to allocate. Access the inner value with `b.*`.
+/// Use `box(value)` or `rc(value)` to allocate. Access the inner value with
+/// `b.*`.
 ///
 /// ## Example
 /// ```yo
@@ -9404,11 +9405,28 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 /// Allocate a value on the heap, returning a `Box(V)`.
 box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+/// Allocate a value in a fresh reference-counted cell: `rc(value)` takes
+/// ownership of `value` and returns a handle whose `ref_count` is 1.
+///
+/// Today this is exactly `box(value)` and returns a `Box(V)`, because Yo's
+/// `Box` is already reference counted (see above). It exists so that code can
+/// spell the shared, counted cell by its future name: VALUES_BY_DEFAULT V1
+/// renames `Box` to `Rc`, and then `rc(value)` returns an `Rc(V)`
+/// (plans/VALUES_BY_DEFAULT.md decision 11). `rc` is an ordinary function, not
+/// the count: the count is the `ref_count(x)` builtin.
+///
+/// ```yo
+/// a := rc(i32(42));
+/// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+/// b := a;
+/// assert(b.* == i32(42), "a copy shares the cell");
+/// ```
+rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 impl(
   generic(T : Type),
   Box(T),
   Isolation(
-    can_isolate : ((self) -> (rc(self) == 1))
+    can_isolate : ((self) -> (ref_count(self) == 1))
   )
 );
 impl(
@@ -9452,7 +9470,8 @@ impl(
 );
 export(
   Box,
-  box
+  box,
+  rc
 );
 /// Iso — an isolated reference-counted value that can be sent across threads.
 // SAFETY (rule D2, plans/reference/PARALLELISM_RULES.md): Iso(T) is

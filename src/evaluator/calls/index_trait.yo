@@ -693,8 +693,8 @@ _try_comptime_array_index :: (
   caller_env := expr_info_adopt_env(info);
   arg_type := info.ty;
   arg_val := info.value;
-  rc := _check_range_type(arg_type, env, ctx);
-  if(rc.is_range, {
+  range_check := _check_range_type(arg_type, env, ctx);
+  if(range_check.is_range, {
     // Range slicing is no longer a comptime operation — fall through to the
     // runtime path (slice_copy rewriting happens before Index dispatch;
     // plans/archive/SLICE_REWORK.md Part C).
@@ -931,13 +931,13 @@ _try_comptime_string_index :: (
   );
   caller_env := expr_info_adopt_env(info);
   arg_type := info.ty;
-  rc := _check_range_type(arg_type, env, ctx);
+  range_check := _check_range_type(arg_type, env, ctx);
   result_val := _compute_comptime_string_index(
     str_value,
     arg_val,
     arg_expr,
-    rc.is_range,
-    rc.is_inclusive,
+    range_check.is_range,
+    range_check.is_inclusive,
     exn
   );
   result_ty := TypeValue.ComptimeString;
