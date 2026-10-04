@@ -154,6 +154,30 @@ copies the first kind implicitly (decision 16).
       `borrow(y) := …`, `inout(y) := …`.
     - So `y := s.items` is still a move (an error under decision 19) or an
       explicit clone, and the borrow is `borrow(items) := s.items`.
+    - **Soundness.** This is Hylo's model. Hylo's specification: "A binding
+      declaration introduced with `let` defines an immutable binding. The
+      value of a live immutable binding may be projected immutably"; "If a
+      projection `p` projects an object `o` immutably, `o` is immutable for
+      the duration of `p`'s lifetime"; "If … mutably, `o` is inaccessible
+      for the duration of `p`'s lifetime" (`hylo-lang/specification`,
+      `spec.md`). Hylo's default local `let` is a borrow; Yo's default
+      local is owned, and the borrow is spelled. Yo's conditions:
+      1. **Second-class:** no store, return, escaping capture (decision 22)
+         or spawn, so every check is intraprocedural and no lifetimes
+         appear.
+      2. **Exclusivity:** while `borrow(y)` is live its root is neither
+         written nor moved; while `inout(y)` is live its root is not
+         accessed.
+      3. **Aliases:** a value-rooted root has none under unique ownership,
+         so rule 2 is checked statically and completely. An `Rc`/`Arc`- or
+         module-rooted root keeps the runtime borrow flag (§3.10).
+      4. **`await`:** a borrow live across a suspension follows §3.13 A2:
+         an error through `Rc`/`Arc`, allowed for a task-local value root.
+    - **Live range: last use, not scope end** (Hylo: a binding's lifetime
+      "ends after the last expression in which the binding occurs"). Today's
+      `inout` locals are scope-based, and the audit lists last-use live
+      ranges as an open follow-up. It lands with `borrow(y) :=`, because a
+      scope-long read borrow would block writes to the root for no reason.
 
 19. **Confirmed 2026-10-05: no partial moves.** A field of explicit-copy or move-only
     type cannot be moved out of a value that stays alive. Use
@@ -362,9 +386,10 @@ here. The phase sizes below are written without them, on purpose.
   source lives on becomes an error. §0.4 measures it before the phases are
   sized. Diagnostics and `yo fix` insert `.clone()` where a copy is wanted;
   many sites want a move or a borrow instead, which is the point of looking.
-- **Ergonomics without local borrows (decision 18).** Code that binds a
-  field to a local to read it twice must clone, or read in place. The
-  measurement says how often; `let` borrow bindings are the remedy if needed.
+- **Local borrows (decision 18).** `borrow(y) := place` and
+  `inout(y) := place` cover binding a field to read or write it repeatedly.
+  The risk is the quality of the exclusivity diagnostics; last-use live
+  ranges keep the borrows short.
 - **Tree clones in the compiler (decision 21).** With `Rc` children,
   `check ./src` time and RSS should stay flat; V4 measures each tree.
 
