@@ -448,6 +448,22 @@ discards the buffer, so a program's own output vanished from CI logs and
 aborts; a site that prints a message flushes stdout BEFORE its `fprintf`, so a
 piped run keeps the terminal's order.
 
+### The Windows main wrapper owns the console code pages
+
+The Windows arm of `generate_main_wrapper` brackets the program body with
+`__yo_win_console_cp_enter()` / `__yo_win_console_cp_exit()`: enter saves the
+console's input and output code pages and switches both to `CP_UTF8` — Yo
+emits UTF-8 bytes unconditionally, and a console decoding them with a legacy
+ANSI page (GBK 936, Shift-JIS 932) mojibakes every non-ASCII character — and
+exit flushes stdout/stderr and restores the saved pages (scoped to the run;
+aborts skip the restore). No-ops when the pages are already UTF-8 (a parent Yo
+process switched them — nested `yo test` batches) or when no console is
+attached (piped runs read 0). `WIN32_LEAN_AND_MEAN` excludes `<wincon.h>` from
+`<windows.h>`, so the wrapper emits its own `#include <wincon.h>`; the four
+functions are kernel32, the module `CreateThread` already links against. Test:
+`tests/internal/main_wrapper_console_cp.test.yo`
+(issues/fixed/windows-console-non-ascii-mojibake-under-legacy-code-page.md).
+
 ### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
 
 Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_header_small_t`. Every other RC type carries the 56-byte `__yo_ref_header_t`, of which the small header is a prefix. **Any runtime C that can see either layout** must read through `__yo_rc_prefix_t*`: incr/decr, `rc()`, the borrow checks, and GC visitors given a child pointer. It may cast to `__yo_ref_header_t*` only after testing `__YO_GC_TRACKED` through the prefix. A member access through the 56-byte type on a 16-byte object is undefined behavior even when only prefix fields are touched. The UBSan acceptance run caught exactly that (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`). In lightweight mode `__yo_rc_prefix_t` is the one header. `tests/internal/gc_runtime_atomics.test.yo` pins the rule.

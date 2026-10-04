@@ -1,0 +1,104 @@
+//! The Windows `main` wrapper brackets the program body with a console
+//! code-page switch: `__yo_win_console_cp_enter()` saves the console's input
+//! and output code pages and sets both to UTF-8, `__yo_win_console_cp_exit()`
+//! flushes and restores them. Yo emits UTF-8 bytes unconditionally, but a
+//! console decoding them with a legacy ANSI page (GBK 936, Shift-JIS 932, …)
+//! mojibakes every non-ASCII character — `yo explain E0902`'s em dash printed
+//! as garbage on a default zh-CN Windows console. The posix and wasm arms
+//! carry none of it.
+//! issues/fixed/windows-console-non-ascii-mojibake-under-legacy-code-page.md
+//!
+//! Drives `generate_main_wrapper` directly (the uring_runtime.test.yo pattern:
+//! call the emitter, assert on the C) with a minimal registered
+//! `__yo_user_main`, one context per target triple.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ Emitter } :: import("../../src/emitter.yo");
+{ expr_info_table_new } :: import("../../src/expr_info.yo");
+{ parse_target, host_target, TargetInfo } :: import("../../src/target.yo");
+{ Token, TokenKind } :: import("../../src/token.yo");
+{ AstExpr } :: import("../../src/expr.yo");
+{ EvalValue, FuncValData } :: import("../../src/value.yo");
+{ TypeValue } :: import("../../src/types/definitions.yo");
+{ CodeGenContext } :: import("../../src/codegen/utils/index.yo");
+{ FunctionGenerationContext } :: import("../../src/codegen/functions/context.yo");
+{ generate_main_wrapper, ModuleLevelVarEntry } :: import("../../src/codegen/functions/generation.yo");
+
+mk_target :: (fn(triple : str) -> TargetInfo)(
+  match(
+    parse_target(String.from(triple)),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  )
+);
+
+mk_user_main_funcval :: (fn() -> EvalValue)({
+  tok := Token(
+    kind : TokenKind.Identifier,
+    value : String.from("main"),
+    row : u32(0),
+    column : u32(0),
+    character : u32(0),
+    module_path : String.from("app.yo"),
+    input : String.new()
+  );
+  data := FuncValData(
+    forall_names : ArrayList(String).new(),
+    params : ArrayList(String).new(),
+    param_type_names : ArrayList(String).new(),
+    evidence_params : ArrayList(String).new(),
+    body : AstExpr.Atom(usize(1), tok),
+    cap_names : ArrayList(String).new(),
+    cap_tys : ArrayList(TypeValue).new(),
+    func_id : String.from("fn_yo_id_test_console_cp_main")
+  );
+  EvalValue.FuncVal(box(data), ArrayList(EvalValue).new())
+});
+
+emit_main_wrapper_for :: (fn(triple : str) -> String)({
+  em := Emitter.new();
+  base := CodeGenContext.new(
+    em,
+    expr_info_table_new(),
+    mk_target(triple),
+    String.from("system"),
+    usize(16777216),
+    false,
+    false,
+    false,
+    false,
+    false
+  );
+  base.register_function(
+    String.from("fn_yo_id_test_console_cp_main"),
+    mk_user_main_funcval(),
+    String.from("__yo_user_main")
+  );
+  ctx := FunctionGenerationContext.new(base);
+  generate_main_wrapper(ctx, ArrayList(ModuleLevelVarEntry).new());
+  em.print()
+});
+
+test("windows main wrapper switches the console to UTF-8 and restores it", {
+  c := emit_main_wrapper_for("x86_64-pc-windows-msvc");
+  assert(c.contains(String.from("#include <wincon.h>")), "wincon include present");
+  assert(c.contains(String.from("static void __yo_win_console_cp_enter(void)")), "enter helper defined");
+  assert(c.contains(String.from("static void __yo_win_console_cp_exit(void)")), "exit helper defined");
+  assert(c.contains(String.from("SetConsoleOutputCP(CP_UTF8)")), "output code page switched to UTF-8");
+  assert(c.contains(String.from("SetConsoleCP(CP_UTF8)")), "input code page switched to UTF-8");
+  assert(c.contains(String.from("__yo_win_console_cp_enter();")), "enter called from main");
+  assert(c.contains(String.from("__yo_win_console_cp_exit();")), "exit called from main");
+  assert(c.contains(String.from("SetConsoleOutputCP(__yo_win_console_out_cp)")), "output code page restored");
+  assert(c.contains(String.from("SetConsoleCP(__yo_win_console_in_cp)")), "input code page restored");
+  assert(c.contains(String.from("fflush(stdout);")), "stdout flushed before the restore");
+});
+
+test("posix and wasm main wrappers carry no console code-page machinery", {
+  l := emit_main_wrapper_for("x86_64-unknown-linux-gnu");
+  assert(!l.contains(String.from("SetConsoleOutputCP")), "posix arm has no console switch");
+  assert(!l.contains(String.from("wincon")), "posix arm has no wincon include");
+  w := emit_main_wrapper_for("wasm32-unknown-emscripten");
+  assert(!w.contains(String.from("SetConsoleOutputCP")), "wasm arm has no console switch");
+  assert(!w.contains(String.from("wincon")), "wasm arm has no wincon include");
+});

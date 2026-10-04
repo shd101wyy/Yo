@@ -1622,12 +1622,47 @@ ${init_call}  // Call sync main
 ${abort_report}${belt_block}  return 0;
 }
 
+// UTF-8 console I/O for the program's lifetime. Yo emits UTF-8 bytes, but a
+// console decoding them with a legacy ANSI code page (GBK 936, Shift-JIS 932,
+// ...) mojibakes every non-ASCII character, so switch the attached console's
+// input and output code pages to UTF-8 and restore the originals on exit.
+// No-ops when the pages are already UTF-8 (a parent Yo process switched them)
+// or when the process has no console (redirected/piped runs read 0).
+// WIN32_LEAN_AND_MEAN keeps <wincon.h> out of <windows.h>, hence the explicit
+// include; the four functions are kernel32, the module CreateThread above
+// already links against.
+// issues/fixed/windows-console-non-ascii-mojibake-under-legacy-code-page.md
+#include <wincon.h>
+static UINT __yo_win_console_out_cp = 0;
+static UINT __yo_win_console_in_cp = 0;
+static void __yo_win_console_cp_enter(void) {
+  UINT __yo_out_cp = GetConsoleOutputCP();
+  UINT __yo_in_cp = GetConsoleCP();
+  if (__yo_out_cp != 0 && __yo_out_cp != CP_UTF8) {
+    __yo_win_console_out_cp = __yo_out_cp;
+    SetConsoleOutputCP(CP_UTF8);
+  }
+  if (__yo_in_cp != 0 && __yo_in_cp != CP_UTF8) {
+    __yo_win_console_in_cp = __yo_in_cp;
+    SetConsoleCP(CP_UTF8);
+  }
+}
+static void __yo_win_console_cp_exit(void) {
+  // Flush first: UTF-8 still sitting in a stdio buffer would decode under
+  // the legacy page again once it is restored.
+  fflush(stdout);
+  fflush(stderr);
+  if (__yo_win_console_out_cp != 0) SetConsoleOutputCP(__yo_win_console_out_cp);
+  if (__yo_win_console_in_cp != 0) SetConsoleCP(__yo_win_console_in_cp);
+}
+
 // Main wrapper - runs the program body on a worker thread (default 1 GiB
 // stack, overridable via YO_MAIN_STACK_MB), mirroring the POSIX wrapper.
 int main(int argc, char** argv) {
   __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+  __yo_win_console_cp_enter();
 
   size_t __yo_main_stack = (size_t)1024 * 1024 * 1024; // 1 GiB
   {
@@ -1647,6 +1682,7 @@ int main(int argc, char** argv) {
   } else {
     __yo_main_thread_entry(NULL);
   }
+  __yo_win_console_cp_exit();
   return 0;
 }
 `;
