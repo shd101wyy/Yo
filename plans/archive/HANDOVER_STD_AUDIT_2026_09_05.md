@@ -47,7 +47,7 @@ Correct these before trusting any plan built on it.
 session diaries and the audit's own §4): the arity-validation-outside-the-swallow
 gate, the **systematic registry arc**
 (`issues/fixed/build-smoke-hangs-registry-perturbation.md`, OPEN), Windows stdin pipe
-*writes*, `issues/s3-fs-wrappers-windows-semantics-audit.md`,
+*writes*, `issues/fixed/s3-fs-wrappers-windows-semantics-audit.md`,
 `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P0 (the forward-reference diagnostic), the D8
 `env` module-merge, regex extras, O5 Formatter routing, `Dyn(Reader)` (unblocked
 since C17), and the builtin-shadowing decision.

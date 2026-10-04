@@ -22,8 +22,10 @@ B4–B6; this file adds what no plan owned.
    the recipe teaches `yo verify ./spec --strict` and `yo init` scaffolds
    `spec/` (claims/proofs wall README + a seed law keeping the gate green);
    the `init-*` goldens were re-recorded.
-4. `issues/explain-registry-e13xx-e15xx-bands-unallocated.md` (S3) — start
-   with E15xx over the install/fetch family.
+4. ~~The reserved E13xx/E15xx explain bands are unallocated (S3)~~ — FIXED
+   2026-10-04 (`issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md`):
+   E1301 names the ICE wrapper and E1501–E1505 the dependency toolchain,
+   raised through `format_coded_error`, with full bilingual registry entries.
 5. `issues/fixed/yo-doc-help-omits-the-implemented---version-flag.md` (S3) and
    `yo check --help`'s missing `--test-bodies` line (same class).
 

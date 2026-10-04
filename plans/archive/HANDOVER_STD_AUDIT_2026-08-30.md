@@ -237,7 +237,7 @@ onto develop or drop the superseded changes.
    two would have caught every defect found today; highest bug-class value.
 4. **C29** — the big unification arc.
 5. **Windows cluster**: stdin pipe writes (overlapped named pipes);
-   issues/s3-fs-wrappers-windows-semantics-audit.md (Child/spawn + fs
+   issues/fixed/s3-fs-wrappers-windows-semantics-audit.md (Child/spawn + fs
    wrappers have no Windows story; fs_convenience S3 sections skip on
    Windows). The debug-workflow pattern (temp workflow on the branch,
    cross-emit from a Linux stage-1, clang-compile and run one test file on
