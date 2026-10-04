@@ -15,7 +15,7 @@ impl(
   })
 );
 derive(_P, Clone);
-_Q :: struct(n : i32);
+_Q :: struct(n : i32, arr : Array(i32, 2));
 impl(
   _Q,
   get : (fn(self : Self) -> i32)(self.n),
@@ -29,6 +29,8 @@ _mk :: (fn(n : i32) -> _P)(_P(n : n, items : ArrayList(i32).new()));
 /// must not leak into the plain call.
 _read_n :: (fn(generic(T : Type), x : T) -> i32)(x.n);
 _take :: (fn(v : i32) -> i32)(v + i32(1));
+// A payload field holding a function, called through the wrapper.
+_H :: struct(f : (fn(x : i32) -> i32));
 // A user type may not implement `Deref` (concrete or generic impl).
 _UserWrap :: struct(v : i32);
 _UserGen :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
@@ -84,11 +86,13 @@ test("auto-deref: inout(self) through Box", {
   assert(b.*.items.len() == usize(2), "b.items.push(x) mutates the payload's list");
 });
 test("auto-deref: Arc reads forward, writes are D3 errors in safe code", {
-  a := arc(_Q(n : i32(4)));
+  a := arc(_Q(n : i32(4), arr : [i32(1), i32(2)]));
   assert(a.n == i32(4), "a.n reads a.*.n");
   assert(a.get() == i32(4), "a.get() calls a.*.get()");
   comptime_expect_error(a.bump(), "atomic object");
   comptime_expect_error(a.n = i32(5), "atomic object");
+  assert(a.arr(usize(1)) == i32(2), "a.arr(i) reads through the Arc");
+  comptime_expect_error(a.arr(usize(0)) = i32(1), "atomic object");
 });
 test("auto-deref: one generic body serves a value and a Box", {
   p := _mk(i32(3));
@@ -96,6 +100,23 @@ test("auto-deref: one generic body serves a value and a Box", {
   assert(_read_n(p) == i32(3), "plain receiver");
   assert(_read_n(b) == i32(6), "Box receiver");
   assert(_read_n(p) == i32(3), "plain receiver again");
+});
+test("auto-deref: indexing a forwarded field (callee position)", {
+  b := box(_mk(i32(1)));
+  b.items.push(i32(5));
+  b.items.push(i32(6));
+  assert(b.items(usize(1)) == i32(6), "b.items(i) reads b.*.items(i)");
+  b.items(usize(0)) = i32(7);
+  assert(b.*.items(usize(0)) == i32(7), "b.items(i) = v writes the payload's list");
+  bb := box(box(_mk(i32(1))));
+  bb.items.push(i32(8));
+  assert(bb.items(usize(0)) == i32(8), "through two wrappers");
+  bb.items(usize(0)) = i32(9);
+  assert(bb.*.*.items(usize(0)) == i32(9), "written through two wrappers");
+});
+test("auto-deref: a function-typed payload field is callable", {
+  h := box(_H(f : (fn(x : i32) -> i32)(x + i32(1))));
+  assert(h.f(i32(1)) == i32(2), "h.f(x) calls h.*.f(x)");
 });
 test("auto-deref: only the prelude implements Deref", {
   comptime_expect_error(impl(_UserWrap, Deref(Target : i32)), "Cannot implement Deref");

@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated
 } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
@@ -1760,6 +1760,56 @@ Raw pointer operations may dereference invalid memory.`
               );
               return(expr);
             });
+            // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): on a
+            // `Deref` wrapper (`Box`, `Arc`) whose own fields lack the label,
+            // `w.field` means `w.*.field`. The object argument is replaced
+            // IN PLACE by `w.*` and the access re-evaluated, so every later
+            // reader — codegen, the root-of-place walks (D3, E0908, inout),
+            // the dup/drop passes — sees the ordinary explicit chain; nested
+            // wrappers recurse through the same arm. `w` itself was already
+            // evaluated: it is marked so the re-evaluation reuses its
+            // ExprInfo. A pointer object is left alone (`p.*` there is the
+            // raw-pointer dereference).
+            // In callee position (`w.items(i)`, `w.f(x)`) the wrapper's own
+            // METHODS come first: the rewrite happens only when the wrapper
+            // has no method of that name; a payload METHOD is reached by the
+            // receiver retry in `_try_find_receiver_method`. So the order is
+            // wrapper field, wrapper method, payload field, payload method.
+            pa_is_callee := is_dot_callee(ast_expr_id(expr));
+            if(!is_pointer_type(original_obj_ty) && deref_target_type(base_ty, env).is_some(), {
+              match(
+                _deref_chain_has_field(base_ty, label_str.clone(), env),
+                .Ok(_) => if(!pa_is_callee || (get_receiver_methods_by_name_from_env(env, label_str.clone(), base_ty, false).len() == usize(0)), {
+                  // The tree's own object node, unless its evaluation
+                  // returned a different node that carries the ExprInfo.
+                  orig_obj := match(
+                    all_args.get(usize(0)),
+                    .Some(a) => cond(expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)).is_some() => a, true => object_expr),
+                    .None => object_expr
+                  );
+                  all_args(usize(0)) = make_deref_expr(orig_obj, ast_expr_token(expr), ast_expr_token(property_expr));
+                  obj_id := ast_expr_id(orig_obj);
+                  mark_node_preevaluated(obj_id);
+                  rewritten := recur(expr, env_in, ctx, exn);
+                  unmark_node_preevaluated(obj_id);
+                  return(rewritten);
+                }),
+                .Err(innermost) => if(!pa_is_callee, {
+                  exn.throw(
+                    dyn(
+                      with_code(
+                        format_error_message(
+                          ast_expr_token(property_expr),
+                          unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(object_expr), base_ty, innermost, _field_labels_of(innermost))
+                        ),
+                        unknown_field_code(base_ty)
+                      )
+                    )
+                  );
+                  return(expr);
+                })
+              );
+            });
             // Outside callee position a missing field is a user error:
             // nothing else can make `p.xx` mean something, because a method
             // is reached only through a call (`p.xx(...)`, whose callee this
@@ -1767,51 +1817,7 @@ Raw pointer operations may dereference invalid memory.`
             // silently, so `z := p.z` read "Failed to evaluate", an argument
             // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
-            if(!is_dot_callee(ast_expr_id(expr)), {
-              // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): on a
-              // `Deref` wrapper (`Box`, `Arc`) whose own fields lack the
-              // label, `w.field` means `w.*.field`. The object argument is
-              // replaced IN PLACE by `w.*` and the access re-evaluated, so
-              // every later reader — codegen, the root-of-place walks (D3,
-              // E0908, inout), the dup/drop passes — sees the ordinary
-              // explicit chain; nested wrappers recurse through the same
-              // arm. `w` itself was already evaluated: it is marked so the
-              // re-evaluation reuses its ExprInfo. A pointer object is left
-              // alone (`p.*` there is the raw-pointer dereference).
-              if(!is_pointer_type(original_obj_ty) && deref_target_type(base_ty, env).is_some(), {
-                match(
-                  _deref_chain_has_field(base_ty, label_str.clone(), env),
-                  .Ok(_) => {
-                    // The tree's own object node, unless its evaluation
-                    // returned a different node that carries the ExprInfo.
-                    orig_obj := match(
-                      all_args.get(usize(0)),
-                      .Some(a) => cond(expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)).is_some() => a, true => object_expr),
-                      .None => object_expr
-                    );
-                    all_args(usize(0)) = make_deref_expr(orig_obj, ast_expr_token(expr), ast_expr_token(property_expr));
-                    obj_id := ast_expr_id(orig_obj);
-                    mark_node_preevaluated(obj_id);
-                    rewritten := recur(expr, env_in, ctx, exn);
-                    unmark_node_preevaluated(obj_id);
-                    return(rewritten);
-                  },
-                  .Err(innermost) => {
-                    exn.throw(
-                      dyn(
-                        with_code(
-                          format_error_message(
-                            ast_expr_token(property_expr),
-                            unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(object_expr), base_ty, innermost, _field_labels_of(innermost))
-                          ),
-                          unknown_field_code(base_ty)
-                        )
-                      )
-                    );
-                    return(expr);
-                  }
-                );
-              });
+            if(!pa_is_callee, {
               exn.throw(dyn(with_code(format_error_message(ast_expr_token(property_expr), unknown_field_message(label_str, base_ty, fields_labels)), unknown_field_code(base_ty))));
               return(expr);
             });

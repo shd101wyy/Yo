@@ -3097,8 +3097,10 @@ assert(pp.y == 2);         // nested wrappers: pp.*.*.y
 - When neither the wrapper nor its payload has the name, the error says so:
   ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
   field "z" either.`` (E0406; E0610 for a method).
-- A field of the payload that holds a function is not reached by
-  `w.f(...)`; write `w.*.f(...)`.
+- **Callee position.** `p.items(i)` indexes the payload's `items`, and
+  `p.f(x)` calls a payload field that holds a function. The wrapper's own
+  methods still come first, so the order is wrapper field, wrapper method,
+  payload field, then payload method.
 
 ### Box with Assignments
 
