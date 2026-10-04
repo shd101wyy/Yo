@@ -184,7 +184,8 @@ io.async(fn)                  // 创建冷 Future（惰性，不会立即启动�
 io.await(future, io)              // 若为冷任务则启动，等待完成，返回结果
 io.state(future)              // 查询 Future 的当前状态（返回 FutureState）
 io.spawn(future, io)              // 启动冷 Future 但不等待，返回 JoinHandle(T)
-handle.await(io)       // 等待已 spawn 的任务，返回 Option(T)（unwind 时返回 .None）
+handle.await(io)       // 等待已 spawn 的任务，返回 Option(T)（unwind 时返回 .None）；阻塞等待，用于 main / 普通 fn
+handle.join(io)        // 同样的 Option(T)，但作为 Future（std/async）：任务内部用这个
 yield()                       // 创建预完成的 Future（将控制权让给事件循环）
 ```
 
@@ -640,28 +641,12 @@ export(main);
 
 ### 在任务内部等待 spawn 出来的任务
 
-`handle.await(io)` 以及 `std/async` 的组合器（`join_all`、`race`、`race_first`、`any`、
-`any_first`、`timeout`）都是**阻塞等待**：它们会反复驱动事件循环，直到对应的 handle 完成。
+`handle.await(io)` 是**阻塞等待**：它会反复驱动事件循环，直到对应的 handle 完成。
 在 `main` 或任何普通 `fn` 里这正是你想要的。但在 `io.async` 体内部，它会**嵌套事件循环**：
 正在等待的任务仍留在 C 栈上，由内层循环去运行其他任务；栈上位于它下面的任务在这次等待返回
-之前都无法恢复执行，如果被等待的工作恰好依赖其中某个任务，程序就会死锁。
-
-默认情况下嵌套的等待照常运行，所以这个错误很容易被忽略。设置 `YO_ASYNC_STRICT=1` 后，
-任务内部第一个需要驱动事件循环的等待会确定性地 panic；`yo test` 在默认的 address
-sanitizer 下运行每个测试二进制时都会设置这个变量：
-
-```rust
-run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) => {
-    io.await(yield(io), io);
-    handles := ArrayList(JoinHandle(i32)).new();
-    handles.push(io.spawn(work(i32(1), io), io));
-    handles.push(io.spawn(work(i32(2), io), io));
-    outs := join_all(handles, io); // ✗ 在任务内部进行阻塞等待
-    i32(outs.len())
-  })
-);
-```
+之前都无法恢复执行，如果被等待的工作恰好依赖其中某个任务，程序就会死锁。设置
+`YO_ASYNC_STRICT=1` 后这样的等待会确定性地 panic；`yo test` 在默认的 address sanitizer
+下运行每个测试二进制时都会设置这个变量：
 
 ```
 panic: a blocking await ran inside an async task: an io.await in a non-io.async function,
@@ -669,14 +654,14 @@ JoinHandle.await, or a std/async combinator (join_all/race/any/timeout) was call
 spawned or awaited task. That nests the event loop and can deadlock. ...
 ```
 
-把 `join_all` 换成直接调用 `handles(i).await(io)` 也会同样 panic。要在任务内部收集 spawn
-出去的工作，先挂起直到每个 handle 都进入终态（`is_finished()` 不会阻塞；await `yield`
-让事件循环去运行其他任务），然后再读取结果。已完成的 handle 的 `await` 会立即返回，不会
-驱动事件循环：
+任务内部应当使用 **`handle.join(io)`**（`std/async`）：它是一个 future，解析为同样的
+`Option(T)`，并**挂起**正在等待的任务直到 handle 进入终态。`std/async` 的组合器
+（`join_all`、`race`、`race_first`、`any`、`any_first`、`timeout`）也都是这种 future，
+所以同一种写法在 `main` 和任务内部都适用：
 
 ```rust
 { println } :: import("std/fmt");
-{ yield } :: import("std/async");
+{ join_all, yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
 
 work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
@@ -690,41 +675,37 @@ work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 
-all_finished :: (fn(handles : ArrayList(JoinHandle(i32))) -> bool)({
-  (i : usize) = usize(0);
-  (done : bool) = true;
-  while(i < handles.len(), {
-    if(!handles(i).is_finished(), { done = false; });
-    i = (i + usize(1));
-  });
-  done
-});
-
 run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
     handles := ArrayList(JoinHandle(i32)).new();
     handles.push(io.spawn(work(i32(1), io), io));
     handles.push(io.spawn(work(i32(2), io), io));
-    // ✓ 挂起，直到每个 handle 都进入终态
-    while(!all_finished(handles), { io.await(yield(io), io); });
-    // 每个 handle 都已完成，所以 `await` 直接读出结果，不再等待
+    // ✓ 真正的挂起点：这个任务等待期间其他任务照常运行
+    outs := io.await(join_all(handles, io), io);
     (sum : i32) = i32(0);
     (i : usize) = usize(0);
-    while(i < handles.len(), {
-      match(handles(i).await(io), .Some(v) => { sum = (sum + v); }, .None => ());
+    while(i < outs.len(), {
+      match(outs(i), .Some(v) => { sum = (sum + v); }, .None => ());
       i = (i + usize(1));
     });
+    // 单个 handle：同样的写法
+    h := io.spawn(work(i32(3), io), io);
+    match(io.await(h.join(io), io), .Some(v) => { sum = (sum + v); }, .None => ());
     sum
   })
 );
 
 main :: (fn(io : Io) -> unit)({
   n := io.await(run_all(io), io);
-  println(`sum ${n}`); // sum 3，在 YO_ASYNC_STRICT=1 下也是如此
+  println(`sum ${n}`); // sum 6，在 YO_ASYNC_STRICT=1 下也是如此
 });
 export(main);
 ```
+
+`join` 不会消耗 handle；对已完成任务的 `join` 会立即解析。这些等待之下是一个运行时原语：
+一个由任务完成或中止来唤醒的 park future（`std/sys/externs` 的 `__yo_join_wait_new` /
+`__yo_join_wait_add`）；`race` 和 `timeout` 会把多个 handle 加到同一个等待上。
 
 ## 事件循环
 
@@ -1437,8 +1418,6 @@ handle.await(io);
 ### 已知限制
 
 1. **效应处理器不是闭包** — 处理器函数是独立的 C 函数，无法捕获外部作用域的变量。请通过显式参数或 `Box` 传递状态。参见 `docs/en-US/ALGEBRAIC_EFFECTS.md`。
-
-2. **在任务内部等待 `JoinHandle` 会嵌套事件循环** — 见上文"在任务内部等待已 spawn 的任务"。`plans/ASYNC_IO_API_AUDIT.md` 的 A1 阶段会移除这个限制。
 
 本文档早期版本列出的限制——异步中的三参数 `while`、二元表达式作为异步返回值，以及一个从未有过 issue 记录、也无法复现的"异步 unwind 引用计数双重递减"——都已不存在。参见 `issues/fixed/async-while-3arg-form.md` 和 `issues/fixed/async-sm-result-type-binary-expr.md`。
 

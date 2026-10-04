@@ -134,8 +134,15 @@ fixtures that need its elements (`dml_append_seq`, `dml_sorted_insert`,
 `push_at_end` that states them. A verify target's own `ensures` is not
 spliced by the seed.
 
-**Generation B DONE** (`feat/push-element-contract`, once SEED_VERSION is
-v0.2.49): `push`'s `ensures` carries
+**Generation B DONE**, re-landed 2026-10-04 on a v0.2.50 seed.
+- **First landing:** #1128 on a v0.2.49 seed. It was reverted in #1170,
+  because the clause compares elements with `==`. The call-site contract
+  instance threw E0610 for an element type without `Eq`, and the seed-run
+  verify sweep went red on `src/parser.yo` and `src/expr.yo`.
+- **Why it works now:** #1166 drops such an ensures clause at that call,
+  and v0.2.50 is the first seed that carries it.
+
+`push`'s `ensures` carries
 `forall(k : usize, (k < self.len()) ==> (self(k) == cond((k == old(self.len())) => value, true => old(self)(k))))`.
 The fixtures' `push_at_end` wrappers are gone (back to `out.push(x)`), and
 `docs/*/FORMAL_VERIFICATION.md` §Sequences over lists no longer says "until
@@ -237,6 +244,21 @@ defined.`) Verify the gate the usual way before merging: `yo build` the tree
 with the actual seed bundle. The cli-case fixture then moves to
 `build.manifest.<field>`, and the user docs (`docs/*/BUILD_SYSTEM.md`) document
 it as the public surface.
+
+## Seed-gated follow-up (2026-10-03): `JoinHandle.join` at the three hand-rolled wait loops
+
+**Generation A DONE 2026-10-03** (`plans/ASYNC_IO_API_AUDIT.md` A1): the runtime
+emits `__yo_join_wait_new` / `__yo_join_wait_add`, `std/async` declares them,
+`JoinHandle.join(io)` and the future-shaped combinators are built on them, and
+`tests/async/combinators.test.yo` proves them from inside a task under the
+tree binary. **Generation B (once `SEED_VERSION` ≥ the release carrying the
+primitive):** replace the `is_finished()` + awaited `yield` loops with
+`io.await(h.join(io), io)` / `io.await(timeout(...), io)` at
+`std/http/client.yo` (`_fetch_deadline`, on the compiler's import path through
+`src/version_cache.yo` and `src/verifier/z3.yo`), `std/process/command.yo`
+(`output`'s stderr drain) and `src/build_runner.yo` (the scheduler's wait).
+Failure mode if early: LOUD — the seed's runtime has no `__yo_join_wait_new`,
+so stage 1 fails to link.
 
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
 

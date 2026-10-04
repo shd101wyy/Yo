@@ -93,5 +93,5 @@ module in this state, all of them are invisible on the generated site while
 `yo doc`. `std/prelude.yo` is an extreme case already known to emit zero items.
 
 Related: `issues/collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`,
-`issues/stddoc-core-doc-comment-attached-by-bare-member-name.md`,
+`issues/fixed/stddoc-core-doc-comment-attached-by-bare-member-name.md`,
 `issues/fixed/skip-prelude-doc-comment-false-positive.md`.

@@ -270,7 +270,7 @@ static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
 
 static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
   int result;
-  if (dirfd == -100) {
+  if (dirfd == AT_FDCWD) {
     result = chmod(path, (mode_t)mode);
   } else {
     result = fchmodat(dirfd, path, (mode_t)mode, flags);
@@ -285,7 +285,7 @@ static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
 
 static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
   int result;
-  if (dirfd == -100) {
+  if (dirfd == AT_FDCWD) {
     if (flags & AT_SYMLINK_NOFOLLOW) {
       result = lchown(path, (uid_t)uid, (gid_t)gid);
     } else {
@@ -299,7 +299,7 @@ static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid,
 
 static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
   ssize_t result;
-  if (dirfd == -100) {
+  if (dirfd == AT_FDCWD) {
     result = readlink(path, buf, bufsize);
   } else {
     result = readlinkat(dirfd, path, buf, bufsize);
@@ -1873,7 +1873,7 @@ static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path
   
   // Perform synchronous open
   int fd;
-  if (dirfd == -100) {  // AT_FDCWD
+  if (dirfd == AT_FDCWD) {
     fd = open(path, flags, mode);
   } else {
     fd = openat(dirfd, path, flags, mode);
@@ -1936,7 +1936,7 @@ static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path,
   }
   
   int result;
-  if (dirfd == -100) {  // AT_FDCWD
+  if (dirfd == AT_FDCWD) {
     if (at_flags & AT_SYMLINK_NOFOLLOW) {
       result = lstat(path, (struct stat*)statxbuf);
     } else {
@@ -1966,7 +1966,7 @@ static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* pat
   atomic_init(&future->continuation_sm, NULL);
   
   int result;
-  if (dirfd == -100) {
+  if (dirfd == AT_FDCWD) {
     result = mkdir(path, (mode_t)mode);
   } else {
     result = mkdirat(dirfd, path, (mode_t)mode);
@@ -1992,8 +1992,8 @@ static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* pa
   atomic_init(&future->continuation_sm, NULL);
   
   int result;
-  if (dirfd == -100) {
-    if (flags & 0x80) {  // AT_REMOVEDIR (macOS value)
+  if (dirfd == AT_FDCWD) {
+    if (flags & AT_REMOVEDIR) {
       result = rmdir(path);
     } else {
       result = unlink(path);
@@ -2022,7 +2022,7 @@ static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char*
   atomic_init(&future->continuation_sm, NULL);
   
   int result;
-  if (olddirfd == -100 && newdirfd == -100) {
+  if (olddirfd == AT_FDCWD && newdirfd == AT_FDCWD) {
     result = rename(oldpath, newpath);
   } else {
     result = renameat(olddirfd, oldpath, newdirfd, newpath);
@@ -2048,7 +2048,7 @@ static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t 
   atomic_init(&future->continuation_sm, NULL);
   
   int result;
-  if (newdirfd == -100) {
+  if (newdirfd == AT_FDCWD) {
     result = symlink(target, linkpath);
   } else {
     result = symlinkat(target, newdirfd, linkpath);
@@ -2074,7 +2074,7 @@ static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* o
   atomic_init(&future->continuation_sm, NULL);
   
   int result;
-  if (olddirfd == -100 && newdirfd == -100) {
+  if (olddirfd == AT_FDCWD && newdirfd == AT_FDCWD) {
     result = link(oldpath, newpath);
   } else {
     result = linkat(olddirfd, oldpath, newdirfd, newpath, flags);

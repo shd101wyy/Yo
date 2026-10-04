@@ -12,7 +12,7 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen_at, fresh_local_name } :: import("../utils/index.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
@@ -54,7 +54,7 @@ generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : Funct
                         .Some(dup_ei) => match(
                           dup_ei.variable_name,
                           .Some(dup_vn) => {
-                            args_list.push_string(get_variable_name_for_codegen(dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
+                            args_list.push_string(get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
                             used_dup_temp = true;
                           },
                           .None => ()

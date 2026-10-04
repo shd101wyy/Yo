@@ -107,7 +107,7 @@ impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
 push : (fn(own(self) : Self, val : T) -> Self)
 ```
 
-方法内部检查 `rc(self) == usize(1)`：
+方法内部检查 `ref_count(self) == usize(1)`：
 
 - **唯一（rc = 1）**：直接原地修改缓冲区并返回同一对象。无分配、无复制——O(1)。
 - **共享（rc > 1）**：分配新缓冲区、复制数据并返回新对象。原对象不变——O(n)。

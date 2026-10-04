@@ -1525,3 +1525,281 @@ test("rc: copies of a value holding RC data are counted in every position (COW S
   assert(io.await(task, io) >= usize(5), "and the task sees a shared count");
   assert((w3.n == i32(1)) && (h.len() == usize(1)), "all copies stay live to here");
 });
+// A borrowed value passed to an `own` parameter — a field place, or a borrowed
+// parameter — hands the callee a reference of its own (a +1), and the caller
+// keeps its own. The METHOD-dispatch call forms (`Type.method(a)`,
+// `recv.method(a)`) generated these arguments bare, dropping the +1 the plain
+// call `make(a)` emits: the callee released a reference it was never given,
+// and the caller's own release then freed the box a second time
+// (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
+(g_own_m_disposed : i32) = i32(0);
+_OwnM :: ref(struct(tag : i32));
+impl(
+  _OwnM,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_own_m_disposed = (g_own_m_disposed + i32(1));
+    })
+  )
+);
+_OwnMHolder :: struct(b : _OwnM);
+impl(
+  _OwnMHolder,
+  make : (fn(own(b) : _OwnM) -> Self)(Self(b : b)),
+  adopt : (fn(self : Self, own(b) : _OwnM) -> i32)(b.tag)
+);
+_OwnMWrap :: struct(m : _OwnM, n : i32);
+_OwnMOuter :: struct(w : _OwnMWrap);
+_own_m_plain :: (fn(own(b) : _OwnM) -> _OwnMHolder)(_OwnMHolder(b : b));
+_own_m_param_field :: (fn(w : _OwnMWrap) -> _OwnMHolder)(_OwnMHolder.make(w.m));
+_own_m_param :: (fn(m : _OwnM) -> _OwnMHolder)(_OwnMHolder.make(m));
+_own_m_nested_field :: (fn(o : _OwnMOuter) -> _OwnMHolder)(_OwnMHolder.make(o.w.m));
+_own_m_plain_field :: (fn(w : _OwnMWrap) -> _OwnMHolder)(_own_m_plain(w.m));
+test("Type.method with an own parameter retains a borrowed parameter's field", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(1)), n : i32(1));
+    h := _own_m_param_field(w);
+    assert(rc(w.m) == usize(2), `the holder and the caller each hold one, got ${rc(w.m).to_string()}`);
+    assert((h.b.tag == i32(1)) && (g_own_m_disposed == before), "still live in both");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("Type.method with an own parameter retains a local's field", {
+  before := g_own_m_disposed;
+  {
+    out := _OwnMWrap(m : _OwnM(tag : i32(2)), n : i32(0));
+    h := _OwnMHolder.make(out.m);
+    assert(rc(out.m) == usize(2), `the holder and the local each hold one, got ${rc(out.m).to_string()}`);
+    assert(h.b.tag == i32(2), "the holder reads it");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("Type.method with an own parameter retains a nested field and a borrowed parameter", {
+  before := g_own_m_disposed;
+  {
+    o := _OwnMOuter(w : _OwnMWrap(m : _OwnM(tag : i32(3)), n : i32(0)));
+    h := _own_m_nested_field(o);
+    assert(rc(o.w.m) == usize(2), `nested field: got ${rc(o.w.m).to_string()}`);
+    m := _OwnM(tag : i32(4));
+    h2 := _own_m_param(m);
+    assert(rc(m) == usize(2), `borrowed parameter: got ${rc(m).to_string()}`);
+    assert((h.b.tag + h2.b.tag) == i32(7), "both holders read their box");
+  };
+  assert(g_own_m_disposed == (before + i32(2)), `each box released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("recv.method with an own parameter retains a field argument", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(5)), n : i32(0));
+    holder := _OwnMHolder(b : _OwnM(tag : i32(6)));
+    assert(holder.adopt(w.m) == i32(5), "the callee read its copy");
+    assert(rc(w.m) == usize(1), `the callee released only its own copy, got ${rc(w.m).to_string()}`);
+    assert(g_own_m_disposed == before, "nothing released early");
+  };
+  assert(g_own_m_disposed == (before + i32(2)), `each box released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("a plain call with an own parameter still retains a field argument", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(8)), n : i32(0));
+    h := _own_m_plain_field(w);
+    assert(rc(w.m) == usize(2), `got ${rc(w.m).to_string()}`);
+    assert(h.b.tag == i32(8), "the holder reads it");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+// The same method-dispatch emitters also dropped the Stage-0 +1 of a borrowed
+// field projection passed as the RECEIVER (`o.inner.poke(o)`): the plain call
+// `poke_f(o.inner, o)` holds the projected value for the call, the method call
+// did not, and a callee that replaced `o.inner` freed the receiver it was still
+// reading.
+_AlInner :: ref(struct(v : i32));
+_AlOuter :: ref(struct(inner : _AlInner));
+_al_replace :: (fn(o : _AlOuter) -> unit)({
+  o.inner = _AlInner(v : i32(0));
+});
+impl(
+  _AlInner,
+  poke : (fn(self : Self, o : _AlOuter) -> i32)({
+    _al_replace(o);
+    self.v
+  })
+);
+_al_poke_f :: (fn(i : _AlInner, o : _AlOuter) -> i32)({
+  _al_replace(o);
+  i.v
+});
+test("a receiver projection outlives a method that replaces it", {
+  o := _AlOuter(inner : _AlInner(v : i32(7)));
+  assert(_al_poke_f(o.inner, o) == i32(7), "plain call: the argument survived the replacement");
+  o2 := _AlOuter(inner : _AlInner(v : i32(8)));
+  assert(o2.inner.poke(o2) == i32(8), "method call: the receiver survived the replacement");
+  assert((o.inner.v + o2.inner.v) == i32(0), "both owners see the replacement");
+});
+// `ref_count(x)` is the count builtin's name; `rc(x)` is its old spelling,
+// retired one seed release later (plans/VALUES_BY_DEFAULT.md V1 step 0).
+// Both read the same cell in every shape `rc` reads today.
+RcNode :: ref(struct(v : i32));
+test("ref_count(x) reads the same count as rc(x)", {
+  // A value: 1, at compile time.
+  p := Point(1, 2);
+  assert(ref_count(p) == rc(p), "ref_count(p) == rc(p)");
+  assert(ref_count(p) == usize(1), "ref_count(p) == 1");
+  // ref(struct(...))
+  n1 := RcNode(v : i32(1));
+  assert(ref_count(n1) == usize(1), "ref_count(n1) == 1");
+  {
+    n2 := n1;
+    {
+      n3 := n2;
+      assert(ref_count(n1) == usize(2), "ref_count(n1) == 2");
+      assert(ref_count(n3) == rc(n3), "ref_count(n3) == rc(n3)");
+    };
+  };
+  assert(ref_count(n1) == rc(n1), "ref_count(n1) == rc(n1)");
+  // Box
+  b1 := Box(i32)(3);
+  {
+    b2 := b1;
+    {
+      b3 := b2;
+      assert(ref_count(b1) == usize(2), "ref_count(b1) == 2");
+      assert(ref_count(b3) == rc(b3), "ref_count(b3) == rc(b3)");
+    };
+  };
+  assert(ref_count(b1) == usize(1), "ref_count(b1) == 1");
+  // Arc: an atomic count, read atomically.
+  a1 := arc(i32(42));
+  {
+    a2 := a1;
+    {
+      a3 := a2;
+      assert(ref_count(a1) == usize(2), "ref_count(a1) == 2");
+      assert(ref_count(a3) == rc(a3), "ref_count(a3) == rc(a3)");
+    };
+  };
+  assert(ref_count(a1) == usize(1), "ref_count(a1) == 1");
+  // ArrayList (a ref struct): the list handle's own count.
+  l1 := ArrayList(i32).new();
+  l1.push(i32(1));
+  {
+    l2 := l1;
+    {
+      l3 := l2;
+      assert(ref_count(l1) == usize(2), "ref_count(l1) == 2");
+      assert(ref_count(l3) == rc(l3), "ref_count(l3) == rc(l3)");
+    };
+  };
+  assert(ref_count(l1) == usize(1), "ref_count(l1) == 1");
+  assert(ref_count(l1) == rc(l1), "ref_count(l1) == rc(l1)");
+});
+test("rc gives way to a local binding; a local named ref_count stays bindable", {
+  // Not reserved: markdown_yo (a dependency of the compiler) binds a local
+  // `ref_count` counter. A binding that is only read never meets the builtin.
+  (ref_count : i32) = i32(3);
+  assert(ref_count == i32(3), "a local named ref_count reads as the local");
+  {
+    rc :: (fn(x : i32) -> i32)(x + i32(10));
+    assert(rc(i32(1)) == i32(11), "a local fn named rc is called, not the count builtin");
+  };
+});
+// A newtype built from a value someone else still owns — a field projection
+// (`Self(b : self.b)`) or a local that stays live (`x := self.b; Self(b : x)`) —
+// takes a reference of its own, as a struct built the same way does. The
+// newtype constructor is a zero-cost C cast, and it dropped the argument's
+// deferred `___dup`: both owners released the payload, a use-after-free
+// (issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md).
+// A payload the newtype takes over (a fresh local, a call result, a
+// constructor) must still gain no extra reference.
+(g_nt_disposed : i32) = i32(0);
+_NtBox :: ref(struct(tag : i32));
+impl(
+  _NtBox,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_nt_disposed = (g_nt_disposed + i32(1));
+    })
+  )
+);
+_NtV :: newtype(b : _NtBox);
+_NtOpt :: newtype(b : Option(_NtBox));
+_NtW :: newtype(v : _NtV);
+_NtPair :: newtype(p : Tuple(_NtBox, i32));
+_NtHolder :: struct(v : _NtV);
+impl(
+  _NtV,
+  from_field : (fn(inout(self) : Self) -> Self)(Self(b : self.b)),
+  from_field_val : (fn(self : Self) -> Self)(Self(b : self.b)),
+  from_local : (fn(inout(self) : Self) -> Self)({
+    x := self.b;
+    Self(b : x)
+  })
+);
+impl(_NtOpt, from_field : (fn(inout(self) : Self) -> Self)(Self(b : self.b)));
+impl(_NtW, from_field : (fn(inout(self) : Self) -> Self)(Self(v : self.v)));
+impl(_NtPair, from_field : (fn(inout(self) : Self) -> Self)(Self(p : self.p)));
+_nt_from_param :: (fn(b : _NtBox) -> _NtV)(_NtV(b : b));
+_nt_from_fresh :: (fn(tag : i32) -> _NtV)({
+  b := _NtBox(tag : tag);
+  _NtV(b : b)
+});
+_nt_mk :: (fn(tag : i32) -> _NtBox)(_NtBox(tag : tag));
+_nt_from_call :: (fn(tag : i32) -> _NtV)(_NtV(b : _nt_mk(tag)));
+_nt_from_holder :: (fn(h : _NtHolder) -> _NtV)(_NtV(b : h.v.b));
+test("a newtype built from a field or a live local retains its payload", {
+  before := g_nt_disposed;
+  {
+    s := _NtV(b : _NtBox(tag : i32(1)));
+    t := s.from_field();
+    assert(rc(s.b) == usize(2), `field projection (inout self): got ${rc(s.b).to_string()}`);
+    u := s.from_field_val();
+    assert(rc(s.b) == usize(3), `field projection (by-value self): got ${rc(s.b).to_string()}`);
+    w := s.from_local();
+    assert(rc(s.b) == usize(4), `live local: got ${rc(s.b).to_string()}`);
+    assert(((t.b.tag + u.b.tag + w.b.tag) == i32(3)) && (g_nt_disposed == before), "every copy reads the live box");
+  };
+  assert(g_nt_disposed == (before + i32(1)), `released exactly once, got ${(g_nt_disposed - before).to_string()}`);
+});
+test("a newtype built from a parameter or a parameter's field retains it", {
+  before := g_nt_disposed;
+  {
+    b := _NtBox(tag : i32(2));
+    v := _nt_from_param(b);
+    assert(rc(b) == usize(2), `parameter: got ${rc(b).to_string()}`);
+    h := _NtHolder(v : _NtV(b : _NtBox(tag : i32(3))));
+    hv := _nt_from_holder(h);
+    assert(rc(h.v.b) == usize(2), `nested field of a parameter: got ${rc(h.v.b).to_string()}`);
+    assert(((v.b.tag + hv.b.tag) == i32(5)) && (g_nt_disposed == before), "both read their box");
+  };
+  assert(g_nt_disposed == (before + i32(2)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
+});
+test("a newtype that takes over its payload adds no reference", {
+  before := g_nt_disposed;
+  {
+    f := _nt_from_fresh(i32(4));
+    assert(rc(f.b) == usize(1), `moved fresh local: got ${rc(f.b).to_string()}`);
+    c := _nt_from_call(i32(5));
+    assert(rc(c.b) == usize(1), `call result: got ${rc(c.b).to_string()}`);
+    n := _NtV(b : _NtBox(tag : i32(6)));
+    assert(rc(n.b) == usize(1), `constructor argument: got ${rc(n.b).to_string()}`);
+  };
+  assert(g_nt_disposed == (before + i32(3)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
+});
+test("a newtype over an Option, a newtype or a tuple retains a field payload", {
+  before := g_nt_disposed;
+  {
+    o := _NtOpt(b : .Some(_NtBox(tag : i32(7))));
+    o2 := o.from_field();
+    assert(match(o.b, .Some(x) => (rc(x) == usize(2)), .None => false), "Option payload shared by both");
+    n := _NtW(v : _NtV(b : _NtBox(tag : i32(8))));
+    n2 := n.from_field();
+    assert(rc(n.v.b) == usize(2), `nested newtype: got ${rc(n.v.b).to_string()}`);
+    p := _NtPair(p : (_NtBox(tag : i32(9)), i32(0)));
+    p2 := p.from_field();
+    assert(rc(p.p.0) == usize(2), `tuple payload: got ${rc(p.p.0).to_string()}`);
+    o2_tag := match(o2.b, .Some(x) => x.tag, .None => i32(0));
+    assert((o2_tag + n2.v.b.tag + p2.p.0.tag) == i32(24), "every copy reads its box");
+  };
+  assert(g_nt_disposed == (before + i32(3)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
+});

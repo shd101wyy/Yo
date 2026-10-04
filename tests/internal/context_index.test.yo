@@ -22,6 +22,7 @@
 { assert } :: import("std/assert");
 {
   ContextIndexEntry,
+  ContextIndexModule,
   context_tree_key,
   context_index_dir,
   context_index_ensure,
@@ -29,7 +30,7 @@
   context_index_load_modules,
   context_module_name
 } :: import("../../src/doc/context_index.yo");
-{ search_score } :: import("../../src/context_command.yo");
+{ search_score, _search_entries, LoadedWorld } :: import("../../src/context_command.yo");
 /// Write `text` to `<root>/<rel>`, creating parent directories.
 _put :: (fn(root : String, rel : String, text : String, io : Io, exn : Exception) -> unit)({
   path := Path.new(root).join(Path.new(rel));
@@ -234,4 +235,94 @@ test("search scoring: exact > prefix > substring > signature > doc", {
   assert(insig == usize(100), `signature 100, got ${insig.to_string()}`);
   assert(indoc == usize(50), `doc 50, got ${indoc.to_string()}`);
   assert(none == usize(0), `no match 0, got ${none.to_string()}`);
+});
+test("search scoring: a multi-word query ANDs its tokens over name, module, signature and doc", {
+  // "hash string" used to be matched as ONE literal substring and hit
+  // nothing. Tokens are whitespace-split, lowercased, and EVERY token must
+  // match somewhere; the entry scores its WEAKEST token's best tier.
+  mkm :: (fn(mod : String, nm : String, sig : String, dc : String) -> ContextIndexEntry)(
+    ContextIndexEntry(
+      module : mod,
+      name : nm,
+      kind : `fn`,
+      signature : sig,
+      doc : dc,
+      origin : String.new()
+    )
+  );
+  // The motivating shape: `hash` names the method, `string` only its module
+  // and signature — the module tier is what lets the recall query hit.
+  e_mod := mkm(
+    `std/string`,
+    `hash`,
+    `(String) fn(generic(H) inout(self) : String, inout(hasher) : H) -> unit`,
+    String.new()
+  );
+  s_mod := search_score(e_mod, String.from("hash string"));
+  assert(s_mod == usize(150), `name-exact ∧ module-substring → the weaker token's tier 150, got ${s_mod.to_string()}`);
+  e_doc := mkm(`std/x`, `hash`, String.new(), `Hashes a string quickly.`);
+  assert(search_score(e_doc, String.from("hash string")) == usize(50), `a doc-only token scores the doc tier 50`);
+  e_sig := mkm(`std/x`, `hash`, `fn(s : String) -> u64`, String.new());
+  assert(search_score(e_sig, String.from("hash string")) == usize(100), `a signature-only token scores 100`);
+  e_none := mkm(`std/x`, `hash`, String.new(), String.new());
+  assert(search_score(e_none, String.from("hash string")) == usize(0), `a token matching nowhere kills the entry`);
+  assert(search_score(e_mod, String.from("  Hash   string ")) == usize(150), `whitespace runs collapse and tokens are lowercased`);
+  assert(search_score(e_mod, String.from("   ")) == usize(0), `a whitespace-only query is no query`);
+  e_file := mkm(`std/fs/file`, `read`, String.new(), String.new());
+  assert(search_score(e_file, String.from("file")) == usize(150), `the module tier also serves one-token queries, above signature and doc`);
+});
+test("_search_entries: byte-identical rows collapse; a multi-word query matches", {
+  // An IO failure fails the test. deep=false never touches io/exn, but the
+  // signature demands them.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  // std/async/channel's shape: one `close` per receiver type, and every
+  // signature says `Self`, so several index lines are byte-identical.
+  row :: (fn(nm : String, sig : String) -> ContextIndexEntry)(
+    ContextIndexEntry(
+      module : `t/channel`,
+      name : nm,
+      kind : `method`,
+      signature : sig,
+      doc : String.new(),
+      origin : String.new()
+    )
+  );
+  entries := ArrayList(ContextIndexEntry).new();
+  entries.push(row(`close`, `(fn(self : Self) -> unit)`));
+  entries.push(row(`is_closed`, `(fn(self : Self) -> bool)`));
+  entries.push(row(`close`, `(fn(self : Self) -> unit)`));
+  entries.push(row(`close`, `(fn(self : Self) -> unit)`));
+  entries.push(row(`close`, `(fn(self : Self) -> bool)`));
+  world := LoadedWorld(entries : entries, mods : ArrayList(ContextIndexModule).new());
+  hits := _search_entries(String.from("close"), false, world, io, exn);
+  // `is_closed` is a legitimate name-substring hit, so the row count is 3
+  // (the deduped trio + is_closed + the distinct-signature close) where the
+  // unfixed stream printed 5.
+  assert(hits.len() == usize(3), `the trio collapsed and is_closed still hits: 3 rows, got ${hits.len().to_string()}`);
+  (closes : usize) = usize(0);
+  (saw_bool : bool) = false;
+  (i : usize) = usize(0);
+  while(i < hits.len(), {
+    h := hits(i);
+    i = (i + usize(1));
+    if(h.entry.name == String.from("close"), {
+      closes = (closes + usize(1));
+      if(h.entry.signature.contains(String.from("bool")), {
+        saw_bool = true;
+      });
+    });
+  });
+  assert(closes == usize(2), `the byte-identical trio is ONE row, the distinct signature stays: 2 close rows, got ${closes.to_string()}`);
+  assert(saw_bool, `the distinct-signature close survived`);
+  // The token fix runs through the whole hit stream: `channel` matches only
+  // the module.
+  hits2 := _search_entries(String.from("close channel"), false, world, io, exn);
+  assert(hits2.len() == usize(3), `every distinct row matches the module token: 3, got ${hits2.len().to_string()}`);
+  assert(hits2(usize(0)).score == usize(150), `name-exact ∧ module-substring → 150, got ${hits2(usize(0)).score.to_string()}`);
 });

@@ -14,7 +14,7 @@ B4–B6; this file adds what no plan owned.
 1. ~~A law over an imported callee cannot verify (S2)~~ — FIXED
    2026-10-03 (`issues/fixed/law-over-an-imported-callee-cannot-verify.md`):
    cross-file laws verify, so the `spec/` convention below is unblocked.
-2. `issues/yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`
+2. `issues/fixed/yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`
    (S3) — tokenize the query, dedup the rows; recall is the surface's whole
    job. Cheap, high leverage.
 3. ~~The `yo init` AGENTS.md template omits the verify recipe (S3)~~ — FIXED
@@ -24,7 +24,7 @@ B4–B6; this file adds what no plan owned.
    the `init-*` goldens were re-recorded.
 4. `issues/explain-registry-e13xx-e15xx-bands-unallocated.md` (S3) — start
    with E15xx over the install/fetch family.
-5. `issues/yo-doc-help-omits-the-implemented---version-flag.md` (S3) and
+5. `issues/fixed/yo-doc-help-omits-the-implemented---version-flag.md` (S3) and
    `yo check --help`'s missing `--test-bodies` line (same class).
 
 ## The evals corpus (BEND B4) — still the roadmap's Agent-loop item

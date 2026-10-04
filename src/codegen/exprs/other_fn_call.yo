@@ -2,8 +2,8 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
-{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_index_trait_ptr_type } :: import("../../expr_info.yo");
+{ AstExpr, ExprId, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
+{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, expr_info_index_trait_ptr_type, scope_variables, scope_release_note_hard } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
@@ -15,7 +15,7 @@
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
-{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript } :: import("../utils/index.yo");
+{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -425,15 +425,17 @@ _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String
 _c_func_name :: (fn(func_id : String, context : FunctionGenerationContext) -> Option(String))(
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
 );
-/// The last binding for `name` whose value is a registered FuncVal → its C name.
-_arg_fn_value_c_name :: (fn(env : Environment, name : String, context : FunctionGenerationContext) -> Option(String))({
-  vars := get_variables_from_env(env, name);
+/// The last binding for `name` (in node `key`'s recorded scope `env`) whose
+/// value is a registered FuncVal → its C name.
+_arg_fn_value_c_name :: (fn(key : ExprId, env : Environment, name : String, context : FunctionGenerationContext) -> Option(String))({
+  vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)), .Some(v) => match(v.value.get(usize(0)), .Some(val) => if(is_func_val(val), match(val, .FuncVal(__fvd1, _) => _c_func_name(__fvd1.*.func_id, context), _ => Option(String).None), Option(String).None), .None => Option(String).None), .None => Option(String).None))
 });
-/// Whether the last binding for `name` is compile-time-only.
-_last_is_comptime_only :: (fn(env : Environment, name : String) -> bool)({
-  vars := get_variables_from_env(env, name);
+/// Whether the last binding for `name` (in node `key`'s recorded scope `env`)
+/// is compile-time-only.
+_last_is_comptime_only :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
+  vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
@@ -490,7 +492,7 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
         // Function-typed atom argument → use the registered C function name.
         if(ast_expr_is_atom(arg), {
           match(
-            _arg_fn_value_c_name(arg_ei.env, vname.clone(), context),
+            _arg_fn_value_c_name(ast_expr_id(arg), arg_ei.env, vname.clone(), context),
             .Some(cn) => {
               arg_code = cn;
             },
@@ -506,14 +508,14 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
         if(arg_code.len() == usize(0), {
           return(String.from(""));
         });
-        is_comptime_only := _last_is_comptime_only(arg_ei.env, vname.clone());
+        is_comptime_only := _last_is_comptime_only(ast_expr_id(arg), arg_ei.env, vname.clone());
         // A slot read, or a consuming read of one (`_sm_consuming_read`
         // renders the slot plus its move marker): the value is already in
         // hand, so neither a C local nor a dup applies. Falling back to the
         // binding's name read a C local that a resumed task never initialized
         // (issues/fixed/a-pattern-binding-moved-after-an-await-in-its-arm-reads-an-uninitialized-local.md).
         is_sm := arg_code.starts_with("sm->");
-        sanitized := get_variable_name_for_codegen(vname.clone(), Option(Environment).Some(arg_ei.env));
+        sanitized := get_variable_name_for_codegen_at(ast_expr_id(arg), vname.clone(), Option(Environment).Some(arg_ei.env));
         // A by-`ref` binding read passed BY VALUE generates `(*name)` (the deref
         // of the same variable). That is a simple read, NOT a fresh temp — do not
         // materialize it into `<T> name = (*name);` (which would redeclare and
@@ -567,6 +569,25 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
     .None => _call_generate_expr(arg, indent.clone(), context)
   )
 );
+/// One argument of a method dispatch (`recv.m(a)`, `Type.m(a)`, a vtable
+/// slot, a recorded method callee). An argument that carries a deferred
+/// `___dup` — the copy an `own` parameter takes of a borrowed value (a field
+/// place, a borrowed parameter) or the caller-owned +1 of a borrowed
+/// projection — is materialized exactly as the plain-call path does
+/// (`_materialize_arg`); any other argument is its plain code, so a call
+/// without a dup emits the same C as before. Generating these arguments
+/// bare dropped the dup: an `own` callee still released its copy, so the
+/// caller's own drop of the field freed it a second time, and a receiver
+/// projection was not held while the callee replaced it
+/// (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
+_dispatch_arg_code :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  has_dup := match(
+    context.base.get_expr_info(arg),
+    .Some(aei) => match(expr_info_deferred_dup_expressions(aei), .Some(d) => (d.len() > usize(0)), .None => false),
+    .None => false
+  );
+  if(has_dup, _materialize_arg(arg, param_is_ref, expr, indent, context), _call_generate_expr(arg, indent, context))
+});
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
 /// spill to a temp).
@@ -1022,7 +1043,7 @@ _call_may_unwind :: (fn(func_ei_value : Option(EvalValue), function_type : TypeV
 /// value is extracted, vs merely propagated): the direct-control-fn
 /// given-binding check plus the Phase-2 explicit-param fallback. There is no
 /// specialized-evidence branch (FuncVal has no specializedType — Gap 2).
-_call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeValue, param_types : ArrayList(TypeValue), runtime_args : ArrayList(AstExpr), context : FunctionGenerationContext, callee_name : Option(String)) -> bool)({
+_call_is_handler_installation :: (fn(key : ExprId, func_ei : ExprInfo, function_type : TypeValue, param_types : ArrayList(TypeValue), runtime_args : ArrayList(AstExpr), context : FunctionGenerationContext, callee_name : Option(String)) -> bool)({
   env := func_ei.env;
   fdfl := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
   // (1) Direct call to a control/effect-record handler fn bound via a local
@@ -1050,6 +1071,7 @@ _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeVal
     .None => callee_is_ctl
   );
   install1 := if(is_direct_handler, {
+    scope_release_note_hard(String.from("install-direct"), key);
     callee_fid := match(func_ei.value, .Some(v) => if(is_func_val(v), _func_val_id(v), String.new()), .None => String.new());
     fid_hit := match(
       find_innermost_frame_with_given_variable(env, (v : Variable) => match(v.value.get(usize(0)), .Some(val) => (is_func_val(val) && (callee_fid.len() > usize(0)) && (_func_val_id(val) == callee_fid)), .None => false)),
@@ -1082,6 +1104,7 @@ _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeVal
       match(
         runtime_args.get(pi),
         .Some(arg) => if(ast_expr_is_atom(arg), {
+          scope_release_note_hard(String.from("install-param"), key);
           arg_var := ast_expr_token(arg).value;
           match(
             find_innermost_frame_with_given_variable(env, (v : Variable) => (v.name == arg_var)),
@@ -1260,7 +1283,9 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       (dmi : usize) = usize(1);
       while(dmi < ndm, {
         dm_call.push_str(", ");
-        match(dm_runtime.get(dmi), .Some(da) => dm_call.push_string(_call_generate_expr(da, indent.clone(), context)), .None => ());
+        // A slot's own `inout` parameters are not amped here, so an argument
+        // passed by value is the only one that can carry a dup.
+        match(dm_runtime.get(dmi), .Some(da) => dm_call.push_string(_dispatch_arg_code(da, false, expr, indent.clone(), context)), .None => ());
         dmi = (dmi + usize(1));
       });
       dm_call.push_str(")");
@@ -1389,6 +1414,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           .Some(mfv) => match(
             is_function_value_with_only_builtin_yo_inline_function_call(mfv),
             .Some(op) => {
+              // The method's per-param ref flags: they gate the argument dups
+              // (`_dispatch_arg_code`) and the ref-amp below.
+              m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
+              ia_pir := match(get_func_type(m_fid_amp), .Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
               inline_args := ArrayList(String).new();
               ia_n := dm_runtime.len();
               (ia_i : usize) = usize(0);
@@ -1396,7 +1425,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 match(
                   dm_runtime.get(ia_i),
                   .Some(a) => {
-                    inline_args.push(_call_generate_expr(a, indent.clone(), context));
+                    inline_args.push(_dispatch_arg_code(a, match(ia_pir.get(ia_i), .Some(r) => r, .None => false), expr, indent.clone(), context));
                   },
                   .None => ()
                 );
@@ -1411,9 +1440,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               // primitive STRUCT FIELD (`self.row.clone()`) emitted
               // `(*((*self).row))` and failed to compile. Same ref-`&` handling
               // as the main arg loop.
-              m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
-              m_pir := match(get_func_type(m_fid_amp), .Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
-              inline_args_amped := _apply_ref_amp(inline_args, m_pir, dm_runtime, indent.clone(), context);
+              inline_args_amped := _apply_ref_amp(inline_args, ia_pir, dm_runtime, indent.clone(), context);
               return(Option(String).Some(generate_yo_inline_function_call(op, inline_args_amped, expr, context, indent.clone())));
             },
             .None => ()
@@ -1451,7 +1478,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 dm_runtime.get(cmi),
                 .Some(a) => {
                   cm_arg_list.push({
-                    mc := _call_generate_expr(a, indent.clone(), context);
+                    mc := _dispatch_arg_code(a, match(cm_param_is_ref.get(cmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
                     hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -1478,7 +1505,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             cm_may_unwind := _call_may_unwind(method_fv, cm_mft, cm_ptypes, false, context);
             cm_install_ei := new_expr_info(ei.env, cm_mft);
             cm_install_ei.value = method_fv;
-            cm_is_install := _call_is_handler_installation(cm_install_ei, cm_mft, cm_ptypes, dm_runtime, context, Option(String).None);
+            cm_is_install := _call_is_handler_installation(ast_expr_id(expr), cm_install_ei, cm_mft, cm_ptypes, dm_runtime, context, Option(String).None);
             if(is_unit_type(ei.ty), {
               cm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the
@@ -1579,7 +1606,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 rm_runtime.get(rmi),
                 .Some(a) => {
                   rm_args.push({
-                    mc := _call_generate_expr(a, indent.clone(), context);
+                    mc := _dispatch_arg_code(a, match(rm_pir.get(rmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
                     hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -1596,7 +1623,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), rm_mft, rm_ptypes, false, context);
             rm_install_ei := new_expr_info(ei.env, rm_mft);
             rm_install_ei.value = Option(EvalValue).Some(rmv);
-            rm_is_install := _call_is_handler_installation(rm_install_ei, rm_mft, rm_ptypes, rm_runtime, context, Option(String).None);
+            rm_is_install := _call_is_handler_installation(ast_expr_id(expr), rm_install_ei, rm_mft, rm_ptypes, rm_runtime, context, Option(String).None);
             if(is_unit_type(ei.ty), {
               rm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the
@@ -1911,7 +1938,13 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           vs_args := if(vs_args_raw.len() == rt_fields.len(), vs_args_raw, _ctor_args_from_labeled(wrapped.clone(), vs_fncall_args));
           vs_value := cond(
             (vs_is_newtype && ((rt_fields.len() == usize(1)) && (vs_args.len() == usize(1)))) => {
-              inner := match(vs_args.get(usize(0)), .Some(a) => _call_generate_expr(a, indent.clone(), context), .None => String.from(""));
+              // The payload carries the evaluator's deferred `___dup` exactly
+              // as a struct field does (the compound-literal arm below): a
+              // borrowed field projection or a still-live local must be
+              // retained, or the cast shares the payload with its owner and
+              // both release it
+              // (issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md).
+              inner := match(vs_args.get(usize(0)), .Some(a) => emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context), .None => String.from(""));
               nt_out := String.from("((");
               nt_out.push_string(vs_cname.clone());
               nt_out.push_str(")(");
@@ -2237,7 +2270,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     .FnCall(_, __ouf2, _, _, _) => if(ast_expr_is_atom(__ouf2), Option(String).Some(ast_expr_token(__ouf2).value), Option(String).None),
     _ => Option(String).None
   );
-  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(func_ei, function_type, param_types, runtime_args, context, ou_callee_name), false);
+  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(ast_expr_id(func_expr), func_ei, function_type, param_types, runtime_args, context, ou_callee_name), false);
   // Registered (named) function call. A cc_early_hit callee (closure value
   // whose type resolved to a registered capture struct) must NOT take this
   // route: its FuncVal's direct C call would omit the closure_context arg —

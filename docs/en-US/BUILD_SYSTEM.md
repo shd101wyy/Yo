@@ -148,7 +148,7 @@ Shared libraries compile with `-shared -fPIC` and produce `lib<name>.so` (Linux)
 | `root`     | `comptime_str` | _(required)_  | Path to test file or directory                                               |
 | `target`   | `comptime_str` | `target_host` | Target triple                                                                |
 | `exclude`  | `comptime_str` | `""`          | Comma-separated project-relative paths skipped by the walk                   |
-| `verbose`  | `bool`         | `false`       | Name each test as it runs (`yo test --verbose`); `yo build --verbose` forces it on |
+| `verbose`  | `bool`         | `false`       | Name each test as it runs (`yo test --verbose`); `yo build --verbose` forces it on. Under `--verbose` the batch compiles also print their C compile line (`Compiling with: …`), so a forwarded flag's arrival at the C compiler is visible in the log |
 | `bail`     | `bool`         | `false`       | Stop at the first failing test (`yo test --bail`)                            |
 | `parallel` | `usize`        | `1`           | Test files compiled at once (`yo test --parallel N`) — forwarded to the child, which accepts it and still runs sequentially in v1 |
 

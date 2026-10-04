@@ -297,6 +297,8 @@ For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md
 
 `yo fmt` is intentionally not configurable, following the same philosophy as `go fmt`: all Yo projects share one compact, consistent style with 2-space indentation.
 
+When `yo fmt` would change a file, it first parses the original: a parse failure is reported like a lexer error (the bare diagnostic, exit code 1) and the file is left untouched, so a formatting pass can never rewrite — or mask — a tree the parser rejects. Files whose formatting is already canonical are not parsed; `yo check` remains the parseability gate.
+
 `yo fmt` elides provably-redundant parentheses (a re-parse must reproduce the original tree, so a group is only removed when grouping cannot change) and keeps every load-bearing one. That includes the redundant LEFT groups of a same-operator chain at any operand count — `(((20 - 5) - 4) - 3)` formats to `20 - 5 - 4 - 3` — while a parenthesized right operand is always kept: `20 - (5 - 4) - 3` is left untouched.
 
 The same rule removes two more kinds of group: parentheses around a whole call argument (`f((a + b))` becomes `f(a + b)`, because the call's own parentheses already group it) and around a bare prefix operand (`-(x)` becomes `-x`, `!(done)` becomes `!done`). It keeps a parenthesized right operand (`a + (b + c)`), a prefix operator's compound operand (`-(x + x)`, `!(a > b)`), the parentheses between two different operators (`(a * b) + c`), and the group around a binary right-hand side of `:=` or `=`, which E0003 requires. `yo fmt` never adds parentheses, so write the E0003 ones yourself. Before and after:
@@ -578,7 +580,7 @@ unsafe(unistd.close(fd));
 _ := unsafe(unistd.close(fd));
 ```
 
-`_ := expr` declares a throwaway binding that is dropped at scope end (`_` may repeat within a scope; `___` may not). Reserve it for the rare cases where the binding itself matters — e.g. a test that counts drops via `rc(...)`, or forcing the value-evaluation path that a compile-error fixture depends on.
+`_ := expr` declares a throwaway binding that is dropped at scope end (`_` may repeat within a scope; `___` may not). Reserve it for the rare cases where the binding itself matters — e.g. a test that counts drops via `ref_count(...)`, or forcing the value-evaluation path that a compile-error fixture depends on.
 
 ### Type inference
 
@@ -728,7 +730,40 @@ create_user(name : `Alice`); // Uses defaults: age=18
 create_user(name : `Bob`, age : i32(30)); // Explicit age
 ```
 
-> Note: Default parameters must use compile-time known values.
+A default must be a **compile-time known value**: the compiler records it
+once, where the function is defined, and passes that value whenever the
+argument is omitted. What counts is whether the whole value is known, not
+what the parameter's type is:
+
+```rust
+(n : i32) ?= i32(18)                    // ✅ a literal
+(alloc : Option(Allocator)) ?= .None    // ✅ a payload-free variant: only its tag, a constant
+(alloc : Allocator) ?= Allocator.global() // ❌ holds the address of a global, fixed only at link time
+(x : i32) ?= seven()                    // ❌ needs a call: error E1105 at the definition
+```
+
+Names in a default resolve where the function is defined, not where it is
+called: a default `K` reads the defining module's `K` even when the caller
+has a `K` of its own.
+
+When the natural default needs runtime work, default to `.None` and decide in
+the body. An omitted argument then reads as "not given" instead of as a
+sentinel value:
+
+```rust
+greet :: (fn(name : str, (greeting : Option(String)) ?= .None) -> String)(
+  match(greeting,
+    .Some(g) => `${g}, ${name}`,
+    .None => `Hello, ${name}`
+  )
+);
+
+greet("Ada");                                      // "Hello, Ada"
+greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
+```
+
+The caller writes `.Some(...)` explicitly: a `T` is not wrapped into
+`Option(T)` automatically.
 
 ### Generic function
 
@@ -2987,7 +3022,7 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 > case. Naming it "the RC one" would imply the others are not.
 >
 > What this means in practice: sharing is silent, a `Box` cycle leaks unless
-> broken (Rust's `Box` cannot form one), and `rc(b)` / `Iso` are how you ask
+> broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
 > about uniqueness.
 
 `Box(T)` is a generic reference-semantics type that wraps any value type:

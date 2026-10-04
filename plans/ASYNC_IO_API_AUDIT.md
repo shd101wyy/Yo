@@ -1,7 +1,9 @@
 # Async I/O API audit: `io.async` / `io.await` / `io.spawn`, `Future`, `JoinHandle`, `IoFuture`
 
-**Status: APPROVED 2026-10-03, phases A0–A5 in order, A0 starting; four
-bugs filed (two S1, two S2, §4).** The four questions in §6 were decided by
+**Status: APPROVED 2026-10-03, phases A0–A5 in order; A0 landed, A1 in
+review (Generation A: the primitive, `JoinHandle.join`, the future-shaped
+combinators; Generation B, the three std/src loops, is parked in
+`backlog/SEED_VERSION_AUTOMATION.md`); four bugs filed (two S1, two S2, §4).** The four questions in §6 were decided by
 the user on 2026-10-03, taking the recommendation in each: aborts propagate,
 `IoFuture` stays a raw `i32`, the combinators take handles only,
 `FutureState.Pending` becomes `Cold`. Measured on develop `bcb57bfe7` with a compiler built from
@@ -294,13 +296,18 @@ at the cold start. A std docstring edit above a method shifts the
 `lsp-member-definition` golden; run `scripts/cli-diff-test.sh` before
 merging.
 
-### A1 — `JoinHandle.await` suspends inside a task; the combinators become futures
+### A1 — `JoinHandle.join` suspends inside a task; the combinators become futures
 
-Make `handle.await(io)` lower the way `io.await` does: inside a state machine
-it registers the task on the child future's waiter list and resumes with
-`.Some(dup(result))` or `.None` (no unwind takeover — the `Option` IS the
-observation, as for the blocking form); in a plain `fn` it stays the poll
-loop. Then rewrite the combinators as `io.async` bodies over that await:
+**As landed (2026-10-03).** Not a new lowering: one runtime primitive and a
+std method. `__yo_join_wait_new()` returns a park future and
+`__yo_join_wait_add(wait, task)` registers it as one of the task's waiters
+(an already-terminal task completes it at once); the task's completion or
+abort fires it like any waiter. `JoinHandle.join(io)` (`std/async`) is an
+`io.async` body that awaits such a wait and then reads the finished handle
+with `await` (which no longer polls), so `io.await(h.join(io), io)` is a real
+suspension in a task and the ordinary blocking poll in `main`.
+`handle.await(io)` stays the blocking form for plain `fn`s. The combinators
+are `io.async` bodies over `join` and the multi-handle wait:
 
 ```rust
 join_all   : (fn(handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(ArrayList(Option(T)), Io)))
@@ -309,21 +316,23 @@ race_first : …  -> Impl(Future(Option(T), Io))
 any, any_first, timeout : the same shape; timeout keeps Result(T, TimeoutError)
 ```
 
-`race` needs "wake me when ANY of these finishes": one `Park` per handle is
-not available from outside the task, so the runtime gains a waiter entry that
-wakes a parent on a child's terminal state without adopting its unwind — the
-same entry the suspending `await` uses. In `main`, `io.await(join_all(hs, io),
-io)` drives the loop exactly as today's blocking call did. Delete the three
-hand-rolled `is_finished` + `yield` loops, update ASYNC_AWAIT.md
-"Waiting for spawned tasks from inside a task" to the new one-liner, and let
-`backlog/ASYNC_DEADLINE_COMBINATOR.md` option A become `timeout` itself. The
-`YO_ASYNC_STRICT` panic stays for an `io.await` in a plain `fn` called from a
-task, which remains a nested loop.
+`race` and `timeout` add several handles to one wait ("wake me when ANY of
+these finishes"); `any` re-waits over the handles still running, since a wait
+with an already-terminal member resolves at once. In `main`,
+`io.await(join_all(hs, io), io)` drives the loop exactly as the blocking call
+did. The three hand-rolled `is_finished` + `yield` loops
+(`std/http/client.yo`, `std/process/command.yo`, `src/build_runner.yo`) are on
+the compiler's import path and keep their shape until `SEED_VERSION` carries
+the primitive (Generation B in `backlog/SEED_VERSION_AUTOMATION.md`);
+`backlog/ASYNC_DEADLINE_COMBINATOR.md` option A is now `timeout` itself. The
+`YO_ASYNC_STRICT` panic stays for `handle.await` and any `io.await` in a
+plain `fn` called from a task, which remain nested loops.
 
 Signature changes, no shims (AGENTS.md). Gates: `tests/async/combinators.test.yo`
-rewritten to await the futures, a new test that uses `join_all` and `timeout`
-INSIDE an `io.async` body under `YO_ASYNC_STRICT=1`, the three std/src call
-sites, `fixpoint_only.sh`.
+awaits the futures and adds the in-task cases (`join`, `join_all`,
+`race_first`, `any`, `timeout` inside `io.async` bodies, under `yo test`'s
+`YO_ASYNC_STRICT=1`; aborting a joiner leaves the joined task running), the
+two `tests/net/tcp.test.yo` call sites, `fixpoint_only.sh`.
 
 ### A2 — One abort semantics (after §6 Q1)
 
@@ -380,6 +389,11 @@ and a zero-sized `Io` measured on the spawn and await rows of
   is not pursued.
 - **Q3 (A1) — handles only.** A future has no identity until started, and a
   handle is what "a running task" means; the combinators do not spawn.
+  **Amended 2026-10-03** (`plans/VALUES_BY_DEFAULT.md` decision 14): once
+  futures can borrow their receiver, `timeout` and a two-way `select` also
+  take futures, run as scoped children, so a deadline or a race can wrap
+  `rx.recv(io)` or `s.next(io)`. The other combinators stay handles-only.
+  This lands with V3, not before.
 - **Q4 (F8) — rename.** `FutureState.Pending` becomes `FutureState.Cold`
   (the word every doc already uses for a not-started future), in A4 with the
   `Running` fix, no compatibility kept.

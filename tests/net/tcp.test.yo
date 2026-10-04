@@ -601,7 +601,7 @@ test("TcpListener.incoming is a Stream of accepted connections", {
   client1 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
   client2 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
   accepted := match(
-    timeout(server, Duration.from_millis(i64(5000)), io),
+    io.await(timeout(server, Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
     .Err(_) => {
       assert(false, "incoming().take(2) did not deliver two connections inside the deadline");
@@ -683,7 +683,7 @@ test("a consumer loop over incoming serves each connection in turn", {
   h := io.spawn(server_task, io);
   client1 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
   client2 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
-  r := timeout(h, Duration.from_millis(i64(5000)), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "the loop finished when take(2) ended the stream");
   assert(fds.len() == usize(2), "the body ran once per connection");
   assert(fds(usize(0)) >= i32(0), "first connection was accepted, not an error item");

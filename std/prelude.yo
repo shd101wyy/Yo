@@ -9691,16 +9691,17 @@ export(IntoIterator);
 /// resolve first-wins by load order — benign for `ArrayList`, but genuinely
 /// divergent for `HashMap`, whose `IntoIterator.Item` is `MapEntry(K, V)`.
 ///
-/// `from_iter_add` RETURNS the accumulator instead of mutating it so that one
+/// `from_iter_add` takes the accumulator by `own` and RETURNS it, so that one
 /// signature covers reference collections (mutate `acc`, return it — the return
-/// is a rebind of the same object) and value types such as `String`.
+/// is a rebind of the same object) and value types such as `String`, whose
+/// write into a borrowed parameter would land in a copy (E0908).
 FromIterator :: trait(
   /// The element type this collection is built from.
   Elem : Type,
   /// The empty collection `collect` starts from.
   from_iter_new : (fn() -> Self),
   /// Add one element to a partially-built collection and return it.
-  from_iter_add : (fn(acc : Self, item : Self.Elem) -> Self)
+  from_iter_add : (fn(own(acc) : Self, item : Self.Elem) -> Self)
 );
 export(FromIterator);
 /// === Array Iterator ===
@@ -12184,6 +12185,11 @@ impl(
   state : (fn(self : JoinHandle(T)) -> FutureState)(
     __yo_join_handle_state_raw((*void)(self.__future))
   ),
+  /// The task's future as an untyped pointer, for the runtime externs that
+  /// take a task (`std/async`'s join waits, `__yo_join_wait_add`). The
+  /// handle keeps owning its reference; the pointer is valid while some copy
+  /// of the handle is alive. Reading through it is unsafe.
+  as_ptr : (fn(self : JoinHandle(T)) -> *(void))((*void)(self.__future)),
   /// True once the task is terminal — `Completed` or `Aborted`.
   is_finished : (fn(self : JoinHandle(T)) -> bool)({
     s := __yo_join_handle_state_raw((*void)(self.__future));

@@ -62,7 +62,7 @@
   get_type_string,
   can_optimize_as_nullable_pointer,
   get_variable_type_string,
-  get_variable_name_for_codegen,
+  get_variable_name_for_codegen_at,
   scope_stack_contains,
   mark_uses_parallelism,
   mark_uses_tls,
@@ -1488,7 +1488,7 @@ _build_async_capture_struct_literal :: (
                   local_c := sanitize_for_c_identifier(label.clone(), false);
                   cname := if(scope_stack_contains(context.base.declared_scopes, local_c.clone()) || context.base.declared_c_var_names.contains(local_c.clone()), local_c, {
                     cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
-                    get_variable_name_for_codegen(label.clone(), cap_env)
+                    get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), cap_env)
                   });
                   parts.push(`.${label_c} = ${cname}`);
                 }
@@ -2053,7 +2053,7 @@ emit_fused_await :: (fn(await_expr : AstExpr, indent : String, context : Functio
     .Some(fei) => match(
       fei.variable_name,
       .Some(fvn) => {
-        low.moved_into_slot.insert(get_variable_name_for_codegen(fvn, Option(Environment).Some(fei.env)));
+        low.moved_into_slot.insert(get_variable_name_for_codegen_at(ast_expr_id(site.call), fvn, Option(Environment).Some(fei.env)));
       },
       .None => ()
     ),

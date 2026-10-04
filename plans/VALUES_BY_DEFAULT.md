@@ -4,8 +4,14 @@
 2026-10-03 (PR #1153): the inventory was re-measured, the design gaps in §3
 were filled, and §6 is the implementation and migration plan. V0 is done:
 the maintainer confirmed the ten decisions of §4 as written on 2026-10-03
-(#1155 added §3.10). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3
-have landed.**
+(#1155 added §3.10). Amended 2026-10-03 with the maintainer: the wrapper
+constructors `box`/`rc`/`arc` and the count reader's rename to `ref_count`
+(§3.2, decision 11, V1 step 0), explicit allocators (§3.11, decision 12),
+and the constructors' `alloc` parameter in place of `new_in` (the types are
+not callable). V1 starts once `plans/STRING_VALUE_SEMANTICS.md` S1–S3 have landed.
+Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
+with decisions 13 (move-only futures) and 14 (second-class borrowing
+futures).**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -139,6 +145,19 @@ no `s[i] = b` either), which closes the UTF-8 hole.
   A `Box` whose payload is move-only (§3.4) is never copied, so it is a
   unique heap cell with a stable address: that is how resources keep an OS
   handle that must not move.
+- **`Box`'s count is invisible.** The cell is counted so that a copy is O(1)
+  and the first write clones (copy-on-write). The count is an implementation
+  detail, not a semantic. No safe program can tell whether two `Box` copies
+  share a cell: `ref_count` does not accept a `Box` in safe code, and nothing
+  else exposes the cell. Three cheaper designs were considered and rejected:
+  - an uncounted `Box` that deep-copies on every implicit copy (O(n) per
+    tree copy);
+  - a move-only `Box` (every recursive enum turns move-only, so V4 needs
+    explicit clones everywhere);
+  - Rust's model, which works because borrows cover most uses; safe Yo has
+    no first-class borrow (§3.10).
+
+  `Rc` is the one wrapper whose sharing a program can observe.
 - **`Rc`** is the one way to say "these copies are the same object" on one
   thread. Graph nodes, a shared context, an observer list, the compiler's
   `Environment`.
@@ -150,6 +169,86 @@ no `s[i] = b` either), which closes the UTF-8 hole.
   has today. Moving to wrappers costs no allocation and no indirection, and
   `Option(Box(T))`, `Option(Rc(T))`, `Option(Arc(T))` keep the one-pointer
   niche (DESIGN §`Option` of a handle is one pointer).
+- **Constructors.** `Box`, `Rc` and `Arc` are types; `box`, `rc` and `arc`
+  are their only constructors. They are ordinary prelude functions written
+  in Yo (no compiler special case), each moving its argument into a new
+  cell, with an optional explicit allocator:
+
+  ```rust
+  box :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None) -> Box(T))(...);
+  rc :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None) -> Rc(T))(...);
+  arc :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None, where(T <: (Sync, Acyclic))) -> Arc(T))(...);
+
+  e := Expr.Add(box(l), box(r));            // T inferred from the argument
+  c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
+  ```
+
+  - `T` is inferred from the argument, so a call never spells it; this is
+    what the ~1,300 tree-node constructions V4 rewrites rely on. A value
+    whose own type is not known spells it at the argument
+    (`box(Option(i32).None)`).
+  - `alloc : .None` (the default; defaults must be compile-time values)
+    means the current `with_allocator` scope, else the global allocator;
+    `.Some(a)` places the cell in `a` (§3.11). There is no `new_in` and no
+    `box_in`: one function per wrapper. Measured 2026-10-03 on v0.2.49 with
+    a pragma'd module declaring the function and a safe caller: both calls
+    compile and run. The caller writes `.Some(...)`: Yo does not wrap a `T`
+    into `Option(T)` (E0601), and a non-`Option` parameter cannot default to
+    `Allocator.global()`, which is not a compile-time value (such a default
+    is E1105 since #1165: `issues/fixed/a-default-parameter-value-that-is-not-compile-time-known-emits-invalid-c.md`).
+    `Option(Allocator)` in a signature is a raw-pointer-carrying type,
+    which the naming gate allows in std (implicitly unsafe-capable) and
+    rejects in a safe user file; passing the value needs no pragma, as with
+    `new_in` today.
+  - **Default parameters resolve names in the defining module** since #1165
+    (`issues/fixed/a-default-parameter-value-resolves-names-in-the-callers-module.md`).
+    `.None` names nothing, so these constructors were never affected.
+  - **The type is not callable outside the prelude.** This is ordinary
+    member visibility (DESIGN §member visibility, the `Counter.new`
+    pattern), not a builtin: after V5 each wrapper's only field is private,
+    so only `std/prelude.yo`, which declares both the type and its
+    constructor, may build one:
+
+    ```rust
+    Box :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_cell : __yo_cell(V)));
+    box :: (fn(generic(T : Type), own(v) : T, (alloc : Option(Allocator)) ?= .None) -> Box(T))(
+      Box(T)(_cell : __yo_cell(T)(v, alloc))
+    );
+    ```
+
+    **The primitive takes the allocator.** `__yo_cell(T)(v, .None)` is
+    today's `__yo_rc_alloc_scoped` (the thread's scope, else global: one load
+    of `__yo_scopes_ever_entered` in a program that never entered a scope);
+    `.Some(a)` is the same helper given `a` as an explicit scope. So
+    `box(v)` costs what a `ref` constructor costs today (the `.None` default
+    is a compile-time constant, folded once `box` inlines), and
+    `box(v, alloc : .Some(a))` pays no scope save/restore, no `_ScopeGuard`
+    allocation and no closure. Routing the explicit case through
+    `with_allocator(a, () => …)` would add all three to every call.
+    During V1–V4, before the primitive exists, the constructors' explicit
+    path does go through `with_allocator`; that overhead is confined to
+    `alloc : .Some(a)` calls, and a narrow construct-with-scope intrinsic
+    can land in V1 if a benchmark asks for it.
+
+    In user code `Box(T)(_cell : …)` is E0405 ("Cannot construct Box
+    outside its declaring module"); `__yo_cell` needs
+    `pragma(Pragma.AllowUnsafe)` (decision 6). During V1–V4 nothing enforces
+    it: the wrapper is still `ref(struct((*) : V))`, whose `*` field is
+    public because `b.*` reads it, so `Box(T)(v)` compiles anywhere and the
+    rule is documentation only (docs, skills and tests teach `box(...)`).
+  - `box` and `arc` exist today without `alloc` (`std/prelude.yo`); `rc` is
+    new. Being prelude exports, the three names cannot be bound by user
+    code (no shadowing), as `box` already cannot.
+  The builtin that reads a cell's count, `rc(x)` today, is renamed
+  **`ref_count(x)`**: it reads the count of the cell `x` holds, which is the
+  header field of that name. In safe code it accepts only `Rc` and `Arc`,
+  the wrappers whose sharing is the point. A `Box`, a collection or `String`
+  buffer and a `Dyn` are copy-on-write values whose sharing must stay
+  unobservable, so only std and `pragma(Pragma.AllowUnsafe)` code (tests of
+  copy-on-write) may read their counts. Yo has no shadowing, so a prelude `rc` claims
+  the name in every module: today's 29 locals and parameters named `rc`
+  (`rc := flock(...)`, exit codes) are renamed with it. V1 step 0 sequences
+  the rename through the seed.
 
 ### 3.3 Auto-dereference
 
@@ -159,6 +258,16 @@ write `b.*.x`. `.*` is not special for a struct: `Box :: ref(struct((*) : V))`
 declares a field whose label is `*`, and `b.*` is an ordinary field access
 (`src/evaluator/exprs/property_access.yo:1683`; `is_box_type` in
 `src/types/guards.yo` tests for that label).
+
+**`.*` becomes the payload of a `Deref` type, not a field.** Once V5 gives
+the wrappers a private `_cell` (§3.2), there is no field labelled `*` to
+read, and `w.*` must keep working in user code. So `w.*` on a type that
+implements `Deref` names its payload place (the cell's inline value,
+`w->value` in C), the same place auto-dereference forwards to; on a raw
+pointer it stays the pointer dereference. The rule lands in V1 next to the
+auto-dereference hooks, where it agrees with today's field reading, and V5
+is the point where it becomes the only reading. `is_box_type` and the
+`*`-label tests move to the `Deref` check then.
 
 - A `Deref` marker trait in the prelude, `Deref :: trait(Target : Type)`,
   implemented by `Box`, `Rc` and `Arc` with `Target := V`. It says "this
@@ -190,7 +299,7 @@ declares a field whose label is `*`, and `b.*` is an ordinary field access
   through a `Mutex` or an atomic.
 - **Writes through `Box`** are copy-on-write: before a field write or an
   `inout(self)` call whose root place passes through a `Box`, the evaluator
-  inserts `Box.make_unique(inout b)` (clone the cell when `rc(cell) > 1`);
+  inserts `Box.make_unique(inout b)` (clone the cell when `ref_count(cell) > 1`);
   the same uniqueness step `String` S3 adds by hand to its mutators, made
   automatic for the one prelude type that needs it everywhere.
 
@@ -269,6 +378,17 @@ The primitive is `__yo_cell(V)` / `__yo_atomic_cell(V)`, a builtin usable
 only in a file with `pragma(Pragma.AllowUnsafe)` (§4 Q6); user code has no
 way to declare a reference type except by wrapping a value in `Rc`/`Arc`.
 
+There are two primitives, not one per wrapper: the split is the C count
+discipline, which codegen must know statically (today's `is_atomic_rc`).
+`__yo_cell` (plain `++`/`--`) backs `Box`, `Rc`, the collection and
+`String` buffers and `Dyn`; `__yo_atomic_cell` backs `Arc` and `std/imm`.
+`Box(V)` and `Rc(V)` are both `struct(_cell : __yo_cell(V))` and still
+distinct types, because structs are nominal (a `B(i32)` is E0601 where an
+`A(i32)` of the same shape is expected); their different behaviour, `Box`'s
+dup-`Clone` plus `make_unique` before a write versus `Rc`'s shared writes,
+is in their impls and the evaluator's write rules (§3.3, §3.10), not in the
+cell.
+
 **A cell is a cycle-collector node; a value is not.** This is the rule that
 makes copy-on-write and the collector agree:
 
@@ -280,6 +400,12 @@ makes copy-on-write and the collector agree:
   `Rc(Node)` elements inside are counted once, not twice; if the buffer were
   traversed inline from each copy, trial deletion would over-subtract and
   free live cells.
+- **A unique cell skips the uniqueness check.** A write through a `Box`
+  (or a collection buffer) runs `make_unique` only when the cell may be
+  shared. A `Box` the compiler can prove unique is written in place with no
+  count test: one just built, one received `own`, or one past its last
+  copy. The dup/drop pair optimizer already removes the count traffic of
+  moves and last uses.
 - A cell is **tracked** (on the collector's list) only if its payload type
   can reach an `Rc`/`Arc` (`can_type_form_rc_cycle`, walking values inline
   and stopping at atomic cells as today). A `Box(i32)` or an
@@ -318,9 +444,9 @@ makes copy-on-write and the collector agree:
   already walks values inline and stops at atomic cells.
 - **Reflection** keeps its names and changes its reading: `Type.contains_rc_type`
   is "reaches a non-atomic cell", `Var.is_owning_the_rc_value` and
-  `Var.has_other_aliases` are about the handle a value holds, `rc(x)` reads
-  the count of the cell `x` directly holds (a `Box`, an `Rc`, an `Arc`, a
-  collection's buffer) and is a compile error on a value with no cell.
+  `Var.has_other_aliases` are about the handle a value holds, `ref_count(x)` reads
+  the count of the cell `x` directly holds and is a compile error on a value
+  with no cell. Safe code may read an `Rc` or an `Arc` only (§3.2).
 
 ### 3.7 `Dyn`, closures, async
 
@@ -344,9 +470,9 @@ makes copy-on-write and the collector agree:
   change the enclosing variable, matching `for(xs, s => s.push_str("!"))`
   in the `String` plan. A closure capturing a move-only variable moves it
   and is itself move-only (the capture struct derives the marker).
-- **Async** tasks hold values in their slots; a `JoinHandle` is move-only
-  (owning `JoinHandle`, #1093 step 2, already heads that way); the
-  single-threaded runtime shares nothing across threads.
+- **Async** tasks hold values in their slots, and futures and
+  `JoinHandle`s are move-only. A future that borrows its receiver is
+  second-class. The runtime stays single-threaded. §3.13 has the design.
 
 ### 3.8 Threads: `Send` by move, `Sync` for sharing
 
@@ -459,7 +585,64 @@ Two changes under this plan:
   `require_valid_ref_argument_places` keeps only its `Rc`/`Arc`/`Dyn`-rooted
   and module-level-root arms.
 
-### 3.11 What gets simpler
+### 3.11 Explicit allocators
+
+The landed model (`plans/reference/EXPLICIT_ALLOCATORS.md`) carries over
+unchanged: an allocator decides where a block lives, reference counting
+decides when it dies, and every free routes through the owner prefix. What
+changes is what a block is.
+
+- **The scope reaches cells, and only cells.** A value struct, enum, tuple
+  or array allocates nothing, so `with_allocator(a, () => Point(...))`
+  places nothing once `Point` is a value (today it places a `ref` struct).
+  The scope applies wherever a cell is created: `box`/`rc`/`arc`, a
+  collection or `String` buffer (already through `current_allocator()`,
+  P3c), a `Dyn` cell, an `Iso` value, an async state machine. After V5 the
+  six constructor sites that consult the scope today (`ref` struct and
+  enum, `box`/`arc`, `dyn`, `Iso`, async) become the one cell primitive
+  (§3.5) plus the async frame.
+- **A copy-on-write clone lands where its source lives**, not in the
+  current scope. This covers `Box.make_unique`, every collection's and
+  `String`'s uniqueness step, `Dyn`'s clone slot (§3.7) and the transfer
+  isolation clone (§3.8). Three reasons:
+  - it is today's rule for an explicit copy: `ArrayList.clone` places the
+    clone through the source's owner (`std/collections/array_list.yo`,
+    Rust's `Vec<T, A>: Clone`), and growth reallocates through the owner;
+  - following the scope would make placement observe sharing: after
+    `q := p; q.push(x)` in a global scope, `q`'s buffer would move to the
+    global heap if `p` is still alive and stay in the arena if `p` had died.
+    Copy-on-write must be indistinguishable from an eager copy, and an
+    eager copy (`clone`) inherits the owner;
+  - `Allocator` is `Send` and the arena locks itself, so a clone made on
+    another thread (transfer isolation) can use the source's owner.
+- **Consequence for arenas.** A value built in an arena and copied out of
+  the scope keeps its cells in the arena until every copy dies, and a write
+  to a shared copy clones into the arena too. `Arena.deinit` keeps panicking
+  while a block is live (unchanged). Moving a value out is explicit:
+  `clone_deep()` (V2b) builds fresh cells and so follows the scope it runs
+  in: `with_allocator(Allocator.global(), () => v.clone_deep())`.
+- **Placing one cell: the constructors' `alloc` parameter** (§3.2):
+  `rc(v, alloc : .Some(a))`. A scope is the tool for placing everything a call
+  tree creates; a parameter is the tool for one cell. It is not D2's
+  rejected `alloc_in` (a keyword or lazy-expression builtin): it is an
+  ordinary defaulted parameter. Containers keep `new_in`/`with_capacity_in`
+  for now; moving them to the same `alloc` parameter (`ArrayList(T).new(alloc : .Some(a))`)
+  so that all of std places blocks one way is a separate decision, not part
+  of this plan.
+- **`Allocator` moves into the prelude.** The constructors' signatures name
+  it, and the prelude cannot import `std/allocator.yo` (which depends on
+  the prelude). `Allocator` and `AllocatorVTable` (two small structs) move
+  into `std/prelude.yo`; `std/allocator.yo` re-exports them and keeps
+  `with_allocator`, `current_allocator` and the global vtable.
+- **std internals.** `_ScopeGuard` (`std/allocator.yo`, a `ref` struct with
+  `Dispose` today) and `Arena` (`ref(struct(_state : *_ArenaState))`)
+  become move-only values in V3. `Allocator` stays a plain two-word value.
+- **Owner bits.** The cell header keeps the `__YO_RC_TAG` bit. When V2b moves
+  the collections' buffers into private cells, the per-container owner bits
+  (capacity word, `_tombstones`, the `imm` length words) can move to that
+  header tag; that is a simplification to measure then, not a requirement.
+
+### 3.12 What gets simpler
 
 - **The verifier.** Aliasing exists only through `Rc`/`Arc`, so every other
   value is pure. `requires(distinct(a, b))` (#1107) and the list-alias
@@ -472,6 +655,224 @@ Two changes under this plan:
 - **Agent-written code.** Action at a distance needs an `Rc`/`Arc` in a
   type, and the vocabulary (`Box`, `Rc`, `Arc`, `Arc(Mutex(T))`) is the one
   models already know.
+
+### 3.13 Async: futures, handles, and borrowing across an await
+
+**Confirmed by the maintainer 2026-10-03** (PR #1169). The two
+language-level choices are decisions 13 and 14 (§4); the rest follows from
+§3.4 and §3.7.
+
+Today, async state sits in four shared shapes:
+
+- **A future** (`Impl(Future(T, E))`) is a heap state machine with a
+  non-atomic count (`docs/en-US/ASYNC_AWAIT.md`, "Refcount Lifecycle"). A
+  copy aliases the same task, and the docs promise that ("Multi-Await"): a
+  future can be awaited several times, each await dups the result, and
+  several tasks may await one pending future.
+- **A `JoinHandle(T)`** is `ref(struct(__future))` with a `Dispose` that
+  releases the future. Copies share it, and "awaiting does not consume the
+  handle". The combinators in `std/async/index.yo` rely on that:
+  - they copy handles out of a list (`h := handles(i)`);
+  - `race` and `any` hand back an index and leave every handle with the
+    caller;
+  - `timeout` promises the handle "can be joined again".
+- **`Waker`** is `atomic(ref(struct(_p)))`, documented as "cheap to copy".
+  **`Park`**, the async `Mutex`, `Channel`/`Sender`/`Receiver` and the five
+  stream adapters are `ref(struct(...))`.
+- **An effect bundle** is copied into a future bitwise:
+  `__yo_future_set_bundle` (`src/codegen/types/generation.yo`) is a `memcpy`
+  with no dup.
+
+One pattern runs through `std/async`: **a method returns a future whose
+body mutates the receiver.** Four methods do it:
+
+- `Stream.next(self, io)`: `StreamTake` decrements `self._remaining` inside
+  its `io.async` body;
+- the async `Mutex.lock(self, io)`, which sets `self._locked`;
+- `JoinHandle.join(self, io)`;
+- `Park.wait(self, io)`.
+
+That works only because `self` is a reference. Under values, the body would
+mutate its captured copy. The obvious fix is unavailable: an `inout` binding
+cannot be captured. Measured with `yo check` on v0.2.49:
+
+```text
+Cannot capture inout binding 'xs' in a closure. `inout(xs) : T` is a second-class
+reference to the caller's storage; a closure that captures it could outlive the call frame.
+```
+
+The design:
+
+- **A1. A future is a move-only value.**
+  - Every state-machine type and `IoFuture` carry the `MoveOnly` marker.
+  - `io.await(f, io)` and `io.spawn(f, io)` consume `f`; `io.state(f)`
+    borrows.
+  - `io.await` moves the result out of the finished future instead of
+    dupping it, so a move-only `T` works (a future resolving to a `File`).
+  - The task's cell keeps its count, because the event loop holds a second
+    reference as it does today. What goes away is user-visible copies.
+
+  That deletes the special cases built for shared futures:
+  - multi-await and the result dup per await;
+  - the rule that a second `io.spawn` of a running task keeps its bundle
+    (`plans/ASYNC_IO_API_AUDIT.md`, A3);
+  - re-awaiting an aborted future (A2's propagation stays, on the one
+    await).
+
+  The `__yo_started_child` flag tells a child the awaiting task started
+  from one it adopted. V3 re-checks it: with one owner per future,
+  `io.await` only ever awaits its own child.
+
+  Sharing a task's result is spelled out: spawn the task and share the
+  handle as `Rc(JoinHandle(T))` (the runtime is single-threaded, so `Rc`
+  suffices). Rust's futures and `JoinHandle` have this shape. Swift's
+  `Task` is a copyable shared handle, which is the hidden aliasing §1
+  removes. Decision 13.
+- **A2. A future may borrow, and then it is second-class.**
+  - **The rule.** A function may return a future whose body captures one of
+    its `inout` parameters, or one of its by-value parameters of move-only
+    type (which borrow, §3.4). The call's result then borrows those
+    arguments.
+  - **What the caller can do with it.** It may be:
+    - the direct operand of `io.await` (`io.await(s.next(io), io)`);
+    - the direct operand of a future-taking combinator (A4), whose own
+      future is then second-class under the same rule
+      (`io.await(timeout(rx.recv(io), d, io), io)`);
+    - returned to the function's own caller under the same rule.
+
+    It cannot be bound to a local, stored, captured or spawned.
+  - **No exclusive borrow through `Rc`/`Arc`.** An `inout` argument of a
+    borrowing future whose place passes through an `Rc` or `Arc` deref
+    (auto-dereference included) is a compile error.
+    - Why: the borrow is live across the suspension. Another task can then
+      write through the same `Rc`, which is §3.10's runtime exclusivity
+      panic. Code that compiles would panic in ordinary concurrent use.
+    - The fixes the error names: own the value in the task, or put it behind
+      a lock (`Rc(Mutex(S))`, then `with_lock`).
+    - Swift's exclusivity enforcement flags the same access.
+
+    A shared borrow is allowed: a move-only receiver taken by value, like
+    `shared.m.lock(io)` on an `Rc(Mutex(T))`. Those types keep their mutable
+    state in their own cell (§3.4), so their methods never write the
+    borrowed place. A concurrent write that replaces the borrowed field
+    through the `Rc` is §3.10's panic, the same rule `for` over an `Rc`'d
+    list follows.
+  - **Precedent.** This is the second-class rule `inout` already follows,
+    extended to the future that carries the borrow. It is also Swift's
+    shape: `mutating func next() async` holds the `inout` access across
+    the suspension.
+  - **What it enables.** `Stream.next(inout(self), io)`; the async
+    `Mutex.lock(self, io)` borrowing a move-only mutex;
+    `Receiver.recv(self, io)`.
+  - **The alternatives are worse.** Threading the state
+    (`next(own(self), io)` resolving to `Tuple(Option(Self.Item), Self)`) makes every
+    stream loop rebind its stream. Keeping the state in a private cell
+    captured by pointer makes every adapter a hidden shared handle again.
+    Decision 14.
+- **A3. `JoinHandle(T)` is a move-only value struct over a raw future
+  pointer**: `struct(__future : *(void))` with a `Dispose` that releases the
+  task's count, so it is move-only (§3.4) and one allocation per spawn goes
+  away (today's `ref` handle is a second cell around the future).
+  - **Not `struct(__future : Impl(Future(T)))`.** That shape was built and
+    measured (2026-10-04, branch `async-handle-genb` built by a compiler
+    carrying `async-handle-gena`). An `Impl` field resolves to ONE concrete
+    state-machine type per `JoinHandle(T)` instantiation, so two spawn
+    sites with the same `T` and different bodies produced C that clang
+    rejects (`incompatible pointer types initializing '__yo_t_…*' with an
+    expression of type '__yo_t_…*'`). A handle must erase the future's
+    type, so its field is a pointer, and a pointer needs `Dispose`, which
+    needs move-only. That is why the change waits for V3.
+  - A handle dropped without an await still detaches its task.
+  - Consuming: `join(own(self), io)` and `timeout(own(handle), …)`.
+  - Borrowing: `state`, `is_finished`, `abort` and `as_ptr`.
+  - The blocking `h.await(own(self), io)` consumes the handle too, so
+    both await paths have one owner and move the result out, and a
+    move-only `T` works with either. A caller that blocks on a list of
+    handles takes them out (`take`, `drain`), as `_execute_batch` would.
+
+  Generation A, the codegen that lowers a value handle at the spawn and
+  await sites, is written on branch `async-handle-gena`. It builds the
+  struct with a cast to the field's C type, so it serves the pointer field
+  unchanged. It lands with V3's compiler PR, and the prelude switch with
+  V3's std PR.
+- **A4. The combinators take handles by `own`, and two also take futures.**
+  - **Future operands.** `timeout` and a two-way race (`select`) also
+    accept futures, so a deadline or a race can wrap a borrowing future
+    (A2): `s.next(io)`, `rx.recv(io)`, `m.lock(io)`. This is the
+    select-with-timeout loop most servers need.
+  - **Scoped children.** Such a combinator starts each operand as a child
+    of its own task. On a deadline or a loss it aborts the child and waits
+    for it to end before resolving, so no borrow outlives the combinator.
+  - **This reverses an earlier decision.** The async audit's Q3 said
+    "handles only" (`plans/ASYNC_IO_API_AUDIT.md`). The handle forms below
+    stay. Decision 14 records the reversal.
+  - `join_all`, `race_first` and `any_first` drain it.
+  - `race` and `any` leave the handles alive. They resolve to the index
+    together with the list handed back:
+    `Tuple(usize, ArrayList(JoinHandle(T)))` and
+    `Tuple(Option(usize), ArrayList(JoinHandle(T)))`, as Rust's `select_all`
+    returns the remaining futures.
+  - `_wait_any` takes the handles' raw pointers (`as_ptr`), so `any`'s
+    pending list holds indices, not copied handles.
+  - Element access uses §3.4's non-copying set (`take`, `with`, `pop`,
+    `drain`).
+- **A5. Wakers, parks, channels, mutexes, streams.**
+  - **`Waker`** is move-only with `Clone`, like `Sender` (decision 3). A
+    clone registers one more token, which is what a copy does today: the
+    runtime counts live tokens (`std/async/waker.yo`). Its cell keeps the
+    atomic count, because a cross-thread wake (`spawn_blocking`) releases it
+    on the worker thread.
+  - **Waiter lists** (`Mutex._waiters`, the channel queues) move wakers in
+    and `pop` them out to wake.
+  - **`Park`** is move-only. A park is waited on once, so `wait(own(self),
+    io)` consumes it. That also makes the documented rule "call `waker()`
+    before `wait`" static: a consumed park has no `waker()`.
+  - **The async `Channel(T)`** is single-threaded, so its state goes behind
+    `Rc` where the sync channel's goes behind `Arc` (V3). `Sender` and
+    `Receiver` are move-only, and `Sender` has `Clone`.
+  - **The async `Mutex(T)`** is move-only. Tasks share it as
+    `Rc(Mutex(T))`.
+  - **The five stream adapters** hold no resource. They become plain value
+    structs with `next(inout(self), io)` under A2, and are move-only only
+    when their inner stream is.
+- **A6. The bundle copy is a typed copy.** `io.spawn` and a cold `io.await`
+  copy the bundle into the future.
+  - Today a bundle holds `Io` and handler functions. A field holding a cell
+    (a `String`, a collection, an `Rc`) would be copied bitwise with no dup.
+  - The copy becomes the bundle type's generated dup, with the matching
+    drop in the future's dispose.
+  - A move-only bundle field is an error at the `io.spawn`/`io.await` site,
+    because one bundle starts many futures.
+
+**Unchanged:**
+
+- the single-threaded runtime;
+- the bundle model and `Future(T, E)`'s two parameters;
+- abort propagation;
+- `IoFuture` as a raw `i32` future (now move-only);
+- the join-wait primitive (`__yo_join_wait_new`/`__yo_join_wait_add`);
+- `JoinHandle` and `Io` stay `!Send`;
+- `spawn_blocking`'s result still crosses through a `Channel(T)`, where
+  §3.8's transfer isolation applies.
+
+§3.10 (the exclusivity assert at the write) and §3.11 (an async frame is a
+cell the allocator scope places) already cover async bodies.
+
+**Captures in async bodies (V2).** An `io.async` body is a closure and
+captures by copy (§3.7). After V2b, a body that writes a captured
+collection writes its own copy. `_execute_batch` (`src/build_runner.yo`)
+does exactly that: it takes `results : HashMap(String, StepResult)` by
+value, calls `results.insert(...)` inside its `io.async` body, and expects
+the caller to see the insert. Its only caller awaits the returned future
+directly (`execute_dag`, `src/build_runner.yo`), so under A2 the smallest
+fix is `inout(results)`. A2 is in place by then (V3 precedes V2). Returning
+the value from the future, or sharing an `Rc`, is the fix for a future that
+is bound or spawned.
+
+**Shared flags in async tests (V1).** The async tests share flags between a
+task and its spawner through `Box` (`ran := Box(bool)(false)`, then
+`ran.* = true` in the task). V1's mechanical rename of every `Box` to `Rc`
+keeps them aliasing, so they need nothing beyond V1.
 
 ## 4. Decisions (V0)
 
@@ -517,6 +918,49 @@ edit.
    `fs`, `net`, `process`, `thread`) is the smallest place to mature the
    marker.
 
+Added by amendment, 2026-10-03, with the maintainer:
+
+11. **Constructors `box(v)`, `rc(v)`, `arc(v)` in the prelude; the count
+   reader is `ref_count(x)`** (§3.2). Each constructor is an ordinary
+   prelude function taking `own(v)` and an optional `alloc : Option(Allocator)`
+   (default `.None`, the current scope); there is no `new_in`. `Box`/`Rc`/
+   `Arc` are types only: `Box(T)(v)` is not a public spelling. `ref_count`
+   stays a builtin (it reads the header of whatever cell a value holds). `rc`
+   stops naming the count builtin; with no shadowing, the prelude `rc`
+   claims the name in every module.
+12. **Explicit allocators: the scope places cells; a copy-on-write clone
+   inherits its source's owner** (§3.11).
+
+Added by amendment, 2026-10-03, with the maintainer (async, §3.13; PR
+#1169, after review):
+
+13. **A future is move-only** (§3.13 A1). `io.await` and `io.spawn`
+   consume it, the result moves out, and a shared result is
+   `Rc(JoinHandle(T))`. Rust has the same shape. Rejected: Swift's copyable
+   `Task` handle, awaitable any number of times. It would keep today's
+   multi-await, but also a type whose copies alias without saying so, and
+   the special cases that exist only because a future may be shared (the
+   result dup per await, the second-spawn rule, the started-child flag).
+14. **A future may borrow, and is then second-class** (§3.13 A2). A future
+   that captures an `inout` or a borrowed move-only argument may only be
+   the direct operand of `io.await` or of `timeout`/`select`, or be
+   returned under the same rule. It includes two parts:
+   - `timeout` and a two-way `select` take futures as well as handles, and
+     run a future operand as a scoped child (§3.13 A4). This reverses the
+     async audit's Q3 ("handles only", `plans/ASYNC_IO_API_AUDIT.md`) for
+     those two combinators.
+   - An `inout` argument reached through `Rc`/`Arc` is a compile error, not
+     a §3.10 panic at run time. Shared borrows of move-only receivers stay
+     allowed.
+
+   Rejected:
+   - threading the state (`next(own(self), io)` handing `Self` back),
+     which makes every stream loop rebind its stream;
+   - a private cell captured by pointer, which makes each adapter, mutex
+     and receiver an implicitly shared handle;
+   - per-type `recv_timeout`/`next_timeout`/`lock_timeout`, which
+     multiplies the timeout API.
+
 ## 5. Order and prerequisites
 
 1. **`STRING_VALUE_SEMANTICS` S1–S3 (in progress).** They build the shared
@@ -553,6 +997,30 @@ else.
 
 ### V1: `Rc`, `Box`, `Arc`, auto-dereference, no `Rc` marker trait
 
+**Step 0, the `rc` → `ref_count` rename (decision 11).** The evaluator
+(`src/evaluator/exprs/_expr.yo`, the `BF_RC` arm) and codegen
+(`src/codegen/exprs/generation.yo`, `generate_rc_call`) recognise `rc(...)`
+by name, so any seed that still has the builtin turns a call of a prelude
+`rc` function into a count read. It goes through the seed in two releases:
+
+- **0a, Generation A (one release before V1 step 1; v0.2.50 if it is ready
+  in time).** Add `BF_REF_COUNT :: "ref_count"` with the `rc` builtin's
+  evaluator and codegen paths. Make the `rc` arms give way to a binding:
+  when `rc` resolves to a variable in scope, evaluate an ordinary call (the
+  `_evaluate_exists_or_call` pattern), in both the evaluator and codegen.
+  Tests: `ref_count(x)` matches `rc(x)` on a `ref` struct, a `Box`, an
+  `Arc`, a collection; a module that binds `rc` to a function calls it.
+- **0b, Generation B (seed = 0a's release).** Rename every count call to
+  `ref_count` (about 180: 152 in tests, 11 in `std/`, 2 in `src/`, plus docs,
+  instruction files, skills, the pack), rename the 29 locals and parameters
+  named `rc`, delete `BF_RC`, and add the prelude `rc` constructor. The seed
+  now calls the prelude's `rc` (0a's give-way), so step 1 below can rename
+  `box(` to `rc(` in `std/` and `src/` in the same cycle. Skill edits move
+  the seven skill-tree CLI goldens.
+
+Without 0a's give-way arm, step 1 waits for a seed with no `rc` builtin at
+all: one more release.
+
 Compiler (`src/`), Generation A:
 
 - Delete the `Rc` marker: the registration in
@@ -562,8 +1030,10 @@ Compiler (`src/`), Generation A:
   `Dispose` is gated by "is a cell type" (today's `is_reference_struct_type`
   / `is_reference_enum_type`) at the impl site, so behaviour is unchanged.
 - `Deref`: the trait check plus the two hooks of §3.3 (field label-miss
-  rewrite; receiver retry). Codegen needs nothing new: the rewritten chain
-  is `w.*.field`, which already lowers to `w->value.field`.
+  rewrite; receiver retry) and the `.*` rule (`w.*` on a `Deref` type is
+  its payload place, decided by the trait rather than the `*` field label).
+  Codegen needs nothing new: the rewritten chain is `w.*.field`, which
+  already lowers to `w->value.field`.
 - The exclusivity assert moves from function entry to the write-through-`Rc`
   site (§3.10): `__yo_borrow_assert_unborrowed` is emitted where a field
   store, an `inout(self)` call or an index place goes through an `Rc`
@@ -582,9 +1052,16 @@ Compiler (`src/`), Generation A:
 
 std, Generation A (all over `ref(struct((*) : V))`, lowerable by the seed):
 
-- `Rc(V)` = today's `Box` definition and impls, renamed. `rc(v)` = `box(v)`.
+- Move `Allocator` and `AllocatorVTable` into the prelude (§3.11);
+  `std/allocator.yo` re-exports them. Generation A: a type moving between
+  std modules is plain std code to the seed.
+- `Rc(V)` = today's `Box` definition and impls, renamed; `rc(own(v), alloc)`
+  its constructor (step 0b).
 - `Box(V)` = a new `ref(struct((*) : V))` whose `Clone` is a dup, with
-  `make_unique(inout(self))`, `Eq`/`Hash`/`Default` by payload.
+  `make_unique(inout(self))`, `Eq`/`Hash`/`Default` by payload, and
+  `box(own(v), alloc)` its constructor. `make_unique` clones through the
+  source cell's owner (§3.11).
+- `arc` gains the `alloc` parameter.
 - `Arc(V)` unchanged.
 - `Dispose`/`Trace` lose `where(Self <: Rc)`.
 - `impl(Box(T), Deref(...))`, `Rc`, `Arc` likewise. std code itself keeps
@@ -607,12 +1084,15 @@ changes meaning:
    writes the body through it and every holder must see the write.
 3. In tests, a `Box` test that asserts sharing stays on `Rc`; `tests/rc.test.yo`
    gains the value-`Box` cases (independent copy, make-unique on write,
-   `rc(b)` before and after a write, a `Box` tree copied and edited on one
+   `ref_count(b)` before and after a write (the file is pragma'd, §3.2), a `Box` tree copied and edited on one
    side).
 
 Tests: auto-deref for field, method, nested wrapper, wrapper-member
 precedence, place write through `Rc`, copy-on-write through `Box`, D3 through
-`Arc`. Exit: gates green, the `Rc` marker trait absent from the tree.
+`Arc`; `box`/`rc`/`arc` with `alloc : .Some(a)` place the cell in `a` (the owner
+read back with `Allocator.owner_of`) and without it follow the current
+scope, and a `make_unique` clone of an arena cell stays in the arena. Exit:
+gates green, the `Rc` marker trait absent from the tree.
 
 ### V3: move-only, `Dispose`, resources
 
@@ -631,6 +1111,20 @@ Compiler, Generation A:
   value (there are none), and the "move into a struct field is not a
   consumption in the evaluator" rule (AGENTS.md pitfall) becomes a real
   consumption for move-only values. ASan + the leak canaries gate this.
+- Async (§3.13):
+  - the marker on every state-machine type and on `IoFuture` (A1);
+  - `io.await`/`io.spawn` consume their future, and `io.await` moves the
+    result out instead of dupping it;
+  - second-class borrowing futures (A2): the evaluator marks a call's
+    future as borrowing its `inout` and move-only arguments, and rejects
+    any use other than an `io.await` operand, a future-taking combinator
+    operand or a return; an `inout` argument reached through `Rc`/`Arc` is
+    an error;
+  - the scoped-child start, abort and drain that `timeout` and `select`
+    need for future operands (A4);
+  - the bundle's typed copy and drop, and the error for a move-only bundle
+    field (A6);
+  - a re-check of `__yo_started_child`.
 - `Iso(T)`'s bound (§3.6) widens from "reference object" to "reaches a
   non-atomic cell".
 - `Send`/`Sync` (§3.8): today's `Send` derivation becomes `Sync`; the new
@@ -652,8 +1146,18 @@ Generation B for any method that needs the compiler to enforce move-only):
   `_MutexState` implements `Dispose`; same for `RawMutex`, `RwLock`, `Cond`,
   `Barrier`, `Semaphore`, `WaitGroup`, `Once`, `Arena`, `File`, `TempDir`,
   `TempFile`, `Watcher`, the sockets, `TlsStream`, `HttpClient`, `Child*`,
-  `Thread`, `JoinHandle`, `ThreadPool`, `Waker`, `Park`, the async stream
-  adapters, the RAII guards (which hold `*(_State)` into the cell).
+  `Thread`, `ThreadPool`, the RAII guards (which hold `*(_State)` into the
+  cell).
+- `std/async` follows §3.13 instead (Generation B: it needs A1 and A2
+  enforced by the seed):
+  - `JoinHandle` as a value struct around its future (A3);
+  - the combinators taking `own` lists, with `race`/`any` handing the list
+    back (A4);
+  - `Waker` move-only with `Clone`; `Park` move-only (A5);
+  - the async `Channel` over `Rc`, and the async `Mutex` move-only (A5);
+  - the stream adapters as plain values with `next(inout(self), io)` (A5);
+  - `docs/{en-US,zh-CN}/ASYNC_AWAIT.md`'s "Multi-Await" and handle sections
+    rewritten for consuming awaits.
 - Channels: `_ChannelState(T)` behind `Arc`; `Sender(T) :: struct(_ch :
   Arc(_ChannelState(T)))` move-only (Dispose decrements `_senders`) with
   `Clone`; `Receiver(T)` move-only without `Clone`; `Channel(T)` itself
@@ -673,6 +1177,12 @@ and the error text says which. Tests: `tests/sync*.test.yo`,
 `tests/http/*.test.yo`. New: a move-only test file (every move point, every
 rejected copy with `comptime_expect_error`, flow joins, closures, generic
 instantiation error text, `Dispose` runs exactly once under ASan).
+New for async:
+- a second `io.await` of one future and a copied `JoinHandle` are E0901;
+- a borrowing future bound to a local, spawned or captured is an error;
+- `Stream.next(inout(self), io)` advances the caller's stream;
+- a bundle with a `String` field survives its spawner's scope under ASan;
+- `race` hands back the losers and `race_first` aborts them.
 
 ### V2: the collections become values
 
@@ -706,6 +1216,15 @@ before and after the flip):
   teaches the mask analysis the collections' raw-pointer writes
   (`_ptr` stores through `unsafe(...)`), so that the audit is complete
   before the flip is trusted.
+- The audit also lists, as their own items:
+  - writes to a captured variable inside a closure or an `io.async` body
+    (§3.13, "Captures in async bodies");
+  - writes to a by-value parameter, `self` included, that a returned
+    `io.async` body captures (§3.13's `Stream.next` pattern).
+
+  The fix is `inout` when the caller awaits the future directly (A2).
+  Otherwise the future returns the value or shares an `Rc`. V3 runs the
+  same audit over the `std/async` types it turns into values, before V2.
 - `yo fmt` and the LSP learn nothing new here.
 
 V2b, the flip (Generation A for the compiler, the std shapes are plain
@@ -716,7 +1235,11 @@ structs the seed lowers; the `Dispose` on the buffer cell is V3's rule):
   `Trace` (visit each slot). Same for the other collections. `Clone`
   becomes a dup; `clone_deep()` is the element-wise copy where one is
   wanted.
-- Every mutator calls the uniqueness step first (`String` S3's helper).
+- Every mutator calls the uniqueness step first (`String` S3's helper),
+  whose clone goes through the source buffer's owner (§3.11). Tests: a
+  list built under `with_allocator(arena, …)`, copied out and written
+  outside the scope, clones into the arena; `clone_deep()` under
+  `with_allocator(Allocator.global(), …)` moves it out, after which `Arena.deinit` succeeds.
 - The `Index` split (§3.1): the evaluator resolves `xs(i)` to `get` in read
   position and to the place form (make-unique, then the pointer) on the
   left of `=` or as an `inout` receiver; `plans/reference/INDEX_TRAIT.md`
@@ -778,7 +1301,10 @@ Per type, in this order, each its own PR, measured:
   `Variable`, `ExprInfo`, `EvalContext`, `CodeGenContext`,
   `FunctionGenerationContext`, `Emitter`, the caches, `VcCtx`,
   `BuildRegistry`, …); the ~135 result records become plain structs; the
-  wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`;
+  wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`
+  (each wrapper's only field becomes the private `_cell`, so `Box(T)(…)`
+  outside the prelude is E0405, and `w.*` resolves through the `Deref` rule
+  of §3.3);
   `std/imm` moves onto atomic cells. Tests migrate (~150 declarations in 68
   files; `tests/ref_struct.test.yo`, `tests/ref_enum.test.yo`,
   `tests/atomic_object.test.yo` become the `Rc`/`Box`/`Arc` test files).
@@ -813,7 +1339,17 @@ Per type, in this order, each its own PR, measured:
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value, or on the private cell | V3 impl check |
 | A resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `inout` | E0901 + note |
 | `Iso(T)` of a `ref(struct)` | `Iso(T)` of a value reaching a cell | unchanged call sites |
-| `rc(x)` on a `ref(struct)` | `rc(x)` on a `Box`/`Rc`/`Arc`/collection | compile error elsewhere |
+| `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; with an allocator, `box(v, alloc : .Some(a))` | docs and skills teach only the functions; E0405 after V5 |
+| `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
+| `rc(x)` (the count) | `ref_count(x)` on an `Rc`/`Arc` in safe code; std and pragma'd code may also read a `Box`, collection or `Dyn` cell; a compile error on a value with no cell | V1 step 0 rename |
+| A future awaited twice, or awaited by two tasks | await once; share the result as `Rc(JoinHandle(T))` | E0901 at the second use |
+| A `JoinHandle` copied, or joined twice | one owner; `join(own(h), io)` consumes it | E0901 |
+| `race(handles, io)` then reusing `handles` | `match(io.await(race(handles, io), io), (w, rest) => …)` | E0901 at the reuse |
+| A method whose returned future mutates `self` | `inout(self)`, awaited at the call (§3.13 A2) | the capture audit (V2a, run from V3 on `std/async`) |
+| An `io.async` body writing a captured collection | `inout` if the future is awaited directly; otherwise return it from the future, or `Rc(...)` | V2a capture audit |
+| A borrowing future through an `Rc` (`shared.s.next(io)`) | own the value in the task, or `Rc(Mutex(S))` | the A2 compile error |
+| A deadline on a borrowing future | `timeout(rx.recv(io), d, io)`, awaited directly | — |
+| `rc` as a local or parameter name | another name (`code`, `status`); the prelude's `rc` constructor owns the name | the no-shadowing error at the definition |
 
 ## 8. Risks
 

@@ -19,6 +19,8 @@
 { TypeValue, FuncMeta, t_refine_inner } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string } :: import("./string.yo");
+{ debug_knob } :: import("../utils.yo");
+{ eprintln } :: import("std/fmt");
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
 // ---------------------------------------------------------------------------
@@ -127,9 +129,22 @@ t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
 /// Array type whose LENGTH is an unresolved generic variable (`Array(T, U)`
 /// with `U : usize` in a generic list). `length` is a placeholder 0; the
 /// synthesizer binds `length_var` to the concrete count during matching.
-t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)(
+/// `YO_DEBUG_ARRAY_LEN=1` prints the shape of every value-dependent length
+/// minted here, `[alen] <shape> <length_var>` (binder / projection / computed
+/// / inferred). It is the census of step 0 of plans/TYPE_SYSTEM_SOUNDNESS.md
+/// Phase 3 step 9 ("array lengths by identity").
+t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)({
+  if(debug_knob(`YO_DEBUG_ARRAY_LEN`).is_some(), {
+    shape := cond(
+      length_var.starts_with(COMPUTED_ARRAY_LEN_PREFIX) => "computed",
+      length_var.starts_with("_array_length_") => "inferred",
+      length_var.contains(".") => "projection",
+      true => "binder"
+    );
+    eprintln(`[alen] ${shape} ${length_var}`);
+  });
   .Array(element, usize(0), length_var)
-);
+});
 /// Marker prefix of a COMPUTED array length recorded at definition time
 /// (`-> Array(u8, N + usize(1))`, `Array(u8, T.BYTES * 2)`): the length
 /// variable slot carries the expression's text behind this prefix. It never

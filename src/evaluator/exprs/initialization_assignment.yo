@@ -30,6 +30,7 @@
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
+  scope_release_note_binding,
   expr_info_table_get,
   has_any_control_flow,
   path_collection_new,
@@ -384,7 +385,7 @@ _evaluate_inout_local_binding :: (
     pin_expr,
     .Some(pp) => {
       pp_tok := ast_expr_token(pp);
-      pin_name := generate_new_temp_variable_name(env.module_path, usize(pp_tok.row), usize(pp_tok.column), String.new(), pp_tok.module_path);
+      pin_name := generate_new_temp_variable_name(env.module_path, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path));
       pin_var = add_variable_to_env(env, pin_name, pin_type, Option(EvalValue).None, false, false, true, false, name_tok);
     },
     .None => ()
@@ -410,6 +411,7 @@ _evaluate_inout_local_binding :: (
   name_info := new_expr_info(env, place_type);
   name_info.path_collection = path_collection_new();
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(name_expr), name_info);
+  scope_release_note_binding(ast_expr_id(name_expr), env, var_name.clone());
   lhs_info := new_expr_info(env, t_unit());
   lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
   match(
@@ -1083,7 +1085,7 @@ ${rhs_str}`
     actual_lhs_tok := ast_expr_token(actual_lhs);
     (var_name : String) = cond(
       (actual_lhs_tok.value == "_") =>
-        generate_new_temp_variable_name(env.module_path, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), String.new(), actual_lhs_tok.module_path),
+        generate_new_temp_variable_name(env.module_path, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path)),
       true =>
         actual_lhs_tok.value.clone()
     );
@@ -1266,6 +1268,7 @@ Use \`::\` for compile-time definitions inside impl.`
     );
     ali_final.env = env;
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(actual_lhs), ali_final);
+    scope_release_note_binding(ast_expr_id(actual_lhs), env, var_name.clone());
     // Set ExprInfo on the outer given(...) / comptime(...) wrapper.
     if(is_implicit || is_comptime_wrapped, {
       lhs_info := new_expr_info(env, t_unit());

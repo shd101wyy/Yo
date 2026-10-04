@@ -30,6 +30,7 @@ generate_sys_runtime :: (fn(emitter : Emitter, target_info : TargetInfo) -> unit
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <dirent.h>
 #include <string.h>
 `
@@ -42,52 +43,6 @@ generate_sys_runtime :: (fn(emitter : Emitter, target_info : TargetInfo) -> unit
     });
     emitter.emit_string_line(
       `
-
-// Get size of stat buffer (for allocation)
-static size_t __yo_stat_buf_size(void) {
-  return sizeof(struct stat);
-}
-
-// Extract fields from struct stat
-static int64_t __yo_stat_size(void* statbuf) {
-  return (int64_t)((struct stat*)statbuf)->st_size;
-}
-
-static uint32_t __yo_stat_mode(void* statbuf) {
-  return (uint32_t)((struct stat*)statbuf)->st_mode;
-}
-
-static int64_t __yo_stat_mtime(void* statbuf) {
-  return (int64_t)((struct stat*)statbuf)->st_mtime;
-}
-
-static int64_t __yo_stat_atime(void* statbuf) {
-  return (int64_t)((struct stat*)statbuf)->st_atime;
-}
-
-static int64_t __yo_stat_ctime(void* statbuf) {
-  return (int64_t)((struct stat*)statbuf)->st_ctime;
-}
-
-static uint32_t __yo_stat_uid(void* statbuf) {
-  return (uint32_t)((struct stat*)statbuf)->st_uid;
-}
-
-static uint32_t __yo_stat_gid(void* statbuf) {
-  return (uint32_t)((struct stat*)statbuf)->st_gid;
-}
-
-static uint64_t __yo_stat_ino(void* statbuf) {
-  return (uint64_t)((struct stat*)statbuf)->st_ino;
-}
-
-static uint64_t __yo_stat_dev(void* statbuf) {
-  return (uint64_t)((struct stat*)statbuf)->st_dev;
-}
-
-static uint64_t __yo_stat_nlink(void* statbuf) {
-  return (uint64_t)((struct stat*)statbuf)->st_nlink;
-}
 
 // Extract fields from struct dirent
 static uint8_t* __yo_dirent_name(void* entry) {
@@ -152,7 +107,7 @@ static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_
 
 static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
   int result;
-  if (dirfd == -100) {  // AT_FDCWD
+  if (dirfd == AT_FDCWD) {
   result = access(path, mode);
   } else {
   result = faccessat(dirfd, path, mode, 0);
@@ -776,7 +731,7 @@ static __yo_io_future_t* __yo_async_scandir_start(int32_t dirfd, const char* pat
   atomic_init(&future->continuation_sm, NULL);
   
   int fd;
-  if (dirfd == -100) {
+  if (dirfd == AT_FDCWD) {
     fd = open(path, O_RDONLY | O_DIRECTORY);
   } else {
     fd = openat(dirfd, path, O_RDONLY | O_DIRECTORY);

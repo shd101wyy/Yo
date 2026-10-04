@@ -16,9 +16,9 @@
 { generate_async_runtime_io_linux, generate_platform_sys_runtime_linux } :: import("../../src/codegen/async/runtime_io_linux.yo");
 { generate_async_runtime_io_macos, generate_platform_sys_runtime_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
 { generate_async_runtime_io_windows, generate_platform_sys_runtime_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
-{ generate_async_runtime_io_common } :: import("../../src/codegen/async/runtime_io_common.yo");
+{ generate_async_runtime_io_common, generate_sys_runtime } :: import("../../src/codegen/async/runtime_io_common.yo");
 { generate_async_runtime_io_wasm, generate_platform_sys_runtime_wasm } :: import("../../src/codegen/async/runtime_io_wasm.yo");
-{ parse_target, host_target, is_target_linux, is_target_macos } :: import("../../src/target.yo");
+{ parse_target, host_target, is_target_linux, is_target_macos, is_target_wasm, is_target_windows } :: import("../../src/target.yo");
 { assert, panic } :: import("std/assert");
 /// The emitted Linux platform runtime (sync helpers + the async section that
 /// carries the vendored ring layer).
@@ -248,6 +248,151 @@ test("the read_dir stream list is per-thread on wasm and on macOS", {
   generate_async_runtime_io_common(mem, mt);
   assert(mem.print().contains(decl), String.from("the macOS read_dir stream list is shared by every thread"));
 });
+/// The sys runtime as dispatched for a Linux target: the shared POSIX helper
+/// block plus the Linux platform sys-runtime.
+emit_sys_runtime_linux :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("x86_64-unknown-linux-gnu")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_linux(t), String.from("linux triple failed to parse as linux"));
+  generate_sys_runtime(em, t);
+  em.print()
+});
+/// The sys runtime as dispatched for a macOS target.
+emit_sys_runtime_macos :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("aarch64-apple-darwin")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_macos(t), String.from("darwin triple failed to parse as macos"));
+  generate_sys_runtime(em, t);
+  em.print()
+});
+/// The sys runtime as dispatched for a WASM target (which shares the POSIX
+/// helper block instead of early-returning the way Windows does).
+emit_sys_runtime_wasm :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("wasm32-wasip1")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_wasm(t), String.from("wasi triple failed to parse as wasm"));
+  generate_sys_runtime(em, t);
+  em.print()
+});
+/// The sys runtime as dispatched for a Windows target: only the Windows
+/// platform sys-runtime, none of the POSIX helper block.
+emit_sys_runtime_windows :: (fn() -> String)({
+  em := Emitter.new();
+  t := match(
+    parse_target(String.from("x86_64-pc-windows-msvc")),
+    .Ok(t) => t,
+    .Err(_) => host_target()
+  );
+  assert(is_target_windows(t), String.from("msvc triple failed to parse as windows"));
+  generate_sys_runtime(em, t);
+  em.print()
+});
+test("sys runtime: the dead __yo_stat_* accessor family is gone from every POSIX target", {
+  // issues/fixed/dead-yo-stat-accessor-family-emitted-into-every-program.md
+  // The eleven struct-stat accessors predate the __yo_statx_* family and were
+  // never declared on the Yo side, so no program could call them — yet they
+  // were emitted into every Linux/macOS/WASM-target program. `__yo_stat_`
+  // (trailing underscore) names exactly that family: the live __yo_statfs_*
+  // and __yo_statx_* spellings do not contain it.
+  l := emit_sys_runtime_linux();
+  assert(!l.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the Linux sys runtime"));
+  m := emit_sys_runtime_macos();
+  assert(!m.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the macOS sys runtime"));
+  w := emit_sys_runtime_wasm();
+  assert(!w.contains(String.from("__yo_stat_")), String.from("the dead __yo_stat_* family is back in the WASM sys runtime"));
+  // The neighbours must survive the deletion: the dirent pair is read_dir's
+  // live interface (std/sys/dir.yo), and <sys/stat.h> feeds the copyfile
+  // paths that use `struct stat` directly.
+  assert(l.contains(String.from("__yo_dirent_name")) && l.contains(String.from("__yo_dirent_type")), String.from("the live __yo_dirent_* pair was over-deleted"));
+  assert(l.contains(String.from("#include <sys/stat.h>")), String.from("the <sys/stat.h> include was over-deleted"));
+});
+test("sys runtime: Windows never emits the POSIX stat accessors", {
+  c := emit_sys_runtime_windows();
+  assert(!c.contains(String.from("__yo_stat_")), String.from("a __yo_stat_* accessor leaked into the Windows sys runtime"));
+  // The emission must be the Windows platform sys-runtime, not an empty one.
+  assert(c.contains(String.from("__yo_win_close_hook")), String.from("the Windows platform sys-runtime is missing"));
+});
+test("runtime: the *at() dirfd sentinel is the AT_FDCWD macro on every platform", {
+  // issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md
+  // The sync helpers and the async *at() dispatchers compared `dirfd` against
+  // the literal -100 — Linux's AT_FDCWD — in C emitted for macOS and wasm too,
+  // where the Yo half passes the platform's own value (macOS -2). The fast
+  // path was dead code on macOS, and correctness rested on the *at() fallback
+  // accepting the foreign sentinel. Both halves spell the macro now; the C
+  // compiler supplies the per-platform value.
+  m := emit_sys_runtime_macos();
+  assert(!m.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the macOS sys runtime"));
+  assert(m.contains(String.from("dirfd == AT_FDCWD")), String.from("the macOS sys runtime does not test the AT_FDCWD macro"));
+  ma := emit_macos_runtime();
+  assert(!ma.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the macOS async runtime"));
+  assert(ma.contains(String.from("dirfd == AT_FDCWD")), String.from("the macOS async runtime does not test the AT_FDCWD macro"));
+  mc := emit_macos_common();
+  assert(!mc.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the common async runtime"));
+  assert(mc.contains(String.from("dirfd == AT_FDCWD")), String.from("the common async runtime does not test the AT_FDCWD macro"));
+  w := emit_sys_runtime_wasm();
+  assert(!w.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the WASM sys runtime"));
+  assert(w.contains(String.from("dirfd == AT_FDCWD")), String.from("the WASM sys runtime does not test the AT_FDCWD macro"));
+  wa_em := Emitter.new();
+  wa_t := match(parse_target(String.from("wasm32-wasip1")), .Ok(t) => t, .Err(_) => host_target());
+  generate_async_runtime_io_wasm(wa_em, wa_t);
+  wa := wa_em.print();
+  assert(!wa.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the WASM async runtime"));
+  assert(wa.contains(String.from("dirfd == AT_FDCWD")), String.from("the WASM async runtime does not test the AT_FDCWD macro"));
+  l := emit_sys_runtime_linux();
+  assert(!l.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the Linux sys runtime"));
+  assert(l.contains(String.from("dirfd == AT_FDCWD")), String.from("the Linux sys runtime does not test the AT_FDCWD macro"));
+  // The shared POSIX helper block must include <fcntl.h> itself: a program
+  // that never touches std/fs registers no c_include header, so the runtime
+  // cannot lean on the user code's includes for the macro.
+  assert(l.contains(String.from("#include <fcntl.h>")), String.from("the shared POSIX helpers no longer include <fcntl.h>"));
+  win := emit_sys_runtime_windows();
+  assert(!win.contains(String.from("dirfd == -100")), String.from("a hardcoded Linux AT_FDCWD survives in the Windows sys runtime"));
+  assert(win.contains(String.from("dirfd == AT_FDCWD")), String.from("the Windows sys runtime does not test the AT_FDCWD macro"));
+  // The guarded fallback stays: the Windows CRT has no AT_FDCWD, and it is
+  // what lets BOTH the runtime's comparison and the Yo call site's macro
+  // reference resolve in the same translation unit.
+  assert(win.contains(String.from("#ifndef AT_FDCWD")), String.from("the Windows CRT fallback for AT_FDCWD was dropped"));
+});
+test("runtime: AT_REMOVEDIR and AT_SYMLINK_NOFOLLOW are macros, not per-platform literals", {
+  // The other two members of the shadow constant table
+  // (issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md): the emitters tested
+  // the flag word against one platform's literal — macOS's 0x80 for
+  // AT_REMOVEDIR, Linux's 0x100/0x200 on wasm — while the Yo half folded the
+  // platform's own value at the call site. Both spell the macro now.
+  m := emit_macos_runtime();
+  assert(!m.contains(String.from("flags & 0x80")), String.from("the macOS AT_REMOVEDIR literal is back"));
+  assert(m.contains(String.from("flags & AT_REMOVEDIR")), String.from("the macOS unlinkat does not test the AT_REMOVEDIR macro"));
+  w := emit_sys_runtime_wasm();
+  assert(!w.contains(String.from("flags & 0x100")), String.from("the wasm AT_SYMLINK_NOFOLLOW literal is back"));
+  assert(!w.contains(String.from("flags & 0x200")), String.from("the wasm AT_REMOVEDIR literal is back"));
+  assert(w.contains(String.from("flags & AT_SYMLINK_NOFOLLOW")), String.from("the wasm fchownat does not test the AT_SYMLINK_NOFOLLOW macro"));
+  wa_em := Emitter.new();
+  wa_t := match(parse_target(String.from("wasm32-wasip1")), .Ok(t) => t, .Err(_) => host_target());
+  generate_async_runtime_io_wasm(wa_em, wa_t);
+  wa := wa_em.print();
+  assert(!wa.contains(String.from("flags & 0x100")), String.from("the wasm async AT_SYMLINK_NOFOLLOW literal is back"));
+  assert(!wa.contains(String.from("flags & 0x200")), String.from("the wasm async AT_REMOVEDIR literal is back"));
+  assert(wa.contains(String.from("flags & AT_SYMLINK_NOFOLLOW")), String.from("the wasm async statx does not test the AT_SYMLINK_NOFOLLOW macro"));
+  assert(wa.contains(String.from("flags & AT_REMOVEDIR")), String.from("the wasm async unlinkat does not test the AT_REMOVEDIR macro"));
+  win_em := Emitter.new();
+  generate_async_runtime_io_windows(win_em);
+  win := win_em.print();
+  assert(win.contains(String.from("flags & AT_REMOVEDIR")), String.from("the Windows unlinkat no longer tests the AT_REMOVEDIR macro"));
+  assert(win.contains(String.from("flags & AT_SYMLINK_NOFOLLOW")), String.from("the Windows stat path no longer tests the AT_SYMLINK_NOFOLLOW macro"));
+});
+
 test("wasm sys runtime: the statx nanosecond accessors are uint32_t, matching std's u32 declarations", {
   // std/sys/externs.yo declares the three *time_nsec accessors `-> u32` and
   // linux/macos/windows all define them uint32_t; an int64_t definition makes

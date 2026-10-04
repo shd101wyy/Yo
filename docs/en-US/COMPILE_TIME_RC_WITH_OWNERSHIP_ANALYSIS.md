@@ -71,14 +71,18 @@ broken :: (fn(p : Point) -> unit)({
 A by-value parameter borrows its value: its storage is a copy of the caller's, and a field
 write changes only that copy. A field whose old value holds RC data (a `String`, a
 collection, a `Box`, …) cannot be written through it, because the write would release data
-the caller still holds (E0908). The same holds for a `match` or `for` binding. Take the
-parameter as `own(p) : T` or `inout(p) : T`, or copy it into a local first:
+the caller still holds (E0908). The same holds for a `match` or `for` binding, and for
+passing such a place to an `inout` parameter the callee may write, including calling an
+`inout(self)` method such as `push_str` on it: the write would land in the borrowed copy
+alone. Read-only `inout(self)` methods (`clone`, `to_string`) and indexing stay allowed.
+Take the parameter as `own(p) : T` or `inout(p) : T`, or copy it into a local first:
 
 ```rust
 Named :: struct(s : String, n : i32);
 rename :: (fn(p : Named) -> Named)({
   p.n = (p.n + i32(1)); // ✅ OK: no RC data in the old value
   // p.s = String.from("x"); // ❌ E0908: the caller still holds the old string
+  // p.s.push_str("!"); // ❌ E0908: push_str writes the borrowed copy
   q := p; // an owned copy
   q.s = String.from("x"); // ✅ OK
   q
@@ -129,6 +133,19 @@ Point :: ref(struct(x : i32, y : i32));
 
 Point(x : i32(3), y : i32(4)); // temp_var owns the Point(x: i32(3), y: i32(4)), RC = 1
 ```
+
+### Reading the Count: `ref_count(x)`
+
+The builtin `ref_count(x)` returns the current reference count of the cell `x` holds, as a `usize`. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. Atomically counted handles (`Arc(T)`, `atomic(ref(...))`, `Iso`) are read with an atomic load.
+
+```rust
+b := Box(i32)(3);
+assert(ref_count(b) == usize(1), "one owner");
+```
+
+The count reflects the compiler's dup/drop optimizations, so a copy the optimizer cancelled does not show up; it is meant for uniqueness checks (copy-on-write) and tests, not program logic.
+
+`rc(x)` is the old name of `ref_count(x)` and is being retired: `rc` is to become an ordinary prelude function. It already gives way to any binding named `rc` in scope: a module that defines its own `rc` calls that definition. Write `ref_count(x)` in new code.
 
 ### Assignment Creates Ownership
 

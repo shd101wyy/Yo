@@ -1,0 +1,55 @@
+{ println } :: import("std/fmt");
+inner :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(7)));
+// 1: match condition with a binding; the taken arm does NOT await.
+c1 :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    d := Option(usize).Some(usize(0));
+    (n : i32) = i32(0);
+    _pre := io.await(inner(io), io);
+    cond(match(d, .Some(w) => (w == usize(0)), .None => false) => { n = i32(1); }, true => { n = i32(2); });
+    n
+  })
+);
+// 2: match condition WITHOUT a binding; the arm awaits.
+c2 :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    d := Option(usize).Some(usize(0));
+    (n : i32) = i32(0);
+    cond(match(d, .Some(_) => true, .None => false) => { _x := io.await(inner(io), io); n = i32(1); }, true => { n = i32(2); });
+    n
+  })
+);
+// 3: a plain bool function call as the condition; the arm awaits.
+yes :: (fn(d : Option(usize)) -> bool)(d.is_some());
+c3 :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    d := Option(usize).Some(usize(0));
+    (n : i32) = i32(0);
+    cond(yes(d) => { _x := io.await(inner(io), io); n = i32(1); }, true => { n = i32(2); });
+    n
+  })
+);
+// 4: `if` with a match condition; the arm awaits.
+c4 :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    d := Option(usize).Some(usize(0));
+    (n : i32) = i32(2);
+    if(match(d, .Some(_) => true, .None => false), { _x := io.await(inner(io), io); n = i32(1); });
+    n
+  })
+);
+// 5: the same match condition outside io.async.
+c5 :: (fn() -> i32)({
+  d := Option(usize).Some(usize(0));
+  (n : i32) = i32(0);
+  cond(match(d, .Some(_) => true, .None => false) => { n = i32(1); }, true => { n = i32(2); });
+  n
+});
+main :: (fn(io : Io) -> unit)({
+  println(`1 binding, no await in arm   = ${io.await(c1(io), io)} (want 1)`);
+  println(`2 no binding, await in arm   = ${io.await(c2(io), io)} (want 1)`);
+  println(`3 fn-call cond, await in arm = ${io.await(c3(io), io)} (want 1)`);
+  println(`4 if + match, await in arm   = ${io.await(c4(io), io)} (want 1)`);
+  println(`5 sync                       = ${c5()} (want 1)`);
+});
+export(main);

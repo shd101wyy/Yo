@@ -28,7 +28,7 @@ pragma(Pragma.AllowUnsafe);
   BF_YO_AS
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
-{ D3PendingInout, d3_record_inout_place, d3_check_pending } :: import("../exprs/assignment.yo");
+{ D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 {
   Variable,
@@ -51,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
@@ -6672,6 +6672,10 @@ Fix: wrap the call:
             // sequentially-bound callee env — layer a frame binding the
             // already-evaluated args by param name for this evaluation.
             (du_frame_pushed : bool) = false;
+            // The env the argument is evaluated in: the caller's, except for
+            // an `undefined` argument, whose default is evaluated over the
+            // DEFINITION's scope (`default_param_eval_env`), never the caller's.
+            (arg_eval_env : Environment) = env;
             if((ai < n_p) && ast_expr_is_atom_of(arg_expr_eff, "undefined"), {
               (du_def : Option(AstExpr)) = Option(AstExpr).None;
               match(
@@ -6685,7 +6689,7 @@ Fix: wrap the call:
                 du_def,
                 .Some(du_de) => {
                   arg_expr_eff = clone_expr_fresh_ids(du_de);
-                  _duf := env.push_frame(false);
+                  arg_eval_env = default_param_eval_env(func_id_fv.clone(), Option(Environment).None, env);
                   du_frame_pushed = true;
                   (du_j : usize) = usize(0);
                   while(du_j < ai, {
@@ -6694,7 +6698,7 @@ Fix: wrap the call:
                       evaled_arg_infos.get(du_j),
                       .Some(du_info) => if(du_name.len() > usize(0), {
                         add_variable_to_env(
-                          env,
+                          arg_eval_env,
                           du_name.clone(),
                           du_info.ty,
                           du_info.value,
@@ -6702,7 +6706,7 @@ Fix: wrap the call:
                           false,
                           false,
                           false,
-                          synthetic_token(du_name, env.module_path)
+                          synthetic_token(du_name, arg_eval_env.module_path)
                         );
                       }),
                       .None => ()
@@ -6939,11 +6943,8 @@ Fix: wrap the call:
                 .None => Option(ExpectedTypeCtx).None
               )
             );
-            evaled_arg := evaluate_expression_raw(arg_expr_eff, env, ctx, exn);
+            evaled_arg := evaluate_expression_raw(arg_expr_eff, arg_eval_env, ctx, exn);
             ctx.expected_type = arg_saved_expected;
-            if(du_frame_pushed, {
-              env.pop_frame();
-            });
             arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_arg));
             arg_info := match(
               arg_info_opt,
@@ -7067,8 +7068,11 @@ Fix: wrap the call:
           // sequentially), so `(Rhs : Type) ?= Lhs`
           // resolves the sibling param. This splice runs BEFORE param
           // binding, so layer a frame with the already-supplied (and
-          // previously-spliced) params bound by name; popped after the loop.
-          _dfr := env.push_frame(false);
+          // previously-spliced) params bound by name. The frame sits over the
+          // DEFINITION's scope, not the caller's (`default_param_eval_env`,
+          // a private env, so nothing is popped): a default names things in
+          // the module that defines the function.
+          def_env := default_param_eval_env(func_id_fv.clone(), Option(Environment).None, env);
           {
             (dbi : usize) = usize(0);
             while(dbi < n_supplied_reg, {
@@ -7078,7 +7082,7 @@ Fix: wrap the call:
                 .Some(dbi_info) => {
                   if(db_name.len() > usize(0), {
                     add_variable_to_env(
-                      env,
+                      def_env,
                       db_name.clone(),
                       dbi_info.ty,
                       dbi_info.value,
@@ -7086,7 +7090,7 @@ Fix: wrap the call:
                       false,
                       false,
                       false,
-                      synthetic_token(db_name, env.module_path)
+                      synthetic_token(db_name, def_env.module_path)
                     );
                   });
                 },
@@ -7118,19 +7122,19 @@ Fix: wrap the call:
                     is_type_hierarchy_type(apt) => Option(ExpectedTypeCtx).None,
                     is_some_type(apt) => match(
                       extract_fn_trait_from_type(apt),
-                      .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env)),
+                      .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : def_env)),
                       .None => Option(ExpectedTypeCtx).None
                     ),
-                    true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env))
+                    true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : def_env))
                   ),
                   .None => Option(ExpectedTypeCtx).None
                 );
-                evaled_de := evaluate_expression_raw(cloned_de, env, ctx, exn);
+                evaled_de := evaluate_expression_raw(cloned_de, def_env, ctx, exn);
                 ctx.expected_type = def_saved_expected;
                 de_info := match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_de)),
                   .Some(i) => i,
-                  .None => new_expr_info(env, t_unit())
+                  .None => new_expr_info(def_env, t_unit())
                 );
                 def_infos.push(de_info);
                 def_rt_exprs.push(evaled_de);
@@ -7140,7 +7144,7 @@ Fix: wrap the call:
                   dsn := match(param_names.get(dpi), .Some(nm) => nm, .None => String.new());
                   if(dsn.len() > usize(0), {
                     add_variable_to_env(
-                      env,
+                      def_env,
                       dsn.clone(),
                       de_info.ty,
                       de_info.value,
@@ -7148,7 +7152,7 @@ Fix: wrap the call:
                       false,
                       false,
                       false,
-                      synthetic_token(dsn, env.module_path)
+                      synthetic_token(dsn, def_env.module_path)
                     );
                   });
                 };
@@ -7161,7 +7165,6 @@ Fix: wrap the call:
               dpi = (dpi + usize(1));
             });
           });
-          env.pop_frame();
           n_spliced := def_infos.len();
           if(n_spliced > usize(0), {
             // Pop the evidence tails, push the defaults, re-push the tails.
@@ -7378,6 +7381,8 @@ Fix: wrap the call:
           exn
         );
         require_valid_ref_argument_places(fv_param_is_ref, fv_args, env, ctx, exn);
+        fv_returns_place := match(callee_info_opt, .Some(rpi) => match(rpi.ty, .Func({ result : fv_res }) => is_pointer_type(fv_res), _ => false), .None => false);
+        require_no_inout_write_through_borrow(fv_d3_pending, fv_param_labels, fv_param_is_ref, fv_args, fv_returns_place, env, ctx);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to
         // its recorded default value (typed by its declared type) so the

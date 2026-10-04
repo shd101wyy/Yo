@@ -1,0 +1,20 @@
+// `ArrayList.push`'s element clause compares elements with `==`. For an
+// element type without `Eq` that clause does not evaluate at the call site,
+// so it is dropped for the call: the file loads and the function gets its own
+// outcome (a struct parameter is outside the verifier's subset) instead of
+// `yo verify` failing the whole file with E0610
+// (issues/fixed/verify-fails-on-a-push-of-an-element-type-without-eq.md).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+_NoEq :: struct(a : i32);
+
+two_points :: (
+  fn(p : _NoEq, q : _NoEq, ensures(r == usize(2))) -> (r : usize)
+)({
+  xs := ArrayList(_NoEq).new();
+  xs.push(p);
+  xs.push(q);
+  xs.len()
+});
+export(two_points);

@@ -63,7 +63,7 @@ which is how you confirm a batch really transpiled:
 
 ```bash
 YO_KEEP_BATCH=1 YO_STD=$PWD/std yo test ./tests/sync/atomic.test.yo --parallel 1
-bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
+bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_*_1_0.bin.c
 ```
 
 ### A loopback HTTP framing test only goes RED if the body cannot arrive in ONE read
@@ -153,8 +153,12 @@ language**, so the regression test works everywhere:
   disposed, so the counter stays put. Examples: `tests/rc.test.yo`
   (`g_alias_disposed`), `tests/dyn.test.yo` (`g_dyn_payload_disposed`),
   `tests/error.test.yo` (`g_thrown_payload_disposed`).
-- **`rc(x)`** reads a reference count directly (`tests/rc.test.yo`), including
-  through a field or a `Box` deref: `assert(rc(b.*) == 1, ...)`.
+- **`ref_count(x)`** reads a reference count directly (`tests/rc.test.yo`),
+  including through a field or a `Box` deref: `assert(ref_count(b.*) == 1, ...)`.
+  `rc(x)` is its old name, retired in two seed releases (plans/VALUES_BY_DEFAULT.md
+  V1 step 0): new tests write `ref_count`; `std/` and `src/` keep `rc` until
+  `SEED_VERSION` knows `ref_count`. `rc` gives way to a binding of its name, so a
+  module that defines `rc` calls its own function.
 
 Do **not** use `comptime_assert` for this — it is inert inside a function body,
 so a `comptime_assert` in a `test(...)` body verifies nothing
@@ -622,6 +626,20 @@ offending source as a Yo string with the backslash DOUBLED
 (`String.from("s :: \"\\uZZZZ\";")`) — writing it in a backtick template
 would make the test file's own lexing the thing under test.
 
+A PARSE-level error may live in a fixture only if the fixture is already
+fmt-CANONICAL. `yo fmt` refuses to rewrite source the parser rejects
+(`issues/fixed/fmt-reformats-parse-invalid-files.md`): when the formatted
+output would differ from the input, the original must parse, else the bare
+diagnostic prints and fmt exits 1 — so a parse-error fixture that also needs
+formatting reds the tree-wide `fmt --check`. Byte-for-byte canonical
+parse-invalid source is left untouched (the gate only fires on a changed
+rendering), which is exactly the shape
+`tests/cli-cases/fix-says-what-it-cannot-repair/fixture/main.yo` keeps: its
+E0003 (`x := 1 && 2 && 3;`) is the case's whole point and it is
+canonical. A parse-refusal unit test lives in
+`tests/internal/formatter.test.yo` (the `format_yo_source` throw), not a
+cli-case.
+
 Evaluator-level rejections are different: `comptime_expect_error` handles
 those, including around an `impl(...)` inside a `test(...)` body.
 
@@ -856,7 +874,7 @@ yo test ./tests/internal/parser.test.yo --parallel 1
 - No WASM directives needed (pure logic, no I/O syscalls) — but they are
   host-toolchain-only in CI, excluded from the emcc and wasm32-wasip1 jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
-- Do not run multiple `yo test ...` commands concurrently. The test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
+- Concurrent `yo test` runs over one directory are isolated: every batch artifact name carries the runner's pid (`.yo_selftest_batch_<pid>_<fi>_<bi>` — before 2026-10-03 the name had no per-process component, and one run deleted another's compiled batch mid-run, surfacing as `yo: error: file or directory not found` / `permission denied` with tests failing; `issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`, regression test `tests/internal/concurrent_test_runs.test.yo`). The old shared `/tmp/yo_self_out.c` scratch this bullet used to cite no longer exists.
 
 #### A hollow batch voids EVERY test in it, not one
 
@@ -874,8 +892,9 @@ turns this into a hard error. **Never weaken that gate to get a job green.**
 
 Debugging one:
 
-- `YO_KEEP_BATCH=1` keeps `.yo_selftest_batch_<fi>_<bi>.yo` next to the test
-  file; compile that directly to iterate instead of re-running the suite.
+- `YO_KEEP_BATCH=1` keeps `.yo_selftest_batch_<pid>_<fi>_<bi>.yo` next to the
+  test file (the `<pid>` component isolates concurrent runs over one
+  directory); compile that directly to iterate instead of re-running the suite.
 - To read the marker's text you need a **pre-gate** binary (an older stage-1) —
   with the gate the compile aborts before the `.c` is written.
 - Batch bodies are `ast_expr_to_string()` **re-prints**, not source slices, so a

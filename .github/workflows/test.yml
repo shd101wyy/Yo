@@ -123,7 +123,7 @@ env:
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
   # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
-  SEED_VERSION: v0.2.49
+  SEED_VERSION: v0.2.50
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -1061,6 +1061,17 @@ jobs:
         shell: bash
         run: |
           "$S1" fmt --check ./std ./tests ./src
+
+      # Also ubuntu-only and also plain text: doc examples must not teach the
+      # paren-less `:: import "path"` spelling — the parser rejects it (E0008),
+      # so every reader's first line fails. Swept in #696/#881; this gate keeps
+      # the idiom from re-rotting
+      # (issues/fixed/std-doc-examples-use-parenless-import-which-does-not-parse.md).
+      - name: Check doc examples' import spelling
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          bash scripts/check-doc-imports.sh
 
       - name: Build system smoke test
         shell: bash
@@ -2568,16 +2579,13 @@ jobs:
           chmod +x yo-stage1
           mv yo-stage1 /tmp/yo-stage1
 
-      # P2.5 step 21 asked for a vacuity assertion here — grep the leg's log for
-      # `-fsanitize=thread`, because an UNinstrumented run passes exactly like a
-      # clean instrumented one. It is NOT implemented, deliberately: the runner
-      # does not print the C compile line on the test path — yo-self has no
-      # "Compiling with:" print at all (the retired TS compiler emitted one, but
-      # only in codegen's `compile` path, never on `test`) — so the specified
-      # grep would fail every run, and a false-red gate is worse than none.
-      # Making it real needs yo-self to gain that print, which changes
-      # `yo compile` stdout and invalidates the recorded CLI goldens.
-      # Tracked in issues/yoself-missing-compiling-with-print.md.
+      # P2.5 step 21's vacuity assertion, now implementable: the test runner
+      # forwards its `--verbose` to the batch compile, which prints each C
+      # compile line ("Compiling with: …") as it is about to run
+      # (issues/fixed/yoself-missing-compiling-with-print.md), so this step
+      # greps the log for `-fsanitize=thread` — an UNinstrumented run (the
+      # flag silently dropped between YO_TEST_SANITIZE and cc) passes exactly
+      # like a clean instrumented one and can no longer report green.
       - name: Run sync tests under ThreadSanitizer
         env:
           YO_MAIN_STACK_MB: "4096"
@@ -2587,7 +2595,12 @@ jobs:
           # debt would only add noise — same staging ratchet as the other
           # self-hosted jobs.
           YO_TEST_LEAK_VERDICT: "0"
-        run: /tmp/yo-stage1 test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
+        # pipefail keeps the runner's own exit code the gate; the grep adds the
+        # instrumented-run proof on top.
+        run: |
+          set -o pipefail
+          /tmp/yo-stage1 test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang 2>&1 | tee /tmp/tsan-sync.log
+          grep -q -- '-fsanitize=thread' /tmp/tsan-sync.log
       # The standing proof of plans/archive/PARALLELISM_SOUNDNESS.md (Phase 7): the
       # whole thread corpus under TSan, ratcheted against
       # scripts/bootstrap/tsan-known-failing.tsv (fails both ways), and each

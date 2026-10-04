@@ -3,10 +3,9 @@
 pack-version: 3 — shipped with the toolchain; yo context prints this file.
 It covers the LANGUAGE only. API listings come from the toolchain, never
 from here: yo context --list (modules), yo context <module> [name]
-(signatures + docs), yo context --search <query> (match ONE keyword per
-query — a multi-word query is matched as a single literal substring and
-usually hits nothing). Code blocks below are canonical, `yo fmt`-clean Yo;
-every example parses, and complete examples compile.
+(signatures + docs), yo context --search <query> (keywords are ANDed: "hash
+string" finds String.hash). Code blocks below are canonical, `yo fmt`-clean
+Yo; every example parses, and complete examples compile.
 
 ## What Yo is
 

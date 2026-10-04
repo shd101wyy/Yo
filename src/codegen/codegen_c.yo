@@ -11,7 +11,7 @@
 { type_key } :: import("../types/type_key.yo");
 { EvalValue } :: import("../value.yo");
 { TargetInfo } :: import("../target.yo");
-{ ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
+{ scope_release_report, ExprInfoTable, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys } :: import("../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
 { read_file_sync } :: import("../manifest.yo");
 { Emitter } :: import("../emitter.yo");
@@ -374,7 +374,7 @@ static inline void __yo_sm_pools_drain(void) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0), (chunk_by_module : bool) ?= false, (code_spill_path : String) ?= String.new(), (line_directives : bool) ?= false, (line_c_name : String) ?= String.new(), (chunk_name_base : String) ?= String.new()) -> ArrayList(String))({
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, chunk_parts_out : ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : String, line_directives : bool, line_c_name : String, chunk_name_base : String) -> ArrayList(String))({
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).
@@ -649,7 +649,7 @@ static Slice_uint8_t_u42_ __yo_args;
       base.chunk_globals,
       n_chunks,
       base.chunk_by_module,
-      chunk_name_base.clone()
+      .Some(chunk_name_base.clone())
     );
     chunk_parts_out.push(asm2.header_text);
     (ci2 : usize) = usize(0);
@@ -714,6 +714,7 @@ static Slice_uint8_t_u42_ __yo_args;
     prof_i = (prof_i + usize(1));
   });
   profile_record_function_census(prof_fn_total, prof_fn_at_collect, prof_fn_std);
+  scope_release_report();
   base.emitter.close_code_spill();
   base.emitter.sections()
 });

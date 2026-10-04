@@ -3213,6 +3213,25 @@ _formatted_parses_identically :: (
     }
   )
 });
+/// Parse gate (issues/fixed/fmt-reformats-parse-invalid-files.md): the renderer is
+/// token-level, so it happily produced a CHANGED rendering for source the
+/// parser rejects — `yo fmt` rewrote the file and reported success, which
+/// laundered the break into an fmt-idempotent state (`fmt --check` then
+/// stayed green on a tree that cannot parse) and mutated the offending line.
+/// When the formatted text differs from the input, the input must parse; a
+/// parse failure throws through the caller's `exn`, the same shape a lexer
+/// error already has (`yo fmt` prints the bare diagnostic and exits 1; the
+/// LSP handler unwinds Null and keeps the buffer untouched). Source the
+/// formatter leaves byte-identical is deliberately NOT parsed: `yo check`
+/// owns the parseability verdict, and the tree's deliberately-unparseable
+/// cli-case fixture (`fix-says-what-it-cannot-repair`) is fmt-clean.
+_fmt_parse_gate :: (
+  fn(input : String, formatted : String, module_path : String, exn : Exception) -> unit
+)({
+  if(formatted != input, {
+    parse(input.clone(), module_path.clone(), exn);
+  });
+});
 /// Format Yo source (the `yo fmt` engine): the token-level renderer, then —
 /// because eliding parentheses and moving callee parens are the formatter's
 /// structure-aware rewrites — a mandatory verify gate: if any paren was
@@ -3221,6 +3240,10 @@ _formatted_parses_identically :: (
 /// reformatted with elisions disabled. A meaning-changing format is
 /// structurally impossible, not merely untested
 /// (plans/archive/FMT_PAREN_ELISION.md "Implementation sketch" step 2).
+/// A CHANGED rendering is only handed back for source the parser accepts:
+/// `_fmt_parse_gate` runs at every exit, so callers that apply the result
+/// (`format_yo_files`, the LSP's `_format_document`) get the parse
+/// diagnostic through their `exn` instead — never a rewrite.
 format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -> String)({
   formatted := _format_yo_source_impl(input.clone(), module_path.clone(), exn, true);
   // `return`, not cond-arm value returns: a local returned through a cond
@@ -3229,12 +3252,16 @@ format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -
   // tracked self-hosted-emit leak debt class,
   // issues/self-hosted-emit-leaks-remaining-classes.md).
   if((g_fmt_elided_tokens + g_fmt_canonicalized_callee_parens) == usize(0), {
+    _fmt_parse_gate(input, formatted, module_path, exn);
     return(formatted);
   });
   if(_formatted_parses_identically(input, formatted, module_path), {
+    _fmt_parse_gate(input, formatted, module_path, exn);
     return(formatted);
   });
-  _format_yo_source_impl(input, module_path, exn, false)
+  conservative := _format_yo_source_impl(input, module_path, exn, false);
+  _fmt_parse_gate(input, conservative, module_path, exn);
+  conservative
 });
 // ---------------------------------------------------------------------------
 // Directory walking + batch formatting

@@ -164,6 +164,12 @@ extern(
   // the await point takes an inline fast path for one of those, so the task
   // never leaves the C stack and the loop never gets its turn.
   __yo_async_yield_start : (fn() -> IoFuture),
+  // A wait on spawned tasks: a park completed when ANY task added to it is
+  // terminal (completed or aborted); adding an already-terminal task completes
+  // it at once. `JoinHandle.join` and the `std/async` combinators are built on
+  // it, which is what lets them be awaited from inside a task.
+  __yo_join_wait_new : (fn() -> IoFuture),
+  __yo_join_wait_add : (fn(wait : IoFuture, task : *void) -> unit),
   __yo_waker_new : (fn(future : IoFuture) -> *u8),
   __yo_waker_wake : (fn(waker : *u8) -> unit),
   __yo_waker_is_woken : (fn(waker : *u8) -> bool),
@@ -386,6 +392,8 @@ export(
   // Waker / park
   __yo_async_park_start,
   __yo_async_yield_start,
+  __yo_join_wait_new,
+  __yo_join_wait_add,
   __yo_waker_new,
   __yo_waker_wake,
   __yo_waker_is_woken,

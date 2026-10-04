@@ -113,9 +113,27 @@ target's C — far cheaper and stricter than rebuilding and eyeballing.
 x86_64-windows-gnu` (and `aarch64-windows-gnu`) compiles and links emitted
 Windows C against MinGW's Win32 headers, with the same warning flags
 `src/main.yo` passes. That turns a ~50 min CI round trip into ~40 s. MinGW's
-headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and
-the link step proves the import libraries you added to `src/main.yo` really export
-every symbol you call.
+headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and the
+link step proves the import libraries you added to `src/main.yo` really export
+every symbol you call. The same trick answers "does this libc's `<fcntl.h>`
+really define that macro?" before you rely on it: a five-line probe compiled
+with `zig cc -target wasm32-wasi` / `x86_64-linux-musl` / `x86_64-linux-gnu` /
+`aarch64-macos` (or `emcc`) settles AT_*-style questions per toolchain in
+seconds.
+
+**Platform constants in runtime C are macro names, never one platform's
+literal.** `AT_FDCWD`, `AT_REMOVEDIR` and `AT_SYMLINK_NOFOLLOW` differ per
+kernel (`AT_FDCWD` is -2 on macOS, -100 on Linux and the BSDs), and the Yo
+half (`std/sys/constants.yo`, re-exporting `std/libc/fcntl`'s `c_include`)
+emits the macro name too — so a hardcoded `-100` in a runtime template
+resurrects a shadow constant table whose agreement with the Yo value is a
+per-target coincidence, and dead-codes the non-`*at()` fast path on macOS
+(issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md;
+`tests/internal/uring_runtime.test.yo` pins the macro spellings per target).
+The Windows CRT defines none of them: that template's `#ifndef AT_FDCWD`-style
+fallback block is the one sanctioned place a literal may appear, and it is
+what lets BOTH the runtime's comparison and the Yo call site's macro reference
+resolve in one translation unit.
 
 **Windows reparse-point structs: spell them as the kernel writes them, not as
 the MSDN prose suggests.** `REPARSE_DATA_BUFFER` lives only in the driver-kit
@@ -360,6 +378,43 @@ Why it survived so long: wrapping the capture in ANY expression
 correctly. Every use of a capture in `std/` and `src/` happened to sit inside
 some expression, so the bare-atom arm position had never been exercised.
 
+## Recorded envs are released at scope exit: look names up through `scope_variables`
+
+`compile` releases recorded environments (`plans/CODEGEN_MEMORY_REDUCTION.md`
+§6.1). When an outermost function body finishes evaluating, every `ExprInfo`
+recorded during it has its `env` replaced by a **husk**, a copy of the body's
+entry frame list. The body's own frames are freed. The answers codegen will need
+were recorded at that moment: an atom's `source_variable`, plus per-info lists
+of the variables of its names (`variable_name`, deferred drop/dup/consumed
+targets, the name a binder bound, a property atom's token).
+
+Rules for codegen code and for the evaluator analyses codegen calls late
+(`mutation_summary.yo`, `await_analysis.yo`, `suspension_analysis.yo`):
+
+- **Never call `get_variables_from_env(ei.env, name)` on a recorded env.** Call
+  `scope_variables(key, env, name)` from `src/expr_info.yo`, or
+  `get_variable_name_for_codegen_at(key, name, env)` for a C name. A live env
+  falls through to the plain lookup; a husk answers from the records of `key`.
+- **`key` is the node whose record holds `name`**, which is not always the node
+  you are generating:
+  - a binding site uses the bound name atom (the `:=` lhs, the destructured
+    field atom, the `inout(name)` atom, the pattern binding);
+  - a cleanup drop uses the drop target atom (`deferred_drop_target_variable`);
+  - a place's base uses its binder (`_lhs_root_binder` in `exprs/assignment.yo`).
+- **A new name source needs a record.** If you add a site that asks a node about
+  a name it does not carry, the evaluator must note that name for the node:
+  `scope_release_note_binding` (a binding) or `scope_release_note_query` (a name
+  the node reads). Otherwise a husk answers from the entry frames only.
+- **Whole-env scans cannot be answered from records.** The handler-installation
+  test (`_call_is_handler_installation`) and the `given` evidence scans keep
+  their nodes' envs: see `_scope_keeps_env`. A new whole-env reader needs the
+  same treatment.
+- **Verify with shadow mode.** `YO_SCOPE_RELEASE=shadow yo compile src/main.yo
+  --skip-c-compiler -o /tmp/x` keeps every env, answers codegen from the envs,
+  and prints `[scope-release] ... mismatch=N` with a per-kind breakdown at the
+  end. Then compare the C of `YO_SCOPE_RELEASE=off` and the default. Both must
+  be byte-identical, and a new site must not raise `mismatch`.
+
 ## Compilation commands
 
 - Emit C only: `yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2`
@@ -419,6 +474,22 @@ discards the buffer, so a program's own output vanished from CI logs and
 (emitted right after the includes, `src/codegen/c/collection.yo`) flushes and
 aborts; a site that prints a message flushes stdout BEFORE its `fprintf`, so a
 piped run keeps the terminal's order.
+
+### The Windows main wrapper owns the console code pages
+
+The Windows arm of `generate_main_wrapper` brackets the program body with
+`__yo_win_console_cp_enter()` / `__yo_win_console_cp_exit()`: enter saves the
+console's input and output code pages and switches both to `CP_UTF8` — Yo
+emits UTF-8 bytes unconditionally, and a console decoding them with a legacy
+ANSI page (GBK 936, Shift-JIS 932) mojibakes every non-ASCII character — and
+exit flushes stdout/stderr and restores the saved pages (scoped to the run;
+aborts skip the restore). No-ops when the pages are already UTF-8 (a parent Yo
+process switched them — nested `yo test` batches) or when no console is
+attached (piped runs read 0). `WIN32_LEAN_AND_MEAN` excludes `<wincon.h>` from
+`<windows.h>`, so the wrapper emits its own `#include <wincon.h>`; the four
+functions are kernel32, the module `CreateThread` already links against. Test:
+`tests/internal/main_wrapper_console_cp.test.yo`
+(issues/fixed/windows-console-non-ascii-mojibake-under-legacy-code-page.md).
 
 ### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
 
@@ -489,6 +560,30 @@ are closed, not at the declaration. Otherwise every `return` after it skips the
 release, and a push at the declaration would release an unassigned temp on an
 exit inside a branch
 (`issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md`).
+
+### A call emitter must emit its arguments' deferred dups
+
+The evaluator decides one ownership rule for every call form
+(`consume_argument_for_parameter`, `src/evaluator/calls/helper.yo`): a borrowed
+argument of an `own` parameter gets a +1 the callee releases, and a borrowed
+projection passed to a borrowing parameter gets a +1 the caller releases after
+the call. Both ride on the argument as a deferred `___dup`, so any emitter that
+generates call arguments must honor it — the plain call through
+`_materialize_arg`, the method-dispatch emitters through `_dispatch_arg_code`
+(`src/codegen/exprs/other_fn_call.yo`). A bare `_call_generate_expr(arg)` in an
+argument loop drops the dup: an `own` callee then releases a reference it was
+never given, and the caller-side drop silently vanishes with its undeclared temp
+(`issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md`).
+A new argument loop is checked by comparing `f(x.field)` with `T.f(x.field)`
+and `x.field.g(...)` under `--sanitize address`.
+
+Constructor arguments follow the same rule: `set_expr_as_needs_to_call_dup`
+(`src/evaluator/calls/type.yo`) puts the dup on a struct's and a newtype's
+field arguments alike, so both arms of the value-struct constructor emitter
+(the compound literal and the newtype cast) use `emit_deferred_dup_or_code`.
+The newtype cast once emitted its argument bare, and `Self(b : self.b)` then
+returned a payload both owners released
+(`issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md`).
 
 ### Inside a state machine, a temp declared as a C local must also be stored to its slot
 

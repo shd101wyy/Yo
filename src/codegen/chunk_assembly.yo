@@ -692,9 +692,10 @@ assemble_chunks :: (
     /// files from (`<base>NNN.c`): non-empty makes this pass rewrite every
     /// restore marker to its chunk's real file and line. Empty (directives
     /// off) leaves the bodies untouched.
-    (chunk_base : String) ?= String.new()
+    (chunk_base_opt : Option(String)) ?= .None
   ) -> ChunkAssembly
 )({
+  chunk_base := match(chunk_base_opt, .Some(b) => b, .None => String.new());
   n := if(n_chunks < usize(1), usize(1), n_chunks);
   code_bytes := code.as_bytes();
   // 1. The header-defined name set: static definitions already living in the

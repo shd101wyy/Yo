@@ -139,7 +139,7 @@ module still needs its own token list for its `//!` header and for ordering).
 A member then resolves its doc by its own defining position regardless of which
 module is being rendered.
 
-Worth checking while in there: `issues/yo-doc-renders-std-prelude-as-an-empty-module.md`
+Worth checking while in there: `issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md`
 is plausibly the same family — the prelude is the extreme case of a module whose
 contents are declared elsewhere.
 

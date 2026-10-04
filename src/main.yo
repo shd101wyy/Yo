@@ -61,7 +61,7 @@ pragma(Pragma.AllowUnsafe);
   profile_fn_std
 } :: import("./utils.yo");
 { Command, ExitStatus } :: import("std/process/command");
-{ platform, Platform } :: import("std/process");
+{ platform, Platform, pid } :: import("std/process");
 { exit } :: import("std/libc/stdlib");
 { environ, execve } :: import("std/libc/unistd");
 { GlobalAllocator } :: import("std/allocator");
@@ -226,14 +226,14 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
         .FnCall(_, _, _, _, _) => String.new()
       );
       cond(
-        // Pattern: { Names } :: import "path" (infix ::)
+        // Pattern: { Names } :: import("path") (infix ::)
         ((fval == "::") && is_infix && (fn_imp_args.len() >= usize(2))) =>
           match(
             fn_imp_args.get(usize(1)),
             .None => Option(String).None,
             .Some(rhs) => extract_bare_import_path(rhs)
           ),
-        // Pattern: bare import "path"
+        // Pattern: bare import("path")
         true => extract_bare_import_path(expr)
       )
     }
@@ -2638,6 +2638,16 @@ _cc_command :: (fn(program : String, argv : ArrayList(String)) -> Command)({
   });
   c
 });
+/// [`-v/--verbose`] The C compile line — the retired TS compiler printed this
+/// unconditionally (`Compiling with: ${compiler} ${args.join(" ")}`); the
+/// self-hosted one prints it per invocation, GATED, because the cli-cases
+/// goldens compare stdout and no recorded case asks for it
+/// (issues/fixed/yoself-missing-compiling-with-print.md). This is what makes
+/// a flag's arrival at the C compiler assertable from a log: a silently
+/// dropped `-fsanitize=…` is otherwise indistinguishable from a clean run.
+_print_cc_argv :: (fn(program : String, argv : ArrayList(String)) -> unit)(
+  println(`Compiling with: ${program} ${String.from(" ").join(argv)}`)
+);
 /// Single-quote `s` for POSIX `sh`, escaping embedded single quotes as
 /// `'\''`. Flag values can carry user text (`-D`, `-I`, `--cflags`), so the
 /// generated compile script must never let them reach the shell unquoted.
@@ -2701,6 +2711,7 @@ _compile_chunks_parallel :: (
     jobs : usize,
     force_recompile : bool,
     hits_out : ArrayList(usize),
+    verbose : bool,
     io : Io,
     exn : Exception
   ) -> ArrayList(String)
@@ -2742,6 +2753,11 @@ _compile_chunks_parallel :: (
       cmdline.push_string(_sh_quote(cf.clone()));
       cmdline.push_str(" -o ");
       cmdline.push_string(_sh_quote(obj.clone()));
+      // [`-v/--verbose`] Print the UNQUOTED form (the other invocation sites'
+      // shape), not the `sh`-quoted `cmdline` below it.
+      if(verbose, {
+        println(`Compiling with: ${cc} ${flags_key} -c ${cf} -o ${obj}`);
+      });
       lines.push(cmdline);
       stamps.push(stamp);
       stamp_paths.push(stamp_path);
@@ -3152,6 +3168,12 @@ CcPlan :: struct(
   /// positions). Set for the whole plan because the exec handoff
   /// (`__cc-plan`) re-runs it in a fresh image.
   capture_cc : bool,
+  /// [`-v/--verbose`] Print every C-compiler invocation ("Compiling with: …")
+  /// before it runs, so a flag's presence in the argv (a sanitizer, an
+  /// include path) is assertable from any log. Serialized like `capture_cc`:
+  /// the exec-handoff child re-runs the plan in a fresh image where the CLI
+  /// flag is gone.
+  verbose : bool,
   /// STATIC_LIB: the object `argv` writes and the archive it goes into.
   obj_path : String,
   ar_out : String
@@ -3173,6 +3195,7 @@ _new_cc_plan :: (fn(mode : u8, cc : String, c_path : String, output : String) ->
     chunk_max_bytes : usize(0),
     jobs_memory_capped : false,
     capture_cc : false,
+    verbose : false,
     obj_path : String.new(),
     ar_out : String.new()
   )
@@ -3208,7 +3231,7 @@ _cc_plan_unescape :: (fn(v : String) -> String)({
   });
   out
 });
-_cc_plan_push_list :: (fn(out : String, key : str, items : ArrayList(String)) -> unit)({
+_cc_plan_push_list :: (fn(inout(out) : String, key : str, items : ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < items.len(), {
     out.push_str(key);
@@ -3227,6 +3250,7 @@ _cc_plan_serialize :: (fn(plan : CcPlan) -> String)({
   out.push_string(`chunk_max_bytes ${plan.chunk_max_bytes.to_string()}\n`);
   out.push_string(`jobs_memory_capped ${if(plan.jobs_memory_capped, String.from("1"), String.from("0"))}\n`);
   out.push_string(`capture_cc ${if(plan.capture_cc, String.from("1"), String.from("0"))}\n`);
+  out.push_string(`verbose ${if(plan.verbose, String.from("1"), String.from("0"))}\n`);
   out.push_string(`cc ${_cc_plan_escape(plan.cc)}\n`);
   out.push_string(`c_path ${_cc_plan_escape(plan.c_path)}\n`);
   out.push_string(`output ${_cc_plan_escape(plan.output)}\n`);
@@ -3268,6 +3292,9 @@ _cc_plan_parse :: (fn(text : String, exn : Exception) -> CcPlan)({
           },
           (key == "capture_cc") => {
             plan.capture_cc = (val == "1");
+          },
+          (key == "verbose") => {
+            plan.verbose = (val == "1");
           },
           (key == "cc") => {
             plan.cc = val;
@@ -3574,6 +3601,9 @@ _report_captured_cc_stderr :: (fn(captured_err : ArrayList(u8)) -> unit)({
 _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
   cc := plan.cc;
   if(plan.mode == _CC_PLAN_STATIC_LIB, {
+    if(plan.verbose, {
+      _print_cc_argv(cc.clone(), plan.argv);
+    });
     cst := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
       exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
@@ -3583,6 +3613,13 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
     arcmd.arg(String.from("rcs"));
     arcmd.arg(plan.ar_out.clone());
     arcmd.arg(plan.obj_path.clone());
+    if(plan.verbose, {
+      ar_argv := ArrayList(String).new();
+      ar_argv.push(String.from("rcs"));
+      ar_argv.push(plan.ar_out.clone());
+      ar_argv.push(plan.obj_path.clone());
+      _print_cc_argv(String.from("ar"), ar_argv);
+    });
     ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
     if(ast.raw != i32(0), {
       exn.throw(dyn(`compile: ar failed (exit ${ast.code().unwrap_or(i32(-1)).to_string()}) creating ${plan.ar_out}`));
@@ -3606,6 +3643,7 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
       chunk_jobs,
       false,
       chunk_hits,
+      plan.verbose,
       io,
       exn
     );
@@ -3617,6 +3655,9 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
   // structured diagnostics (`_report_captured_cc_stderr`); a success keeps C
   // warnings visible by printing what was captured.
   (link_st : ExitStatus) = ExitStatus(raw : i32(0));
+  if(plan.verbose, {
+    _print_cc_argv(cc.clone(), plan.argv);
+  });
   if(plan.capture_cc, {
     cap := io.await(_cc_command(cc.clone(), plan.argv).output(io), IoExn(io : io, exn : exn));
     link_st = cap.status;
@@ -3655,9 +3696,13 @@ _run_cc_plan :: (fn(plan : CcPlan, io : Io, exn : Exception) -> unit)({
         chunk_jobs,
         true,
         retry_hits,
+        plan.verbose,
         io,
         exn
       );
+      if(plan.verbose, {
+        _print_cc_argv(cc.clone(), plan.argv);
+      });
       st2 := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
       if(st2.raw != i32(0), {
         exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
@@ -3785,6 +3830,11 @@ run_compile :: (
   // batch compiles — a runtime harness; legs without Z3 could not compile
   // verify-pragma fixtures otherwise).
   (no_verify : bool) = false;
+  // `-v/--verbose`: print every C-compiler invocation ("Compiling with: …")
+  // as it is about to run (`_run_cc_plan`), so the assembled argv — sanitizer
+  // flags included — is assertable from any log. The test runner forwards its
+  // own --verbose here (issues/fixed/yoself-missing-compiling-with-print.md).
+  (verbose : bool) = false;
   (skip_cc : bool) = false;
   // 5b: keep every runtime guard even where a proof licenses its removal
   // (the C-diff oracle's reference build).
@@ -3884,6 +3934,10 @@ run_compile :: (
       (a_name == "--profile-json") => {
         profile_json = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
+      },
+      ((a_name == "-v") || (a_name == "--verbose")) => {
+        verbose = true;
+        ai = (ai + usize(1));
       },
       (a_name == "--allocator") => {
         allocator = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -5054,6 +5108,7 @@ run_compile :: (
     lib_plan.argv = cmd.recorded;
     lib_plan.obj_path = obj_path;
     lib_plan.ar_out = if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
+    lib_plan.verbose = verbose;
     _finish_cc_plan(lib_plan, profile_json.clone(), io, exn);
     return(())
   });
@@ -5182,6 +5237,7 @@ run_compile :: (
   plan.chunk_max_bytes = chunk_max_bytes;
   plan.jobs_memory_capped = jobs_defaulted;
   plan.capture_cc = line_directives;
+  plan.verbose = verbose;
   _finish_cc_plan(plan, profile_json.clone(), io, exn);
 });
 // Exported for tests/internal/compile.test.yo, which drives the compile
@@ -6105,6 +6161,23 @@ run_test :: (
   (bailed : bool) = false;
   (fi : usize) = usize(0);
   (profile_t0 : Instant) = Instant.now();
+  // Per-run components every batch name below shares. The pid: the batch
+  // name used to be a pure function of directory + file index + batch
+  // index, so two CONCURRENT `yo test` runs over one directory generated
+  // the same `.yo`/`.c`/`.bin` paths and each compiled, ran and deleted the
+  // other's batches mid-run
+  // (issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md).
+  // YO_EXE: this process's own executable, exported so a batch's tests can
+  // re-invoke the compiler running them
+  // (tests/internal/concurrent_test_runs.test.yo).
+  // An RSS-valve exec-restart re-executes this block in the resumed process,
+  // which keeps the SAME pid — the names stay consistent across the restart.
+  runner_pid := pid().to_string();
+  _sv_exe := match(
+    current_exe(),
+    .Ok(exe) => proc_env.set(String.from("YO_EXE"), exe.to_string()),
+    .Err(_) => false
+  );
   while((fi < files.len()) && !bailed, {
     file := match(files.get(fi), .Some(f) => f, .None => String.from(""));
     fi = (fi + usize(1));
@@ -6234,10 +6307,15 @@ run_test :: (
           .Some(sidx) => file.substring(usize(0), sidx),
           .None => String.from(".")
         );
-        // The batch index is part of the name so a multi-batch file does not have
-        // its batches overwrite each other (and so YO_KEEP_BATCH leaves all of
-        // them behind for inspection).
-        batch_base := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}_${bi.to_string()}`;
+        // The runner's pid, the file index and the batch index are all part of
+        // the name: the pid so two CONCURRENT runs over one directory cannot
+        // overwrite each other's artifacts, the batch index so a multi-batch
+        // file does not have its batches overwrite each other (and so
+        // YO_KEEP_BATCH leaves all of them behind for inspection). Every
+        // consumer keys on the `.yo_selftest_batch_` prefix — .gitignore's
+        // `.yo_selftest_batch_*`, the codegen/evaluator batch detectors — so
+        // the pid slots in right after it.
+        batch_base := `${batch_dir}/.yo_selftest_batch_${runner_pid}_${fi.to_string()}_${bi.to_string()}`;
         tmp_yo := `${batch_base}.yo`;
         tmp_bin := `${batch_base}${batch_ext}`;
         // The C sidecar does NOT simply append `.c`: run_compile STRIPS a
@@ -6366,6 +6444,15 @@ run_test :: (
         // per-phase table (stderr is inherited).
         if(test_profile, {
           cargv.push(String.from("--profile"));
+        });
+        // So does --verbose: the child prints its C compile line
+        // ("Compiling with: …"), which is what makes a sanitizer flag
+        // assertable from `yo test --verbose` logs — the TSan CI leg greps
+        // `-fsanitize=thread` out of exactly this line. Previously the flag
+        // died here, and a green run carried no evidence any flag reached cc
+        // (issues/fixed/yoself-missing-compiling-with-print.md).
+        if(verbose, {
+          cargv.push(String.from("--verbose"));
         });
         // The test runner is a RUNTIME harness: verification is a static
         // gate (yo check / yo compile / yo verify), and legs without Z3
@@ -8628,6 +8715,9 @@ Options:
   --compile-timeout-ms <ms> C compiler timeout
   --profile                 Print per-phase / per-module timing on stderr
   --profile-json <path>     Write the profile as JSON (module keys are absolute paths)
+  -v, --verbose             Print each C-compiler invocation ("Compiling with: …")
+                            as it is about to run — the line a sanitizer flag
+                            must appear in for the run to prove it was instrumented
   --emcc-environment <env>  Emscripten environment (node|web)
   --debug-gc / --debug-async-await / --debug-parallelism
                             Runtime debug logging in the emitted binary
@@ -8681,6 +8771,8 @@ Examples:
   --compile-timeout-ms <ms> C 编译器超时
   --profile                 在 stderr 上打印分阶段/分模块耗时
   --profile-json <path>     把耗时写成 JSON（模块键为绝对路径）
+  -v, --verbose             运行前打印每次 C 编译器调用（"Compiling with: …"），
+                            清理器标志必须出现在该行，运行才算证明已被插桩
   --emcc-environment <env>  Emscripten 环境（node|web）
   --debug-gc / --debug-async-await / --debug-parallelism
                             产出二进制内的运行时调试日志
@@ -9033,6 +9125,7 @@ Options:
   -o, --output <dir>        Output directory (default: ./yo-out/doc)
   -f, --format <fmt>        Output format (html|markdown|json, default html)
   --title <s>               Documentation site title
+  --version <v>             Release version (auto-detects from git if omitted)
   --logo <path>             Image shown in the sidebar header
   --favicon <path>          Site icon
   --document-private        Include underscore-private items
@@ -9050,6 +9143,7 @@ Examples:
   -o, --output <dir>        输出目录（默认 ./yo-out/doc）
   -f, --format <fmt>        输出格式（html|markdown|json，默认 html）
   --title <s>               文档站标题
+  --version <v>             发布版本（省略时从 git 自动检测）
   --logo <path>             侧边栏顶部显示的图片
   --favicon <path>          站点图标
   --document-private        包含下划线私有的条目
@@ -9506,7 +9600,8 @@ Queries:
   yo context <module> <name>     One item's full entry; a method is <Type>.<name>
   yo context <name>              A name across the corpus: one hit prints its
                                  entry, several print the ranked list
-  yo context --search <query>    Ranked search over names, signatures and docs
+  yo context --search <query>    Ranked search over names, modules, signatures and docs
+                                 (keywords are ANDed: "hash string" finds String.hash)
 
 Manuals (the docs/en-US/ copy shipped with this toolchain):
   yo context --docs              Every bundled manual, with its title
@@ -9551,7 +9646,8 @@ Examples:
   yo context <module> <name>     某个条目的完整说明；方法写作 <Type>.<name>
   yo context <name>              在整个语料中查找名字：唯一命中时输出其说明，
                                  多个命中时输出排序后的列表
-  yo context --search <query>    在名字、签名和文档中进行排序搜索
+  yo context --search <query>    在名字、模块、签名和文档中进行排序搜索
+                                 （关键词按 AND 匹配："hash string" 能找到 String.hash）
 
 手册（随本工具链附带的 docs/en-US/ 副本）：
   yo context --docs              列出全部随附手册及其标题

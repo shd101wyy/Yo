@@ -61,7 +61,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_trait_ptr_type,
   record_branch_consume
 } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, snapshot_env, frame_is_isolating } :: import("../../env.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body } :: import("../../expr_info.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -797,7 +798,7 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
   init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
   consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb.*, .None => return(()));
   if(ast_expr_is_atom(expr), {
-    if(ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND), {
+    if((ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND)) && !variable_moved_at_cleanup_point(variable, ast_expr_token(expr)), {
       _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, init_tok, consumed_tok, ctx);
     });
     return(());
@@ -806,7 +807,13 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : AstExpr, variable : Vari
     expr,
     .FnCall(_, func, args, _, _) => {
       if(ast_expr_is_fn_call_of(expr, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
-        _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, consumed_tok), variable, drop_expr, init_tok, consumed_tok, ctx);
+        // `consumed_at_token` is the variable's LAST move. A move the flow log
+        // undid — made earlier inside the arm this return sits in, e.g. by the
+        // return's own `sink(b)` — already released the value on this path,
+        // though the tail's later move is what the variable still shows.
+        if(!variable_moved_at_cleanup_point(variable, _m3_last_comparable_token_in_expr(expr, ast_expr_token(expr))), {
+          _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, consumed_tok), variable, drop_expr, init_tok, consumed_tok, ctx);
+        });
         return(());
       });
       match(
@@ -1761,6 +1768,36 @@ _must_use_kind :: (fn(stmt : AstExpr, ty : TypeValue) -> Option(String))({
 });
 
 evaluate_begin_expression :: (
+  fn(
+    expr : AstExpr,
+    env_in : Environment,
+    ctx : EvalContext,
+    variables_to_add : ArrayList(Variable),
+    is_evaluating_function_body_begin_block : bool,
+    exn : Exception
+  ) -> AstExpr
+)({
+  // Scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6): an OUTERMOST
+  // function body releases the recorded envs of what it evaluated when it
+  // ends. Nested closures wait for their enclosing function (capture analysis
+  // re-reads them); CTFE bodies are never released (their caller adopts the
+  // body env right after, and the executed clone is purged anyway). The depth
+  // is restored, not decremented, so a throw past this frame cannot pin it.
+  if(scope_release_active() && is_evaluating_function_body_begin_block && (ctx.ctfe_depth == usize(0)), {
+    sr_saved_depth := scope_release_depth();
+    sr_mark := scope_release_mark();
+    sr_entry := snapshot_env(env_in);
+    scope_release_set_depth(sr_saved_depth + usize(1));
+    sr_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
+    scope_release_set_depth(sr_saved_depth);
+    if(sr_saved_depth == usize(0), {
+      scope_release_body(sr_mark, sr_entry);
+    });
+    return(sr_r);
+  });
+  _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn)
+});
+_evaluate_begin_expression_impl :: (
   fn(
     expr : AstExpr,
     env_in : Environment,

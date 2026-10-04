@@ -1877,8 +1877,9 @@ parse :: (
   p := Parser.new(input_string, module_path, exn);
   // Desugar `if(...)` calls to `cond(...)` on the fresh parse — every
   // consumer of `parse` (module loads, compile entries, the test runner)
-  // gets a macro-head-free tree. The formatter does NOT go through here
-  // (it works on the token stream), so `yo fmt` round-trips `if` intact.
+  // gets a macro-head-free tree. The formatter only runs `parse` as a
+  // refuse-to-rewrite gate and discards the tree (it renders the token
+  // stream), so `yo fmt` still round-trips `if` intact.
   desugar_program_if_calls(p.get_program(exn))
 });
 /// Parse a single Yo expression from a code string and return it.
