@@ -8,9 +8,9 @@
 //!
 //! Every operation returns an `IoFuture` resolving to a non-negative value on
 //! success (an fd for `socket` and `accept`, a byte count for `send`/`recv`,
-//! 0 for the rest) or a NEGATIVE error code. On POSIX that code is an errno;
-//! on Windows the socket paths return a negated WSA code (`-10061` rather
-//! than `-ECONNREFUSED`), which `IoError.from_errno` will not classify.
+//! 0 for the rest) or a NEGATIVE errno, on every platform: the Windows
+//! runtime maps Winsock's codes to errno (`WSAECONNREFUSED` resolves to
+//! `-ECONNREFUSED`), so `IoError.from_errno` classifies them the same way.
 //!
 //! How much of this is genuinely asynchronous differs per platform, and it
 //! matters for latency, not just for tidiness: `socket`, `bind`, `listen`,
@@ -42,11 +42,9 @@
 //! (`buf.add(4)` for `sin_addr`, `buf.add(8)` for `sin6_addr`) rather than
 //! asked of the platform, and `make_sockaddr_in` silently ignores a failed
 //! `inet_pton` so a malformed IP string yields a zero address instead of an
-//! error. On top of that the error channel is two different vocabularies
-//! (errno and WSA) and the byte-order helpers are exported raw. Freezing
-//! needs an owning address type with a fallible parser and one error
-//! vocabulary; `std/net/tcp` already provides both, and is the surface to
-//! build on.
+//! error, and the byte-order helpers are exported raw. Freezing needs an
+//! owning address type with a fallible parser; `std/net/tcp` already
+//! provides one, and is the surface to build on.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;

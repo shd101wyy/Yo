@@ -3368,8 +3368,8 @@ ret` bodies cannot contain `unwind`.
 
 Effects compose with `async`/`await`: handlers inside `io.async`
 tasks work correctly. If `unwind` is called inside an async task, the
-Future enters the `Aborted` state: `io.await` on it panics, while a
-spawned task's `JoinHandle.await` returns `.None`.
+Future enters the `Aborted` state: `io.await` on it propagates the abort
+to the awaiter, while a spawned task's `JoinHandle.await` returns `.None`.
 
 See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive
 documentation.

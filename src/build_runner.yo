@@ -30,7 +30,7 @@ _(env : warm_dbg_env) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { Command, Output, ExitStatus } :: import("std/process/command");
 { error_format, emit_rendered_text } :: import("./diagnostics.yo");
-{ yield } :: import("std/async");
+{ join_all } :: import("std/async");
 { mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path, _take_load_error, set_std_path_override, set_imports_file_override } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
 { Instant } :: import("std/time/instant");
@@ -218,13 +218,9 @@ _git_version :: (
 )(
   io.async((e : IoExn) => {
     // `git -C <dir>` rather than a cwd on the Command — `std/process/command.yo`
-    // has no `current_dir`. The output future runs as a
-    // SPAWNED TASK polled with is_finished + yield: a blocking await from
-    // inside a task nests the event loop (C37), and awaiting an aborted
-    // future directly would discard this closure's continuation. The
-    // suspending form is `io.await(t.join(e.io), e.io)`; the compiler adopts
-    // it once the seed carries `__yo_join_wait_new`
-    // (plans/backlog/SEED_VERSION_AUTOMATION.md, 2026-10-03 entry).
+    // has no `current_dir`. The output future runs as a SPAWNED TASK that this
+    // one JOINS: awaiting it directly would propagate its abort into this
+    // closure, and `join` reads an abort as `.None`.
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("-C"));
     cmd.arg(project_dir);
@@ -232,10 +228,7 @@ _git_version :: (
     cmd.arg(String.from("--tags"));
     cmd.arg(String.from("--always"));
     t := e.io.spawn(_git_output_task(cmd, e.io), e);
-    while(runtime(!t.is_finished()), {
-      e.io.await(yield(e.io), e.io);
-    });
-    out_opt := t.await(e.io);
+    out_opt := e.io.await(t.join(e.io), e.io);
     out := match(out_opt, .Some(o) => o, .None => return(Option(String).None));
     if(!out.status.success(), return(Option(String).None));
     v := String.from_bytes(out.stdout).trim();
@@ -1153,8 +1146,8 @@ _read_dir_task :: (fn(dir : String, io : Io) -> Impl(Future(ArrayList(DirEntry),
 /// Collect `*.yo` files under `dir`, skipping build outputs and VCS/tooling
 /// directories. Names are sorted per directory for a deterministic stamp —
 /// read_dir order is platform-dependent (the readdir-order lesson). Each
-/// directory's read_dir runs as a spawned task polled with is_finished +
-/// yield (a blocking await from inside a task nests the event loop, C37);
+/// directory's read_dir runs as a spawned task this one joins (an abort —
+/// the entry is a file — reads as `.None`);
 /// breadth-first over a worklist, which visits exactly the recursion's set.
 /// Is `name` a directory among `entries`? A symlink is not followed: a link
 /// loop would hang the walk, and a linked source tree is stamped where it
@@ -1352,10 +1345,7 @@ _cache_collect_yo_files :: (
       d := work(wi).clone();
       wi = (wi + usize(1));
       t := e.io.spawn(_read_dir_task(d.clone(), e.io), e);
-      while(runtime(!t.is_finished()), {
-        e.io.await(yield(e.io), e.io);
-      });
-      entries := match(t.await(e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
+      entries := match(e.io.await(t.join(e.io), e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
       names := ArrayList(String).new();
       (i : usize) = usize(0);
       while(i < entries.len(), {
@@ -1416,11 +1406,8 @@ _cache_read_file :: (
 )(
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
-    while(runtime(!t.is_finished()), {
-      e.io.await(yield(e.io), e.io);
-    });
     match(
-      t.await(e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(bytes) => Option(ArrayList(u8)).Some(bytes),
       .None => Option(ArrayList(u8)).None
     )
@@ -1713,11 +1700,8 @@ _read_depfile :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(String), I
 _read_stamp :: (fn(path : String, io : Io) -> Impl(Future(Option(String), IoExn)))(
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
-    while(runtime(!t.is_finished()), {
-      e.io.await(yield(e.io), e.io);
-    });
     match(
-      t.await(e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
       .None => Option(String).None
     )
@@ -1740,11 +1724,8 @@ _write_string_task :: (fn(path : String, data : String, io : Io) -> Impl(Future(
 _write_stamp :: (fn(path : String, stamp : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     t := e.io.spawn(_write_string_task(path.clone(), stamp.clone(), e.io), e);
-    while(runtime(!t.is_finished()), {
-      e.io.await(yield(e.io), e.io);
-    });
     match(
-      t.await(e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(_u) => (),
       .None => ()
     )
@@ -2674,19 +2655,6 @@ _execute_node_unless_blocked :: (
     r
   })
 );
-/// True while any handle in `handles` is still running. The poll predicate of
-/// `_execute_batch` below — a plain `fn` so the `while` condition carries no
-/// suspension point.
-_any_task_pending :: (fn(handles : ArrayList(JoinHandle(StepResult))) -> bool)({
-  (i : usize) = usize(0);
-  while(i < handles.len(), {
-    if(!handles(i).is_finished(), {
-      return(true);
-    });
-    i = (i + usize(1));
-  });
-  false
-});
 /// Run a batch of ready nodes CONCURRENTLY and collect their results in the
 /// batch's own order (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.8). Each
 /// node is a task; the compile/test/run children they spawn are what actually
@@ -2710,28 +2678,11 @@ _execute_batch :: (
       handles.push(e.io.spawn(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e));
       i = (i + usize(1));
     });
-    // NOT `join_all`. Its body awaits each handle in turn, and
-    // `JoinHandle.await` on a handle that has NOT finished is a blocking
-    // `__yo_async_poll_step` loop — while `_execute_batch` itself runs inside
-    // `run_build`'s RESUMED continuation, so that loop nests the event loop.
-    // C37's guard aborts on exactly this under `YO_ASYNC_STRICT=1`
-    // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md), and
-    // outside strict mode it silently serialises the scheduler it was added to
-    // parallelise.
-    //
-    // The shape the guard's own message prescribes instead: poll
-    // `is_finished()` and await `yield`. Once every handle is terminal,
-    // `h.await` reads the result without polling at all — the emitted loop's
-    // condition is false on entry.
-    while(runtime(_any_task_pending(handles)), {
-      e.io.await(yield(e.io), e.io);
-    });
-    outs := ArrayList(Option(StepResult)).new();
-    (oi : usize) = usize(0);
-    while(oi < handles.len(), {
-      outs.push(handles(oi).await(e.io));
-      oi = (oi + usize(1));
-    });
+    // `join_all` is a future (plans/ASYNC_IO_API_AUDIT.md A1): awaiting it
+    // suspends `_execute_batch` while the step tasks run, so it no longer
+    // nests the event loop the way the blocking `JoinHandle.await` did
+    // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md).
+    outs := e.io.await(join_all(handles, e.io), e.io);
     i = usize(0);
     while(i < batch.len(), {
       node := batch(i);

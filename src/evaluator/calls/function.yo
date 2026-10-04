@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
-{ is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
+{ is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
@@ -1608,7 +1608,7 @@ _try_rewrite_range_index_to_slice_copy :: (
 _with_future_output_resolution :: (fn(wrapper : TypeValue, concrete : TypeValue) -> TypeValue)(
   match(
     wrapper,
-    .SomeT(fw_id, fw_nm, fw_fl, fw_pt, fw_rtt, fw_rtl, fw_ntt, fw_ntl, fw_ier, fw_kft, fw_rc) => {
+    .SomeT(fw_id, fw_nm, fw_fl, fw_pt, fw_rtt, fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc) => {
       new_rtt := ArrayList(TypeValue).new();
       (i : usize) = usize(0);
       while(i < fw_rtt.len(), {
@@ -1617,9 +1617,9 @@ _with_future_output_resolution :: (fn(wrapper : TypeValue, concrete : TypeValue)
           .Some(rt) => new_rtt.push(
             match(
               rt,
-              .FutureTraitT(fb, fo, fel, fet, fes) => match(
+              .FutureTraitT(fb, fo, fel, fet) => match(
                 fo,
-                .SomeT({ id : _ }) => TypeValue.FutureTraitT(fb, t_with_resolution(fo, concrete), fel, fet, fes),
+                .SomeT({ id : _ }) => TypeValue.FutureTraitT(fb, t_with_resolution(fo, concrete), fel, fet),
                 _ => rt
               ),
               _ => rt
@@ -1629,7 +1629,7 @@ _with_future_output_resolution :: (fn(wrapper : TypeValue, concrete : TypeValue)
         );
         i = (i + usize(1));
       });
-      TypeValue.SomeT(fw_id, fw_nm, fw_fl, fw_pt, new_rtt, fw_rtl, fw_ntt, fw_ntl, fw_ier, fw_kft, fw_rc)
+      TypeValue.SomeT(fw_id, fw_nm, fw_fl, fw_pt, new_rtt, fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc)
     },
     _ => wrapper
   )
@@ -1680,7 +1680,7 @@ _future_output_some_id :: (fn(t : TypeValue) -> Option(String))(
 _freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
   match(
     t,
-    .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, is_effects_row : sier, kind_function_type : skft }) => TypeValue.SomeT(
+    .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => TypeValue.SomeT(
       generate_some_type_id(),
       sn.clone(),
       sfl,
@@ -1689,7 +1689,6 @@ _freshen_io_async_result :: (fn(t : TypeValue) -> TypeValue)(
       srtl.clone(),
       sntt.clone(),
       sntl.clone(),
-      sier,
       skft.clone(),
       Option(TypeValue).None
     ),
@@ -1731,7 +1730,7 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
           ffts.get(fb_i),
           .Some(fbt) => match(
             fbt,
-            .SomeT({ name : fbn, frame_level : fbl, parent_type : fbpt, required_trait_types : fbrtt, required_trait_levels : fbrtl, negative_trait_types : fbntt, negative_trait_levels : fbntl, is_effects_row : fbier, kind_function_type : fbkft }) => {
+            .SomeT({ name : fbn, frame_level : fbl, parent_type : fbpt, required_trait_types : fbrtt, required_trait_levels : fbrtl, negative_trait_types : fbntt, negative_trait_levels : fbntl, kind_function_type : fbkft }) => {
               subst_add(
                 fbs,
                 fbn.clone(),
@@ -1745,7 +1744,6 @@ _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
                   fbrtl.clone(),
                   fbntt.clone(),
                   fbntl.clone(),
-                  fbier,
                   fbkft.clone(),
                   Option(TypeValue).None
                 )
@@ -1840,7 +1838,7 @@ _gc_collect_binder_sites :: (
     steps = (steps + usize(1));
     cur := match(work.pop(), .Some(c) => c, .None => TypeValue.Unit);
     somes := get_all_some_types(cur);
-    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
+    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
     (si : usize) = usize(0);
     while(si < somes.len(), {
       match(
@@ -1880,7 +1878,7 @@ _gc_collect_binder_sites :: (
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -1893,7 +1891,7 @@ _gc_collect_binder_sites :: (
               gi = (gi + usize(1));
             });
           },
-          .FutureTraitT(_, fo, _, fet, _) => {
+          .FutureTraitT(_, fo, _, fet) => {
             work.push(fo);
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
@@ -1961,7 +1959,7 @@ _gc_freshen_all_sites :: (
       g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => TypeValue.Unit);
       g_made := match(
         g_proto,
-        .SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, is_effects_row : g_pier, kind_function_type : g_pkft }) => TypeValue.SomeT(
+        .SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, kind_function_type : g_pkft }) => TypeValue.SomeT(
           generate_some_type_id(),
           g_pn.clone(),
           g_pl,
@@ -1970,7 +1968,6 @@ _gc_freshen_all_sites :: (
           g_prtl.clone(),
           g_pntt.clone(),
           g_pntl.clone(),
-          g_pier,
           g_pkft.clone(),
           Option(TypeValue).None
         ),
@@ -2172,9 +2169,9 @@ _funcval_try_synthesize_param :: (
 _fv_fn_trait_with_result :: (fn(ftt : TypeValue, result : TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(bn, cpl, cpt, cr, il, it, is, cpr) => if(
+    .FnTraitT(bn, cpl, cpt, cr, il, it, cpr) => if(
       is_some_type(cr) || (get_all_some_types(cr).len() > usize(0)),
-      TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, is, cpr),
+      TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, cpr),
       ftt
     ),
     _ => ftt
@@ -2212,16 +2209,16 @@ _fv_closure_arg_synth_type :: (fn(info : ExprInfo) -> TypeValue)({
           TypeValue.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, ArrayList(TypeValue).new()),
           info.ty
         ),
-        .SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_ier, rf_kft, rf_rc) => {
+        .SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc) => {
           new_rtt := ArrayList(TypeValue).new();
           (rf_i : usize) = usize(0);
           while(rf_i < rf_rtt.len(), {
             match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(rt, body)), .None => ());
             rf_i = (rf_i + usize(1));
           });
-          TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_ier, rf_kft, rf_rc)
+          TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)
         },
-        .FnTraitT(_, _, _, _, _, _, _, _) => _fv_fn_trait_with_result(info.ty, body),
+        .FnTraitT(_, _, _, _, _, _, _) => _fv_fn_trait_with_result(info.ty, body),
         _ => info.ty
       )
     ),
@@ -2740,7 +2737,6 @@ _fv_bind_unbound_forall_placeholders :: (
           ArrayList(usize).new(),
           ArrayList(TypeValue).new(),
           ArrayList(usize).new(),
-          false,
           Option(TypeValue).None,
           Option(TypeValue).None
         )
@@ -3345,7 +3341,7 @@ _rre_binder_ids :: (
     steps = (steps + usize(1));
     cur := match(work.pop(), .Some(c) => c, .None => TypeValue.Unit);
     somes := get_all_some_types(cur);
-    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
+    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
     (si : usize) = usize(0);
     while(si < somes.len(), {
       match(
@@ -3370,7 +3366,7 @@ _rre_binder_ids :: (
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -3383,7 +3379,7 @@ _rre_binder_ids :: (
               gi = (gi + usize(1));
             });
           },
-          .FutureTraitT(_, fo, _, fet, _) => {
+          .FutureTraitT(_, fo, _, fet) => {
             work.push(fo);
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
@@ -3435,7 +3431,7 @@ _rre_mentions_binder :: (fn(t : TypeValue, ids : ArrayList(String)) -> bool)({
     // array element or a pointee is collected here, and each collected SomeT
     // is re-examined below.
     somes := get_all_some_types(cur);
-    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
+    match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
     (si : usize) = usize(0);
     while((si < somes.len()) && !found, {
       match(
@@ -3460,7 +3456,7 @@ _rre_mentions_binder :: (fn(t : TypeValue, ids : ArrayList(String)) -> bool)({
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -3473,7 +3469,7 @@ _rre_mentions_binder :: (fn(t : TypeValue, ids : ArrayList(String)) -> bool)({
               gi = (gi + usize(1));
             });
           },
-          .FutureTraitT(_, fo, _, fet, _) => {
+          .FutureTraitT(_, fo, _, fet) => {
             work.push(fo);
             (ei : usize) = usize(0);
             while(ei < fet.len(), {
@@ -3645,7 +3641,7 @@ _evaluate_funcval_runtime_call :: (
         rst := match(ret_somes.get(rsi), .Some(t) => t, .None => t_unit());
         match(
           rst,
-          .SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _, _) => {
+          .SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _) => {
             (bni : usize) = usize(0);
             while(bni < fa_bound_names.len(), {
               bn := match(fa_bound_names.get(bni), .Some(x) => x, .None => String.from(""));
@@ -5372,6 +5368,51 @@ _evaluate_function_call_unanchored :: (
     });
     if(iob_marker.len() > usize(0), {
       record_io_builtin_call(ast_expr_id(expr), iob_marker);
+    }, {
+      // Spelled like an async builtin (`io.await(...)`, `h.await(...)`) but
+      // the callee is a Yo-defined function — a function value whose type
+      // names no extern: an ordinary method. Record that, so the spelling
+      // matchers (`is_io_await_call`, `is_join_handle_await_call`, …) do not
+      // lower it as the builtin
+      // (issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md).
+      // The receiver's type decides: a known struct or enum that is not the
+      // prelude's `Io` or `JoinHandle` has its own method. (The callee VALUE
+      // of a method on a runtime receiver is not a function value, so it
+      // cannot decide.) An unknown receiver type records nothing and keeps
+      // the spelling fallback.
+      iob_user_fn := match(
+        func_expr,
+        .FnCall(_, iob_dot2, iob_dargs2, _, _) => if(
+          match(iob_dot2, .Atom(_, iob_dtok2) => (iob_dtok2.kind == TokenKind.Dot), _ => false)
+          && (iob_dargs2.len() == usize(2)),
+          match(
+            iob_dargs2.get(usize(0)),
+            .Some(iob_re2) => match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(iob_re2)),
+              .Some(iob_ri2) => match(
+                iob_ri2.ty,
+                // A type the prelude declares (`Io`, any `JoinHandle(T)`) is
+                // never user code; one with no recorded module is judged by
+                // name, so a `JoinHandle` instance is never marked.
+                .Struct({ id : iob_sid2, name : iob_sn2 }) => match(
+                  type_decl_module(iob_sid2.clone()),
+                  .Some(iob_mod2) => !iob_mod2.ends_with("prelude.yo"),
+                  .None => !((iob_sn2 == "Io") || iob_sn2.starts_with("JoinHandle"))
+                ),
+                .EnumT({ id : _ }) => true,
+                _ => false
+              ),
+              .None => false
+            ),
+            .None => false
+          ),
+          false
+        ),
+        _ => false
+      );
+      if(iob_user_fn && (is_io_async_call(expr) || (is_io_await_call(expr) || (is_io_state_call(expr) || (is_io_spawn_call(expr) || is_join_handle_await_call(expr))))), {
+        record_io_builtin_call(ast_expr_id(expr), String.from(IO_BUILTIN_NONE));
+      });
     });
   };
   callee_value_raw := match(
@@ -5499,7 +5540,7 @@ Fix: wrap the call:
             try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, exn)
           },
           // FnTraitT (Fn(A, B) -> C as a type) — try closure creation.
-          .FnTraitT(_, _, _, _, _, _, _, _) => {
+          .FnTraitT(_, _, _, _, _, _, _) => {
             result_opt := try_to_implement_closure_by_fn_module_type(
               expr,
               func_type,
@@ -5527,7 +5568,7 @@ Fix: wrap the call:
           // SomeT — three cases: (1) HKT kind-annotated type constructor F(A…)
           // → build a TypeApplication; (2) wraps a FnTrait (Impl(Fn(...) -> T))
           // → closure; (3) neither → error.
-          .SomeT(_, _, _, _, _, _, _, _, _, kind_fn_opt, _) =>
+          .SomeT(_, _, _, _, _, _, _, _, kind_fn_opt, _) =>
             match(
               kind_fn_opt,
               // (1) HKT: applying a kind-annotated type constructor `F(A…)`.
@@ -6283,7 +6324,6 @@ Fix: wrap the call:
                   forall_labels : ArrayList(String).new(),
                   param_labels : pa_new_labels,
                   implicit_labels : ArrayList(String).new(),
-                  implicit_spreads : ArrayList(bool).new(),
                   result_is_comptime_only : true,
                   param_is_ref : pa_new_flags,
                   param_is_owning : pa_new_own,
@@ -6436,7 +6476,7 @@ Fix: wrap the call:
             // with_lock write-through arm).
             _ => match(
               extract_fn_trait_from_type(ci.ty),
-              .Some(.FnTraitT(_, _, _, _, _, _, _, fv_cprf)) => fv_cprf,
+              .Some(.FnTraitT(_, _, _, _, _, _, fv_cprf)) => fv_cprf,
               .Some(_) => ArrayList(bool).new(),
               .None => ArrayList(bool).new()
             )
@@ -7967,7 +8007,7 @@ Fix: wrap the call:
                 ct_rst := match(ct_ret_somes.get(ctsi), .Some(t) => t, .None => t_unit());
                 match(
                   ct_rst,
-                  .SomeT(_, ct_rst_name, ct_rst_lvl, _, _, _, _, _, _, _, _) => {
+                  .SomeT(_, ct_rst_name, ct_rst_lvl, _, _, _, _, _, _, _) => {
                     (ct_bni : usize) = usize(0);
                     while(ct_bni < fa_bound_names.len(), {
                       ct_bn := match(fa_bound_names.get(ct_bni), .Some(x) => x, .None => String.from(""));

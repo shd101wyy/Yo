@@ -629,7 +629,7 @@ _substitute_node :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> Typ
                 new_nts.push(_substitute_at(s, elem, false));
                 i = (i + usize(1));
               });
-              .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, false, Option(TypeValue).None, rcp)
+              .SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, Option(TypeValue).None, rcp)
             }
           )
         },
@@ -715,16 +715,6 @@ _substitute_node :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> Typ
         },
         // Phase 2f variants — recurse into child types
         .ComptimeListT(child) => .ComptimeListT(_substitute_at(s, child, false)),
-        .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
-          new_types := ArrayList(TypeValue).new();
-          i := usize(0);
-          while(i < types.len(), {
-            elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-            new_types.push(_substitute_at(s, elem, false));
-            i = (i + usize(1));
-          });
-          .EffectsRowT(labels, new_types)
-        },
         .TypeAppT(constructor, args) => {
           new_args := ArrayList(TypeValue).new();
           i := usize(0);
@@ -759,7 +749,7 @@ _substitute_node :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> Typ
           // Re-sorted: substituting a trait argument can change its key.
           t_dyn(new_rtt, rtl, new_ntt, ntl)
         },
-        .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, implicit_spreads : isps, call_param_is_ref : cprf) => {
+        .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, call_param_is_ref : cprf) => {
           new_cpts := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < cpts.len(), {
@@ -774,9 +764,9 @@ _substitute_node :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> Typ
             new_its.push(_substitute_at(s, elem, false));
             iti = (iti + usize(1));
           });
-          .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, cr, false), implicit_labels : ils, implicit_types : new_its, implicit_spreads : isps, call_param_is_ref : cprf)
+          .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, cr, false), implicit_labels : ils, implicit_types : new_its, call_param_is_ref : cprf)
         },
-        .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets, effect_spreads : esp) => {
+        .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets) => {
           new_ets := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < ets.len(), {
@@ -784,7 +774,7 @@ _substitute_node :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> Typ
             new_ets.push(_substitute_at(s, elem, false));
             i = (i + usize(1));
           });
-          .FutureTraitT(base_name : bn, output : _substitute_at(s, out, false), effect_labels : els, effect_types : new_ets, effect_spreads : esp)
+          .FutureTraitT(base_name : bn, output : _substitute_at(s, out, false), effect_labels : els, effect_types : new_ets)
         },
         // Primitives and leaves — return unchanged.
         _ => ty

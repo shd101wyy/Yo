@@ -241,10 +241,8 @@ impl(
     fd := self._fd;
     io.async(e => {
       result := e.io.await(IO_file.fsync(fd), e.io);
-      cond(
-        (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-        true => ()
-      )
+      IoError.check(result, e.exn);
+      ()
     })
   }),
   /// Truncate or extend the file to exactly `length` bytes (Rust's
@@ -254,10 +252,8 @@ impl(
     fd := self._fd;
     io.async(e => {
       result := e.io.await(IO_file.ftruncate(fd, length), e.io);
-      cond(
-        (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-        true => ()
-      )
+      IoError.check(result, e.exn);
+      ()
     })
   }),
   /// Wrap an ALREADY-OPEN file descriptor without opening anything (Rust's
@@ -324,10 +320,8 @@ impl(
           true => {
             result := e.io.await(IO_file.close(fd), e.io);
             self._is_closed = true;
-            cond(
-              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-              true => ()
-            )
+            IoError.check(result, e.exn);
+            ()
           }
         )
     )

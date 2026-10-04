@@ -22,11 +22,11 @@ pragma(Pragma.AllowUnsafe);
 }
 :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_adopt_env } :: import("../../expr_info.yo");
-{ Environment, get_variables_from_env, snapshot_env } :: import("../../env.yo");
+{ Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, create_type_value, is_type_value, is_unknown_val } :: import("../../value.yo");
+{ create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_future_trait, generate_some_type_id } :: import("../../types/creators.yo");
+{ t_future_trait } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -47,194 +47,14 @@ _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> Stri
   match(
     effect_type,
     .Struct({ name, is_source_namespace : fl_sns }) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
-    .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
+    .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
     _ => ast_expr_to_string(effect_expr)
   )
 );
-/// Resolve a spread effect row `E : Type.Struct`.
-/// Pushes the resolved label/type/spread into the output lists.
-_resolve_effect_row_spread :: (
-  fn(
-    effect_expr : AstExpr,
-    env : Environment,
-    out_labels : ArrayList(String),
-    out_types : ArrayList(TypeValue),
-    out_spreads : ArrayList(bool),
-    exn : Exception
-  ) -> unit
-)({
-  // effect_expr is `E : Type.Struct` — extract the row var name
-  spread_args := _future_args(effect_expr);
-  row_arg := match(spread_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  row_var_name_str := ast_expr_token(row_arg).value;
-  row_var_name := row_var_name_str;
-  // Look up E in the environment
-  row_vars := get_variables_from_env(env, row_var_name);
-  if(row_vars.len() == usize(0), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(effect_expr),
-          `Effect row variable "${row_var_name}" not found in scope. Declare it with generic(..., ...(${row_var_name}))`
-        )
-      )
-    );
-  });
-  match(
-    row_vars.last(),
-    .Some(row_var) => {
-      match(
-        row_var.value.get(usize(0)),
-        .Some(e_value) => {
-          match(
-            e_value,
-            // Case 1/2: TypeVal — check if EffectsRowT (expand) or SomeT (spread marker)
-            .TypeVal(type_box) => {
-              match(
-                type_box,
-                .EffectsRowT(row_labels, row_types) => {
-                  // Case 1: Concrete EffectsRowT — expand into non-spread params
-                  (ri : usize) = usize(0);
-                  while(ri < row_labels.len(), {
-                    lbl := match(
-                      row_labels.get(ri),
-                      .Some(l) => l,
-                      .None => {
-                        ri = row_labels.len();
-                        break;
-                      }
-                    );
-                    ty := match(
-                      row_types.get(ri),
-                      .Some(t) => t,
-                      .None => {
-                        ri = row_labels.len();
-                        break;
-                      }
-                    );
-                    out_labels.push(lbl);
-                    out_types.push(ty);
-                    out_spreads.push(false);
-                    ri = (ri + usize(1));
-                  });
-                },
-                .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
-                  // Case 2: SomeT effects row variable — use as spread marker
-                  out_labels.push(row_var_name);
-                  out_types.push(type_box);
-                  out_spreads.push(true);
-                },
-                _ => {
-                  exn.throw(
-                    dyn(
-                      format_error_message(
-                        ast_expr_token(effect_expr),
-                        `"...(${row_var_name})" requires "${row_var_name}" to be a generic-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly instead of spreading them, e.g. Future(T, ${row_var_name}) instead of Future(T, ...(${row_var_name}))`
-                      )
-                    )
-                  );
-                }
-              );
-            },
-            // Case 3/4/5: UnknownVal — check the contained type
-            .UnknownVal(type_box, _) => {
-              match(
-                type_box,
-                .EffectsRowT(row_labels, row_types) => {
-                  // Case 3: UnknownVal with EffectsRowT — expand into concrete non-spread params
-                  (ri : usize) = usize(0);
-                  while(ri < row_labels.len(), {
-                    lbl := match(
-                      row_labels.get(ri),
-                      .Some(l) => l,
-                      .None => {
-                        ri = row_labels.len();
-                        break;
-                      }
-                    );
-                    ty := match(
-                      row_types.get(ri),
-                      .Some(t) => t,
-                      .None => {
-                        ri = row_labels.len();
-                        break;
-                      }
-                    );
-                    out_labels.push(lbl);
-                    out_types.push(ty);
-                    out_spreads.push(false);
-                    ri = (ri + usize(1));
-                  });
-                },
-                .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
-                  // Case 4: UnknownVal with SomeT type — use SomeT as spread marker
-                  out_labels.push(row_var_name);
-                  out_types.push(type_box);
-                  out_spreads.push(true);
-                },
-                _ => {
-                  // Case 5: UnknownVal with TypeUni or other — re-evaluation, create fresh SomeT
-                  frame_level := cond(
-                    (env.frames.len() > usize(0)) => (env.frames.len() - usize(1)),
-                    true => usize(0)
-                  );
-                  new_some_t := TypeValue.SomeT(
-                    generate_some_type_id(),
-                    row_var_name,
-                    frame_level,
-                    TypeValue.TypeUni(usize(1)),
-                    ArrayList(TypeValue).new(),
-                    ArrayList(usize).new(),
-                    ArrayList(TypeValue).new(),
-                    ArrayList(usize).new(),
-                    true,
-                    Option(TypeValue).None,
-                    Option(TypeValue).None
-                  );
-                  out_labels.push(row_var_name);
-                  out_types.push(new_some_t);
-                  out_spreads.push(true);
-                }
-              );
-            },
-            _ => {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(effect_expr),
-                    `Effect row variable "${row_var_name}" has invalid value. Expected a type.`
-                  )
-                )
-              );
-            }
-          );
-        },
-        .None => {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(effect_expr),
-                `Effect row variable "${row_var_name}" has invalid value. Expected a type.`
-              )
-            )
-          );
-        }
-      );
-    },
-    .None => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(effect_expr),
-            `Effect row variable "${row_var_name}" not found in scope.`
-          )
-        )
-      );
-    }
-  );
-});
-/// Resolve a single effect argument (either `E : Type.Struct` spread or individual effect type).
-/// Pushes the result into out_labels/out_types/out_spreads and returns updated env.
+/// Resolve the effect argument of `Future(T, E)`: one effect type (a bundle
+/// struct or a `generic(E : Type.Struct)` variable). A `...(E)` spread is a
+/// check error. Pushes the result into out_labels/out_types and returns the
+/// updated env.
 _resolve_effect_arg :: (
   fn(
     effect_expr : AstExpr,
@@ -242,19 +62,30 @@ _resolve_effect_arg :: (
     ctx : EvalContext,
     out_labels : ArrayList(String),
     out_types : ArrayList(TypeValue),
-    out_spreads : ArrayList(bool),
     exn : Exception
   ) -> Environment
 )({
-  // Check if this is a spread expression E : Type.Struct with one atom arg
+  // A `...(E)` spread: one `...` call with one atom argument.
   is_spread := (
     ast_expr_is_fn_call(effect_expr) &&
       ast_expr_is_fn_call_of(effect_expr, "...", .Some(usize(1))) &&
         match(_future_args(effect_expr).get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false)
   );
   cond(
+    // `Future` takes exactly two arguments, the result type and ONE effect
+    // type (a bundle struct, or a `generic(E : Type.Struct)` row variable).
+    // A spread could expand into several effects, which the async lowering
+    // cannot inject (it reads one bundle), so it is rejected here
+    // (plans/ASYNC_IO_API_AUDIT.md F8, decided 2026-10-03).
     is_spread => {
-      _resolve_effect_row_spread(effect_expr, env, out_labels, out_types, out_spreads, exn);
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(effect_expr),
+            `Future takes one effect argument, not a spread: write Future(T, E) for the bundle E, not Future(T, ${ast_expr_to_string(effect_expr)}).`
+          )
+        )
+      );
       env
     },
     true => {
@@ -269,7 +100,7 @@ _resolve_effect_arg :: (
               dyn(
                 format_error_message(
                   ast_expr_token(effect_expr),
-                  `Future effect argument must be an effect type or E : Type.Struct spread, but got:\n${ast_expr_to_string(effect_expr)}`
+                  `Future effect argument must be an effect type (a bundle struct or a generic(E : Type.Struct) variable), but got:\n${ast_expr_to_string(effect_expr)}`
                 )
               )
             );
@@ -282,7 +113,6 @@ _resolve_effect_arg :: (
           label := _effect_label_for(effect_type, effect_expr);
           out_labels.push(label);
           out_types.push(effect_type);
-          out_spreads.push(false);
           expr_info_adopt_env(info)
         },
         .None => {
@@ -290,7 +120,7 @@ _resolve_effect_arg :: (
             dyn(
               format_error_message(
                 ast_expr_token(effect_expr),
-                `Future effect argument must be an effect type or E : Type.Struct spread, but got:\n${ast_expr_to_string(effect_expr)}`
+                `Future effect argument must be an effect type (a bundle struct or a generic(E : Type.Struct) variable), but got:\n${ast_expr_to_string(effect_expr)}`
               )
             )
           );
@@ -304,7 +134,7 @@ _resolve_effect_arg :: (
 // evaluate_future_type
 // ---------------------------------------------------------------------------
 /// Evaluates the `Future(T, ...)` syntax.
-/// Creates a FutureTraitT type with output type and optional effect row effects.
+/// Creates a FutureTraitT type with the output type and at most one effect.
 ///
 evaluate_future_type :: (
   fn(
@@ -363,7 +193,6 @@ evaluate_future_type :: (
   // Process effect arguments (args 1..N)
   effect_labels := ArrayList(String).new();
   effect_types := ArrayList(TypeValue).new();
-  effect_spreads := ArrayList(bool).new();
   (ei : usize) = usize(1);
   while(ei < expr_args.len(), {
     effect_expr := match(
@@ -374,11 +203,11 @@ evaluate_future_type :: (
         break;
       }
     );
-    env_mut = _resolve_effect_arg(effect_expr, env_mut, ctx, effect_labels, effect_types, effect_spreads, exn);
+    env_mut = _resolve_effect_arg(effect_expr, env_mut, ctx, effect_labels, effect_types, exn);
     ei = (ei + usize(1));
   });
   // Build the FutureTraitT
-  future_type := t_future_trait(String.from(BK_FUTURE), output_type, effect_labels, effect_types, effect_spreads);
+  future_type := t_future_trait(String.from(BK_FUTURE), output_type, effect_labels, effect_types);
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(future_type));
   out_info.value = .Some(create_type_value(future_type));

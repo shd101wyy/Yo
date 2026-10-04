@@ -10,14 +10,11 @@
 //!
 //! ## Stability
 //!
-//! unstable — the error convention is not one thing yet. POSIX returns a
-//! negative errno; the Windows implementations return a negated WSA code
-//! (`-10038`, `-10057`, …), which `IoError.from_errno` cannot classify and
-//! `IoError.from_win32` does not cover either, so it lands in `.Other`. The
-//! option API is also fully untyped — `level`, `optname`, an unsized `*u8`
-//! and a byte length, with no check that the three agree. Freezing needs the
-//! WSA codes folded into `IoError` (or translated in the runtime) and a typed
-//! option surface; `std/net` is the stable layer meanwhile.
+//! unstable — the option API is fully untyped — `level`, `optname`, an
+//! unsized `*u8` and a byte length, with no check that the three agree.
+//! Freezing needs a typed option surface; `std/net` is the stable layer
+//! meanwhile. Failures are a negative errno on every platform (the Windows
+//! runtime maps Winsock's codes to errno since 2026-10-03).
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_getsockname, __yo_sync_getpeername, __yo_sync_getsockopt, __yo_sync_setsockopt } :: import("./externs.yo");
 { SOL_SOCKET, SO_NOSIGPIPE } :: import("./socket");
@@ -26,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 /// `getsockname(2)`. `addrlen` is in/out: set it to the capacity of `addr`
 /// (`sockaddr_storage_size()` is the safe choice) and it comes back holding
 /// the size actually written. Returns 0 on success, a negative errno on
-/// failure (a negated WSA code on Windows).
+/// failure.
 ///
 /// This is how you learn the port the kernel picked after binding to port 0.
 /// Use `std/sys/tcp`'s `get_family` to decide whether to read the buffer as

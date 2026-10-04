@@ -338,20 +338,6 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
       },
       .ExprT => `Expr`,
       .ComptimeListT(child) => `ComptimeList(${recur(child, _d + usize(1), visited)})`,
-      .EffectsRowT(implicit_labels : labels, implicit_types : types) => {
-        body := String.from("");
-        i := usize(0);
-        while(i < labels.len(), {
-          if(i > usize(0), {
-            body = `${body}, `;
-          });
-          lbl := match(labels.get(i), .Some(s) => s, .None => ``);
-          ts := match(types.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
-          body = `${body}${lbl} : ${ts}`;
-          i = (i + usize(1));
-        });
-        `EffectsRow(${body})`
-      },
       .TypeAppT(constructor, args) => {
         body := String.from("");
         i := usize(0);
@@ -402,7 +388,7 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
         `${bn}(${body}) -> ${recur(cr, _d + usize(1), visited)}`
       },
       // As written: `Future(T, E)` — the output, then the effect types.
-      .FutureTraitT(base_name : bn, output : out, effect_labels : _, effect_types : ets, effect_spreads : _) => {
+      .FutureTraitT(base_name : bn, output : out, effect_labels : _, effect_types : ets) => {
         body := recur(out, _d + usize(1), visited);
         i := usize(0);
         while(i < ets.len(), {

@@ -3241,7 +3241,7 @@ continuations）。处理器的类型是专门的**控制函数**类型
 
 效应可以与 `async`/`await` 组合使用：`io.async` 任务内部的处理器
 能够正确工作。如果在异步任务中调用了 `unwind`，该 Future 会进入
-`Aborted`（中止）状态：对它 `io.await` 会 panic，而已启动任务的
+`Aborted`（中止）状态：对它 `io.await` 会把中止传播给等待者，而已启动任务的
 `JoinHandle.await` 返回 `.None`。
 
 详细文档请参阅 [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md)。

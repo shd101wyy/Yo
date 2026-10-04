@@ -1783,6 +1783,39 @@ find_multiline_paren_indices :: (
   multiline_indices := HashSet(usize).new();
   matching_parens := find_matching_paren_indices(tokens);
   n := tokens.len();
+  // Which tokens open something that will RENDER on several rows whatever
+  // the source looks like: a paren the rules below force multiline, or a
+  // block curly (one with a top-level `;`). A paren containing one spans
+  // rows in the output, so it is judged as if it spanned rows in the source.
+  // Judging by the source alone broke idempotence: a one-line
+  // `match(a, .Ok(_) => (), .Err(e) => match(e, .A => { s; }, .B => ()))`
+  // kept its outer call on one row on the first pass and expanded it on the
+  // second, once the forced inner `match` had made it span rows
+  // (issues/fixed/fmt-hugs-a-trailing-nested-match-then-expands-it-on-the-next-pass.md).
+  inline_curlies := find_inline_curly_indices(tokens);
+  (renders_multirow_prefix : ArrayList(usize)) = ArrayList(usize).with_capacity(n + usize(1));
+  renders_multirow_prefix.push(usize(0));
+  (pi : usize) = usize(0);
+  while(pi < n, pi = (pi + usize(1)), {
+    opens_multirow := match(
+      tokens.get(pi),
+      .None => false,
+      .Some(pt) => cond(
+        (pt.kind == TokenKind.LCurlyBracket) => !inline_curlies.contains(pi),
+        ((pt.kind == TokenKind.LParen) && matching_parens.contains_key(pi)) => {
+          pr := match(matching_parens.get(pi), .Some(x) => x, .None => pi);
+          pprev := previous_meaningful_token(tokens, pi);
+          !skipped_indices.contains(pi) && !skipped_indices.contains(pr) && (
+            should_force_control_flow_multiline(tokens, pi, pr, pprev) ||
+              (has_top_level_field_block(tokens, pi, pr) || should_force_operator_rhs_block(tokens, pi, pr, pprev))
+          )
+        },
+        true => false
+      )
+    );
+    last := match(renders_multirow_prefix.last(), .Some(x) => x, .None => usize(0));
+    renders_multirow_prefix.push(cond(opens_multirow => (last + usize(1)), true => last));
+  });
   (i : usize) = usize(0);
   while(i < n, {
     match(
@@ -1801,10 +1834,15 @@ find_multiline_paren_indices :: (
                     should_force_operator_rhs_block(tokens, i, right_idx, previous)
                 )
             );
-            // Token row check
+            // Token row check: the source spans rows, or something strictly
+            // inside will render on several rows.
             left_tok := t;
             right_tok := match(tokens.get(right_idx), .Some(rt) => rt, .None => left_tok);
-            spans_rows := (right_tok.row > left_tok.row);
+            inner_multirow := (
+              match(renders_multirow_prefix.get(right_idx), .Some(x) => x, .None => usize(0))
+              > match(renders_multirow_prefix.get(i + usize(1)), .Some(x) => x, .None => usize(0))
+            );
+            spans_rows := ((right_tok.row > left_tok.row) || inner_multirow);
             cond(
               (!force_multiline && !spans_rows) => (),
               true => {

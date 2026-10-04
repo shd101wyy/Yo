@@ -132,3 +132,15 @@ test("nullable-pointer user enum: positional, labeled, curly and bare variant ar
   assert(bare(full) == i32(1), "a bare .Full arm selects the payload variant");
   assert(bare(empty) == i32(0), "a bare .Empty arm selects the fieldless variant");
 });
+// A labeled pattern may name fewer fields than the variant has, never more:
+// a mixed list with a positional sub-pattern past the last field was accepted
+// and its extra binder read nothing
+// (issues/fixed/a-variant-pattern-mixing-labels-and-positions-skips-the-arity-check.md).
+_MixArity :: enum(A(a : i32, b : i32), B);
+test("a mixed labeled/positional pattern with too many fields is rejected", {
+  e := _MixArity.A(a : i32(1), b : i32(2));
+  comptime_expect_error(match(e, .A(_, b : y, _) => y, _ => i32(0)));
+  // Partial labeled patterns stay legal.
+  r := match(e, .A(b : y) => y, _ => i32(0));
+  assert(r == i32(2), "a labeled partial pattern binds its field");
+});

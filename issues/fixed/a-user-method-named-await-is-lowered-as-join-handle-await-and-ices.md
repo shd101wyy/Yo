@@ -2,7 +2,7 @@
 
 **Severity:** S1 — an internal compiler error on a valid program: any type with a method named `await` cannot be compiled when the method is called.
 
-**Status: OPEN.** Found 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F8, probe 2). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed.
+**Status: FIXED 2026-10-03** (phase A5 of `plans/ASYNC_IO_API_AUDIT.md`). Found 2026-10-03 by `plans/ASYNC_IO_API_AUDIT.md` (finding F8, probe 2). **Measured on:** develop `bcb57bfe7` built by the v0.2.49 seed.
 
 ## Symptom
 
@@ -35,3 +35,9 @@ Method dispatch by the resolved callee: the `JoinHandle.await` lowering fires on
 ## Fix direction
 
 Key both matchers on `ExprInfo`'s resolved callee / receiver type instead of the spelling. Regression tests: the repro (prints `5`), and a struct with a field named `io` that has an `await` method. Plan: `plans/ASYNC_IO_API_AUDIT.md` A5.
+
+## Fix
+
+Codegen dispatches `x.await(...)` to the `JoinHandle.await` lowering only when evaluation recorded that the call resolved to the `__yo_join_handle_await` extern (`is_resolved_join_handle_await_call`, `src/evaluator/async/await_analysis.yo`, used by `src/codegen/exprs/generation.yo`). The marker is set at the call dispatch choke point (`src/evaluator/calls/function.yo`) from the callee type's `extern_name`, so a user method is an ordinary call. The spelling-based matcher stays for the evaluator's pre-recording uses (expected-type skipping, the mutation summary), where it only widens a heuristic. The mirror case, a receiver NAMED `io` of another type, still routes by spelling in `is_io_await_call`; no program in the tree has the shape, and it is noted in the plan.
+
+Regression test: "a user method named await compiles and runs as a method" in `tests/async/join_handle.test.yo`.

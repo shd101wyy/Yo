@@ -101,8 +101,6 @@ _append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
   sb.write_str(";");
   _append_strings(sb, m.implicit_labels);
   sb.write_str(";");
-  _append_bools(sb, m.implicit_spreads);
-  sb.write_str(";");
   _append_b(sb, m.result_is_comptime_only);
   _append_bools(sb, m.param_is_ref);
   sb.write_str(";");
@@ -475,7 +473,7 @@ _intern_key_into :: (
       // FIRST interned variant — the stage-2 statx cluster (single-effect
       // closure param typed IoExn). Render the full distinguishing content,
       // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
-      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft, smrcp) => {
+      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smkft, smrcp) => {
         tok := String.from("So:");
         tok.push_string(smid);
         if(visited.contains(tok), {
@@ -522,8 +520,6 @@ _intern_key_into :: (
             inl = (inl + usize(1));
           });
           sb.write_str("|");
-          _append_b(sb, smier);
-          sb.write_str("|");
           match(
             smkft,
             .Some(k) => recur(k, sb, depth + usize(1), visited),
@@ -556,19 +552,6 @@ _intern_key_into :: (
           match(uft.get(iu), .Some(x) => recur(x, sb, depth + usize(1), visited), .None => ());
           sb.write_str(",");
           iu = (iu + usize(1));
-        });
-        sb.write_str("]");
-      },
-      .EffectsRowT(erl, ert) => {
-        sb.write_str("ER[");
-        _append_strings(sb, erl);
-        sb.write_str("|");
-        ne := ert.len();
-        (ie : usize) = usize(0);
-        while(ie < ne, {
-          match(ert.get(ie), .Some(x) => recur(x, sb, depth + usize(1), visited), .None => ());
-          sb.write_str(",");
-          ie = (ie + usize(1));
         });
         sb.write_str("]");
       },
@@ -608,7 +591,7 @@ _intern_key_into :: (
         _append_usizes(sb, dntl);
         sb.write_str("]");
       },
-      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp, call_param_is_ref : fncprf }) => {
+      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, call_param_is_ref : fncprf }) => {
         sb.write_str("FT:");
         sb.write_string(fnbn);
         sb.write_str("[");
@@ -634,12 +617,10 @@ _intern_key_into :: (
           ifi = (ifi + usize(1));
         });
         sb.write_str("|");
-        _append_bools(sb, fnisp);
-        sb.write_str("|");
         _append_bools(sb, fncprf);
         sb.write_str("]");
       },
-      .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp }) => {
+      .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet }) => {
         sb.write_str("FuT:");
         sb.write_string(ftbn);
         sb.write_str("[");
@@ -654,8 +635,6 @@ _intern_key_into :: (
           sb.write_str(",");
           ift = (ift + usize(1));
         });
-        sb.write_str("|");
-        _append_bools(sb, ftesp);
         sb.write_str("]");
       },
       // V6 task 3: the intern key distinguishes predicates — two
