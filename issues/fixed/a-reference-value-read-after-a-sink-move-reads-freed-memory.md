@@ -76,9 +76,9 @@ its reads stay legal.
 Measured before landing: `yo check ./src` reported 0 errors, and 308 of the
 309 language test files passed. The one file was
 `tests/async/sm_ownership.test.yo`, whose `_move_each_iteration` read `t.n`
-after `_keep_thing(t)`. It now reads before the move, and a new test there
-expects E0901 for the read after the move inside a task (as a cli-case). That case was the
-rule `issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md`
+after `_keep_thing(t)`. It now reads before the move, and the cli-case
+`read-after-sink-move-in-a-task-is-e0901` expects E0901 for the read after the
+move inside a task. That read was the rule `issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md`
 had kept ("the name may still read it while the new owner holds it"), and
 that note is superseded for a `sink` move (see the dated note there).
 
