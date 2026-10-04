@@ -97,13 +97,15 @@ test("try_into to a type with no matching impl is a compile error", {
   ok := n2.try_into(i32).unwrap();
   assert(ok == i32(9), "matching overload still resolves after the rejection");
 });
-test("Test 'Rc' and 'Dispose' traits", {
+// `Dispose` and `Trace` are implementable on reference types only; the gate is
+// at the impl site (it replaced the deleted `Rc` marker trait's
+// `where(Self <: Rc)`, plans/VALUES_BY_DEFAULT.md §3.6).
+test("Test 'Dispose' and 'Trace' accept reference types only", {
   MyBox :: ref(
     struct(
       value : i32
     )
   );
-  comptime_assert(Type.impls(MyBox, Rc));
   impl(
     MyBox,
     Dispose(
@@ -113,7 +115,6 @@ test("Test 'Rc' and 'Dispose' traits", {
     )
   );
   AnotherBox :: struct(value : i32);
-  comptime_assert(Type.impls(AnotherBox, Rc) == false);
   comptime_expect_error(
     impl(
       AnotherBox,
@@ -121,6 +122,14 @@ test("Test 'Rc' and 'Dispose' traits", {
         dispose : (fn(self : Self) -> unit)({
           unsafe(printf("Disposing AnotherBox with value: %d\n", self.value));
         })
+      )
+    )
+  );
+  comptime_expect_error(
+    impl(
+      AnotherBox,
+      Trace(
+        trace : (fn(self : Self, tracer : GcTracer) -> unit)(())
       )
     )
   );
