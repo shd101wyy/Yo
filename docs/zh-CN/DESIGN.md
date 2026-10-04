@@ -49,6 +49,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [引用语义类型](#引用语义类型)
     - [编译期引用计数优化](#编译期引用计数优化)
     - [显式分配器](#显式分配器)
+    - [只能移动的值](#只能移动的值)
 - [指针](#指针)
   - [指针操作](#指针操作)
   - [指针算术与比较](#指针算术与比较)
@@ -663,7 +664,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### 参数模式是函数类型的一部分
 
-`fn(inout(x) : i32) -> unit`、`fn(own(x) : String) -> usize` 和 `fn(x : i32) -> unit` 是三个不同的类型：`inout` 参数按引用传递，`own` 参数被移动进被调函数，普通参数是借用。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
+`fn(inout(x) : i32) -> unit`、`fn(sink(x) : String) -> usize` 和 `fn(x : i32) -> unit` 是三个不同的类型：`inout` 参数按引用传递，`sink` 参数被移动进被调函数，普通参数是借用。`sink` 参数会消耗其实参：调用方的绑定在调用处结束。`own(x)` 是 `sink(x)` 的旧写法；在下一个版本之后的一次统一替换删除它之前，它仍被接受，并且表示同一个类型。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
 
 ```rust
 bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
@@ -1103,6 +1104,33 @@ p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
 
 不需要新关键字：两处的 `Point(...)` 是同一个构造调用。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。`std/arena` 的 `Arena` 在仍有活跃块时调用 `deinit` 会 panic。安全规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器与-arena)；完整指南见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
 
+#### 只能移动的值
+
+资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Dispose`，或声明了 `impl(T, MoveOnly())` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Box`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Dispose` 在计数归零时运行一次。
+
+```rust
+Fd :: struct(n : i32);
+impl(Fd, Dispose(
+  dispose : (fn(self : Self) -> unit)(close_fd(self.n))
+));
+
+peek :: (fn(f : Fd) -> i32)(f.n);        // 按值参数是借用：不复制
+keep :: (fn(sink(f) : Fd) -> unit)(());  // sink 参数把值移动进来
+
+main :: (fn() -> unit)({
+  a := Fd(n : i32(3));
+  n := peek(a);    // 借用；`a` 仍可使用
+  b := a;          // 把 `a` 移动到 `b`
+  // a.n           // E0901：使用了被移动的值：`a`
+  keep(b);         // 移动 `b`；`keep` 返回时把它 dispose
+});
+export(main);
+```
+
+每个复制点都会移动只能移动的值：`:=`、`=`、`sink` 实参、字段或元素写入、构造器实参、返回以及闭包捕获。移动之后再使用就是 E0901，其说明会指出该类型为什么只能移动。只能移动的值也不能从并不拥有它的存储中复制出来：按值参数以及 `match`/`for` 绑定只是借用它，字段属于其持有者（没有部分移动），模块级绑定永远不会被移动。在 `cond`/`match` 的各分支或循环的各个出口汇合处，只能移动的值要么在所有路径上都被移动，要么在所有路径上都不被移动（E0907）。它唯一的所有者在 drop 它时恰好运行一次 `dispose`，然后 drop 它的字段。实现了 `Clone` 的类型用 `x.clone()` 显式复制；要共享一个值，请把它放在引用类型之后。
+
+泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。`std/` 目前还没有使用只能移动的类型：它的资源仍是引用类型，会在[值语义计划](../../plans/VALUES_BY_DEFAULT.md)的后续步骤中变成只能移动的值。
+
 ## 指针
 
 Yo 使用指针 (`*(T)`) 进行直接内存访问，类似 C。对原始指针的解引用、算术运算等危险操作需要显式 `unsafe(...)` 包装 — 详见下文 [内存安全](#内存安全)。
@@ -1290,7 +1318,7 @@ main :: (fn() -> unit)({
 
 ### `inout` 参数
 
-要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
+要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与 `sink(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
 
 ```rust
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
@@ -1317,7 +1345,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`generic`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
+`inout(...)` 不能与 `sink(...)`（相反的调用约定）或 `comptime`/`generic`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
 
 ```rust
 double :: (fn(inout(n) : i32) -> unit)({
@@ -2011,7 +2039,7 @@ Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
 
 open_h :: (fn(fd : i32) -> Handle(Open))(Handle(Open)(fd : fd));
 read_h :: (fn(h : Handle(Open)) -> i32)(h.fd);
-close_h :: (fn(own(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
+close_h :: (fn(sink(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
 
 main :: (fn() -> unit)({
   h := open_h(i32(3));
@@ -2024,7 +2052,7 @@ export(main);
 
 只有当状态转换之后旧状态**无法**再被使用时，这个模式才是可靠的，因此有两条规则：
 
-- **句柄是 `ref` 类型，状态转换用 `own(...)` 接收它。** 移动使旧名字不可再用
+- **句柄是 `ref` 类型，状态转换用 `sink(...)` 接收它。** 移动使旧名字不可再用
   （E0901）。普通值结构体会被**复制**进调用，于是已关闭的句柄和它的 `Open`
   副本都仍然可用。
 - **没有其他别名保留旧状态。** 在转换之前被复制到另一个名字的 `ref` 句柄仍然

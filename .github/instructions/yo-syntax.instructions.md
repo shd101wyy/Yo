@@ -786,9 +786,17 @@ match(
 )
 ```
 
+## `sink(name) : T` parameters consume their argument
+
+`sink(x) : T` (plans/VALUES_BY_DEFAULT.md decision 15) moves the argument into the callee: the caller's binding ends at the call, and a later use is E0901. `own(x)` is the OLD spelling of `sink(x)`, still accepted (the seed and `std/` use it) and the same function type; the sweep that deletes `own` waits for the next seed. Type printing and messages say `sink`. Write `sink` in new code outside `std/` and `src/`; in `std/` and `src/` keep `own` until `SEED_VERSION` parses `sink`.
+
+## Move-only values (`Dispose` on a value type, `MoveOnly`)
+
+A value type (`struct`/`enum`/`newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is move-only, and so is any value aggregate holding one (`Option(Fd)`, `Tuple(Fd, i32)`, a struct field, a closure capture). Every copy point MOVES it (`:=`, `=`, a `sink` argument, a field/element store, a constructor argument, a return, a closure capture); a later read is E0901. It cannot be copied out of a by-value parameter or `match`/`for` binding (they borrow), an `inout` binding, a module-level binding, a field (`h.fd`: no partial moves) or a dereference. Pass it to a by-value parameter to lend it. A reference type (`ref(struct)`, `Box`, `Arc`) is never move-only. `MoveOnly` on a reference type, and `Dispose`/`MoveOnly` on a primitive, tuple or pointer, are rejected at the `impl`. Do NOT add a value-type `Dispose`/`MoveOnly` to `std/` until `SEED_VERSION` carries the move-only compiler: the v0.2.51 seed accepts it and never runs the dispose.
+
 ## `inout(name) : T` parameters for in-place mutation
 
-For mutating a caller's variable without raw pointers, use the `inout` parameter modifier. It wraps the parameter name (parallel to `own(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage.
+For mutating a caller's variable without raw pointers, use the `inout` parameter modifier. It wraps the parameter name (parallel to `sink(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage.
 
 ```rust
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
@@ -807,7 +815,7 @@ main :: (fn() -> unit)({
 
 Rules:
 
-- `inout(...)` cannot combine with `own(...)` (opposite calling conventions) or with `generic`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
+- `inout(...)` cannot combine with `sink(...)` (opposite calling conventions) or with `generic`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
 - `inout` CAN combine with `comptime` as `comptime(inout(name)) : T` (outer comptime, inner inout). The parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path. The prelude `ComptimeIndex` trait uses this form (`index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output)))`) to let comptime index methods mutate the caller's value without a raw pointer parameter.
 - Inside the callee, the inout-param identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
 - Calls through inout-params chain naturally: `fn outer(inout(x))` calling `fn inner(inout(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
