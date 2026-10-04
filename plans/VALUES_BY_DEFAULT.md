@@ -13,7 +13,7 @@ Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
 with decisions 13 (move-only futures) and 14 (second-class borrowing
 futures).
 Amended 2026-10-05 with the maintainer: **unique ownership (Hylo's model)
-replaces copy-on-write** (§0). Decisions 15–18 there are confirmed; 19–23
+replaces copy-on-write** (§0). Decisions 15–18 there are confirmed; 19–24
 are proposed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
@@ -40,7 +40,7 @@ recommendation, final once the maintainer confirms it (§4's
 rule: a changed decision is a dated amendment, not a silent edit).
 The maintainer confirmed 16, 17 and 18 on 2026-10-05 ("make things in Yo
 explicit, like copy in hylo", with owning values only and no local
-borrows in the first cut); 19–23 remain proposed.
+borrows in the first cut); 19–24 remain proposed.
 
 ### 0.1 Why
 
@@ -230,6 +230,40 @@ copies the first kind implicitly (decision 16).
       closure may mutate or consume its captures; forbidding that keeps
       Yo's closure types as they are.
 
+24. **Proposed: projections, Hylo's subscripts in a first cut.** Raised by
+    the maintainer 2026-10-05 ("Do we need to support subscript projection
+    from hylo?").
+    - **Why.** Under decision 18 a projection is the only way to reach
+      inside a value without a copy. Today only built-in field access and
+      `Index` produce places. `Index.index` returns `*(Self.Output)`
+      (`plans/reference/INDEX_TRAIT.md`), a first-class pointer that can
+      escape and that the mutation analysis cannot split into read and
+      write. User types would otherwise need closure-taking accessors such
+      as decision 20's `with(i, body)`.
+    - **The construct.** A user-definable projection `yield`s a place of its
+      result type, in a read form and an `inout` form. A `sink` form is an
+      ordinary consuming method. `Index` is re-expressed with it, so
+      `xs(i)`, `m(key)` and `grid(r, c)` are projections.
+    - **Second-class.** The yielded place may be used in its expression: as
+      a receiver, an argument (plain or `inout`), an operand, the left of
+      `=`, or a `for` source. It may not be bound to a local, stored,
+      captured or returned (decision 18). While an `inout` projection is
+      live, its base is exclusively borrowed (§3.10).
+    - **First cut, no code after `yield`.** A projection yields one place
+      and ends, so it lowers to today's pointer-returning `index` plus the
+      second-class check; no coroutine machinery is needed. Hylo allows code
+      after the `yield` (post-access work); add it when a use appears.
+    - **Effect on decision 20.** `xs(i)` borrows for every element type and
+      `xs(i).clone()` is the explicit copy. `get(i) -> Option(T)` stays for
+      implicitly copyable `T`. `with(i, body)` and `get_cloned` are needed
+      only where a projection cannot express the access.
+    - **Open: the spelling.** Two candidates: a `project` member kind in
+      `impl`, or the `Index` trait's methods yielding (`index_read` /
+      `index_inout`). Settled with the maintainer before the PR.
+    - **Phase.** V2b's first PR, before unique buffers and explicit copies
+      switch on.
+    - Recommendation: yes, in this first-cut form.
+
 ### 0.4 First gate: measure the migration
 
 Before any phase is resized, an audit counts the copies the new rule turns
@@ -302,7 +336,7 @@ here. The phase sizes below are written without them, on purpose.
 1. **§0.4 measurement** (one audit PR; numbers recorded here).
 2. **V1 step 1**: rename every `Box` to `Rc`, then the unique `Box`.
 3. **V3** (in progress): move-only plus `sink`, on the general predicate.
-4. **V2b**: unique buffers; the explicit-copy kind is switched on for
+4. **V2b**: projections first (decision 24); then unique buffers; the explicit-copy kind is switched on for
    `String` and the collections, with the migration. This absorbs
    `STRING_VALUE_SEMANTICS` S3's dropped COW half.
 5. **V4** (trees, decision 21), **V5** (remove `ref`/`atomic`), then the
