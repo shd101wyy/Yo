@@ -791,7 +791,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 `io.spawn(task, ctx)` (where `ctx` is the task's effect bundle) generates:
 
 1. Store the future pointer in a local variable
-2. Check abort state (panic if already aborted)
+2. (No abort check: an already-aborted future is not started — only a cold one is — and its handle reads `.None`. It was a panic until 2026-10-03, `plans/ASYNC_IO_API_AUDIT.md` A2.)
 3. Inject effect handler function pointers into the future's capture struct via `emit_io_spawn_effect_injection`
 4. Cold-start via `__yo_resume_fn` (with incr_rc for execution reference)
 5. `__yo_incr_rc` once more and return `__yo_new_<JoinHandle cname>((void*)fut)`: `JoinHandle(T)` is a `ref` struct in the prelude that OWNS that reference, and its `Dispose` calls `__yo_join_handle_release_raw`. A dropped, never-awaited handle detaches the task (the running task holds its own reference); `JoinHandle.await` does not consume the handle.

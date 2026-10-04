@@ -479,8 +479,8 @@ lib.yo
 ```
 
 当参数类型（沿结构体字段传递地）是处理器记录（带 `ctl(...)` 字段的结构体——
-`Exception`、`ResumableException(T)`：种类 `ctl`）、prelude 的 `Io`（种类 `io`）
-或效应行隐式参数（种类 `row`）时，该参数即为效应。返回的 `Impl(Future(T, E))`
+`Exception`、`ResumableException(T)`：种类 `ctl`）或 prelude 的 `Io`（种类 `io`）
+时，该参数即为效应。返回的 `Impl(Future(T, E))`
 把 `E` 列在 `future` 下，因为等待者必须提供它。`--json` 每个模块输出一个对象：
 `{"file", "functions": [{"name", "effects": [{"param", "type", "via": "param" |
 "implicit" | "future", "kinds"}]}]}`。

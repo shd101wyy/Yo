@@ -31,3 +31,43 @@ test("matching bundles still pass", {
   b := io.await(give(io), { io, exn });
   assert((a == usize(11)) && (b == usize(11)), "typed and structural bundles both work");
 });
+// ---------------------------------------------------------------------------
+// A bundled future may not be viewed as a bundle-less `Future(T)` unless its
+// bundle is `Io`: an await through the view injects nothing, and the body
+// called a null handler
+// (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
+// ---------------------------------------------------------------------------
+/// A handler bundle: `tell` is called through by the body.
+Tell :: (fn(x : i32) -> i32);
+TellCtx :: struct(io : Io, tell : Tell);
+tells :: (fn(io : Io) -> Impl(Future(i32, TellCtx)))(
+  io.async((ctx : TellCtx) => ctx.tell(i32(3)))
+);
+/// A view that names no bundle.
+await_view :: (fn(f : Impl(Future(i32)), io : Io) -> i32)(io.await(f, io));
+/// An `Io`-only future viewed as `Future(i32)`: still legal.
+io_only :: (fn(io : Io) -> Impl(Future(i32)))(io.async((io : Io) => i32(4)));
+test("a handler-bundled future cannot be viewed as Future(T)", {
+  comptime_expect_error(await_view(tells(io), io));
+  assert(true, "rejected at check time");
+});
+test("an Io-bundled future can still be viewed as Future(T)", {
+  assert(await_view(io_only(io), io) == i32(4), "Io bundles carry nothing the body calls through");
+});
+// Same labels, different handler TYPE: a different bundle
+// (plans/ASYNC_IO_API_AUDIT.md F6).
+OtherTell :: (fn(x : bool) -> i32);
+test("a bundle with the right labels and a wrong handler type is rejected", {
+  t_bool :: (fn(x : bool) -> i32)(i32(0));
+  comptime_expect_error(io.await(tells(io), { io, tell : t_bool }));
+  assert(true, "rejected at check time");
+});
+// `Future` takes one effect argument, and the `...(E)` effect-row spread was
+// removed (2026-10-03, issues/fixed/effect-row-spreads-outlived-the-single-bundle-future.md):
+// a spread in `Future` and the `generic(...(E))` row-variable declaration are
+// both check errors. An effect row is `generic(E : Type.Struct)`.
+test("a ...(E) effect-row spread is a check error", {
+  comptime_expect_error(Impl(Future(i32, ...(TellCtx))));
+  comptime_expect_error((fn(generic(...(E)), x : i32) -> i32));
+  assert(true, "both rejected at check time");
+});

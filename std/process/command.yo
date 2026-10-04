@@ -86,7 +86,7 @@ IO_process :: import("../sys/process");
 IO_file :: import("../sys/file");
 IO_pipe :: import("../sys/pipe");
 { GlobalAllocator } :: import("../allocator");
-{ yield } :: import("../async");
+import("../async");
 // Raw fcntl shims, NOT std/sys/fcntl: that module imports sys/constants, which
 // imports std/process — a cycle back into this file.
 { __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl, __yo_sync_fcntl_setfd } :: import("../sys/externs.yo");
@@ -564,10 +564,8 @@ impl(
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := (*i32)(out_fd_buf.as_ptr());
       pr1 := IO_pipe.pipe(out_fd);
-      cond(
-        (pr1 < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - pr1))),
-        true => ()
-      );
+      IoError.check(pr1, e.exn);
+      ();
       out_read := (out_fd.add(usize(0))).*;
       out_write := (out_fd.add(usize(1))).*;
       err_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
@@ -598,19 +596,13 @@ impl(
       // (it blocks in write(2); we block in read) —
       // issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md.
       // stderr runs as a spawned task; stdout is awaited directly; the stderr
-      // handle is then polled with is_finished() + awaited `yield` and
-      // consumed only once terminal (a blocking JoinHandle.await from inside a
-      // task would nest the event loop, C37). The suspending form is
-      // `io.await(err_task.join(e.io), e.io)`; this file is on the compiler's
-      // import path, so it adopts it once the seed carries `__yo_join_wait_new`
-      // (plans/backlog/SEED_VERSION_AUTOMATION.md, 2026-10-03 entry).
+      // handle is then JOINED — a suspension of this task, not a blocking
+      // JoinHandle.await, which would nest the event loop from inside a task
+      // (C37; plans/ASYNC_IO_API_AUDIT.md A1).
       err_task := e.io.spawn(_drain_fd(err_read, io), e);
       stdout_buf := e.io.await(_drain_fd(out_read, io), e);
-      while(runtime(!err_task.is_finished()), {
-        e.io.await(yield(e.io), e.io);
-      });
       stderr_buf := match(
-        err_task.await(e.io),
+        e.io.await(err_task.join(e.io), e.io),
         .Some(b) => b,
         .None => {
           // The drain task unwound: its IoError already went to `e.exn`
@@ -703,10 +695,8 @@ impl(
           true => {
             result := e.io.await(IO_file.close(raw), e.io);
             self._closed = true;
-            cond(
-              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-              true => ()
-            )
+            IoError.check(result, e.exn);
+            ()
           }
         )
     )
@@ -786,10 +776,8 @@ impl(
           true => {
             result := e.io.await(IO_file.close(raw), e.io);
             self._closed = true;
-            cond(
-              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-              true => ()
-            )
+            IoError.check(result, e.exn);
+            ()
           }
         )
     )
@@ -839,10 +827,8 @@ impl(
           true => {
             result := e.io.await(IO_file.close(raw), e.io);
             self._closed = true;
-            cond(
-              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-              true => ()
-            )
+            IoError.check(result, e.exn);
+            ()
           }
         )
     )
@@ -1043,10 +1029,8 @@ _stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i3
       fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       fds := (*i32)(fd_buf.as_ptr());
       pr := IO_pipe.pipe(fds);
-      cond(
-        (pr < i32(0)) => exn.throw(dyn(IoError.from_errno(i32(0) - pr))),
-        true => ()
-      );
+      IoError.check(pr, exn);
+      ();
       rd := (fds.add(usize(0))).*;
       wr := (fds.add(usize(1))).*;
       cond(

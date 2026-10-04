@@ -78,7 +78,6 @@ TypeInfo :: enum(
 
   // === Metaprogramming (fieldless) ===
   Expr,
-  EffectsRow,
   TypeApplication
 );
 ```

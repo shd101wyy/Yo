@@ -637,7 +637,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
             // C wrapper for the synthetic `call` slot resolves the closure fn
             // via the impl_closure_call_map (capture-struct id → closure C
             // name).
-            .FnTraitT(_, _, _, _, _, _, _, _) => {
+            .FnTraitT(_, _, _, _, _, _, _) => {
               trait_vals.push(
                 EvalValue.TraitVal(
                   String.from("Fn"),
@@ -727,7 +727,6 @@ evaluate_dyn_value :: (
           rtl,
           ntt,
           ntl,
-          false,
           Option(TypeValue).None,
           Option(TypeValue).None
         );
@@ -844,7 +843,7 @@ evaluate_dyn_value :: (
               // global misses there (round-5 finding).
               .Some(iec) => match(
                 iec.ty,
-                .SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_ier, bx_kft, _) => {
+                .SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_kft, _) => {
                   ne_box_inner_ty = TypeValue.SomeT(
                     bx_id,
                     bx_nm,
@@ -854,7 +853,6 @@ evaluate_dyn_value :: (
                     bx_rtl,
                     bx_ntt,
                     bx_ntl,
-                    bx_ier,
                     bx_kft,
                     Option(TypeValue).Some(cci.capture_type)
                   );

@@ -111,10 +111,8 @@ create_dir :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)), e.io);
-    cond(
-      (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-      true => ()
-    )
+    IoError.check(result, e.exn);
+    ()
   })
 );
 /// Create a directory (`str` path variant).
@@ -213,10 +211,8 @@ remove_dir :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.unlink(AT_FDCWD, cstr, AT_REMOVEDIR), e.io);
-    cond(
-      (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-      true => ()
-    )
+    IoError.check(result, e.exn);
+    ()
   })
 );
 /// `remove_dir` (`str` path variant).
@@ -229,10 +225,8 @@ remove_file :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.unlink(AT_FDCWD, cstr, i32(0)), e.io);
-    cond(
-      (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-      true => ()
-    )
+    IoError.check(result, e.exn);
+    ()
   })
 );
 /// `remove_file` (`str` path variant).
@@ -245,10 +239,8 @@ rename :: (fn(from : Path, to : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     to_cstr_bytes := to.to_string().to_cstr();
     to_cstr := to_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.rename(AT_FDCWD, from_cstr, AT_FDCWD, to_cstr), e.io);
-    cond(
-      (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-      true => ()
-    )
+    IoError.check(result, e.exn);
+    ()
   })
 );
 /// `rename` (`str` path variant).
@@ -261,10 +253,8 @@ hard_link :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     dst_cstr_bytes := dst.to_string().to_cstr();
     dst_cstr := dst_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.link(AT_FDCWD, src_cstr, AT_FDCWD, dst_cstr, i32(0)), e.io);
-    cond(
-      (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-      true => ()
-    )
+    IoError.check(result, e.exn);
+    ()
   })
 );
 /// `hard_link` (`str` path variant).
@@ -277,10 +267,8 @@ symlink :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     dst_cstr_bytes := dst.to_string().to_cstr();
     dst_cstr := dst_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.symlink(src_cstr, AT_FDCWD, dst_cstr), e.io);
-    cond(
-      (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-      true => ()
-    )
+    IoError.check(result, e.exn);
+    ()
   })
 );
 /// `symlink` (`str` path variant).
@@ -356,10 +344,8 @@ file_type :: (fn(path : Path, io : Io) -> Impl(Future(FileType, IoExn)))(
       true => ()
     );
     free(.Some((*void)(buf)));
-    cond(
-      (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
-      true => ()
-    );
+    IoError.check(result, e.exn);
+    ();
     ft
   })
 );
@@ -394,10 +380,8 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
     cstr := cstr_bytes.ptr().unwrap();
     // Open the directory
     fd_result := e.io.await(IO_file.openat(AT_FDCWD, cstr, O_RDONLY | O_DIRECTORY, i32(0)), e.io);
-    cond(
-      (fd_result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - fd_result))),
-      true => ()
-    );
+    IoError.check(fd_result, e.exn);
+    ();
     fd := fd_result;
     // Pass 1 — drain the kernel's dirent buffers, keeping `d_type` RAW.
     // Resolving `DT_UNKNOWN` needs a stat, and an await down here (inside the

@@ -184,3 +184,37 @@ test("a future type as an enum payload declares the payload type first", {
   task := _call_with_slot(() => io.async((io : Io) => i32(12)));
   assert(io.await(task, io) == i32(12), "the future's value");
 });
+// ---------------------------------------------------------------------------
+// A generic function returning `Impl(Future(Result(T, E), Io))` or
+// `Impl(Fn(k : i32) -> Result(T, E))` whose body ends in a bare-variant
+// `match`: the `T` inside the `Impl` wrapper's trait arguments was never
+// substituted at specialization, so `.Ok(x)` took the generic `T` and the
+// result had a second C type (clang: incompatible struct assignment)
+// (issues/fixed/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md).
+// ---------------------------------------------------------------------------
+_BareE :: enum(X, Y);
+_bare_future :: (fn(generic(T : Type), v : Option(T), io : Io) -> Impl(Future(Result(T, _BareE), Io)))({
+  b := Box(Option(T))(v);
+  io.async((io : Io) => {
+    c := b.*;
+    match(c, .Some(x) => .Ok(x), .None => .Err(_BareE.X))
+  })
+});
+_bare_fn :: (fn(generic(T : Type), v : Option(T)) -> Impl(Fn(k : i32) -> Result(T, _BareE)))({
+  b := Box(Option(T))(v);
+  (k : i32) => {
+    c := b.*;
+    match(c, .Some(x) => .Ok(x), .None => .Err(_BareE.X))
+  }
+});
+test("a generic Impl(Future(Result(T, E))) body ending in a bare-variant match", {
+  r := io.await(_bare_future(Option(i32).Some(i32(5)), io), io);
+  assert(match(r, .Ok(v) => (v == i32(5)), .Err(_) => false), "the Ok payload is the specialized T");
+  r2 := io.await(_bare_future(Option(i32).None, io), io);
+  assert(match(r2, .Ok(_) => false, .Err(_) => true), "and the Err arm still works");
+});
+test("a generic Impl(Fn(...) -> Result(T, E)) closure ending in a bare-variant match", {
+  f := _bare_fn(Option(i32).Some(i32(6)));
+  r := f(i32(1));
+  assert(match(r, .Ok(v) => (v == i32(6)), .Err(_) => false), "the Ok payload is the specialized T");
+});

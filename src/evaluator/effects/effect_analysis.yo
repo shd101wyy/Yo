@@ -21,10 +21,6 @@
 //! * The transitive-call FnTrait path: `FnTraitT` carries implicit
 //!   params; Path 2 checks `implicit_labels`/`implicit_types` from `FnTraitT` directly.
 //!
-//! * `hasEffectInSpread`: `SomeT` has no `isEffectsRow` flag; we attempt
-//!   env lookup for all `SomeT` types. The `get_value_of_some_type_from_env` fallback
-//!   is omitted because `Environment` is not `Clone` and can only be consumed once.
-//!
 //! * `dyn(closure)` captures outer variables by reference (C pointer), so `get_info`
 //!   can be both captured in the detect closure and passed separately to helpers.
 pragma(Pragma.AllowUnsafe);
@@ -42,11 +38,8 @@ pragma(Pragma.AllowUnsafe);
 {
   is_function_type,
   is_module_type,
-  is_struct_type,
-  is_some_type,
-  is_effects_row_type
+  is_struct_type
 } :: import("../../types/guards.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { EvalValue } :: import("../../value.yo");
 { is_io_async_call } :: import("../async/await_analysis.yo");
@@ -316,85 +309,6 @@ is_effect_call_ :: (
   )
 });
 // ---------------------------------------------------------------------------
-// has_effect_in_spread_ — resolves effect row spreads
-// ---------------------------------------------------------------------------
-/// Checks if an effect row spread parameter resolves to an EffectsRowType
-/// containing `effect_param_name` as an implicit parameter.
-///
-/// Note: `SomeT` has no `isEffectsRow` flag, so we attempt env lookup for all
-/// `SomeT` types unconditionally.
-has_effect_in_spread_ :: (
-  fn(
-    param_label : String,
-    param_type : TypeValue,
-    effect_param_name : String,
-    env : Environment
-  ) -> bool
-)({
-  effects_row_opt := Option(TypeValue).None;
-  cond(
-    // Case 1: SomeT — try env lookup by label.
-    // Note: there is no deeper value-based fallback — Environment is not
-    // Clone and can only be consumed once.
-    is_some_type(param_type.clone()) => {
-      env_vars := get_variables_from_env(env, param_label.clone());
-      n_vars := env_vars.len();
-      if(n_vars > usize(0), {
-        last_var := match(
-          env_vars.get(n_vars - usize(1)),
-          .Some(v) => v,
-          .None => {
-            return(false);
-          }
-        );
-        match(
-          last_var.value.get(usize(0)),
-          .Some(eval_val) => {
-            match(
-              eval_val,
-              .TypeVal(ty_box) => {
-                if(is_effects_row_type(ty_box.clone()), {
-                  effects_row_opt = Option(TypeValue).Some(ty_box);
-                });
-              },
-              _ => ()
-            );
-          },
-          .None => ()
-        )
-      });
-    },
-    // Case 2: Direct EffectsRowT
-    is_effects_row_type(param_type.clone()) => {
-      effects_row_opt = Option(TypeValue).Some(param_type);
-    },
-    true => ()
-  );
-  match(
-    effects_row_opt,
-    .None => false,
-    .Some(ert) => match(
-      ert,
-      .EffectsRowT(implicit_labels, implicit_types) => {
-        n := implicit_labels.len();
-        i := usize(0);
-        found := false;
-        while(i < n, {
-          label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
-          ty := match(implicit_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty)), {
-            found = true;
-            break;
-          });
-          i = (i + usize(1));
-        });
-        found
-      },
-      _ => false
-    )
-  )
-});
-// ---------------------------------------------------------------------------
 // is_transitive_effect_call_ — detects transitive effect calls
 // ---------------------------------------------------------------------------
 /// Checks if `expr` is a call to a function that itself has a matching `using`
@@ -437,36 +351,16 @@ is_transitive_effect_call_ :: (
       func_type,
       .Func({ implicit_types, meta : __fm1 }) => {
         implicit_labels := __fm1.*.implicit_labels;
-        implicit_spreads := __fm1.*.implicit_spreads;
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
         while(i < n, {
           label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
           ty := match(implicit_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          is_spread := match(implicit_spreads.get(i), .Some(s) => s, .None => false);
           // Direct match: label matches and type is Func or effect record
           if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
             found = Option(bool).Some(false);
             break;
-          });
-          // Spread match: resolve the EffectsRowT from env
-          if(is_spread, {
-            env_opt := match(
-              get_info(func_expr.clone()),
-              .Some(info) => Option(Environment).Some(info.env),
-              .None => Option(Environment).None
-            );
-            match(
-              env_opt,
-              .None => (),
-              .Some(env) => {
-                if(has_effect_in_spread_(label.clone(), ty.clone(), effect_param_name.clone(), env), {
-                  found = Option(bool).Some(false);
-                  break;
-                });
-              }
-            )
           });
           i = (i + usize(1));
         });
@@ -487,31 +381,14 @@ is_transitive_effect_call_ :: (
     .Some(ftt) => {
       match(
         ftt,
-        .FnTraitT(_, _, _, _, implicit_labels, implicit_types, implicit_spreads, _) => {
+        .FnTraitT(_, _, _, _, implicit_labels, implicit_types, _) => {
           n2 := implicit_labels.len();
           (i2 : usize) = usize(0);
           while(i2 < n2, {
             label := match(implicit_labels.get(i2), .Some(l) => l, .None => String.from(""));
             ty := match(implicit_types.get(i2), .Some(t) => t, .None => TypeValue.Unit);
-            is_spread := match(implicit_spreads.get(i2), .Some(s) => s, .None => false);
             if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
               return(Option(bool).Some(true));
-            });
-            if(is_spread, {
-              env_opt := match(
-                get_info(func_expr.clone()),
-                .Some(info) => Option(Environment).Some(info.env),
-                .None => Option(Environment).None
-              );
-              match(
-                env_opt,
-                .None => (),
-                .Some(env) => {
-                  if(has_effect_in_spread_(label.clone(), ty.clone(), effect_param_name.clone(), env), {
-                    return(Option(bool).Some(true));
-                  });
-                }
-              )
             });
             i2 = (i2 + usize(1));
           });
@@ -881,4 +758,4 @@ analyze_effect_call_points :: (
 // Exports
 // ---------------------------------------------------------------------------
 export(analyze_effect_call_points);
-export(is_effect_call_, has_effect_in_spread_, is_transitive_effect_call_);
+export(is_effect_call_, is_transitive_effect_call_);
