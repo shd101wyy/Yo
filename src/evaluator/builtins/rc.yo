@@ -1,6 +1,6 @@
-//! evaluator/builtins/rc — implements evaluate_rc.
+//! evaluator/builtins/rc — implements evaluate_ref_count, the `ref_count` builtin.
 //!
-//! `rc(value)` returns the reference counter of a value.
+//! `ref_count(value)` returns the reference counter of a value.
 //! For RC types: returns an unknown runtime `usize`.
 //! For value types: always returns `1` as a compile-time `usize`.
 { String } :: import("std/string");
@@ -22,7 +22,7 @@
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { Exception } :: import("std/error");
-evaluate_rc :: (
+evaluate_ref_count :: (
   fn(
     expr : AstExpr,
     env : Environment,
@@ -53,7 +53,7 @@ evaluate_rc :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_ast),
-            String.from("rc: failed to evaluate argument")
+            String.from("ref_count: failed to evaluate argument")
           )
         )
       );
@@ -73,4 +73,4 @@ evaluate_rc :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-export(evaluate_rc);
+export(evaluate_ref_count);
