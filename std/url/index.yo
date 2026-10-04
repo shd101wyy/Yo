@@ -261,7 +261,7 @@ impl(
           found_colon = true;
           break;
         },
-        (((ch >= _LOWER_A) && (ch <= _LOWER_Z)) || ((ch >= _UPPER_A) && (ch <= _UPPER_Z)) || (((ch >= _ZERO) && (ch <= _NINE)) || (ch == _PLUS) || ((ch == _MINUS) || (ch == _DOT)))) => (),
+        (((ch >= _LOWER_A) && (ch <= _LOWER_Z)) || ((ch >= _UPPER_A) && (ch <= _UPPER_Z)) || ((ch >= _ZERO) && (ch <= _NINE)) || (ch == _PLUS) || (ch == _MINUS) || (ch == _DOT)) => (),
         true => {
           return(.Err(UrlError.MissingScheme));
         }
@@ -290,7 +290,7 @@ impl(
     // --- Check for authority (// prefix) ---
     has_authority := false;
     cond(
-      (((pos + usize(1)) < src_len) && ((s.byte_at(pos) == _SLASH) && (s.byte_at(pos + usize(1)) == _SLASH))) => {
+      (((pos + usize(1)) < src_len) && (s.byte_at(pos) == _SLASH) && (s.byte_at(pos + usize(1)) == _SLASH)) => {
         has_authority = true;
         pos = (pos + usize(2)); // skip '//'
       },
@@ -899,7 +899,7 @@ _is_scheme :: (fn(s : String) -> bool)({
     c := b(i);
     ok := (
       ((c >= u8(65)) && (c <= u8(90))) || ((c >= u8(97)) && (c <= u8(122))) || ((c >= u8(48)) && (c <= u8(57))) ||
-        ((c == u8(43)) || (c == u8(45)) || (c == u8(46)))
+        (c == u8(43)) || (c == u8(45)) || (c == u8(46))
     );
     if(!ok, {
       return(false);
@@ -1121,7 +1121,7 @@ impl(
       r.query,
       .Some(q) => Option(String).Some(q),
       .None => cond(
-        (r.scheme.is_none() && (r.authority.is_none() && (r.path.len() == usize(0)))) => self._query,
+        (r.scheme.is_none() && r.authority.is_none() && (r.path.len() == usize(0))) => self._query,
         true => Option(String).None
       )
     );

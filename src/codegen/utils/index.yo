@@ -799,14 +799,13 @@ _build_c_reserved_words :: (fn() -> HashSet(String))({
 _c_reserved_words := _build_c_reserved_words();
 /// True if byte `b` is a valid C-identifier byte: `[a-zA-Z0-9_]`.
 _is_c_identifier_byte :: (fn(b : u8) -> bool)(
-  (
-    ((b >= u8(97)) && (b <= u8(122))) // a-z
-    || ((b >= u8(65)) && (b <= u8(90)))
-  ) // A-Z
-  || (
+  ((b >= u8(97)) && (b <= u8(122))) // a-z
+  || ((b >= u8(65)) && (b <= u8(90)))
+  // A-Z
+  ||
     ((b >= u8(48)) && (b <= u8(57))) // 0-9
     || (b == u8(95))
-  ) // _
+    // _
 );
 /// A fresh LOCAL name (`<prefix><k>`) unique within `current_function_name`'s
 /// emission (Phase 2, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the

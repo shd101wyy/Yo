@@ -446,7 +446,7 @@ is_flowable_expr :: (fn(expr_in : AstExpr, ctx : EvalContext, opts : FlowOptions
   is_variant_ctor := (
     (ast_expr_is_fn_call(call_func) && ast_expr_is_fn_call_of(call_func, BF_DOT, Option(usize).Some(usize(1)))) ||
       (ast_expr_is_atom(call_func) && match(ast_expr_token(call_func).kind, .Dot => true, _ => false))
-      || (is_qualified_variant_ctor || is_type_ctor_call)
+      || is_qualified_variant_ctor || is_type_ctor_call
   );
   if(is_variant_ctor, {
     (i : usize) = usize(0);

@@ -215,7 +215,7 @@ _lv_pattern_bindings :: (fn(pat : AstExpr, scope_end : u64, w : _LiveWalk, conte
     .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
       match(
         _lv_resolve(pat, tok.value.clone(), w, context),
-        .Some(v) => if((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column)), {
+        .Some(v) => if((v.token.module_path == tok.module_path) && (v.token.row == tok.row) && (v.token.column == tok.column), {
           _lv_declare(_lv_id(v, w), tok.value.clone(), _lv_pos(tok, w), scope_end, w);
           w.bindings.insert(_lv_id(v, w));
         }),
@@ -1543,7 +1543,7 @@ inline_await_result_field_of :: (fn(expr : AstExpr, fields : ArrayList(InlineAwa
           return(Option(InlineAwaitResultField).Some(f));
         });
         ftok := ast_expr_token(f.expr);
-        if(by_pos.is_none() && ((ftok.row == tok.row) && ((ftok.column == tok.column) && (ftok.module_path == tok.module_path))), {
+        if(by_pos.is_none() && (ftok.row == tok.row) && (ftok.column == tok.column) && (ftok.module_path == tok.module_path), {
           by_pos = Option(InlineAwaitResultField).Some(f);
         });
       },

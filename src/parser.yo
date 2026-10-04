@@ -83,7 +83,7 @@ make_parse_error_raw :: (fn(module_path : String, message : String) -> YoError)(
 /// `**i32` = `*(*(i32))`. `+` and the rest stay infix-only. The prefix
 /// dot (`.Variant`) has its own branch in parse_primary_end.
 _is_prefix_op_token :: (fn(t : Token) -> bool)(
-  (t.kind == TokenKind.Operator) && ((t.value == "-") || ((t.value == "!") || ((t.value == "~") || ((t.value == "&") || ((t.value == "*") || ((t.value == "?") || (t.value == "^")))))))
+  (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "^"))
 );
 /// The result of peeling a `:spec` suffix off a template-string interpolation.
 /// `spec` is empty when the text carries none, in which case `expr_text` is the
@@ -517,7 +517,7 @@ impl(
     // be whitespace. The last one is what preserves a spaced colon-pair
     // (`${a : b}` keeps its meaning) while `${x:>8}` splits.
     _is_spec_char :: (fn(c : rune) -> bool)(
-      ((c.char >= u32(0x30)) && (c.char <= u32(0x39))) || ((c.char >= u32(0x41)) && (c.char <= u32(0x5A))) || ((c.char >= u32(0x61)) && (c.char <= u32(0x7A))) || ((c.char == u32(0x2E)) || (c.char == u32(0x3C)) || ((c.char == u32(0x3E)) || (c.char == u32(0x5E)))) || ((c.char == u32(0x2B)) || (c.char == u32(0x2D)) || ((c.char == u32(0x23)) || (c.char == u32(0x2A))) || ((c.char == u32(0x5F)) || (c.char == u32(0x3D)) || (c.char == u32(0x7E))))
+      ((c.char >= u32(0x30)) && (c.char <= u32(0x39))) || ((c.char >= u32(0x41)) && (c.char <= u32(0x5A))) || ((c.char >= u32(0x61)) && (c.char <= u32(0x7A))) || (c.char == u32(0x2E)) || (c.char == u32(0x3C)) || (c.char == u32(0x3E)) || (c.char == u32(0x5E)) || (c.char == u32(0x2B)) || (c.char == u32(0x2D)) || (c.char == u32(0x23)) || (c.char == u32(0x2A)) || (c.char == u32(0x5F)) || (c.char == u32(0x3D)) || (c.char == u32(0x7E))
     );
     // `k` and `tn` are RUNE indices into `tc`, so the two cuts at the end are
     // resolved through the rune->byte map `char_indices()` gives rather than
@@ -1249,10 +1249,10 @@ impl(
             // Anything that can OPEN a group before the target pushes the
             // rest of the scan one level down; the target then sits inside
             // that group and does not belong to this level's chain.
-            if((t.kind == TokenKind.LParen) || ((t.kind == TokenKind.LBracket) || (t.kind == TokenKind.LCurlyBracket)), {
+            if((t.kind == TokenKind.LParen) || (t.kind == TokenKind.LBracket) || (t.kind == TokenKind.LCurlyBracket), {
               depth = (depth + usize(1));
             });
-            if((t.kind == TokenKind.RParen) || ((t.kind == TokenKind.RBracket) || (t.kind == TokenKind.RCurlyBracket)), {
+            if((t.kind == TokenKind.RParen) || (t.kind == TokenKind.RBracket) || (t.kind == TokenKind.RCurlyBracket), {
               if(depth > usize(0), {
                 depth = (depth - usize(1));
               });
@@ -1494,8 +1494,8 @@ impl(
     );
     // Immediate dot (no whitespace on either side)
     is_immediate_dot := (
-      (tok.kind == TokenKind.Dot) && (
-        (has_ws_fwd == false) && (
+      (tok.kind == TokenKind.Dot) &&
+        (has_ws_fwd == false) &&
           (has_ws_bwd == false) && {
             next_after_dot_kind := match(
               self.tokens.get(idx + usize(1)),
@@ -1504,8 +1504,6 @@ impl(
             );
             next_after_dot_kind != TokenKind.Whitespace
           }
-        )
-      )
     );
     cond(
       // Dot: field access or enum variant
@@ -1647,7 +1645,7 @@ impl(
       self.tokens.get(idx),
       .None => false,
       .Some(t) => cond(
-        ((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Integer) || (t.kind == TokenKind.Float) || (t.kind == TokenKind.Bool) || (t.kind == TokenKind.StringLit) || (t.kind == TokenKind.CharLit) || (t.kind == TokenKind.TemplateString) || (t.kind == TokenKind.LParen) || (t.kind == TokenKind.LBracket) || ((t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.Dot))) => true,
+        ((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Integer) || (t.kind == TokenKind.Float) || (t.kind == TokenKind.Bool) || (t.kind == TokenKind.StringLit) || (t.kind == TokenKind.CharLit) || (t.kind == TokenKind.TemplateString) || (t.kind == TokenKind.LParen) || (t.kind == TokenKind.LBracket) || (t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.Dot)) => true,
         true => _is_prefix_op_token(t)
       )
     )
@@ -1767,7 +1765,7 @@ impl(
           break;
         },
         .Some(tok) => {
-          is_skip := ((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.Semicolon) || (tok.kind == TokenKind.SingleLineComment) || (tok.kind == TokenKind.MultiLineComment) || (tok.kind == TokenKind.DocLineComment) || (tok.kind == TokenKind.InnerDocLineComment) || ((tok.kind == TokenKind.DocBlockComment) || (tok.kind == TokenKind.InnerDocBlockComment)));
+          is_skip := ((tok.kind == TokenKind.Whitespace) || (tok.kind == TokenKind.Semicolon) || (tok.kind == TokenKind.SingleLineComment) || (tok.kind == TokenKind.MultiLineComment) || (tok.kind == TokenKind.DocLineComment) || (tok.kind == TokenKind.InnerDocLineComment) || (tok.kind == TokenKind.DocBlockComment) || (tok.kind == TokenKind.InnerDocBlockComment));
           if(is_skip, {
             idx = (idx + usize(1));
           }, {

@@ -1471,7 +1471,7 @@ _unseen_type_ids :: (fn(context : CodeGenContext, seen : HashSet(String)) -> Arr
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
 /// dispose are generated separately).
 _is_reserved_dyn_method :: (fn(label : String) -> bool)(
-  (label == BF_DUP) || (label == BF_DROP) || ((label == "___dispose") || (label == "dispose"))
+  (label == BF_DUP) || (label == BF_DROP) || (label == "___dispose") || (label == "dispose")
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
@@ -1950,7 +1950,7 @@ _deferred_decl_cnames :: (
           ty := entry.ty;
           skip := (
             _walk_skip_some(ty)
-            || (entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone()))
+            || entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone())
           );
           if(
             !skip,

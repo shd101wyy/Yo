@@ -29,7 +29,7 @@ import("std/fmt");
 { get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
 );
 /// True when position `idx` lies INSIDE a double-quoted C string literal in
 /// `s` (parity walk with `\\`-escape skipping): the word
@@ -144,7 +144,7 @@ _maybe_address_of :: (fn(value_expr : AstExpr, code : String, cond_outer_is_ptr 
 /// Whether the generated arm code is a control-flow statement (continue/break/
 /// goto/return) and should be emitted directly rather than assigned.
 _is_cf_code :: (fn(value_expr : AstExpr, code : String, context : FunctionGenerationContext) -> bool)(
-  (code == "continue") || ((code == "break") || (code.starts_with("goto") || (ast_expr_is_fn_call_of(value_expr, BK_RETURN, Option(usize).None) || _contains_word_return(code))))
+  (code == "continue") || (code == "break") || code.starts_with("goto") || ast_expr_is_fn_call_of(value_expr, BK_RETURN, Option(usize).None) || _contains_word_return(code)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({

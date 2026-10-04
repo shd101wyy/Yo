@@ -1076,7 +1076,7 @@ _compat_impl :: (
       // instantiations carry type_arguments, and cfid-empty copies SHARE
       // their original's id (caught by the id-equality arm). See
       // issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md.
-      ((aname.len() != usize(0)) && (aname == ename) && ((ata.len() == usize(0)) && (eta.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected)))) => false, 
+      ((aname.len() != usize(0)) && (aname == ename) && (ata.len() == usize(0)) && (eta.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
       // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
       // struct is minted ONCE under a deterministic `capture_<id>` struct id
       // (utils/closure.yo g_capture_struct_ids) and is never re-minted as an
@@ -1099,7 +1099,7 @@ _compat_impl :: (
       // (issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md).
       // Limited to non-generic declarations: an instantiation's unstamped
       // copy may legitimately be nameless.
-      (((aname.len() == usize(0)) != (ename.len() == usize(0))) && ((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((acfid.len() == usize(0)) && (ecfid.len() == usize(0))) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, (alabels.len() != elabels.len()) => false, true => {
+      (((aname.len() == usize(0)) != (ename.len() == usize(0))) && (ata.len() == usize(0)) && (eta.len() == usize(0)) && (acfid.len() == usize(0)) && (ecfid.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, (alabels.len() != elabels.len()) => false, true => {
         vkey := (aid + String.from("=>") + eid);
         cond(
           _visited_contains(visited, vkey) => true,
@@ -1386,10 +1386,9 @@ _compat_impl :: (
         true => {
           (xw_ok : bool) = (
             (aname == ename) && (artt.len() == ertt.len())
-            && (
+            &&
               (artt.len() > usize(0))
-              && (_wrapper_carrier_args_concrete(artt) && _wrapper_carrier_args_concrete(ertt))
-            )
+              && _wrapper_carrier_args_concrete(artt) && _wrapper_carrier_args_concrete(ertt)
           );
 
           (xw_i : usize) = usize(0);
@@ -1642,7 +1641,7 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
   (a_top : TypeValue) = t_refine_inner(actual);
   (e_top : TypeValue) = t_refine_inner(expected);
   if(match(e_top, .ExternOpaqueT(_, _) => true, _ => false), {
-    if(is_numeric_type(a_top) || is_bool_type(a_top) || (is_c_compatible_type(a_top) || (is_comptime_int_type(a_top) || is_comptime_float_type(a_top))), {
+    if(is_numeric_type(a_top) || is_bool_type(a_top) || is_c_compatible_type(a_top) || is_comptime_int_type(a_top) || is_comptime_float_type(a_top), {
       return(true);
     });
   });

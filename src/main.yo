@@ -3485,7 +3485,7 @@ _parse_cc_diagnostic_line :: (fn(line : String) -> Option(Diagnostic))({
                 row_str.parse_u64(),
                 .Some(r64) => match(
                   col_str.parse_u64(),
-                  .Some(c64) => if((r64 > u64(0)) && ((path.len() > usize(0)) && (c64 > u64(0))), {
+                  .Some(c64) => if((r64 > u64(0)) && (path.len() > usize(0)) && (c64 > u64(0)), {
                     msg := line.substring(idx + best_marker_len, line.len());
                     Option(Diagnostic).Some(
                       Diagnostic(
@@ -4136,7 +4136,7 @@ run_compile :: (
     );
   });
   // ---- choices validation ----
-  if((cc != "") && ((cc != "cc") && (cc != "gcc") && ((cc != "clang") && (cc != "zig"))) && (cc != "emcc"), {
+  if((cc != "") && (cc != "cc") && (cc != "gcc") && (cc != "clang") && (cc != "zig") && (cc != "emcc"), {
     exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, emcc`));
   });
   if((allocator != "mimalloc") && (allocator != "system") && (allocator != "fixed"), {
@@ -4162,13 +4162,13 @@ run_compile :: (
   if(debug_heap && (allocator != "fixed"), {
     exn.throw(dyn(String.from("compile: --debug-heap requires --allocator fixed")));
   });
-  if((optimize != "") && ((optimize != "0") && (optimize != "1") && ((optimize != "2") && (optimize != "3"))), {
+  if((optimize != "") && (optimize != "0") && (optimize != "1") && (optimize != "2") && (optimize != "3"), {
     exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
   });
-  if((sanitize != "") && ((sanitize != "address") && (sanitize != "leak") && (sanitize != "thread") && (sanitize != "undefined")), {
+  if((sanitize != "") && (sanitize != "address") && (sanitize != "leak") && (sanitize != "thread") && (sanitize != "undefined"), {
     exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread, undefined`));
   });
-  if((emcc_environment != "") && ((emcc_environment != "web") && (emcc_environment != "node")), {
+  if((emcc_environment != "") && (emcc_environment != "web") && (emcc_environment != "node"), {
     exn.throw(dyn(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`));
   });
   // Chunked emission drives multiple TU inputs through the executable link
@@ -4829,7 +4829,7 @@ run_compile :: (
   // chunk flag. The condition matches the -O selection above exactly.
   // Not for wasm: emcc's LTO story is separate and chunked wasm is out of scope.
   chunk_lto_wanted := ((optimize != "") && (optimize != "0"));
-  if((emit_chunks >= usize(1)) && (chunk_lto_wanted && (!chunk_no_lto && !is_target_wasm(target))), {
+  if((emit_chunks >= usize(1)) && chunk_lto_wanted && (!chunk_no_lto && !is_target_wasm(target)), {
     cmd.arg(String.from("-flto=thin"));
   });
   if(debug_symbols, {
@@ -6542,7 +6542,7 @@ run_test :: (
           // A leak is a FAILURE even at exit 0 —
           // unless staged off via YO_TEST_LEAK_VERDICT=0 (hoisted above,
           // where it also disables LSan's own exit-code).
-          has_leak := (leak_verdict && ((test_cc != "emcc") && use_asan) && (combined.contains("LeakSanitizer") || combined.contains("detected memory leaks") || combined.contains("Direct leak") || combined.contains("Indirect leak")));
+          has_leak := (leak_verdict && (test_cc != "emcc") && use_asan && (combined.contains("LeakSanitizer") || combined.contains("detected memory leaks") || combined.contains("Direct leak") || combined.contains("Indirect leak")));
           test_ms := (test_t0.elapsed().as_nanos() / i64(1000000));
           if((t_status == i32(0)) && !has_leak, {
             passed = (passed + usize(1));
@@ -7287,7 +7287,7 @@ run_add_cmd :: (
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     arg := argv(ai);
-    needs_value := ((arg == "--path") || ((arg == "--name") || ((arg == "--branch") || (arg == "--rev"))));
+    needs_value := ((arg == "--path") || (arg == "--name") || (arg == "--branch") || (arg == "--rev"));
     cond(
       needs_value => {
         if((ai + usize(1)) >= argv.len(), {
@@ -9606,7 +9606,7 @@ main :: (fn(io : Io) -> unit)({
     ai0 = (ai0 + usize(1));
   });
   if(err_format.len() > usize(0), {
-    if(!((err_format == "human") || ((err_format == "short") || (err_format == "json")) || (err_format == "sarif")), {
+    if(!((err_format == "human") || (err_format == "short") || (err_format == "json") || (err_format == "sarif")), {
       exn.throw(
         dyn(
           `Invalid --error-format '${err_format}' (expected: human, short, json or sarif). Set --error-format or YO_ERROR_FORMAT.`
@@ -9648,7 +9648,7 @@ main :: (fn(io : Io) -> unit)({
     ci0 = (ci0 + usize(1));
   });
   if(color_mode.len() > usize(0), {
-    if(!((color_mode == "auto") || ((color_mode == "always") || (color_mode == "never"))), {
+    if(!((color_mode == "auto") || (color_mode == "always") || (color_mode == "never")), {
       exn.throw(
         dyn(
           `Invalid --color '${color_mode}' (expected: auto, always or never). Set --color or YO_COLOR.`
@@ -9799,7 +9799,7 @@ main :: (fn(io : Io) -> unit)({
   // LSP and `yo fix` stay off — they consume the error channel only, and
   // the LSP's process lives long enough that an unflushed stash would leak.
   set_warnings_enabled(
-    (subcmd == "check") || ((subcmd == "compile") || (subcmd == "build"))
+    (subcmd == "check") || (subcmd == "compile") || (subcmd == "build")
   );
   if(subcmd == "explain", {
     run_explain(argv, io, exn);

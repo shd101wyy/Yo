@@ -777,7 +777,7 @@ _source_url :: (fn(source : String) -> Option(String))({
 /// git resolves those against the CURRENT DIRECTORY of the child, so the
 /// resolver hands the fetcher an absolute path instead.
 is_local_git_path :: (fn(url : String) -> bool)(
-  url.starts_with(String.from("./")) || (url.starts_with(String.from("../")) || url.starts_with(String.from("/")))
+  url.starts_with(String.from("./")) || url.starts_with(String.from("../")) || url.starts_with(String.from("/"))
 );
 /// The URL git is given for a manifest `git` value: a local path is made
 /// absolute against the manifest's directory, anything else is as written.
@@ -818,11 +818,11 @@ fetch_package :: (
     mirror_dir := git_mirror_dir(cache_root.clone(), url.clone());
     mirror_present := e.io.await(exists(Path.new(mirror_dir.clone()), e.io), e.io);
     // Offline, the mirror is the only place a ref can be resolved.
-    if(needs_ls_remote && (offline && mirror_present), {
+    if(needs_ls_remote && offline && mirror_present, {
       from_mirror := e.io.await(mirror_rev_parse(mirror_dir.clone(), ref.clone(), e.io, e.exn), e);
       commit = match(from_mirror, .Some(c) => c.clone(), .None => String.new());
     });
-    if(needs_ls_remote && (offline && (commit.len() == usize(0))), {
+    if(needs_ls_remote && offline && (commit.len() == usize(0)), {
       e.exn.throw(dyn(`Error: --offline: resolving "${name}" (${url} @ ${ref}) to a commit needs the network`));
     });
     if(needs_ls_remote && !offline, {
