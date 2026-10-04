@@ -142,8 +142,8 @@ is NOT plain std code to the seed:
   `Allocator` would collide with it.
 - std still declares both structs in `std/allocator.yo`.
 
-**Generation B** (seed = a release carrying Generation A): branch
-`feat/vbd-v1-allocator-prelude-genb` holds the move.
+**Generation B DONE 2026-10-05** on a v0.2.52 seed (which carries
+Generation A, #1188).
 - The two structs and `impl(Allocator, Send())` move into `std/prelude.yo`.
 - `std/allocator.yo` keeps the inherent impl, the owner prefix, the global
   vtable, `with_allocator` and `current_allocator`, and no longer exports the
@@ -153,7 +153,6 @@ is NOT plain std code to the seed:
   `a-default-parameter-resolves-names-in-the-defining-module` fixture).
 - `docs/*/EXPLICIT_ALLOCATORS.md` says where the types live.
 
-Rebase it and land it once `SEED_VERSION` carries Generation A.
 
 ## Seed-gated follow-up (2026-10-01): `ArrayList.push` states its elements
 

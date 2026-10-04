@@ -230,7 +230,9 @@ returned still lands in that allocator.
 
 ## Writing your own allocator
 
-An allocator is a context pointer plus a table of three functions:
+An allocator is a context pointer plus a table of three functions. Both types
+are in the prelude, so they need no import; their methods (`Allocator.global()`,
+`alloc`, `free`, …) come with `std/allocator`:
 
 ```rust
 AllocatorVTable :: struct(
@@ -261,7 +263,7 @@ A counting allocator that forwards to the global allocator:
 ```rust
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
-{ Allocator, AllocatorVTable, GlobalAllocator, with_allocator } :: import("std/allocator");
+{ GlobalAllocator, with_allocator } :: import("std/allocator");
 
 Point :: ref(struct(x : i32, y : i32));
 _Counts :: struct(allocs : usize, frees : usize);
