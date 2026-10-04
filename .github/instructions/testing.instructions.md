@@ -169,6 +169,20 @@ payload-free variant as an over-drop canary, and re-run the fixed binary under
 `MallocScribble=1 MallocPreScribble=1` — recycled values in the output mean the
 fix over-dropped and introduced a use-after-free.
 
+**On a box with no LeakSanitizer and no `leaks` (Windows), the fixed-region
+allocator's `--debug-heap` oracle replaces both**: build with
+`--allocator fixed --heap-size 1g --debug-heap` and every run prints
+`heap: peak …, N allocations, live at exit: B blocks / T bytes` at exit.
+An N×-loop experiment (run the SAME binary with N = 1/2/4/8 read from argv —
+a per-iteration leak shows linear B/T growth, a one-off stays flat; the
+success-path variant is the control) measured the ~550 B/call effect-unwind
+leak behind
+`issues/fixed/parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`
+on MSVC CRT + TLSF, i.e. allocator- and platform-independently. Note that an
+`unwind(...)` handler exits the function that INSTALLED it, so each loop
+iteration must install its handler in its own fn (a handler installed in
+`main` exits `main` on the first unwind and the run silently ends rc=0).
+
 ## A network test whose oracle depends on TCP segmentation is probabilistic
 
 A test that has the peer `write` twice and then asserts on what one `read`

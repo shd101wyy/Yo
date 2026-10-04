@@ -300,6 +300,53 @@ test("every AnyError payload thrown in a loop is released", {
     "each of the 20 thrown payloads is released exactly once"
   );
 });
+// Regression (issues/parser-internal-tests-report-a-40-byte-lsan-leak-locally.md):
+// a local MOVED OUT through the return value (the body's tail is the bare
+// local, so ownership leaves the frame and the scope-end scheduler skips its
+// drop) still has to be released when an effect escape unwinds THROUGH the
+// frame instead — the escape check returns a dummy result that owns nothing.
+// The escape path emitted only the statement temps' drops, so the moved-out
+// local itself leaked on every unwind (measured ~550 B per rejected parse in
+// the parser's own tests, including the 40-byte ArrayList(AstExpr) node the
+// issue names). The `Dispose` counter observes the release.
+(g_moved_out_local_disposed : i32) = i32(0);
+MovedOutRes :: ref(struct(tag : i32));
+impl(
+  MovedOutRes,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_moved_out_local_disposed = (g_moved_out_local_disposed + i32(1));
+    })
+  )
+);
+_owning_frame_that_throws :: (fn(exn : Exception) -> MovedOutRes)({
+  res := MovedOutRes(tag : i32(7));
+  exn.throw(dyn(`boom`));
+  res
+});
+_catch_moved_out :: (fn() -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  r := _owning_frame_that_throws(exn);
+  (t : i32) = r.tag;
+});
+test("a local moved out through the return value is released when a throw unwinds through its frame", {
+  before := g_moved_out_local_disposed;
+  (i : i32) = i32(0);
+  while(i < i32(20), {
+    _catch_moved_out();
+    i = (i + i32(1));
+  });
+  assert(
+    (g_moved_out_local_disposed - before) == i32(20),
+    "each of the 20 moved-out locals is released exactly once"
+  );
+});
 // Regression for issues/fixed/resumable-exception-bare-return-handler-body-aborts.md:
 // a handler body written as a BARE `err -> return(v)` (no braces) must behave
 // exactly like the braced `err -> { return(v); }` form. `return` is recognised
