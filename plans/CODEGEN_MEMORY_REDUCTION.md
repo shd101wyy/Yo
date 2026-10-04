@@ -428,7 +428,7 @@ WSL2 box:
   The branch's failures are a subset of the baseline's (the two extra
   baseline failures are the timing-sensitive `spawn_blocking` tests).
   - Running two suites in ONE checkout collides on batch file names:
-    `issues/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`.
+    `issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`.
 
 ### 0.10 Landed lever: the code spill (§3 lever 3, 2026-09-30)
 

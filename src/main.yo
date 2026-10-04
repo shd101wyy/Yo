@@ -61,7 +61,7 @@ pragma(Pragma.AllowUnsafe);
   profile_fn_std
 } :: import("./utils.yo");
 { Command, ExitStatus } :: import("std/process/command");
-{ platform, Platform } :: import("std/process");
+{ platform, Platform, pid } :: import("std/process");
 { exit } :: import("std/libc/stdlib");
 { environ, execve } :: import("std/libc/unistd");
 { GlobalAllocator } :: import("std/allocator");
@@ -225,14 +225,14 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
         .FnCall(_, _, _, _, _) => String.new()
       );
       cond(
-        // Pattern: { Names } :: import "path" (infix ::)
+        // Pattern: { Names } :: import("path") (infix ::)
         ((fval == "::") && is_infix && (fn_imp_args.len() >= usize(2))) =>
           match(
             fn_imp_args.get(usize(1)),
             .None => Option(String).None,
             .Some(rhs) => extract_bare_import_path(rhs)
           ),
-        // Pattern: bare import "path"
+        // Pattern: bare import("path")
         true => extract_bare_import_path(expr)
       )
     }
@@ -6028,6 +6028,23 @@ run_test :: (
   (bailed : bool) = false;
   (fi : usize) = usize(0);
   (profile_t0 : Instant) = Instant.now();
+  // Per-run components every batch name below shares. The pid: the batch
+  // name used to be a pure function of directory + file index + batch
+  // index, so two CONCURRENT `yo test` runs over one directory generated
+  // the same `.yo`/`.c`/`.bin` paths and each compiled, ran and deleted the
+  // other's batches mid-run
+  // (issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md).
+  // YO_EXE: this process's own executable, exported so a batch's tests can
+  // re-invoke the compiler running them
+  // (tests/internal/concurrent_test_runs.test.yo).
+  // An RSS-valve exec-restart re-executes this block in the resumed process,
+  // which keeps the SAME pid — the names stay consistent across the restart.
+  runner_pid := pid().to_string();
+  _sv_exe := match(
+    current_exe(),
+    .Ok(exe) => proc_env.set(String.from("YO_EXE"), exe.to_string()),
+    .Err(_) => false
+  );
   while((fi < files.len()) && !bailed, {
     file := match(files.get(fi), .Some(f) => f, .None => String.from(""));
     fi = (fi + usize(1));
@@ -6157,10 +6174,15 @@ run_test :: (
           .Some(sidx) => file.substring(usize(0), sidx),
           .None => String.from(".")
         );
-        // The batch index is part of the name so a multi-batch file does not have
-        // its batches overwrite each other (and so YO_KEEP_BATCH leaves all of
-        // them behind for inspection).
-        batch_base := `${batch_dir}/.yo_selftest_batch_${fi.to_string()}_${bi.to_string()}`;
+        // The runner's pid, the file index and the batch index are all part of
+        // the name: the pid so two CONCURRENT runs over one directory cannot
+        // overwrite each other's artifacts, the batch index so a multi-batch
+        // file does not have its batches overwrite each other (and so
+        // YO_KEEP_BATCH leaves all of them behind for inspection). Every
+        // consumer keys on the `.yo_selftest_batch_` prefix — .gitignore's
+        // `.yo_selftest_batch_*`, the codegen/evaluator batch detectors — so
+        // the pid slots in right after it.
+        batch_base := `${batch_dir}/.yo_selftest_batch_${runner_pid}_${fi.to_string()}_${bi.to_string()}`;
         tmp_yo := `${batch_base}.yo`;
         tmp_bin := `${batch_base}${batch_ext}`;
         // The C sidecar does NOT simply append `.c`: run_compile STRIPS a

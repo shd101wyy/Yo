@@ -2,7 +2,7 @@
 
 **Severity:** S3 — 37 green tests named after deleted methods — name-pattern and coverage greps mislead
 
-**Status:** OPEN
+**Status:** FIXED (2026-10-03)
 **Severity:** papercut — the assertions are correct and green; only the test
 *names* are wrong, and they are the tree's index of collection coverage.
 **Found:** 2026-09-04, during the std-API audit re-measurement of the
@@ -137,3 +137,29 @@ unaffected: `insert`, `contains`, `contains_key`, `first_entry` and `last_entry`
 all appear in the bodies and score as covered. The damage is confined to the
 names themselves — `--test-name-pattern`, the failure messages the runner prints,
 and any human reading the test list as an index of what is covered.
+
+## Fixed
+
+**2026-10-03, branch `s3/batch-3-fixes`.** Root cause: the §5 API-rename sweep
+(2026-08-25) migrated every call site but had no mechanical relationship to the
+`test("...")` name strings, and nothing tied the two together — the bodies called
+the new spellings, so the suite stayed green while the names advertised deleted
+methods. Fix: the 37 name strings rewritten by hand across the five files
+exactly as this doc prescribes (`HashSet.add/.has` → `.insert/.contains`,
+`HashMap.set/.has` → `.insert/.contains_key`, `HashMap iter_ptr` → `iter`,
+`BTreeMap.set` → `.insert`, `BTreeMap.min/.max` → `.first_entry/.last_entry`,
+`LinkedList.has` → `.contains`, and `array_list.test.yo`'s misnamed test →
+"ArrayList index assignment with Box replaces and drops the old value"), plus
+the one comment the reproducer grep also caught (a backticked `set`/`iter_ptr`
+in `hash_map.test.yo`, now `insert`/`iter`) so the grep zeroes out. Zero
+assertion changes; `test(` counts per file unchanged (67/88/33/70/129, matching
+origin/develop). Test: reproduced both directions before the fix —
+`--test-name-pattern "HashSet.insert"` matched 1/1 (the unrelated churn test)
+and `"HashSet.add"` matched 5/5 for a method that exists nowhere; after,
+`"HashSet.insert"` matches 6/6 (the five renamed + churn) and `"HashSet.add"`
+matches 0 — and the full suite the doc names ran green:
+`yo test ./tests/collections --parallel 1` → 503 passed / 503 total.
+Recurrence guard: a line in `.github/instructions/yo-design.instructions.md`'s
+std-naming table section (rename sweeps must rewrite the
+`test("<Type>.<method> …")` strings that spell a renamed method, since
+`--test-name-pattern` is the documented way to run one test).

@@ -5,6 +5,8 @@
 import("std/string");
 percent :: import("std/encoding/percent");
 { PercentError } :: import("std/encoding/percent");
+{ Error } :: import("std/error");
+utf8 :: import("std/encoding/utf8");
 
 test("unreserved characters pass through untouched", {
   s := `AZaz09-_.~`.to_string();
@@ -93,5 +95,23 @@ test("decoded non-UTF-8 is an error for Strings but fine as bytes", {
       assert(bytes(usize(0)) == u8(255), "0xFF preserved");
     },
     .Err(_) => assert(false, "bytes form must succeed")
+  );
+});
+test("PercentError impls Error and renders each variant", {
+  // D1 (.github/instructions/yo-design.instructions.md): an error type is a
+  // real enum implementing Error(). TlsError and DateTimeError landed theirs
+  // 2026-09-05; PercentError was the remaining one
+  // (issues/fixed/tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md).
+  comptime_assert(Type.impls(PercentError, Error), "PercentError must impl Error");
+  a := PercentError.TruncatedEscape(index : usize(2));
+  assert(a.to_string() == `truncated percent escape at byte 2`, "truncated escape message");
+  b := PercentError.InvalidHexDigit(index : usize(1), byte : u8(71));
+  assert(b.to_string() == `invalid hex digit 71 at byte 1`, "invalid hex digit message");
+  c := PercentError.InvalidUtf8(
+    cause : utf8.Utf8Error.InvalidStart(index : usize(0), byte : u8(255))
+  );
+  assert(
+    c.to_string() == `invalid UTF-8 at byte 0: invalid UTF-8 start byte`,
+    "invalid UTF-8 renders its cause"
   );
 });

@@ -1,0 +1,11 @@
+# A didChange no longer runs a synchronous full re-analysis
+# (issues/fixed/lsp-per-keystroke-full-reanalysis-limits-responsiveness.md):
+# the text is retained at once and the analysis is debounced to the idle
+# window, so the hover written straight after the didChange is answered from
+# the last parsed outcome BEFORE any publishDiagnostics for the change, and
+# the conversation's end (EOF/exit) still delivers the final diagnostics.
+# Before the fix the stream showed the change's publishDiagnostics between
+# the didChange and the hover reply (the hover queued behind a ~3 s full
+# evaluation on compiler-sized files) and nothing after the shutdown reply.
+timeout=240
+framing=strict

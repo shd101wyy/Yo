@@ -1058,6 +1058,17 @@ jobs:
         run: |
           "$S1" fmt --check ./std ./tests ./src
 
+      # Also ubuntu-only and also plain text: doc examples must not teach the
+      # paren-less `:: import "path"` spelling — the parser rejects it (E0008),
+      # so every reader's first line fails. Swept in #696/#881; this gate keeps
+      # the idiom from re-rotting
+      # (issues/fixed/std-doc-examples-use-parenless-import-which-does-not-parse.md).
+      - name: Check doc examples' import spelling
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          bash scripts/check-doc-imports.sh
+
       - name: Build system smoke test
         shell: bash
         run: |

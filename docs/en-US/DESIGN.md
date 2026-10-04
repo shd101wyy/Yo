@@ -297,6 +297,8 @@ For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md
 
 `yo fmt` is intentionally not configurable, following the same philosophy as `go fmt`: all Yo projects share one compact, consistent style with 2-space indentation.
 
+When `yo fmt` would change a file, it first parses the original: a parse failure is reported like a lexer error (the bare diagnostic, exit code 1) and the file is left untouched, so a formatting pass can never rewrite — or mask — a tree the parser rejects. Files whose formatting is already canonical are not parsed; `yo check` remains the parseability gate.
+
 `yo fmt` elides provably-redundant parentheses (a re-parse must reproduce the original tree, so a group is only removed when grouping cannot change) and keeps every load-bearing one. That includes the redundant LEFT groups of a same-operator chain at any operand count — `(((20 - 5) - 4) - 3)` formats to `20 - 5 - 4 - 3` — while a parenthesized right operand is always kept: `20 - (5 - 4) - 3` is left untouched.
 
 The same rule removes two more kinds of group: parentheses around a whole call argument (`f((a + b))` becomes `f(a + b)`, because the call's own parentheses already group it) and around a bare prefix operand (`-(x)` becomes `-x`, `!(done)` becomes `!done`). It keeps a parenthesized right operand (`a + (b + c)`), a prefix operator's compound operand (`-(x + x)`, `!(a > b)`), the parentheses between two different operators (`(a * b) + c`), and the group around a binary right-hand side of `:=` or `=`, which E0003 requires. `yo fmt` never adds parentheses, so write the E0003 ones yourself. Before and after:

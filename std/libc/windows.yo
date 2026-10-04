@@ -81,6 +81,9 @@ c_include(
   // NOT set `errno`, so this is the Windows half of a raw OS error code (the
   // POSIX half being `errno`).
   GetLastError : (fn() -> DWORD),
+  // GetCurrentProcessId - the calling process's id, Win32's twin of POSIX
+  // `getpid` (bound in std/process.pid's non-Windows arm).
+  GetCurrentProcessId : (fn() -> DWORD),
   // Code page constants
   CP_UTF8 : u32
 );
@@ -107,6 +110,7 @@ export(_putenv_s);
 export(_environ);
 export(GetModuleFileNameW);
 export(GetLastError);
+export(GetCurrentProcessId);
 export(CP_UTF8);
 export(_unlink);
 export(_rmdir);

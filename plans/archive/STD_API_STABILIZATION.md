@@ -2586,7 +2586,7 @@ emitted C, so it could not be randomized even if that were wanted.
    `src/verifier/driver.yo`, `src/doc/render_json.yo` (`json.*`), and the test
    corpus including every `test("...")` NAME string — a test called
    `json_parse null` after the rename is a filed defect in this tree
-   (`issues/collection-test-names-still-use-pre-rename-method-spellings.md`),
+   (`issues/fixed/collection-test-names-still-use-pre-rename-method-spellings.md`),
    because `--test-name-pattern` is how one test is run. Two locals had to be
    renamed to make room for the module binding: `hex` → `hex_str` in
    `std/crypto/random.yo` and `src/fetch.yo`, and the three `utf16` locals in
