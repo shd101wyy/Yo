@@ -260,7 +260,7 @@ declared trait bound (symptom 2). One std site was in the second category
 - `issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`
   — `dyn(<a Dyn value>)` is accepted by the evaluator and refused by codegen with
   an `/* Error: … */` comment written into an expression position.
-- `issues/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`
+- `issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`
   — the RESIDUAL of this bug's crash face, and the reason the fix here does not
   close it entirely: when the impl comes from a blanket
   `impl(generic(T), where(T <: ToString), ArrayList(T), ToString(...))`, the

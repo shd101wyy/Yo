@@ -43,7 +43,7 @@ rejects control-bound pointees. A `ref(struct)` field has no such pointer, so no
 At type definition, run `type_is_control_bound` on every field type of a `ref(...)`/`atomic(...)`
 struct or enum and reject control-bound fields, instead of relying on the pointer check as a side
 effect. The e4 message also renders the ctl type as `fn(msg : String) -> i32`; print it as `ctl`.
-Related: `issues/module-level-control-bound-binding-not-rejected.md`.
+Related: `issues/fixed/module-level-control-bound-binding-not-rejected.md`.
 
 ## Resolution (2026-09-25, Phase 5.5)
 

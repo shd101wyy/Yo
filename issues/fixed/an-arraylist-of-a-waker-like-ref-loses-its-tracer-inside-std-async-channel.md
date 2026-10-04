@@ -36,7 +36,7 @@ resolved to `Waker` at that point rather than that `add` is missing.
 
 ## Reproducer
 
-`issues/patches/async-channel-over-wakers.patch` applied to
+`async-channel-over-wakers.patch` (applied in #586, then removed) applied to
 `std/async/channel.yo`, then any program that uses the channel:
 
 ```rust

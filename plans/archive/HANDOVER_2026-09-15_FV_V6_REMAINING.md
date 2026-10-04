@@ -184,7 +184,7 @@ into current develop.
 - **TASK 2 ENTRY POINT FILED (issue merged via #731):** a contracted
   GENERIC fn registers no verify task (deferred bodies are skipped) —
   the body is never checked and nothing reports the gap. The issue
-  (`issues/verifier-contracted-generic-fn-is-silently-unverified.md`)
+  (`issues/fixed/verifier-contracted-generic-fn-is-silently-unverified.md`)
   carries the measured obstacles and the first-slice sketch (opaque T
   only; `==` supported; loud subset fails on arithmetic over T; the
   identity fixture). The minimal honest improvement until then: a loud
@@ -412,18 +412,18 @@ construction site) — part of task 3's acceptance really.
 
 ### 4.5 Quick wins / filed bugs
 
-- `issues/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md`
+- `issues/fixed/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md`
   (OPEN): `decreases-nonneg`/`decreases-step` hardcode SIGNED
   comparisons; an unsigned measure refutes at `n = 2^63`. Small,
   contained fix in `vc.yo` (derive signedness from the measure's sort
   like `_binop_of_ctx` does) + flip the task-4 fixtures to `u64`. Good
   warm-up PR; do it BEFORE or independently of task 3.
-- `issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+- `issues/fixed/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
   (OPEN, updated with new evidence 2026-09-14): blocks the INLINE
   clause-carrying impl-method spelling (the two-step spelling is the
   documented idiom). The env-frame-identity probe sketch is in the
   issue.
-- `issues/derived-eq-ref-enum-self-payload-hollow-at-runtime.md` (OPEN,
+- `issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md` (OPEN,
   pre-existing): derive(Eq) hollow on ref enums — unrelated to FV but
   the verifier routes around it.
 
@@ -622,7 +622,7 @@ resolution edits the file again (cost one tier-1 cycle).
   (g_refine_pred_chains + _refine_pred_chain_term); check_*/unchecked_*
   entry paths. TWO defects fixed en route: get_type_string had no
   .RefineT arm (malformed C in refined-param prototypes;
-  issues/refined-param-signatures-emit-malformed-c.md) and the
+  issues/fixed/refined-param-signatures-emit-malformed-c.md) and the
   comptime(p) wrapper requirement. RED-BY-DESIGN on seed CI legs until
   v0.2.37 (the codegen fix rides it); green on self-hosted legs. Local:
   verifier_spec_refine 3/3 (11-report inventory, 2/2 refutations,

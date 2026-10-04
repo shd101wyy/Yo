@@ -2032,7 +2032,7 @@ export(main);
 
 幻影参数目前必须放在 `ref(struct(...))` 上。幻影泛型**枚举**上的方法目前还无法
 通过 `comptime(K) : Type` 参数找到
-（`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`）。
+（`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`）。
 std 的 `File` 与套接字则在运行时保存状态：它们按设计是共享的 RC 句柄。
 
 ## C union

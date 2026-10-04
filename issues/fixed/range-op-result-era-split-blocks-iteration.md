@@ -73,4 +73,4 @@ green (comptime ranges and slicing unaffected).
 
 An Item-binding combinator (`min`) after `.map` at a SECOND Item type
 adopts the FIRST call's Item — pre-existing, not range-specific:
-issues/iterator-chain-shared-stamp-cross-item-pollution.md.
+issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md.

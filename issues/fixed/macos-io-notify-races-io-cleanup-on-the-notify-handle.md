@@ -22,7 +22,7 @@ The comment "Clear the loop's pointer FIRST so a foreign wake … does not call 
 descriptor this function is about to close" describes a TOCTOU, not a synchronization: a foreign
 notify can read `ready == 1`, be preempted, and `kevent()` a closed (or by then reused)
 descriptor. Together with
-`issues/a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md` the read can
+`issues/fixed/a-foreign-waker-release-can-post-into-a-loop-whose-thread-has-exited.md` the read can
 also land on freed thread-local storage.
 
 ## Fix direction

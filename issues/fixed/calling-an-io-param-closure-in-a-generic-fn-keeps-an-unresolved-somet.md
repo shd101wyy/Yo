@@ -33,7 +33,7 @@ the closure parameter's own type being `Io`.
 
 ## Reproducer 1 — minimal, 22 lines, no threads
 
-`issues/repros/io-param-closure-result-unresolved-somet.yo` (source inline below — commit it at that path alongside this doc):
+`io-param-closure-result-unresolved-somet.yo` (never committed) (source inline below — commit it at that path alongside this doc):
 
 ```rust
 { assert } :: import("std/assert");
@@ -61,10 +61,10 @@ export(main);
 ```
 
 ```
-$ yo check issues/repros/io-param-closure-result-unresolved-somet.yo
+$ yo check io-param-closure-result-unresolved-somet.yo
 ... evaluator OK   (rc 0)
 
-$ yo compile issues/repros/io-param-closure-result-unresolved-somet.yo --optimize 2 -o /tmp/r1.out
+$ yo compile io-param-closure-result-unresolved-somet.yo --optimize 2 -o /tmp/r1.out
 Using system allocator
 /tmp/r1.out.c:1592:9: warning: incompatible integer to pointer conversion initializing 'void *' with an expression of type 'int32_t' (aka 'int') [-Wint-conversion]
  1592 |   void* _file____priv_temp_11574 = closure_yo_id_10256(&(cb), io);
@@ -97,7 +97,7 @@ cause:
 
 ## Reproducer 2 — the shape the `std/thread` `join() -> T` row actually needs
 
-`issues/repros/spawn-generic-closure-result-into-channel-send.yo` (source inline below):
+`spawn-generic-closure-result-into-channel-send.yo` (never committed) (source inline below):
 
 ```rust
 pragma(Pragma.AllowUnsafe);
@@ -123,7 +123,7 @@ export(main);
 ```
 
 ```
-$ yo compile issues/repros/spawn-generic-closure-result-into-channel-send.yo --optimize 2 -o /tmp/r2.out
+$ yo compile spawn-generic-closure-result-into-channel-send.yo --optimize 2 -o /tmp/r2.out
 /tmp/r2.out.c:2807:9: warning: incompatible integer to pointer conversion initializing 'void *' with an expression of type 'int32_t' (aka 'int') [-Wint-conversion]
  2807 |   void* _file____priv_temp_13461 = closure_yo_id_11632(&(((__yo_t21*)closure_context)->cb), io);
 /tmp/r2.out.c:2811:39: warning: call to undeclared function 'yo_id_10729_rtparam0_R_gs_yo_id_10693_i32_rtparam1_1944_ret_enum_yo_id_10728_value_unit_error_i32'; ISO C99 and later do not support implicit function declarations [-Wimplicit-function-declaration]

@@ -1718,7 +1718,7 @@ _adopt_deep_resolution :: (fn(original : TypeValue, resolved : TypeValue) -> boo
 /// reads, and a sibling call — e.g. command.yo's declared
 /// `Impl(Future(Output, IoExn))` during std eval — can no longer poison the
 /// shared declaration ids (the `Output*`-prototype class,
-/// issues/yo-self-async-emission-cluster.md item 7 layer 2).
+/// issues/retired/yo-self-async-emission-cluster.md item 7 layer 2).
 _freshen_io_builtin_callee :: (fn(ft : TypeValue) -> TypeValue)(
   match(
     ft,
@@ -2264,7 +2264,7 @@ _fv_synthesize_arg_into :: (fn(declared_pt : TypeValue, scratch_env : Environmen
 ///   until a trait dispatch inside the instantiated impl differs:
 ///   Box(comptime_int)'s `Eq` resolved to `__yo_comptime_int_eq`, a
 ///   comptime-only builtin that can never be emitted (the prelude Box test;
-///   issues/repros/box-eq-comptime-int-generic-leak.yo). GATED on the matched
+///   issues/repros/box-eq-comptime-int-forall-leak.yo). GATED on the matched
 ///   param being RUNTIME: a `comptime(v) : T` param binds T to the RAW
 ///   comptime type — lowering there broke ComptimeOrd/ComptimeEq dispatch
 ///   inside comptime-fn bodies (tests/comptime.test.yo regression).
@@ -3829,7 +3829,7 @@ _evaluate_funcval_runtime_call :: (
           // returning ..." — a warning on every platform and a hard ERROR on
           // the one CI leg running clang 22. Bisected to THIS line (#619; its
           // parent #611 emits 3 Box structs and no warning, it emits 5 and 2).
-          // issues/a-box-over-an-impl-fn-is-emitted-as-two-c-structs.md
+          // issues/fixed/a-box-over-an-impl-fn-is-emitted-as-two-c-structs.md
           .Some(hkt_ty) => if(((get_all_some_types(hkt_ty).len() == usize(0)) || (rre_old_wanted && (type_somes_all_resolve_concrete(hkt_ty) || (is_some_type(hkt_ty) && !_rre_mentions_binder(hkt_ty, rre_binder_ids))))) && !is_unit_type(hkt_ty), {
             resolved_ret = hkt_ty;
           }),

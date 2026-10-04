@@ -35,7 +35,7 @@ usable return type today:
 
 - `ArrayList(AnyError)` — this defect: the list cannot be read back.
 - `Iterator` with `next() -> Option(AnyError)` — blocked by the sibling defect
-  `issues/option-of-a-trait-object-never-emits-its-inherent-methods.md`: an
+  `issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md`: an
   `Option` of a trait object cannot take an inherent `Option` method, so every
   ergonomic use of the iterator fails the same way.
 

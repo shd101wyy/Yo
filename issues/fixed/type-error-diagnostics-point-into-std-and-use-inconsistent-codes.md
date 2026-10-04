@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-23, type-system audit (`plans/TYPE_SYSTEM_SOUNDNESS.md`, Phase 4).
 **Status:** FIXED 2026-09-25 (`plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.4); see "Resolution". Diagnostics quality; complements
-`issues/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md`.
+`issues/fixed/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md`.
 **Measured:** yo 0.2.39 seed (`yo explain --list` knows 30 codes); the unknown-field row re-verified
 on a develop build `d455b6a67`.
 

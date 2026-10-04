@@ -23,7 +23,7 @@ error: No matching call found with arguments:
 (`impl(generic(T : Type, U : usize), where(T <: Comptime), Array(T, U),
 fill : (fn(comptime(val) : T) -> comptime(Self))(...)`, std/prelude.yo:6868).
 The argument is a LITERAL — this is NOT the comptime-trait-dispatch defect of
-issues/array-fill-rejects-a-generic-dispatched-comptime-value.md (that one
+array-fill-rejects-a-generic-dispatched-comptime-value.md (re-diagnosed and split by #740 into `issues/fixed/a-function-generic-array-length-breaks-fill.md` and `issues/fixed/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md`) (that one
 needs `T.default()`); literals work there.
 
 ## The warm-order signature (measured, YO_DEBUG_DISPATCH=1)

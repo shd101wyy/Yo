@@ -155,7 +155,7 @@ raised inside a generated method BODY: those are eaten one level lower, by the
 anonymous-function definition-time trial wall, and still reach codegen as an
 `abort()` stub. `Outer :: struct(n : NoImpl); derive(Outer, Eq(Outer))` where
 `NoImpl` has no `Eq` still compiles and aborts at runtime. Its root cause is
-`issues/equality-operator-without-an-eq-impl-evaluates-to-unit.md` (a `==` with
+`issues/fixed/equality-operator-without-an-eq-impl-evaluates-to-unit.md` (a `==` with
 no impl evaluates to `unit` instead of erroring), which is filed separately and
 still open.
 

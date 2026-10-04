@@ -1323,7 +1323,7 @@ become real; the stdlib starts carrying executable specifications.
 > FuncVal under the bare name in the pred env (the splice's
 > `_build_assert_callee` idiom). (3) Planting inherited clauses under the
 > impl's fn-TYPE EXPRESSION id re-triggers
-> `issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+> `issues/fixed/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
 > (the fn-type evaluation and the splice re-read those tables by that
 > id) — plant under the FuncVal id instead, which nothing re-reads. The
 > fixtures use the two-step spelling (named fn + reference from the impl
@@ -1432,7 +1432,7 @@ become real; the stdlib starts carrying executable specifications.
 >    error). Probe-validated on the ArrayList shape: a clause-carrying
 >    method on a GENERIC INHERENT impl evaluates cleanly and registers —
 >    the env-sharing corruption behind
->    `issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+>    `issues/fixed/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
 >    is trait-entry-specific, as its variant table measured.
 > 2. **The contract-less subset degrade**: uncontracted fns KEEP
 >    registering — the AoRTE flagship (div-by-zero refutations on code

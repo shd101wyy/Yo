@@ -29,7 +29,7 @@ empty.
 audit): four rows of the vector table below are NOT closed as written, and one Phase H
 claim never landed.** Row 6 / Phase H: the emitted `extract()` checks only a one-shot
 flag, never `rc == 1`, and the raw `Iso(T)(v)` constructor runs none of the `^` macro's
-checks (`issues/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`).
+checks (`issues/fixed/iso-constructor-is-unchecked-and-extract-verifies-no-uniqueness.md`).
 Row 17: a module-level `:=` binding IS a mutable static reachable from every thread
 (`issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md`). Row 26: no call-site
 rule exists; `inout(self)` receivers, `inout` arguments and index assignment write through

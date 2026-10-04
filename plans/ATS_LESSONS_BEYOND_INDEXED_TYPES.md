@@ -18,7 +18,7 @@ the seed, or a cited file.
 | A3 spec-transparent pure fns | done: slice 1 (#1075); slice 2 (`feat/verifier-distinct`): a recursive callee is transparent only with `decreases` (without it, an S1: `issues/fixed/a-transparent-callee-that-recurses-without-decreases-proves-anything.md`), and the subset error names the missing property |
 | A4 init proof token (S1) | done (#1075): `set_len` deleted, the token is `Option(*(T))` |
 | A5 lexicographic `decreases` | done (#1075) |
-| A6 typestate idiom | docs done (#1075); its S3 (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`) open |
+| A6 typestate idiom | docs done (#1075); its S3 (`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`) open |
 
 ## 0. The verdict
 

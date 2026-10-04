@@ -2099,7 +2099,7 @@ transition, so two rules apply:
 
 The phantom parameter must currently be on a `ref(struct(...))`. A method on
 a phantom generic ENUM is not yet found through a `comptime(K) : Type`
-parameter (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
+parameter (`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
 std's `File` and sockets keep their state at run time instead: they are
 shared RC handles by design.
 

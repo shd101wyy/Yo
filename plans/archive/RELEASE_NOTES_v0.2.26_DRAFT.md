@@ -78,7 +78,7 @@ made them look untestable turned out to be a blocking `accept()`.
 - **`unit` implements `Eq`, `Ord`, `Hash` and `Clone`** (#437), as Rust's `()`
   does. Note: infix `==` on two `unit` operands does not yet dispatch to that
   impl (a pre-existing gap in the operator fall-through, tracked in
-  `issues/equality-operator-without-an-eq-impl-evaluates-to-unit.md`), so
+  `issues/fixed/equality-operator-without-an-eq-impl-evaluates-to-unit.md`), so
   `derive(Eq)` over a struct with a `unit` field still does not work.
 
 ## Platforms

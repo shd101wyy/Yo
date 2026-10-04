@@ -2076,7 +2076,7 @@ compile_artifact :: (
     // Every await-bearing step below is a TOP-LEVEL statement of this
     // async closure ON PURPOSE: an await nested inside an if-branch here
     // silently lost its continuation (the cache-skip block after it never
-    // ran) — issues/async-await-in-nested-if-drops-continuation.md. The
+    // ran) — issues/retired/async-await-nested-if-lost-continuation.md. The
     // unconditional exists()/read are harmless when the cache is disabled.
     cache_enabled := match(proc_env.get(`YO_BUILD_NO_CACHE`), .Some(v) => (v != "1"), .None => true);
     // The stamp is computed unconditionally (a top-level await on purpose —
@@ -2626,7 +2626,7 @@ _dependency_failed :: (fn(node : DAGNode, results : HashMap(String, StepResult))
 /// `execute_node`, unless a dependency failed — then the node is reported as
 /// skipped without running. The branch lives in its own async fn so the
 /// caller's `await` stays a top-level statement (an await nested in an
-/// if-branch loses its continuation — issues/async-await-in-nested-if-drops-continuation.md).
+/// if-branch loses its continuation — issues/retired/async-await-nested-if-lost-continuation.md).
 _execute_node_unless_blocked :: (
   fn(
     node : DAGNode,
@@ -3000,7 +3000,7 @@ execute_step :: (
     // `--dry-run` is a REAL resolution that stops here (the plan's B7).
     // The early return keeps the await below a top-level statement: an await
     // nested in an if-branch loses its continuation
-    // (issues/async-await-in-nested-if-drops-continuation.md).
+    // (issues/retired/async-await-nested-if-lost-continuation.md).
     dag := _plan_step(step_name.clone(), ctx, e.exn);
     if(dry_run, {
       _print_plan(step_name.clone(), dag);

@@ -177,7 +177,7 @@ removed before parking; re-add eprintln's if you want them again —
 
 ## 4. The blocking evaluator defect (filed, with gdb trace)
 
-`issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
+`issues/fixed/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md`
 — reproduced on PRISTINE develop (stash-verified), so it is NOT caused by
 the branch: **an impl method whose fn-type carries `requires`/`ensures`
 clauses INSIDE a trait entry** (`impl(i32, T(m : (fn(self : Self, i : i32,
@@ -207,13 +207,13 @@ under the ARMED verify driver the same shape loads and produces
 ## 5. Also in flight / not to lose
 
 - **The old `issues/` from this campaign are all in the repo** — most
-  recent: `issues/derived-eq-ref-enum-self-payload-hollow-at-runtime.md`
+  recent: `issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md`
   (derive(Eq) on ref enums with Self payloads is hollow at runtime;
   VcSort's Eq was hollow since task 5 — verifier routes around it by
   string-keyed dedupe; still OPEN, needs the derive fixed).
 - Cluster finding 1 (pre-FV): the re-eval-aware hollow-io.async-body
   registry PR was never opened — see
-  `issues/async-capture-mode-argument-rendering-cluster.md`.
+  `issues/fixed/async-capture-mode-argument-rendering-cluster.md`.
 - The **verify job in CI** runs the z3-gated tests; the full local
   battery before any push (times measured 2026-09-13/14):
   verifier.test.yo 18/18 (~4 min), quantifiers 6/6 (~4), collections 5/5

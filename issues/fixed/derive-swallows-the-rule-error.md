@@ -63,7 +63,7 @@ error: derive: derive rule function failed
 
 ## Reproducer 2 — the failure vanishes
 
-`issues/repros/derive-rule-error-vanishes-entirely.yo`: the same rule, but the
+`derive-rule-error-vanishes-entirely.yo` (removed in #1062): the same rule, but the
 failing call sits in a `::` binding rather than in the result position.
 
 ```rust
@@ -76,8 +76,8 @@ derive(P2, MyRule2(.a => `x`));
 ```
 
 ```
-$ yo check   issues/repros/derive-rule-error-vanishes-entirely.yo   ; echo rc=$?   # rc=0
-$ yo compile issues/repros/derive-rule-error-vanishes-entirely.yo   ; echo rc=$?   # rc=0
+$ yo check   derive-rule-error-vanishes-entirely.yo   ; echo rc=$?   # rc=0
+$ yo compile derive-rule-error-vanishes-entirely.yo   ; echo rc=$?   # rc=0
 $ YO_DEBUG_SWALLOW=1 yo check … 2>&1 | grep expr_to_string
 [anon-swallow] error: Expected expression value for "__yo_expr_to_string" argument
 ```

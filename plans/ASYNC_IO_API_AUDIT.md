@@ -275,7 +275,7 @@ Five programs under `tmp/` (gitignored), compiled with the tree binary
 | # | Probe | Result | Record |
 | --- | --- | --- | --- |
 | 1 | `io.spawn(IO_timer.sleep(30))`, `abort()`, sleep 80 ms, read state and await | `Aborted` right after the abort; `Completed` once the timer fired; `await` returns `.Some` | `issues/fixed/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md` (S2) |
-| 2 | A user struct with a method named `await`, called as `t.await(io)` | `check` OK; `compile`: ICE "JoinHandle.await return type must be Option(T)" | `issues/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md` (S1) |
+| 2 | A user struct with a method named `await`, called as `t.await(io)` | `check` OK; `compile`: ICE "JoinHandle.await return type must be Option(T)" | `issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md` (S1) |
 | 3 | `JoinHandle.await` of an unwound task, then `io.await` of the same future in `main` | `.None`, then `panic: attempted to await an aborted Future` (rc 134) — as documented | §6 Q1, no issue |
 | 4 | Two `io.spawn` of one task with bundles `{ io, tell : tell_a }` then `{ io, tell : tell_b }`; the body yields twice then calls `ctx.tell` | `r1=2 r2=2`: the task ran under the second bundle | `issues/fixed/a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md` (S2) |
 | 5 | A `Future(i32, Ctx)` passed as `Impl(Future(i32))` and awaited with `io`; the body calls `ctx.raise` | `check` OK; the binary dies with rc 139, `lldb`: `EXC_BAD_ACCESS address=0x0`, frame #0 at `0x0` (a call through the zeroed handler slot) | `issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md` (S1) |

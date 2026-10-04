@@ -107,7 +107,7 @@ by default, and it keeps `0.1` as `0.1` instead of `%.17g`'s
 `0.10000000000000001`. `std/fmt/to_string.yo` already imports `../string`
 (`:3`), so `parse_f64` is reachable with no new module cycle — but note it is
 broken today for 3- and 8-byte significands
-(`issues/parse-f64-rejects-every-3-or-8-byte-significand.md`), so **that fix
+(`issues/fixed/parse-f64-rejects-every-3-or-8-byte-number.md`), so **that fix
 lands first** or the round-trip check rejects its own correct output.
 
 Then:
