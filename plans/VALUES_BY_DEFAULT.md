@@ -13,7 +13,8 @@ Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
 with decisions 13 (move-only futures) and 14 (second-class borrowing
 futures).
 Amended 2026-10-05 with the maintainer: **unique ownership (Hylo's model)
-replaces copy-on-write** (§0). Decisions 16–21 there are proposed.**
+replaces copy-on-write** (§0). Decisions 15–18 there are confirmed; 19–21
+are proposed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
   which is in progress (S1, the E0908 extension, on
@@ -34,9 +35,12 @@ replaces copy-on-write** (§0). Decisions 16–21 there are proposed.**
 **Direction approved by the maintainer 2026-10-05** ("yes lets adopt hylo's
 model"). This section overrides every part of §1–§9 that it names. The
 superseded text is kept below, under a banner, as the record of what was
-decided before. Decisions 16–21 are **proposed**. Each states a
-recommendation, and none is final until the maintainer confirms it (§4's
+decided before. Decisions 16–21 were proposed, each with a
+recommendation, final once the maintainer confirms it (§4's
 rule: a changed decision is a dated amendment, not a silent edit).
+The maintainer confirmed 16, 17 and 18 on 2026-10-05 ("make things in Yo
+explicit, like copy in hylo", with owning values only and no local
+borrows in the first cut); 19–21 remain proposed.
 
 ### 0.1 Why
 
@@ -113,19 +117,19 @@ copies the first kind implicitly (decision 16).
 15. **`own(x)` is renamed `sink(x)`.** Confirmed 2026-10-04: Yo's `own` is
     already linear, consuming the argument binding even when it dups. Gen A
     accepts `sink` in V3; Gen B renames every site and deletes `own`.
-16. **Proposed: trivially copyable types copy implicitly.** The first row of
+16. **Confirmed 2026-10-05: trivially copyable types copy implicitly; every owning value's copy is explicit.** The first row of
     the table above. Recommendation: yes. Requiring `.clone()` on `i32` would
     touch nearly every line of `src/` and buys nothing, because a bitwise
     copy has no hidden cost. The rule is structural (no heap, no `Dispose`),
     so no annotation is needed.
-17. **Proposed: copying an `Rc`/`Arc` needs `.clone()`.** Recommendation:
+17. **Confirmed 2026-10-05: copying an `Rc`/`Arc` needs `.clone()`.** Recommendation:
     yes, as in Rust. A new handle is a new owner (a count change, a collector
     edge), and §1's promise is that sharing is visible where it is created.
     The cost is churn where `src/` stores context handles (V5 makes ~60
     context objects `Rc`). The §0.4 measurement counts it before V5 is sized.
     If the count is prohibitive, the fallback is implicit `Rc` copies (one
     rule change, no design change).
-18. **Proposed: no first-class local borrows in the first cut.** A
+18. **Confirmed 2026-10-05: no first-class local borrows in the first cut.** A
     projection (`s.items`, `xs(i)`) borrows only in expression position: as
     a method receiver, a plain or `inout` argument, an operand, or a `for`
     source. `y := s.items` is a move, which decision 19 forbids, or an
