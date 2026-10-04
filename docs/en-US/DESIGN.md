@@ -3041,7 +3041,12 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
 );
+// rc is the same constructor under the name the counted cell will carry
+// once `Box` is renamed `Rc` (plans/VALUES_BY_DEFAULT.md)
+rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 ```
+
+`rc` is the constructor, not the count: the count is `ref_count(x)`.
 
 ### Usage Examples
 

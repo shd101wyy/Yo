@@ -105,11 +105,14 @@ not automatically as a pointer dereference; pointer dereference still applies
 when the receiver itself has pointer type.
 
 `ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
-an atomic load for `Arc`/`atomic(ref(...))`/`Iso`). `rc(x)` is the old spelling being
-retired so `rc` can become a prelude function; the `rc` builtin already gives way to
-any binding named `rc` in scope (evaluator `_evaluate_rc_or_call`; codegen follows the
-callee's ExprInfo). Neither name is in `is_reserved_builtin_binding_name`: the
-`markdown_yo` dependency binds a local `ref_count` counter, so reserving it breaks the build.
+an atomic load for `Arc`/`atomic(ref(...))`/`Iso`); it is the only count builtin
+(`BF_REF_COUNT`). `rc` is an ordinary prelude function, the cell constructor
+(`rc(v)`, today exactly `box(v)` returning `Box(T)`; VALUES_BY_DEFAULT V1 renames
+`Box` to `Rc`). As a prelude name it cannot be redefined: a module-level or local
+binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
+named `rc` shadows it in its scope. `ref_count` is not in
+`is_reserved_builtin_binding_name`: the `markdown_yo` dependency binds a local
+`ref_count` counter, so reserving it breaks the build.
 
 ## Pointers
 

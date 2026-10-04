@@ -2932,7 +2932,12 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
 );
+// rc 是同一个构造函数，名称是 `Box` 改名为 `Rc` 之后计数单元将使用的名称
+// （plans/VALUES_BY_DEFAULT.md）
+rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 ```
+
+`rc` 是构造函数，不是计数：计数是 `ref_count(x)`。
 
 ### 使用示例
 

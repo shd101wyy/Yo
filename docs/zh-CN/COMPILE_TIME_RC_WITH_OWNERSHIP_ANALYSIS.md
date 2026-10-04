@@ -138,7 +138,14 @@ assert(ref_count(b) == usize(1), "one owner");
 
 该计数反映编译器的 dup/drop 优化结果，被优化器抵消的复制不会体现出来；它用于唯一性检查（写时复制）和测试，而不是程序逻辑。
 
-`rc(x)` 是 `ref_count(x)` 的旧名称，正在被淘汰：`rc` 将成为一个普通的 prelude 函数。它现在已经会让位于作用域中任何名为 `rc` 的绑定：定义了自己的 `rc` 的模块调用的是这个定义。新代码请写 `ref_count(x)`。
+`rc` 不是计数。它是一个普通的 prelude 函数，用来分配一个引用计数单元：`rc(v)` 取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的句柄。目前它与 `box(v)` 相同，返回 `Box(T)`，因为 Yo 的 `Box` 本身就是引用计数的。
+
+```rust
+a := rc(i32(42));
+assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+```
+
+与所有 prelude 名称一样，`rc` 不能被重新定义：模块级或局部的名为 `rc` 的定义是遮蔽（shadowing）错误。名为 `rc` 的函数参数或 `match` 模式绑定是允许的，并在其作用域内遮蔽 prelude 的 `rc`。
 
 ### 赋值创建所有权
 

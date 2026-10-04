@@ -145,7 +145,14 @@ assert(ref_count(b) == usize(1), "one owner");
 
 The count reflects the compiler's dup/drop optimizations, so a copy the optimizer cancelled does not show up; it is meant for uniqueness checks (copy-on-write) and tests, not program logic.
 
-`rc(x)` is the old name of `ref_count(x)` and is being retired: `rc` is to become an ordinary prelude function. It already gives way to any binding named `rc` in scope: a module that defines its own `rc` calls that definition. Write `ref_count(x)` in new code.
+`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns a handle whose `ref_count` is `1`. Today it is the same as `box(v)` and returns a `Box(T)`, since Yo's `Box` is already reference counted.
+
+```rust
+a := rc(i32(42));
+assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+```
+
+Like every prelude name, `rc` cannot be redefined: a module-level or local definition named `rc` is a shadowing error. A function parameter or a `match` pattern binding named `rc` is allowed and shadows the prelude's `rc` inside its scope.
 
 ### Assignment Creates Ownership
 
