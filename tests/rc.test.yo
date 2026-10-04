@@ -1692,11 +1692,13 @@ test("ref_count(x) reads the count of every cell shape", {
   };
   assert(ref_count(l1) == usize(1), "ref_count(l1) == 1");
 });
-test("a local named ref_count stays bindable", {
-  // Not reserved: markdown_yo (a dependency of the compiler) binds a local
-  // `ref_count` counter. A binding that is only read never meets the builtin.
-  (ref_count : i32) = i32(3);
-  assert(ref_count == i32(3), "a local named ref_count reads as the local");
+test("ref_count is a reserved builtin name", {
+  // Reserved once markdown_yo v0.0.10 renamed its local `ref_count`
+  // (VALUES_BY_DEFAULT V1 step 0b): a binding would be silently hijacked by
+  // the count builtin at every call.
+  comptime_expect_error(ref_count := 1, "names a builtin");
+  comptime_expect_error((ref_count : i32) = 3, "names a builtin");
+  comptime_expect_error(ref_count :: (fn(x : i32) -> usize)(usize(0)), "names a builtin");
 });
 // A newtype built from a value someone else still owns — a field projection
 // (`Self(b : self.b)`) or a local that stays live (`x := self.b; Self(b : x)`) —
