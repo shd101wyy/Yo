@@ -34,6 +34,7 @@
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
 { use_of_moved_value_error } :: import("../utils.yo");
+{ raise_flow_violation } :: import("../../types/flowability.yo");
 /// Evaluate an identifier or operator expression.
 ///
 /// Returns the (possibly annotated) expression after filling in its
@@ -431,7 +432,10 @@ evaluate_identifier_and_operator :: (
     .Some(moved_at) => {
       same_site := ((moved_at.*.row == token.row) && ((moved_at.*.column == token.column) && (moved_at.*.module_path == token.module_path)));
       if(!same_site && _read_after_move_is_checked(variable, token, env), {
-        exn.throw(dyn(use_of_moved_value_error(variable.name.clone(), variable.ty, token, moved_at.*)));
+        // Through the flow-violation channel, so a definition-time trial
+        // (a closure or `io.async` body) re-raises it instead of swallowing
+        // it into an abort stub.
+        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), variable.ty, token, moved_at.*), ctx, exn);
         return(expr);
       });
     },
