@@ -87,8 +87,15 @@ line over-counts — measured 2026-09-11, by 134 members across `std/`. Prefer
 `///` in new code for one house style, but do not treat a block comment as a
 gap.
 
-Two things to know when reading `yo doc`'s output for coverage:
+Three things to know when reading `yo doc`'s output for coverage:
 
+- **A `///` on an impl member attaches to THAT type's member.** The comment
+  physically preceding a member of `impl(T, ...)` is joined by position and
+  recorded under `T.member`, so two types in one file documenting same-named
+  members (`new` on both, the common `std/collections` shape) each keep their
+  own prose. Until 2026-10-03 the lookup keyed by bare member name and the
+  later impl's comment rendered on BOTH methods
+  (`issues/fixed/stddoc-core-doc-comment-attached-by-bare-member-name.md`).
 - **Trait-impl methods are shown but never inherit the trait's doc.** A method
   inside `impl(T, SomeTrait(...))` appears in the type's `methods` list with an
   empty `doc` unless it carries its own comment, so `FsEventKind.to_string`,

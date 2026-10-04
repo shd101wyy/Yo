@@ -141,6 +141,26 @@ build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, Str
   });
   lookup
 });
+/// The receiver-qualified doc key for an impl member: `Receiver.member`.
+/// Identifiers never contain `.`, so these keys cannot collide with the
+/// bare-name entries `build_doc_lookup` records.
+_member_doc_key :: (fn(receiver : String, member : String) -> String)(`${receiver}.${member}`);
+/// A method's doc comment: the receiver-qualified entry the impl scan
+/// recorded for THIS type's member, else the bare member name (a method whose
+/// impl the token scan cannot key — one living in another module, say).
+///
+/// Keying by bare name alone crossed same-named members between types: `new`
+/// on both `Vs` and `Rs` in one file rendered the later impl's prose on BOTH
+/// methods (issues/fixed/stddoc-core-doc-comment-attached-by-bare-member-name.md).
+_method_doc :: (
+  fn(doc_lookup : HashMap(String, String), receiver : String, member : String) -> Option(String)
+)(
+  match(
+    doc_lookup.get(_member_doc_key(receiver, member)),
+    .Some(content) => Option(String).Some(content),
+    .None => doc_lookup.get(member.clone())
+  )
+);
 // ---------------------------------------------------------------------------
 // Method / trait-name merging
 // ---------------------------------------------------------------------------
@@ -1440,10 +1460,35 @@ extract_impl_info_from_tokens :: (
         );
         type_end := if(type_start_is_lp, _skip_balanced_parens(toks, type_start), type_start + usize(1));
         signature := _slice_token_text(toks, type_start, type_end - usize(1));
+        // The comment physically preceding THIS member — the same join
+        // `_extract_trait_body_members` uses — falling back to the bare-name
+        // entry when the extractor attached through a token the position walk
+        // stops at (a `//` note between comment and member, say). A bare-name
+        // lookup alone crossed same-named members between types
+        // (issues/fixed/stddoc-core-doc-comment-attached-by-bare-member-name.md).
+        member_doc := match(
+          _collect_doc_comment_before(tokens, usize(first.row), usize(first.character)),
+          .Some(content) => Option(String).Some(content),
+          .None => doc_lookup.get(method_name.clone())
+        );
+        // Record the receiver-qualified key for the evaluator-side lookups
+        // (`_extract_methods`, `_extract_generic_impl_info`), which see no
+        // token positions. `HashMap` is a ref type, so this writes through to
+        // the caller's map.
+        match(
+          member_doc,
+          .Some(content) => {
+            doc_lookup.insert(
+              _member_doc_key(receiver_type_name.clone(), method_name.clone()),
+              content.clone()
+            );
+          },
+          .None => ()
+        );
         entry.methods.push(
           DocFunction(
             name : method_name.clone(),
-            doc : doc_lookup.get(method_name.clone()),
+            doc : member_doc,
             signature : signature.clone(),
             parameters : ArrayList(DocParam).new(),
             return_type : _extract_return_type_from_signature(signature),
@@ -1509,6 +1554,19 @@ extract_impl_info_from_tokens :: (
             match(
               trait_methods.get(tmi),
               .Some(m) => {
+                // Same receiver-qualified record as anonymous members, so the
+                // evaluator-side lookups cannot cross these between types
+                // either.
+                match(
+                  m.doc,
+                  .Some(content) => {
+                    doc_lookup.insert(
+                      _member_doc_key(receiver_type_name.clone(), m.name.clone()),
+                      content.clone()
+                    );
+                  },
+                  .None => ()
+                );
                 entry.methods.push(
                   DocFunction(
                     name : m.name,
@@ -2526,7 +2584,7 @@ _extract_methods :: (
         build_doc_function(
           entry.label.clone(),
           entry.ty,
-          doc_lookup.get(entry.label.clone()),
+          _method_doc(doc_lookup, type_name.clone(), entry.label.clone()),
           true,
           Option(String).Some(type_name.clone()),
           Option(HashMap(String, String)).Some(doc_lookup),
@@ -2590,7 +2648,7 @@ _extract_generic_impl_info :: (
           build_doc_function(
             m_name.clone(),
             m_type,
-            doc_lookup.get(m_name.clone()),
+            _method_doc(doc_lookup, type_name.clone(), m_name.clone()),
             true,
             Option(String).Some(type_name.clone()),
             Option(HashMap(String, String)).Some(doc_lookup),

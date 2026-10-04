@@ -248,6 +248,7 @@ in the compiler's own code. The full recipe is in
 
 - Always use `| head` or `| tail` to limit command output.
 - If a command produces no output for a long time, redirect: `yo compile tmp/fixme.yo --optimize 2 &> compile_output.txt`
+- **`yo compile -v` prints every C-compiler invocation** (`Compiling with: <cc> <argv…>`) as it is about to run, and `yo test -v` forwards its own `--verbose` to the batch compile so the line reaches the runner's log. Grep that line to prove a flag (a sanitizer, an include path) actually reached cc — a silently dropped `-fsanitize=…` otherwise passes exactly like an instrumented run (`issues/fixed/yoself-missing-compiling-with-print.md`).
 
 ## Evaluator-only checking
 
