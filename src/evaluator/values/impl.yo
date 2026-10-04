@@ -434,6 +434,26 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
     }
   );
 });
+// ---------------------------------------------------------------------------
+// Move-only declarations (plans/VALUES_BY_DEFAULT.md §3.4, V3)
+// ---------------------------------------------------------------------------
+/// One impl that makes a value nominal type move-only: `Dispose` or
+/// `MoveOnly` on a concrete receiver (`concrete_id`, the receiver's
+/// `type_id_or_empty`, the key every concrete impl registers under) or
+/// through a generic impl (`generic`, matched per instantiation).
+MoveOnlyDecl :: struct(
+  concrete_id : String,
+  generic : Option(GenericImplEntry),
+  /// `"Dispose"` or `"MoveOnly"`.
+  trait_name : String,
+  owner : String
+);
+(g_move_only_decls : ArrayList(MoveOnlyDecl)) = ArrayList(MoveOnlyDecl).new();
+/// `type_key` → answer; cleared whenever a declaration is added or purged.
+(g_move_only_memo : HashMap(String, String)) = HashMap(String, String).new();
+/// `type_key`s being answered: a generic impl's where-clause check can ask
+/// about the same type again (it reaches `type_contains_rc_type`).
+(g_move_only_in_flight : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Drop every generic-impl entry registered by `owner` (a `file://` abs
 /// module path). Phase B2 — called for each module the LSP invalidates.
 purge_generic_impls_owned_by :: (fn(owner : String) -> unit)({
@@ -480,105 +500,6 @@ purge_concrete_trait_impls_owned_by :: (fn(owner : String) -> unit)({
     });
   });
   purge_move_only_decls_owned_by(owner);
-});
-// ---------------------------------------------------------------------------
-// Move-only declarations (plans/VALUES_BY_DEFAULT.md §3.4, V3)
-// ---------------------------------------------------------------------------
-/// One impl that makes a value nominal type move-only: `Dispose` or
-/// `MoveOnly` on a concrete receiver (`concrete_id`, the receiver's
-/// `type_id_or_empty`, the key every concrete impl registers under) or
-/// through a generic impl (`generic`, matched per instantiation).
-MoveOnlyDecl :: struct(
-  concrete_id : String,
-  generic : Option(GenericImplEntry),
-  /// `"Dispose"` or `"MoveOnly"`.
-  trait_name : String,
-  owner : String
-);
-(g_move_only_decls : ArrayList(MoveOnlyDecl)) = ArrayList(MoveOnlyDecl).new();
-/// `type_key` → answer; cleared whenever a declaration is added or purged.
-(g_move_only_memo : HashMap(String, String)) = HashMap(String, String).new();
-/// `type_key`s being answered: a generic impl's where-clause check can ask
-/// about the same type again (it reaches `type_contains_rc_type`).
-(g_move_only_in_flight : HashMap(String, bool)) = HashMap(String, bool).new();
-/// `"Dispose"` or `"MoveOnly"` when `trait_ty` is that prelude trait (by
-/// trait identity), else `""`.
-move_only_declaring_trait_name :: (fn(trait_ty : TypeValue, env : Environment) -> String)({
-  key := get_trait_key(trait_ty);
-  cond(
-    key.is_empty() => String.new(),
-    _named_trait_key_is(env, "Dispose", key.clone()) => String.from("Dispose"),
-    _named_trait_key_is(env, "MoveOnly", key.clone()) => String.from("MoveOnly"),
-    true => String.new()
-  )
-});
-_named_trait_key_is :: (fn(env : Environment, name : str, key : String) -> bool)(
-  match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(t) == key), .None => false)
-);
-/// The `MoveOnlyNominalFn` answer: the trait through which the value nominal
-/// `ty` declares move-only in a recorded impl, or `""`. `Dispose` wins over
-/// `MoveOnly` when both are declared (it is the one worth naming).
-nominal_declares_move_only :: (fn(ty : TypeValue) -> String)({
-  key := type_key(ty);
-  match(
-    g_move_only_memo.get(key.clone()),
-    .Some(m) => {
-      return(m);
-    },
-    .None => ()
-  );
-  if(g_move_only_in_flight.contains_key(key.clone()), {
-    return(String.new());
-  });
-  g_move_only_in_flight.insert(key.clone(), true);
-  tid := type_id_or_empty(ty);
-  (found : String) = String.new();
-  (i : usize) = usize(0);
-  while((i < g_move_only_decls.len()) && (found != "Dispose"), {
-    match(
-      g_move_only_decls.get(i),
-      .Some(d) => {
-        hit := match(
-          d.generic,
-          .Some(ge) => try_match_generic_impl(ty, ge, ge.definition_env, true).is_some(),
-          .None => (d.concrete_id == tid)
-        );
-        if(hit, {
-          found = d.trait_name.clone();
-        });
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  g_move_only_in_flight.remove(key.clone());
-  g_move_only_memo.insert(key, found.clone());
-  found
-});
-_add_move_only_decl :: (fn(d : MoveOnlyDecl) -> unit)({
-  g_move_only_decls.push(d);
-  g_move_only_memo.clear();
-  set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
-});
-/// Record a concrete `impl(T, Dispose(...))` / `impl(T, MoveOnly())` on a
-/// value nominal `T` (the impl-site gate has rejected every other receiver of
-/// these two traits).
-note_concrete_move_only_impl :: (fn(receiver_ty : TypeValue, trait_ty : TypeValue, receiver_type_id : String, env : Environment) -> unit)({
-  if(is_value_nominal_type(receiver_ty), {
-    tn := move_only_declaring_trait_name(trait_ty, env);
-    if(!tn.is_empty(), {
-      _add_move_only_decl(MoveOnlyDecl(concrete_id : receiver_type_id, generic : Option(GenericImplEntry).None, trait_name : tn, owner : registration_owner()));
-    });
-  });
-});
-/// Record a generic `Dispose`/`MoveOnly` impl over a value nominal pattern.
-note_generic_move_only_impl :: (fn(entry : GenericImplEntry) -> unit)({
-  if(is_value_nominal_type(entry.receiver_type_pattern), {
-    tn := move_only_declaring_trait_name(entry.trait_type, entry.definition_env);
-    if(!tn.is_empty(), {
-      _add_move_only_decl(MoveOnlyDecl(concrete_id : String.new(), generic : Option(GenericImplEntry).Some(entry), trait_name : tn, owner : registration_owner()));
-    });
-  });
 });
 /// Drop the declarations `owner` recorded (beside the impl registries' own
 /// purges, on an LSP/watch invalidation).
@@ -5637,6 +5558,88 @@ _impl_generic_impl_fallback_init := (fn() -> bool)({
   true
 })();
 export(evaluate_module_value);
+// The move-only declaration functions sit after every runtime binding they
+// reach (`try_match_generic_impl` reads module globals declared below the
+// registry).
+/// `"Dispose"` or `"MoveOnly"` when `trait_ty` is that prelude trait (by
+/// trait identity), else `""`.
+move_only_declaring_trait_name :: (fn(trait_ty : TypeValue, env : Environment) -> String)({
+  key := get_trait_key(trait_ty);
+  cond(
+    key.is_empty() => String.new(),
+    _named_trait_key_is(env, "Dispose", key.clone()) => String.from("Dispose"),
+    _named_trait_key_is(env, "MoveOnly", key.clone()) => String.from("MoveOnly"),
+    true => String.new()
+  )
+});
+_named_trait_key_is :: (fn(env : Environment, name : str, key : String) -> bool)(
+  match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(t) == key), .None => false)
+);
+/// The `MoveOnlyNominalFn` answer: the trait through which the value nominal
+/// `ty` declares move-only in a recorded impl, or `""`. `Dispose` wins over
+/// `MoveOnly` when both are declared (it is the one worth naming).
+nominal_declares_move_only :: (fn(ty : TypeValue) -> String)({
+  key := type_key(ty);
+  match(
+    g_move_only_memo.get(key.clone()),
+    .Some(m) => {
+      return(m);
+    },
+    .None => ()
+  );
+  if(g_move_only_in_flight.contains_key(key.clone()), {
+    return(String.new());
+  });
+  g_move_only_in_flight.insert(key.clone(), true);
+  tid := type_id_or_empty(ty);
+  (found : String) = String.new();
+  (i : usize) = usize(0);
+  while((i < g_move_only_decls.len()) && (found != "Dispose"), {
+    match(
+      g_move_only_decls.get(i),
+      .Some(d) => {
+        hit := match(
+          d.generic,
+          .Some(ge) => try_match_generic_impl(ty, ge, ge.definition_env, true).is_some(),
+          .None => (d.concrete_id == tid)
+        );
+        if(hit, {
+          found = d.trait_name.clone();
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_move_only_in_flight.remove(key.clone());
+  g_move_only_memo.insert(key, found.clone());
+  found
+});
+_add_move_only_decl :: (fn(d : MoveOnlyDecl) -> unit)({
+  g_move_only_decls.push(d);
+  g_move_only_memo.clear();
+  set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
+});
+/// Record a concrete `impl(T, Dispose(...))` / `impl(T, MoveOnly())` on a
+/// value nominal `T` (the impl-site gate has rejected every other receiver of
+/// these two traits).
+note_concrete_move_only_impl :: (fn(receiver_ty : TypeValue, trait_ty : TypeValue, receiver_type_id : String, env : Environment) -> unit)({
+  if(is_value_nominal_type(receiver_ty), {
+    tn := move_only_declaring_trait_name(trait_ty, env);
+    if(!tn.is_empty(), {
+      _add_move_only_decl(MoveOnlyDecl(concrete_id : receiver_type_id, generic : Option(GenericImplEntry).None, trait_name : tn, owner : registration_owner()));
+    });
+  });
+});
+/// Record a generic `Dispose`/`MoveOnly` impl over a value nominal pattern.
+note_generic_move_only_impl :: (fn(entry : GenericImplEntry) -> unit)({
+  if(is_value_nominal_type(entry.receiver_type_pattern), {
+    tn := move_only_declaring_trait_name(entry.trait_type, entry.definition_env);
+    if(!tn.is_empty(), {
+      _add_move_only_decl(MoveOnlyDecl(concrete_id : String.new(), generic : Option(GenericImplEntry).Some(entry), trait_name : tn, owner : registration_owner()));
+    });
+  });
+});
 export(GenericImplEntry, MethodCandidate);
 /// Entries in the injection memo (the B2 plateau test's probe).
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());
