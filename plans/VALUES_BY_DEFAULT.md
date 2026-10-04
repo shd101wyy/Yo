@@ -13,7 +13,7 @@ Amended 2026-10-03: §3.13 (async) added and confirmed by the maintainer,
 with decisions 13 (move-only futures) and 14 (second-class borrowing
 futures).
 Amended 2026-10-05 with the maintainer: **unique ownership (Hylo's model)
-replaces copy-on-write** (§0). Decisions 15–18 there are confirmed; 19–21
+replaces copy-on-write** (§0). Decisions 15–18 there are confirmed; 19–22
 are proposed.**
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md),
@@ -40,7 +40,7 @@ recommendation, final once the maintainer confirms it (§4's
 rule: a changed decision is a dated amendment, not a silent edit).
 The maintainer confirmed 16, 17 and 18 on 2026-10-05 ("make things in Yo
 explicit, like copy in hylo", with owning values only and no local
-borrows in the first cut); 19–21 remain proposed.
+borrows in the first cut); 19–22 remain proposed.
 
 ### 0.1 Why
 
@@ -166,6 +166,37 @@ copies the first kind implicitly (decision 16).
     honestly. The small trees (`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`)
     take `Box`. V4 measures `check ./src` time and stage-2 RSS for each.
 
+22. **Proposed: non-escaping closures borrow; escaping closures own; a
+    closure's kind follows its captures.** Raised by the maintainer
+    2026-10-05 ("how would closure work in this case?").
+    - **Kind.** A closure is implicitly copyable when all its captures are,
+      explicit-copy when one capture is (`f.clone()` clones the captures),
+      and move-only when one capture is move-only. This is the structural
+      rule of the §0.2 table applied to the capture struct (Rust's rule for
+      `Copy`/`Clone` closures).
+    - **Non-escaping closures borrow.** A closure literal that is the direct
+      argument of a call cannot outlive the call: `xs.for_each(x => print(s))`,
+      `xs.map(…)`, `m.with_lock(v => …)`, a `for` body. It borrows its
+      captures as a plain parameter borrows, with no copy and no move, so the
+      captured variables stay usable afterwards. This is decision 14's
+      second-class rule (borrowing futures) applied to closures, and Swift's
+      non-escaping closures.
+    - **Escaping closures own.** A closure bound to a local, stored, returned
+      or spawned owns its captures. A captured explicit-copy variable is
+      moved in at its last use, and is otherwise an error asking for a copy,
+      spelled as an ordinary local: `s2 := s.clone(); h := () => log(s2)`.
+      No capture-list syntax is added.
+    - `inout` captures stay forbidden, and writing through a borrowed capture
+      is E0908, as today.
+    - **Where it hooks in.** The capture analysis
+      (`generate_captured_variable_dup_expressions`, `consume_captured_variables`)
+      learns whether the closure literal is a direct call argument. A
+      non-escaping literal emits no capture dups; an escaping one emits moves,
+      with an E0901 at a non-last use. The `Fn` parameter types that accept a
+      borrowing closure are the plain (non-`sink`) ones.
+    - Recommendation: yes. Without it, every `xs.map(x => … s …)` would
+      consume `s` or force a `.clone()` that copies nothing the closure needs.
+
 ### 0.4 First gate: measure the migration
 
 Before any phase is resized, an audit counts the copies the new rule turns
@@ -188,7 +219,7 @@ here. The phase sizes below are written without them, on purpose.
 | §3.3 "Writes through `Box` are copy-on-write" | writes through `Box` are plain writes (unique owner) |
 | §3.5 "every copy-on-write buffer" on the cell primitive; "a unique cell skips the uniqueness check" | the cell primitive backs `Rc`/`Arc` only; `Box` and buffers are plain owned allocations; nothing has a uniqueness check |
 | §3.6 "copy-on-write cells are `Send` (isolated at the transfer) and not `Sync`" | buffers are `Send` by move and `Sync` when their elements are |
-| §3.7 `Dyn` COW and the closures' "captured collection is a copy-on-write value" | `Dyn` unique (explicit-copy or move-only); a closure capture of an explicit-copy value is a move, or an explicit `.clone()` at the capture |
+| §3.7 `Dyn` COW and the closures' "captured collection is a copy-on-write value" | `Dyn` unique (explicit-copy or move-only); closures per decision 22: non-escaping literals borrow their captures, escaping ones move them in (or the caller copies first) |
 | §3.8 transfer isolation | deleted; `Send` is a move |
 | §3.9 `std/imm` "only `Sync` data family" | `Arc(ArrayList(T))` now covers concurrent reads; `std/imm`'s remaining role is persistence (versions sharing structure). It stays; whether that alone justifies 4,300 lines is a later decision |
 | §3.11 "A copy-on-write clone lands where its source lives" | "an explicit clone lands where its source lives" (decision 12, amended) |
