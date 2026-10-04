@@ -35,8 +35,10 @@ test("for_each with String capture does not leak", {
 test("fold with RC accumulator does not leak", {
   src := array_list(i32(1), i32(2), i32(3));
   result := src.into_iter().fold(array_list(i32(0)), (acc, x) => {
-    acc.push(x);
-    acc
+    // A local: the closure's `acc` parameter is borrowed.
+    grown := acc;
+    grown.push(x);
+    grown
   });
   // result has 1 initial 0 + 3 pushed = 4 elements
   assert(result.len() == usize(4), "fold acc len=4");

@@ -1065,7 +1065,10 @@ evaluate_assignment :: (
     // a store reached through a std collection rooted in a borrowed binding
     // (`order(i) = j` on a by-value `order : ArrayList(usize)`) writes the
     // owner's buffer today and the copy's after the flip.
-    if(_g_audit_inout_borrow && (!type_contains_rc_type(expected_ty) || borrowed_value_root_of_place(evaluated_lhs, env, ctx).is_none()), {
+    // A store whose place stays inside value copies alone (`p.n = 1` on a
+    // by-value `p`) writes the copy under both rules and is not listed; one
+    // that reaches a collection's buffer is.
+    if(_g_audit_inout_borrow && borrowed_value_root_of_place(evaluated_lhs, env, ctx).is_none(), {
       match(
         _borrowed_root_walk(evaluated_lhs, env, ctx, true),
         // A root holding no RC data (`w := Array(u32, 80)`) is never "owning",
