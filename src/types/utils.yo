@@ -2543,6 +2543,34 @@ unknown_field_message :: (fn(label : String, base_ty : TypeValue, fields : Array
 unknown_field_code :: (fn(base_ty : TypeValue) -> str)(
   cond(is_module_type(base_ty) => E_MODULE_FIELD_NOT_FOUND, true => E_FIELD_NOT_FOUND)
 );
+/// The sentence E0406/E0610 add when auto-dereference also misses
+/// (plans/VALUES_BY_DEFAULT.md §3.3): `` `b` is a Box(P); its payload P has
+/// no field "x" either.`` — `payload_ty` is the innermost payload the
+/// auto-dereference reached, `what` is `field` or `field or method`.
+deref_miss_note :: (fn(wrapper_text : String, wrapper_ty : TypeValue, payload_ty : TypeValue, what : str, label : String) -> String)(
+  `\`${wrapper_text}\` is a ${type_to_string(wrapper_ty)}; its payload ${type_to_string(payload_ty)} has no ${what} "${label}" either.`
+);
+/// E0406 for a field read that auto-dereference also misses: the wrapper has
+/// no field `label`, and neither has its payload (`payload_fields`).
+unknown_field_through_deref_message :: (
+  fn(label : String, wrapper_text : String, wrapper_ty : TypeValue, payload_ty : TypeValue, payload_fields : ArrayList(String)) -> String
+)({
+  list := String.new();
+  (fi : usize) = usize(0);
+  while(fi < payload_fields.len(), {
+    if(fi > usize(0), {
+      list.push_str(", ");
+    });
+    list.push_string(match(payload_fields.get(fi), .Some(f) => f, .None => String.new()));
+    fi = (fi + usize(1));
+  });
+  fields_note := cond(
+    (payload_fields.len() == usize(0)) => ` ${type_to_string(payload_ty)} has no fields.`,
+    true => ` ${type_to_string(payload_ty)}'s fields: ${list}.`
+  );
+  hint := match(suggest_name(label.clone(), payload_fields), .Some(near) => `\nDid you mean "${near}"?`, .None => String.new());
+  `No field "${label}" on ${type_to_string(wrapper_ty)}. ${deref_miss_note(wrapper_text, wrapper_ty, payload_ty, "field", label)}${fields_note}${hint}`
+});
 /// `Enum variant "Purple" not found in enum Color. Its variants: Red, Green.`
 /// — the E0402 message names the enum and what it has.
 unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants : ArrayList(String)) -> String)({
@@ -2558,6 +2586,7 @@ unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants :
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
 export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_upcast_note, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such
 /// types holds under every instantiation of an enclosing generic, so a

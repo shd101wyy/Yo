@@ -84,7 +84,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
@@ -1685,6 +1685,27 @@ find_matching_generic_impl :: (
 _impl_site_string :: (fn(tok : Token) -> String)(
   `${display_module_path(tok.module_path)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
 );
+/// `Deref` (the auto-dereference marker, plans/VALUES_BY_DEFAULT.md §3.3) is
+/// implemented by the prelude's cells only: an impl anywhere else is an
+/// error, so every auto-dereference forwards through one of the known cells
+/// and never through a user wrapper. Checked on the RESOLVED trait (by its
+/// nominal id), so an alias of `Deref` is caught too.
+_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : Option(TypeValue), tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
+  match(
+    trait_ty,
+    .Some(tt) => if((get_trait_key(tt) == "Deref") && !is_prelude_or_generated_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `Cannot implement Deref here: only the prelude's Box and Arc implement it. Auto-dereference forwards a wrapper's members to its payload, and only those cells forward; a user wrapper reaches its payload through its own field or methods.`
+          )
+        )
+      );
+    }),
+    .None => ()
+  );
+});
 /// Does the generic entry's trait, with the forall BINDINGS a receiver match
 /// produced substituted in, name the same trait instantiation as `concrete`?
 /// Traits carry no argument list, so the instantiations are compared by
@@ -4447,6 +4468,7 @@ evaluate_module_value :: (
           .Atom(_, _) => make_err_expr()
         );
         g_trait_ty_opt := _try_lookup_trait_type(trait_fn_expr2, forall_env, ctx, exn);
+        _throw_if_deref_impl_outside_prelude(g_trait_ty_opt, ast_expr_token(mf_expr), ctx, exn);
         g_trait_ty := match(g_trait_ty_opt, .Some(t) => t, .None => t_unit());
         // `Dispose`/`Trace` only on a reference type, as Case 3 checks through
         // `g_check_self_constraints_fn`; a value or blanket receiver pattern
@@ -4944,6 +4966,7 @@ evaluate_module_value :: (
             .Atom(_, _) => make_err_expr()
           );
           current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env, ctx, exn);
+          _throw_if_deref_impl_outside_prelude(current_trait_ty, ast_expr_token(field_expr), ctx, exn);
           // Record that this type implements the trait (by its base id) in the
           // type's trait list, so `Type.impls(T, Trait)` resolves by identity at
           // trait-checking step 4 — the impl'd trait is pushed onto the

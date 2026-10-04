@@ -1507,6 +1507,28 @@ type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
+// deref_target_type
+// ---------------------------------------------------------------------------
+/// The payload type auto-dereference forwards to: `Target` of the prelude's
+/// `Deref` marker when `ty` implements it (`Box(V)`, `Arc(V)` → `V`), else
+/// `.None` (plans/VALUES_BY_DEFAULT.md §3.3). Only a concrete struct can be a
+/// wrapper — a SomeT, pointer, Dyn or type value never auto-dereferences —
+/// and `Deref` is implementable only in the prelude (impl.yo), so a hit is
+/// always one of the known cells.
+deref_target_type :: (fn(ty : TypeValue, env : Environment) -> Option(TypeValue))({
+  if(!is_struct_type(ty), {
+    return(Option(TypeValue).None);
+  });
+  match(
+    get_trait_type_from_env(env, String.from("Deref")),
+    .None => Option(TypeValue).None,
+    .Some(deref_trait) => cond(
+      type_implements_trait_bool(ty, deref_trait, env) => resolve_assoc_type_for_target(ty, String.from("Target"), env),
+      true => Option(TypeValue).None
+    )
+  )
+});
+// ---------------------------------------------------------------------------
 // type_implements_fn
 // ---------------------------------------------------------------------------
 /// Check if a type implements Fn (is a function-like type).
@@ -2340,6 +2362,7 @@ export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_dispose, type_implements_acyclic);
+export(deref_target_type);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
