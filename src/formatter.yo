@@ -2313,6 +2313,18 @@ _format_yo_source_impl :: (
       continuation_paren := ArrayList(usize).new();
       continuation_bracket := ArrayList(usize).new();
       continuation_curly := ArrayList(usize).new();
+      // Frame depths, parallel to bracket_stack_multiline /
+      // curly_stack_inline + curly_stack_multiline: the paren/bracket/curly
+      // depth at which each open bracket/curly frame OPENED. The comma
+      // handler compares them against the live depths to decide whether a
+      // comma sits DIRECTLY at a multiline frame's own level (that frame
+      // owns the break) or is nested inside a deeper delimiter (the inner
+      // frame owns it) — the same discipline find_inline_curly_indices
+      // applies to semicolons.
+      bracket_stack_paren_depths := ArrayList(usize).new();
+      bracket_stack_curly_depths := ArrayList(usize).new();
+      curly_stack_paren_depths := ArrayList(usize).new();
+      curly_stack_bracket_depths := ArrayList(usize).new();
       // ---------------------------------------------------------------
       // Main loop.
       // ---------------------------------------------------------------
@@ -2499,6 +2511,8 @@ _format_yo_source_impl :: (
                         is_multiline := multiline_inline_curly_indices.contains(index);
                         curly_stack_inline.push(true);
                         curly_stack_multiline.push(is_multiline);
+                        curly_stack_paren_depths.push(paren_depth);
+                        curly_stack_bracket_depths.push(bracket_depth);
                         curly_depth = (curly_depth + usize(1));
                         inline_curly_depth = (inline_curly_depth + usize(1));
                         cond(
@@ -2544,6 +2558,8 @@ _format_yo_source_impl :: (
                       true => {
                         curly_stack_inline.push(false);
                         curly_stack_multiline.push(false);
+                        curly_stack_paren_depths.push(paren_depth);
+                        curly_stack_bracket_depths.push(bracket_depth);
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
@@ -2576,6 +2592,8 @@ _format_yo_source_impl :: (
                     if(curly_stack_inline.len() > usize(0), {
                       _p1 := curly_stack_inline.pop();
                       _p2 := curly_stack_multiline.pop();
+                      _p3 := curly_stack_paren_depths.pop();
+                      _p4 := curly_stack_bracket_depths.pop();
                     });
                     cond(
                       cur_inline => {
@@ -2679,6 +2697,8 @@ _format_yo_source_impl :: (
                   (token.kind == TokenKind.LBracket) => {
                     is_multiline := multiline_bracket_indices.contains(index);
                     bracket_stack_multiline.push(is_multiline);
+                    bracket_stack_paren_depths.push(paren_depth);
+                    bracket_stack_curly_depths.push(curly_depth);
                     bracket_depth = (bracket_depth + usize(1));
                     if(at_line_start, {
                       (sp : usize) = usize(0);
@@ -2799,6 +2819,8 @@ _format_yo_source_impl :: (
                     );
                     if(bracket_stack_multiline.len() > usize(0), {
                       _p := bracket_stack_multiline.pop();
+                      _p1 := bracket_stack_paren_depths.pop();
+                      _p2 := bracket_stack_curly_depths.pop();
                     });
                     if(bracket_depth > usize(0), {
                       bracket_depth = (bracket_depth - usize(1));
@@ -2906,19 +2928,88 @@ _format_yo_source_impl :: (
                         (paren_stack_multiline.len() > usize(0)) => match(paren_stack_multiline.last(), .Some(x) => x, .None => false),
                         true => false
                       );
+                      // Frame ownership: does the comma sit DIRECTLY at the
+                      // innermost multiline bracket's / inline-multiline
+                      // curly's own level (no deeper delimiter opened since
+                      // that frame opened)? A comma nested deeper belongs to
+                      // the INNER frame: breaking it here emits at the outer
+                      // frame's indent before the inner multiline machinery
+                      // has bumped it, so pass 1 under-indents and only
+                      // pass 2 reaches the fixed point
+                      // (issues/fixed/fmt-not-idempotent-call-wrapped-match-in-block.md).
+                      bracket_frame_paren := cond(
+                        (bracket_stack_paren_depths.len() > usize(0)) => match(
+                          bracket_stack_paren_depths.last(),
+                          .Some(x) => x,
+                          .None => usize(0)
+                        ),
+                        true => usize(0)
+                      );
+                      bracket_frame_curly := cond(
+                        (bracket_stack_curly_depths.len() > usize(0)) => match(
+                          bracket_stack_curly_depths.last(),
+                          .Some(x) => x,
+                          .None => usize(0)
+                        ),
+                        true => usize(0)
+                      );
+                      comma_in_bracket_frame := (
+                        cur_bracket_ml &&
+                          ((paren_depth == bracket_frame_paren) && (curly_depth == bracket_frame_curly))
+                      );
+                      curly_frame_paren := cond(
+                        (curly_stack_paren_depths.len() > usize(0)) => match(
+                          curly_stack_paren_depths.last(),
+                          .Some(x) => x,
+                          .None => usize(0)
+                        ),
+                        true => usize(0)
+                      );
+                      curly_frame_bracket := cond(
+                        (curly_stack_bracket_depths.len() > usize(0)) => match(
+                          curly_stack_bracket_depths.last(),
+                          .Some(x) => x,
+                          .None => usize(0)
+                        ),
+                        true => usize(0)
+                      );
+                      comma_in_curly_frame := (
+                        cur_curly_inline && cur_curly_ml &&
+                          ((paren_depth == curly_frame_paren) && (bracket_depth == curly_frame_bracket))
+                      );
+                      comma_nested_below_frame := (
+                        (cur_bracket_ml && !comma_in_bracket_frame) ||
+                          (cur_curly_inline && cur_curly_ml && !comma_in_curly_frame)
+                      );
                       cond(
-                        cur_bracket_ml => {
+                        comma_in_bracket_frame => {
                           if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
-                        (cur_curly_inline && cur_curly_ml) => {
+                        comma_in_curly_frame => {
                           if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
+                        comma_nested_below_frame => cond(
+                          // The inner frame owns the break: only break when
+                          // the comma's own enclosing paren is multiline
+                          // (its indent was bumped when it opened).
+                          cur_paren_ml => {
+                            if(!result.ends_with(String.from("\n")), {
+                              result.push_str("\n");
+                            });
+                            at_line_start = true;
+                          },
+                          true => {
+                            if(!at_line_start && !result.ends_with(String.from(" ")), {
+                              result.push_str(" ");
+                            });
+                          }
+                        ),
                         ((bracket_stack_multiline.len() > usize(0)) || (cur_curly_inline && !cur_curly_ml)) => {
                           if(!at_line_start && !result.ends_with(String.from(" ")), {
                             result.push_str(" ");

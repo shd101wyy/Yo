@@ -45,6 +45,89 @@ test("format_yo_source: idempotent on nested calls and match", {
   assert(once == twice, "nested form idempotent");
 });
 // ---------------------------------------------------------------------------
+// Comma-break frame ownership (issues/fixed/fmt-not-idempotent-call-wrapped-
+// match-in-block.md): the main-loop comma handler used to break at the
+// enclosing multiline inline curly's / multiline bracket's indent for ANY
+// comma lexically inside it — including commas nested inside a call paren
+// that itself spans one row. That break is emitted before the paren's own
+// multiline machinery has bumped the indent, so pass 1 under-indents and
+// only pass 2 reaches the fixed point: `yo fmt f.yo && yo fmt --check f.yo`
+// failed. A comma nested below the frame's own paren/bracket/curly depth
+// must defer to the paren machinery (stay on the row when the paren is
+// single-row).
+// ---------------------------------------------------------------------------
+test("fmt comma frames: call-wrapped match in a block body is a one-pass fixed point", {
+  src := String.from(
+    "pick :: (fn(xs : ArrayList(i32)) -> i32)({\n  i32(match(xs.get(usize(0)), .Some(a) => a, .None => i32(0)))\n});\nexport(pick);\n"
+  );
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "one pass reaches the fixed point");
+  assert(
+    once.contains(String.from("  i32(match(xs.get(usize(0)), .Some(a) => a, .None => i32(0)))")),
+    "the single-row call stays on one row inside the block"
+  );
+});
+test("fmt comma frames: bare match statement in a block body is a one-pass fixed point", {
+  src := String.from(
+    "pick :: (fn(xs : ArrayList(i32)) -> i32)({\n  match(xs.get(usize(0)), .Some(a) => a, .None => i32(0))\n});\nexport(pick);\n"
+  );
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "one pass reaches the fixed point");
+});
+test("fmt comma frames: cond in a block body is a one-pass fixed point", {
+  src := String.from(
+    "flag :: (fn(xs : ArrayList(i32)) -> i32)({\n  cond((xs.len() == usize(0)) => i32(0), true => i32(1))\n});\nexport(flag);\n"
+  );
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "one pass reaches the fixed point");
+});
+test("fmt comma frames: single-row calls inside a multiline array stay whole", {
+  src := String.from(
+    "add :: (fn(a : i32, b : i32) -> i32)((a + b));\nmain :: (fn() -> unit)({\n  xs := [\n    add(i32(1), i32(2)),\n    add(i32(3), i32(4))\n  ];\n});\nexport(main);\n"
+  );
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "one pass reaches the fixed point");
+  assert(once.contains(String.from("    add(i32(1), i32(2)),")), "the single-row call is not exploded");
+});
+// The two load-bearing break cases the frame gate must PRESERVE: commas
+// directly at the multiline frame's own depth (bracket elements, struct
+// fields) still break, and a comma inside an ALREADY-multiline paren still
+// breaks (now via the paren arm) — both are already fixed points.
+test("fmt comma frames: multiline call inside a multiline array is unchanged", {
+  src := String.from(
+    "add :: (fn(a : i32, b : i32) -> i32)((a + b));\nmain :: (fn() -> unit)({\n  xs := [\n    add(\n      i32(1),\n      i32(2)\n    )\n  ];\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(out == src, "canonical exploded form is stable");
+});
+test("fmt comma frames: struct-literal field commas at the curly's own depth still break", {
+  src := String.from(
+    "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := {\n    x : i32(1),\n    y : i32(2)\n  };\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(out == src, "per-field breaks at the curly's own depth are stable");
+});
+// A call's block-argument curly whose only content is a single nested call
+// statement is inline-eligible (the statement's `;` sits inside the call's
+// parens, so the curly has no top-level semicolon). The old comma handler
+// broke the INNER call's argument comma at that curly's level — a stable but
+// style-inconsistent `f(x,\n{` split that only appeared when the inner call
+// itself sat inside another call's block argument
+// (src/evaluator/values/impl.yo carried four such spots). The frame gate
+// joins them to the dominant `f(x, {` spelling.
+test("fmt comma frames: a call block-arg comma nested in another block arg joins", {
+  src := String.from(
+    "main :: (fn() -> unit)({\n  if(a(), {\n    if(b(),\n    {\n      x := 1;\n    });\n  });\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("if(b(), {")), "the inner block-arg comma joins like every statement-level one");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+// ---------------------------------------------------------------------------
 // Fixture corpus — the 46 (input → expected) pairs script-extracted VERBATIM
 // from src/tests/formatter.test.ts (P2.4). Each .input is deliberately
 // NON-canonical source (the suffix is not .yo so GATE 6's `fmt --check
