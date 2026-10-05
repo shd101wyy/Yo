@@ -2509,6 +2509,29 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
       cap_labels := match(ct, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
       remapped_cvs := ArrayList(CapturedVariable).new();
       src_kcvs := analysis_kinded.captured_variables;
+      // The analysis records the OWNER of every local that shares an owner's
+      // RC value (`sb := s`) as a body local, so that the alias is read
+      // through the owner's slot (`sm_storage_id`). When the alias is a
+      // capture, it was declared outside the closure, and so was its owner:
+      // the owner is not a local of this body. Unless the body captures the
+      // owner too, it has no storage here, and a `var_<owner>` field would be
+      // a slot nothing initializes that every read of the alias went through
+      // (issues/fixed/an-awaiting-io-async-body-captures-a-local-alias-without-retaining-it.md).
+      outside_owner_ids := HashSet(String).new();
+      (oi : usize) = usize(0);
+      while(oi < src_kcvs.len(), oi = (oi + usize(1)), {
+        match(
+          src_kcvs.get(oi),
+          .Some(v) => match(
+            v.is_owning_the_same_rc_value_as,
+            .Some(ob) => if(cap_labels.contains(v.base.name.clone()) && !cap_labels.contains(ob.*.base.name.clone()), {
+              outside_owner_ids.insert(ob.*.base.id.clone());
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
       (ki : usize) = usize(0);
       while(ki < src_kcvs.len(), {
         match(
@@ -2527,11 +2550,15 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
               );
               li = (li + usize(1));
             });
-            if(in_capture, {
-              remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
-            }, {
-              remapped_cvs.push(v);
-            });
+            cond(
+              in_capture => {
+                remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
+              },
+              outside_owner_ids.contains(v.base.id.clone()) => (),
+              true => {
+                remapped_cvs.push(v);
+              }
+            );
           },
           .None => ()
         );

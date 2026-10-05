@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 30 in §4 are confirmed.
+- **Decisions:** all 33 in §4 are confirmed; no question is open.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -76,6 +76,10 @@ Unique ownership removes the question instead of answering it.
 
   - Receivers are written the same way: `imm(self)`, `mut(self)`, and a
     plain `self` that consumes.
+  - **At the call site, the borrow is marked too** (decision 33): `f(&x)`
+    lends `x` to an `imm` parameter, `f(&mut x)` to a `mut` one, and a bare
+    `f(x)` passes by value. A mismatch is an error. Method receivers and
+    temporaries are exempt (`s.len()`, `show(make_name())`).
   - The same two words spell:
     - local borrows: `imm(y) := place` and `mut(y) := place`;
     - re-pointing a borrow: `imm(cur) = place`;
@@ -299,9 +303,9 @@ Explicit sharing must not mean writing `.*` everywhere.
 - **Resolution order:** wrapper field, wrapper method, payload field,
   payload method, at each level, recursively through nested wrappers
   (`Rc(Box(T))` reaches `T`).
-  - A name both have resolves to the wrapper's, silently, the way an
-    inherent method beats a trait method. E0616 stays among traits at one
-    level.
+  - A name both have is an error (decision 32), which names
+    `Rc.clone(w)` for the wrapper's member and `w.*.clone()` for the
+    payload's. A name only one of them has forwards as above.
   - The same order holds in callee position: `w.items(i)`,
     `w.items(i) = v`, and `w.f(x)` for a function-typed payload field.
 - **Hooks:**
@@ -456,18 +460,27 @@ This renames today's `Send` to `Sync` at the `Arc`/`Mutex`/`RwLock`
 bounds, plus a wider `Send` for the transfer points. D1, D2, D4 and D9 of
 `PARALLELISM_RULES.md` keep their shape (decision 8, V3).
 
-### 3.9 `std/imm/` stays
+### 3.9 `std/imm/` becomes a separate package
 
 `std/imm/` (`string`, `list`, `vec`, `map`, `set`, `sorted_map`,
 `sorted_set`; 4,300 lines) is the atomically counted, immutable,
 structurally shared family.
-- **Its role is persistence:** an update yields a new version that shares
-  structure with the old one (undo stacks, snapshots).
-- **Concurrent reads no longer need it,** since `Arc(ArrayList(T))` covers
+- **Its only remaining role is persistence:** an update yields a new
+  version that shares structure with the old one (undo stacks, snapshots).
+  Concurrent reads no longer need it, since `Arc(ArrayList(T))` covers
   them.
-- **V5:** its types become values over atomic cells, with the same API.
-- **Open:** whether persistence alone justifies 4,300 lines is a later
-  decision (decision 9).
+- **Nothing depends on it.** No `src/` or other `std/` module imports it;
+  only its own tests, the docs and a few `src/` comments mention it.
+- **So it leaves std at V5** (decision 9, revised 2026-10-05) and becomes a
+  standalone package.
+  - Its types are rewritten as values over atomic cells at that point
+    anyway, so it moves once, already in the final language. A package may
+    use the cell primitive in a `pragma(Pragma.AllowUnsafe)` file
+    (decision 6).
+  - **It stays in CI** as a vendored package, built and tested like
+    `vendor/markdown_yo`. It has been a useful compiler stress test:
+    generic recursion, cache keys and atomic counts. Several fixed issues
+    and `src/` comments trace bugs to `std/imm/map.yo` and `sorted_map.yo`.
 
 ### 3.10 Exclusivity: no `RefCell`
 
@@ -737,7 +750,7 @@ machinery.
 
 ## 4. Decisions
 
-All 30 are confirmed by the maintainer. A change is a dated amendment here
+All 33 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -762,7 +775,9 @@ and in git, not a silent edit.
    move-only otherwise. Sharing is `Rc(Dyn(Trait))`.
 8. **`Send` is a move; `Sync` is sharing** (§3.8). There is no isolation
    walk.
-9. **`std/imm/` stays** (§3.9).
+9. **`std/imm/` becomes a separate package at V5** (§3.9). Revised
+   2026-10-05 by the maintainer: its role is persistence alone, and nothing
+   in std or the compiler depends on it.
 10. **Phase order:** V1, V3, V3b, V2, V4, V5 (§6). V3 comes before V2 so
     that the move-only machinery is mature before the collections need
     the general predicate.
@@ -798,8 +813,11 @@ and in git, not a silent edit.
 17. **Copying an `Rc`/`Arc` needs `.clone()`,** as in Rust: a new handle is a
     new owner, and sharing is visible where it is created.
     - Enforced at V2c and sized by the §6 measurement.
-    - If the count proves prohibitive, the fallback is implicit `Rc` copies:
-      one rule change, decided at V2c.
+    - **No fallback** (the maintainer, 2026-10-05). The first version kept
+      implicit `Rc` copies as a fallback in case the count proved
+      prohibitive. The measurement found about 3,500 copies in `src/` once
+      V5's `ref` objects are `Rc`, and the maintainer chose the explicit rule
+      regardless: migration cost does not decide the design.
 18. **Local borrows: `imm(y) := place` and `mut(y) := place`.** This is
     Hylo's model: its spec's immutable and mutable projections, with
     exclusivity for the projection's lifetime. Yo's local default is owned,
@@ -925,27 +943,45 @@ and in git, not a silent edit.
       ```
     - **Phase.** It lands with `imm(y) :=` and last-use live ranges, before
       the unique `Box`. The projection step lands with V2b.
-26. **A `match` scrutinee borrows by default, and `match(move(x), …)`
-    consumes it.**
-    - **Borrowing.** A scrutinee is a read position, so its bindings borrow
-      the payload. A `mut` scrutinee binds `mut` places (decision 25 needs
-      this).
-    - **`match(move(x), …)`.** `x` is consumed, and the selected arm's
-      bindings own their parts.
-      - Guards see borrows, and the move happens when an arm is selected
-        (Rust's rule).
-      - Unbound parts are dropped on arm entry.
-      - Below the first `Rc`/`Arc` deref, bindings borrow, and the consumed
-        handle lives until the `match` ends.
-    - **An owned temporary scrutinee** (a call result) is consumed without
-      the spelling.
-    - **`move`** reads as what happens, and is unused elsewhere in Yo.
-      Inferring consumption from "`x` is not used again" was rejected: an
-      unrelated later line would change what the bindings mean.
-    - **Rejected: by-value scrutinees with `match(imm(x), …)` to borrow.**
-      Reading matches dominate (about 3,500 tree-matching arms in `src/`).
-    - **Phase.** V3 for move-only payloads, and V2b for the explicit-copy
-      kind.
+26. **A `match` takes its scrutinee by value, the way a parameter does; a
+    borrowed scrutinee is matched through its borrow.** Revised 2026-10-05
+    by the maintainer ("we need to do it right"). This replaces a first
+    version that borrowed by default and consumed with `match(move(x), …)`.
+
+    | Scrutinee | Bindings |
+    | --- | --- |
+    | an owned value or a temporary | consumed; the selected arm's bindings own their parts |
+    | an `imm` binding (an `imm` parameter, a local `imm(y)`) | `imm` borrows |
+    | a `mut` binding | `mut` places |
+    | `match(&x, …)` / `match(&mut x, …)` on an owned local (decision 33) | borrows, and `x` stays usable |
+    | implicitly copyable data | a copy |
+
+    - **Why by value.** A bare `x` means by value in every position
+      (decision 30), and a scrutinee is no exception. It also removes two
+      special cases: a `move` keyword, and the rule that a temporary is
+      consumed without one. `match(make_opt(), .Some(v) => v, …)` and
+      `match(x, .Some(v) => v, …)` behave alike.
+    - **Why a borrow is matched through.** Nothing can be moved out of a
+      borrow, so the match follows the scrutinee's mode. This is Rust's
+      default binding modes. Most of the compiler's ~3,500 tree-matching
+      arms are on parameters, which V3b makes `imm`, so they need no
+      annotation. The explicit `&x`/`&mut x` is needed only to keep using an
+      owned local after the match, which is where E0901 points.
+    - **Rules for a consuming match:**
+      - Guards see the bindings as borrows, and the move happens when an
+        arm is selected (Rust's rule). A guard that consumed a binding would
+        otherwise leave the next arm a moved payload.
+      - Parts the pattern does not bind (`_`, unbound fields) are dropped
+        when the arm is entered.
+      - Below the first `Rc`/`Arc` deref, bindings borrow, because other
+        handles may share the cell. The consumed handle lives until the
+        `match` ends.
+    - **`mut` scrutinees** bind `mut` places, which decision 25's cursor
+      walk needs.
+    - **Phase.** V3 for move-only payloads, then V3b, which makes plain
+      scrutinees by value together with plain parameters, and V2b for the
+      explicit-copy kind. Until V3b, a plain scrutinee borrows, as today.
+
 27. **The compiler may elide a `.clone()` whose source is dead, as an
     optimization, never as semantics.**
     - **When.** Only where the move checker would accept the move instead:
@@ -1031,6 +1067,106 @@ and in git, not a silent edit.
         for its hidden lowering.
     - **Migration is mechanical**, because today's plain parameter already
       means a read-only borrow. See V3b.
+31. **A pattern spells the wrapper it looks through, as in Rust.**
+    Confirmed 2026-10-05 by the maintainer; it resolves the former §9 Q12.
+    - **The rule.** A `Box(Expr)` or `Rc(Expr)` scrutinee does not match
+      `Expr` patterns implicitly. The pattern names the wrapper: `Box(p)`
+      matches the payload of a `Box` against `p`, and `Rc(p)` and `Arc(p)`
+      do the same for their cells.
+      - Example: `match(e, .Add(Box(.Num(a)), Box(.Num(b))) => a + b, …)`.
+    - **Bindings inside `Rc(p)`/`Arc(p)` borrow** (decision 26), because
+      other handles may share the cell. Bindings inside `Box(p)` follow the
+      scrutinee's mode.
+    - **Why explicit.** It keeps every indirection visible where it is
+      crossed, which is the point of this plan. A pattern written against a
+      `Box` child is also not silently re-read when a type changes `Rc` to
+      `Box` or back.
+    - **Rejected: implicit see-through,** which is what `ref(enum)` gives
+      today and what the ~3,500 tree arms assume.
+    - **Cost.** V4 rewrites the arms that destructure children. The rewrite
+      is mechanical: each pattern position whose type is a wrapper gains
+      the wrapper's constructor.
+
+32. **A member name both the wrapper and its payload have is an error;
+    the wrapper's is spelled `Rc.clone(w)`.** Confirmed 2026-10-05 by the
+    maintainer ("whenever we could be explicit, lets do explicit").
+    - **The rule.** If `w : Rc(T)` (or `Box(T)`, `Arc(T)`) and both the
+      wrapper and `T` have a member `m`, then `w.m` is an error. It names
+      both spellings:
+      - `Rc.clone(w)` for the wrapper's member (`Box.clone(b)`,
+        `Arc.clone(a)`);
+      - `w.*.clone()` for the payload's.
+
+      A name only one of them has forwards (§3.3).
+    - **This is Rust's convention, made a rule.** Rust's `w.clone()` on an
+      `Rc` compiles and means the handle copy. The Rust book recommends
+      `Rc::clone(&w)`, and clippy's `clone_on_ref_ptr` lint enforces it, so
+      that a cheap handle copy reads differently from a deep clone. Yo
+      rejects the ambiguous form outright.
+    - **The spelling needs one small feature:** calling a method through an
+      unapplied generic type constructor, with its arguments inferred from
+      the receiver (`Rc.clone(w)`, as Rust infers `Rc::clone`'s `T`).
+      Today `Rc(T).clone(w)` works and `Rc.clone(w)` is E0610.
+    - **Phase.** V1 Generation A; the call sites migrate with V1 step 1's
+      rename.
+
+33. **A borrow is marked at the call site too: `&x` lends to an `imm`
+    parameter, `&mut x` to a `mut` one, and a bare `x` passes by value.**
+    Confirmed 2026-10-05 by the maintainer.
+    - **Why.** Without it, `show(s)` (a borrow) and `take(s)` (a move) look
+      the same at the call, although one keeps `s` and the other consumes
+      it. Decision 30 made the declaration readable, and this makes the
+      call readable too. It is Rust's spelling and reading (`&s`,
+      `&mut s`).
+      - Swift and Hylo mark only the mutable case (`&x` for `inout`);
+        marking both follows "explicit whenever possible".
+    - **Examples:**
+      ```rust
+      swap(&mut x, &mut y);
+      show(&s);               // s stays usable
+      take(s);                // moved
+      match(&opt, .Some(v) => print(v), .None => ());   // decision 26
+      ```
+    - **A mismatch is an error, never a conversion.** A bare `s` passed to
+      an `imm` parameter is an error naming `&s`. A `&s` passed to a
+      by-value parameter is an error naming `s` or `s.clone()`. So the
+      marker always tells the truth.
+    - **Exempt, because nothing is left to keep:**
+      - method receivers: `s.len()`, not `(&s).len()`, because the method's
+        `imm(self)`/`mut(self)` spells it. Rust exempts receivers the same
+        way;
+      - temporaries, literals and closure literals passed to an `imm`
+        parameter: `show(make_name())`, `xs.map(x => x + 1)`. A temporary
+        cannot go to a `mut` parameter, which needs a place.
+    - **Address-of becomes `addr_of(x)`.** Today `&x` makes a raw pointer
+      `*(T)` usable only in `pragma(Pragma.AllowUnsafe)` code. A word makes
+      unsafe pointer creation searchable and frees the sigil for safe code.
+      - `addr` was rejected because it has 558 uses as an identifier
+        (socket addresses), and Yo has no shadowing.
+      - `addr_of` is Rust's `ptr::addr_of!`, and it is unused in the tree.
+    - **`&mut` is one prefix token**, like `^` in `^v`. So `&mut s.items`
+      borrows `s.items`, and `&&` (logical and) is unaffected.
+    - **Vocabulary.** Declarations keep the words (`imm(s) : String`,
+      `mut(self)`, `imm(y) := place`), and arguments and scrutinees use the
+      sigils, which map one-to-one onto them.
+    - **Phase.** V3b, with decision 30: Generation A accepts both forms, and
+      Generation B sweeps and turns the mismatch error on.
+
+**Considered and kept implicit** (2026-10-05, the maintainer):
+- **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
+  is E0901, which points at the move. A marker such as Mojo's `s^` on every
+  by-value pass was rejected.
+- **Copies of plain data** (decision 16). The copy is free and has no
+  observable effect.
+- **Allocator placement.** The `alloc` parameter is the explicit form, and
+  `with_allocator` places everything a call tree creates (§3.11). Both
+  stay.
+- **A closure's capture mode** follows the parameter it is passed to
+  (`imm(f)` or a by-value `f`, decision 22), which the callee's signature
+  spells.
+  - A capture list was deferred. `[imm(s), t] () => …` does not fit Yo's
+    syntax, and no Yo-shaped spelling has been proposed.
+  - This is to be revisited if one is.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -1062,15 +1198,80 @@ and in git, not a silent edit.
 
 **Order.** Each item notes its status.
 
-1. **First gate: measure the migration** (in progress).
-   `YO_AUDIT_IMPLICIT_COPY=1` lists every dup the evaluator inserts for a
-   value of the explicit-copy kind whose source is used again: the copies
-   the new rule turns into errors.
-   - It runs over `src/`, `std/` and `tests/`, split by type: `String`, each
-     collection, `Box`, `Dyn`, and `Rc`/`Arc` handles (to size V2c).
-   - It samples whether each site wants a move, a borrow or a real clone.
-   - The numbers are recorded here, and the phases below are sized with
-     them.
+1. **First gate: measure the migration** (measured 2026-10-05, on develop
+   `d342d58bb` plus the audit). `YO_AUDIT_IMPLICIT_COPY=1 yo check <path>`
+   prints one line per dup the evaluator inserts for a value of the
+   explicit-copy kind whose source is used again: the copies the new rule
+   turns into errors.
+   - **Counted.** A source that cannot be moved from is listed at once: a
+     plain (borrowed) parameter, a field or index read (no partial moves,
+     decision 19), a `match` binding of a parameter or field, a `for`
+     element, a module-level value. An owning local is listed only if it is
+     read again after the site, judged at its block's end (another arm of
+     the same branch does not count, an arm that returns ends the path, a
+     loop counts unless it reassigns the local).
+   - **Run as** `check ./src`, `check ./std --std-path ./std`, and
+     `check ./tests --exclude tests/internal --exclude tests/cli-cases --std-path ./std`
+     with a tree-built compiler. Each set keeps its own directory's lines,
+     one per site and instantiated type.
+
+   | Category (with aggregates holding it) | `src/` | `std/` | `tests/` |
+   | --- | ---: | ---: | ---: |
+   | `String` | 1,614 | 210 | 101 |
+   | `ArrayList` | 1,303 | 80 | 105 |
+   | other collections | 76 | 21 | 6 |
+   | `Dyn` | 9 | 6 | 8 |
+   | `Box` (today's: V1 step 1's `Rc`) | 63 | 3 | 187 |
+   | `Arc` | 0 | 133 | 453 |
+   | `ref` objects with owning fields (V5's `Rc`) | 3,049 | 219 | 113 |
+   | `ref` objects of plain fields | 436 | 65 | 129 |
+   | other | 1 | 1 | 8 |
+   | **Copies** | **6,551** | **738** | **1,110** |
+   | Not counted: call sites of a parameter the callee stores (estimate) | ~1,000 | | |
+   | Not counted: a `match` binding of an owned temporary | 3,314 | 183 | 52 |
+
+   - **By path, in `src/`:** 2,461 returns or block tails, 2,441 field
+     stores, 1,064 `y := x` bindings, 432 assignments, 143 captures. By
+     source: 2,689 field reads, 1,710 plain parameters, 1,229 `match`
+     bindings of a parameter or field, 839 locals used again.
+   - **What the sites want.** In a sample of 30 counted `src/` lines, 22
+     want a real `.clone()`, 16 of them of an `Rc`-to-be handle (`TypeValue`,
+     `AstExpr`, `Environment`, `EvalValue`, `Token`). 4 want a borrow
+     (`imm(y) :=`, or a read-only `match` binding), 2 a move by
+     `take`/`replace`, 1 a by-value parameter (decision 30), and 1 an
+     explicit `Rc` (`ComptimeRef.ArrayRef` in `evaluator/calls/index_trait.yo`
+     shares a list on purpose). So about 73% clones, 13% borrows, 10% moves.
+   - **The parameters.** A plain parameter that the callee stores
+     (`ArrayList.push(value : T)`, `HashMap.insert`) copies inside the callee
+     today, once per element type. Once it is by value (decision 30), the
+     copy moves to each call site whose argument lives on. `src/` has 4,103
+     `.push(`/`.insert(` calls; 7 of a sample of 28 pass a live value, hence
+     the ~1,000 estimate. Counting them needs a pass from a callee's stored
+     parameter to its call sites (deferred). The 1,710 plain-parameter sites
+     above are each a `.clone()` in the callee or a by-value parameter.
+   - **The `match` binding of an owned temporary**
+     (`match(xs.get(i), .Some(x) => x, …)`) owns its payload, so it is not a
+     copy there. 7 of a sample of 11 unwrap an accessor that copies (`get`,
+     `last`, a map lookup): decision 20's migration, at the accessor.
+   - **`Rc`/`Arc` handles, sizing V2c (decision 17).** Today's `Box` and
+     `Arc` copies: 63 in `src/`, 136 in `std/`, 640 in `tests/` (most of
+     `tests/`' are handles captured by a spawned closure and used again).
+     V5 makes the `ref` objects `Rc` and adds 3,049 in `src/`, 219 in
+     `std/`, 113 in `tests/`. Of the 3,485 `ref` copies in `src/`, 1,910 are
+     `TypeValue` or `AstExpr` (decision 21's trees) and 791 return a plain
+     `ref` parameter unchanged (`return(expr)` across the evaluator).
+   - **Field writes through a plain parameter of plain data**, measured
+     before decision 30 made them legal: 0 in `src/`, 0 in `std/`, 1 in
+     `tests/`.
+   - **Precision.** Over: a read after a reassignment still counts (except in
+     a loop), a `break` arm is treated as staying in the function, every
+     capture counts (decision 22's non-escaping literals borrow; 143 in
+     `src/`, 154 in `std/`, 744 in `tests/`). Under: the call sites above;
+     destructuring, `Dyn` downcasts and spawn handles, whose dups are
+     emitted by codegen, which `check` never reaches; an owning parameter
+     stored in a single-expression body (no block end to judge it at). The
+     aliasing guard on a field passed to a borrowing parameter is not
+     listed, because that argument stays a borrow.
 2. **V1 step 1:** rename every `Box` to `Rc`, mechanically. Decision 28's
    `Rc` arm follows as its own PR.
 3. **V3:** move-only values and the general predicate (in progress).
@@ -1097,6 +1298,16 @@ and in git, not a silent edit.
 - `Allocator` in the prelude (#1188, #1207).
 
 **Remaining, Generation A:**
+- **Decision 32.**
+  - The wrapper/payload name clash becomes an error, in
+    `evaluate_property_access` and `_try_find_receiver_method`.
+  - A method can be called through an unapplied generic type constructor
+    (`Rc.clone(w)`), with the arguments inferred from the receiver.
+  - Tests: the clash error with both suggested spellings; `Rc.clone(w)`,
+    `Box.clone(b)` and `Arc.clone(a)` inferring `T`; and forwarding of
+    unclashed names unchanged.
+  - Measured 2026-10-05: `Box(i32).clone(b)` and `String.len(s)` compile
+    today, and `Box.clone(b)` is E0610.
 - **The exclusivity assert moves to the write-through-`Rc` site** (§3.10).
   Tests: a closure and an async fn that mutate a captured
   `Rc(ArrayList(T))` while a `for` borrows it panic deterministically.
@@ -1114,8 +1325,8 @@ and in git, not a silent edit.
 **Step 2: the unique `Box`** (after V3 and decision 25).
 - **The type.** `Box(V)` is a uniquely owned cell with no count, a deep
   `Clone`, `Eq`/`Hash`/`Default` by payload, and `box(v, alloc)`. It is
-  explicit-copy from its first commit, and decision 26's
-  `match(move(b), …)` applies to its payloads.
+  explicit-copy from its first commit, and decision 26's consuming match
+  applies to its payloads.
 - **Sites that move back to `Box`** (recursion and size only):
   - `Option(Box(Self))`: `is_owning_the_same_rc_value_as` on `Variable`,
     `CapturedVariable`, `SuspensionCapturedVariable` and
@@ -1288,6 +1499,12 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   and receivers, in local bindings (renaming `inout(y) :=`), in re-points,
   in projection results and in function types. `mut` is `inout`'s synonym,
   and plain parameters still borrow.
+  - It also adds decision 33's call-site forms, `&x` and the `&mut` token,
+    and the `addr_of(x)` builtin for raw pointers.
+  - While `&x` still means address-of, the new meaning is selected by the
+    parameter's mode: an `imm`/`mut` parameter receives a borrow, and a
+    raw-pointer parameter keeps receiving a pointer.
+  - The mismatch error waits for Generation B.
 - **Generation B,** once `SEED_VERSION` carries Generation A:
   1. **The `yo fix` sweep** over `src/`, `std/`, `tests/`, docs and skills:
      - every plain parameter and receiver of a type that is not implicitly
@@ -1298,8 +1515,15 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
      Plain parameters of implicitly copyable types stay plain: their
      meaning (a copy) and their C (`T x`) are unchanged. So the sweep
      changes no program's behaviour.
-  2. **The flip:** a plain parameter is by value.
-  3. **Deleting** `own`, `sink` and `inout`.
+  2. **The flip:** a plain parameter is by value, and so is a plain `match`
+     scrutinee (decision 26). The sweep first rewrites each `match` on an
+     owned local that is used after the match to `match(&x, …)`, and marks
+     every borrowed argument that is a named place `&x` or `&mut x`
+     (decision 33).
+  3. **Deleting** `own`, `sink` and `inout`, and `&x` as address-of: the
+     sweep rewrites every raw-pointer `&x` in std, `src/` and tests to
+     `addr_of(x)`, then `&x` means only a borrow. Decision 33's mismatch
+     error turns on.
 - **Callbacks:** std's `for_each`, `map`, `filter` and `with_lock` take
   `imm(f)`.
 - **Diagnostics:** E0901 at a caller names `imm(x)` in the callee before
@@ -1307,6 +1531,24 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
 - **Docs, instruction files, skills and the context pack** are rewritten.
   The seven skill-tree goldens move.
 - **Measured:** `check ./src` time and stage-2 RSS.
+- **The C-style builtins become snake_case, in the same release** (the
+  maintainer, 2026-10-05). Every other builtin is snake_case already
+  (`ref_count`, `comptime_eval`, `thread_local`, `va_start`, `macro_expand`,
+  `c_include`, `str_bytes`), and decision 33 adds `addr_of`. Rust spells
+  these the same way.
+
+  | Today | After | `.yo` uses | Collision to resolve first |
+  | --- | --- | ---: | --- |
+  | `sizeof` | `size_of` | 653 | `std/term.yo`'s function `size_of` (the terminal size) is renamed, e.g. `term_size`, because Yo has no shadowing |
+  | `alignof` | `align_of` | 39 | none |
+  | `typeof` | `type_of` | 62 | none |
+  | `typeid` | `type_id` | 37 | about 119 lines in `src/` use `type_id` as a local or a field. Locals are renamed (e.g. `tid`); fields are checked in the PR |
+
+  - **Generation A:** the compiler accepts both spellings
+    (`src/expr.yo`'s builtin constants and every place that matches them,
+    the diagnostics registry, the LSP and `yo context`).
+  - **Generation B:** the sweep over `src/`, `std/`, `tests/`, docs and
+    skills, then the old names are deleted, with no alias.
 
 ### V2: the collections become values
 
@@ -1388,13 +1630,18 @@ compiler; the std shapes are plain structs the seed lowers):
 **V2c: decision 17.**
 - **The rule.** Implicit `Rc`/`Arc` handle copies become E0901, with
   `.clone()` inserted by `yo fix`.
-- **Sizing.** It is sized by the §6 measurement's `Rc`/`Arc` count, and
-  lands before V5, so V5's ~60 new `Rc` contexts are written with explicit
-  clones.
+- **Sizing** (§6 measurement). Today's handle copies are 63 in `src/`, 136
+  in `std/` and 640 in `tests/`: today's `Box`, which V1 step 1 renames
+  `Rc`, plus `Arc`. Most of the `tests/` copies are handles captured by a
+  spawned closure.
+- **V5 inherits the rule.** V2c lands before V5, so V5's `ref` objects
+  become `Rc` with explicit clones from the start. That is the larger half:
+  3,049 copies in `src/`, 1,910 of them `TypeValue`/`AstExpr` (decision
+  21's trees) and 791 a `return(expr)` of a plain `ref` parameter. `yo fix`
+  inserts the clones, and many become borrows or moves under decision 30.
 - **Bundles.** It also decides A6's `Rc` bundle fields.
-- **Fallback.** If the count is prohibitive, decision 17's fallback
-  (implicit `Rc` copies) is decided here. The dup/drop pair optimizer then
-  stays for `Rc`.
+- **No fallback** (decision 17). Once V5 lands, the dup/drop pair optimizer
+  has no implicit copy left to cancel.
 
 ### V4: the compiler's trees
 
@@ -1423,12 +1670,14 @@ stage-2 RSS):
   unique `Box`, decided by measurement.
 - **Tests.** `tests/internal/*` as the differential, the fixpoint, and the
   memory ratchet.
-  - About 750 `TypeValue.`, 430 `EvalValue.` and 90 `AstExpr.`
-    constructions, and about 3,500 destructuring arms, must not need the
-    wrapper spelled in every pattern.
-  - So `match` sees through the child wrapper in pattern position (Q12):
-    one evaluator rule and one codegen rule, in `pattern_compile.yo` and
-    `codegen/exprs/match.yo`.
+  - **Wrapper patterns** (decision 31). `Box(p)`, `Rc(p)` and `Arc(p)`
+    patterns are one evaluator rule and one codegen rule, in
+    `pattern_compile.yo` and `codegen/exprs/match.yo`. They land in V4's
+    first PR, with the `TypeValue` conversion as the test.
+  - **Constructions and arms.** About 750 `TypeValue.`, 430 `EvalValue.` and
+    90 `AstExpr.` constructions are rewritten. So is each of the ~3,500
+    destructuring arms that reaches through a child, which a `yo fix`
+    repair inserts mechanically from the pattern position's type.
 
 ### V5: remove `ref(...)` and `atomic(...)`
 
@@ -1439,7 +1688,12 @@ stage-2 RSS):
   - the wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`
     (each wrapper's only field becomes the private `_cell`, so
     `Box(T)(…)` outside the prelude is E0405);
-  - `std/imm` moves onto atomic cells;
+  - `std/imm` moves onto atomic cells and out of std, into its own
+    repository (§3.9), vendored under `vendor/` and built and tested in CI
+    like `vendor/markdown_yo`. Its `tests/imm_*` files and
+    `docs/*/IMMUTABLE_COLLECTIONS.md` go with it, and DESIGN, STRINGS,
+    ARC, CYCLE_COLLECTION, MEMORY_SAFETY and the syntax cheatsheet point to
+    the package;
   - the tests migrate (~150 declarations in 68 files):
     `tests/ref_struct.test.yo`, `tests/ref_enum.test.yo` and
     `tests/atomic_object.test.yo` become the `Rc`/`Box`/`Arc` test files.
@@ -1458,7 +1712,7 @@ stage-2 RSS):
     Reference-Semantics Types);
   - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (rescoped,
     §3.14), CYCLE_COLLECTION, ISOLATED, ARC, THREAD_SAFETY, PARALLELISM,
-    IMMUTABLE_COLLECTIONS, DYN_DESIGN, STRINGS, TYPE_REFLECTION and
+    IMMUTABLE_COLLECTIONS (moves to the package), DYN_DESIGN, STRINGS, TYPE_REFLECTION and
     DERIVE_TRAITS;
   - the instruction files, the three skills (re-record the seven skill-tree
     goldens) and the pack (`yo context`);
@@ -1482,7 +1736,10 @@ stage-2 RSS):
 | an implicit `Rc`/`Arc` copy | `r.clone()` | E0901 (V2c) |
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value | V3 impl check |
 | a resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `mut` | E0901 + note |
-| a payload extracted from a dying value | `match(move(x), …)` | E0901 at the binding's use |
+| a `match` on an owned local that is used afterwards | `match(&x, …)` | E0901 at the later use (V3b) |
+| a named place passed to an `imm`/`mut` parameter | `f(&x)` / `f(&mut x)` | the decision 33 mismatch error (V3b `yo fix`) |
+| `&x` making a raw pointer (unsafe code) | `addr_of(x)` | V3b Generation A rename |
+| a payload extracted from a dying value | `match(x, .Some(v) => v, …)`, the by-value default | — |
 | `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; `box(v, alloc : .Some(a))` | docs and skills; E0405 after V5 |
 | `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
 | `rc(x)` (the count) | `ref_count(x)` on an `Rc`/`Arc` | done (#1186) |
@@ -1514,9 +1771,9 @@ stage-2 RSS):
     place a callee could reach.
 - **The compiler's trees (decision 21).** With `Rc` children, `check ./src`
   time and RSS should stay flat. V4 measures each tree.
-- **Auto-dereference precedence.** Wrapper members win silently. A payload
-  method shadowed by a wrapper method (`clone` on `Rc(T)` vs `T.clone`) is
-  reached with `w.*.clone()`. This is documented and tested.
+- **Auto-dereference precedence.** Decision 32 makes a wrapper/payload name
+  clash an error. So the risk is the error's text: it must name both
+  spellings, and `yo fix` must offer them.
 - **Move-only in generic std code.** Errors raised at instantiation inside
   std must read well. `_reported_at_user_call` anchors them at the user's
   call.
@@ -1525,11 +1782,4 @@ stage-2 RSS):
 
 ## 9. Open questions
 
-12. **The child wrapper in patterns.** V4 needs `match` to see through `Rc`
-    (the large trees) and `Box` (the small trees) in pattern position. Two
-    spellings:
-    - **Implicit:** a `Box(Expr)` scrutinee matches `Expr` patterns. This is
-      what `ref(enum)` gives today, and what about 3,500 arms assume.
-    - **Explicit:** `Box(p)`, as in Rust.
-
-    Decide in V4's first PR, with the `TypeValue` conversion as the test.
+None. The last one (the child wrapper in patterns) is decision 31.

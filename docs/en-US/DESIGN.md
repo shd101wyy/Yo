@@ -2642,6 +2642,14 @@ assignment into the place), `[inout-borrow-unresolved]` when the callee's
 mutation summary could not be resolved and the write is assumed, and
 `[inout-borrow-capture]` for a write to a variable a closure captured.
 
+`YO_AUDIT_IMPLICIT_COPY=1 yo check <path>` lists the copies unique ownership
+would make explicit (`plans/VALUES_BY_DEFAULT.md` §6, item 1). Each
+`[implicit-copy]` line is a store, binding, return, owning argument or capture
+of a value that owns heap data (a `String`, a collection, a `Box`, `Arc`,
+`Dyn` or `ref` object) whose source stays alive: a borrowed parameter, a field
+read, a `match` or `for` binding, or a local that is read again afterwards. A
+local used for the last time is a move and is not listed.
+
 ### ArrayList
 
 Dynamic array with automatic resizing.

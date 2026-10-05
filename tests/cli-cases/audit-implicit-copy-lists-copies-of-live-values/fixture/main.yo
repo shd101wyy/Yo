@@ -1,0 +1,146 @@
+// YO_AUDIT_IMPLICIT_COPY fixture (plans/VALUES_BY_DEFAULT.md §6, item 1). Each
+// function names what the audit should say about its dups.
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+Holder :: struct(name : String, items : ArrayList(i32));
+Node :: ref(struct(label : String));
+Counter :: ref(struct(n : i32));
+// A local stored and then read again: a copy. Stored at its last use: a move.
+store_then_read :: (fn() -> usize)({
+  s := String.from("a");
+  h := Holder(name : s, items : ArrayList(i32).new());
+  t := String.from("b");
+  h2 := Holder(name : t, items : ArrayList(i32).new());
+  s.len() + h.name.len() + h2.name.len()
+});
+// `y := x` then `x` again: a copy. `z := w` with `w` dead: a move.
+bind_then_read :: (fn() -> usize)({
+  x := ArrayList(i32).new();
+  y := x;
+  w := ArrayList(i32).new();
+  z := w;
+  x.len() + y.len() + z.len()
+});
+// A by-value parameter is borrowed: storing it always copies.
+store_param :: (fn(s : String) -> Holder)(
+  Holder(name : s, items : ArrayList(i32).new())
+);
+// Returning a borrowed parameter copies it.
+return_param :: (fn(xs : ArrayList(i32)) -> ArrayList(i32))(xs);
+// A field read stored elsewhere: a projection, always a copy (no partial moves).
+store_field :: (fn(h : Holder) -> Holder)(
+  Holder(name : h.name, items : ArrayList(i32).new())
+);
+// An owning argument from a borrowed binding copies.
+take :: (fn(own(s) : String) -> usize)(s.len());
+pass_borrowed :: (fn(s : String) -> usize)(take(s));
+// Inside a loop the site runs again: a copy, unless the loop reassigns.
+loop_store :: (fn() -> usize)({
+  s := String.from("x");
+  out := ArrayList(Holder).new();
+  (i : i32) = 0;
+  while(i < 3, {
+    out.push(Holder(name : s, items : ArrayList(i32).new()));
+    i = (i + 1);
+  });
+  out.len()
+});
+loop_reassign :: (fn() -> usize)({
+  s := String.from("x");
+  out := ArrayList(Holder).new();
+  (i : i32) = 0;
+  while(i < 3, {
+    out.push(Holder(name : s, items : ArrayList(i32).new()));
+    s = String.from("y");
+    i = (i + 1);
+  });
+  out.len()
+});
+// A closure that captures a local used afterwards copies it in.
+capture_then_read :: (fn() -> usize)({
+  s := String.from("c");
+  (f : Impl(Fn() -> usize)) = (() => s.len());
+  f() + s.len()
+});
+// A copy on a path that leaves the function is a move there.
+early_return :: (fn(flag : bool) -> usize)({
+  s := String.from("r");
+  out := ArrayList(Holder).new();
+  if(flag, {
+    out.push(Holder(name : s, items : ArrayList(i32).new()));
+    return(out.len());
+  });
+  s.len()
+});
+// A read in another arm of the same branch is not a later use.
+either_arm :: (fn(flag : bool) -> usize)({
+  s := String.from("e");
+  cond(
+    flag => Holder(name : s, items : ArrayList(i32).new()).name.len(),
+    true => s.len()
+  )
+});
+// Two captures used afterwards: two copies.
+capture_two :: (fn() -> usize)({
+  a := String.from("a");
+  b := String.from("b");
+  (f : Impl(Fn() -> usize)) = (() => (a.len() + b.len()));
+  f() + a.len() + b.len()
+});
+// A `match` binding is a part of its scrutinee: passing it to an owning
+// parameter copies when the scrutinee lives on (a local read again, or a
+// parameter), and moves out of a call's temporary.
+hold :: (fn(own(s) : String) -> Holder)(
+  Holder(name : s, items : ArrayList(i32).new())
+);
+make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
+match_parts :: (fn(p : Option(String)) -> usize)({
+  o := Option(String).Some(String.from("o"));
+  h1 := match(o, .Some(x) => hold(x), .None => hold(String.from("")));
+  n := match(o, .Some(y) => y.len(), .None => usize(0));
+  h2 := match(make_opt(), .Some(z) => hold(z), .None => hold(String.from("")));
+  h3 := match(p, .Some(w) => hold(w), .None => hold(String.from("")));
+  h1.name.len() + n + h2.name.len() + h3.name.len()
+});
+// A `for` element borrows: passing it on copies.
+for_store :: (fn(xs : ArrayList(String)) -> usize)({
+  out := ArrayList(Holder).new();
+  for(xs, s => {
+    out.push(hold(s));
+  });
+  out.len()
+});
+// A `ref` handle (V5's `Rc`) and a plain-data `ref` object.
+ref_handles :: (fn() -> i32)({
+  n := Node(label : String.from("n"));
+  m := n;
+  c := Counter(n : 1);
+  d := c;
+  _l := n.label.len();
+  d.n + c.n
+});
+// Plain data is never counted.
+plain :: (fn() -> i32)({
+  a := i32(1);
+  b := a;
+  a + b
+});
+main :: (fn() -> unit)({
+  _a := store_then_read();
+  _b := bind_then_read();
+  _c := store_param(String.from("p"));
+  _d := return_param(ArrayList(i32).new());
+  _e := store_field(Holder(name : String.from("f"), items : ArrayList(i32).new()));
+  _f := pass_borrowed(String.from("g"));
+  _g := loop_store();
+  _h := loop_reassign();
+  _i := capture_then_read();
+  _j := ref_handles();
+  _k := plain();
+  _l := early_return(true);
+  _m := either_arm(true);
+  _n := capture_two();
+  _o := match_parts(.Some(String.from("q")));
+  _p := for_store(ArrayList(String).new());
+});
+export(main);

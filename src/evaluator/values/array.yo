@@ -94,7 +94,7 @@ evaluate_array_value :: (
     ctx.expected_type = old_expected;
     match(evaluated_elem_gerr, .Some(evaluated_elem_ge) => exn.throw(evaluated_elem_ge), .None => ());
     evaluated_elem := match(evaluated_elem_gout.get(usize(0)), .Some(evaluated_elem_g) => evaluated_elem_g, .None => make_err_expr());
-    set_expr_as_needs_to_call_dup(evaluated_elem, ctx, exn);
+    set_expr_as_needs_to_call_dup(evaluated_elem, ctx, exn, "element");
     elem_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem));
     if(elem_info_opt.is_none(), {
       exn.throw(

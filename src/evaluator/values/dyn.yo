@@ -903,7 +903,7 @@ evaluate_dyn_value :: (
     // every `exn.throw(dyn(format_error_message(...)))` (the startup heap
     // corruption; see
     // issues/fixed/yo-self-dyn-throw-double-drop.md; repro /tmp/dd.yo).
-    set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn);
+    set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn, "dyn");
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
     out_info.runtime_arg_exprs_in_order = .Some(rt_args_ne);
@@ -991,7 +991,7 @@ evaluate_dyn_value :: (
     );
   });
   // Same ownership-transfer consumption as the non-executing path above.
-  set_expr_as_needs_to_call_dup(final_value_expr_ex, ctx, exn);
+  set_expr_as_needs_to_call_dup(final_value_expr_ex, ctx, exn, "dyn");
   // Determine the expected DynType:
   //   1. From context.expected_type when it is already a DynT.
   //   2. From final_value_type when it is a DynT.

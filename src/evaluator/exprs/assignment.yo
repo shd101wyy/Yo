@@ -1000,7 +1000,7 @@ evaluate_assignment :: (
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(prop_rhs, env, ctx, exn);
     throw_expr_is_implicit_variable_error(prop_rhs, env, ctx, exn);
-    set_expr_as_needs_to_call_dup(prop_rhs, ctx, exn);
+    set_expr_as_needs_to_call_dup(prop_rhs, ctx, exn, "field-store");
     // Re-read rhs info after potential mutations by the above helpers.
     prop_rhs_info = match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(prop_rhs)),
@@ -1698,7 +1698,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // scope-end drop for the (owning) LHS binding but no matching dup — every
   // `(x : T) = rhs` / `x = rhs` whose RHS is a borrowed RC value net-releases
   // the caller's object (the stage-2 Environment UAF).
-  set_expr_as_needs_to_call_dup(rhs_evaled, ctx, exn);
+  set_expr_as_needs_to_call_dup(rhs_evaled, ctx, exn, "assign");
   // Re-read env in case set_expr_as_needs_to_call_dup updated it.
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled)),

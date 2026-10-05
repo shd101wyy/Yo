@@ -836,13 +836,13 @@ consume_argument_for_parameter :: (
             // referenced handle, and the binding stays usable — nothing is
             // moved (issues/fixed/inout-arg-to-own-param-moves-without-dup.md).
             arg_var.is_ref => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
             },
             arg_var.is_owning_the_rc_value => {
               set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
             },
             true => {
-              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
               set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
             }
           );
