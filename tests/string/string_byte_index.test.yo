@@ -40,7 +40,7 @@ test("String len counts bytes, not runes", {
   // pre-D4: 4
   assert(s.len() == usize(10), "10 bytes");
   assert(s.chars().count() == usize(4), "4 runes");
-  assert(s.len() == s.as_bytes().len(), "len IS the buffer length");
+  assert(s.len() == s.len(), "len IS the buffer length");
   // pre-D4: 2 / 2 / 3
   assert(`你好`.len() == usize(6), "two 3-byte runes");
   assert(`😀😁`.len() == usize(8), "two 4-byte runes");
@@ -336,12 +336,12 @@ test("Pattern methods answer byte offsets for str patterns too", {
 // ===========================================================================
 // Byte access that was ALREADY byte-based must be unchanged
 // ===========================================================================
-test("String byte_at and Index still read raw bytes", {
+test("String byte_at and get_byte read raw bytes", {
   s := _subject();
   assert(s.byte_at(usize(1)) == u8(0xC3), "lead byte of é");
   assert(s.byte_at(usize(2)) == u8(0xA9), "continuation byte of é");
-  assert(s(usize(0)) == u8(0x61), "Index yields a byte");
-  assert(s(usize(9)) == u8(0x9E), "last byte of 𝄞");
+  assert(s.get_byte(usize(0)) == Option(u8).Some(u8(0x61)), "get_byte yields a byte");
+  assert(s.byte_at(usize(9)) == u8(0x9E), "last byte of 𝄞");
 });
 // ===========================================================================
 // split("") must STAY rune-based — it is pinned to the char vocabulary

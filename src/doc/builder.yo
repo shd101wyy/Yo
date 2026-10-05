@@ -377,10 +377,10 @@ _extract_return_type_from_signature :: (fn(signature : String) -> String)({
   // wrapper). Balanced parens like Option(Slice(T)) must be preserved.
   // '(' / ')' are ASCII, so a byte walk cannot split a multibyte char.
   (balance : isize) = isize(0);
-  bytes := return_type.as_bytes();
+  bytes := return_type;
   (bi : usize) = usize(0);
   while(bi < bytes.len(), {
-    b := bytes(bi);
+    b := bytes.byte_at(bi);
     if(b == u8(40), {
       balance = (balance + isize(1));
     }, {

@@ -547,11 +547,10 @@ _place_text :: (fn(e : AstExpr) -> String)({
     return(t);
   });
   // Strip only a pair that encloses the whole text (`(a)(b)` keeps its own).
-  bytes := t.as_bytes();
   (depth : i32) = i32(0);
   (i : usize) = usize(0);
-  while(i < (bytes.len() - usize(1)), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+  while(i < (t.len() - usize(1)), {
+    b := match(t.get_byte(i), .Some(x) => x, .None => u8(0));
     if(b == u8(40), {
       depth = (depth + i32(1));
     });

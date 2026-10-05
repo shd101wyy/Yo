@@ -6,7 +6,7 @@ ordinary code and at compile time:
 
 | type | `len()` | slicing | element access |
 | --- | --- | --- | --- |
-| `String` (`std/string`) | bytes, O(1) | `substring(a, b)` — bytes | `s(i)` → `u8`, `at(i)` → `Option(rune)` |
+| `String` (`std/string`) | bytes, O(1) | `substring(a, b)` — bytes | `byte_at(i)` → `u8`, `get_byte(i)` → `Option(u8)`, `at(i)` → `Option(rune)` |
 | `str` (prelude; string literals) | bytes | `s(a..b)` — zero-copy byte window | `bytes(i)` → `u8` (aborts out of range) |
 | `StringBuilder` (`std/string`) | bytes | — | — |
 | `comptime_str` (compile time) | bytes | `slice(a, b)` / `s(a..b)` — bytes | `s(i)` → 1-rune `comptime_str` |
@@ -127,11 +127,53 @@ decode.
 `char_substring()` and `truncate_chars()` — were removed on 2026-08-26;
 `len()` and the idioms above are the whole vocabulary.)
 
-## Element access: `s(i)` is a byte
+## Element access: `byte_at(i)`, not `s(i)`
 
-The `Index` trait on `String` returns the **byte** at offset `i` as a `u8` —
-byte-level access into the UTF-8 buffer, no boundary requirement. `byte_at(i)`
-is the same thing by name. Decoding is `at(i)`.
+`byte_at(i)` returns the **byte** at offset `i` as a `u8` — byte-level access
+into the UTF-8 buffer, no boundary requirement — and panics past the end.
+`get_byte(i)` is the checked form: `.None` past the end (Rust's
+`s.as_bytes().get(i)`). Both read the string in place. Decoding is `at(i)`.
+
+A runtime `String` has no `s(i)`: it does not implement `Index(usize)`, so
+`s(usize(0))` is E0606 ("s is not callable"). `Index` hands out a writable
+place, and a write through it (`s(i) = b`) would reach every string sharing
+the buffer and could leave invalid UTF-8 behind. A read-only `s(i)` returns once
+`Index` separates reads from writes. The range sugar `s(a..b)` is unaffected:
+it builds a new string.
+
+```rust
+{ String } :: import("std/string");
+
+s := String.from("aé中");
+s.byte_at(usize(0)); // u8(97)
+s.get_byte(usize(9)); // .None — past the end
+s(usize(1)..usize(3)); // "é" — a new String
+```
+
+## Copies, clones and the byte list
+
+Every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`,
+`reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`)
+takes `inout(self)` and writes in place. `clone()` copies the bytes (O(n));
+the clone is independent of the original, empty or not. A plain copy
+(`t := s`) still shares a non-empty buffer until `plans/VALUES_BY_DEFAULT.md`
+V2b makes `String` uniquely owned (then `t := s` is a move, or an error naming
+`s.clone()`), so write only through a clone. Writing through a borrowed copy
+(a by-value parameter, a `for` or `match` binding) is E0908; the rules are in
+[DESIGN.md](./DESIGN.md#writing-through-a-copy-of-a-string).
+
+Nothing outside a `String` may write its buffer, so the byte list is copied or
+moved, never lent:
+
+| method | result |
+| --- | --- |
+| `to_bytes()` | a new, independent `ArrayList(u8)`, O(n) |
+| `into_bytes()` | consumes the string and moves its buffer out; copies only when another copy shares it |
+| `String.from_bytes(own(bytes))` | takes the list over, unchecked |
+| `String.from_utf8(own(bytes))` | takes the list over after validating it; `Err(.InvalidUtf8(...))` otherwise |
+
+To read bytes, use `len()`, `byte_at(i)`, `get_byte(i)` or the `bytes()`
+iterator, which copy nothing.
 
 ## Compile-time strings share the basis
 
@@ -153,8 +195,9 @@ Two comptime-specific points:
   `slice` clamps out-of-range, as it always has.
 - **`s(i)` yields a 1-rune `comptime_str`, not a byte.** A comptime string is
   text, not a byte buffer, so comptime `s(i)` mirrors the runtime `at(i)`
-  (the rune starting at byte `i`) rather than the runtime `s(i)` (the `u8`).
-  This result-type split predates the byte migration and is deliberate.
+  (the rune starting at byte `i`) rather than the runtime `byte_at(i)` (the
+  `u8`); a runtime `String` has no `s(i)` at all. This result-type split
+  predates the byte migration and is deliberate.
 
 ## Practical rules
 

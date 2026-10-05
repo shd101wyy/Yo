@@ -5324,7 +5324,7 @@ _evaluate_function_call_unanchored :: (
   // is a property access: enum-variant constructors
   // like `.Some(x)` need expectedType to infer their enum; everything else
   // must NOT see the call's expected type — a call-result callee like
-  // `zs.as_bytes()` in `f(zs.as_bytes()(0))` otherwise synthesizes its
+  // `zs.to_bytes()` in `f(zs.to_bytes()(0))` otherwise synthesizes its
   // declared return against the OUTER expected, e.g.
   // unify(ArrayList(u8), u8).
   callee_is_dot := ast_expr_is_fn_call_of(func_expr, ".", Option(usize).None);
@@ -7022,7 +7022,7 @@ Fix: wrap the call:
             // Evaluate the arg with expectedType = the DECLARED PARAM TYPE
             // — leaving the caller's expected type in place
             // leaked e.g. a single-expr fn body's expected `bool` into the
-            // first argument, so `zimpl(zp.as_bytes(), ...)` synthesized
+            // first argument, so `zimpl(zp.to_bytes(), ...)` synthesized
             // unify(ArrayList(u8), bool) and the whole module failed.
             arg_saved_expected := ctx.expected_type;
             ctx.expected_type = match(

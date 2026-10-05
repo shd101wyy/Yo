@@ -277,7 +277,7 @@ uuid_v4 :: (fn(exn : Exception) -> String)({
     bytes.push(buf(i));
   });
   hex_str := hex.encode(bytes);
-  hex_bytes := hex_str.as_bytes();
+  hex_bytes := hex_str;
   // Insert dashes: 8-4-4-4-12
   out := ArrayList(u8).with_capacity(usize(36));
   positions := Array(usize, usize(4))(usize(8), usize(12), usize(16), usize(20));
@@ -291,7 +291,7 @@ uuid_v4 :: (fn(exn : Exception) -> String)({
       },
       true => ()
     );
-    out.push(hex_bytes(j));
+    out.push(hex_bytes.byte_at(j));
   });
   String.from_bytes(out)
 });

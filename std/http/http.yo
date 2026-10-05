@@ -456,7 +456,7 @@ HttpResponse :: ref(
     /// The body as received, byte-transparent — it is sliced out of the raw
     /// message on the CRLFCRLF boundary and wrapped without UTF-8 validation,
     /// so a binary body survives (a `String` here is a byte container, and
-    /// `body.as_bytes()` is the safe way to read one).
+    /// `body.to_bytes()` is the safe way to read one).
     body : String
   )
 );
@@ -570,11 +570,11 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
   head := raw.substring(usize(0), header_end);
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
-      raw_b := raw.as_bytes();
+      raw_b := raw;
       body_b := ArrayList(u8).new();
       bi := (header_end + usize(4));
       while(runtime(bi < raw_b.len()), {
-        body_b.push(raw_b(bi));
+        body_b.push(raw_b.byte_at(bi));
         bi = (bi + usize(1));
       });
       String.from_bytes(body_b)
@@ -667,11 +667,11 @@ parse_request :: (fn(raw : String) -> Result(HttpRequest, HttpParseError))({
   // binary-bodies row; pinned by tests/http/server.test.yo).
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
-      raw_b := raw.as_bytes();
+      raw_b := raw;
       body_b := ArrayList(u8).new();
       bi := (header_end + usize(4));
       while(runtime(bi < raw_b.len()), {
-        body_b.push(raw_b(bi));
+        body_b.push(raw_b.byte_at(bi));
         bi = (bi + usize(1));
       });
       String.from_bytes(body_b)
