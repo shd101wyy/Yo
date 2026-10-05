@@ -2617,9 +2617,9 @@ including `StringBuilder.to_string`, which detaches the buffer). Read-only
 methods (`len`, `get`, `contains`, `iter`, …) take `self : Self`.
 
 The collections are still handles today, so a write through a copy of one
-reaches the original. That changes when they become copy-on-write values
-(`plans/VALUES_BY_DEFAULT.md` §6 V2b): a write through a copy will land in
-the copy alone. Write the code so it is correct under both rules:
+reaches the original. That changes when they become uniquely owned values
+(`plans/VALUES_BY_DEFAULT.md` §6 V2b): a copy is then an explicit
+`.clone()`, and a write through it lands in the copy alone. Write the code so it is correct under both rules:
 
 - **A helper that fills a list takes it `inout`:** `fill :: (fn(inout(out) :
   ArrayList(i32)) -> unit)(...)`. A plain `out : ArrayList(i32)` parameter is
@@ -3088,7 +3088,7 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 > ```
 >
 > The name stays until values-by-default V1 (`plans/VALUES_BY_DEFAULT.md`)
-> renames this type to `Rc` and introduces a copy-on-write value `Box`. Until
+> renames this type to `Rc` and introduces a uniquely owned `Box`. Until
 > then reference counting is Yo's *universal* object model, not one
 > container's opt-in policy: every `ref(struct(...))` is reference counted,
 > and `Box` is simply the one-field case.
