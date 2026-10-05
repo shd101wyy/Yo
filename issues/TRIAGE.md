@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 188 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 187 open bug
 docs in `issues/` root and the 14 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -33,11 +33,11 @@ Three things are worth knowing before trusting any row.
 | Codegen / emitted C | 18 | 3 |
 | Evaluator / types | 20 | 2 |
 | Std library | 51 | 12 |
-| Tooling (fmt/doc/lsp) | 11 | 0 |
+| Tooling (fmt/doc/lsp) | 10 | 0 |
 | Self-hosting legacy | 11 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 57 | 8 |
-| **Total** | **188** | **28** |
+| **Total** | **187** | **28** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 27 |
 | S2 | 86 |
-| S3 | 73 |
+| S3 | 72 |
 | (missing) | 2 |
 
 - MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
@@ -288,13 +288,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | S3 | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | S3 | — | — |
 
-### Tooling (fmt/doc/lsp) (11)
+### Tooling (fmt/doc/lsp) (10)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`](./collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md) | S3 | OPEN | — |
 | [`collection-test-names-still-use-pre-rename-method-spellings.md`](./collection-test-names-still-use-pre-rename-method-spellings.md) | S3 | OPEN | — |
-| [`fmt-pointer-type-paren-verdict-is-context-dependent.md`](./fmt-pointer-type-paren-verdict-is-context-dependent.md) | S3 | OPEN | — |
 | [`fmt-reformats-parse-invalid-files.md`](./fmt-reformats-parse-invalid-files.md) | S3 | — | — |
 | [`nested-backtick-template-interpolates-the-injected-import.md`](./nested-backtick-template-interpolates-the-injected-import.md) | S2 | OPEN — valid source is rejected, and the diag | — |
 | [`template-string-backslash-before-interpolation-eats-both.md`](./template-string-backslash-before-interpolation-eats-both.md) | S1 | — | — |

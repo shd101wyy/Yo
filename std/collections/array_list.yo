@@ -45,7 +45,7 @@ ArrayListError :: enum(
 ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
     struct(
-      _ptr : ?(*(T)),
+      _ptr : ?*T,
       _length : usize,
       _capacity : usize
     )
@@ -74,9 +74,9 @@ impl(
     )
   ),
   // The capacity without the allocator tag.
-  _cap : (fn(self : Self) -> usize)((self._capacity & _CAP_MASK)),
+  _cap : (fn(self : Self) -> usize)(self._capacity & _CAP_MASK),
   // True when the buffer came from an explicit `Allocator`.
-  _owned : (fn(self : Self) -> bool)(((self._capacity & _CAP_TAG) != usize(0))),
+  _owned : (fn(self : Self) -> bool)((self._capacity & _CAP_TAG) != usize(0)),
   // Store a new capacity, keeping the allocator tag.
   _set_cap : (fn(self : Self, cap : usize) -> unit)({
     self._capacity = (cap | (self._capacity & _CAP_TAG));
@@ -94,7 +94,7 @@ impl(
     )
   ),
   // Release the buffer to the allocator that owns it.
-  _buf_free : (fn(self : Self, p : *(T)) -> unit)(
+  _buf_free : (fn(self : Self, p : *T) -> unit)(
     cond(
       self._owned() => Allocator.free(.Some((*void)(p))),
       true => free(.Some((*void)(p)))
@@ -118,7 +118,7 @@ impl(
   /// The pointer is only valid until the next reallocation (`push` past
   /// capacity, `reserve`, `ensure_total_capacity`, `shrink_to_fit`), and it
   /// borrows: it does not keep the list alive.
-  ptr : (fn(self : Self) -> ?(*(T)))(
+  ptr : (fn(self : Self) -> ?*T)(
     self._ptr
   ),
   /// A pointer to the first uninitialized slot, `ptr() + len()`: the start of
@@ -132,11 +132,11 @@ impl(
   /// A struct that merely CONTAINS a pointer, such as `RawSlice(T)`, would not
   /// be gated: safe code may hold `String.raw_bytes()`. The pointer is valid
   /// until the next reallocation, like `ptr()`.
-  spare_capacity : (fn(self : Self) -> Option(*(T)))(
+  spare_capacity : (fn(self : Self) -> Option(*T))(
     match(
       self._ptr,
-      .Some(p) => Option(*(T)).Some(p.add(self._length)),
-      .None => Option(*(T)).None
+      .Some(p) => Option(*T).Some(p.add(self._length)),
+      .None => Option(*T).None
     )
   ),
   /// Commit the first `n` spare slots (`spare` is the token from
@@ -147,7 +147,7 @@ impl(
     fn(
       self : Self,
       n : usize,
-      spare : *(T),
+      spare : *T,
       requires(n <= (self.capacity() - self.len())),
       ensures(self.len() == (old(self.len()) + n)),
       assumed()
@@ -159,7 +159,7 @@ impl(
       .None => false
     );
     cond(
-      !(at_end) => __yo_panic("assume_init: the pointer is not this list's spare capacity"),
+      !at_end => __yo_panic("assume_init: the pointer is not this list's spare capacity"),
       (n > (self._cap() - self._length)) => __yo_panic("assume_init: n exceeds the spare capacity"),
       true => {
         self._length = (self._length + n);
@@ -263,7 +263,7 @@ impl(
           ptr_result,
           .Some(_ptr) =>
             Self(
-              _ptr : .Some((*(T))(_ptr)),
+              _ptr : .Some((*T)(_ptr)),
               _length : usize(0),
               _capacity : cap
             ),
@@ -295,7 +295,7 @@ impl(
           alloc.alloc(bytes),
           .Some(p) =>
             Self(
-              _ptr : .Some((*(T))(p)),
+              _ptr : .Some((*T)(p)),
               _length : usize(0),
               _capacity : (tagged_cap | _CAP_TAG)
             ),
@@ -322,7 +322,7 @@ impl(
       malloc(usize(1)),
       .Some(anchor) =>
         Self(
-          _ptr : .Some((*(T))(anchor)),
+          _ptr : .Some((*T)(anchor)),
           _length : usize(0),
           _capacity : _CAP_MASK
         ),
@@ -469,7 +469,7 @@ impl(
         // allocator shrinks to its owner prefix instead, so the list keeps
         // its allocator.
         cond(
-          ((self._length == usize(0)) && !(self._owned())) => {
+          ((self._length == usize(0)) && !self._owned()) => {
             match(
               self._ptr,
               .Some(_ptr) => {
@@ -558,7 +558,7 @@ impl(
             });
             // Shift remaining elements left to fill the gap
             // We need to move elements from [r.start + count, length) to [r.start, ...)
-            elements_after := ((self._length - r.start) - count);
+            elements_after := (self._length - r.start - count);
             cond(
               (elements_after > usize(0)) => {
                 src_ptr := _ptr.add(r.start + count);
@@ -893,7 +893,7 @@ impl(
         match(
           new_some_ptr,
           .Some(new_ptr) => {
-            self._ptr = .Some((*(T))(new_ptr));
+            self._ptr = .Some((*T)(new_ptr));
             self._set_cap(new_capacity);
           },
           .None => __yo_panic("ArrayList.ensure_total_capacity: allocation failed")
@@ -908,7 +908,7 @@ impl(
   /// per-element dup, so for a refcounted `T` this MOVES the source elements:
   /// the caller must not also release them. Reaching for it on a plain-data
   /// element type is the point — that is where it beats a `push` loop.
-  extend_from_ptr : (fn(self : Self, src : *(T), count : usize) -> unit)({
+  extend_from_ptr : (fn(self : Self, src : *T, count : usize) -> unit)({
     cond(
       (count == usize(0)) => (),
       true => {
@@ -916,8 +916,8 @@ impl(
         match(
           self._ptr,
           .Some(dst_base) => {
-            dst := (*(void))(dst_base.add(self._length));
-            unsafe(memcpy(dst, (*(void))(src), count * sizeof(T)));
+            dst := (*void)(dst_base.add(self._length));
+            unsafe(memcpy(dst, (*void)(src), count * sizeof(T)));
             self._length = (self._length + count);
           },
           .None => __yo_panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
@@ -943,7 +943,7 @@ impl(
       self._ptr,
       .None => (),
       .Some(_ptr) => {
-        unsafe(memset((*(void))(_ptr), byte_val, self._length * sizeof(T)));
+        unsafe(memset((*void)(_ptr), byte_val, self._length * sizeof(T)));
       }
     )
   ),
@@ -964,7 +964,7 @@ impl(
         match(
           self._ptr,
           .Some(_ptr) => {
-            start := (*(void))(_ptr.add(self._length));
+            start := (*void)(_ptr.add(self._length));
             fill_count := ((new_len - self._length) * sizeof(T));
             unsafe(memset(start, byte_val, fill_count));
             self._length = new_len;
@@ -982,7 +982,7 @@ impl(
     /// The output type is the element type `T`.
     Output : T,
     /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
       // Bounds check via `if` + `__yo_panic` (not `assert`: this module is
       // inside `std/assert`'s dependency cycle and cannot import it).
       if(idx >= self._length, {
@@ -1005,7 +1005,7 @@ impl(
     /// `index` minus the length test. Codegen calls this only at a subscript
     /// the verifier proved in bounds
     /// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
-    index_unchecked : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index_unchecked : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       match(
         self._ptr,
         .Some(_ptr) => _ptr.add(idx),
@@ -1148,8 +1148,8 @@ impl(
   generic(T : Type),
   ArrayListIterPtr(T),
   Iterator(
-    Item : *(T),
-    next : (fn(inout(self) : Self) -> Option(*(T)))(
+    Item : *T,
+    next : (fn(inout(self) : Self) -> Option(*T))(
       cond(
         ((self._index + self._back_taken) >= self._list._length) => .None,
         true => {
@@ -1168,8 +1168,8 @@ impl(
   generic(T : Type),
   ArrayListIterPtr(T),
   DoubleEndedIterator(
-    Item : *(T),
-    next_back : (fn(inout(self) : Self) -> Option(*(T)))(
+    Item : *T,
+    next_back : (fn(inout(self) : Self) -> Option(*T))(
       cond(
         ((self._index + self._back_taken) >= self._list._length) => .None,
         true => {
@@ -1221,7 +1221,7 @@ impl(
                 .None => false
               )
           );
-          if(!(is_dup), {
+          if(!is_dup, {
             kept.push(cur);
           });
           i = (i + usize(1));
@@ -1246,7 +1246,7 @@ impl(
         while(runtime((i < n) && same), {
           a := match(self.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.starts_with: get failed"));
           b := match(prefix.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.starts_with: get failed"));
-          if(!((a == b)), {
+          if(!(a == b), {
             same = false;
           });
           i = (i + usize(1));
@@ -1267,7 +1267,7 @@ impl(
         while(runtime((i < n) && same), {
           a := match(self.get(off + i), .Some(v) => v, .None => __yo_panic("ArrayList.ends_with: get failed"));
           b := match(suffix.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.ends_with: get failed"));
-          if(!((a == b)), {
+          if(!(a == b), {
             same = false;
           });
           i = (i + usize(1));
@@ -1284,7 +1284,7 @@ impl(
       self._ptr,
       .Some(_ptr) => {
         i := usize(0);
-        while((i < self._length) && !(found), i = (i + usize(1)), {
+        while((i < self._length) && !found, i = (i + usize(1)), {
           cond(
             ((_ptr.add(i)).* == value) => {
               found = true;
@@ -1307,7 +1307,7 @@ impl(
       self._ptr,
       .Some(_ptr) => {
         i := usize(0);
-        while((i < self._length) && !(found), i = (i + usize(1)), {
+        while((i < self._length) && !found, i = (i + usize(1)), {
           cond(
             ((_ptr.add(i)).* == value) => {
               result = .Some(i);
@@ -1358,7 +1358,7 @@ impl(
 /// written inline in both phases: a nested named fn cannot capture `ptr`/
 /// `less`, and a bare closure binding has no target type to infer from.
 _heapsort_by :: (
-  fn(generic(T : Type), ptr : *(T), n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> unit
+  fn(generic(T : Type), ptr : *T, n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> unit
 )({
   // Phase 1: heapify (sift-down from the last parent to the root).
   (i : usize) = (n / usize(2));
@@ -1455,7 +1455,7 @@ _merge_sort_indices :: (
     generic(T : Type),
     order : ArrayList(usize),
     scratch : ArrayList(usize),
-    ptr : *(T),
+    ptr : *T,
     n : usize,
     less : Impl(Fn(a : T, b : T) -> bool)
   ) -> unit
@@ -1500,7 +1500,7 @@ _merge_sort_indices :: (
   });
 });
 _stable_sort_by :: (
-  fn(generic(T : Type), ptr : *(T), n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> unit
+  fn(generic(T : Type), ptr : *T, n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> unit
 )({
   order := ArrayList(usize).new();
   scratch := ArrayList(usize).new();
@@ -1583,7 +1583,7 @@ impl(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)({
       n := lhs.len();
       cond(
-        (!(n == rhs.len())) => false,
+        !(n == rhs.len()) => false,
         true => {
           (i : usize) = usize(0);
           (equal : bool) = true;

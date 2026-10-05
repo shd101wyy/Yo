@@ -318,14 +318,21 @@ test("fmt elision: parenthesized dot-deref sugar still canonicalizes", {
   assert(out.contains(String.from("a.* == 99")), "a.(*) canonicalizes to a.*");
   assert(out.contains(String.from("c.*.count")), "c.(*).count canonicalizes to c.*.count");
 });
-test("fmt elision: quote argument with macro splices keeps its group (gate-conservative)", {
+test("fmt elision: quote argument with macro splices unwraps, splices stay tight", {
+  // The group around the whole `==` argument of `quote(...)` is a plain
+  // redundant call argument (`f((a + b))` → `f(a + b)`, D1). It used to
+  // SURVIVE only because eliding the splice's own call paren (`#(field)` →
+  // `#field`) broke the re-parse gate and turned elision off file-wide —
+  // the fallback, not a decision about this group. With the splice call
+  // parens protected (is_non_prefix_operator_call_paren), the gate proves
+  // the unwrapped tree equal and the canonical form wins.
   src := String.from(
     "main :: (fn() -> unit)({\n  expr := quote((lhs.(#(field)) == rhs.(#(field))));\n});\nexport(main);\n"
   );
   out := _fmt(src.clone());
   assert(
-    out.contains(String.from("quote((lhs.(#(field)) == rhs.(#(field))))")),
-    "exprs_are_equal cannot prove splice trees equal — the group stays"
+    out.contains(String.from("quote(lhs.(#(field)) == rhs.(#(field)))")),
+    "the redundant argument group elides; the splice call parens stay tight"
   );
   assert(_fmt(out.clone()) == out, "and that is a fixed point");
 });
@@ -411,6 +418,87 @@ test("fmt D4: multi-arg and infix-operand funcs keep their call parens", {
   // via the pre-existing rules (same output the seed produced), and the
   // operator keeps its call paren.
   assert(out.contains(String.from("*(a + b)(y)")), "non-atom operand is not canonicalized by D4");
+});
+// ---------------------------------------------------------------------------
+// Non-prefix-capable operator CALL parens (issues/fixed/fmt-pointer-type-
+// paren-verdict-is-context-dependent.md): `...`, `#`, and `...#` have no
+// bare prefix form (PREFIX_OPERATOR_OPERAND_RULE.md Rule 1 lists only
+// `- ! ~ & * ? ^`), so their ONLY operand grammar is the tight call
+// `op(operand)`. D1's "an atom-like operand needs no parens after ANY
+// operator" used to elide that call paren (`...(quote(entries))` →
+// `...quote(entries)`), which does not re-parse (E0008) — the verify gate
+// then disabled paren elision FILE-WIDE, so the byte-identical
+// `Item : *(MapEntry(K, V))` spelling passed `fmt --check` in
+// hash_map.yo (whose trailing spread-rest macro tripped the gate) and was
+// rewritten in every file without one.
+// ---------------------------------------------------------------------------
+test("fmt elision: spread-rest call paren stays and does not disable file-wide elision", {
+  src := String.from("m :: (fn(...(quote(entries))) -> unquote(Expr))(());\nT :: ?(*(i32));\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("...(quote(entries))")),
+    "the spread operator's call paren is load-bearing — ...x does not parse"
+  );
+  assert(out.contains(String.from("T :: ?*i32;")), "elision still runs in the rest of the file");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision: unquote splice call paren stays and does not disable file-wide elision", {
+  src := String.from("m :: (fn(x : Expr) -> Expr)(quote((#(x))));\nprobe :: ((1 + 2) + 3);\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("#(x)")),
+    "the unquote operator's call paren is load-bearing — #x does not parse"
+  );
+  assert(
+    out.contains(String.from("probe :: (1 + 2 + 3);")),
+    "elision still runs in the rest of the file"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision: unquote-splicing call paren stays and does not disable file-wide elision", {
+  src := String.from("m :: (fn(rest : Expr) -> Expr)(quote((...#(rest))));\nprobe :: ((1 + 2) + 3);\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("...#(rest)")),
+    "the splice operator's call paren is load-bearing — ...#rest does not parse"
+  );
+  assert(
+    out.contains(String.from("probe :: (1 + 2 + 3);")),
+    "elision still runs in the rest of the file"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision: barrel export spread call paren stays", {
+  src := String.from("export(...(_command));\nprobe :: ((1 + 2) + 3);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("...(_command)")), "the barrel spread's call paren stays");
+  assert(
+    out.contains(String.from("probe :: (1 + 2 + 3);")),
+    "elision still runs in the rest of the file"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision: pointer-type paren verdict is context-independent", {
+  // The filed divergence: `Item : *(MapEntry(K, V))` canonicalizes in a
+  // plain file but survived verbatim in hash_map.yo, whose trailing
+  // `fn(...(quote(entries)))` macro used to trip the verify gate and turn
+  // elision off for the WHOLE file. Both spellings must now agree.
+  plain := String.from("Iter :: struct(Item : *(MapEntry(K, V)));\n");
+  with_macro := String.from(
+    "m :: (fn(...(quote(entries))) -> unquote(Expr))(());\nIter :: struct(Item : *(MapEntry(K, V)));\n"
+  );
+  out_plain := _fmt(plain.clone());
+  out_with_macro := _fmt(with_macro.clone());
+  assert(
+    out_plain.contains(String.from("Item : *MapEntry(K, V)")),
+    "standalone: the pointer-type paren elides"
+  );
+  assert(
+    out_with_macro.contains(String.from("Item : *MapEntry(K, V)")),
+    "with a spread-rest macro in the file: the same verdict"
+  );
+  assert(_fmt(out_plain.clone()) == out_plain, "idempotent");
+  assert(_fmt(out_with_macro.clone()) == out_with_macro, "idempotent");
 });
 test("collect_yo_files skips dot-prefixed files in a directory walk", {
   // The walk collected EVERY `*.yo` including gitignored dot-files the

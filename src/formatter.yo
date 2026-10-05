@@ -1449,6 +1449,51 @@ is_callee_prefix_call_paren :: (
     }
   )
 );
+/// True iff the `(` at `left_index` is the CALL delimiter of a
+/// NON-prefix-capable operator in prefix position — `...(entries)`,
+/// `#(field)`, `...#(exprs)`. Those operators have no bare prefix form
+/// (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1 lists only
+/// `- ! ~ & * ? ^`), so the tight call is their ONLY operand grammar:
+/// eliding the paren yields `op operand`, which the parser rejects (E0008,
+/// `paren-less function and operator calls are not supported`). Until this
+/// predicate existed, D1's "an atom-like operand needs no parens after ANY
+/// operator" elided it, the re-parse verify gate failed, and paren elision
+/// was disabled FILE-WIDE — the byte-identical `Item : *(MapEntry(K, V))`
+/// spelling then passed `fmt --check` in hash_map.yo (whose trailing
+/// spread-rest macro tripped the gate) and was rewritten everywhere else
+/// (issues/fixed/fmt-pointer-type-paren-verdict-is-context-dependent.md).
+/// Prefix position is judged exactly like `prefix_call_paren_shape`: an
+/// rvalue-end before the operator makes it the infix spelling (`a + (y)` is
+/// a plain RHS group and D1 elision still applies there). Adjacency is not
+/// required — a spaced `op (x)` does not parse in the first place
+/// (`whitespace before '(' is not allowed`), so it never reaches elision.
+is_non_prefix_operator_call_paren :: (
+  fn(tokens : ArrayList(Token), left_index : usize) -> bool
+)(
+  match(
+    previous_meaningful_token_index(tokens, left_index),
+    .None => false,
+    .Some(oi) =>
+      match(
+        tokens.get(oi),
+        .None => false,
+        .Some(op) => cond(
+          ((op.kind != TokenKind.Operator) || is_prefix_capable_operator(op)) => false,
+          true => {
+            // Prefix position: an rvalue-end before the operator makes it
+            // the infix spelling (`a + (y)`), where the group is the
+            // operator's RHS operand, not its call.
+            before_op := match(
+              previous_meaningful_token_index(tokens, oi),
+              .Some(bi) => tokens.get(bi),
+              .None => Option(Token).None
+            );
+            !paren_is_call_delimiter(before_op)
+          }
+        )
+      )
+  )
+);
 /// True iff the paren range is a redundant grouping paren (e.g.
 /// `(x)` around a single sub-expression that doesn't need protection).
 is_redundant_grouping_paren :: (
@@ -1467,14 +1512,18 @@ is_redundant_grouping_paren :: (
         true => {
           shape := classify_group_content(tokens, left_index, right_index);
           // Operator predecessor: an atom-like group (`(x)`, `(-x)`,
-          // `(f(x))`) is a removable operand after ANY operator — all
-          // operators are plain and an atom-like operand needs no parens
-          // (plans/archive/FMT_PAREN_ELISION.md D1). A group holding an infix chain
-          // is load-bearing (R1/R2/R3) and stays. One exception: after a
-          // prefix-capable operator, a group around a non-atom-like group
-          // (`-((1 + 2))`) defers to the INNER elision so the `-(` call
-          // spelling survives rendering (adjacent or spaced alike — the
-          // spaced spelling stays conservative the same way).
+          // `(f(x))`) is a removable operand after ANY operator in INFIX
+          // position — all operators are plain and an atom-like operand
+          // needs no parens (plans/archive/FMT_PAREN_ELISION.md D1). A group
+          // holding an infix chain is load-bearing (R1/R2/R3) and stays.
+          // Two exceptions: after a prefix-capable operator, a group around
+          // a non-atom-like group (`-((1 + 2))`) defers to the INNER elision
+          // so the `-(` call spelling survives rendering (adjacent or spaced
+          // alike — the spaced spelling stays conservative the same way);
+          // and a NON-prefix-capable operator in prefix position (`...`,
+          // `#`, `...#`) takes its operand only as the tight call
+          // `op(operand)`, so its `(` is a call delimiter, never a removable
+          // group.
           prev_prefix_defers_to_inner := match(
             previous,
             .None => false,
@@ -1487,8 +1536,10 @@ is_redundant_grouping_paren :: (
             previous,
             .None => false,
             .Some(p) => (
-              ((p.kind == TokenKind.Operator) && !shape.atom_like) ||
-                prev_prefix_defers_to_inner
+              ((p.kind == TokenKind.Operator) && !shape.atom_like) || (
+                prev_prefix_defers_to_inner ||
+                  is_non_prefix_operator_call_paren(tokens, left_index)
+              )
             )
           );
           cond(
@@ -3521,6 +3572,7 @@ export(
   previous_meaningful_token_index,
   is_left_same_operator_flatten_group,
   prefix_call_paren_shape,
+  is_non_prefix_operator_call_paren,
   is_elidable_prefix_call_paren,
   is_callee_prefix_call_paren,
   canonicalize_callee_prefix_calls,
