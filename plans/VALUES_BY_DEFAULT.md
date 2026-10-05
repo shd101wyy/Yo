@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 36 in §4 are confirmed. No design question is open;
+- **Decisions:** all 37 in §4 are confirmed. No design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 
@@ -783,7 +783,7 @@ machinery.
 
 ## 4. Decisions
 
-All 36 are confirmed by the maintainer. A change is a dated amendment here
+All 37 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -942,11 +942,13 @@ and in git, not a silent edit.
       instantiation. A generic that copies writes `Impl(Fn(...), Clone)`.
     - **`Dyn(Fn(...))`** is move-only. `Dyn(Fn(...), Clone)` is
       explicit-copy, with a `clone` slot.
-    - **No `FnMut`/`FnOnce`.** A closure body never writes or moves its
-      own captures. State goes through a `mut` capture (decision 35), an
-      `Rc` capture or a `mut` parameter. A `mut` capture writes through the
-      captured pointer, not the closure's environment, so the call stays
-      `imm(self)`.
+    - **No `FnMut`.** A closure body never writes its own captures. State
+      goes through a `mut` capture (decision 35), an `Rc` capture or a `mut`
+      parameter. A `mut` capture writes through the captured pointer, not
+      the closure's environment, so the call stays `imm(self)`. Decision 37
+      gives the reasons.
+    - **`FnOnce` is added by decision 37** (amended 2026-10-05). The first
+      version also had no `FnOnce`, so a body could not move a capture out.
 24. **Projections (Hylo's subscripts), first cut.**
     - A function whose result is `mut(T)` is a mutable projection, and one
       whose result is `imm(T)` a read projection.
@@ -1443,7 +1445,7 @@ and in git, not a silent edit.
         capture `inout`: the closure cannot outlive the borrow, and nothing
         else reaches the place while the closure is live.
       - A call writes through the captured pointer, so `Fn`'s call stays
-        `imm(self)` and no `FnMut` is added.
+        `imm(self)` and no `FnMut` is added (decision 37 explains why).
       - It replaces the `Rc` counter that a `for_each` body needs today.
     - **Parsing.** `{ x, y } => …` is a record pattern in a `match` arm.
       `{…}(params) => …` is accepted only where a closure is expected, and
@@ -1539,6 +1541,100 @@ and in git, not a silent edit.
       - a generic `where(T <: Copy)` operator impl;
       - a tuple of `Copy` parts copies implicitly;
       - a closure whose captures are all `Copy` copies implicitly.
+
+37. **`FnOnce` is added; `FnMut` is not.** Confirmed 2026-10-05 by the
+    maintainer. This amends decision 23.
+    - **Background.** Rust's three closure traits differ only in how a call
+      uses the closure's own environment:
+
+      | Rust | The call takes | Used for |
+      | --- | --- | --- |
+      | `Fn` | `&self` | reading captures |
+      | `FnMut` | `&mut self` | writing the closure's own state |
+      | `FnOnce` | `self` | moving a capture out |
+
+    - **`FnOnce(...)`.**
+      - Its call takes `self`, decision 30's consuming receiver.
+      - A closure whose body moves a capture out (`{ tx, msg }() =>
+        tx.send(msg)`) implements only `FnOnce`. Calling it consumes it,
+        and a second call is E0901, pointing at the first.
+      - **`Fn` implies `FnOnce`.** A borrowing call also serves for one
+        call, so an API that calls its argument once takes
+        `Impl(FnOnce(...))` and accepts both kinds.
+      - **Which trait a closure gets follows from its body**, by decision
+        22's structural rule: does the body move a capture out? There is
+        no annotation. A mismatch (an `FnOnce`-only closure passed where
+        `Fn` is required) is an error naming the line that moves.
+      - `Dyn(FnOnce(...))` is move-only, and its slot consumes the payload.
+    - **Why `FnOnce` is needed.**
+      - Moving out of a capture is about ownership, not mutation, and
+        nothing else expresses it.
+      - Without it, `tx.send(msg)` in a spawned closure is
+        `tx.send(msg.clone())` (a wasted copy), or an `Option` plus `take`
+        through a `mut`/`Rc` capture (noise).
+      - One-shot callbacks are common: thread and task spawns, the
+        `Option`/`Result` combinators, `with_lock`'s body.
+    - **Why no `FnMut`.** In Rust, an `FnMut` closure is a value whose own
+      state changes on every call. Yo never needs one, because every use
+      has an explicit spelling:
+      - **Mutating outside state from a non-escaping closure:** a `mut`
+        capture (decision 35), e.g. `xs.for_each({ mut(count) }(x : i32) =>
+        { count = (count + x); })`.
+        - The closure is second-class and move-only, so it cannot escape or
+          be duplicated.
+        - It is not `Sync`, so a parallel `for_each` that requires
+          `Impl(Fn(...), Sync)` rejects it.
+        - Those are exactly the hazards `FnMut`'s `&mut self` guards
+          against in Rust: two callers of one stateful closure, and a call
+          that runs while another is live.
+        - The call writes through the captured pointer, never the
+          environment, so `imm(self)` stays honest.
+      - **An escaping closure with private state** (Rust's `move || { n +=
+        1; n }` returned as `impl FnMut`):
+        - an `Rc` capture, `{ n : rc(0) }() => { n.* = (n.* + 1); n.* }`,
+          whose sharing and allocation are visible;
+        - or a named struct with a `mut(self)` method, which is what Yo's
+          iterators already are.
+
+        Both cost a little more than Rust's version, which is the point:
+        state that changes across calls is never hidden inside a value
+        that looks like a function.
+      - **What it saves.** A third call trait would have to appear in
+        every API's bound, in `Dyn`, and in every closure's inferred kind,
+        and reading `f(x)` would no longer tell whether `f` itself changed.
+        Under decisions 35 and 37, a closure's environment never changes
+        while it lives, and a call either borrows it (`Fn`) or consumes it
+        (`FnOnce`).
+    - **std switches to `Impl(FnOnce(...))` where it calls once:**
+      - `Option`: `map`, `and_then`, `or_else`, `map_or_else`,
+        `unwrap_or_else`, `ok_or_else`;
+      - `Result`: `map`, `map_err`, `and_then`, `or_else`, `map_or_else`,
+        `unwrap_or_else`;
+      - `Thread.spawn` and `ThreadPool.spawn` (`std/thread.yo`), as
+        `Impl(FnOnce(...), Send)`;
+      - the `with_lock`/`try_with_lock` bodies of the sync `Mutex`
+        (`std/sync/mutex.yo`) and the async `with_lock` body
+        (`std/async/mutex.yo`);
+      - the body passed to `io.async`, which runs once as a state machine.
+
+      Callbacks that run per element keep `Impl(Fn(...))`: `for_each`, the
+      iterator `map`/`filter`, comparators and hashers.
+    - **Phase.**
+      - **Generation A:** the compiler. That means the prelude `FnOnce`
+        trait, the "moves a capture out" rule that decides a closure's
+        trait, the consuming call, `Fn` implies `FnOnce`, and the
+        `Dyn(FnOnce)` slot.
+      - **Generation B:** std's signatures switch, once the seed carries
+        Generation A. It lands with V3's move-only work, which already
+        tracks moves out of captures (`consume_captured_variables`).
+    - **Tests:**
+      - a spawned closure sends a captured `String` with no clone;
+      - a second call of an `FnOnce`-only closure is E0901;
+      - passing it where `Fn` is required is the error naming the moving
+        line;
+      - an `Fn` closure is accepted by an `FnOnce` parameter;
+      - `Dyn(FnOnce(...))` is called once;
+      - `unwrap_or_else` moves a captured value into its result.
 
 **Considered and kept implicit** (2026-10-05, the maintainer):
 - **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
@@ -2265,7 +2361,7 @@ stage-2 RSS):
 
 No design question is open. The latest were decided as decisions 31 (the
 child wrapper in patterns), 34 (operator operands), 35 (the closure capture
-list) and 36 (the `Copy` trait). Decision 18 was also
+list), 36 (the `Copy` trait) and 37 (`FnOnce`, and no `FnMut`). Decision 18 was also
 amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
