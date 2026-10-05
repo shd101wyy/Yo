@@ -18,7 +18,7 @@ V2a (collection mutators take `inout(self)`, the audit lists collection
 writes) has landed; its status and the corrections it makes to §6 V2a are
 under "V2a status". Amended again 2026-10-05 after a review of what happens
 to the compile-time RC machinery under §0 (§0.9): decisions 25–29 confirmed
-with the maintainer (29: borrowed scalars by value, everything else by `const T*`),
+with the maintainer (29: borrowed scalars and scalar pairs by value, everything else by `const T*`),
 phases placed for decision 17 and for `Box`'s and
 `Dyn`'s explicit copies (§0.8), and superseded notes on V1's `Box`
 definition, §3.10, §3.12, §3.13, V3 and V4.**
@@ -524,22 +524,45 @@ copies the first kind implicitly (decision 16).
       The `Rc` arm is its own PR right after V1 step 1's rename, which stays
       mechanical.
 
-29. **Confirmed 2026-10-05: a borrowed scalar is passed by value;
-    every other borrowed parameter by `const T*`.** Raised by the
+29. **Confirmed 2026-10-05: a borrowed scalar or scalar pair is passed by
+    value; every other borrowed parameter by `const T*`.** Raised by the
     maintainer: the C signature must be predictable from the Yo signature,
     and a large struct must not be copied at every call.
     - **The rule:**
 
       | Yo parameter | C |
       | --- | --- |
-      | plain (borrow) of a scalar: integers, floats, `bool`, `rune`, raw pointers, fieldless enums | `T x` |
-      | plain (borrow) of anything else: structs, enums with payloads, tuples, arrays, `str`, `String`, collections, `Box`, `Dyn`, `Rc`/`Arc`, move-only types | `const T* x` |
+      | plain (borrow) of a scalar or a scalar pair (below) | `T x` |
+      | plain (borrow) of anything else: larger structs, enums, tuples and arrays, and every owning type (`String`, collections, `Box`, `Dyn`, `Rc`/`Arc`, move-only types) whatever its shape | `const T* x` |
       | `inout(x) : T` | `T* x` |
       | `sink(x) : T` | `T x`, by value; ownership moves in, and the callee drops it |
       | a parameter of an `extern` C function | exactly the declared C type |
 
       The receiver follows the same rule: `self` like a plain parameter of
       its type, and `inout(self)` like an `inout` parameter.
+    - **Scalars and scalar pairs.**
+      - A *scalar* is an integer, float, `bool`, `rune`, raw pointer, or the
+        tag of a fieldless enum.
+      - A *scalar pair* is an implicitly copyable struct, tuple, array or
+        enum that flattens, field by field and recursively, to at most two
+        scalars, counting an enum's tag as one.
+      - Examples: `Point(x : i32, y : i32)` (2), `str` (pointer and length,
+        2) and `Option(i32)` (tag and value, 2) are passed by value.
+        `Rect(Point, Point)` (4) and an 8-field struct are passed by
+        `const T*`.
+    - **Why shape, not bytes** (added 2026-10-05, at the maintainer's
+      suggestion of a small-struct threshold):
+      - **Target-independent.** A byte threshold would emit different C on
+        different targets: `str` is 16 bytes on 64-bit targets and 8 on
+        wasm32. The shape can be read off the declaration, and the C
+        signature is the same on every target.
+      - **It matches the calling conventions.** Two scalars fit two
+        registers on every target Yo supports. Rust's compiler uses the same
+        cut: its `ScalarPair` ABI passes in two registers, and larger values
+        by reference.
+      - **It never leaks into semantics.** A borrow is read-only (§9 Q13 is
+        resolved as E0908), so passing by value or by pointer behaves
+        identically. The rule decides only which C is emitted.
     - **This is Hylo's design, made concrete.**
       - Hylo passes every parameter of every convention, and the result,
         through a pointer, even an `Int`. The convention only adds LLVM
@@ -548,33 +571,36 @@ copies the first kind implicitly (decision 16).
         "Parameters and return values are passed by reference").
       - Its C calls are a separate instruction (`CallFFI`) that passes each
         argument with its C type.
-      - Yo keeps scalars in registers, so that `add :: (fn(x : i32, y : i32)
-        -> i32)` stays `int32_t add(int32_t x, int32_t y)`, and keeps
-        Hylo's split between native calls and C calls.
+      - Yo keeps scalars and scalar pairs in registers, so that
+        `add :: (fn(x : i32, y : i32) -> i32)` stays
+        `int32_t add(int32_t x, int32_t y)`. It also keeps Hylo's split
+        between native calls and C calls.
     - **Rejected alternatives, and why:**
       - **Copy plain data by value whatever its size** (the first version of
         this decision): a large struct is copied at every call.
-      - **A size threshold** (by pointer above 16 bytes): the C signature
-        would depend on the layout and differ by target ABI. Windows x64
-        already passes structs over 8 bytes by reference, and wasm32 has
-        its own rules.
+      - **A byte threshold** (by pointer above 16 bytes): the C signature
+        would depend on the layout and differ by target. Windows x64 already
+        passes structs over 8 bytes by reference, and wasm32 has its own
+        rules. The scalar-pair rule keeps the benefit without that.
       - **A per-type marker** (`BorrowByPointer`): one more thing to know
         and to forget.
       - **By-value default with explicit `read`/`mut`:** C is just as
         predictable, but `read(...)` lands on most `String`, collection and
         callback parameters and on every reading `self`. The default stays
         borrow (decision 24).
-    - **Cost.** A small struct such as `Point` or `str` is passed through a
+    - **Cost.** A struct of three or more scalars is passed through a
       pointer. Yo emits most functions `static inline`, so at `-O2` clang
       inlines them or promotes a read-only pointer argument back to
       registers (LLVM's argument promotion), which is what Hylo relies on.
       The cost remains in `-O0` builds and across translation units. The
       PR measures both.
-    - **Writes through a plain parameter.** A borrowed struct is now the
-      caller's storage, so `p.n = (p.n + 1)` on a plain `p : Point` cannot
-      stay legal as a write to a private copy. §9 Q13 decides between an
-      E0908 error (the recommendation; write `q := p` or take `inout(p)`)
-      and a copy into a local at entry.
+    - **Writes through a plain parameter are E0908** (§9 Q13, resolved
+      2026-10-05). A plain parameter is a read-only borrow, as Hylo's `let`
+      is, for every type. `p.n = (p.n + 1)` on a plain `p : Point` is an
+      error, with a note: write `q := p` (an implicit copy for plain data)
+      or take `inout(p)`. The rule is the same whether `p` is passed by
+      value or by pointer, which is what keeps the scalar-pair rule
+      invisible.
     - **Call sites.** An argument that is not an lvalue (a literal struct,
       a call result) is materialized in a temporary whose address is
       passed, as C++ does for `const T&`. A borrowed parameter passed on to
@@ -608,10 +634,11 @@ copies the first kind implicitly (decision 16).
       `restrict` waits until the module-level arms reject that case for
       every type.
     - **Phases.**
-      - Plain structs, enums, tuples, arrays and `str` switch to `const T*`
-        in their own measured PR after V3. This is a codegen change plus Q13
-        (`check ./src` time, stage-2 RSS, a `-O0` and an `-O2` call-heavy
-        micro-benchmark).
+      - Plain structs, enums, tuples and arrays beyond a scalar pair switch
+        to `const T*` in their own measured PR after V3, together with the
+        E0908 rule for writes through plain parameters. It is measured with
+        `check ./src` time, stage-2 RSS, and a `-O0` and an `-O2`
+        call-heavy micro-benchmark.
       - Owning types switch with V2b, when `String`, the collections and
         `Dyn` become values. Today's handles are a cell pointer passed by
         value with no count change, which already behaves as `const T*`.
@@ -699,8 +726,8 @@ here. The phase sizes below are written without them, on purpose.
    `match(sink(x), …)` for move-only payloads (decision 26). Then
    `borrow(y) :=`, last-use live ranges and decision 25's re-pointing
    (without the projection step), which the unique `Box` needs.
-   Decision 29's `const T*` lowering for plain structs, enums, tuples,
-   arrays and `str`, with §9 Q13, in its own measured PR.
+   Decision 29's `const T*` lowering for plain aggregates beyond a scalar
+   pair, with §9 Q13's E0908, in its own measured PR.
 4. **V1 step 2: the unique `Box`.** It comes after V3 because it needs V3's
    general "requires an explicit copy" predicate. The new `Box` is
    explicit-copy from its first commit, so its copies are never implicit.
@@ -756,8 +783,8 @@ Reviewed 2026-10-05 against develop's code
     drops.
   - **What a drop does:** it frees a buffer, disposes a move-only value, or
     decrements an `Rc`/`Arc`.
-  - **E0908** survives as "a borrow is read-only" (§9 Q13 asks whether that
-    extends to plain parameters of plain data).
+  - **E0908** survives as "a borrow is read-only", for plain parameters of
+    every type (§9 Q13, resolved by decision 29).
   - **"Last use" is the move checker:** a copy point moves, and a later use
     is E0901. No forward liveness analysis is involved, except decision
     18's live ranges and decision 27's elision test.
@@ -2320,14 +2347,12 @@ Per type, in this order, each its own PR, measured:
    patterns) or explicitly (`Box(p)`)? Implicit is what `ref(enum)` gives
    today and what 3,500 arms assume; explicit is what Rust does. Decide in
    V4's first PR, with the `TypeValue` conversion as the test.
-13. **Field writes through a plain parameter of implicitly copyable type.**
-   Today `p.n = (p.n + 1)` is legal on a by-value `p : Point`, because the
-   callee writes its own copy. Under borrow-by-default (decision 24) a plain
-   parameter is a read-only borrow, as Hylo's `let` is. Recommendation: make
-   it E0908 and write `q := p` (an implicit copy for this kind) or take
-   `inout(p)`. Decision 29 passes a borrowed struct as `const T*`, so the
-   write would reach the caller's storage. The choice is now between this
-   error and a copy into a local at entry, which would be a hidden copy.
-   Measure first: §0.4's audit lists only dup points, so it gains
-   a count of field writes through plain parameters of implicitly copyable
-   type. Decision 29's struct-lowering PR decides with that number.
+13. **Resolved 2026-10-05 (decision 29): field writes through a plain
+   parameter are E0908.** *(Original question:)* Today `p.n = (p.n + 1)` is
+   legal on a by-value `p : Point`, because the callee writes its own copy.
+   Under borrow-by-default (decision 24) a plain parameter is a read-only
+   borrow, as Hylo's `let` is. The maintainer chose the error over a copy
+   into a local at entry, which would be a hidden copy. The fix is
+   `q := p` or `inout(p)`. §0.4's audit counts the sites (field writes
+   through plain parameters of implicitly copyable type) to size decision
+   29's struct-lowering PR, which lands the error.
