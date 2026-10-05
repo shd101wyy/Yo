@@ -7,14 +7,15 @@
 >   - The rule that every assignment, constructor argument, return and block
 >     tail inserts `___dup`, and the dup/drop pair optimizer that cancels
 >     those dups.
->   - The `___dup` that `own()` inserts for a borrowed argument. Passing a
->     non-owner to `sink` becomes E0901 (decision 15).
+>   - The `___dup` that `own()` inserts for a borrowed argument, and `own`
+>     itself. Parameters become by value by default: a copy for plain data,
+>     a move for owning values. Borrows are spelled `imm(x)` (read-only)
+>     and `mut(x)` (exclusive, today's `inout`), as decided in decision 30.
 >   - A `String`, a collection, `Box` and `Dyn` will move at their last use
 >     and otherwise need `.clone()`. Copying an `Rc`/`Arc` handle will need
 >     `.clone()` too.
-> - **What stays:** borrowing parameters, scope-end drops, `own` (renamed
->   `sink`), and use-after-move. E0908 stays as "a borrow is read-only"
->   (§0.9, §9 Q13).
+> - **What stays:** borrowing, now spelled `imm`/`mut`, scope-end drops and
+>   use-after-move. E0908 stays as "an `imm` borrow is read-only" (§0.9).
 > - **What changes for aliasing:**
 >   - Stage 0's +1 is replaced by a shared borrow mark on the `Rc` cells an
 >     argument is reached through (decision 28).
