@@ -509,7 +509,7 @@ Use `recur(args)` only when calling the type constructor with **different** type
 
 ### Calling a method through its type: `T.m(x)` and `G.m(x)`
 
-`Point.norm(p)` calls `norm` with `p` as the receiver, the same call as `p.norm()`. A generic type works with its arguments written (`Box(i32).clone(b)`) or left out (`Box.clone(b)`, `Pair.first(p)`). Left out, they are inferred from the FIRST argument, which must itself be an instance of the constructor (one pointer level is looked through). It is plans/VALUES_BY_DEFAULT.md decision 32's spelling for a wrapper's own member (`Rc.clone(w)`).
+`Point.norm(p)` calls `norm` with `p` as the receiver, the same call as `p.norm()`. A generic type works with its arguments written (`Box(i32).clone(b)`) or left out (`Box.clone(b)`, `Pair.first(p)`). Left out, they are inferred from the FIRST argument, which must itself be an instance of the constructor. It is plans/VALUES_BY_DEFAULT.md decision 32's spelling for a wrapper's own member (`Rc.clone(w)`).
 
 - A static method (no `self`) has no receiver to infer from: `Pair.make(a, b)` is E0613. Write `Pair(A, B).make(a, b)`.
 - A first argument of another type (`Box.clone(a)` for `a : Arc(i32)`) is E0613, and the message names its type. A method the instance lacks is E0610, as with any receiver.

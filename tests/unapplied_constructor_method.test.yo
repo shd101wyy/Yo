@@ -3,8 +3,10 @@
 // from the receiver `x`, the call's first argument, as Rust infers
 // `Rc::clone`'s `T`. `Box.clone(b)` is `Box(i32).clone(b)` for `b : Box(i32)`.
 // The receiver must itself be an instance of `G`; a static method has no
-// receiver to infer from, so its type arguments are written (E0613).
+// receiver to infer from, so its type arguments are written (E0613); the
+// type a binding expects of the call's result does not supply them either.
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 _Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(a : A, b : B)
 );
@@ -66,11 +68,6 @@ test("Box.clone infers T inside a generic body", {
   assert(x.* == i32(9), "T := i32");
   assert(y.*, "T := bool");
 });
-test("Box.clone(&b) looks through one pointer level", {
-  b := box(i32(4));
-  c := Box.clone(&(b));
-  assert(c.* == i32(4), "the pointee is the Box(i32)");
-});
 test("Arc.m(a) infers T from the receiver", {
   a := arc(i32(3));
   h := Arc._handle(a);
@@ -107,8 +104,24 @@ test("a receiver of another type is E0613 naming both", {
   comptime_expect_error(Arc._handle(b), "not an instance of `Arc`");
   comptime_expect_error(Box.clone(i32(1)), "which has type `i32`");
 });
-test("a method the instance lacks is still E0610", {
+test("a method the instance lacks is still E0610, naming the instance", {
   b := box(i32(1));
   comptime_expect_error(Box.nope(b), "No method \"nope\" on Box(i32)");
-  comptime_expect_error(Box(i32).nope(b), "No method \"nope\"");
+  comptime_expect_error(Box(i32).nope(b), "No method \"nope\" on Box(i32)");
+  p := _Pair(i32, bool)(a : i32(1), b : true);
+  comptime_expect_error(_Pair.nope(p), "No method \"nope\" on _Pair(i32, bool)");
+});
+// Before this fix a static call's E0610 named the receiver's type `Type`, not
+// the type it was called on (issues/fixed/a-static-method-miss-names-type-not-the-type.md).
+test("a static call's E0610 names the type it was called on", {
+  s := String.from("abc");
+  comptime_expect_error(String.nope(s), "No method \"nope\" on String");
+});
+// `Arc` has no `clone` yet: decision 17 gives it the handle copy in V2c. Until
+// then `Arc.clone(a)` is the same E0610 as `Arc(i32).clone(a)`, so the
+// inference is not what fails.
+test("Arc.clone(a) is Arc(i32).clone(a)", {
+  a := arc(i32(2));
+  comptime_expect_error(Arc.clone(a), "No method \"clone\" on Arc(i32)");
+  comptime_expect_error(Arc(i32).clone(a), "No method \"clone\" on Arc(i32)");
 });

@@ -736,9 +736,8 @@ _instance_constructor_fid :: (fn(ty : TypeValue) -> String)(
 /// `G.m(x, ...)` (plans/VALUES_BY_DEFAULT.md decision 32: `Rc.clone(w)`,
 /// `Box.clone(b)`), infers `G`'s arguments from the receiver, as Rust infers
 /// `Rc::clone`'s `T`. The receiver of a static call is its first argument, so
-/// `x`'s own type must be an instantiation `G(A, ...)` of `G` (one pointer
-/// level is looked through: `G.m(&x)`); that instantiation IS the type the
-/// method is looked up on, so the callee's receiver is replaced in place by a
+/// `x`'s own type must be an instantiation `G(A, ...)` of `G`; that
+/// instantiation IS the type the method is looked up on, so the callee's receiver is replaced in place by a
 /// fresh node whose ExprInfo carries `.TypeVal(G(A, ...))`, and the call
 /// proceeds exactly as `G(A, ...).m(x, ...)` (method lookup including generic
 /// impls, `Self`, codegen's static dispatch). The match is by constructor
@@ -833,17 +832,7 @@ _infer_unapplied_ctor_receiver :: (
   uc_own := resolve_enum_shell(resolve_struct_shell(t_refine_inner(uc_arg_ty)));
   uc_inst := cond(
     (_instance_constructor_fid(uc_own) == uc_ctor_fid) => Option(TypeValue).Some(uc_own),
-    true => match(
-      uc_own,
-      .Pointer(uc_pointee) => {
-        uc_pt := resolve_enum_shell(resolve_struct_shell(t_refine_inner(uc_pointee)));
-        cond(
-          (_instance_constructor_fid(uc_pt) == uc_ctor_fid) => Option(TypeValue).Some(uc_pt),
-          true => Option(TypeValue).None
-        )
-      },
-      _ => Option(TypeValue).None
-    )
+    true => Option(TypeValue).None
   );
   match(
     uc_inst,
@@ -4756,9 +4745,15 @@ _d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)({
 /// neither a field nor a method `m`.
 _no_method_message :: (fn(func_expr : AstExpr, ctx : EvalContext) -> String)({
   dot_args := match(func_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  // A static call's receiver is a type VALUE (`String.nope(s)`, `Box.nope(b)`
+  // once decision 32 inferred `Box(i32)`): name that type, not `Type`.
   recv_ty_str := match(
     dot_args.get(usize(0)),
-    .Some(recv) => match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)), .Some(ri) => type_to_string(ri.ty), .None => ast_expr_to_string(recv)),
+    .Some(recv) => match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
+      .Some(ri) => match(ri.value, .Some(.TypeVal(nm_inner)) => type_to_string(nm_inner), _ => type_to_string(ri.ty)),
+      .None => ast_expr_to_string(recv)
+    ),
     .None => String.from("?")
   );
   method_name := match(dot_args.get(usize(1)), .Some(m) => ast_expr_to_string(m), .None => String.from("?"));

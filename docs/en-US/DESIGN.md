@@ -977,9 +977,9 @@ p.set_x(10); // No `&(p)` required — the compiler inserts it
 
 #### Calling a method through its type
 
-A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Box(i32).clone(b)`) or without them (`Box.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. One pointer level is looked through (`Box.clone(&(b))`). This works for any generic struct or enum, not only the prelude's wrappers.
+A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Box(i32).clone(b)`) or without them (`Box.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. This works for any generic struct or enum, not only the prelude's wrappers.
 
-A static method (one with no `self`) has no receiver to infer from, so its type arguments are written out: `Pair(i32, bool).make(...)`. Leaving them out there, or passing a first argument that is not an instance of the constructor, is E0613, and the message names the argument's type.
+A static method (one with no `self`) has no receiver to infer from, so its type arguments are written out: `Pair(i32, bool).make(...)`. The type the call's result is expected to have does not supply them either. Leaving them out there, or passing a first argument that is not an instance of the constructor, is E0613, and the message names the argument's type.
 
 ```rust
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
