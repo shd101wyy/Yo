@@ -1322,8 +1322,8 @@ generate_async_block_constructor :: (
   if(context.base.needs_cycle_gc, {
     em.emit_string_line(`  sm->header.dispose_fn = ${dispose_function_name.clone()};`);
   }, {
-    type_id := context.base.dispose_type_id_for(dispose_function_name.clone());
-    em.emit_string_line(`  sm->header.type_id = ${type_id.to_string()};`);
+    tid := context.base.dispose_type_id_for(dispose_function_name.clone());
+    em.emit_string_line(`  sm->header.type_id = ${tid.to_string()};`);
   });
   if(context.base.needs_cycle_gc, {
     em.emit_line("  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed");
@@ -3718,8 +3718,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   if(context.base.needs_cycle_gc, {
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.dispose_fn = ${dispose_function_name.clone()};`);
   }, {
-    type_id := context.base.dispose_type_id_for(dispose_function_name.clone());
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${type_id.to_string()};`);
+    tid := context.base.dispose_type_id_for(dispose_function_name.clone());
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${tid.to_string()};`);
   });
   if(context.base.needs_cycle_gc, {
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.traverse_fn = NULL;`);
