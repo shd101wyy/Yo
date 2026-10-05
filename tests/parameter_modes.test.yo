@@ -140,3 +140,14 @@ test("Dyn(Eq(Point)) over a by-value operator impl", {
   assert(!(d == _PmPt(x : i32(1), y : i32(3))), "unequal through the Dyn");
   assert(d != _PmPt(x : i32(5), y : i32(2)), "the trait's default != through the Dyn");
 });
+
+// Decision 34's Dyn test: `LogicalNot`'s `(!)` takes `self` and returns
+// `bool`, so it has a vtable slot; a by-value impl is reached through it.
+_PmFlag :: struct(on : bool);
+impl(_PmFlag, LogicalNot((!) : (fn(self : Self) -> bool)(!self.on)));
+test("Dyn(LogicalNot) over a by-value operator impl", {
+  (d : Dyn(LogicalNot)) = dyn(_PmFlag(on : true));
+  assert(!(!d), "!d negates through the Dyn");
+  (e : Dyn(LogicalNot)) = dyn(_PmFlag(on : false));
+  assert(!e, "!e negates through the Dyn");
+});

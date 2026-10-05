@@ -635,7 +635,11 @@ function_may_mutate_rc_storage :: (
 // emits `__yo_borrow_assert_unborrowed` at F's entry for every RC-object
 // parameter in the mask, so a collection held by a borrowed `for` (or an
 // interior `inout` argument) panics on any invalidating method, whoever wrote
-// the collection (Yo has no `mut`; the body is the signature).
+// the collection. The body decides, not the signature: today a plainly passed
+// reference-semantics handle can be written by its callee. Once V3b
+// Generation B makes a plain parameter by value, a write goes through a
+// `mut(x)` parameter the signature spells (plans/VALUES_BY_DEFAULT.md
+// decision 30).
 //
 // Precision comes from ROOTING every value: a local built by a constructor
 // or a fresh-returning callee is FRESH storage, a mutation of it is not a
@@ -3358,7 +3362,10 @@ strict_borrow_violations :: (
 /// `__yo_borrow_assert_unborrowed` at the function's entry for every
 /// RC-object parameter in the mask, so a collection held by a borrowed loop
 /// panics on ANY invalidating method — with no annotation from the library
-/// author (Yo has no `mut`; the body is the signature). Takes the ExprInfo
+/// author: the body decides, because today a plainly passed reference-
+/// semantics handle can be written by its callee (V3b Generation B's
+/// by-value plain parameters move writes into a signature-spelled `mut(x)`,
+/// plans/VALUES_BY_DEFAULT.md decision 30). Takes the ExprInfo
 /// table directly because codegen has no EvalContext.
 function_param_mutation_mask :: (
   fn(fid : String, body : AstExpr, table : ExprInfoTable) -> ParamMutationMask
