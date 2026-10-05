@@ -410,6 +410,13 @@ static void __yo_wasm_timer_add(__yo_io_future_t* future, uint64_t milliseconds)
 
   uint64_t now_ms = __yo_wasm_now_ms();
   node->due_ms = now_ms + milliseconds;
+  // The list holds a reference until the timer fires, is cancelled or is torn
+  // down: a dropped sleep future must not be written after it is freed — the
+  // bare pointer this list used to keep fired 50 dropped sleeps into one
+  // reused allocation and left a garbage continuation for the exit drain
+  // (issues/fixed/the-wasm-timer-list-keeps-a-bare-pointer-to-a-dropped-sleep-future.md,
+  // the wasm half of issues/fixed/pending-io-future-local-drop-uaf.md).
+  future->header.ref_count++;
   node->future = future;
   node->next = NULL;
 
@@ -439,6 +446,7 @@ static bool __yo_wasm_timer_cancel(__yo_io_future_t* future) {
       *link = node->next;
       __yo_free(node);
       __yo_pending_io_count--;
+      __yo_decr_rc((void*)future);
       return true;
     }
     link = &(*link)->next;
@@ -454,6 +462,7 @@ static int __yo_wasm_timer_process_due(uint64_t now_ms) {
     __yo_wasm_timer_head = node->next;
     node->future->result = (int32_t)sizeof(uint64_t);  // Match timerfd convention
     __yo_io_wake_continuation(node->future);
+    __yo_decr_rc((void*)node->future);
     __yo_free(node);
     fired++;
   }
@@ -511,6 +520,11 @@ static void __yo_io_cleanup(void) {
   while (__yo_wasm_timer_head) {
     __yo_wasm_timer_entry_t* node = __yo_wasm_timer_head;
     __yo_wasm_timer_head = node->next;
+    // Nothing fires for it now: mark it done and release the list's
+    // reference.
+    node->future->cancel_fn = NULL;
+    { if (atomic_load(&node->future->state) != -2) atomic_store(&node->future->state, -1); }
+    __yo_decr_rc((void*)node->future);
     __yo_free(node);
   }
   __yo_io_initialized = false;
