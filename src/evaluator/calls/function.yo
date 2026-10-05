@@ -722,13 +722,18 @@ _instance_constructor_fid :: (fn(ty : TypeValue) -> String)(
 /// `Box.clone(b)`), infers `G`'s arguments from the receiver, as Rust infers
 /// `Rc::clone`'s `T`. The receiver of a static call is its first argument, so
 /// `x`'s own type must be an instantiation `G(A, ...)` of `G`; that
-/// instantiation IS the type the method is looked up on, so the callee's
-/// receiver is replaced in place by a fresh node whose ExprInfo carries
-/// `.TypeVal(G(A, ...))`, and the call
-/// proceeds exactly as `G(A, ...).m(x, ...)` (method lookup including generic
-/// impls, `Self`, codegen's static dispatch). The match is by constructor
-/// identity, never a search through payloads, so it is unambiguous: an
-/// `Rc(Box(T))` argument is an `Rc` instance and not a `Box` one.
+/// instantiation IS the type the method is looked up on, so the ExprInfo of
+/// the callee's receiver node is overwritten with `.TypeVal(G(A, ...))`, and
+/// the call proceeds exactly as `G(A, ...).m(x, ...)` (method lookup including
+/// generic impls, `Self`, codegen's static dispatch). The AST is never
+/// rewritten: a generic body evaluates the receiver again per specialization
+/// (resetting its ExprInfo to the constructor) and infers again, as the
+/// written `G(A, ...)` receiver is re-evaluated per specialization. The match
+/// is by constructor identity, never a search through payloads, so it is
+/// unambiguous: an `Rc(Box(T))` argument is an `Rc` instance and not a `Box`
+/// one. A constructor whose body applies another (an alias
+/// `IntPair(B) := Pair(i32, B)`, a partial application `Pair(i32, _)`) is a
+/// constructor of its own: its instances are the other constructor's.
 ///
 /// Fires only when the receiver evaluated to a function value whose result is
 /// a type (a type constructor); any other callee is left as written. Nothing
@@ -740,7 +745,9 @@ _instance_constructor_fid :: (fn(ty : TypeValue) -> String)(
 /// the callee as written and the call degrades as it always did.
 ///
 /// The first argument is evaluated here, with no expected type (it is the
-/// receiver: its type comes from itself). The returned id is that argument's:
+/// receiver: its type comes from itself); a labeled one (`self : x`) is its
+/// value, as argument matching strips the label (which it also validates,
+/// labels being positional). The returned id is that value's:
 /// the caller marks it pre-evaluated around the method call's argument
 /// matching, as it does the receiver of `x.m()`, so it is not evaluated twice.
 _infer_unapplied_ctor_receiver :: (
@@ -782,8 +789,7 @@ _infer_unapplied_ctor_receiver :: (
   });
   uc_ctor := ast_expr_to_string(uc_recv);
   uc_may_throw := (!ctx.is_in_function_call_checking_phase && !in_def_time_trial());
-  uc_help := Option(String).Some(`write the type arguments: \`${uc_ctor}(...).${uc_method}(...)\``);
-  uc_arg0 := match(
+  uc_arg0_written := match(
     args.get(usize(0)),
     .Some(a) => a,
     .None => {
@@ -794,7 +800,7 @@ _infer_unapplied_ctor_receiver :: (
               format_error_message_with_help(
                 ast_expr_token(uc_recv),
                 `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}()\`: a method called through an unapplied type constructor infers them from its first argument, the receiver, and this call has none.`,
-                uc_help
+                Option(String).Some(`write the type arguments: \`${uc_ctor}(...).${uc_method}()\``)
               ),
               E_CANNOT_INFER
             )
@@ -803,6 +809,14 @@ _infer_unapplied_ctor_receiver :: (
       });
       return(Option(usize).None);
     }
+  );
+  uc_arg0 := cond(
+    ast_expr_is_fn_call_of(uc_arg0_written, ":", .Some(usize(2))) => match(
+      uc_arg0_written,
+      .FnCall(_, _, uc_la, _, _) => match(uc_la.get(usize(1)), .Some(v) => v, .None => uc_arg0_written),
+      _ => uc_arg0_written
+    ),
+    true => uc_arg0_written
   );
   uc_saved_et := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -823,22 +837,35 @@ _infer_unapplied_ctor_receiver :: (
   match(
     uc_inst,
     .Some(uc_self) => {
-      uc_node := AstExpr.Atom(alloc_global_expr_id(), ast_expr_token(uc_recv));
       uc_info := new_expr_info(env, t_type());
       uc_info.value = Option(EvalValue).Some(EvalValue.TypeVal(uc_self));
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(uc_node), uc_info);
-      uc_dargs(usize(0)) = uc_node;
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(uc_recv), uc_info);
       Option(usize).Some(ast_expr_id(uc_arg0))
     },
     .None => {
+      // An instance of ANOTHER constructor (the argument's type was built by
+      // one) is told apart from a type no constructor built (`i32`): the
+      // first is fixed by naming that constructor, the second by passing a
+      // `G(...)` value or writing the arguments.
+      uc_other_ctor := (_instance_constructor_fid(uc_own).len() > usize(0));
       if(uc_may_throw, {
         exn.throw(
           dyn(
             with_code(
               format_error_message_with_help(
                 ast_expr_token(uc_recv),
-                `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`.`,
-                uc_help
+                cond(
+                  uc_other_ctor => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`: another type constructor built it (an alias or a partial application of a constructor is a constructor of its own).`,
+                  true => `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`.`
+                ),
+                cond(
+                  uc_other_ctor => Option(String).Some(
+                    `call the method through the constructor that built \`${type_to_string(uc_arg_ty)}\`, or pass a \`${uc_ctor}(...)\` value`
+                  ),
+                  true => Option(String).Some(
+                    `pass a \`${uc_ctor}(...)\` value as the first argument; a method with no receiver takes its type arguments written out: \`${uc_ctor}(...).${uc_method}(...)\``
+                  )
+                )
               ),
               E_CANNOT_INFER
             )

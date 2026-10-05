@@ -7,6 +7,8 @@
 // type a binding expects of the call's result does not supply them either.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
+mv :: import("./member_visibility/counter.yo");
+{ Cell } :: mv;
 _Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(a : A, b : B)
 );
@@ -18,7 +20,8 @@ impl(
   set_first : (fn(inout(self) : Self, a : A) -> unit)({
     self.a = a;
   }),
-  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b))
+  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b)),
+  first_type : (fn(comptime(self) : Self) -> comptime(Type))(A)
 );
 _Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
@@ -47,6 +50,15 @@ impl(
 );
 /// One generic body, two specializations: `Box.clone(x)` infers `T` from each.
 _clone_box :: (fn(generic(T : Type), x : Box(T), where(T <: Clone)) -> Box(T))(Box.clone(x));
+/// A module-qualified constructor in a generic body. Before the fix the
+/// definition-time trial rewrote the receiver `mv.Cell` into an atom named
+/// `.`, so every specialization failed "Evaluating the expression (token: .)
+/// is not implemented".
+_cell_get :: (fn(generic(T : Type), c : Cell(T)) -> T)(mv.Cell.get(c));
+/// A receiver typed by a bare type parameter: `T` is inferred per instantiation.
+_clone_any :: (fn(generic(T : Type), x : T, where(T <: Clone)) -> T)(Box.clone(x));
+_Alias :: (fn(comptime(B) : Type) -> comptime(Type))(_Pair(i32, B));
+_Partial :: _Pair(i32, _);
 test("Box.clone(b) infers T from the receiver", {
   b := box(i32(5));
   c := Box.clone(b);
@@ -143,4 +155,39 @@ test("Arc.clone(a) is Arc(i32).clone(a)", {
   a := arc(i32(2));
   comptime_expect_error(Arc.clone(a), "No method \"clone\" on Arc(i32)");
   comptime_expect_error(Arc(i32).clone(a), "No method \"clone\" on Arc(i32)");
+});
+test("a module-qualified constructor, in a generic body specialized twice", {
+  assert(_cell_get(Cell(i32).wrap(i32(7))) == i32(7), "T := i32");
+  assert(_cell_get(Cell(bool).wrap(true)), "T := bool");
+  assert(mv.Cell.get(Cell(i32).wrap(i32(8))) == i32(8), "outside a generic body");
+});
+test("a receiver whose type is a bare type parameter", {
+  c := _clone_any(box(i32(4)));
+  assert(c.* == i32(4), "T := Box(i32)");
+  comptime_expect_error(_clone_any(i32(5)), "which has type `i32`, not an instance of `Box`");
+});
+// Before the fix a labeled receiver was evaluated as a type annotation
+// ("Expected type for rhs, got p"). Labels are positional, so the receiver is
+// still the first argument, and argument matching validates the label.
+test("a labeled receiver", {
+  p := _Pair(i32, bool)(a : i32(5), b : false);
+  assert(_Pair.first(self : p) == i32(5), "self : p");
+  _Pair.set_first(self : p, a : i32(6));
+  assert(p.a == i32(6), "self : p, a : ...");
+  comptime_expect_error(_Pair.first(x : p), "does not match the parameter \"self\"");
+});
+test("a comptime(self) method through the unapplied constructor", {
+  comptime_assert(Type.eq(_Pair.first_type(_Pair(i32, bool)(a : i32(1), b : true)), i32), "Self := _Pair(i32, bool)");
+});
+// An alias or a partial application is a constructor of its own: matching is
+// by constructor identity, and an arbitrary comptime function is not inverted.
+test("an alias or partially applied constructor is its own constructor", {
+  q := _Pair(i32, u8)(a : i32(1), b : u8(2));
+  comptime_expect_error(_Alias.first(q), "another type constructor built it");
+  comptime_expect_error(_Alias.first(q), "call the method through the constructor that built");
+  assert(_Alias(u8).first(q) == i32(1), "the applied alias names the same type");
+  assert(_Pair.first(q) == i32(1), "the constructor that built it");
+  p := _Partial(bool)(a : i32(3), b : true);
+  comptime_expect_error(_Partial.first(p), "another type constructor built it");
+  assert(_Partial(bool).first(p) == i32(3), "the applied partial application");
 });
