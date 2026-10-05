@@ -39,7 +39,7 @@
   AwaitAnalysisResult
 } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ TypeField, get_struct_fields } :: import("../../evaluator/types/field.yo");
+{ TypeField, get_struct_fields, is_capture_field_binding, capture_struct_has_decl_sites } :: import("../../evaluator/types/field.yo");
 {
   is_io_async_call,
   is_io_await_call,
@@ -2502,11 +2502,23 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   // Re-kind captured variables that live in the capture struct as OUTER:
   // they are accessed as `sm->__capture.<name>`, not
   // materialized as `var_<id>` SM fields (which nothing would initialize).
+  // An entry is a capture when it IS the binding a capture field holds, by
+  // declaration site: a body binding may share a capture's name (a `match`
+  // pattern binding may shadow), and matching by name re-kinded it, so it
+  // got no slot and was a C local across its await
+  // (issues/fixed/the-io-async-capture-re-kind-pass-matches-captures-by-name.md).
   (analysis_kinded : AwaitAnalysisResult) = analysis;
   match(
     fsm_capture_type,
     .Some(ct) => {
+      (cap_id : String) = match(ct, .Struct({ id : sid }) => sid, _ => String.from(""));
       cap_labels := match(ct, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+      if((cap_labels.len() > usize(0)) && !capture_struct_has_decl_sites(cap_id.clone()), {
+        codegen_fatal(`the capture struct ${cap_id} of an io.async block recorded no declaration sites, so its captures cannot be told from body bindings`);
+      });
+      is_capture := (fn(v : CapturedVariable, cap_id : String) -> bool)(
+        is_capture_field_binding(cap_id, v.base.name.clone(), v.base.decl_site.clone())
+      );
       remapped_cvs := ArrayList(CapturedVariable).new();
       src_kcvs := analysis_kinded.captured_variables;
       // The analysis records the OWNER of every local that shares an owner's
@@ -2524,7 +2536,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
           src_kcvs.get(oi),
           .Some(v) => match(
             v.is_owning_the_same_rc_value_as,
-            .Some(ob) => if(cap_labels.contains(v.base.name.clone()) && !cap_labels.contains(ob.*.base.name.clone()), {
+            .Some(ob) => if(is_capture(v, cap_id.clone()) && !is_capture(ob.*, cap_id.clone()), {
               outside_owner_ids.insert(ob.*.base.id.clone());
             }),
             .None => ()
@@ -2536,30 +2548,15 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
       while(ki < src_kcvs.len(), {
         match(
           src_kcvs.get(ki),
-          .Some(v) => {
-            (in_capture : bool) = false;
-            (li : usize) = usize(0);
-            while(li < cap_labels.len(), {
-              match(
-                cap_labels.get(li),
-                .Some(lbl) => if(lbl == v.base.name, {
-                  in_capture = true;
-                  li = cap_labels.len();
-                }),
-                .None => ()
-              );
-              li = (li + usize(1));
-            });
-            cond(
-              in_capture => {
-                remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
-              },
-              outside_owner_ids.contains(v.base.id.clone()) => (),
-              true => {
-                remapped_cvs.push(v);
-              }
-            );
-          },
+          .Some(v) => cond(
+            is_capture(v, cap_id.clone()) => {
+              remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
+            },
+            outside_owner_ids.contains(v.base.id.clone()) => (),
+            true => {
+              remapped_cvs.push(v);
+            }
+          ),
           .None => ()
         );
         ki = (ki + usize(1));

@@ -381,7 +381,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
                     exit_env_opt,
                     .Some(slot_env) => match(
                       context.state_machine_variables,
-                      .Some(smv) => (context.in_async_state_machine.is_some() && match(match(exit_vars, .Some(xv) => xv.last(), .None => Option(Variable).None), .Some(slot_v) => sm_slot_of_variable(slot_v, smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some(), .None => sm_slot_of(ast_expr_id(exit_expr), slot_env, var_name.clone(), smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some())),
+                      .Some(smv) => (context.in_async_state_machine.is_some() && match(match(exit_vars, .Some(xv) => xv.last(), .None => Option(Variable).None), .Some(slot_v) => sm_slot_of_variable(slot_v, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot).is_some(), .None => sm_slot_of(ast_expr_id(exit_expr), slot_env, var_name.clone(), smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot).is_some())),
                       .None => false
                     ),
                     .None => false

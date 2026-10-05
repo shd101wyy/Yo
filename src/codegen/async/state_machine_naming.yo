@@ -130,29 +130,36 @@ sm_storage_id :: (fn(v : Variable, smv : HashMap(String, CapturedVariable), rema
 });
 /// The task slot (`sm->…`) of the binding `name` resolves to in `env`, or
 /// `.None` when it is a C local. `smv` is the state machine's captured-variable
-/// map, `remap` and `aliases` the context's id remapping and field aliases.
+/// map, `remap` and `aliases` the context's id remapping and field aliases,
+/// `capture_slot` the context's capture-struct field (`sm_capture_slot`).
 /// A local sharing a captured local's RC value is stored in that owner's
 /// slot (`sm_storage_id`).
 sm_slot_of :: (
-  fn(key : ExprId, env : Environment, name : String, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String))) -> Option(String)
+  fn(key : ExprId, env : Environment, name : String, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String)), capture_slot : String) -> Option(String)
 )({
   // Through node `key`'s recorded scope (scope-exit release,
   // plans/CODEGEN_MEMORY_REDUCTION.md §6.1).
   vs := scope_variables(key, env, name);
-  match(vs.last(), .Some(v) => sm_slot_of_variable(v, smv, remap, aliases), .None => Option(String).None)
+  match(vs.last(), .Some(v) => sm_slot_of_variable(v, smv, remap, aliases, capture_slot), .None => Option(String).None)
 });
-/// `sm_slot_of` for an already resolved binding.
+/// `sm_slot_of` for an already resolved binding. An outer (captured)
+/// variable's storage is its capture-struct field,
+/// `sm-><capture_slot>.<name>`, named by the variable's NAME and never the map
+/// key (an outer capture is registered under its id and its label; see
+/// `resolve_var_name_in_context`).
 sm_slot_of_variable :: (
-  fn(v : Variable, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String))) -> Option(String)
+  fn(v : Variable, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String)), capture_slot : String) -> Option(String)
 )({
   id := sm_storage_id(v, smv, remap);
-  if(!smv.get(id.clone()).is_some(), {
-    return(Option(String).None);
-  });
+  cv := match(smv.get(id.clone()), .Some(c) => c, .None => return(Option(String).None));
   field := match(
-    aliases,
-    .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
-    .None => sm_local_field_name(id.clone())
+    cv.kind,
+    .Outer => `${capture_slot}.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
+    .Local => match(
+      aliases,
+      .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
+      .None => sm_local_field_name(id.clone())
+    )
   );
   Option(String).Some(`sm->${field}`)
 });
