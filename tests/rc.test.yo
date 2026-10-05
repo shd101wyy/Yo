@@ -7,44 +7,44 @@ pragma(Pragma.AllowUnsafe);
 { yield } :: import("std/async");
 Point :: struct(x : i32, y : i32);
 Wrapper :: struct(v : Box(i32));
-test("Test 'rc' function", {
+test("Test 'ref_count' function", {
   // Value type
   {
     p1 := Point(3, 4);
-    assert(rc(p1) == 1, "rc(p1) == 1");
+    assert(ref_count(p1) == 1, "ref_count(p1) == 1");
     p2 := p1;
-    assert(rc(p1) == 1, "rc(p1) == 1"); // Should be no change.
-    assert(rc(p2) == 1, "rc(p2) == 1");
+    assert(ref_count(p1) == 1, "ref_count(p1) == 1"); // Should be no change.
+    assert(ref_count(p2) == 1, "ref_count(p2) == 1");
   };
   // Reference type
   {
     b1 := Box(i32)(3);
-    assert(rc(b1) == 1, "rc(b1) == 1");
+    assert(ref_count(b1) == 1, "ref_count(b1) == 1");
     {
       b2 := b1; // Yo performs dup/drop cancellation here.
-      // So rc(b1) should remain 1.
-      assert(rc(b1) == 1, "rc(b1) == 1");
-      assert(rc(b2) == 1, "rc(b2) == 1");
+      // So ref_count(b1) should remain 1.
+      assert(ref_count(b1) == 1, "ref_count(b1) == 1");
+      assert(ref_count(b2) == 1, "ref_count(b2) == 1");
       {
         b3 := b2;
-        assert(rc(b1) == 2, "rc(b1) == 2");
-        assert(rc(b2) == 2, "rc(b2) == 2");
-        assert(rc(b3) == 2, "rc(b3) == 2");
+        assert(ref_count(b1) == 2, "ref_count(b1) == 2");
+        assert(ref_count(b2) == 2, "ref_count(b2) == 2");
+        assert(ref_count(b3) == 2, "ref_count(b3) == 2");
       };
-      assert(rc(b1) == 1, "rc(b1) == 1");
-      assert(rc(b2) == 1, "rc(b2) == 1");
+      assert(ref_count(b1) == 1, "ref_count(b1) == 1");
+      assert(ref_count(b2) == 1, "ref_count(b2) == 1");
     }
   };
   // Value type containing reference type
   {
     w1 := Wrapper(Box(i32)(5));
-    assert(rc(w1) == 1, "rc(w1) == 1");
-    assert(rc(w1.v) == 1, "rc(w1.v) == 1");
+    assert(ref_count(w1) == 1, "ref_count(w1) == 1");
+    assert(ref_count(w1.v) == 1, "ref_count(w1.v) == 1");
     w2 := w1;
-    assert(rc(w1) == 1, "rc(w1) == 1"); // Should be no change.
-    assert(rc(w2) == 1, "rc(w2) == 1");
-    assert(rc(w1.v) == 2, "rc(w1.v) == 2"); // Also no change, due to dup/drop cancellation.
-    assert(rc(w2.v) == 2, "rc(w2.v) == 2");
+    assert(ref_count(w1) == 1, "ref_count(w1) == 1"); // Should be no change.
+    assert(ref_count(w2) == 1, "ref_count(w2) == 1");
+    assert(ref_count(w1.v) == 2, "ref_count(w1.v) == 2"); // Also no change, due to dup/drop cancellation.
+    assert(ref_count(w2.v) == 2, "ref_count(w2.v) == 2");
   };
 });
 test("Test explicit return and implicit return", {
@@ -215,8 +215,8 @@ test("Test array index access - no RC leak for inline use", {
     y := [x,];
     tmp := y(0);
     assert(tmp.* == 7, "assigned y(0) should work");
-    assert(rc(tmp) == 2, "tmp and y(0) should share RC=2");
-    assert(rc(x) == 2, "x and y(0) are the same allocation");
+    assert(ref_count(tmp) == 2, "tmp and y(0) should share RC=2");
+    assert(ref_count(x) == 2, "x and y(0) are the same allocation");
   };
   // Multi-element array with inline access
   {
@@ -407,7 +407,7 @@ test("Test early return of reassigned RC variable does not leak", {
   s := build_string(parts);
   assert(s.len() == usize(11), "result should be 'hello world' (11 chars)");
   // If the RC is wrong (leak), ASAN will report it.
-  assert(rc(s) == 1, "rc(s) should be 1 after early return");
+  assert(ref_count(s) == 1, "ref_count(s) should be 1 after early return");
 });
 test("Returning an OWNED RC local from inside a branch is not double-dropped", {
   // The `return(out)` below dups `out` for the caller (rc 1 -> 2) and the
@@ -429,12 +429,12 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
   a := build(true);
   assert(a.len() == usize(1), "early-return branch should yield 1 element");
   assert(a(usize(0)) == i32(7), "the surviving element should be 7");
-  assert(rc(a) == 1, "rc(a) should be 1 — dup for the caller, one release of the local");
+  assert(ref_count(a) == 1, "ref_count(a) should be 1 — dup for the caller, one release of the local");
   b := build(false);
   assert(b.len() == usize(2), "fallthrough should yield 2 elements");
   assert(b(usize(0)) == i32(2), "b(0) should be 2");
   assert(b(usize(1)) == i32(3), "b(1) should be 3");
-  assert(rc(b) == 1, "rc(b) should be 1");
+  assert(ref_count(b) == 1, "ref_count(b) should be 1");
 });
 // Regression canary for the M3 early-return-drop attachment
 // (issues/yo-self-compile-performance-rc-string-eq.md, "UNSOUND idea" +
@@ -521,7 +521,7 @@ test("a moved-out local is dropped on a return hidden in an if or match arm", {
 // tests/internal/context.test.yo, where `EvalValue.UnitVal` is passed inline to
 // create_function_body_evaluation_context.
 //
-// The `rc()` assertions are the deterministic gate. The argument temp is
+// The `ref_count()` assertions are the deterministic gate. The argument temp is
 // released at `mk_*`'s scope end, so a caller reading the retained field
 // afterwards sees rc == 1 when the release happened and rc == 2 when it leaked.
 // That holds on every platform, unlike LeakSanitizer (Linux only) or macOS
@@ -540,15 +540,15 @@ test("Inline ref-enum unit-variant argument is released by the caller", {
   mk_unit :: (fn() -> Held)(keep(Val.UnitVal));
   mk_payload :: (fn() -> Held)(keep(Val.IntVal(v : i32(7))));
   u := mk_unit();
-  assert(rc(u.v) == 1, "payload-free variant: the caller must release its argument temp");
+  assert(ref_count(u.v) == 1, "payload-free variant: the caller must release its argument temp");
   p := mk_payload();
-  assert(rc(p.v) == 1, "payload-carrying variant: unchanged");
+  assert(ref_count(p.v) == 1, "payload-carrying variant: unchanged");
   // A direct binding must TRANSFER ownership of the temp, not add a second owner.
   a := Val.UnitVal;
-  assert(rc(a) == 1, "binding a unit variant owns exactly one reference");
+  assert(ref_count(a) == 1, "binding a unit variant owns exactly one reference");
   // Struct-literal field: the aggregate takes the allocation by move.
   h := Held(v : Val.UnitVal);
-  assert(rc(h.v) == 1, "struct-literal field takes the unit variant by move");
+  assert(ref_count(h.v) == 1, "struct-literal field takes the unit variant by move");
 });
 test("Inline ref-enum unit-variant in non-argument positions does not leak", {
   Val :: ref(enum(UnitVal, IntVal(v : i32)));
@@ -609,7 +609,7 @@ test("Conditional move into a struct field balances both paths", {
   taken := match(g_cond_move_seen.get(usize(0)), .Some(l) => l, .None => ArrayList(i32).new());
   skipped := match(g_cond_move_seen.get(usize(1)), .Some(l) => l, .None => ArrayList(i32).new());
   assert(
-    rc(taken) == rc(skipped),
+    ref_count(taken) == ref_count(skipped),
     "skipped-branch call must not retain an extra reference"
   );
 });
@@ -676,7 +676,7 @@ test("Bare discard-statement fn body compiles and drops the discarded value", {
   // (and, under the self-hosted compiler, this file did not even compile —
   // `use of undeclared identifier '___'`).
   assert(
-    rc(survivor) == 3,
+    ref_count(survivor) == 3,
     "discarded value must be dropped (rc 3, not 4)"
   );
 });
@@ -698,7 +698,7 @@ alias_poke_loop :: (fn(w : AliasWrap, borrowed : Box(i32)) -> unit)({
 test("borrowed projection argument survives aliased container mutation", {
   w := AliasWrap(b : box(i32(42)));
   b0 := w.b;
-  assert(rc(b0) == 2, "w.b + b0 before the call");
+  assert(ref_count(b0) == 2, "w.b + b0 before the call");
   {
     alias_poke_loop(w, w.b);
   };
@@ -707,7 +707,7 @@ test("borrowed projection argument survives aliased container mutation", {
   // post-call (its dup temp is consumed at creation and balanced by an
   // explicit call-node drop), TS at scope end (its dup temp stays owning and
   // the normal scope-end machinery drops it). Both are sound; the difference
-  // is only WHEN, and it is only observable through `rc`. Checking here, once
+  // is only WHEN, and it is only observable through `ref_count`. Checking here, once
   // both release points have passed, asserts the property that actually
   // matters and is identical in both: the +1 is released EXACTLY once.
   //
@@ -715,7 +715,7 @@ test("borrowed projection argument survives aliased container mutation", {
   // runtime-call path did before that drop was wired — the previous version
   // of this test asserted rc 2 right after the call and so encoded the leak
   // as expected behaviour). rc 0 / a crash = it was released twice.
-  assert(rc(b0) == 1, "the Stage-0 +1 is released exactly once");
+  assert(ref_count(b0) == 1, "the Stage-0 +1 is released exactly once");
   assert(b0.* == i32(42), "original box intact after the aliased mutation");
 });
 // Aliasing Stage 1 (mutation summaries): a READ-ONLY callee cannot
@@ -724,15 +724,15 @@ test("borrowed projection argument survives aliased container mutation", {
 // exercises the mark-time skip; the generic one exercises the
 // post-specialization unmark.
 stage1_read_borrow :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)(
-  rc(borrowed)
+  ref_count(borrowed)
 );
 stage1_rc_of :: (fn(generic(T : Type), borrowed : T) -> usize)(
-  rc(borrowed)
+  ref_count(borrowed)
 );
 test("read-only callee elides the Stage-0 borrowed-projection dup", {
   w := AliasWrap(b : box(i32(42)));
   b0 := w.b;
-  assert(rc(b0) == 2, "w.b + b0 before the calls");
+  assert(ref_count(b0) == 2, "w.b + b0 before the calls");
   assert(
     stage1_read_borrow(w, w.b) == 2,
     "non-generic read-only callee sees rc 2 (mark-time skip)"
@@ -741,7 +741,7 @@ test("read-only callee elides the Stage-0 borrowed-projection dup", {
     stage1_rc_of(w.b) == 2,
     "generic read-only callee sees rc 2 (post-specialization unmark)"
   );
-  assert(rc(b0) == 2, "rc balanced after both elided calls");
+  assert(ref_count(b0) == 2, "ref_count balanced after both elided calls");
 });
 // Aliasing Stage 1 SOUNDNESS: the mutation-summary walk must not be fooled by
 // a mutation hidden behind a STATEMENT. An assignment carries a compile-time
@@ -781,7 +781,7 @@ test("arrays of RC elements build at runtime, constructor and literal alike", {
   assert(ctor(0).* == i32(42), "constructor element 0");
   assert(ctor(1).* == i32(7), "constructor element 1");
   // The two forms must not diverge in ownership either.
-  assert(rc(b1) == rc(b2), "constructor and literal agree on element rc");
+  assert(ref_count(b1) == ref_count(b2), "constructor and literal agree on element rc");
   // A fully compile-time array still folds to a constant.
   c :: Array(i32, 3)(1, 2, 3);
   assert(c(2) == 3, "comptime array still folds");
@@ -835,7 +835,7 @@ test("an INDEXED borrowed argument is protected like a field projection", {
 // rule still lists it, documented in mutation-summary.ts.
 stage1_drop_owned :: (fn(own(h) : Box(i32), borrowed : Box(i32)) -> usize)({
   ___drop(h);
-  rc(borrowed)
+  ref_count(borrowed)
 });
 // The mutation happens only on the BACK EDGE of a mutual recursion, so the
 // walk meets the cycle guard before it ever reaches the assignment.
@@ -903,7 +903,7 @@ stage1_deep1 :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
 // extern rule has become too broad and Stage 1 is losing its benefit.
 stage1_benign_extern :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)({
   unsafe(printf(""));
-  rc(borrowed)
+  ref_count(borrowed)
 });
 test("mutation inside a runtime cond arm keeps the borrow alive", {
   w := AliasWrap(b : box(i32(42)));
@@ -929,7 +929,7 @@ test("mutation three calls deep keeps the borrow alive", {
 test("a benign extern does not defeat the read-only elision", {
   w := AliasWrap(b : box(i32(42)));
   b0 := w.b;
-  assert(rc(b0) == 2, "w.b + b0 before the call");
+  assert(ref_count(b0) == 2, "w.b + b0 before the call");
   assert(
     stage1_benign_extern(w, w.b) == 2,
     "printf must not make a callee may-mutate (elision preserved)"
@@ -1046,7 +1046,7 @@ test("reassigning after aliasing disposes both objects exactly once", {
 test("box takes ownership of its argument without retaining an extra reference", {
   h := Box(i32)(7);
   b := box(h);
-  assert(rc(b.*) == 1, "the box holds the only reference to its value");
+  assert(ref_count(b.*) == 1, "the box holds the only reference to its value");
 });
 // The class is wider than `box`: EVERY `own` parameter of a generic function
 // leaked, whatever the body did with it. `own_ident` below already failed the
@@ -1113,8 +1113,8 @@ test("alias survives a reassignment of its base inside a nested block", {
   };
   assert(h2.n == i32(7), "the alias still names the original object");
   assert(h.n == i32(100), "the base names the replacement");
-  assert(rc(h2) == 1, "the original is owned by the alias alone");
-  assert(rc(h) == 1, "the replacement is owned by the base alone");
+  assert(ref_count(h2) == 1, "the original is owned by the alias alone");
+  assert(ref_count(h) == 1, "the replacement is owned by the base alone");
 });
 test("alias made inside a nested block, base reassigned there, base used after", {
   h := AliasHolder(n : i32(1));
@@ -1125,7 +1125,7 @@ test("alias made inside a nested block, base reassigned there, base used after",
     assert(h2.n == i32(9), "inner alias reads the original");
   };
   assert(h.n == i32(100), "outer base reads the replacement");
-  assert(rc(h) == 1, "one owner");
+  assert(ref_count(h) == 1, "one owner");
 });
 // Same optimizer, the two sibling shapes (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md):
 // reassigning the ALIAS dropped a value the alias never owned (its
@@ -1401,11 +1401,11 @@ test("a match/cond argument arm that returns a borrowed value does not over-rele
     assert(at_pick_match(false, keep) == i32(9), "borrowed arm (match) reads the caller's value");
     assert(at_pick_cond(false, keep) == i32(9), "borrowed arm (cond) reads the caller's value");
     assert(g_at_disposed == before, "the caller's value is still alive");
-    assert(rc(keep) == 1, "and holds exactly its own reference");
+    assert(ref_count(keep) == 1, "and holds exactly its own reference");
     assert(at_pick_match(true, keep) == i32(1), "fresh arm (match)");
     assert(at_pick_cond(true, keep) == i32(2), "fresh arm (cond)");
     assert(g_at_disposed == (before + i32(2)), "each fresh arm result is disposed once");
-    assert(rc(keep) == 1, "the kept value is untouched by the fresh arms");
+    assert(ref_count(keep) == 1, "the kept value is untouched by the fresh arms");
   };
   assert(g_at_disposed == (before + i32(3)), "the caller's value is disposed once, at its scope end");
 });
@@ -1569,33 +1569,307 @@ _CowLike :: struct(b : Box(i32), n : i32);
 _cow_task :: (fn(w : _CowLike, io : Io) -> Impl(Future(usize, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
-    rc(w.b)
+    ref_count(w.b)
   })
 );
 _cow_local_copy :: (fn(w : _CowLike) -> usize)({
   q := w;
-  rc(q.b)
+  ref_count(q.b)
 });
-test("rc: copies of a value holding RC data are counted in every position (COW S2)", {
+test("ref_count: copies of a value holding RC data are counted in every position (COW S2)", {
   w := _CowLike(b : box(i32(7)), n : i32(1));
-  assert(rc(w.b) == usize(1), "alone");
+  assert(ref_count(w.b) == usize(1), "alone");
   {
     w2 := w;
-    assert((rc(w.b) == usize(2)) && (rc(w2.b) == usize(2)), "a nested-scope copy counts");
+    assert((ref_count(w.b) == usize(2)) && (ref_count(w2.b) == usize(2)), "a nested-scope copy counts");
   };
-  assert(rc(w.b) == usize(1), "the nested copy released its count");
+  assert(ref_count(w.b) == usize(1), "the nested copy released its count");
   w3 := w;
-  assert(rc(w.b) == usize(2), "a same-scope copy counts");
+  assert(ref_count(w.b) == usize(2), "a same-scope copy counts");
   assert(_cow_local_copy(w) >= usize(3), "a callee's local copy of a parameter counts");
   h := ArrayList(_CowLike).new();
   h.push(w);
-  assert(rc(w.b) >= usize(3), "a list element counts");
-  (f : Impl(Fn() -> usize)) = (() => rc(w.b));
+  assert(ref_count(w.b) >= usize(3), "a list element counts");
+  (f : Impl(Fn() -> usize)) = (() => ref_count(w.b));
   assert(f() >= usize(4), "a closure capture counts");
   task := _cow_task(w, io);
-  assert(rc(w.b) >= usize(5), "an async task slot counts");
+  assert(ref_count(w.b) >= usize(5), "an async task slot counts");
   assert(io.await(task, io) >= usize(5), "and the task sees a shared count");
   assert((w3.n == i32(1)) && (h.len() == usize(1)), "all copies stay live to here");
+});
+// A borrowed value passed to an `own` parameter — a field place, or a borrowed
+// parameter — hands the callee a reference of its own (a +1), and the caller
+// keeps its own. The METHOD-dispatch call forms (`Type.method(a)`,
+// `recv.method(a)`) generated these arguments bare, dropping the +1 the plain
+// call `make(a)` emits: the callee released a reference it was never given,
+// and the caller's own release then freed the box a second time
+// (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
+(g_own_m_disposed : i32) = i32(0);
+_OwnM :: ref(struct(tag : i32));
+impl(
+  _OwnM,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_own_m_disposed = (g_own_m_disposed + i32(1));
+    })
+  )
+);
+_OwnMHolder :: struct(b : _OwnM);
+impl(
+  _OwnMHolder,
+  make : (fn(own(b) : _OwnM) -> Self)(Self(b : b)),
+  adopt : (fn(self : Self, own(b) : _OwnM) -> i32)(b.tag)
+);
+_OwnMWrap :: struct(m : _OwnM, n : i32);
+_OwnMOuter :: struct(w : _OwnMWrap);
+_own_m_plain :: (fn(own(b) : _OwnM) -> _OwnMHolder)(_OwnMHolder(b : b));
+_own_m_param_field :: (fn(w : _OwnMWrap) -> _OwnMHolder)(_OwnMHolder.make(w.m));
+_own_m_param :: (fn(m : _OwnM) -> _OwnMHolder)(_OwnMHolder.make(m));
+_own_m_nested_field :: (fn(o : _OwnMOuter) -> _OwnMHolder)(_OwnMHolder.make(o.w.m));
+_own_m_plain_field :: (fn(w : _OwnMWrap) -> _OwnMHolder)(_own_m_plain(w.m));
+test("Type.method with an own parameter retains a borrowed parameter's field", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(1)), n : i32(1));
+    h := _own_m_param_field(w);
+    assert(ref_count(w.m) == usize(2), `the holder and the caller each hold one, got ${ref_count(w.m).to_string()}`);
+    assert((h.b.tag == i32(1)) && (g_own_m_disposed == before), "still live in both");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("Type.method with an own parameter retains a local's field", {
+  before := g_own_m_disposed;
+  {
+    out := _OwnMWrap(m : _OwnM(tag : i32(2)), n : i32(0));
+    h := _OwnMHolder.make(out.m);
+    assert(ref_count(out.m) == usize(2), `the holder and the local each hold one, got ${ref_count(out.m).to_string()}`);
+    assert(h.b.tag == i32(2), "the holder reads it");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("Type.method with an own parameter retains a nested field and a borrowed parameter", {
+  before := g_own_m_disposed;
+  {
+    o := _OwnMOuter(w : _OwnMWrap(m : _OwnM(tag : i32(3)), n : i32(0)));
+    h := _own_m_nested_field(o);
+    assert(ref_count(o.w.m) == usize(2), `nested field: got ${ref_count(o.w.m).to_string()}`);
+    m := _OwnM(tag : i32(4));
+    h2 := _own_m_param(m);
+    assert(ref_count(m) == usize(2), `borrowed parameter: got ${ref_count(m).to_string()}`);
+    assert((h.b.tag + h2.b.tag) == i32(7), "both holders read their box");
+  };
+  assert(g_own_m_disposed == (before + i32(2)), `each box released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("recv.method with an own parameter retains a field argument", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(5)), n : i32(0));
+    holder := _OwnMHolder(b : _OwnM(tag : i32(6)));
+    assert(holder.adopt(w.m) == i32(5), "the callee read its copy");
+    assert(ref_count(w.m) == usize(1), `the callee released only its own copy, got ${ref_count(w.m).to_string()}`);
+    assert(g_own_m_disposed == before, "nothing released early");
+  };
+  assert(g_own_m_disposed == (before + i32(2)), `each box released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+test("a plain call with an own parameter still retains a field argument", {
+  before := g_own_m_disposed;
+  {
+    w := _OwnMWrap(m : _OwnM(tag : i32(8)), n : i32(0));
+    h := _own_m_plain_field(w);
+    assert(ref_count(w.m) == usize(2), `got ${ref_count(w.m).to_string()}`);
+    assert(h.b.tag == i32(8), "the holder reads it");
+  };
+  assert(g_own_m_disposed == (before + i32(1)), `released exactly once, got ${(g_own_m_disposed - before).to_string()}`);
+});
+// The same method-dispatch emitters also dropped the Stage-0 +1 of a borrowed
+// field projection passed as the RECEIVER (`o.inner.poke(o)`): the plain call
+// `poke_f(o.inner, o)` holds the projected value for the call, the method call
+// did not, and a callee that replaced `o.inner` freed the receiver it was still
+// reading.
+_AlInner :: ref(struct(v : i32));
+_AlOuter :: ref(struct(inner : _AlInner));
+_al_replace :: (fn(o : _AlOuter) -> unit)({
+  o.inner = _AlInner(v : i32(0));
+});
+impl(
+  _AlInner,
+  poke : (fn(self : Self, o : _AlOuter) -> i32)({
+    _al_replace(o);
+    self.v
+  })
+);
+_al_poke_f :: (fn(i : _AlInner, o : _AlOuter) -> i32)({
+  _al_replace(o);
+  i.v
+});
+test("a receiver projection outlives a method that replaces it", {
+  o := _AlOuter(inner : _AlInner(v : i32(7)));
+  assert(_al_poke_f(o.inner, o) == i32(7), "plain call: the argument survived the replacement");
+  o2 := _AlOuter(inner : _AlInner(v : i32(8)));
+  assert(o2.inner.poke(o2) == i32(8), "method call: the receiver survived the replacement");
+  assert((o.inner.v + o2.inner.v) == i32(0), "both owners see the replacement");
+});
+// `ref_count(x)` reads the count of the cell `x` holds, in every shape
+// (plans/VALUES_BY_DEFAULT.md V1 step 0): 1 for a value, the live count for a
+// `ref` struct, a `Box`, an `Arc` (read atomically) and a collection handle.
+RcNode :: ref(struct(v : i32));
+test("ref_count(x) reads the count of every cell shape", {
+  // A value: 1, at compile time.
+  p := Point(1, 2);
+  assert(ref_count(p) == usize(1), "ref_count(p) == 1");
+  // ref(struct(...))
+  n1 := RcNode(v : i32(1));
+  assert(ref_count(n1) == usize(1), "ref_count(n1) == 1");
+  {
+    n2 := n1;
+    {
+      n3 := n2;
+      assert(ref_count(n1) == usize(2), "ref_count(n1) == 2");
+      assert(ref_count(n3) == usize(2), "ref_count(n3) == 2");
+    };
+  };
+  assert(ref_count(n1) == usize(1), "ref_count(n1) == 1 after the copies died");
+  // Box
+  b1 := Box(i32)(3);
+  {
+    b2 := b1;
+    {
+      b3 := b2;
+      assert(ref_count(b1) == usize(2), "ref_count(b1) == 2");
+      assert(ref_count(b3) == usize(2), "ref_count(b3) == 2");
+    };
+  };
+  assert(ref_count(b1) == usize(1), "ref_count(b1) == 1");
+  // Arc: an atomic count, read atomically.
+  a1 := arc(i32(42));
+  {
+    a2 := a1;
+    {
+      a3 := a2;
+      assert(ref_count(a1) == usize(2), "ref_count(a1) == 2");
+      assert(ref_count(a3) == usize(2), "ref_count(a3) == 2");
+    };
+  };
+  assert(ref_count(a1) == usize(1), "ref_count(a1) == 1");
+  // ArrayList (a ref struct): the list handle's own count.
+  l1 := ArrayList(i32).new();
+  l1.push(i32(1));
+  {
+    l2 := l1;
+    {
+      l3 := l2;
+      assert(ref_count(l1) == usize(2), "ref_count(l1) == 2");
+      assert(ref_count(l3) == usize(2), "ref_count(l3) == 2");
+    };
+  };
+  assert(ref_count(l1) == usize(1), "ref_count(l1) == 1");
+});
+test("ref_count is a reserved builtin name", {
+  // Reserved once markdown_yo v0.0.10 renamed its local `ref_count`
+  // (VALUES_BY_DEFAULT V1 step 0b): a binding would be silently hijacked by
+  // the count builtin at every call.
+  comptime_expect_error(ref_count := 1, "names a builtin");
+  comptime_expect_error((ref_count : i32) = 3, "names a builtin");
+  comptime_expect_error(ref_count :: (fn(x : i32) -> usize)(usize(0)), "names a builtin");
+});
+// A newtype built from a value someone else still owns — a field projection
+// (`Self(b : self.b)`) or a local that stays live (`x := self.b; Self(b : x)`) —
+// takes a reference of its own, as a struct built the same way does. The
+// newtype constructor is a zero-cost C cast, and it dropped the argument's
+// deferred `___dup`: both owners released the payload, a use-after-free
+// (issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md).
+// A payload the newtype takes over (a fresh local, a call result, a
+// constructor) must still gain no extra reference.
+(g_nt_disposed : i32) = i32(0);
+_NtBox :: ref(struct(tag : i32));
+impl(
+  _NtBox,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_nt_disposed = (g_nt_disposed + i32(1));
+    })
+  )
+);
+_NtV :: newtype(b : _NtBox);
+_NtOpt :: newtype(b : Option(_NtBox));
+_NtW :: newtype(v : _NtV);
+_NtPair :: newtype(p : Tuple(_NtBox, i32));
+_NtHolder :: struct(v : _NtV);
+impl(
+  _NtV,
+  from_field : (fn(inout(self) : Self) -> Self)(Self(b : self.b)),
+  from_field_val : (fn(self : Self) -> Self)(Self(b : self.b)),
+  from_local : (fn(inout(self) : Self) -> Self)({
+    x := self.b;
+    Self(b : x)
+  })
+);
+impl(_NtOpt, from_field : (fn(inout(self) : Self) -> Self)(Self(b : self.b)));
+impl(_NtW, from_field : (fn(inout(self) : Self) -> Self)(Self(v : self.v)));
+impl(_NtPair, from_field : (fn(inout(self) : Self) -> Self)(Self(p : self.p)));
+_nt_from_param :: (fn(b : _NtBox) -> _NtV)(_NtV(b : b));
+_nt_from_fresh :: (fn(tag : i32) -> _NtV)({
+  b := _NtBox(tag : tag);
+  _NtV(b : b)
+});
+_nt_mk :: (fn(tag : i32) -> _NtBox)(_NtBox(tag : tag));
+_nt_from_call :: (fn(tag : i32) -> _NtV)(_NtV(b : _nt_mk(tag)));
+_nt_from_holder :: (fn(h : _NtHolder) -> _NtV)(_NtV(b : h.v.b));
+test("a newtype built from a field or a live local retains its payload", {
+  before := g_nt_disposed;
+  {
+    s := _NtV(b : _NtBox(tag : i32(1)));
+    t := s.from_field();
+    assert(ref_count(s.b) == usize(2), `field projection (inout self): got ${ref_count(s.b).to_string()}`);
+    u := s.from_field_val();
+    assert(ref_count(s.b) == usize(3), `field projection (by-value self): got ${ref_count(s.b).to_string()}`);
+    w := s.from_local();
+    assert(ref_count(s.b) == usize(4), `live local: got ${ref_count(s.b).to_string()}`);
+    assert(((t.b.tag + u.b.tag + w.b.tag) == i32(3)) && (g_nt_disposed == before), "every copy reads the live box");
+  };
+  assert(g_nt_disposed == (before + i32(1)), `released exactly once, got ${(g_nt_disposed - before).to_string()}`);
+});
+test("a newtype built from a parameter or a parameter's field retains it", {
+  before := g_nt_disposed;
+  {
+    b := _NtBox(tag : i32(2));
+    v := _nt_from_param(b);
+    assert(ref_count(b) == usize(2), `parameter: got ${ref_count(b).to_string()}`);
+    h := _NtHolder(v : _NtV(b : _NtBox(tag : i32(3))));
+    hv := _nt_from_holder(h);
+    assert(ref_count(h.v.b) == usize(2), `nested field of a parameter: got ${ref_count(h.v.b).to_string()}`);
+    assert(((v.b.tag + hv.b.tag) == i32(5)) && (g_nt_disposed == before), "both read their box");
+  };
+  assert(g_nt_disposed == (before + i32(2)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
+});
+test("a newtype that takes over its payload adds no reference", {
+  before := g_nt_disposed;
+  {
+    f := _nt_from_fresh(i32(4));
+    assert(ref_count(f.b) == usize(1), `moved fresh local: got ${ref_count(f.b).to_string()}`);
+    c := _nt_from_call(i32(5));
+    assert(ref_count(c.b) == usize(1), `call result: got ${ref_count(c.b).to_string()}`);
+    n := _NtV(b : _NtBox(tag : i32(6)));
+    assert(ref_count(n.b) == usize(1), `constructor argument: got ${ref_count(n.b).to_string()}`);
+  };
+  assert(g_nt_disposed == (before + i32(3)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
+});
+test("a newtype over an Option, a newtype or a tuple retains a field payload", {
+  before := g_nt_disposed;
+  {
+    o := _NtOpt(b : .Some(_NtBox(tag : i32(7))));
+    o2 := o.from_field();
+    assert(match(o.b, .Some(x) => (ref_count(x) == usize(2)), .None => false), "Option payload shared by both");
+    n := _NtW(v : _NtV(b : _NtBox(tag : i32(8))));
+    n2 := n.from_field();
+    assert(ref_count(n.v.b) == usize(2), `nested newtype: got ${ref_count(n.v.b).to_string()}`);
+    p := _NtPair(p : (_NtBox(tag : i32(9)), i32(0)));
+    p2 := p.from_field();
+    assert(ref_count(p.p.0) == usize(2), `tuple payload: got ${ref_count(p.p.0).to_string()}`);
+    o2_tag := match(o2.b, .Some(x) => x.tag, .None => i32(0));
+    assert((o2_tag + n2.v.b.tag + p2.p.0.tag) == i32(24), "every copy reads its box");
+  };
+  assert(g_nt_disposed == (before + i32(3)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
 });
 // Regression (issues/fixed/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md):
 // a tuple literal passed straight to a call (never bound to a name) owned a +1

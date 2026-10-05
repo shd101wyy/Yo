@@ -55,8 +55,7 @@ pragma(Pragma.AllowUnsafe);
 { Url, UrlError } :: import("../url");
 { Duration } :: import("../time/duration");
 { Instant } :: import("../time/instant");
-{ yield } :: import("../async");
-{ sleep } :: import("../time/sleep");
+{ timeout } :: import("../async");
 { Reader } :: import("../io");
 { HttpMethod, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, HttpError, parse_response } :: import("./http.yo");
 { read_http_message_buffered, MessageKind } :: import("./wire.yo");
@@ -217,7 +216,7 @@ _Idle :: ref(
   struct(
     key : String,
     transport : _Transport,
-    carry : ArrayList(u8),
+    carry : Box(ArrayList(u8)),
     since : Instant
   )
 );
@@ -366,7 +365,7 @@ impl(
   // off) and the caller must close it — Go's answer too: the connection in
   // hand is closed rather than evicting one already in the pool, so a burst
   // of parallel requests cannot churn the whole pool.
-  _put : (fn(self : Self, key : String, transport : _Transport, carry : ArrayList(u8)) -> bool)(
+  _put : (fn(self : Self, key : String, transport : _Transport, carry : Box(ArrayList(u8))) -> bool)(
     cond(
       (self._idle.len() >= self.max_idle) => false,
       true => {
@@ -432,7 +431,7 @@ _body_is_delimited :: (fn(resp : HttpResponse, kind : MessageKind) -> bool)({
   code := resp.status.as_u16();
   is_head := match(kind, .HeadResponse => true, _ => false);
   cond(
-    (is_head || ((code < u16(200)) || ((code == u16(204)) || (code == u16(304))))) => {
+    (is_head || (code < u16(200)) || (code == u16(204)) || (code == u16(304))) => {
       return(true);
     },
     true => ()
@@ -687,7 +686,7 @@ _fetch_once :: (
       reused := taken.is_some();
       // One leftover-byte buffer per CONNECTION: a pooled connection brings
       // its own, a fresh one starts empty.
-      carry := ArrayList(u8).new();
+      carry := box(ArrayList(u8).new());
       (conn_opt : Option(_Transport)) = Option(_Transport).None;
       match(
         taken,
@@ -733,7 +732,7 @@ _fetch_once :: (
       // Not one byte: either the server closed an idle connection under us
       // (retryable, see above) or it hung up without answering.
       dead := raw.is_empty();
-      retry_now := (dead && (reused && idempotent));
+      retry_now := (dead && reused && idempotent);
       cond(
         retry_now => {
           conn.close_sync();
@@ -902,47 +901,33 @@ _fetch_deadline :: (
         result = e.io.await(_fetch_follow(url_str, opts, pool, e.io), e);
       },
       .Some(limit) => {
-        // Run the whole exchange as a spawned TASK raced against a spawned
-        // `sleep`, so the deadline can cut it off mid-connect or mid-read — an
-        // elapsed-time check inside the read loop could only fire BETWEEN
+        // Run the whole exchange as a spawned TASK under `std/async`'s
+        // `timeout`, so the deadline can cut it off mid-connect or mid-read —
+        // an elapsed-time check inside the read loop could only fire BETWEEN
         // awaits, which is exactly not the hung-server case a deadline exists
-        // for. The race is driven by awaiting `yield` (a real suspension
-        // point), NOT by `std/async`'s `timeout`/`JoinHandle.await`: those
-        // poll the event loop synchronously and, called from inside a task,
-        // nest the loop
-        // (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md). The
-        // body is the top-level `_fetch_follow`, not a closure nested here
-        // (C22). A while-with-await inside one arm of a match whose other arm
-        // awaits once was mis-emitted until C38
-        // (issues/fixed/while-await-inside-match-arm-missing-loop-field.md);
-        // this arm is that shape and doubles as its production pin.
+        // for. `timeout` is a future that suspends this task (it does not
+        // nest the event loop), aborts the request on the deadline and
+        // cancels its own timer when the request wins
+        // (plans/ASYNC_IO_API_AUDIT.md A1). The body is the top-level
+        // `_fetch_follow`, not a closure nested here (C22).
         //
         // A connection cut off here is owned by the aborted state machine, so
         // its `Dispose` closes it — it never reaches the pool.
         h := e.io.spawn(_fetch_follow(url_str, opts, pool, e.io), e);
-        dh := e.io.spawn(sleep(limit, e.io), e.io);
-        while(runtime(!h.is_finished() && !dh.is_finished()), {
-          e.io.await(yield(e.io), e.io);
-        });
-        cond(
-          h.is_finished() => {
-            // Finished first: the deadline task is cancelled and the handle,
-            // already terminal, is consumed without polling the loop.
-            dh.abort();
-            match(
-              h.await(e.io),
-              .Some(resp) => {
-                result = resp;
-              },
-              .None => {
-                e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
-              }
-            );
+        match(
+          e.io.await(timeout(h, limit, e.io), e.io),
+          .Ok(resp) => {
+            result = resp;
           },
-          true => {
-            h.abort();
-            e.exn.throw(dyn(HttpError.Timeout));
-          }
+          .Err(te) => match(
+            te,
+            .Elapsed => {
+              e.exn.throw(dyn(HttpError.Timeout));
+            },
+            .Aborted => {
+              e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
+            }
+          )
         );
       }
     );

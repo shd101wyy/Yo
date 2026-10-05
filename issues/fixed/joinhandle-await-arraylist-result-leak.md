@@ -80,7 +80,7 @@ Looking at codegen:
 The previously reported leak in `std/process/command.yo` `output()` may
 have been caused by a different bug (likely related to
 `dyn(IOError.from_errno(...))` interacting with closure captures — see
-`issues/box-forall-V-bound-to-iorerror-after-impl-IOError-Error.md`).
+`issues/fixed/box-forall-V-bound-to-iorerror-after-impl-IOError-Error.md`).
 The workaround using `io.await` directly is still in place.
 
 ## Status: not currently reproducible

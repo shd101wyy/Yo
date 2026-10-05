@@ -21,6 +21,7 @@
   RuntimeStructField,
   get_type_string,
   get_storage_type_string,
+  dyn_slot_param_type_string,
   get_runtime_struct_fields,
   sanitize_for_c_identifier,
   c_variant_member_name,
@@ -136,7 +137,7 @@ _emit_array_wrapper :: (fn(context : CodeGenContext, name : String) -> unit)({
 /// been emitted. A pointer spelling (`__yo_t3*`) never matches a bare name, so
 /// a wrapper of pointers stays ready — pointer-to-incomplete is legal C.
 _drain_ready_array_wrappers :: (
-  fn(context : CodeGenContext, pending : ArrayList(String), available : HashSet(String), deferred : HashSet(String)) -> unit
+  fn(context : CodeGenContext, inout(pending) : ArrayList(String), inout(available) : HashSet(String), deferred : HashSet(String)) -> unit
 )({
   (progress : bool) = true;
   while(progress, {
@@ -1014,7 +1015,7 @@ typedef struct __yo_ref_header_t {
 // list pointers were never read; this drops them (56 -> 16 B on the
 // majority class — see plans/backlog/RC_HEADER_SPLIT.md). A strict prefix
 // of __yo_ref_header_t. Generic code that may see EITHER layout (incr/decr,
-// the borrow checks, rc(), every GC visitor's TRACKED test) reads through
+// the borrow checks, ref_count(), every GC visitor's TRACKED test) reads through
 // __yo_rc_prefix_t and casts to __yo_ref_header_t* only once the object is
 // known to be TRACKED: a member access through the 56-byte type on a 16-byte
 // object is undefined behavior, not merely an unused tail
@@ -1267,7 +1268,7 @@ _Static_assert(offsetof(__yo_io_future_t, continuation_sm) == offsetof(__yo_futu
 /// True if a struct's SomeType content is only inside function-typed fields.
 /// Replicated from types/collection.yo (`_struct_some_type_is_only_in_function_fields`)
 /// to avoid a collection↔generation import cycle.
-_walk_struct_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool)(
+_walk_struct_some_only :: (fn(type : TypeValue, inout(visited) : HashSet(String)) -> bool)(
   match(
     type,
     .Struct({ id, field_types }) => {
@@ -1297,7 +1298,7 @@ _walk_struct_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bo
 );
 /// True if an enum's SomeType content is only inside function-typed variant
 /// fields. Replicated from types/collection.yo (cycle avoidance).
-_walk_enum_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool)(
+_walk_enum_some_only :: (fn(type : TypeValue, inout(visited) : HashSet(String)) -> bool)(
   match(
     type,
     .EnumT({ id, variant_fields }) => {
@@ -1368,7 +1369,7 @@ _walk_pointee_newtype :: (fn(ft : TypeValue) -> Option(TypeValue))(
 );
 /// Add a dependency edge (self_type_id depends on dep_ty's type) if dep_ty is a
 /// collected type other than self. `cname_to_typeid` maps a C name to its typeId.
-_walk_add_dep :: (fn(deps_set : HashSet(String), dep_ty : TypeValue, self_type_id : String, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)({
+_walk_add_dep :: (fn(inout(deps_set) : HashSet(String), dep_ty : TypeValue, self_type_id : String, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)({
   dep_cname := get_type_string(dep_ty, context);
   match(
     cname_to_typeid.get(dep_cname),
@@ -1382,7 +1383,7 @@ _walk_add_dep :: (fn(deps_set : HashSet(String), dep_ty : TypeValue, self_type_i
 /// for struct fields (an enum field optimized as a nullable pointer is NOT a
 /// by-value dep there); enum/tuple fields pass false. Shared by the
 /// enum/newtype/value-struct/tuple by-value dependency chain.
-_walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
+_walk_by_value_dep :: (fn(inout(deps_set) : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
   cond(
     // A SomeT field with a per-object resolved concrete is EMITTED as that
     // concrete (get_type_string SomeT arm) — order the decl after it
@@ -1450,7 +1451,7 @@ _TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, 
 /// revisits them, emitting their declaration twice
 /// (issues/fixed/a-type-walk-revisits-entries-after-a-rehash-and-emits-a-vtable-twice.md).
 /// Call it until it returns nothing to also reach the types the walk registered.
-_unseen_type_ids :: (fn(context : CodeGenContext, seen : HashSet(String)) -> ArrayList(String))({
+_unseen_type_ids :: (fn(context : CodeGenContext, inout(seen) : HashSet(String)) -> ArrayList(String))({
   ids := ArrayList(String).new();
   it := context.types.keys();
   (done : bool) = false;
@@ -1471,7 +1472,7 @@ _unseen_type_ids :: (fn(context : CodeGenContext, seen : HashSet(String)) -> Arr
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
 /// dispose are generated separately).
 _is_reserved_dyn_method :: (fn(label : String) -> bool)(
-  (label == BF_DUP) || (label == BF_DROP) || ((label == "___dispose") || (label == "dispose"))
+  (label == BF_DUP) || (label == BF_DROP) || (label == "___dispose") || (label == "dispose")
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
@@ -1525,7 +1526,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
 /// struct right there), which must land BEFORE the vtable typedef opens — the
 /// caller collects every member first, then emits the typedef
 /// (issues/fixed/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md).
-_dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed : HashSet(String), context : CodeGenContext) -> Option(String))({
+_dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, inout(processed) : HashSet(String), context : CodeGenContext) -> Option(String))({
   if((label == "Self") || _is_reserved_dyn_method(label), {
     return(Option(String).None);
   });
@@ -1539,6 +1540,7 @@ _dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed :
       field_ty,
       .Func({ param_types, result, meta : __fm1 }) => {
         param_labels := __fm1.*.param_labels;
+        param_is_ref := __fm1.*.param_is_ref;
         // Only methods whose first param is `self`, and that a Dyn can call
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.
@@ -1554,7 +1556,7 @@ _dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, processed :
             if(pi == usize(0), {
               plist.push_str("void* self");
             }, {
-              pty := match(param_types.get(pi), .Some(t) => get_type_string(t, context), .None => String.from("void*"));
+              pty := dyn_slot_param_type_string(param_types.get(pi), param_is_ref.get(pi), context);
               pn := match(param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("arg"));
               plist.push_string(pty);
               plist.push_str(" ");
@@ -1595,7 +1597,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
         cond(
           is_fn_trait_type(tt) => match(
             tt,
-            .FnTraitT({ call_param_labels, call_param_types, call_result }) => {
+            .FnTraitT({ call_param_labels, call_param_types, call_result, call_param_is_ref }) => {
               ret_str := get_type_string(call_result, context);
               plist := String.new();
               np := call_param_labels.len();
@@ -1604,7 +1606,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
                 if(pi > usize(0), {
                   plist.push_str(", ");
                 });
-                pty := match(call_param_types.get(pi), .Some(t) => get_type_string(t, context), .None => String.from("void*"));
+                pty := dyn_slot_param_type_string(call_param_types.get(pi), call_param_is_ref.get(pi), context);
                 pn := match(call_param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("arg"));
                 plist.push_string(pty);
                 plist.push_str(" ");
@@ -1950,7 +1952,7 @@ _deferred_decl_cnames :: (
           ty := entry.ty;
           skip := (
             _walk_skip_some(ty)
-            || (entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone()))
+            || entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone())
           );
           if(
             !skip,

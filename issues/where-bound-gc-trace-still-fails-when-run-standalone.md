@@ -60,7 +60,7 @@ finds can be one minted by a different, hard-generic instantiation.
 bug class the audit keeps brushing against — it is "face 3" of the era-copy
 under-resolution family, whose root is explicitly still OPEN:
 
-- `issues/iterator-chain-shared-stamp-cross-item-pollution.md` (face 2)
+- `issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md` (face 2)
 - `issues/fixed/varbound-combinator-receiver-impl-match.md` (face 1, flat_map residual)
 
 Until the root is fixed, the batch-composition dependence means any future

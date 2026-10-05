@@ -28,7 +28,7 @@
 //! are added.
 //!
 //! The declarative face — `Executable`, `StaticLibrary`, `SharedLibrary`,
-//! `TestSuite`, `BuildModule`, `target_host`, the `Optimize`/`Allocator`/
+//! `TestSuite`, `BuildModule`, `target_host`, the `Optimize`/`AllocatorKind`/
 //! `Sanitize` enums — is what `yo init` scaffolds and what is expected to
 //! keep its names and meanings. Write build files against that.
 // ── Optimization levels ──────────────────────────────────────────────
@@ -50,7 +50,7 @@ Optimize :: enum(
 export(Optimize);
 // ── Memory allocators ────────────────────────────────────────────────
 /// Memory allocator to use in the compiled artifact.
-Allocator :: enum(
+AllocatorKind :: enum(
   /// High-performance allocator (mimalloc).
   Mimalloc,
   /// The platform's system allocator (macOS malloc zones, Windows CRT heap,
@@ -63,7 +63,7 @@ Allocator :: enum(
   /// (plans/reference/FIXED_REGION_ALLOCATOR.md).
   Fixed
 );
-export(Allocator);
+export(AllocatorKind);
 // ── Sanitizers ───────────────────────────────────────────────────────
 /// Runtime sanitizer to enable.
 Sanitize :: enum(
@@ -114,8 +114,8 @@ Executable :: struct(
   /// Optimization level.
   (optimize : Optimize) ?= Optimize.Debug,
   /// Memory allocator.
-  (allocator : Allocator) ?= Allocator.System,
-  /// Fixed-region heap size in bytes (`allocator : Allocator.Fixed` only;
+  (allocator : AllocatorKind) ?= AllocatorKind.System,
+  /// Fixed-region heap size in bytes (`allocator : AllocatorKind.Fixed` only;
   /// 64 KiB..4 GiB, rounded down to a 16-byte granule). Ignored by the other
   /// allocators.
   (heap_size : usize) ?= usize(16777216),

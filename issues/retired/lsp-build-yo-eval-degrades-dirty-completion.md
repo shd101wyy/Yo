@@ -1,6 +1,6 @@
 # LSP: project build.yo evaluation degrades dirty-buffer completion
 
-**Status: OPEN** (found 2026-08-10 by PR #92 CI after the repo-root build.yo
+**Status:** RETIRED: filed under `issues/retired/` by #218. Before that the line read: **Status: OPEN** (found 2026-08-10 by PR #92 CI after the repo-root build.yo
 landed — the P2.2 dogfood build made the compiler repo itself a build.yo
 project, and `src/tests/lsp.test.ts`'s dirty-buffer fixtures suddenly sat
 inside one).

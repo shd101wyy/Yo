@@ -1,0 +1,119 @@
+//! The `yo test` runner's own behavior, exercised by spawning REAL runner
+//! children. The runner exports its executable as `YO_EXE` to its batch
+//! children, so a test can re-invoke the compiler that is running it.
+//!
+//! Concurrent-run isolation: two `yo test` processes over one directory used
+//! to generate the SAME batch artifact names (`.yo_selftest_batch_<fi>_<bi>`)
+//! and each overwrote/deleted the other's compiled batch mid-run — measured
+//! 2026-10-03 on Windows, one run of a concurrent pair died with
+//! `yo: error: file or directory not found` and reported 4 of its 12 tests
+//! failed
+//! (issues/fixed/concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md).
+//! The batch name now carries the runner's pid, so concurrent runs over one
+//! directory cannot collide; this test starts two runner children on one
+//! fixture directory and expects both summaries green.
+pragma(Pragma.SkipWasm32Emscripten); // spawns native child processes
+pragma(Pragma.SkipWasm32Wasi); // spawns native child processes
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ env } :: import("std/env");
+{ Exception, IoExn } :: import("std/error");
+{ Command } :: import("std/process/command");
+{ Path } :: import("std/path");
+{ write_string } :: import("std/fs/file");
+{ create_dir_all } :: import("std/fs/dir");
+{ remove_dir_all } :: import("std/fs/walker");
+{ ArrayList } :: import("std/collections/array_list");
+
+/// Remove a path, tolerating absence and Windows's just-exited-executable
+/// lock: a leftover fixture from a previous suite run (or a batch artifact
+/// still held by a reaper) must not fail the setup of THIS run.
+_remove_tolerant :: (fn(path : String, io : Io) -> unit)({
+  swallow := Exception(
+    throw : (
+      _e -> {
+        unwind(());
+      }
+    )
+  );
+  io.await(remove_dir_all(Path.new(path.clone()), io), IoExn(io : io, exn : swallow));
+});
+/// Write one fixture test file: two trivial asserts, so a runner child spends
+/// its time in the batch compile/run cycle (where the collision lives), not
+/// in the tests themselves.
+_write_fixture_file :: (fn(dir : String, name : String, io : Io, e : IoExn) -> unit)({
+  src := `{ assert } :: import("std/assert");
+
+test("${name} one", {
+  assert((1 + 1) == 2, "math works");
+});
+
+test("${name} two", {
+  assert((2 * 3) == 6, "times works");
+});
+`;
+  io.await(
+    write_string(Path.new(`${dir}/${name}.test.yo`), src, io),
+    e
+  );
+});
+test("two concurrent yo test runs over one directory both finish green", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected I/O error while spawning runner children");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  // The runner's own executable, exported so a batch can re-invoke it. An
+  // installed `yo` running this suite leaves it pointing at itself; a
+  // tree-built one at yo-out/<target>/bin. Either resolves std the same way
+  // the parent did (exe-walk-up, then ./std from the inherited cwd).
+  yo_exe_opt := env.get(`YO_EXE`);
+  assert(yo_exe_opt.is_some(), "the runner must export YO_EXE to its batch children");
+  yo_exe := yo_exe_opt.unwrap();
+  // Six fixture files = six batch compile/run/delete cycles per child, the
+  // window in which the pre-fix shared names collided.
+  fixture := `tmp/yo-runner-conc-fixture`;
+  _remove_tolerant(fixture.clone(), io);
+  io.await(create_dir_all(Path.new(fixture.clone()), io), e);
+  names := ArrayList(String).new();
+  names.push(`a`);
+  names.push(`b`);
+  names.push(`c`);
+  names.push(`d`);
+  names.push(`e`);
+  names.push(`f`);
+  (ni : usize) = usize(0);
+  while(ni < names.len(), {
+    n := match(
+      names.get(ni),
+      .Some(x) => x,
+      .None => String.from("")
+    );
+    _write_fixture_file(fixture.clone(), n, io, e);
+    ni = (ni + usize(1));
+  });
+  // Spawn BOTH children before waiting on either — the whole regression is
+  // what happens while two runners hold the same directory at the same time.
+  run_a := Command.new(yo_exe.clone());
+  run_a.arg(String.from("test"));
+  run_a.arg(fixture.clone());
+  run_a.arg(String.from("--disable-sanitize"));
+  run_b := Command.new(yo_exe.clone());
+  run_b.arg(String.from("test"));
+  run_b.arg(fixture.clone());
+  run_b.arg(String.from("--disable-sanitize"));
+  child_a := io.await(run_a.spawn(io), e);
+  child_b := io.await(run_b.spawn(io), e);
+  status_a := io.await(child_a.wait(io), e);
+  status_b := io.await(child_b.wait(io), e);
+  // Each child's summary is its exit code: the runner exits 0 only when
+  // every test in every file passed, and the collision killed a child
+  // mid-directory (rc=1, no summary for the file it died on).
+  assert(status_a.success(), `concurrent run A failed (status ${status_a.raw.to_string()})`);
+  assert(status_b.success(), `concurrent run B failed (status ${status_b.raw.to_string()})`);
+  _remove_tolerant(fixture.clone(), io);
+});

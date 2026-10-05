@@ -73,7 +73,7 @@ reopening condition. Salvage: the YO_EI_CENSUS occupancy + write-rate probe
 (on the branch), the occupancy data (19/24 fields ≤2.5% at exit), the
 write-rate rule (rare membership requires BOTH read-cold AND write-cold —
 deferred_drop 1.84M writes, runtime_args 1.83M despite ≤2.5% occupancy), and
-issues/assignment-to-call-expression-silently-accepted.md (a half-converted
+issues/fixed/assignment-to-call-expression-silently-accepted.md (a half-converted
 write was silently swallowed by check AND runtime). FIXPOINT_HOLDS and
 gates failures=0 on the branch — the refutation is purely the memory matrix.
 

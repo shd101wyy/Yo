@@ -1,7 +1,7 @@
 # A generic fn whose binder is named `T` cannot return `io.async` of a composite over `T`
 
 **Status:** FIXED 2026-09-26 (Phase 3.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`). **Found:** 2026-09-26, reducing
-`issues/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md` to a minimal
+`issues/fixed/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md` to a minimal
 program (Phase 3.8 of `plans/TYPE_SYSTEM_SOUNDNESS.md`).
 **Severity:** a false type error: a correct program is rejected at the call.
 **Reproducer:** `issues/repros/a-caller-binder-named-t-collides-with-io-async-t.yo`

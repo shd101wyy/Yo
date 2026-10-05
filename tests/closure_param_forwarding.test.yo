@@ -17,7 +17,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 test("Test single-hop forwarded closure param", {
   walk1 :: (
-    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32), acc : ArrayList(i32)) -> unit
+    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32), inout(acc) : ArrayList(i32)) -> unit
   )({
     if(depth <= i32(0), {
       return(());
@@ -42,7 +42,7 @@ test("Test single-hop forwarded closure param", {
 test("Test two-hop forwarded closure param with dyn-capturing detector", {
   Detector :: ref(struct(detect : Dyn(Fn(k : i32) -> i32)));
   walk2 :: (
-    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32), det : Detector, acc : ArrayList(i32)) -> unit
+    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32), det : Detector, inout(acc) : ArrayList(i32)) -> unit
   )({
     if(depth <= i32(0), {
       return(());

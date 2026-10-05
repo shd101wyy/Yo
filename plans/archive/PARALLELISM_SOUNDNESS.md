@@ -388,7 +388,7 @@ same reachability form: a write is an error only when a `Send` closure also reac
 Rejecting unresolvable callees (a MAY-analysis) was measured and dropped: it turned 8 of 22
 parallelism suites red (every spawn body calling a captured helper closure, and operators the
 evaluator does not stamp with a callee). Calls through closure values and dyn methods are the
-residual, `issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`, closed with D4
+residual, `issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`, closed with D4
 in Phase 4 once closures carry identity on `Func` types.
 `std/encoding/html` keeps its `HashMap` tables under a `RawMutex` with copy-out lookups. The
 docs corpus gate is parse-only (`scripts/check-doc-blocks.py`), so fragment examples are
@@ -468,7 +468,7 @@ with no value is not `Send`.
    object — allowed under D1) replaces the per-pool `_mutex`, `_held`, `_owner`; `spawn` checks
    `_closed` after taking it; `shutdown` stores `_closed` under it. The per-pool completion
    counter (the real fix) is scheduled after
-   `issues/spawn-wrapper-forwarded-io-crosses-specializations.md` is fixed in codegen (a
+   `issues/fixed/spawn-wrapper-forwarded-io-crosses-specializations.md` is fixed in codegen (a
    Phase 6 item).
 5. Tests: `tests/sync/mutex.test.yo` — unlock-without-lock traps (rc 134 + message), lock
    twice traps; `cond.test.yo` — `wait_with` outside `with_lock` traps; `once.test.yo` —
@@ -491,7 +491,7 @@ pinned as four `tests/cli-cases/*-panics` cases (rc 1 + the message), the portab
    do both under `owner->lock`); make `t->future` `_Atomic` for `is_woken` or document it
    owner-only and assert.
 2. `src/codegen/exprs/parallelism.yo` + `closures.yo`: fix the forwarded-`io` specialization
-   crossing (`issues/spawn-wrapper-forwarded-io-crosses-specializations.md`) so `ThreadPool`
+   crossing (`issues/fixed/spawn-wrapper-forwarded-io-crosses-specializations.md`) so `ThreadPool`
    can wrap task closures; then the completion counter of Phase 5.4.
 3. `src/codegen/exprs/rc_fns.yo`: key `rc()`'s atomic-load arm on the same "is this RC atomic"
    predicate `drop_dup.yo` uses (P-19). `src/codegen/exprs/other_fn_call.yo` +

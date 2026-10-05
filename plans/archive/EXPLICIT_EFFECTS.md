@@ -1146,6 +1146,6 @@ Listed in the original numbering for cross-reference continuity.
 - `plans/archive/EFFECT_INJECTION_VIA_SPECIALIZED_RESUME.md` — implementation
   detail for async closure effect injection; simplifies under explicit
   effects (closure capture of `e` is just a regular param capture).
-- `issues/yo-self-evaluator-gaps.md` §A (HKT) — independent; unaffected.
-- `issues/yo-self-evaluator-gaps.md` §C (per-module sub-evaluation) —
+- `issues/retired/yo-self-evaluator-gaps.md` §A (HKT) — independent; unaffected.
+- `issues/retired/yo-self-evaluator-gaps.md` §C (per-module sub-evaluation) —
   independent; unaffected.

@@ -214,11 +214,11 @@ sites.
 
 - `ErrorChain` / `root_cause` remain blocked on a compiler defect, not on
   design: `Dyn(SelfTrait)` in a return type loses the trait on an erased
-  receiver (`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
+  receiver (`issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
 - A `derive` body cannot bind a field named after a builtin type — the derived
   body is unhygienic, so a field called `unit` fails with a confusing
   `Argument count mismatch: expected 1, got 0`
   (`issues/derive-body-field-name-collides-with-a-builtin-type.md`).
 - `yield` resumption order has twice diverged on macOS CI legs
-  (`issues/yield-resumption-order-diverges-on-macos-ci.md`). The ready queue is
+  (`issues/fixed/yield-resumption-order-diverges-on-macos-ci.md`). The ready queue is
   strict FIFO, so the issue's original fix is refuted; three candidates remain.

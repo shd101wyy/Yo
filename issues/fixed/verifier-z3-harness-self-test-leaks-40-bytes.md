@@ -47,7 +47,7 @@ byte-identical to develop's (`cmp`, 121,089,132 bytes).
 the caller's argument temp is consumed and the callee's copy becomes the last
 owner of the interior references; the callee never releases them. That site is
 owned by the drop-liburing agent (branch `fv-param-interior-drop`, their issue
-`issues/fv-z3-self-test-leaks-under-the-v0244-seed.md`). A SECOND missing-drop
+`issues/fixed/fv-z3-self-test-leaks-one-interior-ref-per-composite-argument.md`). A SECOND missing-drop
 site in the same family (local `:=` binding of an indexed read whose only use
 DCEs to the argument-atom tail) is documented in
 `issues/fixed/local-binding-of-an-indexed-read-never-releases-its-element.md`; this

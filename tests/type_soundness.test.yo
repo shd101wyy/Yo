@@ -936,7 +936,7 @@ test("soundness: a move in an arm that returns does not reach the code after the
 // holds one more reference: a second release by the returning arm would
 // dispose the box while the keeper still holds it
 // (issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
-_p5_early_return_kept :: (fn(c : bool, keep : ArrayList(_P5Box)) -> i32)({
+_p5_early_return_kept :: (fn(c : bool, inout(keep) : ArrayList(_P5Box)) -> i32)({
   b := _P5Box(tag : i32(5));
   keep.push(b);
   if(c, {
@@ -951,6 +951,54 @@ test("soundness: the returning arm releases its moved value once", {
   assert(g_p5_disposed == before, `the keeper still holds the box, got ${(g_p5_disposed - before).to_string()} disposals`);
   keep.clear();
   assert(g_p5_disposed == (before + i32(1)), `released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
+});
+// The same arm when the TAIL moves the box too: the variable's last move is
+// then the tail's, after the arm's return, and the early-return drop the
+// evaluator attaches for a value moved later released it again
+// (issues/fixed/an-early-return-after-an-arm-move-releases-a-value-the-tail-also-moves.md).
+_p5_tail_move_kept :: (fn(c : bool, inout(keep) : ArrayList(_P5Box)) -> i32)({
+  b := _P5Box(tag : i32(5));
+  keep.push(b);
+  if(c, {
+    return(_p5_sink(b));
+  });
+  _p5_sink(b)
+});
+// The arm moves the box in a statement before its return, and a sibling arm
+// returns without moving it: that return still releases the caller's box.
+_p5_tail_move_three_way :: (fn(k : i32, inout(keep) : ArrayList(_P5Box)) -> i32)({
+  b := _P5Box(tag : k);
+  keep.push(b);
+  cond(
+    (k == i32(0)) => {
+      t := _p5_sink(b);
+      return(t + i32(10));
+    },
+    (k == i32(1)) => {
+      return(i32(-1));
+    },
+    true => ()
+  );
+  _p5_sink(b)
+});
+test("soundness: a returning arm's move is released once when the tail moves the value too", {
+  keep := ArrayList(_P5Box).new();
+  before := g_p5_disposed;
+  assert(_p5_tail_move_kept(true, keep) == i32(5), "the returning path moved the box");
+  assert(_p5_tail_move_kept(false, keep) == i32(5), "the tail moved the box");
+  assert(g_p5_disposed == before, `the keeper still holds both boxes, got ${(g_p5_disposed - before).to_string()} disposals`);
+  keep.clear();
+  assert(g_p5_disposed == (before + i32(2)), `each released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
+});
+test("soundness: a sibling arm's return still releases the value the tail moves", {
+  keep := ArrayList(_P5Box).new();
+  before := g_p5_disposed;
+  assert(_p5_tail_move_three_way(i32(0), keep) == i32(10), "the moving arm returned");
+  assert(_p5_tail_move_three_way(i32(1), keep) == i32(-1), "the other arm returned");
+  assert(_p5_tail_move_three_way(i32(2), keep) == i32(2), "the tail moved the box");
+  assert(g_p5_disposed == before, `the keeper still holds all three, got ${(g_p5_disposed - before).to_string()} disposals`);
+  keep.clear();
+  assert(g_p5_disposed == (before + i32(3)), `each released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
 });
 _p5_move_on_break :: (fn(n : i32) -> i32)({
   b := _P5Box(tag : n);
@@ -1021,4 +1069,31 @@ test("soundness: an operator unit does not implement is rejected", {
   u := ();
   comptime_expect_error(u + u, "No matching call found for operator");
   assert(u == (), "unit's Eq still dispatches");
+});
+// ---------------------------------------------------------------------------
+// issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md:
+// a `sink` move consumes the name. Reading a moved reference value read the
+// cell its new owner had already released.
+// ---------------------------------------------------------------------------
+(g_sink_read_disposed : i32) = i32(0);
+_SinkReadBox :: ref(struct(n : i32));
+impl(
+  _SinkReadBox,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_sink_read_disposed = (g_sink_read_disposed + i32(1));
+    })
+  )
+);
+_sink_read_take :: (fn(sink(h) : _SinkReadBox) -> i32)(h.n);
+test("soundness: a read after a sink move is E0901", {
+  before := g_sink_read_disposed;
+  a := _SinkReadBox(n : i32(1));
+  assert(_sink_read_take(a) == i32(1), "moved in");
+  assert(g_sink_read_disposed == (before + i32(1)), "the callee released the cell");
+  comptime_expect_error(a.n, "use of moved value");
+  b := _SinkReadBox(n : i32(2));
+  m := _sink_read_take(b);
+  comptime_expect_error(b, "use of moved value");
+  assert(m == i32(2), "the value was read before the move");
 });

@@ -1,4 +1,6 @@
-/// Tests for `src/doc/builder.yo`'s gate on compiler-internal module fields.
+/// Tests for `src/doc/builder.yo`'s doc-comment joins: the gate on
+/// compiler-internal module fields, and the per-receiver attachment of impl
+/// members' `///` comments.
 ///
 /// `yo doc` published the evaluator's own temporaries as documented API — 790
 /// `__private_tmp_temp_<digits>` entries in `prelude` alone, rendered as
@@ -6,14 +8,21 @@
 /// every page's search index. The gate existed but was a PREFIX LIST
 /// (`___`, `__yo_`) and a temp's prefix is its module path, so no literal
 /// prefix can catch them all.
+///
+/// The doc lookup also keyed every comment by BARE declaration name, so two
+/// types in one file with a same-named member (`new` on both) rendered the
+/// later impl's prose on BOTH methods
+/// (`issues/fixed/stddoc-core-doc-comment-attached-by-bare-member-name.md`).
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
 { assert, panic } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
+{ DocModule, DocField, DocVariant, DocFunction } :: import("../../src/doc/model.yo");
 { tokenize } :: import("../../src/lexer.yo");
 { extract_doc_comments } :: import("../../src/doc/extractor.yo");
-{ is_compiler_internal_field_name, build_doc_module_from_tokens } :: import("../../src/doc/builder.yo");
-{ DocModule, DocField, DocVariant } :: import("../../src/doc/model.yo");
+{ is_compiler_internal_field_name, build_doc_lookup, extract_impl_info_from_tokens, build_doc_module_from_tokens } :: import(
+  "../../src/doc/builder.yo"
+);
 // ---------------------------------------------------------------------------
 // What must be hidden
 // ---------------------------------------------------------------------------
@@ -59,6 +68,114 @@ test("is_compiler_internal_field_name: temp-LOOKING user names stay documented",
   assert(!is_compiler_internal_field_name(`_my_temp_buffer`), "digits required after _temp_");
   assert(!is_compiler_internal_field_name(`_a_temp_`), "no digits at all");
   assert(!is_compiler_internal_field_name(`_a_temp_3x`), "non-digit tail");
+});
+// ---------------------------------------------------------------------------
+// Impl-member docs attach per receiver, not by bare member name
+// ---------------------------------------------------------------------------
+/// Two types in one file, each documenting a `new` — the exact shape that
+/// crossed prose when the lookup was keyed by bare name.
+_twin_new_source :: (fn() -> String)(
+  `/// A plain value struct.\nVs :: struct(x : i32);\nimpl(\n  Vs,\n  /// Make one.\n  new : (fn(x : i32) -> Self)(Self(x)),\n  /// Read it.\n  get : (fn(self : Self) -> i32)(self.x)\n);\n/// A ref struct.\nRs :: ref(struct(y : i32));\nimpl(\n  Rs,\n  /// Make a ref one.\n  new : (fn(y : i32) -> Self)(Self(y))\n);\n`
+);
+/// One method's `doc` by name, or `.None` when the list has no such member.
+_method_doc_of :: (fn(methods : ArrayList(DocFunction), name : String) -> Option(String))({
+  (i : usize) = usize(0);
+  while(i < methods.len(), {
+    m := match(
+      methods.get(i),
+      .Some(x) => x,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    if(m.name == name, {
+      return(m.doc);
+    });
+    i = (i + usize(1));
+  });
+  Option(String).None
+});
+_is_doc :: (fn(doc : Option(String), expected : String) -> bool)(
+  match(
+    doc,
+    .Some(d) => (d == expected),
+    .None => false
+  )
+);
+test("a same-named impl member keeps its own receiver's doc comment", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected lexer error");
+        unwind(());
+      }
+    )
+  );
+  tokens := tokenize(_twin_new_source(), `test.yo`, exn);
+  lookup := build_doc_lookup(extract_doc_comments(tokens));
+  impls := extract_impl_info_from_tokens(tokens, lookup);
+  vs_methods := match(
+    impls.get(`Vs`),
+    .Some(e) => e.methods,
+    .None => ArrayList(DocFunction).new()
+  );
+  assert(vs_methods.len() == usize(2), "Vs has new and get");
+  assert(_is_doc(_method_doc_of(vs_methods, `new`), `Make one.`), "Vs.new carries its own comment");
+  assert(_is_doc(_method_doc_of(vs_methods, `get`), `Read it.`), "and so does the unique member");
+  rs_methods := match(
+    impls.get(`Rs`),
+    .Some(e) => e.methods,
+    .None => ArrayList(DocFunction).new()
+  );
+  assert(
+    _is_doc(_method_doc_of(rs_methods, `new`), `Make a ref one.`),
+    "Rs.new keeps its own comment instead of overwriting Vs.new's"
+  );
+});
+test("the impl scan records receiver-qualified doc keys for the registry lookups", {
+  // `_extract_methods` / `_extract_generic_impl_info` — the evaluator half of
+  // `build_doc_module`, which merges FIRST — see no token positions, so they
+  // read the `Receiver.member` keys the token scan records in the shared
+  // lookup map (HashMap is a ref type; the scan writes through).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected lexer error");
+        unwind(());
+      }
+    )
+  );
+  tokens := tokenize(_twin_new_source(), `test.yo`, exn);
+  lookup := build_doc_lookup(extract_doc_comments(tokens));
+  extract_impl_info_from_tokens(tokens, lookup);
+  assert(_is_doc(lookup.get(`Vs.new`), `Make one.`), "a qualified key for Vs.new");
+  assert(_is_doc(lookup.get(`Rs.new`), `Make a ref one.`), "a qualified key for Rs.new");
+  assert(_is_doc(lookup.get(`Vs.get`), `Read it.`), "a qualified key for the unique member");
+});
+test("a doc comment separated from the member by a plain note still attaches", {
+  // `_collect_doc_comment_before` stops at the first non-doc token, so the
+  // intervening `//` note defeats the position join. The bare-name fallback
+  // keeps the extractor's attachment — it skips regular comments — so this
+  // shape keeps its doc rather than losing it.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected lexer error");
+        unwind(());
+      }
+    )
+  );
+  source := `impl(\n  Vs,\n  /// Make one.\n  // grouped under construction\n  new : (fn(x : i32) -> Self)(Self(x))\n);\n`;
+  tokens := tokenize(source, `test.yo`, exn);
+  lookup := build_doc_lookup(extract_doc_comments(tokens));
+  impls := extract_impl_info_from_tokens(tokens, lookup);
+  vs_methods := match(
+    impls.get(`Vs`),
+    .Some(e) => e.methods,
+    .None => ArrayList(DocFunction).new()
+  );
+  assert(_is_doc(_method_doc_of(vs_methods, `new`), `Make one.`), "the fallback still finds the comment");
 });
 // ---------------------------------------------------------------------------
 // build_doc_module_from_tokens — the DEGRADED (token-only) module shape

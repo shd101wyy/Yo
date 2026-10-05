@@ -359,6 +359,55 @@ resolve_var_name_in_context :: (
   )
 });
 export(resolve_var_name_in_context);
+// The context's optional name sets are written by taking the set out and
+// storing it back, never through a `match` binding: a binding is a copy of
+// the set once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+/// Record `name` in `declared_temp_vars`, creating the set on first use.
+record_declared_temp_var :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+  names := match(context.declared_temp_vars.take(), .Some(s) => s, .None => HashSet(String).new());
+  names.insert(name);
+  context.declared_temp_vars = Option(HashSet(String)).Some(names);
+});
+/// Record `name` in `short_circuit_handled_drop_var_names` when that set is
+/// active (a short-circuit family is being lowered).
+note_short_circuit_handled :: (fn(context : FunctionGenerationContext, name : String) -> unit)(
+  match(
+    context.short_circuit_handled_drop_var_names.take(),
+    .Some(s) => {
+      names := s;
+      names.insert(name);
+      context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(names);
+    },
+    .None => ()
+  )
+);
+/// Consume `target` from `short_circuit_handled_drop_var_names`: true when it
+/// was there (its drop was already emitted inside a short-circuit branch).
+take_short_circuit_handled :: (fn(context : FunctionGenerationContext, target : String) -> bool)(
+  match(
+    context.short_circuit_handled_drop_var_names.take(),
+    .Some(s) => {
+      names := s;
+      hit := names.remove(target);
+      context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(names);
+      hit
+    },
+    .None => false
+  )
+);
+/// Record `id` in `state_machine_binding_ids` when that set is active.
+note_state_machine_binding_id :: (fn(context : FunctionGenerationContext, id : String) -> unit)(
+  match(
+    context.state_machine_binding_ids.take(),
+    .Some(s) => {
+      ids := s;
+      ids.insert(id);
+      context.state_machine_binding_ids = Option(HashSet(String)).Some(ids);
+    },
+    .None => ()
+  )
+);
+export(record_declared_temp_var, note_short_circuit_handled, take_short_circuit_handled, note_state_machine_binding_id);
 
 export(
   FunctionGenerationContext,

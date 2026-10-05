@@ -193,7 +193,7 @@ impl(
     )
   ),
   _is_word_char : (fn(self : Self, cp : u32) -> bool)(
-    ((cp >= u32(48)) && (cp <= u32(57))) || ((cp >= u32(65)) && (cp <= u32(90))) || (((cp >= u32(97)) && (cp <= u32(122))) || (cp == u32(95)))
+    ((cp >= u32(48)) && (cp <= u32(57))) || ((cp >= u32(65)) && (cp <= u32(90))) || ((cp >= u32(97)) && (cp <= u32(122))) || (cp == u32(95))
   ),
   _find_prev_char_start : (fn(self : Self, pos : usize) -> usize)({
     p := (pos - usize(1));
@@ -303,7 +303,7 @@ impl(
 // Block 3: _add_thread (recursive, depends on Block 1+2)
 impl(
   NfaVm,
-  _add_thread : (fn(self : Self, list : ArrayList(NfaThread), thread : NfaThread, byte_pos : usize, seen : ArrayList(bool)) -> unit)({
+  _add_thread : (fn(self : Self, inout(list) : ArrayList(NfaThread), thread : NfaThread, byte_pos : usize, inout(seen) : ArrayList(bool)) -> unit)({
     cond(
       (thread.pc >= self._program.instructions.len()) => {
         return(());

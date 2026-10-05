@@ -5,14 +5,17 @@
 //! constants, copy flags, directory entry types, and the default permission
 //! modes `fs.create`/`fs.mkdir` use.
 //!
-//! Every value here is a Yo literal rather than a `c_include` of the real
-//! header, because these numbers cross the Yo/C boundary as plain integers:
-//! `std/fs` hands them to the generated runtime (`src/codegen/async/`), which
-//! passes them to the syscall. Where a value DIFFERS between platforms it is a
-//! `cond` on `platform` and the difference is called out at the definition —
-//! `AT_FDCWD`, `AT_REMOVEDIR` and `AT_SYMLINK_NOFOLLOW` are the three that do.
-//! Everything else is identical on Linux and macOS. Non-Unix targets take the
-//! Linux arm.
+//! Every value here crosses the Yo/C boundary as a plain integer: `std/fs`
+//! hands it to the generated runtime (`src/codegen/async/`), which passes it
+//! to the syscall. The members whose value DIFFERS between platforms — the
+//! `O_*` open flags and `AT_FDCWD` / `AT_REMOVEDIR` / `AT_SYMLINK_NOFOLLOW` —
+//! are imported from `std/libc/fcntl`, a `c_include` of `<fcntl.h>`: the
+//! emitted C carries the macro name and the C compiler supplies the per-target
+//! value, so the Yo call site and the runtime scaffolding read one definition
+//! instead of two copies that agree by coincidence
+//! (issues/fixed/emitted-c-hardcodes-linux-at-fdcwd.md). Every other value is
+//! a Yo literal, identical on Linux and macOS; the Windows and wasm runtimes
+//! emulate over these numbers.
 //!
 //! ## Stability
 //!
@@ -26,42 +29,28 @@
 //! Freezing this module would mean deciding it is public, and the reason to do
 //! that has not appeared; the more likely end state is that it becomes
 //! `_`-private once `std/fs` covers the last raw-flag call site.
-{ platform, Platform } :: import("../process");
-// Import platform-correct open flags from libc
-{ O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_NONBLOCK, O_CLOEXEC, O_DIRECTORY } :: import("../libc/fcntl");
+// Import the platform-varying fcntl constants: the O_* open flags and the
+// three AT_* members whose values differ per kernel. They arrive as
+// `<fcntl.h>` macro references, not folded integers — see the module header.
+{ O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_NONBLOCK, O_CLOEXEC, O_DIRECTORY, AT_FDCWD, AT_REMOVEDIR, AT_SYMLINK_NOFOLLOW } :: import("../libc/fcntl");
 // ============================================================================
 // AT_* Flags
 // ============================================================================
-/// The `dirfd` that makes an `*at()` syscall resolve a relative path against
-/// the process's current directory — every `std/fs` call that takes a path
-/// rather than an open handle passes this. The value differs per kernel
-/// (`-2` on macOS, `-100` on Linux), which is exactly why it is a constant
-/// here and not a literal at the call sites.
-AT_FDCWD :: cond(
-  (platform == Platform.Macos) => i32(-2),
-  true => i32(-100)
-);
-/// `unlinkat()` flag selecting the `rmdir()` behaviour instead of `unlink()`:
-/// remove the name only if it is an empty directory. `std/fs` uses `0` to
-/// delete a file and this to delete a directory. macOS `0x80`, Linux `0x200`.
-AT_REMOVEDIR :: cond(
-  (platform == Platform.Macos) => i32(0x80),
-  true => i32(0x200)
-);
+// `AT_FDCWD` (the `dirfd` that resolves a relative path against the process's
+// current directory — every `std/fs` call that takes a path rather than an
+// open handle passes it), `AT_REMOVEDIR` (the `unlinkat()` flag selecting the
+// `rmdir()` behaviour — `std/fs` uses `0` to delete a file and this to delete
+// a directory) and `AT_SYMLINK_NOFOLLOW` (what separates `fs.symlink_metadata`
+// from `fs.metadata`) are imported from `std/libc/fcntl` above: their values
+// differ per kernel (`AT_FDCWD` is -2 on macOS, -100 on Linux), so they reach
+// the emitted C as macro names the C compiler resolves per target.
 /// Linux `statx()`/`fstatat()` flag meaning "the path is empty, stat the
 /// `dirfd` itself" — the way to stat a handle whose name may already have been
 /// renamed or unlinked. This is the LINUX value and there is no macOS
-/// equivalent (the macOS runtime stats by fd another way), so it is not
-/// `cond`-ed per platform: nothing in Yo reads it. The generated Linux runtime
+/// equivalent (the macOS runtime stats by fd another way), so it stays a
+/// literal: nothing in Yo reads it. The generated Linux runtime
 /// uses the C macro directly (`src/codegen/async/runtime_io_linux.yo`).
 AT_EMPTY_PATH :: i32(0x1000);
-/// `*at()` flag that makes the call act on a symlink itself instead of its
-/// target — what separates `fs.symlink_metadata` from `fs.metadata`. macOS
-/// `0x20`, Linux `0x100`.
-AT_SYMLINK_NOFOLLOW :: cond(
-  (platform == Platform.Macos) => i32(0x20),
-  true => i32(0x100)
-);
 /// `statx()` synchronisation mode: "whatever a plain `stat()` would do" —
 /// zero, so OR-ing it into a flag word is a no-op that documents the intent at
 /// the call site rather than changing behaviour.

@@ -1732,7 +1732,7 @@ test("Test io.state pending", {
     return(i32(42));
   });
   s := io.state(task);
-  assert(s == FutureState.Pending, "cold future should be Pending");
+  assert(s == FutureState.Cold, "cold future should be Cold");
   io.await(task, io);
 });
 test("Test io.state completed", {
@@ -1784,7 +1784,7 @@ test("Test io.state consistency", {
   s1 := io.state(task);
   s2 := io.state(task);
   assert(s1 == s2, "multiple state calls should return same result");
-  assert(s1 == FutureState.Pending, "cold future should be Pending");
+  assert(s1 == FutureState.Cold, "cold future should be Cold");
   io.await(task, io);
   s3 := io.state(task);
   s4 := io.state(task);
@@ -6391,13 +6391,13 @@ _pump_pw :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
     (i : i32) = i32(0);
     (total : i32) = i32(0);
     while(runtime(!settled), {
-      rc := _step_pw(i);
+      step := _step_pw(i);
       (act : int) = int(0);
       cond(
-        (rc == i32(0)) => {
+        (step == i32(0)) => {
           act = int(1);
         },
-        (rc == i32(1)) => {
+        (step == i32(1)) => {
           act = int(2);
         },
         true => ()
@@ -6836,4 +6836,75 @@ test("io.async captures and locals named after header macros", {
   assert(io.await(_hm_sync_capture(io, i32(4)), io) == i32(8), "4 * 2");
   // BUFSIZ = 5 + 1, FILENAME_MAX = 6 + 1
   assert(io.await(_hm_sm_capture(io, i32(5)), io) == i32(18), "5 + 6 + 7");
+});
+// ---------------------------------------------------------------------------
+// A `match` / `cond` used as the CONDITION of an `if`/`cond` inside io.async,
+// with an await in the branch, took the other branch: the result temp was
+// written to a C local and read from its never-written task slot
+// (issues/fixed/a-match-or-cond-condition-inside-io-async-takes-the-wrong-branch-when-the-branch-awaits.md).
+// ---------------------------------------------------------------------------
+_wrong_branch_inner :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io : Io) => i32(7)));
+_wrong_branch_cond_match :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    d := Option(usize).Some(usize(0));
+    (n : i32) = i32(0);
+    cond(
+      match(d, .Some(_) => true, .None => false) => {
+        _x := io.await(_wrong_branch_inner(io), io);
+        n = i32(1);
+      },
+      true => {
+        n = i32(2);
+      }
+    );
+    n
+  })
+);
+_wrong_branch_if_match :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    d := Option(usize).Some(usize(0));
+    (n : i32) = i32(2);
+    if(match(d, .Some(_) => true, .None => false), {
+      _x := io.await(_wrong_branch_inner(io), io);
+      n = i32(1);
+    });
+    n
+  })
+);
+_wrong_branch_if_cond :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    d := Option(usize).Some(usize(0));
+    (n : i32) = i32(2);
+    if(cond(d.is_some() => true, true => false), {
+      _x := io.await(_wrong_branch_inner(io), io);
+      n = i32(1);
+    });
+    n
+  })
+);
+test("a match or cond condition inside io.async takes the right branch when it awaits", {
+  assert(io.await(_wrong_branch_cond_match(io), io) == i32(1), "cond(match(...) => await)");
+  assert(io.await(_wrong_branch_if_match(io), io) == i32(1), "if(match(...), await)");
+  assert(io.await(_wrong_branch_if_cond(io), io) == i32(1), "if(cond(...), await)");
+});
+// ---------------------------------------------------------------------------
+// A second io.spawn of a running task keeps the bundle it was started with
+// (issues/fixed/a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md).
+// ---------------------------------------------------------------------------
+_Tell2 :: (fn(x : i32) -> i32);
+_Tell2Ctx :: struct(io : Io, tell : _Tell2);
+test("a second io.spawn of a running task keeps the first bundle", {
+  tell_a :: (fn(x : i32) -> i32)(i32(1));
+  tell_b :: (fn(x : i32) -> i32)(i32(2));
+  task := io.async((ctx : _Tell2Ctx) => {
+    ctx.io.await(yield(ctx.io), ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
+    ctx.tell(i32(0))
+  });
+  h1 := io.spawn(task, { io, tell : tell_a });
+  h2 := io.spawn(task, { io, tell : tell_b });
+  r1 := h1.await(io);
+  r2 := h2.await(io);
+  assert(match(r1, .Some(v) => (v == i32(1)), .None => false), "the task ran under the first bundle");
+  assert(match(r2, .Some(v) => (v == i32(1)), .None => false), "the second handle reads the same task");
 });

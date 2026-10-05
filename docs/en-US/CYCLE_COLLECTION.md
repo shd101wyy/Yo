@@ -439,13 +439,14 @@ managed references each object holds. That contract is the `Trace` trait, define
 ```rust
 Trace :: trait(
   id := "Trace",
-  trace : (fn(self : Self, tracer : GcTracer) -> unit),
-  where(Self <: Rc)
+  trace : (fn(self : Self, tracer : GcTracer) -> unit)
 );
 ```
 
 A `trace` implementation calls `tracer.visit(...)` once per outgoing edge. The compiler
-turns each type's `trace` into the `traverse_fn` stored in its object header.
+turns each type's `trace` into the `traverse_fn` stored in its object header. Only a
+reference type (`ref(struct(...))`, `ref(enum(...))` and their `atomic(...)` forms) may
+implement `Trace` (or `Dispose`); the compiler rejects the `impl` on any other type.
 
 ### Auto-derived for structs, enums, and value types
 

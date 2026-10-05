@@ -536,7 +536,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   // with it, the read finishes immediately.
   rh := io.spawn(r.read_to_string(io), e);
   text := match(
-    timeout(rh, Duration.from_millis(i64(2000)), io),
+    io.await(timeout(rh, Duration.from_millis(i64(2000)), io), io),
     .Ok(t) => t,
     .Err(te) => {
       assert(false, `dropping the ChildStdin did not deliver EOF — ${te}`);

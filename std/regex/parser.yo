@@ -315,7 +315,7 @@ impl(
       .None => .Err(RegexError.TrailingBackslash(self._pos))
     )
   }),
-  _try_parse_char_range : (fn(self : Self, ranges : ArrayList(CharRange), low : u32) -> unit)({
+  _try_parse_char_range : (fn(self : Self, inout(ranges) : ArrayList(CharRange), low : u32) -> unit)({
     pk3 := self._peek();
     is_dash := match(
       pk3,
@@ -379,7 +379,7 @@ impl(
       }
     );
   }),
-  _parse_char_class_content : (fn(self : Self, ranges : ArrayList(CharRange)) -> Result(unit, RegexError))({
+  _parse_char_class_content : (fn(self : Self, inout(ranges) : ArrayList(CharRange)) -> Result(unit, RegexError))({
     pk2 := self._peek();
     b := match(
       pk2,
@@ -744,7 +744,7 @@ impl(
       true => RegexNode.sequence(nodes)
     )
   ),
-  _finalize_frame : (fn(self : Self, alts : ArrayList(ArrayList(RegexNode)), seq : ArrayList(RegexNode)) -> RegexNode)({
+  _finalize_frame : (fn(self : Self, inout(alts) : ArrayList(ArrayList(RegexNode)), seq : ArrayList(RegexNode)) -> RegexNode)({
     cond(
       (alts.len() == usize(0)) => {
         return(self._make_sequence(seq));

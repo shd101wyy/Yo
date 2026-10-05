@@ -59,6 +59,7 @@ json :: import("std/encoding/json");
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
   E_COMPTIME_RUNTIME_BINDING,
+  E_COMPTIME_PARAM_DEFAULT,
   suggest_name
 } :: import("./diagnostics.yo");
 /// One registry entry: a code, its bilingual prose, and one bad→good
@@ -282,8 +283,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "没有这个字段",
       "A field read names no field of the struct, tuple or union.",
       "字段读取所用的名字不是该结构体、元组或联合体的字段。",
-      "The message lists the fields the type has and, when one is close, suggests it. A method is reached only through a call — `p.len()`, not `p.len` — so a name that is a method still needs its parentheses.",
-      "错误信息会列出该类型拥有的字段，名字相近时还会给出建议。方法只能通过调用访问 —— 写 `p.len()`，而不是 `p.len` —— 所以即使这个名字是方法，也需要加上括号。",
+      "The message lists the fields the type has and, when one is close, suggests it. A method is reached only through a call — `p.len()`, not `p.len` — so a name that is a method still needs its parentheses. On a `Box` or `Arc` (a `Deref` type) a field the wrapper lacks is looked up on its payload (auto-dereference, `b.x` is `b.*.x`); when the payload lacks it too, the message names the payload and lists its fields.",
+      "错误信息会列出该类型拥有的字段，名字相近时还会给出建议。方法只能通过调用访问 —— 写 `p.len()`，而不是 `p.len` —— 所以即使这个名字是方法，也需要加上括号。对 `Box` 或 `Arc`（`Deref` 类型），包装器没有的字段会到其载荷上查找（自动解引用，`b.x` 即 `b.*.x`）；若载荷也没有，错误信息会指出载荷并列出它的字段。",
       "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.xx;\n});\nexport(main);\n",
       "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := P(x : i32(1), y : i32(2));\n  _z := p.x;\n});\nexport(main);\n",
       "`P` has the fields `x` and `y`; `xx` is neither.",
@@ -415,14 +416,14 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_USE_OF_MOVED_VALUE,
       "use of moved value",
       "使用了被移动的值",
-      "An `own` value was consumed and is used again afterwards.",
-      "`own` 值已被消耗，之后又被使用。",
-      "Passing an `own` argument transfers ownership; the binding is dead afterwards. Re-order the uses, clone first (`clone(x)`), or take the value by plain parameter instead of `own`.",
-      "传递 `own` 参数会转移所有权，之后该绑定即失效。请调整使用顺序、先克隆（`clone(x)`），或使用普通参数代替 `own`。",
-      "_take :: (fn(own(_b) : Box(i32)) -> unit)(());\nmain :: (fn() -> unit)({\n  x := Box(i32)(42);\n  _take(x);\n  _y := x;\n});\nexport(main);\n",
-      "_take :: (fn(own(_b) : Box(i32)) -> unit)(());\nmain :: (fn() -> unit)({\n  x := Box(i32)(42);\n  _y := x;\n  _take(x);\n});\nexport(main);\n",
-      "`_take(x)` passes `x` to an `own` parameter, which takes ownership; the later `x` reads a moved value.",
-      "`_take(x)` 把 `x` 传给 `own` 参数，所有权随之转移；后面的 `x` 读到的是已移动的值。"
+      "A value was moved and is used again afterwards, or a move-only value is copied.",
+      "值已被移动，之后又被使用；或者复制了一个只能移动的值。",
+      "Passing an argument to a `sink` parameter transfers ownership: the caller's binding ends at the call. Re-order the uses, clone first (`clone(x)`), or take the value by plain parameter instead of `sink`. (`own(x)` is the old spelling of `sink(x)`, accepted until the next seed.) A move-only value (a value type that implements `Dispose` or declares `MoveOnly`, or one holding such a value) is moved by every copy point: `y := x`, `=`, a `sink` argument, a field or element store, a return and a closure capture, so reading `x` afterwards is this error. It cannot be copied out of storage it does not own either: a by-value parameter or a `match`/`for` binding borrows it, a field is part of its holder (there are no partial moves), and a module-level binding is never moved. Pass it to a by-value parameter to lend it, take the parameter `sink(...)` to keep it, pass it `inout`, or share it through a reference type (`Box`, `Arc`, a `ref(struct(...))`); a type that implements `Clone` is copied explicitly with `x.clone()`.",
+      "把实参传给 `sink` 参数会转移所有权：调用方的绑定在调用处结束。请调整使用顺序、先克隆（`clone(x)`），或使用普通参数代替 `sink`。（`own(x)` 是 `sink(x)` 的旧写法，在下一个种子版本之前仍被接受。）只能移动的值（实现了 `Dispose` 或声明了 `MoveOnly` 的值类型，或包含这种值的值）在每个复制点都会被移动：`y := x`、`=`、`sink` 实参、字段或元素写入、返回以及闭包捕获，因此之后再读取 `x` 就是这个错误。它也不能从并不拥有它的存储中复制出来：按值参数以及 `match`/`for` 绑定只是借用它，字段属于其持有者（没有部分移动），模块级绑定永远不会被移动。请把它传给按值参数来借出，把参数声明为 `sink(...)` 来保留它，以 `inout` 传递，或通过引用类型（`Box`、`Arc`、`ref(struct(...))`）共享；实现了 `Clone` 的类型可以用 `x.clone()` 显式复制。",
+      "_take :: (fn(sink(_b) : Box(i32)) -> unit)(());\nmain :: (fn() -> unit)({\n  x := Box(i32)(42);\n  _take(x);\n  _y := x;\n});\nexport(main);\n",
+      "_take :: (fn(sink(_b) : Box(i32)) -> unit)(());\nmain :: (fn() -> unit)({\n  x := Box(i32)(42);\n  _y := x;\n  _take(x);\n});\nexport(main);\n",
+      "`_take(x)` passes `x` to a `sink` parameter, which takes ownership; the later `x` reads a moved value.",
+      "`_take(x)` 把 `x` 传给 `sink` 参数，所有权随之转移；后面的 `x` 读到的是已移动的值。"
     )
   );
   out.push(
@@ -494,8 +495,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "值在一些路径上被移动，在另一些路径上没有，而这些路径随后汇合。",
       "Yo decides every drop statically, so where the arms of a `cond`/`match` meet, or where the ways out of a loop meet, a value must be moved on all of them or on none. Move it in every arm (or `break` path), or in none and pass a clone where it is consumed. A loop also may not move a value from outside it without giving it a new value before the next iteration: the next iteration would read the moved value.",
       "Yo 静态地决定每一次 drop，因此在 `cond`/`match` 的各分支汇合处，或循环的各个出口汇合处，一个值必须在所有路径上都被移动，或在所有路径上都不被移动。请在每个分支（或每条 `break` 路径）里都移动它，或都不移动、在消费处传入它的克隆。循环也不能移动来自循环外的值而不在下一次迭代前给它新值：下一次迭代会读到已被移动的值。",
-      "sink :: (fn(own(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => sink(b), true => ());\n});\nexport(main);\n",
-      "sink :: (fn(own(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => sink(b), true => sink(b));\n});\nexport(main);\n",
+      "consume_box :: (fn(sink(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => consume_box(b), true => ());\n});\nexport(main);\n",
+      "consume_box :: (fn(sink(b) : Box(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Box(i32)(42);\n  c := runtime(true);\n  cond(c => consume_box(b), true => consume_box(b));\n});\nexport(main);\n",
       "Only the first arm moves `b`; after the `cond` it would be dropped on one path only.",
       "只有第一个分支移动了 `b`；`cond` 之后它只会在一条路径上被 drop。"
     )
@@ -505,10 +506,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_WRITE_THROUGH_BORROW,
       "write through a borrowed value",
       "通过借用的值写入",
-      "A field or element write would release a value that the binding it goes through does not own.",
-      "对字段或元素的写入会释放一个其所经由的绑定并不拥有的值。",
-      "A by-value parameter and a `match` or `for` binding borrow their value: the storage is a copy of the caller's (or the matched value's), and the RC data inside it still belongs to the caller. Writing a field whose old value holds RC data (a `String`, a collection, a `Box`, …) would release that data while its owner still holds it, so it is rejected. Fields without RC data can still be written; the write changes only the local copy. Take the parameter as `own(p) : T` (the function owns it) or `inout(p) : T` (the write reaches the caller's place), or copy the value into a local first (`q := p;`) and write the copy.",
-      "按值参数以及 `match` 或 `for` 的绑定都借用其值：存储是调用方（或被匹配值）的一份副本，其中的 RC 数据仍属于调用方。写入一个旧值含有 RC 数据（`String`、集合、`Box` 等）的字段，会在其所有者仍持有这些数据时释放它们，因此被拒绝。不含 RC 数据的字段仍可写入；写入只改变本地副本。请把参数声明为 `own(p) : T`（函数拥有它）或 `inout(p) : T`（写入会到达调用方的位置），或先把值复制到一个局部变量（`q := p;`）再写入该副本。",
+      "A write (a field or element assignment, or an `inout` argument the callee may write) would change or release a value that the binding it goes through does not own.",
+      "一次写入（字段或元素的赋值，或被调用方可能写入的 `inout` 实参）会改变或释放一个其所经由的绑定并不拥有的值。",
+      "A by-value parameter and a `match` or `for` binding borrow their value: the storage is a copy of the caller's (or the matched value's), and the RC data inside it still belongs to the caller. Writing a field whose old value holds RC data (a `String`, a collection, a `Box`, …) would release that data while its owner still holds it, so it is rejected. The same holds for passing such a place to an `inout` parameter the callee may write, including calling an `inout(self)` method such as `push_str` on it: the write would land in the borrowed copy alone. Fields without RC data can still be written; the write changes only the local copy. Take the parameter as `sink(p) : T` (the function owns it) or `inout(p) : T` (the write reaches the caller's place), or copy the value into a local first (`q := p;`) and write the copy.",
+      "按值参数以及 `match` 或 `for` 的绑定都借用其值：存储是调用方（或被匹配值）的一份副本，其中的 RC 数据仍属于调用方。写入一个旧值含有 RC 数据（`String`、集合、`Box` 等）的字段，会在其所有者仍持有这些数据时释放它们，因此被拒绝。把这样的位置传给被调用方可能写入的 `inout` 形参也是如此，包括在其上调用 `push_str` 这类 `inout(self)` 方法：写入只会落在借用的副本上。不含 RC 数据的字段仍可写入；写入只改变本地副本。请把参数声明为 `sink(p) : T`（函数拥有它）或 `inout(p) : T`（写入会到达调用方的位置），或先把值复制到一个局部变量（`q := p;`）再写入该副本。",
       "{ String } :: import(\"std/string\");\nP :: struct(s : String);\nrename :: (fn(p : P) -> unit)({\n  p.s = String.from(\"new\");\n});\nexport(rename);\n",
       "{ String } :: import(\"std/string\");\nP :: struct(s : String);\nrename :: (fn(p : P) -> P)({\n  q := p;\n  q.s = String.from(\"new\");\n  q\n});\nexport(rename);\n",
       "`p` borrows the caller's `P`; releasing its old `s` would free a string the caller still holds.",
@@ -577,6 +578,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   );
   out.push(
     _mk_explain(
+      E_COMPTIME_PARAM_DEFAULT,
+      "parameter default is not compile-time known",
+      "参数默认值不是编译期已知的",
+      "A function parameter's `?=` default is computed at runtime, but defaults must be compile-time known values.",
+      "函数参数的 `?=` 默认值在运行时计算，但默认值必须是编译期已知的值。",
+      "A `?=` default is fixed when the function is defined: literals (`i32(18)`, `\"text\"`, `false`), constants (`K`, `usize.MAX`), payload-free enum variants (`.None`, `Mode.Fast`) and other compile-time values. A runtime call such as `seven()` or `String.new()`, or a runtime variable, has no value until the program runs, so it cannot be a default. When the default really has to be computed, make the parameter optional: declare it as `(p : Option(T)) ?= .None` and branch in the body, computing the value when the caller passed nothing. A default may name an earlier compile-time parameter (`(comptime(Rhs) : Type) ?= Lhs`); that is decided per call. Names in a default always resolve where the function is defined, never at the caller.",
+      "`?=` 默认值在函数定义时就已确定：字面量（`i32(18)`、`\"text\"`、`false`）、常量（`K`、`usize.MAX`）、无载荷的枚举变体（`.None`、`Mode.Fast`）以及其他编译期值。像 `seven()` 或 `String.new()` 这样的运行时调用，或者运行时变量，在程序运行前都没有值，因此不能作为默认值。如果默认值确实需要计算，请把参数改为可选：声明为 `(p : Option(T)) ?= .None`，并在函数体中分支，在调用方未传值时计算该值。默认值可以引用前面的编译期参数（`(comptime(Rhs) : Type) ?= Lhs`），它按每次调用确定。默认值中的名字总是在函数定义处解析，而不是在调用方解析。",
+      "seven :: (fn() -> i32)(i32(7));\ng :: (fn((x : i32) ?= seven()) -> i32)(x);\n",
+      "seven :: (fn() -> i32)(i32(7));\ng :: (fn((x : Option(i32)) ?= .None) -> i32)(match(x, .Some(v) => v, .None => seven()));\n",
+      "`seven()` runs at runtime; the optional parameter computes it in the body when the caller omits `x`.",
+      "`seven()` 在运行时执行；可选参数在调用方省略 `x` 时于函数体中计算它。"
+    )
+  );
+  out.push(
+    _mk_explain(
       E_MATCH_NOT_EXHAUSTIVE,
       "match is not exhaustive",
       "match 未覆盖所有情况",
@@ -627,8 +643,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "没有匹配的调用",
       "No candidate accepts this call: the receiver has no such method, or no overload fits the arguments.",
       "没有候选者接受这次调用：接收者没有这个方法，或者没有重载适配这些参数。",
-      "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first.",
-      "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。",
+      "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Box` or `Arc` (a `Deref` type) a method the wrapper lacks is looked up on its payload (auto-dereference, `b.m()` is `b.*.m()`); when the payload lacks it too, the message says so and names the payload.",
+      "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。对 `Box` 或 `Arc`（`Deref` 类型），包装器没有的方法会到其载荷上查找（自动解引用，`b.m()` 即 `b.*.m()`）；若载荷也没有，错误信息会说明这一点并指出载荷。",
       "Point :: struct(x : i32);\np := Point(x : i32(1));\n_s := p.norm();\n",
       "Point :: struct(x : i32);\nnorm :: (fn(p : Point) -> i32)(p.x);\np := Point(x : i32(1));\n_s := norm(p);\n",
       "`Point` has no `norm` method and no impl provides one, so the method-call syntax finds no candidate; define the function (or an `impl(Point, ...)` method) first. The same code fires when a trait method's impl lives in a std module that was not imported (`to_string` from `std/fmt`).",

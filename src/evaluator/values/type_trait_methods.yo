@@ -94,7 +94,7 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
-    .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id,
+    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
     // A union's `name` IS its unique id: evaluate_union_type mints
     // `union_<random_id>` and passes it as the name (evaluator/types/union.yo),
     // and the binding rename replaces it with the declared name consistently on
@@ -233,16 +233,11 @@ record_owned_expr_id :: (fn(id : usize) -> unit)({
   if((_registration_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
-  match(
-    g_owned_expr_ids.get(_registration_owner.clone()),
-    .Some(ids) => ids.push(id),
-    .None => {
-      ids := ArrayList(usize).new();
-      ids.push(id);
-      g_owned_expr_ids.insert(_registration_owner.clone(), ids);
-      ()
-    }
-  );
+  // Taken out of the map and stored back: a `get` copy is not the stored
+  // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  ids := match(g_owned_expr_ids.remove(_registration_owner.clone()), .Some(l) => l, .None => ArrayList(usize).new());
+  ids.push(id);
+  g_owned_expr_ids.insert(_registration_owner.clone(), ids);
 });
 /// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
 owned_id_log_entry_count :: (fn() -> usize)({
@@ -282,18 +277,9 @@ record_owned_func_id :: (fn(func_id : String) -> unit)({
   if((_registration_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
-  match(
-    g_owned_func_ids.get(_registration_owner.clone()),
-    .Some(ids) => {
-      _old := ids.insert(func_id, true);
-    },
-    .None => {
-      ids := HashMap(String, bool).new();
-      _old := ids.insert(func_id, true);
-      g_owned_func_ids.insert(_registration_owner.clone(), ids);
-      ()
-    }
-  );
+  ids := match(g_owned_func_ids.remove(_registration_owner.clone()), .Some(m) => m, .None => HashMap(String, bool).new());
+  _old := ids.insert(func_id, true);
+  g_owned_func_ids.insert(_registration_owner.clone(), ids);
 });
 /// Remove and return the function ids `owner`'s evaluation registered.
 take_owned_func_ids :: (fn(owner : String) -> ArrayList(String))({
@@ -379,28 +365,14 @@ register_type_trait_method :: (
   if(entry.owner.len() == usize(0), {
     entry.owner = owner.clone();
   });
-  match(
-    _type_trait_methods.get(type_id.clone()),
-    .Some(list) => {
-      list.push(entry);
-    },
-    .None => {
-      fresh := ArrayList(MethodEntry).new();
-      fresh.push(entry);
-      _type_trait_methods.insert(type_id.clone(), fresh);
-    }
-  );
-  match(
-    _type_trait_method_owners.get(type_id.clone()),
-    .Some(olist) => {
-      olist.push(owner);
-    },
-    .None => {
-      ofresh := ArrayList(String).new();
-      ofresh.push(owner);
-      _type_trait_method_owners.insert(type_id, ofresh);
-    }
-  );
+  // Taken out of the maps and stored back: a `get` copy is not the stored
+  // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  list := match(_type_trait_methods.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  list.push(entry);
+  _type_trait_methods.insert(type_id.clone(), list);
+  olist := match(_type_trait_method_owners.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(String).new());
+  olist.push(owner);
+  _type_trait_method_owners.insert(type_id, olist);
 });
 /// Drop every method entry registered by `owner` (a `file://` abs module
 /// path). Called with each module the LSP invalidates, right before its
@@ -412,6 +384,12 @@ purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
+  // The filtered lists are collected first and stored back after the walk:
+  // a `get` copy is not the stored list once collections are values, and the
+  // maps are not written while their keys are being iterated.
+  upd_keys := ArrayList(String).new();
+  upd_lists := ArrayList(ArrayList(MethodEntry)).new();
+  upd_owners := ArrayList(ArrayList(String)).new();
   it := _type_trait_methods.keys();
   (go : bool) = true;
   while(go, {
@@ -419,9 +397,12 @@ purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
       it.next(),
       .Some(key) => match(
         _type_trait_methods.get(key.clone()),
-        .Some(list) => match(
+        .Some(found_list) => match(
           _type_trait_method_owners.get(key.clone()),
-          .Some(olist) => {
+          .Some(found_olist) => {
+            list := found_list;
+            olist := found_olist;
+            (changed : bool) = false;
             (i : usize) = olist.len();
             while(i > usize(0), {
               i = (i - usize(1));
@@ -429,7 +410,13 @@ purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
               if(hit && (i < list.len()), {
                 list.drain(i .. (i + usize(1)));
                 olist.drain(i .. (i + usize(1)));
+                changed = true;
               });
+            });
+            if(changed, {
+              upd_keys.push(key.clone());
+              upd_lists.push(list);
+              upd_owners.push(olist);
             });
           },
           .None => ()
@@ -440,6 +427,13 @@ purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
         go = false;
       }
     );
+  });
+  (ui : usize) = usize(0);
+  while(ui < upd_keys.len(), {
+    k := upd_keys(ui);
+    _ml := _type_trait_methods.insert(k.clone(), upd_lists(ui));
+    _ol := _type_trait_method_owners.insert(k, upd_owners(ui));
+    ui = (ui + usize(1));
   });
 });
 /// The method values the module `owner` registered (its impl members). The
@@ -532,17 +526,9 @@ get_type_trait_methods_for_type :: (
 register_provisional_trait_method :: (
   fn(type_id : String, entry : MethodEntry) -> unit
 )({
-  match(
-    _provisional_trait_methods.get(type_id),
-    .Some(list) => {
-      list.push(entry);
-    },
-    .None => {
-      fresh := ArrayList(MethodEntry).new();
-      fresh.push(entry);
-      _provisional_trait_methods.insert(type_id, fresh);
-    }
-  );
+  list := match(_provisional_trait_methods.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  list.push(entry);
+  _provisional_trait_methods.insert(type_id, list);
 });
 get_provisional_trait_methods_by_name :: (
   fn(type_id : String, method_name : String) -> ArrayList(MethodEntry)

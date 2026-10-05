@@ -233,7 +233,7 @@ test("retain over twenty thousand elements is one pass and leaves refcounts bala
   // witness: every kept slot holds a reference, every dropped slot released
   // one, and clear() takes it back to the baseline.
   shared := `keep-shared`.to_string();
-  base := rc(shared);
+  base := ref_count(shared);
   list := ArrayList(String).new();
   (i : i32) = i32(0);
   while(i < i32(20000), i = (i + i32(1)), {
@@ -246,15 +246,15 @@ test("retain over twenty thousand elements is one pass and leaves refcounts bala
       }
     );
   });
-  with_all := rc(shared);
+  with_all := ref_count(shared);
   list.retain(v => v.starts_with(`keep`));
   assert(list.len() == usize(5000), "one in four kept");
   assert(list(usize(0)) == `keep-shared`, "head kept");
   assert(list(usize(4999)) == `keep-shared`, "tail kept");
-  assert(rc(shared) == with_all, "every surviving slot still holds exactly one reference");
+  assert(ref_count(shared) == with_all, "every surviving slot still holds exactly one reference");
   list.retain(v => false);
   assert(list.len() == usize(0), "reject everything");
-  assert(rc(shared) == base, "all references released, none double-released");
+  assert(ref_count(shared) == base, "all references released, none double-released");
 });
 // ===== D17: sort is STABLE; sort_unstable is the heapsort =====
 // plans/archive/STD_API_STABILIZATION.md D17. `sort` was heapsort under Rust's name,

@@ -1,6 +1,6 @@
 # TS codegen: `return(x)` of an RC container from inside a nested if-block frees the returned value
 
-**Status:** OPEN — TS-compiler (src/codegen) bug, worked around in yo-self
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN — TS-compiler (src/codegen) bug, worked around in yo-self
 **Found:** 2026-07-23, during the io.async FSM round-5 hang forensics
 **Severity:** high (silent data corruption: caller receives a freed/zeroed container)
 

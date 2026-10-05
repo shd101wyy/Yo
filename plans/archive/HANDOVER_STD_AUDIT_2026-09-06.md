@@ -161,7 +161,7 @@ edits live on the branches that made them):
   comes back empty. Hoist it into a binding first.
 - **`unwind` from an `Exception` handler installed INSIDE an `io.async` body
   is memory-unsafe**: one frame shape exits 0 in silence, another SIGSEGVs
-  (`issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`,
+  (`issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`,
   reproducer `issues/repros/unwind-inside-io-async-helper-sigsegv.yo`). The
   runtime's "main future Aborted → panic" path is NOT what fires; the emitted
   C unwinds to the wrong frame. Recommended: make the evaluator REJECT an
@@ -224,10 +224,10 @@ batteries module by module (`## Stability` marker on every module). §5 lists
 the maintainer decisions still pending (Box name, `imm/Vec` structure,
 `MemoryOrder.Consume`, HashMap random keys) — ask, don't guess.
 
-Also filed today: `issues/yield-resumption-order-diverges-on-macos-ci.md`
+Also filed today: `issues/fixed/yield-resumption-order-diverges-on-macos-ci.md`
 (renamed 2026-09-09 after a second sighting on the OTHER macOS leg established
 it is not leg-specific; originally
-`issues/yield-resumption-order-differs-on-macos-latest-ci.md`)
+`issues/fixed/yield-resumption-order-diverges-on-macos-ci.md`)
 (the "Test basic spawn of two futures" failure on #449's first run — CI-only so
 far, 3/3 green locally; correlate with #449's rerun).
 
@@ -235,10 +235,10 @@ Held for later (not P0): #433 (dyn trait check), #420 (`comptime_assert` in fn
 bodies — 1559 dormant assertions), #441 (json trailing junk),
 `issues/fixed/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`
 (soundness; gates full `Send` enforcement for pointers/arrays),
-`issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`
+`issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`
 (runtime: rc 0 on an aborted main future; language: no catch inside async),
 `issues/unit-zst-residual-gaps.md`,
-`issues/equality-operator-without-an-eq-impl-evaluates-to-unit.md`.
+`issues/fixed/equality-operator-without-an-eq-impl-evaluates-to-unit.md`.
 
 ---
 

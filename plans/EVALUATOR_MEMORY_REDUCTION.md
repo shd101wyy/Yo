@@ -836,7 +836,7 @@ corrections to the design above:**
 - The memo is a 4-slot **global ring** (`g_snapshot_ring` in `src/env.yo`),
   not a field on `Environment`: an `Option(Self)` field on the widely
   imported ref struct emitted TWO C types for `Environment` (an id/era
-  split, `issues/option-self-field-on-environment-splits-into-two-c-types.md`).
+  split, `issues/fixed/option-self-field-on-environment-splits-into-two-c-types.md`).
   The ring keeps the last four snapshots; a hit is a frame-sequence match.
 - Copying at the 65 `frames` adoption sites was necessary but not
   sufficient. A recorded env is also adopted **by handle** — the whole

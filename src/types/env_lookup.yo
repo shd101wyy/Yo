@@ -300,7 +300,7 @@ get_trait_type_from_env :: (fn(env : Environment, trait_name : String) -> Option
   )
 });
 /// The main iterative chain-resolution loop.
-_do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayList(String)) -> TypeValue)({
+_do_chain_resolve :: (fn(env : Environment, start : TypeValue, inout(visited_ids) : ArrayList(String)) -> TypeValue)({
   (current : TypeValue) = start;
   (done : bool) = false;
   (result : TypeValue) = start;
@@ -468,7 +468,7 @@ _is_type_eval_value_or_empty :: (fn(var : Variable) -> bool)(
 );
 /// Fast-path chain resolution: tries the definitionFrameLevel first, then
 /// falls back to the full iterative loop in `_do_chain_resolve`.
-_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayList(String)) -> TypeValue)({
+_chain_resolve :: (fn(env : Environment, start : TypeValue, inout(visited_ids) : ArrayList(String)) -> TypeValue)({
   // --- Fast-path: try definitionFrameLevel lookup first ---
   // Only when the level is known and >= 0.
   fast_result := match(

@@ -1,7 +1,7 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 187 open bug
-docs in `issues/` root and the 14 design questions in
+**Generated** by `scripts/gen-issue-triage.py` over the 171 open bug
+docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
 
@@ -30,14 +30,14 @@ Three things are worth knowing before trusting any row.
 | --- | ---: | ---: |
 | CI/Release/Build | 12 | 1 |
 | Async / effects | 5 | 0 |
-| Codegen / emitted C | 18 | 3 |
+| Codegen / emitted C | 16 | 3 |
 | Evaluator / types | 20 | 2 |
-| Std library | 51 | 12 |
-| Tooling (fmt/doc/lsp) | 10 | 0 |
-| Self-hosting legacy | 11 | 2 |
+| Std library | 46 | 10 |
+| Tooling (fmt/doc/lsp) | 8 | 0 |
+| Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 57 | 8 |
-| **Total** | **187** | **28** |
+| Other | 51 | 4 |
+| **Total** | **171** | **22** |
 
 ## Counts by severity
 
@@ -45,14 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 27 |
-| S2 | 86 |
-| S3 | 72 |
-| (missing) | 2 |
-
-- MISSING SEVERITY: `lsp-hover-claims-markdown-without-the-capability.md`
-
-- MISSING SEVERITY: `lsp-strict-handshake-gate-was-not-strict-enough.md`
+| S1 | 25 |
+| S2 | 85 |
+| S3 | 61 |
 
 ## Design questions (issues/questions/)
 
@@ -71,6 +66,7 @@ awaiting the maintainer's verdict. Not counted in the tables above.
 - [`stddoc-io-url-empty-host-collapses-to-none.md`](./questions/stddoc-io-url-empty-host-collapses-to-none.md) — empty authority host: `.Some("")` plus an authority bit (Rust's shape) vs keeping `.None`
 - [`stddoc-str-regex-split-emits-the-literal-string-undefined.md`](./questions/stddoc-str-regex-split-emits-the-literal-string-undefined.md) — `Regex.split`: Rust's shape (pieces only) vs Python's shape (`ArrayList(Option(String))`)
 - [`stddoc-sys-signal-handler-data-always-null.md`](./questions/stddoc-sys-signal-handler-data-always-null.md) — carry the `SignalHandler` user data (the `events.yo` precedent) or drop the parameter
+- [`the-old-value-of-an-assignment-to-a-move-only-variable-is-disposed-at-the-end-of-the-block.md`](./questions/the-old-value-of-an-assignment-to-a-move-only-variable-is-disposed-at-the-end-of-the-block.md) — (no gist — add one to QUESTIONS in scripts/gen-issue-triage.py)
 - [`with-lock-and-with-permit-cannot-see-an-unwind.md`](./questions/with-lock-and-with-permit-cannot-see-an-unwind.md) — correct the unlock-on-unwind comment only, or make with_lock/with_permit effect-transparent
 - [`yo-doc-document-private-flag-is-a-no-op.md`](./questions/yo-doc-document-private-flag-is-a-no-op.md) — implement or remove the inert `--document-private` flag
 
@@ -147,10 +143,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 - [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) — 19 KB
 - [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) — 17 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
-- [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) — 13 KB
 - [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) — 12 KB
 - [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) — 12 KB
 - [`ftt-stub-in-live-closure-falls-off-non-void-function.md`](./ftt-stub-in-live-closure-falls-off-non-void-function.md) — 11 KB
+- [`asm-documented-target-and-register-validation-does-not-exist.md`](./asm-documented-target-and-register-validation-does-not-exist.md) — 10 KB
 
 ---
 
@@ -184,7 +180,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
 
-### Codegen / emitted C (18)
+### Codegen / emitted C (16)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -193,12 +189,10 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`c-include-global-accepted-by-comptime-binding.md`](./c-include-global-accepted-by-comptime-binding.md) | S2 | PARTIALLY FIXED 2026-09-08 — the `::` half is | — |
 | [`c-include-rvalue-macro-constant-cannot-be-addressed.md`](./c-include-rvalue-macro-constant-cannot-be-addressed.md) | S2 | OPEN | — |
 | [`cinclude-int-comparison-fails-to-transpile.md`](./cinclude-int-comparison-fails-to-transpile.md) | S2 | — | — |
-| [`dead-yo-stat-accessor-family-emitted-into-every-program.md`](./dead-yo-stat-accessor-family-emitted-into-every-program.md) | S3 | OPEN | — |
 | [`derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`](./derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md) | S2 | — | — |
 | [`derive-tostring-on-a-generic-struct-emits-invalid-c.md`](./derive-tostring-on-a-generic-struct-emits-invalid-c.md) | S2 | OPEN | yes |
 | [`drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`](./drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md) | S1 | OPEN for the two remaining sites | — |
 | [`emitted-c-flipped-once-under-extreme-load-unexplained.md`](./emitted-c-flipped-once-under-extreme-load-unexplained.md) | S3 | — | — |
-| [`emitted-c-hardcodes-linux-at-fdcwd.md`](./emitted-c-hardcodes-linux-at-fdcwd.md) | S3 | — | — |
 | [`ftt-stub-in-live-closure-falls-off-non-void-function.md`](./ftt-stub-in-live-closure-falls-off-non-void-function.md) | S1 | — | yes |
 | [`match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md`](./match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md) | S2 | — | — |
 | [`rc-value-copied-address-taken-and-returned-is-double-dropped.md`](./rc-value-copied-address-taken-and-returned-is-double-dropped.md) | S1 | OPEN | — |
@@ -232,7 +226,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (51)
+### Std library (46)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -257,17 +251,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`redirect-location-with-an-absolute-url-in-its-query-fails-to-resolve.md`](./redirect-location-with-an-absolute-url-in-its-query-fails-to-resolve.md) | S2 | — | — |
 | [`redirect-resolution-never-removes-dot-segments.md`](./redirect-resolution-never-removes-dot-segments.md) | S2 | — | — |
 | [`s3-fs-wrappers-windows-semantics-audit.md`](./s3-fs-wrappers-windows-semantics-audit.md) | S3 | OPEN | — |
-| [`std-doc-examples-use-parenless-import-which-does-not-parse.md`](./std-doc-examples-use-parenless-import-which-does-not-parse.md) | S3 | OPEN | — |
-| [`std-imm-exports-nine-internal-node-types-nothing-can-use.md`](./std-imm-exports-nine-internal-node-types-nothing-can-use.md) | S3 | — | yes |
 | [`std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`](./std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md) | S3 | — | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | S2 | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | S3 | — | — |
 | [`stddoc-coll-imm-vec-dedup-leaks-rc-elements.md`](./stddoc-coll-imm-vec-dedup-leaks-rc-elements.md) | S1 | OPEN — | yes |
-| [`stddoc-core-doc-comment-attached-by-bare-member-name.md`](./stddoc-core-doc-comment-attached-by-bare-member-name.md) | S3 | OPEN | yes |
 | [`stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md`](./stddoc-core-yo-doc-degrades-a-whole-module-to-nameless-constants.md) | S3 | OPEN | — |
 | [`stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md`](./stddoc-io-arg-parser-help-is-an-error-and-errors-are-strings.md) | S2 | — | yes |
 | [`stddoc-io-arg-parser-positionals-are-never-required.md`](./stddoc-io-arg-parser-positionals-are-never-required.md) | S2 | — | yes |
-| [`stddoc-io-dns-lookup-discards-the-gai-error-code.md`](./stddoc-io-dns-lookup-discards-the-gai-error-code.md) | S2 | open | — |
 | [`stddoc-io-dns-lookup-host-returns-duplicate-addresses.md`](./stddoc-io-dns-lookup-host-returns-duplicate-addresses.md) | S2 | open | — |
 | [`stddoc-io-dns-resolution-blocks-the-event-loop.md`](./stddoc-io-dns-resolution-blocks-the-event-loop.md) | S2 | open | — |
 | [`stddoc-io-doc-renders-every-stability-marker-as-unstable.md`](./stddoc-io-doc-renders-every-stability-marker-as-unstable.md) | S3 | open | — |
@@ -283,27 +273,24 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`string-to-cstr-truncates-at-an-interior-nul.md`](./string-to-cstr-truncates-at-an-interior-nul.md) | S1 | OPEN | — |
 | [`sys-signals-macos-numbers-are-linux-values.md`](./sys-signals-macos-numbers-are-linux-values.md) | S2 | open | yes |
 | [`tempfile-dispose-and-file-pos-interaction.md`](./tempfile-dispose-and-file-pos-interaction.md) | S2 | — | — |
-| [`tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md`](./tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md) | S3 | PARTIALLY FIXED 2026-09-05 — items 1 (`TlsErr | — |
 | [`url-origin-drops-userinfo-so-redirect-resolution-loses-credentials.md`](./url-origin-drops-userinfo-so-redirect-resolution-loses-credentials.md) | S2 | — | — |
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | S3 | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | S3 | — | — |
 
-### Tooling (fmt/doc/lsp) (10)
+### Tooling (fmt/doc/lsp) (8)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`](./collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md) | S3 | OPEN | — |
-| [`collection-test-names-still-use-pre-rename-method-spellings.md`](./collection-test-names-still-use-pre-rename-method-spellings.md) | S3 | OPEN | — |
-| [`fmt-reformats-parse-invalid-files.md`](./fmt-reformats-parse-invalid-files.md) | S3 | — | — |
 | [`nested-backtick-template-interpolates-the-injected-import.md`](./nested-backtick-template-interpolates-the-injected-import.md) | S2 | OPEN — valid source is rejected, and the diag | — |
 | [`template-string-backslash-before-interpolation-eats-both.md`](./template-string-backslash-before-interpolation-eats-both.md) | S1 | — | — |
 | [`test-runner-std-path-shadowed-by-binary-tree-std.md`](./test-runner-std-path-shadowed-by-binary-tree-std.md) | S2 | — | — |
 | [`yo-doc-document-private-is-a-no-op.md`](./yo-doc-document-private-is-a-no-op.md) | S3 | open | — |
-| [`yo-doc-help-omits-the-implemented---version-flag.md`](./yo-doc-help-omits-the-implemented---version-flag.md) | S3 | — | — |
-| [`yo-doc-renders-std-prelude-as-an-empty-module.md`](./yo-doc-renders-std-prelude-as-an-empty-module.md) | S3 | — | — |
+| [`yo-doc-name-flag-documented-but-the-cli-has-no-such-flag.md`](./yo-doc-name-flag-documented-but-the-cli-has-no-such-flag.md) | S3 | — | — |
+| [`yo-doc-type-function-entries-omit-variants-and-trait-methods.md`](./yo-doc-type-function-entries-omit-variants-and-trait-methods.md) | S3 | — | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | S3 | — | — |
 
-### Self-hosting legacy (11)
+### Self-hosting legacy (10)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -317,7 +304,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`yo-self-rc-teardown-not-factored-into-dispose.md`](./yo-self-rc-teardown-not-factored-into-dispose.md) | S3 | — | — |
 | [`yo-self-test-runner-cannot-run-wasm-batches.md`](./yo-self-test-runner-cannot-run-wasm-batches.md) | S2 | — | — |
 | [`yo-self-unwired-port-gaps.md`](./yo-self-unwired-port-gaps.md) | S3 | — | — |
-| [`yoself-missing-compiling-with-print.md`](./yoself-missing-compiling-with-print.md) | S3 | — | — |
 
 ### Vendor (markdown_yo) (3)
 
@@ -327,24 +313,22 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (57)
+### Other (51)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
-| [`a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md`](./a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md) | S1 | — | yes |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
 | [`a-module-level-unit-typed-global-emits-a-void-c-variable.md`](./a-module-level-unit-typed-global-emits-a-void-c-variable.md) | S2 | — | — |
-| [`a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md`](./a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md) | S2 | — | yes |
+| [`a-string-byte-index-is-a-writable-place.md`](./a-string-byte-index-is-a-writable-place.md) | S1 | — | — |
 | [`a-trait-method-returning-option-of-self-item-under-a-where-clause-emits-an-undeclared-call.md`](./a-trait-method-returning-option-of-self-item-under-a-where-clause-emits-an-undeclared-call.md) | S2 | — | — |
-| [`a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md`](./a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md) | S1 | — | yes |
 | [`a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md`](./a-wasip1-build-with-an-unrecognized-output-extension-writes-javascript.md) | S3 | — | — |
 | [`a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`](./a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md) | S1 | — | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
-| [`abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md`](./abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md) | S2 | — | yes |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
+| [`an-async-state-machine-slot-lookup-ignores-the-capture-struct-for-outer-variables.md`](./an-async-state-machine-slot-lookup-ignores-the-capture-struct-for-outer-variables.md) | S2 | — | — |
 | [`an-effect-handler-local-moved-out-after-a-conditional-unwind-leaks.md`](./an-effect-handler-local-moved-out-after-a-conditional-unwind-leaks.md) | S3 | — | — |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
@@ -354,8 +338,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
 | [`check-summarizes-every-function-body-eagerly-at-module-end.md`](./check-summarizes-every-function-body-eagerly-at-module-end.md) | S3 | — | — |
-| [`collect-into-a-string-leaks-the-accumulated-buffer.md`](./collect-into-a-string-leaks-the-accumulated-buffer.md) | S1 | — | — |
-| [`concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md`](./concurrent-yo-test-runs-in-one-directory-overwrite-each-others-batches.md) | S3 | — | — |
 | [`enum-type-arguments-made-check-about-4-percent-slower.md`](./enum-type-arguments-made-check-about-4-percent-slower.md) | S3 | — | — |
 | [`explain-registry-e13xx-e15xx-bands-unallocated.md`](./explain-registry-e13xx-e15xx-bands-unallocated.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
@@ -364,19 +346,17 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`](./local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md) | S2 | OPEN | — |
 | [`lsp-document-symbol-misses-runtime-and-thread-local-declarations.md`](./lsp-document-symbol-misses-runtime-and-thread-local-declarations.md) | S3 | — | — |
 | [`lsp-document-symbol-shape-ignores-the-client-capability.md`](./lsp-document-symbol-shape-ignores-the-client-capability.md) | S3 | — | — |
-| [`lsp-hover-claims-markdown-without-the-capability.md`](./lsp-hover-claims-markdown-without-the-capability.md) | — | — | — |
 | [`lsp-jsonrpc-message-class-and-parse-error-handling.md`](./lsp-jsonrpc-message-class-and-parse-error-handling.md) | S3 | — | — |
 | [`lsp-memory-grows-per-open-edit-close-round.md`](./lsp-memory-grows-per-open-edit-close-round.md) | S2 | — | — |
-| [`lsp-per-keystroke-full-reanalysis-limits-responsiveness.md`](./lsp-per-keystroke-full-reanalysis-limits-responsiveness.md) | S3 | — | — |
 | [`lsp-position-encoding-is-negotiated-against-the-clients-list.md`](./lsp-position-encoding-is-negotiated-against-the-clients-list.md) | S3 | — | — |
 | [`lsp-references-ignore-include-declaration-on-comptime-decl.md`](./lsp-references-ignore-include-declaration-on-comptime-decl.md) | S3 | — | — |
 | [`lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md`](./lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md) | S3 | — | — |
-| [`lsp-strict-handshake-gate-was-not-strict-enough.md`](./lsp-strict-handshake-gate-was-not-strict-enough.md) | — | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`runtime-str-plus-str-passes-check-and-fails-compile.md`](./runtime-str-plus-str-passes-check-and-fails-compile.md) | S2 | — | — |
 | [`static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md`](./static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md) | S3 | OPEN | — |
 | [`tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`](./tasks-still-pending-or-queued-at-thread-exit-are-never-released.md) | S3 | — | — |
+| [`the-io-async-capture-re-kind-pass-matches-captures-by-name.md`](./the-io-async-capture-re-kind-pass-matches-captures-by-name.md) | S2 | — | — |
 | [`verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md`](./verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md) | S3 | — | — |
 | [`verify-prints-z3-error-lines-under-an-unproven-obligation.md`](./verify-prints-z3-error-lines-under-an-unproven-obligation.md) | S3 | — | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
@@ -385,6 +365,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`](./windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md) | S1 | — | — |
 | [`windows-process-handle-list-is-an-unlocked-process-global.md`](./windows-process-handle-list-is-an-unlocked-process-global.md) | S1 | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | S1 | OPEN | — |
-| [`yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md`](./yo-context-search-duplicates-rows-and-multiword-queries-hit-nothing.md) | S3 | — | — |
+| [`yo-context-describe-views-duplicate-byte-identical-rows.md`](./yo-context-describe-views-duplicate-byte-identical-rows.md) | S3 | — | — |
 | [`yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md`](./yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md) | S3 | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | S2 | — | — |

@@ -22,7 +22,7 @@
 //! method for method, which is what makes the two interchangeable at a call
 //! site. Freezing follows the alias removal.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, Allocator, current_allocator } :: import("../allocator.yo");
+{ GlobalAllocator, current_allocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");
 { malloc, free } :: GlobalAllocator;
 { memcpy, memcmp } :: import("../libc/string.yo");
@@ -171,7 +171,7 @@ impl(
       return(self);
     });
     new_len := (self._len + other._len);
-    if(rc(self) == usize(1), {
+    if(ref_count(self) == usize(1), {
       if(new_len <= self._capn(), {
         match(
           other._ptr,
@@ -347,7 +347,7 @@ impl(
   }),
   /// Check if a byte is ASCII whitespace.
   _is_whitespace : (fn(b : u8) -> bool)(
-    (b == u8(0x20)) || (b == u8(0x09)) || (b == u8(0x0A)) || ((b == u8(0x0D)) || (b == u8(0x0C)))
+    (b == u8(0x20)) || (b == u8(0x09)) || (b == u8(0x0A)) || (b == u8(0x0D)) || (b == u8(0x0C))
   ),
   /// Trim leading and trailing ASCII whitespace.
   trim : (fn(self : Self) -> Self)({
@@ -439,7 +439,7 @@ impl(
         return(self);
       },
       .Some(sp) => {
-        if(rc(self) == usize(1), {
+        if(ref_count(self) == usize(1), {
           i := usize(0);
           while(i < self._len, i = (i + usize(1)), {
             (b : u8) = (sp.add(i)).*;
@@ -476,7 +476,7 @@ impl(
         return(self);
       },
       .Some(sp) => {
-        if(rc(self) == usize(1), {
+        if(ref_count(self) == usize(1), {
           i := usize(0);
           while(i < self._len, i = (i + usize(1)), {
             (b : u8) = (sp.add(i)).*;

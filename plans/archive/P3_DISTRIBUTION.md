@@ -72,7 +72,7 @@ users only by `release.yml`:
 That last row is a different shape from the other three but the same blocker:
 the fix is in the codegen, so it reaches users only through a binary BUILT by
 the fixed codegen. Same reason a compiler fix cannot fix a CI step running the
-seed — see `issues/compiler-holds-emit-memory-during-cc.md`.
+seed — see `issues/fixed/compiler-holds-emit-memory-during-cc.md`.
 
 Measured, not assumed: `yo-v0.2.4.c.gz` and `yo-v0.2.3.c.gz` both return 404,
 and `v0.2.4`'s asset list is five platform bundles plus the `.vsix`.

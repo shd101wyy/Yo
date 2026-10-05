@@ -17,7 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { O_WRONLY, O_CREAT, O_TRUNC, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("std/sys/constants");
 /// True iff `b` is a C identifier byte: [A-Za-z0-9_].
 _emitter_is_ident_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))))
+  ((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))
 );
 /// True iff `cn` looks like an eval-minted temp C name: contains `_temp_`
 /// followed by ONLY digits to the end (mirrors begin.yo `_looks_like_minted_temp`).
@@ -55,7 +55,7 @@ _emitter_is_minted_temp :: (fn(cn : String) -> bool)({
 /// forward-ref protection holds; a `___drop((cast)(temp))` use has the temp inside
 /// parens (not in `<type> <name> =` position), so genuine never-declared phantoms
 /// are never recorded. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
-_emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> unit)({
+_emitter_record_declared_temp :: (fn(inout(set) : HashSet(String), line : String) -> unit)({
   if(!line.contains(String.from("_temp_")), {
     return(());
   });
@@ -97,7 +97,7 @@ _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> un
 });
 /// Pop the block-scope stack back through (and including) the most recent `"{"`
 /// sentinel — i.e. close one C block, discarding the names it declared.
-_emitter_pop_block :: (fn(stack : ArrayList(String)) -> unit)({
+_emitter_pop_block :: (fn(inout(stack) : ArrayList(String)) -> unit)({
   (done : bool) = false;
   while(!done && (stack.len() > usize(0)), {
     match(
@@ -117,7 +117,7 @@ _emitter_pop_block :: (fn(stack : ArrayList(String)) -> unit)({
 /// by `.`) declare nothing and are skipped. Called BEFORE brace scanning so a
 /// compound-literal decl (`Type name = { … }`) records `name` in the enclosing
 /// frame, above the `{` its initializer opens.
-_emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> unit)({
+_emitter_record_scope_decl :: (fn(inout(stack) : ArrayList(String), line : String) -> unit)({
   eq_opt := line.index_of(String.from(" = "));
   match(
     eq_opt,
@@ -168,7 +168,7 @@ _emitter_record_scope_decl :: (fn(stack : ArrayList(String), line : String) -> u
 /// the self-hosted compiler's own codegen mis-drops the nested `ArrayList(HashSet(String))`
 /// generic (double-free in the self-compiled binary). See
 /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
-_emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
+_emitter_track_scope :: (fn(inout(stack) : ArrayList(String), line : String) -> unit)({
   _emitter_record_scope_decl(stack, line.clone());
   // BYTE count, not len() (chars): the loop indexes with byte_at. Bounding by
   // char count under-scans any line containing multibyte text — a closing
@@ -198,7 +198,7 @@ _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
         in_chr = false;
       }));
     }, {
-      if((b == u8(47)) && (((i + usize(1)) < n) && (line.byte_at(i + usize(1)) == u8(47))), {
+      if((b == u8(47)) && ((i + usize(1)) < n) && (line.byte_at(i + usize(1)) == u8(47)), {
         i = n;
       }, {
         if(b == u8(34), {
@@ -291,12 +291,12 @@ Emitter :: ref(
     /// (set by generate_function). `emit_*` code-section writes record any
     /// minted-temp declaration into it so the drop-emission gate has the
     /// C-emission-order ground truth. See `_emitter_record_declared_temp`.
-    declared_ref : Option(HashSet(String)),
+    declared_ref : Option(Box(HashSet(String))),
     /// When `.Some`, points at the current function's block-scope stack
     /// (declared_scopes). Each emitted body line pushes/pops `"{"` frames on every
     /// C brace and records named-local + temp decls — the escape gate's
     /// block-scope-aware liveness signal. See `_emitter_track_scope`.
-    scope_ref : Option(ArrayList(String)),
+    scope_ref : Option(Box(ArrayList(String))),
     /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
     /// `code_spill_path`, finished code past `CODE_SPILL_BYTES` is written
     /// to that file between functions and the `code` buffer is cleared, so
@@ -351,8 +351,8 @@ impl(
       headers : String.new(),
       declarations : String.new(),
       code : String.new(),
-      declared_ref : Option(HashSet(String)).None,
-      scope_ref : Option(ArrayList(String)).None,
+      declared_ref : Option(Box(HashSet(String))).None,
+      scope_ref : Option(Box(ArrayList(String))).None,
       code_spill_fd : i32(-1),
       code_spill_path : String.new(),
       code_spilled_bytes : usize(0),
@@ -493,8 +493,8 @@ impl(
   emit_line : (fn(inout(self) : Self, c : str) -> unit)({
     self.code.push_str(c);
     self.code.push_str("\n");
-    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(s, String.from(c)), .None => ());
-    match(self.scope_ref, .Some(st) => _emitter_track_scope(st, String.from(c)), .None => ());
+    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(s.*, String.from(c)), .None => ());
+    match(self.scope_ref, .Some(st) => _emitter_track_scope(st.*, String.from(c)), .None => ());
     if(self.move_zeroes.len() > usize(0), {
       self._flush_move_zeroes(String.from(c));
     });
@@ -540,8 +540,8 @@ impl(
   }),
   /// Append a raw `String` value + newline to the code section.
   emit_string_line : (fn(inout(self) : Self, c : String) -> unit)({
-    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(s, c.clone()), .None => ());
-    match(self.scope_ref, .Some(st) => _emitter_track_scope(st, c.clone()), .None => ());
+    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(s.*, c.clone()), .None => ());
+    match(self.scope_ref, .Some(st) => _emitter_track_scope(st.*, c.clone()), .None => ());
     self.code.push_string(c.clone());
     self.code.push_str("\n");
     if(self.move_zeroes.len() > usize(0), {
@@ -556,7 +556,7 @@ impl(
   /// and every exit after it releases the value
   /// (issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md).
   mark_declared_in_scope : (fn(inout(self) : Self, name : String) -> unit)(
-    match(self.scope_ref, .Some(st) => st.push(name), .None => ())
+    match(self.scope_ref, .Some(st) => st.*.push(name), .None => ())
   ),
   /// A `#line` directive must start a physical line: an `emit`/`emit_string`
   /// fragment with no trailing newline gets its newline first, so a directive
@@ -580,7 +580,7 @@ impl(
     // and macro/derive expansions carry `auto-generated://` pseudo-paths
     // (which embed the expansion TEXT, newlines included — unusable in a
     // directive, and the position is not a real source location anyway).
-    if((path.len() == usize(0)) || ((path == String.from("_")) || (path == String.from("drop")) || path.starts_with(String.from("auto-generated://"))), {
+    if((path.len() == usize(0)) || (path == String.from("_")) || (path == String.from("drop")) || path.starts_with(String.from("auto-generated://")), {
       return(());
     });
     if(path.contains(String.from("\n")), {

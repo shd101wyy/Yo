@@ -10,7 +10,7 @@
 `perf/shared-module-cache`, off `p2/group-c-goldens` — rebase onto develop and
 open the PR once the GATE 3 merge train lands). Phase 2 (yo-self) is
 researched but NOT started; its prerequisite is
-`issues/yo-self-missing-duplicate-impl-checks.md`.
+`issues/fixed/yo-self-missing-duplicate-impl-checks.md`.
 
 **Full-tier measurement 2026-08-15** (`test ./tests/internal --parallel 1`,
 TS runner, Mac Mini M4): **34.2 min against the documented 40.5 min baseline
@@ -279,7 +279,7 @@ child-process-per-batch design.
 **Prerequisite:** yo-self currently CANNOT scrub per-module registry state —
 `register_generic_impl` appends unconditionally, there is no
 `source_module_path` on trait fields, and no per-module clear exists
-(issues/yo-self-missing-duplicate-impl-checks.md). That hardening issue is
+(issues/fixed/yo-self-missing-duplicate-impl-checks.md). That hardening issue is
 therefore a dependency of this plan, not optional polish: port TS's
 duplicate checks AND the per-module clear machinery first, with the same
 red-first pins, then port the shared-universe runner. Note yo-self already

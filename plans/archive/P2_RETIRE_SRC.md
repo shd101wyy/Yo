@@ -225,7 +225,7 @@ found two more platform bugs: the emscripten getdents shim had the same
 truncation flaw as macOS (fixed, same persistent-stream design), and the
 Linux/ASan arm exposed an async abort-dispose double-drop of a moved enum
 payload (call-site patched in version.yo;
-issues/async-abort-dispose-double-drops-moved-enum-payload.md tracks the real
+issues/fixed/async-abort-dispose-double-drops-moved-enum-payload.md tracks the real
 fix). Original assessment: both are self-contained TEXT scanners
 (`src/unsafe-report.ts` 529 lines, `src/public-safe-report.ts` 518 lines) —
 regex/line-based, no parser or evaluator involvement, deliberately so

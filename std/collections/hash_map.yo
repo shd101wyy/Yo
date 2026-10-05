@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 // `outside-subset`), and the internals stay parked with the heap model
 // (the object/heap model is explicitly out of subset).
 pragma(Pragma.Verify);
-{ GlobalAllocator, Allocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
@@ -105,10 +105,10 @@ HashMap :: (
       ///
       /// An implementation detail that is public by accident — see the
       /// module's `## Stability` note.
-      ctrl : ?*u8,
+      ctrl : ?(*(u8)),
       /// The bucket array itself, parallel to `ctrl`. An implementation
       /// detail that is public by accident.
-      data : ?*MapEntry(K, V),
+      data : ?(*(MapEntry(K, V))),
       /// Number of buckets — always a power of two, because bucket selection
       /// masks the hash. An implementation detail that is public by accident.
       capacity : usize,
@@ -170,11 +170,11 @@ impl(
       true => .None
     )
   ),
-  _owned : (fn(self : Self) -> bool)((self._tombstones & _OWNED_TAG) != usize(0)),
+  _owned : (fn(self : Self) -> bool)(((self._tombstones & _OWNED_TAG) != usize(0))),
   /// Slots holding a tombstone (`CTRL_DELETED`) — a read-only diagnostic.
-  tombstones : (fn(self : Self) -> usize)(self._tombstones & _COUNT_MASK),
+  tombstones : (fn(self : Self) -> usize)((self._tombstones & _COUNT_MASK)),
   // Store a tombstone count, keeping the allocator tag.
-  _set_tombstones : (fn(self : Self, n : usize) -> unit)({
+  _set_tombstones : (fn(inout(self) : Self, n : usize) -> unit)({
     self._tombstones = (n | (self._tombstones & _OWNED_TAG));
   }),
   /// The allocator the map's buffers live in: the one given to `new_in` /
@@ -206,7 +206,7 @@ impl(
             .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
-            data_ptr := (*MapEntry(K, V))(data_void_ptr);
+            data_ptr := *(MapEntry(K, V))(data_void_ptr);
             i := usize(0);
             while(i < capacity, i = (i + usize(1)), {
               (ctrl_ptr.add(i)).* = CTRL_EMPTY;
@@ -228,7 +228,7 @@ impl(
     )
   }),
   /// The bucket hash of `key` under this map's keys.
-  _hash : (fn(inout(self) : Self, inout(key) : K) -> u64)({
+  _hash : (fn(self : Self, inout(key) : K) -> u64)({
     h := DefaultHasher.new_with_keys(self.k0, self.k1);
     key.hash(h);
     h.finish()
@@ -333,7 +333,7 @@ impl(
     )
   ),
   /// Get ctrl pointer (unwrapped for internal use)
-  _ctrl_ptr : (fn(self : Self) -> *u8)(
+  _ctrl_ptr : (fn(self : Self) -> *(u8))(
     match(
       self.ctrl,
       .Some(ptr) => ptr,
@@ -341,7 +341,7 @@ impl(
     )
   ),
   /// Get data pointer (unwrapped for internal use)
-  _data_ptr : (fn(self : Self) -> *MapEntry(K, V))(
+  _data_ptr : (fn(self : Self) -> *(MapEntry(K, V)))(
     match(
       self.data,
       .Some(ptr) => ptr,
@@ -478,83 +478,82 @@ impl(
     (self.size + self.tombstones()) >= threshold
   }),
   /// Resize and rehash the HashMap to a new capacity
-  _resize : (fn(self : Self, new_capacity : usize) -> Result(unit, HashMapError))({
-    // The new table lives where the old one does.
-    result := Self._alloc_with_capacity_in(self._alloc_of(), new_capacity);
-    match(
-      result,
-      .Err(err) => .Err(err),
-      .Ok(new_map) => {
-        new_map.k0 = self.k0;
-        new_map.k1 = self.k1;
-        // An unallocated map (capacity 0) has no buckets to move or drop.
-        if(self.capacity > usize(0), {
-          i := usize(0);
-          ctrl_ptr := Self._ctrl_ptr(self);
-          data_ptr := Self._data_ptr(self);
-          while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr.add(i)).*;
+  _resize : (fn(inout(self) : Self, new_capacity : usize) -> Result(unit, HashMapError))({
+    // The new table lives where the old one does. Bound to a local, not a
+    // `match` binding: its fields are written below.
+    new_map := match(
+      Self._alloc_with_capacity_in(self._alloc_of(), new_capacity),
+      .Ok(m) => m,
+      .Err(err) => return(.Err(err))
+    );
+    new_map.k0 = self.k0;
+    new_map.k1 = self.k1;
+    // An unallocated map (capacity 0) has no buckets to move or drop.
+    if(self.capacity > usize(0), {
+      i := usize(0);
+      ctrl_ptr := Self._ctrl_ptr(self);
+      data_ptr := Self._data_ptr(self);
+      while(i < self.capacity, i = (i + usize(1)), {
+        ctrl_byte := (ctrl_ptr.add(i)).*;
+        cond(
+          ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+            bucket := (data_ptr.add(i)).*;
+            hash := self._hash(bucket.key);
+            h2 := h2_hash(hash);
+            new_index := Self._find_insert_bucket(new_map, hash);
+            new_ctrl_ptr := Self._ctrl_ptr(new_map);
+            new_data_ptr := Self._data_ptr(new_map);
+            (new_ctrl_ptr.add(new_index)).* = h2;
+            consume((new_data_ptr.add(new_index)).* = bucket);
+            new_map.size = (new_map.size + usize(1));
+          },
+          true => ()
+        );
+      });
+      // Drop old buckets before freeing old data array
+      // (bucket := ... above duped them, so we need to drop the old refs)
+      cond(
+        (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
+          j := usize(0);
+          while(j < self.capacity, j = (j + usize(1)), {
+            ctrl_byte := (ctrl_ptr.add(j)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                bucket := (data_ptr.add(i)).*;
-                hash := self._hash(bucket.key);
-                h2 := h2_hash(hash);
-                new_index := Self._find_insert_bucket(new_map, hash);
-                new_ctrl_ptr := Self._ctrl_ptr(new_map);
-                new_data_ptr := Self._data_ptr(new_map);
-                (new_ctrl_ptr.add(new_index)).* = h2;
-                consume((new_data_ptr.add(new_index)).* = bucket);
-                new_map.size = (new_map.size + usize(1));
+                bucket_ptr := data_ptr.add(j);
+                cond(
+                  Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
+                  true => ()
+                );
+                cond(
+                  Type.contains_rc_type(V) => unsafe.drop((bucket_ptr.*).value),
+                  true => ()
+                );
               },
               true => ()
             );
           });
-          // Drop old buckets before freeing old data array
-          // (bucket := ... above duped them, so we need to drop the old refs)
-          cond(
-            (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
-              j := usize(0);
-              while(j < self.capacity, j = (j + usize(1)), {
-                ctrl_byte := (ctrl_ptr.add(j)).*;
-                cond(
-                  ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                    bucket_ptr := data_ptr.add(j);
-                    cond(
-                      Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
-                      true => ()
-                    );
-                    cond(
-                      Type.contains_rc_type(V) => unsafe.drop((bucket_ptr.*).value),
-                      true => ()
-                    );
-                  },
-                  true => ()
-                );
-              });
-            },
-            true => ()
-          );
-        });
-        owned := self._owned();
-        match(
-          self.ctrl,
-          .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
-          .None => ()
-        );
-        match(
-          self.data,
-          .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
-          .None => ()
-        );
-        self.ctrl = new_map.ctrl;
-        self.data = new_map.data;
-        self.capacity = new_map.capacity;
-        self._set_tombstones(usize(0));
-        new_map.ctrl = .None;
-        new_map.data = .None;
-        .Ok(())
-      }
-    )
+        },
+        true => ()
+      );
+    });
+    owned := self._owned();
+    match(
+      self.ctrl,
+      .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
+      .None => ()
+    );
+    match(
+      self.data,
+      .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
+      .None => ()
+    );
+    self.ctrl = new_map.ctrl;
+    self.data = new_map.data;
+    self.capacity = new_map.capacity;
+    self._set_tombstones(usize(0));
+    new_map.ctrl = .None;
+    new_map.data = .None;
+    .Ok(())
   }),
   /// Insert or overwrite, reporting allocation failure instead of panicking:
   /// `.Ok(.Some(old))` when the key was present, `.Ok(.None)` when it is new.
@@ -562,7 +561,7 @@ impl(
   /// The allocator-aware form (D9); `insert` is the one to reach for. An
   /// insertion that crosses the load factor rehashes the table first, which
   /// INVALIDATES every entry pointer previously handed out.
-  try_insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+  try_insert : (fn(inout(self) : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
@@ -582,7 +581,7 @@ impl(
       },
       .None => {
         resize_check := cond(
-          Self._needs_resize(self) => {
+          (Self._needs_resize(self)) => {
             // Over the load threshold because of tombstones rather than live
             // entries: rehash at the SAME capacity, which clears every
             // tombstone; only a genuinely full table doubles.
@@ -624,9 +623,9 @@ impl(
   /// that a miss costs one probe rather than two.
   ///
   /// PANICS on allocation failure, like `insert` (D9).
-  _insert_at : (fn(self : Self, index : usize, hash : u64, key : K, value : V) -> V)({
+  _insert_at : (fn(inout(self) : Self, index : usize, hash : u64, key : K, value : V) -> V)({
     slot := cond(
-      Self._needs_resize(self) => {
+      (Self._needs_resize(self)) => {
         new_capacity := self._grown_capacity();
         match(
           Self._resize(self, new_capacity),
@@ -680,7 +679,7 @@ impl(
   /// `iter()` hands out (D14) — so writing `p.*.value` updates the map in
   /// place, and any operation that REHASHES the table (an `insert` that grows
   /// it, `remove`, `clear`) invalidates it.
-  get_entry_ptr : (fn(self : Self, key : K) -> Option(*MapEntry(K, V)))({
+  get_entry_ptr : (fn(inout(self) : Self, key : K) -> Option(*(MapEntry(K, V))))({
     cond(
       (self.capacity == usize(0)) => return(.None),
       true => ()
@@ -703,7 +702,7 @@ impl(
   /// The `.Some(old)` result is a trap worth knowing: `map.insert(k, v)
   /// .unwrap()` used to unwrap a `Result` and now unwraps the OPTION, so it
   /// panics on a FRESH key.
-  insert : (fn(self : Self, key : K, value : V) -> Option(V))(
+  insert : (fn(inout(self) : Self, key : K, value : V) -> Option(V))(
     match(
       Self.try_insert(self, key, value),
       .Ok(prev) => prev,
@@ -715,15 +714,25 @@ impl(
   /// Distinct from `get` whenever the key type has equal-but-distinguishable
   /// values (a case-insensitive string key, say): this returns the key the map
   /// actually holds, not the one used to look it up.
-  get_key_value : (fn(self : Self, key : K) -> Option(MapEntry(K, V)))(
+  get_key_value : (fn(self : Self, key : K) -> Option(MapEntry(K, V)))({
+    // A read: it looks the bucket up itself rather than through
+    // `get_entry_ptr`, which hands out a writable pointer (`inout(self)`).
+    cond(
+      (self.capacity == usize(0)) => return(.None),
+      true => ()
+    );
+    hash := self._hash(key);
     match(
-      self.get_entry_ptr(key),
-      .Some(p) => Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key, value : p.*.value)),
+      Self._find_bucket(self, key, hash),
+      .Some(index) => {
+        p := Self._data_ptr(self).add(index);
+        Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key, value : p.*.value))
+      },
       .None => Option(MapEntry(K, V)).None
     )
-  ),
+  }),
   /// Remove `key` and return the entry that was stored — Rust's `remove_entry`.
-  remove_entry : (fn(self : Self, key : K) -> Option(MapEntry(K, V)))(
+  remove_entry : (fn(inout(self) : Self, key : K) -> Option(MapEntry(K, V)))(
     match(
       self.get_key_value(key),
       .Some(e) => {
@@ -752,7 +761,7 @@ impl(
   /// miss, which is why they are counted and why a table that is mostly
   /// tombstones is rehashed in place (`_needs_resize`). Entry pointers into
   /// the removed bucket are invalid afterwards.
-  remove : (fn(self : Self, key : K) -> Option(V))({
+  remove : (fn(inout(self) : Self, key : K) -> Option(V))({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
@@ -801,7 +810,7 @@ impl(
   /// Scans the bucket array directly rather than probing per key. Removal only
   /// rewrites the removed bucket's control byte and never moves another entry,
   /// so the scan stays valid across the removals it performs.
-  retain : (fn(self : Self, keep : Impl(Fn(k : K, v : V) -> bool)) -> unit)({
+  retain : (fn(inout(self) : Self, keep : Impl(Fn(k : K, v : V) -> bool)) -> unit)({
     cond(
       (self.capacity == usize(0)) => return(()),
       true => ()
@@ -844,7 +853,7 @@ impl(
   extend : (
     fn(
       generic(I : Type),
-      self : Self,
+      inout(self) : Self,
       iterable : I,
       where(I <: IntoIterator(Item := MapEntry(K, V)))
     ) -> unit
@@ -865,7 +874,7 @@ impl(
   /// Drop every entry and reset every control byte to `EMPTY`, KEEPING the
   /// bucket array — Rust's `clear`. O(capacity), and it clears the tombstone
   /// count too.
-  clear : (fn(self : Self) -> unit)({
+  clear : (fn(inout(self) : Self) -> unit)({
     // An unallocated map holds nothing (and has no ctrl bytes to reset).
     if(self.capacity == usize(0), {
       return(());
@@ -913,22 +922,22 @@ impl(
   /// ```
   ///
   /// See `HashMapEntry` for the invalidation rule.
-  entry : (fn(self : Self, key : K) -> HashMapEntry(K, V))({
+  entry : (fn(inout(self) : Self, key : K) -> HashMapEntry(K, V))({
     hash := self._hash(key);
     HashMapEntry(K, V)(_map : self, _key : key, _hash : hash, _slot : Self._probe(self, key, hash))
   }),
   /// The value for `key`, inserting `default` first when absent.
-  get_or_insert : (fn(self : Self, key : K, default : V) -> V)(
+  get_or_insert : (fn(inout(self) : Self, key : K, default : V) -> V)(
     self.entry(key).or_insert(default)
   ),
   /// The value for `key`, inserting `make()`'s result first when absent —
   /// use over `get_or_insert` when constructing the default is costly.
-  get_or_insert_with : (fn(self : Self, key : K, make : Impl(Fn() -> V)) -> V)(
+  get_or_insert_with : (fn(inout(self) : Self, key : K, make : Impl(Fn() -> V)) -> V)(
     self.entry(key).or_insert_with(make)
   ),
   /// Update the value for `key` through `f` when present; no-op when absent.
   /// Returns true when an update happened.
-  update_with : (fn(self : Self, key : K, f : Impl(Fn(v : V) -> V)) -> bool)({
+  update_with : (fn(inout(self) : Self, key : K, f : Impl(Fn(v : V) -> V)) -> bool)({
     e := self.entry(key);
     cond(
       e.is_occupied() => {
@@ -1033,7 +1042,7 @@ impl(
     )
   ),
   /// The value for this key, inserting `default` first when vacant.
-  or_insert : (fn(self : Self, default : V) -> V)(
+  or_insert : (fn(inout(self) : Self, default : V) -> V)(
     match(
       self._slot,
       .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
@@ -1042,7 +1051,7 @@ impl(
   ),
   /// The value for this key, inserting `make()`'s result first when vacant —
   /// use over `or_insert` when constructing the default is costly.
-  or_insert_with : (fn(self : Self, make : Impl(Fn() -> V)) -> V)(
+  or_insert_with : (fn(inout(self) : Self, make : Impl(Fn() -> V)) -> V)(
     match(
       self._slot,
       .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
@@ -1073,7 +1082,7 @@ impl(
   /// Re-probes rather than using the pinned slot: removal has to decide
   /// between an empty slot and a tombstone from the chain that follows it, and
   /// that logic lives in `remove`.
-  remove : (fn(self : Self) -> Option(V))(self._map.remove(self._key))
+  remove : (fn(inout(self) : Self) -> Option(V))(self._map.remove(self._key))
 );
 /// Value iterator over a HashMap — yields each `MapEntry(K, V)` BY VALUE
 /// (both key and value dup'd for refcounted types). This is what
@@ -1145,14 +1154,14 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMapIterPtr(K, V),
   Iterator(
-    Item : *MapEntry(K, V),
-    next : (fn(inout(self) : Self) -> Option(*MapEntry(K, V)))(
+    Item : *(MapEntry(K, V)),
+    next : (fn(inout(self) : Self) -> Option(*(MapEntry(K, V))))(
       cond(
         (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
-          result := Option(*MapEntry(K, V)).None;
+          result := Option(*(MapEntry(K, V))).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
@@ -1289,7 +1298,7 @@ impl(
   HashMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *Self.Output)({
+    index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
       hash := self._hash(idx);
       bucket_opt := Self._find_bucket(self, idx, hash);
       match(
@@ -1394,7 +1403,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       HashMap(K, V).new()
     ),
-    from_iter_add : (fn(acc : Self, item : MapEntry(K, V)) -> Self)({
+    from_iter_add : (fn(own(acc) : Self, item : MapEntry(K, V)) -> Self)({
       acc.insert(item.key, item.value);
       acc
     })

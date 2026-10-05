@@ -354,7 +354,7 @@ dispatched from one large `match`. Only zero-with-reading is conclusive.
 
 **TS:** src/evaluator/calls/helper.ts:845 `_tryToCallFunctionWithArgumentsImpl({ functionType: FunctionType, ... })` — TS is only ever entered with a resolved FunctionType; the caller in src/evaluator/calls/function.ts throws before reaching it, so no unit-typed result can ever be produced.
 
-**Evidence:** // Soft fallback: when the callee's type isn't `.Func(...)` … return a placeholder `FuncCallResult` with `t_unit()` return instead of aborting the surrounding eval. … Tracked as an evaluator coverage gap in `issues/yo-self-evaluator-gaps.md`.
+**Evidence:** // Soft fallback: when the callee's type isn't `.Func(...)` … return a placeholder `FuncCallResult` with `t_unit()` return instead of aborting the surrounding eval. … Tracked as an evaluator coverage gap in `issues/retired/yo-self-evaluator-gaps.md`.
 
 ### `yo-self/evaluator/calls/helper.yo:562` — partial _(evaluator-calls)_
 
@@ -378,7 +378,7 @@ dispatched from one large `match`. Only zero-with-reading is conclusive.
 
 **TS:** src/evaluator/calls/numeric-type.ts:330-342 — `throw formatErrorMessage({ ... "Cannot convert X to Y. Expected a numeric type." })`.
 
-**Evidence:** // Soft fallback: when the source is not numeric … emit an `UnknownVal` of the target type instead of aborting. … Tracked as evaluator coverage gap in `issues/yo-self-evaluator-gaps.md`.
+**Evidence:** // Soft fallback: when the source is not numeric … emit an `UnknownVal` of the target type instead of aborting. … Tracked as evaluator coverage gap in `issues/retired/yo-self-evaluator-gaps.md`.
 
 ### `yo-self/evaluator/calls/type.yo:324` — placeholder _(evaluator-calls)_
 
@@ -607,7 +607,7 @@ which is itself an extra yo-self-only rejection with no TS counterpart.
 
 **TS:** src/evaluator/values/anonymous-function.ts:190-195 — `if (!expectedType) throw formatErrorMessage({... 'Expected a function type, got: ...'})`.
 
-**Evidence:** anonymous_function.yo:556-567 `// TS reference throws here; the bootstrap is more lenient ... Tracked in issues/yo-self-evaluator-gaps.md §5c.` + `_synthesize_default_func_type` at 168-184.
+**Evidence:** anonymous_function.yo:556-567 `// TS reference throws here; the bootstrap is more lenient ... Tracked in issues/retired/yo-self-evaluator-gaps.md §5c.` + `_synthesize_default_func_type` at 168-184.
 
 ### `yo-self/evaluator/values/anonymous_struct.yo:189-227` — partial _(evaluator-values)_
 

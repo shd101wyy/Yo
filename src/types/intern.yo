@@ -56,10 +56,10 @@
 { TypeValue, FuncMeta } :: import("./definitions.yo");
 { fnv1a64, debug_knob, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../utils.yo");
 { ToString } :: import("std/fmt");
-_append_b :: (fn(sb : StringBuilder, x : bool) -> unit)(
+_append_b :: (fn(inout(sb) : StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
-_append_strings :: (fn(sb : StringBuilder, xs : ArrayList(String)) -> unit)({
+_append_strings :: (fn(inout(sb) : StringBuilder, xs : ArrayList(String)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -68,7 +68,7 @@ _append_strings :: (fn(sb : StringBuilder, xs : ArrayList(String)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_bools :: (fn(sb : StringBuilder, xs : ArrayList(bool)) -> unit)({
+_append_bools :: (fn(inout(sb) : StringBuilder, xs : ArrayList(bool)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -76,7 +76,7 @@ _append_bools :: (fn(sb : StringBuilder, xs : ArrayList(bool)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_i64s :: (fn(sb : StringBuilder, xs : ArrayList(i64)) -> unit)({
+_append_i64s :: (fn(inout(sb) : StringBuilder, xs : ArrayList(i64)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -85,7 +85,7 @@ _append_i64s :: (fn(sb : StringBuilder, xs : ArrayList(i64)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_usizes :: (fn(sb : StringBuilder, xs : ArrayList(usize)) -> unit)({
+_append_usizes :: (fn(inout(sb) : StringBuilder, xs : ArrayList(usize)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -94,14 +94,12 @@ _append_usizes :: (fn(sb : StringBuilder, xs : ArrayList(usize)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
+_append_meta_key :: (fn(inout(sb) : StringBuilder, m : FuncMeta) -> unit)({
   _append_strings(sb, m.forall_labels);
   sb.write_str(";");
   _append_strings(sb, m.param_labels);
   sb.write_str(";");
   _append_strings(sb, m.implicit_labels);
-  sb.write_str(";");
-  _append_bools(sb, m.implicit_spreads);
   sb.write_str(";");
   _append_b(sb, m.result_is_comptime_only);
   _append_bools(sb, m.param_is_ref);
@@ -144,7 +142,7 @@ _append_meta_key :: (fn(sb : StringBuilder, m : FuncMeta) -> unit)({
 /// instance's token. A fresh set and depth 0 there recursed forever once enum
 /// tokens carried their arguments. `depth` bounds only how far a token spells
 /// nested arguments.
-_ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth : usize, abs_depth : usize, visited : HashSet(String)) -> String)({
+_ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth : usize, abs_depth : usize, inout(visited) : HashSet(String)) -> String)({
   tok := String.from(tag);
   tok.push_string(sid);
   (i : usize) = usize(0);
@@ -161,7 +159,7 @@ _ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth
   });
   tok
 });
-_ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, visited : HashSet(String)) -> String)(
+_ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, inout(visited) : HashSet(String)) -> String)(
   match(
     t,
     .Struct({ id : a_sid, type_arguments : a_tas }) => if(depth < usize(8), {
@@ -184,7 +182,7 @@ _ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, visited : Has
 );
 
 _intern_key_into :: (
-  fn(t : TypeValue, sb : StringBuilder, depth : usize, visited : HashSet(String)) -> unit
+  fn(t : TypeValue, inout(sb) : StringBuilder, depth : usize, inout(visited) : HashSet(String)) -> unit
 )(
   if(
     depth > usize(600),
@@ -475,7 +473,7 @@ _intern_key_into :: (
       // FIRST interned variant — the stage-2 statx cluster (single-effect
       // closure param typed IoExn). Render the full distinguishing content,
       // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
-      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smier, smkft, smrcp) => {
+      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smkft, smrcp) => {
         tok := String.from("So:");
         tok.push_string(smid);
         if(visited.contains(tok), {
@@ -522,8 +520,6 @@ _intern_key_into :: (
             inl = (inl + usize(1));
           });
           sb.write_str("|");
-          _append_b(sb, smier);
-          sb.write_str("|");
           match(
             smkft,
             .Some(k) => recur(k, sb, depth + usize(1), visited),
@@ -538,7 +534,7 @@ _intern_key_into :: (
           sb.write_str("|");
           match(
             smrcp,
-            .Some(rc) => recur(rc, sb, depth + usize(1), visited),
+            .Some(resolved) => recur(resolved, sb, depth + usize(1), visited),
             .None => sb.write_str("n")
           );
           sb.write_str("}");
@@ -556,19 +552,6 @@ _intern_key_into :: (
           match(uft.get(iu), .Some(x) => recur(x, sb, depth + usize(1), visited), .None => ());
           sb.write_str(",");
           iu = (iu + usize(1));
-        });
-        sb.write_str("]");
-      },
-      .EffectsRowT(erl, ert) => {
-        sb.write_str("ER[");
-        _append_strings(sb, erl);
-        sb.write_str("|");
-        ne := ert.len();
-        (ie : usize) = usize(0);
-        while(ie < ne, {
-          match(ert.get(ie), .Some(x) => recur(x, sb, depth + usize(1), visited), .None => ());
-          sb.write_str(",");
-          ie = (ie + usize(1));
         });
         sb.write_str("]");
       },
@@ -608,7 +591,7 @@ _intern_key_into :: (
         _append_usizes(sb, dntl);
         sb.write_str("]");
       },
-      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, implicit_spreads : fnisp, call_param_is_ref : fncprf }) => {
+      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, call_param_is_ref : fncprf }) => {
         sb.write_str("FT:");
         sb.write_string(fnbn);
         sb.write_str("[");
@@ -634,12 +617,10 @@ _intern_key_into :: (
           ifi = (ifi + usize(1));
         });
         sb.write_str("|");
-        _append_bools(sb, fnisp);
-        sb.write_str("|");
         _append_bools(sb, fncprf);
         sb.write_str("]");
       },
-      .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet, effect_spreads : ftesp }) => {
+      .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet }) => {
         sb.write_str("FuT:");
         sb.write_string(ftbn);
         sb.write_str("[");
@@ -654,8 +635,6 @@ _intern_key_into :: (
           sb.write_str(",");
           ift = (ift + usize(1));
         });
-        sb.write_str("|");
-        _append_bools(sb, ftesp);
         sb.write_str("]");
       },
       // V6 task 3: the intern key distinguishes predicates — two
@@ -676,7 +655,7 @@ _intern_key_into :: (
 );
 /// Render the structural key of `t` as a String. Thin wrapper over
 /// `_intern_key_into` (kept for callers outside this module).
-type_intern_key :: (fn(t : TypeValue, depth : usize, visited : HashSet(String)) -> String)({
+type_intern_key :: (fn(t : TypeValue, depth : usize, inout(visited) : HashSet(String)) -> String)({
   sb := StringBuilder.new();
   _intern_key_into(t, sb, depth, visited);
   sb.to_string()

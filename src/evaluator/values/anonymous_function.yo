@@ -15,7 +15,6 @@
 //! Deliberately not done (the swallow philosophy admits only
 //! deliberately-gated rejections):
 //!   - await analysis at this layer (the io.async path runs its own)
-//!   - Effect row spread expansion (uses existing implicit params as-is)
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
@@ -122,7 +121,7 @@ pragma(Pragma.AllowUnsafe);
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a } :: import("../context.yo");
+{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
@@ -143,7 +142,7 @@ pragma(Pragma.AllowUnsafe);
 /// context (e.g. impl field whose surrounding trait is a parametric
 /// trait the bootstrap can't yet evaluate).
 _collect_anon_param_names :: (
-  fn(param_decl : AstExpr, out : ArrayList(String)) -> unit
+  fn(param_decl : AstExpr, inout(out) : ArrayList(String)) -> unit
 )(
   match(
     param_decl,
@@ -271,7 +270,7 @@ _get_param_name_from_expr :: (fn(param_expr : AstExpr, fallback : String) -> Str
 _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(_, cpl, cpt, cr_box, _, _, _, cprf) => TypeValue.Func(
+    .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf) => TypeValue.Func(
       ArrayList(TypeValue).new(),
       // no generic types
       cpt,
@@ -285,7 +284,6 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
           forall_labels : ArrayList(String).new(),
           param_labels : cpl,
           implicit_labels : ArrayList(String).new(),
-          implicit_spreads : ArrayList(bool).new(),
           result_is_comptime_only : false,
           // Fn-trait-derived closure type (runtime); `inout` call params
           // carry through (the with_lock write-through closure).
@@ -431,7 +429,7 @@ _anon_swallow_message :: (fn() -> String)(
 /// The `return(v)` arguments of a body, outside any nested function or
 /// closure: the values a `ctl` handler resumes with. A cond/match arm's `=>`
 /// is a branch, not a boundary.
-_collect_resume_args :: (fn(e : AstExpr, out : ArrayList(AstExpr)) -> unit)(
+_collect_resume_args :: (fn(e : AstExpr, inout(out) : ArrayList(AstExpr)) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
@@ -472,7 +470,7 @@ _is_concrete_resume_type :: (fn(t : TypeValue) -> bool)(
   !is_unit_type(t) && !is_never_type(t) && !is_void_type(t) && (get_all_some_types(t).len() == usize(0))
 );
 _trial_eval_anon_body :: (
-  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(body : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   clear_flow_violation();
   _clear_anon_swallow();
@@ -558,7 +556,7 @@ _synth_nested_return_somes :: (
 /// The caller saves/restores `ctx.is_evaluating_function_type` (an unwind here
 /// would skip an in-helper restore).
 _trial_eval_annotation_type :: (
-  fn(type_expr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
+  fn(type_expr : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(TypeValue)) -> unit
 )({
   inner_exn := Exception(throw : (_err -> unwind(())));
   ctx.is_evaluating_function_type = true;
@@ -797,8 +795,8 @@ evaluate_anonymous_function_implementation :: (
   function_type_opt := match(
     expected_ty,
     .Func({ result : _ }) => Option(TypeValue).Some(expected_ty),
-    .FnTraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
-    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
+    .FnTraitT(_, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
+    .SomeT(_, _, _, _, _, _, _, _, _, _) => {
       fn_trait_opt := extract_fn_trait_from_type(expected_ty);
       match(
         fn_trait_opt,
@@ -1150,7 +1148,6 @@ evaluate_anonymous_function_implementation :: (
       ArrayList(usize).new(),
       ArrayList(TypeValue).new(),
       ArrayList(usize).new(),
-      false,
       Option(TypeValue).None,
       Option(TypeValue).None
     );
@@ -1206,7 +1203,7 @@ evaluate_anonymous_function_implementation :: (
     // concrete bindings from the callee env.
     rp_ty := match(
       rp_ty_raw,
-      .SomeT(_, srp_name, _, _, _, _, _, _, _, _, _) => {
+      .SomeT(_, srp_name, _, _, _, _, _, _, _, _) => {
         _st_bind_vars := get_variables_from_env(expected_type_env, srp_name.clone());
         (_st_bound : Option(TypeValue)) = Option(TypeValue).None;
         (_st_bi : usize) = _st_bind_vars.len();
@@ -1235,7 +1232,7 @@ evaluate_anonymous_function_implementation :: (
     // param_type_name for generic param binding at call time
     ptn := match(
       rp_ty_raw,
-      .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
+      .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
       _ => String.from("")
     );
     param_type_names.push(ptn.clone());
@@ -1442,6 +1439,7 @@ evaluate_anonymous_function_implementation :: (
   });
   (closure_capture_type : Option(TypeValue)) = Option(TypeValue).None;
   (closure_capture_dups : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+  (closure_borrows_captures : bool) = false;
   (closure_body_caps : Option(HashMap(String, CapturedVarInfo))) = Option(HashMap(String, CapturedVarInfo)).None;
   // Register the definition-site enclosing function's return type: when the
   // anonymous function is evaluated inside a function-body context, record
@@ -2245,7 +2243,8 @@ Result type: ${type_to_string(decl_result_ty)}`
     // building the capture struct — codegen emits them as the capture-field
     // initializers so the capture owns its own reference (missing this freed
     // the captured Command.status spawn storage under the running closure).
-    dup_res := generate_captured_variable_dup_expressions(cvwv, env, ctx, exn);
+    dup_res := generate_captured_variable_dup_expressions(cvwv, env, ctx, exn, tok, closure_literal_is_borrowed(expr));
+    closure_borrows_captures = dup_res.borrowed;
     closure_capture_dups = dup_res.dup_exprs;
     cap_res := create_capture_type_and_value(Option(TypeValue).None, cvwv, env, tok);
     closure_capture_type = cap_res.capture_type;
@@ -2323,7 +2322,7 @@ Result type: ${type_to_string(decl_result_ty)}`
   if(is_creating_closure && !ctx.is_inside_io_async_call, {
     match(
       expected_ty,
-      .SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_ier, w_kft, _) => {
+      .SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _) => {
         match(
           closure_capture_type,
           .Some(cap_t) => {
@@ -2370,7 +2369,7 @@ Result type: ${type_to_string(decl_result_ty)}`
             // reads the wrapper's resolution expecting the CAPTURE STRUCT directly
             // (ne_box_inner_ty), so an interposed `__impl_fn` level broke the
             // whole dyn corpus ("no member named 'call'").
-            w_fn_from_where := ((w_nm != "Impl") && ((w_nm.len() > usize(0)) && w_fn_trait.is_some()));
+            w_fn_from_where := ((w_nm != "Impl") && (w_nm.len() > usize(0)) && w_fn_trait.is_some());
             cond(
               w_fn_from_where => match(
                 w_fn_trait,
@@ -2388,7 +2387,6 @@ Result type: ${type_to_string(decl_result_ty)}`
                     impl_rtl,
                     ArrayList(TypeValue).new(),
                     ArrayList(usize).new(),
-                    false,
                     Option(TypeValue).None,
                     Option(TypeValue).Some(cap_t)
                   );
@@ -2410,7 +2408,6 @@ Result type: ${type_to_string(decl_result_ty)}`
                     w_rtl,
                     w_ntt,
                     w_ntl,
-                    w_ier,
                     w_kft,
                     Option(TypeValue).Some(impl_fn_wrapper)
                   );
@@ -2427,7 +2424,6 @@ Result type: ${type_to_string(decl_result_ty)}`
                   w_rtl,
                   w_ntt,
                   w_ntl,
-                  w_ier,
                   w_kft,
                   Option(TypeValue).Some(cap_t)
                 );
@@ -2458,7 +2454,7 @@ Result type: ${type_to_string(decl_result_ty)}`
   // passed as an argument leaked every capture
   // (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md). The
   // io.async state machine owns its captures through its own lowering.
-  if(is_creating_closure && !ctx.is_inside_io_async_call && match(closure_capture_type, .Some(cct) => type_contains_rc_type(cct), .None => false), {
+  if(is_creating_closure && (!ctx.is_inside_io_async_call && !closure_borrows_captures) && match(closure_capture_type, .Some(cct) => type_contains_rc_type(cct), .None => false), {
     attach_temp_variable_to_expr(expr, true, ctx);
   });
   expr

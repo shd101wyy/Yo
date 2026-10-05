@@ -35,14 +35,14 @@ json :: import("std/encoding/json");
 // ---------------------------------------------------------------------------
 /// Append a key/value pair to a JSON object under construction.
 _obj_add :: (
-  fn(keys : ArrayList(String), vals : ArrayList(JsonValue), k : String, v : JsonValue) -> unit
+  fn(inout(keys) : ArrayList(String), inout(vals) : ArrayList(JsonValue), k : String, v : JsonValue) -> unit
 )({
   keys.push(k);
   vals.push(v);
 });
 /// Append a string-valued key.
 _obj_add_str :: (
-  fn(keys : ArrayList(String), vals : ArrayList(JsonValue), k : String, v : String) -> unit
+  fn(inout(keys) : ArrayList(String), inout(vals) : ArrayList(JsonValue), k : String, v : String) -> unit
 )({
   keys.push(k);
   vals.push(JsonValue.Str(value : v));
@@ -50,7 +50,7 @@ _obj_add_str :: (
 /// Append a string-valued key only when the value is present — the
 /// JSON.stringify `undefined`-omission rule.
 _obj_add_opt_str :: (
-  fn(keys : ArrayList(String), vals : ArrayList(JsonValue), k : String, v : Option(String)) -> unit
+  fn(inout(keys) : ArrayList(String), inout(vals) : ArrayList(JsonValue), k : String, v : Option(String)) -> unit
 )({
   match(
     v,
@@ -63,7 +63,7 @@ _obj_add_opt_str :: (
 });
 /// Append a bool-valued key.
 _obj_add_bool :: (
-  fn(keys : ArrayList(String), vals : ArrayList(JsonValue), k : String, v : bool) -> unit
+  fn(inout(keys) : ArrayList(String), inout(vals) : ArrayList(JsonValue), k : String, v : bool) -> unit
 )({
   keys.push(k);
   vals.push(JsonValue.Bool(value : v));

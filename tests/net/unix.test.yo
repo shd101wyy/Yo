@@ -31,6 +31,8 @@ test("bind, connect, accept, echo round-trip", {
   );
   e := IoExn(io : io, exn : exn);
   path := _sock("echo.sock");
+  // A run that died before its cleanup leaves the socket file behind.
+  _remove_stale(path, io);
   listener := io.await(UnixListener.bind(path, io), e);
   assert(listener.fd() >= i32(0), "listener fd valid");
   assert(listener.local_path().contains(`yo_unix_echo.sock`), "local_path");
@@ -101,6 +103,7 @@ test("binding an existing path throws AddressInUse", {
   );
   e := IoExn(io : io, exn : e0);
   path := _sock("dup.sock");
+  _remove_stale(path, io);
   first := io.await(UnixListener.bind(path, io), e);
   exn := Exception(
     throw : (

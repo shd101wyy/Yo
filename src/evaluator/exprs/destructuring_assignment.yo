@@ -31,6 +31,7 @@ pragma(Pragma.AllowUnsafe);
   RuntimeDestructuring,
   new_expr_info,
   expr_info_table_set,
+  scope_release_note_binding,
   expr_info_table_get,
   is_extern_c_module_id,
   is_extern_c_global,
@@ -647,6 +648,7 @@ handle_member_destructuring :: (
             },
             .None => ()
           );
+          scope_release_note_binding(ast_expr_id(var_tok_expr), env, var_name.clone());
         },
         .None => ()
       );
@@ -830,7 +832,7 @@ evaluate_destructuring_assignment :: (
   // -------------------------------------------------------------------
   // Error: unsupported type
   // -------------------------------------------------------------------
-  if(!(is_tuple_type(rhs_type) || is_struct_type(rhs_type) || (is_union_type(rhs_type) || is_module_type(rhs_type)) || is_enum_type(rhs_type)), {
+  if(!(is_tuple_type(rhs_type) || is_struct_type(rhs_type) || is_union_type(rhs_type) || is_module_type(rhs_type) || is_enum_type(rhs_type)), {
     exn.throw(
       dyn(
         format_error_message(

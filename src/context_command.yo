@@ -292,7 +292,7 @@ _parse_context_query :: (
     // `--flag value` and `--flag=value` for the three valued flags.
     (valued : bool) = false;
     (flag : String) = a.clone();
-    if((a == "--search") || ((a == "--path") || ((a == "--format") || (a == "--doc"))), {
+    if((a == "--search") || (a == "--path") || (a == "--format") || (a == "--doc"), {
       valued = true;
       if((ai + usize(1)) >= argv.len(), {
         _usage_error(`${a} needs an argument`, `${a} 需要一个参数`, exn);
@@ -304,7 +304,7 @@ _parse_context_query :: (
         a.index_of(String.from("="), usize(0)),
         .Some(eq) => {
           head := a.substring(usize(0), eq);
-          if((head == "--search") || ((head == "--path") || ((head == "--format") || (head == "--doc"))), {
+          if((head == "--search") || (head == "--path") || (head == "--format") || (head == "--doc"), {
             valued = true;
             flag = head;
             value = a.substring(eq + usize(1), a.len());
@@ -548,7 +548,7 @@ _entry_less :: (fn(a : ContextIndexEntry, b : ContextIndexEntry) -> bool)(
 );
 /// Sort entries in place by (module, name, kind) — insertion sort, STABLE,
 /// so items of one name keep the index's order (a type before its methods).
-_sort_entries :: (fn(xs : ArrayList(ContextIndexEntry)) -> unit)({
+_sort_entries :: (fn(inout(xs) : ArrayList(ContextIndexEntry)) -> unit)({
   (i : usize) = usize(1);
   while(i < xs.len(), {
     cur := xs(i);
@@ -562,7 +562,7 @@ _sort_entries :: (fn(xs : ArrayList(ContextIndexEntry)) -> unit)({
   });
 });
 /// Sort module rows in place by module path.
-_sort_modules :: (fn(xs : ArrayList(ContextIndexModule)) -> unit)({
+_sort_modules :: (fn(inout(xs) : ArrayList(ContextIndexModule)) -> unit)({
   (i : usize) = usize(1);
   while(i < xs.len(), {
     cur := xs(i);
@@ -804,7 +804,7 @@ PageSection :: struct(
 /// The anchor of a renderer ITEM heading (`` ### `anchor` ``), or `.None`.
 _item_heading_anchor :: (fn(line : String) -> Option(String))({
   open := String.from("### `");
-  if(line.starts_with(open.clone()) && (line.ends_with(String.from("`")) && (line.len() > (open.len() + usize(1)))), {
+  if(line.starts_with(open.clone()) && line.ends_with(String.from("`")) && (line.len() > (open.len() + usize(1))), {
     return(Option(String).Some(line.substring(open.len(), line.len() - usize(1))));
   });
   Option(String).None
@@ -912,7 +912,7 @@ _module_page :: (fn(mods : ArrayList(ContextIndexModule), module : String, io : 
 });
 /// The sections of `module`'s page, read once per query.
 _sections_of :: (
-  fn(cache : HashMap(String, ArrayList(PageSection)), mods : ArrayList(ContextIndexModule), module : String, io : Io, exn : Exception) -> ArrayList(PageSection)
+  fn(inout(cache) : HashMap(String, ArrayList(PageSection)), mods : ArrayList(ContextIndexModule), module : String, io : Io, exn : Exception) -> ArrayList(PageSection)
 )(
   match(
     cache.get(module.clone()),
@@ -945,7 +945,7 @@ _defining_entry :: (fn(entries : ArrayList(ContextIndexEntry), e : ContextIndexE
   (i : usize) = usize(0);
   while(i < entries.len(), {
     d := entries(i);
-    if((d.module == e.origin) && ((d.name == e.name) && (d.kind == e.kind)), {
+    if((d.module == e.origin) && (d.name == e.name) && (d.kind == e.kind), {
       return(d);
     });
     i = (i + usize(1));
@@ -1000,63 +1000,115 @@ SearchHit :: struct(
   entry : ContextIndexEntry,
   score : usize
 );
-/// Score one entry against the query (case-insensitive):
-/// exact name 400 > name prefix 300 > name substring 200 > signature
-/// substring 100 > doc substring 50. 0 = no match. Ties break by
-/// (module, name) in the caller's sort.
-search_score :: (fn(e : ContextIndexEntry, low_query : String) -> usize)({
+/// The query's match tokens: lowercased, whitespace-split, empty pieces
+/// dropped — "hash  string" (repeated spaces) or " hash " carry exactly the
+/// two tokens "hash" and "string", and no empty token that would trivially
+/// match everywhere.
+_query_tokens :: (fn(query : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  raw := query.split(String.from(" "));
+  (i : usize) = usize(0);
+  while(i < raw.len(), {
+    t := raw(i).trim();
+    i = (i + usize(1));
+    if(t.len() > usize(0), {
+      out.push(t.to_lowercase());
+    });
+  });
+  out
+});
+/// Score one entry against the query (case-insensitive). The query is
+/// whitespace-tokenized and EVERY token must match somewhere (AND), so a
+/// natural-language recall query ("hash string") works instead of being
+/// matched as one literal substring. Per token: exact name 400 > name prefix
+/// 300 > name substring 200 > module substring 150 > signature substring 100
+/// > doc substring 50 — the module tier is what answers "which module do I
+/// import to …?". The entry scores its WEAKEST token's best tier, so a hit's
+/// score is still one rung of the ladder. 0 = no match (a token matched
+/// nowhere, or the query has no token at all). Ties break by (module, name)
+/// in the caller's sort.
+search_score :: (fn(e : ContextIndexEntry, query : String) -> usize)({
+  tokens := _query_tokens(query);
+  if(tokens.len() == usize(0), {
+    return(usize(0));
+  });
   low_name := e.name.to_lowercase();
-  if(low_name == low_query, {
-    return(usize(400));
+  low_module := e.module.to_lowercase();
+  low_signature := e.signature.to_lowercase();
+  low_doc := e.doc.to_lowercase();
+  (score : usize) = usize(400);
+  (i : usize) = usize(0);
+  while(i < tokens.len(), {
+    t := tokens(i);
+    i = (i + usize(1));
+    tier := cond(
+      (low_name == t) => usize(400),
+      low_name.starts_with(t.clone()) => usize(300),
+      low_name.contains(t.clone()) => usize(200),
+      low_module.contains(t.clone()) => usize(150),
+      low_signature.contains(t.clone()) => usize(100),
+      true => cond(low_doc.contains(t.clone()) => usize(50), true => usize(0))
+    );
+    if(tier < score, {
+      score = tier;
+    });
   });
-  if(low_name.starts_with(low_query.clone()), {
-    return(usize(300));
-  });
-  if(low_name.contains(low_query.clone()), {
-    return(usize(200));
-  });
-  if(e.signature.to_lowercase().contains(low_query.clone()), {
-    return(usize(100));
-  });
-  if((e.doc.len() > usize(0)) && e.doc.to_lowercase().contains(low_query), {
-    return(usize(50));
-  });
-  usize(0)
+  score
 });
 /// The deep-search score: 10 when the item's OWN rendered section (its
-/// defining entry's, for a barrel re-export) contains the query.
+/// defining entry's, for a barrel re-export) contains every query token.
 _deep_score :: (
   fn(
     e : ContextIndexEntry,
-    low_query : String,
+    query : String,
     world : LoadedWorld,
-    cache : HashMap(String, ArrayList(PageSection)),
+    inout(cache) : HashMap(String, ArrayList(PageSection)),
     io : Io,
     exn : Exception
   ) -> usize
 )({
   d := _defining_entry(world.entries, e);
   text := _section_text(_sections_of(cache, world.mods, d.module.clone(), io, exn), d.name.clone());
-  cond(text.to_lowercase().contains(low_query) => usize(10), true => usize(0))
+  low := text.to_lowercase();
+  tokens := _query_tokens(query);
+  (i : usize) = usize(0);
+  while(i < tokens.len(), {
+    if(!low.contains(tokens(i).clone()), {
+      return(usize(0));
+    });
+    i = (i + usize(1));
+  });
+  cond((tokens.len() == usize(0)) => usize(0), true => usize(10))
 });
 /// The ranked hits for a query. Deterministic: score desc, then (module,
 /// name) — the entries arrive sorted, and the insertion sort is stable.
+/// Byte-identical entries collapse to ONE hit: a module can define the same
+/// method name on several types whose signatures all print `Self`
+/// (std/async/channel's `close` ×3), and those index lines are one row
+/// printed several times over — the first copy wins (identical entries score
+/// alike). Entries differing in signature stay: they are distinct rows.
 _search_entries :: (
   fn(query : String, deep : bool, world : LoadedWorld, io : Io, exn : Exception) -> ArrayList(SearchHit)
 )({
-  low_query := query.to_lowercase();
   cache := HashMap(String, ArrayList(PageSection)).new();
   hits := ArrayList(SearchHit).new();
+  seen := HashMap(String, bool).new();
   (i : usize) = usize(0);
   while(i < world.entries.len(), {
     e := world.entries(i);
     i = (i + usize(1));
-    (score : usize) = search_score(e, low_query.clone());
-    if((score == usize(0)) && deep, {
-      score = _deep_score(e, low_query.clone(), world, cache, io, exn);
-    });
-    if(score > usize(0), {
-      hits.push(SearchHit(entry : e, score : score));
+    // A tab cannot occur in any field (paths, identifiers, and the
+    // whitespace-collapsed signature/doc), so it separates without aliasing.
+    key := `${e.module}\t${e.name}\t${e.kind}\t${e.signature}\t${e.doc}\t${e.origin}`;
+    if(!seen.contains_key(key.clone()), {
+      seen.insert(key, true);
+      (score : usize) = search_score(e, query.clone());
+      if((score == usize(0)) && deep, {
+        score = _deep_score(e, query.clone(), world, cache, io, exn);
+      });
+      if(score > usize(0), {
+        hits.push(SearchHit(entry : e, score : score));
+      });
     });
   });
   (k : usize) = usize(1);
@@ -1184,7 +1236,7 @@ _run_context_describe_module :: (fn(module : String, world : LoadedWorld, as_jso
 /// then its rendered section (signature, full doc, examples) — read from
 /// the DEFINING module's page, so a barrel re-export shows the real doc.
 _print_item :: (
-  fn(e : ContextIndexEntry, world : LoadedWorld, cache : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> unit
+  fn(e : ContextIndexEntry, world : LoadedWorld, inout(cache) : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> unit
 )({
   d := _defining_entry(world.entries, e);
   println(`${e.module} — ${e.name}`);
@@ -1208,7 +1260,7 @@ _print_item :: (
 });
 /// The item's JSON: its entry object plus `text`, the rendered section.
 _item_json :: (
-  fn(e : ContextIndexEntry, world : LoadedWorld, cache : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> JsonValue
+  fn(e : ContextIndexEntry, world : LoadedWorld, inout(cache) : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> JsonValue
 )({
   d := _defining_entry(world.entries, e);
   o := _entry_json(e);
@@ -1223,7 +1275,7 @@ _item_json :: (
 /// the index stores methods unqualified, so the type is checked against the
 /// method's rendered heading)?
 _entry_names_item :: (
-  fn(e : ContextIndexEntry, item : String, world : LoadedWorld, cache : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> bool
+  fn(e : ContextIndexEntry, item : String, world : LoadedWorld, inout(cache) : HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> bool
 )({
   if(!item.contains(String.from(".")), {
     return(e.name == item);
@@ -1519,7 +1571,7 @@ run_context :: (
   // The manuals are their own mode: `--format` is the only flag that
   // qualifies them, and they do not mix with an API query.
   if(q.docs || (q.doc.len() > usize(0)), {
-    other := (q.list || ((q.search.len() > usize(0)) || ((q.subject.len() > usize(0)) || ((q.path.len() > usize(0)) || (q.refresh || (q.deps || (q.deep || q.verbose)))))));
+    other := (q.list || (q.search.len() > usize(0)) || (q.subject.len() > usize(0)) || (q.path.len() > usize(0)) || q.refresh || q.deps || q.deep || q.verbose);
     if(other || (q.docs && (q.doc.len() > usize(0))), {
       _usage_error(`--docs and --doc <name> take no other query or option except --format`, `--docs 和 --doc <name> 除 --format 外不能与其他查询或选项同时使用`, exn);
     });
@@ -1530,8 +1582,8 @@ run_context :: (
     });
     return(());
   });
-  has_query := (q.list || ((q.search.len() > usize(0)) || (q.subject.len() > usize(0))));
-  has_query_flag := ((q.path.len() > usize(0)) || (q.refresh || (q.deps || (q.deep || (q.verbose || q.as_json)))));
+  has_query := (q.list || (q.search.len() > usize(0)) || (q.subject.len() > usize(0)));
+  has_query_flag := ((q.path.len() > usize(0)) || q.refresh || q.deps || q.deep || q.verbose || q.as_json);
   if(!has_query && has_query_flag, {
     _usage_error(
       `--path, --refresh, --deps, --deep, --verbose and --format qualify a query: add --list, --search <query>, <module> or <name>`,
@@ -1604,4 +1656,4 @@ run_context :: (
   println(`yo ${String.from(CURRENT_YO_VERSION)} — ${_pack_version_line(content).unwrap_or(String.from("pack-version: unknown"))}`);
   println(content);
 });
-export(run_context, search_score);
+export(run_context, search_score, _search_entries, LoadedWorld);

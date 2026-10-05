@@ -429,13 +429,13 @@ trait，定义于 `std/prelude.yo`：
 ```rust
 Trace :: trait(
   id := "Trace",
-  trace : (fn(self : Self, tracer : GcTracer) -> unit),
-  where(Self <: Rc)
+  trace : (fn(self : Self, tracer : GcTracer) -> unit)
 );
 ```
 
 `trace` 实现每条出边调用一次 `tracer.visit(...)`。编译器会把每个类型的 `trace` 转换为存放在其对象头部
-的 `traverse_fn`。
+的 `traverse_fn`。只有引用类型（`ref(struct(...))`、`ref(enum(...))` 及其 `atomic(...)` 形式）可以实现
+`Trace`（或 `Dispose`）；在其他类型上的 `impl` 会被编译器拒绝。
 
 ### 结构体、枚举与值类型自动派生
 

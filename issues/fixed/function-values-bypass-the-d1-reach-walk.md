@@ -23,7 +23,7 @@ whose body is `g.push(...)` runs on a spawned thread while `main` also pushes to
 | `channel` | `Channel(typeof(k))`, `ch.send(k)`, received and called on the thread |
 
 `named` and `struct` compile and run. `arc` fails in clang, but only through the unrelated
-`issues/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md`.
+`issues/fixed/arc-of-a-capture-free-closure-emits-two-arc-typedefs.md`.
 
 ## Mechanism
 

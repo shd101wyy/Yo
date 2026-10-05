@@ -111,7 +111,7 @@ _intern_type_c_name :: (fn(key : String) -> String)(
 /// still registerable as a concrete C type — the fn-ptr fields get type-erased
 /// at the C ABI.
 _struct_some_type_is_only_in_function_fields :: (
-  fn(type : TypeValue, visited : HashSet(String)) -> bool
+  fn(type : TypeValue, inout(visited) : HashSet(String)) -> bool
 )(
   match(
     type,
@@ -145,7 +145,7 @@ _struct_some_type_is_only_in_function_fields :: (
 /// Check if an enum's SomeType content is only in function-typed variant
 /// fields.
 _enum_some_type_is_only_in_function_fields :: (
-  fn(type : TypeValue, visited : HashSet(String)) -> bool
+  fn(type : TypeValue, inout(visited) : HashSet(String)) -> bool
 )(
   match(
     type,
@@ -235,16 +235,14 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
     return(());
   });
   is_registerable := (
-    (
-      is_struct_type(type) || is_union_type(type) || (is_enum_type(type) || is_tuple_type(type))
-      // FutureTraitT: the generic Future trait-object interface struct — a
-      // SEPARATE variant (not a TraitT subtype), so it
-      // needs its own clause. Registered so a future-typed parameter's
-      // `__yo_future_trait_*` interface struct gets a C name + declaration
-      // (generation.yo's is_future_trait_type declaration pass).
-      || (is_dyn_type(type) || is_trait_type(type) || is_future_trait_type(type))
-    )
-    || (is_module_type(type) || is_iso_type(type))
+    is_struct_type(type) || is_union_type(type) || is_enum_type(type) || is_tuple_type(type)
+    // FutureTraitT: the generic Future trait-object interface struct — a
+    // SEPARATE variant (not a TraitT subtype), so it
+    // needs its own clause. Registered so a future-typed parameter's
+    // `__yo_future_trait_*` interface struct gets a C name + declaration
+    // (generation.yo's is_future_trait_type declaration pass).
+    || is_dyn_type(type) || is_trait_type(type) || is_future_trait_type(type)
+    || is_module_type(type) || is_iso_type(type)
   );
   if(is_registerable, {
     // Gap 3: extern-C names not modelled generally. Intern the (full) type_key

@@ -859,7 +859,7 @@ bar();
 sweep of 2026-09-11 removed 45 of them). Two cases where the binding IS
 load-bearing, so leave it alone:
 
-- Drop/borrow fixtures that count references (`rc(h)`) or test the
+- Drop/borrow fixtures that count references (`ref_count(h)`) or test the
   discard binding's own scope-end drop (`tests/rc.test.yo`,
   `tests/ref_field_borrow.test.yo`,
   `tests/shadowed_binding_early_return_drop.test.yo`).
@@ -1304,6 +1304,23 @@ p2 := PtrVal(box(target), usize(0));  // ERROR: target already moved
 p1 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
 p2 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
 ```
+
+### `rc` is a prelude constructor; the count is `ref_count(x)`
+
+`rc(v)` allocates a reference-counted cell (today the same as `box(v)`); it
+does NOT read a count. Read the count with the `ref_count(x)` builtin. Like any
+prelude name, `rc` cannot be redefined, so a return code needs another name:
+
+```rust
+// ❌ shadowing error: "rc" is the prelude's constructor
+rc := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
+// ✅
+status := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
+assert(ref_count(cell) == usize(1), "one owner");
+```
+
+A parameter or a `match` pattern binding named `rc` is allowed and shadows the
+prelude's `rc` in its scope.
 
 ### Self-recursion: call the name; `recur(...)` for anonymous functions
 

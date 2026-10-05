@@ -13,7 +13,7 @@ infers one line later — turns every subsequent method call on that local into
 
 ## Reproducer
 
-`issues/repros/annotated-local-from-trait-receiver-loses-methods.yo` (source inline below — commit it at that path alongside this doc):
+`annotated-local-from-trait-receiver-loses-methods.yo` (never committed) (source inline below — commit it at that path alongside this doc):
 
 ```rust
 { Set } :: import("std/imm/set");
@@ -42,10 +42,10 @@ export(main);
 ```
 
 ```
-$ yo check issues/repros/annotated-local-from-trait-receiver-loses-methods.yo
+$ yo check annotated-local-from-trait-receiver-loses-methods.yo
 error: No matching call found with arguments:
 (cur.head)()
-   --> issues/repros/annotated-local-from-trait-receiver-loses-methods.yo:16:6
+   --> annotated-local-from-trait-receiver-loses-methods.yo:16:6
    |
 16 |   cur.head().is_some()
    |      ^

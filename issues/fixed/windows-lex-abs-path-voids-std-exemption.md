@@ -1,6 +1,6 @@
 # Windows: `_lex_abs_path` cwd-joins absolute paths, voiding the std exemptions of the pragma gates
 
-**Status:** OPEN → fixed in the same commit stack as the mimalloc v3.5.1 bump
+**Status:** FIXED: filed under `issues/fixed/` by #689. Before that the line read: OPEN → fixed in the same commit stack as the mimalloc v3.5.1 bump
 (`chore/bump-mimalloc-v3.5.0`, PR #181). Found while trying to build the tree
 locally on windows-x64 with the v0.2.23 seed.
 

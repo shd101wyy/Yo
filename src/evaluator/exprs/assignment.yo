@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
-{ function_param_mutation_mask, param_mutation_mask_hits, d1_record_global_write } :: import("../effects/mutation_summary.yo");
+{ function_param_mutation_mask, param_mutation_mask_hits, ParamMutationMask, d1_record_global_write } :: import("../effects/mutation_summary.yo");
 {
   EvalValue,
   is_struct_val,
@@ -47,7 +47,7 @@ pragma(Pragma.AllowUnsafe);
   eval_value_eq
 } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
   is_comptime_int_type,
@@ -59,8 +59,11 @@ pragma(Pragma.AllowUnsafe);
   is_array_type,
   is_struct_type,
   is_reference_struct_type,
+  is_enum_type,
+  is_reference_enum_type,
   is_function_type,
-  is_function_type_generic
+  is_function_type_generic,
+  type_decl_module
 } :: import("../../types/guards.yo");
 {
   convert_comptime_type_to_runtime_type,
@@ -68,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
   get_value_of_some_type_from_env
 } :: import("../../types/env_lookup.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ type_to_string } :: import("../../types/string.yo");
+{ type_to_string, type_display_name } :: import("../../types/string.yo");
 { judge_function_argument_markers } :: import("../trait_checking.yo");
 { is_flowable_expr, FlowOptions, flag_flow_violation, raise_flow_violation }
 :: import("../../types/flowability.yo");
@@ -85,7 +88,8 @@ pragma(Pragma.AllowUnsafe);
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr
 } :: import("../utils.yo");
-{ parse_raw_int } :: import("../../utils.yo");
+{ parse_raw_int, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // throw_rhs_contains_control_flow_expression_error
@@ -205,7 +209,6 @@ make_variable_with_value :: (
     is_implicit : v.is_implicit,
     is_created_from_destructuring_atom_variable : v.is_created_from_destructuring_atom_variable,
     rare : v.rare,
-    is_from_effect_spread : v.is_from_effect_spread,
     is_effect_param : v.is_effect_param,
     is_module_level : v.is_module_level,
     is_ref : false,
@@ -236,7 +239,29 @@ get_root_expr_of_field_access :: (fn(expr : AstExpr) -> AstExpr)(
 /// collection writes into heap storage its object owns, which is fine.
 /// `.None` when the write is not into a borrowed copy
 /// (issues/fixed/a-field-write-through-a-borrowed-value-binding-double-releases.md).
-borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : EvalContext) -> Option(Variable))({
+borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : EvalContext) -> Option(Variable))(
+  _borrowed_root_walk(lhs, env, ctx, false)
+);
+/// `borrowed_value_root_of_place`, and with `through_collections` a step
+/// through one of the std collections (`_is_v2_value_collection_type`) also
+/// stays inside the copy: the collections are values after the
+/// VALUES_BY_DEFAULT V2b flip, so `xs(i).push(v)` on a by-value `xs` writes
+/// `xs`'s own buffer then. Only the `YO_AUDIT_INOUT_BORROW` listing walks
+/// that way; no verdict depends on it.
+_borrowed_root_walk :: (fn(lhs : AstExpr, env : Environment, ctx : EvalContext, through_collections : bool) -> Option(Variable))(
+  match(
+    _place_root_variable(lhs, env, ctx, through_collections),
+    .Some(v) => cond(
+      (v.is_owning_the_rc_value || v.is_ref || v.is_compile_time_only || v.is_module_level) => Option(Variable).None,
+      true => Option(Variable).Some(v)
+    ),
+    .None => Option(Variable).None
+  )
+);
+/// The binding whose own storage the place `lhs` writes, walking only the
+/// steps that stay inside a copy (see `_borrowed_root_walk`); `.None` when a
+/// step leaves it.
+_place_root_variable :: (fn(lhs : AstExpr, env : Environment, ctx : EvalContext, through_collections : bool) -> Option(Variable))({
   (cur : AstExpr) = lhs;
   (done : bool) = false;
   while(!done, {
@@ -255,8 +280,8 @@ borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : Eval
         obj_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(obj)), .Some(oi) => oi.ty, .None => t_unit());
         is_dot := ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2)));
         in_copy := cond(
-          is_dot => ((is_struct_type(obj_ty) && !is_reference_struct_type(obj_ty)) || is_tuple_type(obj_ty)),
-          true => is_array_type(obj_ty)
+          is_dot => ((is_struct_type(obj_ty) && !is_reference_struct_type(obj_ty)) || is_tuple_type(obj_ty) || (through_collections && _is_v2_value_collection_type(obj_ty))),
+          true => (is_array_type(obj_ty) || (through_collections && _is_v2_value_collection_type(obj_ty)))
         );
         if(!in_copy, {
           return(Option(Variable).None);
@@ -271,16 +296,223 @@ borrowed_value_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : Eval
   if(!ast_expr_is_atom(cur), {
     return(Option(Variable).None);
   });
-  vars := get_variables_from_env(env, ast_expr_token(cur).value.clone());
+  get_variables_from_env(env, ast_expr_token(cur).value.clone()).last()
+});
+/// VALUES_BY_DEFAULT §3.13 audit: the variable a closure or `io.async` body
+/// captured from an enclosing scope that the place `lhs` writes (through
+/// value and collection steps). A `=>` closure captures by value, so after
+/// the V2b flip a write there lands in the closure's copy; today the copy
+/// shares the collection's object. `.None` outside a body or for a binding
+/// of the body's own.
+_captured_root_of_place :: (fn(lhs : AstExpr, env : Environment, ctx : EvalContext) -> Option(Variable))(
   match(
-    vars.last(),
-    .Some(v) => cond(
-      (v.is_owning_the_rc_value || v.is_ref || v.is_compile_time_only || v.is_module_level) => Option(Variable).None,
-      true => Option(Variable).Some(v)
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(sub) => match(
+      _place_root_variable(lhs, env, ctx, true),
+      .Some(v) => {
+        // A function body's own parameters sit in the top frame of its
+        // `eval_env`; an async block has none (track_variable_usage_resolved).
+        own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count() - usize(1)), _ => sub.eval_env.frame_count());
+        cond(
+          (v.is_ref || v.is_compile_time_only || v.is_module_level || (v.frame_level >= own_floor)) => Option(Variable).None,
+          true => Option(Variable).Some(v)
+        )
+      },
+      .None => Option(Variable).None
     ),
     .None => Option(Variable).None
   )
+);
+/// The way out E0908 offers for a write into the borrowed binding `bv`.
+_write_through_borrow_fix :: (fn(bv : Variable) -> String)(
+  cond(
+    bv.is_parameter => `take it as \`sink(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
+    true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(xs, inout(${bv.name}) => ...)\``
+  )
+);
+/// The place as written (`p.s`), not the printer's parenthesized `(p.s)`.
+_place_source_text :: (fn(place : AstExpr) -> String)({
+  text := ast_expr_to_string(place);
+  if(text.starts_with("(") && text.ends_with(")"), {
+    text = text.substring(usize(1), text.len() - usize(1));
+  });
+  text
 });
+/// A value aggregate: a type whose copy owns its own storage, a non-`ref`
+/// struct or newtype (`String`), a tuple, a fixed array or a non-`ref` enum
+/// (`Option(String)`). A `ref` object, a `Box`, a collection or a closure is a
+/// handle, and a write through it reaches the shared object by design.
+_is_value_aggregate_type :: (fn(t : TypeValue) -> bool)(
+  (is_struct_type(t) && !is_reference_struct_type(t)) || is_tuple_type(t) || is_array_type(t) || (is_enum_type(t) && !is_reference_enum_type(t))
+);
+(_g_audit_inout_borrow : bool) = debug_knob(`YO_AUDIT_INOUT_BORROW`).is_some();
+/// `sname` is the type `head` or one of its instances (`ArrayList(i32)`).
+_type_name_is :: (fn(sname : String, head : str) -> bool)(
+  (sname == head) || sname.starts_with(`${head}(`)
+);
+/// VALUES_BY_DEFAULT V2 (`plans/VALUES_BY_DEFAULT.md` §6): a std collection
+/// that becomes a copy-on-write value at the V2b flip. Until then it is a `ref`
+/// handle, and a write through a borrowed copy of it reaches the owner's
+/// object; after the flip that write lands in the copy alone. Identified by
+/// name AND declaring module, so a user type named `ArrayList` is not one.
+/// Only the `YO_AUDIT_INOUT_BORROW` listing consults this (V2a): it changes no
+/// verdict.
+_is_v2_value_collection_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t_refine_inner(t),
+    .Struct({ id : sid, name : sname0, is_reference_semantics : is_ref }) => (
+      is_ref
+      && match(
+        type_decl_module(sid.clone()),
+        .Some(m) => {
+          // An instance of a generic collection (`ArrayList(i32)`) carries
+          // no name of its own; its display name is registered by id.
+          sname := if(sname0.len() > usize(0), sname0, match(type_display_name(sid.clone()), .Some(d) => d, .None => String.new()));
+          cond(
+            _type_name_is(sname, "ArrayList") => m.ends_with("collections/array_list.yo"),
+            _type_name_is(sname, "HashMap") => m.ends_with("collections/hash_map.yo"),
+            _type_name_is(sname, "HashSet") => m.ends_with("collections/hash_set.yo"),
+            _type_name_is(sname, "Deque") => m.ends_with("collections/deque.yo"),
+            _type_name_is(sname, "BTreeMap") => m.ends_with("collections/btree_map.yo"),
+            _type_name_is(sname, "LinkedList") => m.ends_with("collections/linked_list.yo"),
+            _type_name_is(sname, "PriorityQueue") => m.ends_with("collections/priority_queue.yo"),
+            _type_name_is(sname, "OrderedMap") => m.ends_with("collections/ordered_map.yo"),
+            _type_name_is(sname, "HeaderMap") => m.ends_with("http/http.yo"),
+            _type_name_is(sname, "StringBuilder") => m.ends_with("string/string_builder.yo"),
+            true => false
+          )
+        },
+        .None => false
+      )
+    ),
+    _ => false
+  )
+);
+/// E0908 for the `inout` arguments of one call, the `inout(self)` receiver of
+/// a method call included: the callee writes the place, so a place rooted in
+/// a borrowed binding (a by-value parameter, a `match`/`for` binding) is the
+/// same write-through-borrow as an assignment into it. A write there lands in
+/// the borrowed copy alone, and data it allocates is never released
+/// (issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md).
+/// `args` are the evaluated arguments, `param_is_ref` the callee's modes.
+require_no_inout_write_through_borrow :: (
+  fn(
+    inout(pending) : ArrayList(D3PendingInout),
+    param_labels : ArrayList(String),
+    param_is_ref : ArrayList(bool),
+    args : ArrayList(AstExpr),
+    callee_returns_place : bool,
+    env : Environment,
+    ctx : EvalContext
+  ) -> unit
+)({
+  // A callee that returns a pointer is a place projection (`s(i)` through
+  // `Index.index`): it hands the caller a place, and a write, if any, happens
+  // at the caller through that place, which the assignment rule judges. Its
+  // mutation mask is `all` only because the pointer escapes.
+  if(callee_returns_place, {
+    return(());
+  });
+  (n : usize) = param_is_ref.len();
+  if(args.len() < n, {
+    n = args.len();
+  });
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(match(param_is_ref.get(i), .Some(b) => b, .None => false), {
+      arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+      arg_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)), .Some(ai) => ai.ty, .None => t_unit());
+      // The audit also lists the writes the V2b flip changes: a collection
+      // place, reached through collection steps too.
+      (is_judged : bool) = (type_contains_rc_type(arg_ty) && _is_value_aggregate_type(arg_ty));
+      (is_listed : bool) = (_g_audit_inout_borrow && (is_judged || _is_v2_value_collection_type(arg_ty)));
+      if(!ast_expr_token(arg).module_path.starts_with(String.from("auto-generated://")) && (is_judged || is_listed), {
+        match(
+          _borrowed_root_walk(arg, env, ctx, _g_audit_inout_borrow),
+          .Some(bv) => if(is_judged || !_is_dispose_receiver(bv, ast_expr_token(arg)), {
+            what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
+            label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
+            target := cond((label == "self") => String.from("the `inout(self)` receiver"), true => `the \`inout\` parameter \`${label}\``);
+            pending.push(
+              D3PendingInout(
+                param_index : i,
+                place : arg,
+                how : String.from("write through a borrowed value"),
+                noun : String.from(what),
+                root_text : bv.name.clone(),
+                root_type : type_to_string(arg_ty),
+                global : Option(Variable).None,
+                borrow_error : Option(String).Some(
+                  `Cannot pass \`${_place_source_text(arg)}\` as ${target}: \`${bv.name}\` is ${what}, which borrows its value, and holds data (${type_to_string(arg_ty)}) that its owner still holds. The callee writes it, and the write would land in the borrowed copy alone. To change it, ${_write_through_borrow_fix(bv)}.`
+                )
+              )
+            );
+          }),
+          .None => if(is_listed, {
+            match(
+              _captured_root_of_place(arg, env, ctx),
+              .Some(cv) => {
+                pending.push(
+                  D3PendingInout(
+                    param_index : i,
+                    place : arg,
+                    how : String.from("write through a captured value"),
+                    noun : String.from(_CAPTURE_NOUN),
+                    root_text : cv.name.clone(),
+                    root_type : type_to_string(arg_ty),
+                    global : Option(Variable).None,
+                    borrow_error : Option(String).Some(String.from("captured"))
+                  )
+                );
+              },
+              .None => ()
+            );
+          })
+        );
+      });
+    });
+    i = (i + usize(1));
+  });
+});
+/// A write at `tok` inside a `Dispose.dispose` body, to its receiver `v`.
+/// The runtime calls `dispose` when the last handle goes away, so `self` is
+/// the owner there, not a borrowed copy, and its writes are the object's own
+/// teardown. The V2b flip moves those bodies onto the buffer cells
+/// (`plans/VALUES_BY_DEFAULT.md` §6 V2b), so the audit leaves them out.
+/// Recognized from the source above the write: the nearest member header is
+/// `dispose : (`. (A parameter carries a synthetic token, and the deferred
+/// generic trial evaluates the body under a placeholder function value, so
+/// neither names the function.)
+_is_dispose_receiver :: (fn(v : Variable, tok : Token) -> bool)({
+  if(!(v.is_parameter && (v.name == "self")), {
+    return(false);
+  });
+  lines := tok.input.split(String.from("\n"));
+  (row : usize) = usize(tok.row);
+  (steps : usize) = usize(0);
+  while(steps < usize(400), {
+    match(
+      lines.get(row),
+      .Some(l) => {
+        if(l.contains("dispose : ("), {
+          return(true);
+        });
+        if(l.contains(" : (fn(") || l.ends_with(" : ("), {
+          return(false);
+        });
+      },
+      .None => ()
+    );
+    if(row == usize(0), {
+      return(false);
+    });
+    row = (row - usize(1));
+    steps = (steps + usize(1));
+  });
+  false
+});
+/// The audit noun of a write through a closure's captured copy.
+_CAPTURE_NOUN :: "a captured variable";
 // ---------------------------------------------------------------------------
 // get_root_expr_of_place
 // ---------------------------------------------------------------------------
@@ -316,7 +548,10 @@ get_root_expr_of_place :: (fn(expr : AstExpr) -> AstExpr)(
 /// `global` is the module-level global the place is rooted in (the D1 form:
 /// a write is an error only when a closure that runs on another thread
 /// reaches that global too); `.None` for an atomic-object root (always an error).
-D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, noun : String, root_text : String, root_type : String, global : Option(Variable));
+/// One `inout` place a call's callee may write. `borrow_error` is set for a
+/// place rooted in a borrowed value (E0908): it is reported only if the
+/// callee's mutation mask says that parameter may be written.
+D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, noun : String, root_text : String, root_type : String, global : Option(Variable), borrow_error : Option(String));
 /// The module-level (non-thread-local, runtime) global a place is rooted in,
 /// if any — the D1 write rule's counterpart of `get_atomic_object_root_type`.
 _module_global_root_var :: (
@@ -371,7 +606,7 @@ _d1_record_write :: (
 /// is a write depends on the callee's body, which `d3_check_pending` reads
 /// after the call has resolved its (specialized) callee.
 d3_record_inout_place :: (
-  fn(pending : ArrayList(D3PendingInout), param_index : usize, param_label : String, place : AstExpr, env : Environment) -> unit
+  fn(inout(pending) : ArrayList(D3PendingInout), param_index : usize, param_label : String, place : AstExpr, env : Environment) -> unit
 )({
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.clone())), {
     return(());
@@ -389,7 +624,8 @@ d3_record_inout_place :: (
           noun : String.from("atomic object"),
           root_text : ast_expr_to_string(root_expr),
           root_type : type_to_string(root_ty),
-          global : Option(Variable).None
+          global : Option(Variable).None,
+          borrow_error : Option(String).None
         )
       );
     },
@@ -407,7 +643,8 @@ d3_record_inout_place :: (
           noun : String.from("module-level global"),
           root_text : ast_expr_to_string(root_expr),
           root_type : type_to_string(gv.ty),
-          global : Option(Variable).Some(gv)
+          global : Option(Variable).Some(gv),
+          borrow_error : Option(String).None
         )
       );
     },
@@ -430,15 +667,65 @@ d3_check_pending :: (
   if((pending.len() == usize(0)) || ctx.is_in_function_call_checking_phase, {
     return(());
   });
+  (has_borrow : bool) = false;
+  (hb : usize) = usize(0);
+  while(hb < pending.len(), {
+    match(
+      pending.get(hb),
+      .Some(pe) => if(pe.borrow_error.is_some(), {
+        has_borrow = true;
+      }),
+      .None => ()
+    );
+    hb = (hb + usize(1));
+  });
+  (borrow_mask : Option(ParamMutationMask)) = Option(ParamMutationMask).None;
+  if(has_borrow, {
+    borrow_mask = Option(ParamMutationMask).Some(function_param_mutation_mask(callee_fid, callee_body, ctx.expr_info_table));
+  });
+  // E0908 for a borrowed value passed to an `inout` parameter the callee may
+  // write. Not trusted by file: std's `String` mutators live in pragma'd
+  // files and are exactly the writes this rejects. A mask the analysis cannot
+  // resolve (`all`) counts as a write, as it does for D3: `push_str` writes
+  // through `ArrayList`'s raw pointers, which the analysis does not follow.
+  (bi : usize) = usize(0);
+  while(bi < pending.len(), {
+    match(
+      pending.get(bi),
+      .Some(entry) => match(
+        entry.borrow_error,
+        .Some(berr) => {
+          if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(bm, entry.param_index), .None => false), {
+            if(_g_audit_inout_borrow, {
+              // `-unresolved`: the analysis could not resolve the callee's
+              // mask (`all`), so the write is assumed, not seen.
+              tag := cond(
+                (entry.noun == _CAPTURE_NOUN) => "inout-borrow-capture",
+                match(borrow_mask, .Some(bm) => bm.all, .None => false) => "inout-borrow-unresolved",
+                true => "inout-borrow"
+              );
+              at := ast_expr_token(entry.place);
+              eprintln(`[${tag}] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(entry.place)} -> ${callee_fid} (${entry.root_text}: ${entry.noun}, ${entry.root_type})`);
+            }, {
+              raise_flow_violation(with_code(format_error_message(ast_expr_token(entry.place), berr), E_WRITE_THROUGH_BORROW), ctx, exn);
+            });
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(callee_body).module_path.clone())), {
     return(());
   });
-  mask := function_param_mutation_mask(callee_fid, callee_body, ctx.expr_info_table);
+  mask := match(borrow_mask, .Some(bm) => bm, .None => function_param_mutation_mask(callee_fid, callee_body, ctx.expr_info_table));
   (i : usize) = usize(0);
   while(i < pending.len(), {
     match(
       pending.get(i),
-      .Some(entry) => if(param_mutation_mask_hits(mask, entry.param_index), {
+      .Some(entry) => if(entry.borrow_error.is_none() && param_mutation_mask_hits(mask, entry.param_index), {
         match(
           entry.global,
           .Some(gv) => _d1_record_write(gv, ast_expr_token(entry.place), entry.how.clone(), String.from(", which the callee may write through"), exn),
@@ -713,7 +1000,7 @@ evaluate_assignment :: (
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(prop_rhs, env, ctx, exn);
     throw_expr_is_implicit_variable_error(prop_rhs, env, ctx, exn);
-    set_expr_as_needs_to_call_dup(prop_rhs, ctx, exn);
+    set_expr_as_needs_to_call_dup(prop_rhs, ctx, exn, "field-store");
     // Re-read rhs info after potential mutations by the above helpers.
     prop_rhs_info = match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(prop_rhs)),
@@ -774,20 +1061,40 @@ evaluate_assignment :: (
     });
     // Step 3c — A write into a borrowed copy must not release RC data the
     // copy's owner still holds (E0908).
+    // The audit lists the assignments the VALUES_BY_DEFAULT V2b flip changes:
+    // a store reached through a std collection rooted in a borrowed binding
+    // (`order(i) = j` on a by-value `order : ArrayList(usize)`) writes the
+    // owner's buffer today and the copy's after the flip.
+    // A store whose place stays inside value copies alone (`p.n = 1` on a
+    // by-value `p`) writes the copy under both rules and is not listed; one
+    // that reaches a collection's buffer is.
+    if(_g_audit_inout_borrow && borrowed_value_root_of_place(evaluated_lhs, env, ctx).is_none(), {
+      match(
+        _borrowed_root_walk(evaluated_lhs, env, ctx, true),
+        // A root holding no RC data (`w := Array(u32, 80)`) is never "owning",
+        // so the walk cannot tell a local from a borrowed binding there.
+        .Some(abv) => if(type_contains_rc_type(abv.ty) && !_is_dispose_receiver(abv, ast_expr_token(lhs)), {
+          at := ast_expr_token(lhs);
+          anoun := cond(abv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
+          eprintln(`[inout-borrow] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(lhs)} = (${abv.name}: ${anoun}, ${type_to_string(expected_ty)})`);
+        }),
+        .None => match(
+          _captured_root_of_place(evaluated_lhs, env, ctx),
+          .Some(acv) => if(type_contains_rc_type(acv.ty), {
+            at := ast_expr_token(lhs);
+            eprintln(`[inout-borrow-capture] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(lhs)} = (${acv.name}: ${_CAPTURE_NOUN}, ${type_to_string(expected_ty)})`);
+          }),
+          .None => ()
+        )
+      );
+    });
     if(type_contains_rc_type(expected_ty), {
       match(
         borrowed_value_root_of_place(evaluated_lhs, env, ctx),
         .Some(bv) => {
           what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
-          // The place as written: `p.s`, not the printer's `(p.s)`.
-          place_text := ast_expr_to_string(lhs);
-          if(place_text.starts_with("(") && place_text.ends_with(")"), {
-            place_text = place_text.substring(usize(1), place_text.len() - usize(1));
-          });
-          fix := cond(
-            bv.is_parameter => `take it as \`own(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
-            true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy`
-          );
+          place_text := _place_source_text(lhs);
+          fix := _write_through_borrow_fix(bv);
           raise_flow_violation(
             with_code(
               format_error_message(
@@ -1391,7 +1698,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // scope-end drop for the (owning) LHS binding but no matching dup — every
   // `(x : T) = rhs` / `x = rhs` whose RHS is a borrowed RC value net-releases
   // the caller's object (the stage-2 Environment UAF).
-  set_expr_as_needs_to_call_dup(rhs_evaled, ctx, exn);
+  set_expr_as_needs_to_call_dup(rhs_evaled, ctx, exn, "assign");
   // Re-read env in case set_expr_as_needs_to_call_dup updated it.
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs_evaled)),
@@ -1643,7 +1950,6 @@ comptime(${variable_name}) : ${dgc_ty_str}
     is_implicit : updated_variable.is_implicit,
     is_created_from_destructuring_atom_variable : updated_variable.is_created_from_destructuring_atom_variable,
     rare : updated_variable.rare,
-    is_from_effect_spread : updated_variable.is_from_effect_spread,
     is_effect_param : updated_variable.is_effect_param,
     is_module_level : updated_variable.is_module_level,
     // Preserve the borrow/parameter flags across reassignment — the previous
@@ -1700,6 +2006,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
 });
 export(
   throw_if_write_through_atomic_root,
+  require_no_inout_write_through_borrow,
   D3PendingInout,
   d3_record_inout_place,
   d3_check_pending,

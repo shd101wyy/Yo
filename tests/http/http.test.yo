@@ -246,8 +246,10 @@ _read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn))
 );
 // Serve `responses` in order, one connection each, recording every request
 // line into `seen`. Runs as a spawned task.
+// A `Box`: the caller and the spawned task share the list on purpose, and a
+// task captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
 _serve_scripted :: (
-  fn(listener : TcpListener, responses : ArrayList(String), seen : ArrayList(String), io : Io) ->
+  fn(listener : TcpListener, responses : ArrayList(String), seen : Box(ArrayList(String)), io : Io) ->
     Impl(Future(unit, IoExn))
 )(
   io.async(e => {
@@ -255,7 +257,7 @@ _serve_scripted :: (
     while(runtime(k < responses.len()), {
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_read_request(s, e.io), e);
-      seen.push(req);
+      seen.*.push(req);
       _w := e.io.await(s.write_string(responses(k), e.io), e);
       e.io.await(s.close(e.io), e);
       k = (k + usize(1));
@@ -284,15 +286,15 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   responses.push(_redirect_to(`next`)); // relative → /dir/next
   responses.push(_redirect_to(`/final`)); // absolute path → /final
   responses.push(_ok_body(`done`));
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   resp := io.await(fetch_with(`http://127.0.0.1:19960/dir/start`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.OK(), `final status should be 200, got ${resp.status}`);
   assert(resp.body == "done", `final body should be the last hop's, got "${resp.body}"`);
-  assert(seen.len() == usize(3), `three requests should have been made, saw ${seen.len()}`);
-  assert(seen(usize(0)).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${seen(usize(0))}`);
-  assert(seen(usize(1)).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${seen(usize(1))}`);
-  assert(seen(usize(2)).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${seen(usize(2))}`);
+  assert(seen.*.len() == usize(3), `three requests should have been made, saw ${seen.*.len()}`);
+  assert((seen.*)(usize(0)).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${(seen.*)(usize(0))}`);
+  assert((seen.*)(usize(1)).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${(seen.*)(usize(1))}`);
+  assert((seen.*)(usize(2)).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${(seen.*)(usize(2))}`);
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
@@ -312,7 +314,7 @@ test("fetch throws TooManyRedirects past max_redirects", {
   responses.push(_redirect_to(`/again`));
   responses.push(_redirect_to(`/again`));
   responses.push(_redirect_to(`/again`));
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   // max_redirects 2: hop 0 → hop 1 → hop 2 is the third 3xx, one too many.
   opts := FetchOptions.new().with_max_redirects(usize(2));
@@ -332,13 +334,13 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   responses := ArrayList(String).new();
   responses.push(_redirect_to(`/elsewhere`));
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_max_redirects(usize(0));
   resp := io.await(fetch_with(`http://127.0.0.1:19962/start`, opts, io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.FOUND(), `the 3xx itself should come back, got ${resp.status}`);
   assert(match(resp.get_header(`Location`), .Some(l) => (l == "/elsewhere"), .None => false), "Location header should be preserved");
-  assert(seen.len() == usize(1), "exactly one request");
+  assert(seen.*.len() == usize(1), "exactly one request");
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
@@ -362,7 +364,7 @@ test("fetch throws ResponseTooLarge past max_response_bytes", {
   });
   responses := ArrayList(String).new();
   responses.push(_ok_body(body));
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_max_response_bytes(usize(100));
   _r := io.await(fetch_with(`http://127.0.0.1:19963/big`, opts, io), IoExn(io : io, exn : exn));
@@ -453,7 +455,7 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   // Same body, but the first chunk carries a chunk extension (`;name=value`)
   // and sizes use UPPER-case hex — both legal per RFC 9112 §7.1.
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(r1.status == StatusCode.OK(), `status ${r1.status}`);
@@ -491,14 +493,14 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   responses := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   client := io.spawn(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : chunk_exn));
   outcome := client.await(io);
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(match(outcome, .None => true, .Some(r) => false), `a non-hex chunk size must throw (task unwound → None)`);
-  assert(seen.len() == usize(1), "the server saw exactly one request");
+  assert(seen.*.len() == usize(1), "the server saw exactly one request");
 });
 // A garbage status line surfaces as `HttpError.Other("Invalid status line")`.
 // Also the production pin for
@@ -529,7 +531,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   responses := ArrayList(String).new();
   responses.push(`garbage\r\n\r\n`);
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   (outcome : Option(HttpResponse)) = Option(HttpResponse).None;
   {
@@ -539,7 +541,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(match(outcome, .None => true, .Some(r) => false), `a garbage status line must throw (task unwound → None)`);
-  assert(seen.len() == usize(1), "the server saw exactly one request");
+  assert(seen.*.len() == usize(1), "the server saw exactly one request");
 });
 // `body : String` is a byte-transparent buffer (String is unvalidated bytes;
 // len()/substring are byte-indexed since D4), so HTTP bodies may carry
@@ -569,7 +571,7 @@ test("fetch round-trips a binary body byte-for-byte", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   responses := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`);
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   r := io.await(fetch_with(`http://127.0.0.1:19968/bin`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   server.await(io);
@@ -778,7 +780,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello`);
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: -5\r\nConnection: close\r\n\r\nhello`);
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 9\r\nConnection: close\r\n\r\nhello`);
-  seen := ArrayList(String).new();
+  seen := box(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   c1 := io.spawn(fetch_with(`http://127.0.0.1:19976/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
   o1 := c1.await(io);
@@ -791,7 +793,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   assert(match(o1, .None => true, .Some(r) => false), `"abc" is not a length and must throw (task unwound → None)`);
   assert(match(o2, .None => true, .Some(r) => false), `a negative Content-Length must throw`);
   assert(match(o3, .None => true, .Some(r) => false), `two Content-Length lines that disagree must throw`);
-  assert(seen.len() == usize(3), `the server saw three requests, not ${seen.len()}`);
+  assert(seen.*.len() == usize(3), `the server saw three requests, not ${seen.*.len()}`);
 });
 // ============================================================================
 // StatusCode
@@ -1044,7 +1046,7 @@ _ka_conn :: (fn(stream : TcpStream, mode : i32, stats : _KaStats, io : Io) -> Im
   io.async(e => {
     // ONE carry list for the whole connection: a single `read` can deliver
     // the end of this request and the start of the next.
-    carry := ArrayList(u8).new();
+    carry := box(ArrayList(u8).new());
     open := true;
     while(runtime(open), {
       framed := e.io.await(
@@ -1408,12 +1410,12 @@ test("HttpClient: dispose closes every idle connection", {
   // server read its EOF and returned. Without the `dispose` above, both of
   // these report `Elapsed`.
   match(
-    timeout(t1, Duration.from_secs(i64(10)), io),
+    io.await(timeout(t1, Duration.from_secs(i64(10)), io), io),
     .Ok(_) => (),
     .Err(err) => assert(false, `the first server never saw its connection close: ${err.to_string()}`)
   );
   match(
-    timeout(t2, Duration.from_secs(i64(10)), io),
+    io.await(timeout(t2, Duration.from_secs(i64(10)), io), io),
     .Ok(_) => (),
     .Err(err) => assert(false, `the second server never saw its connection close: ${err.to_string()}`)
   );
@@ -1615,7 +1617,7 @@ test("wire: a 204 followed by another response in one read carries the tail", {
   );
   e := IoExn(io : io, exn : exn);
   r := _pipe(`${_P204}${_PNEXT}`);
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   raw1 := match(
     io.await(_wire.read_http_message_buffered(r, usize(0), _wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
@@ -1625,7 +1627,7 @@ test("wire: a 204 followed by another response in one read carries the tail", {
     }
   );
   assert(raw1 == String.from(_P204), `the 204 is framed at its header section, got ${raw1.len()} bytes`);
-  assert(carry.len() == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.len()})`);
+  assert(carry.*.len() == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.*.len()})`);
   reads_before := r.reads;
   raw2 := match(
     io.await(_wire.read_http_message_buffered(r, usize(0), _wire.MessageKind.Response, carry, io), e),
@@ -1650,7 +1652,7 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
   );
   e := IoExn(io : io, exn : exn);
   r := _pipe(`${_PHEAD}${_PNEXT}`);
-  carry := ArrayList(u8).new();
+  carry := box(ArrayList(u8).new());
   raw1 := match(
     io.await(_wire.read_http_message_buffered(r, usize(0), _wire.MessageKind.HeadResponse, carry, io), e),
     .Ok(x) => x,
@@ -1660,12 +1662,12 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
     }
   );
   assert(raw1 == String.from(_PHEAD), `the HEAD response is framed at its headers, got ${raw1.len()} bytes`);
-  assert(carry.len() == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.len()})`);
+  assert(carry.*.len() == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.*.len()})`);
   // The same bytes read as a plain Response would swallow the next response's
   // first three bytes as this one's body — which is exactly the smuggling the
   // kind parameter exists to prevent.
   r2 := _pipe(`${_PHEAD}${_PNEXT}`);
-  carry2 := ArrayList(u8).new();
+  carry2 := box(ArrayList(u8).new());
   as_get := match(
     io.await(_wire.read_http_message_buffered(r2, usize(0), _wire.MessageKind.Response, carry2, io), e),
     .Ok(x) => x,

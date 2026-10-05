@@ -289,10 +289,10 @@ c_include(
 init :: (fn() -> Result(unit, int))({
   // SAFETY: mylib_init has no preconditions; non-zero return signals
   // initialization failure.
-  rc := unsafe(mylib_init());
+  status := unsafe(mylib_init());
   cond(
-    (rc == int(0)) => .Ok(()),
-    true => .Err(rc)
+    (status == int(0)) => .Ok(()),
+    true => .Err(status)
   )
 });
 

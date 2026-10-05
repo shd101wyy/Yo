@@ -24,7 +24,7 @@ Residual (separate hole, same family): a MODULE-LEVEL
 though escape boundary 2 should reject it — the pointer rule proves
 `type_is_control_bound(Exception)` is true, so the module-level rule's
 `rhs_info.ty` must be losing the type;
-issues/module-level-control-bound-binding-not-rejected.md.
+issues/fixed/module-level-control-bound-binding-not-rejected.md.
 
 Found 2026-08-29 by the C22 stub gate: `tests/http/server.test.yo`'s
 

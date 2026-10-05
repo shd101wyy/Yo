@@ -3,10 +3,10 @@
 **Found**: 2026-09-04, by the std-API audit re-measurement, when the C36 row's
 cross-reference in `plans/archive/STD_API_AUDIT.md` turned out to be a dead path.
 **Class**: papercut — bookkeeping, but it corrupts the open-issue tally and
-breaks five links, two of them from compiler source comments. **Status: DONE 2026-09-14.** `issues/async-cond-dispatch-skips-chained-sibling-arm.md`
+breaks five links, two of them from compiler source comments. **Status: DONE 2026-09-14.** `issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md`
 is now in `issues/fixed/`, and every reference points at that path — the two
 compiler-source comments in `src/codegen/async/state_machine.yo` plus the one in
-`issues/udpsocket-send-is-unreachable-without-a-connect-method.md` that cited
+`issues/retired/udpsocket-send-is-unreachable-without-a-connect-method.md` that cited
 the root path. The fix was re-verified before the move rather than trusted from
 the header: `issues/repros/async-cond-dispatch-skips-chained-sibling-arm.yo`
 compiles and runs `rc=0` (the defect was `rc=139`).
@@ -22,7 +22,7 @@ compiles and runs `rc=0` (the defect was `rc=139`).
 | `./*.md` | **Open** issues — file new issues here |
 | `fixed/` | **Verified fixed** — the fix landed with a regression test; move the doc here in the fixing commit |
 
-`issues/async-cond-dispatch-skips-chained-sibling-arm.md` is in the root, i.e.
+`issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md` is in the root, i.e.
 counted as open, while its own header (`:5-6`) says:
 
 ```

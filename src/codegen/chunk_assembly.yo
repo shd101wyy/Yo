@@ -41,7 +41,7 @@
 ChunkAssembly :: ref(struct(header_text : String, chunks : ArrayList(String)));
 /// True iff `b` is a C identifier byte: [A-Za-z0-9_].
 _ca_is_ident_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(48)) && (b <= u8(57))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))))
+  ((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))
 );
 /// Byte at `i`, or 0 past the end.
 _ca_bget :: (fn(bytes : ArrayList(u8), i : usize) -> u8)(
@@ -131,7 +131,7 @@ _ca_parse_static_fn_line :: (
       (b == u8(40)) => {
         found = true;
       },
-      ((b == u8(10)) || ((b == u8(61)) || (b == u8(59)))) => {
+      ((b == u8(10)) || (b == u8(61)) || (b == u8(59))) => {
         return(Option(_StaticFnLine).None);
       },
       true => {
@@ -162,7 +162,7 @@ _ca_parse_static_fn_line :: (
     );
     r = (r + usize(1));
   });
-  while((r < n) && ((_ca_bget(bytes, r) == u8(32)) || ((_ca_bget(bytes, r) == u8(10)) || (_ca_bget(bytes, r) == u8(9)))), {
+  while((r < n) && ((_ca_bget(bytes, r) == u8(32)) || (_ca_bget(bytes, r) == u8(10)) || (_ca_bget(bytes, r) == u8(9))), {
     r = (r + usize(1));
   });
   // DATA-vs-FUNCTION guard. A prototype or definition always has `)` followed
@@ -184,7 +184,7 @@ _ca_parse_static_fn_line :: (
 });
 /// Collect the names of every column-0 `static` FUNCTION DEFINITION in `text`
 /// into `into` (the header-defined set the dequalifier keys on).
-_ca_collect_static_def_names :: (fn(text : String, into : HashSet(String)) -> unit)({
+_ca_collect_static_def_names :: (fn(text : String, inout(into) : HashSet(String)) -> unit)({
   static_pat := String.from("static ");
   inline_pat := String.from("inline ");
   attr_pat := String.from("__attribute__((");
@@ -248,12 +248,12 @@ _ca_dequalify_statics :: (fn(text : String, header_defined : HashSet(String)) ->
 /// True iff `name` is a per-type RC helper (routed into the shared header —
 /// same predicate as generate_function's `is_rc` linkage branch).
 _ca_is_rc_helper :: (fn(name : String) -> bool)(
-  name.contains("___drop") || (name.contains("___dup") || name.contains("___dispose"))
+  name.contains("___drop") || name.contains("___dup") || name.contains("___dispose")
 );
 /// True iff the column-0 line at `ls` opens a linkage-qualified or type-level
 /// construct that is NEVER a relocatable external definition.
 _ca_decl_line_is_qualified :: (fn(bytes : ArrayList(u8), ls : usize) -> bool)(
-  _ca_matches(bytes, ls, String.from("static ")) || (_ca_matches(bytes, ls, String.from("extern ")) || (_ca_matches(bytes, ls, String.from("typedef ")) || (_ca_matches(bytes, ls, String.from("inline ")) || (_ca_matches(bytes, ls, String.from("struct ")) || (_ca_matches(bytes, ls, String.from("union ")) || _ca_matches(bytes, ls, String.from("enum ")))))))
+  _ca_matches(bytes, ls, String.from("static ")) || _ca_matches(bytes, ls, String.from("extern ")) || _ca_matches(bytes, ls, String.from("typedef ")) || _ca_matches(bytes, ls, String.from("inline ")) || _ca_matches(bytes, ls, String.from("struct ")) || _ca_matches(bytes, ls, String.from("union ")) || _ca_matches(bytes, ls, String.from("enum "))
 );
 /// Result of `_ca_split_decl_defs`. A REF struct return, not two `String`
 /// out-parameters: `String` is a VALUE type whose buffer is lazily allocated
@@ -288,7 +288,7 @@ _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
     });
     le = if(le < n, le + usize(1), le);
     b0 := _ca_bget(bytes, ls);
-    ident_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || (((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95))));
+    ident_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95)));
     (moved : bool) = false;
     if(ident_start && !_ca_decl_line_is_qualified(bytes, ls), {
       // Parse `<return type> name(<params>)` then require ` {` — the same
@@ -302,7 +302,7 @@ _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
           (bq == u8(40)) => {
             found = true;
           },
-          ((bq == u8(10)) || ((bq == u8(61)) || (bq == u8(59)))) => {
+          ((bq == u8(10)) || (bq == u8(61)) || (bq == u8(59))) => {
             stop = true;
           },
           true => {
@@ -395,7 +395,7 @@ _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
 /// required: FSM emitters write `switch (...) {` at column 0, which has no
 /// identifier before its paren.
 _ca_collect_residue_protos :: (
-  fn(text : String, names_out : ArrayList(String), protos_out : HashMap(String, String)) -> unit
+  fn(text : String, inout(names_out) : ArrayList(String), inout(protos_out) : HashMap(String, String)) -> unit
 )({
   yo_pat := String.from("__yo_");
   bytes := text.as_bytes();
@@ -403,7 +403,7 @@ _ca_collect_residue_protos :: (
   (ls : usize) = usize(0);
   while(ls < n, {
     b0 := _ca_bget(bytes, ls);
-    is_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || (((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95))));
+    is_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95)));
     if(is_start, {
       (q : usize) = ls;
       (found : bool) = false;
@@ -414,7 +414,7 @@ _ca_collect_residue_protos :: (
           (bq == u8(40)) => {
             found = true;
           },
-          ((bq == u8(10)) || ((bq == u8(61)) || (bq == u8(59)))) => {
+          ((bq == u8(10)) || (bq == u8(61)) || (bq == u8(59))) => {
             stop = true;
           },
           true => {
@@ -429,7 +429,7 @@ _ca_collect_residue_protos :: (
         });
         // `ns > ls`: a definition has a return type before the name;
         // `ns < q`: the paren must be preceded by an identifier at all.
-        if((ns > ls) && ((ns < q) && _ca_matches(bytes, ns, yo_pat)), {
+        if((ns > ls) && (ns < q) && _ca_matches(bytes, ns, yo_pat), {
           nm := _ca_slice(bytes, ns, q);
           (depth : usize) = usize(1);
           (r : usize) = (q + usize(1));
@@ -448,7 +448,7 @@ _ca_collect_residue_protos :: (
           });
           close_pos := r;
           (w : usize) = r;
-          while((w < n) && ((_ca_bget(bytes, w) == u8(32)) || ((_ca_bget(bytes, w) == u8(10)) || (_ca_bget(bytes, w) == u8(9)))), {
+          while((w < n) && ((_ca_bget(bytes, w) == u8(32)) || (_ca_bget(bytes, w) == u8(10)) || (_ca_bget(bytes, w) == u8(9))), {
             w = (w + usize(1));
           });
           if((_ca_bget(bytes, w) == u8(123)) && !protos_out.contains_key(nm.clone()), {
@@ -472,7 +472,7 @@ _ca_collect_residue_protos :: (
 /// as `__yo_str` spill data, and matching names inside them would mark every
 /// runtime function as referenced. Emitted C strings never span lines (their
 /// newlines are `\n` escapes), so the in-string state resets per line.
-_ca_collect_yo_refs :: (fn(text : String, into : HashSet(String)) -> unit)({
+_ca_collect_yo_refs :: (fn(text : String, inout(into) : HashSet(String)) -> unit)({
   yo_pat := String.from("__yo_");
   bytes := text.as_bytes();
   n := bytes.len();
@@ -692,9 +692,10 @@ assemble_chunks :: (
     /// files from (`<base>NNN.c`): non-empty makes this pass rewrite every
     /// restore marker to its chunk's real file and line. Empty (directives
     /// off) leaves the bodies untouched.
-    (chunk_base : String) ?= String.new()
+    (chunk_base_opt : Option(String)) ?= .None
   ) -> ChunkAssembly
 )({
+  chunk_base := match(chunk_base_opt, .Some(b) => b, .None => String.new());
   n := if(n_chunks < usize(1), usize(1), n_chunks);
   code_bytes := code.as_bytes();
   // 1. The header-defined name set: static definitions already living in the

@@ -1,11 +1,52 @@
-# `String` is a value: copy-on-write semantics
+# `String` is a value (amended 2026-10-05: unique ownership, §0)
 
-**Status: APPROVED 2026-10-03, phase S0 (this document) in review; S1–S4 not
-started.** Decision by the user, after
+**Status: APPROVED 2026-10-03. S0 landed (#1148); S1 (E0908 on `inout` writes
+through a borrowed value) in review; S2–S4 not started.** Decision by the user, after
 `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
 (S1). This supersedes DESIGN §Type inference's "String is a
 reference-semantics type", and is the fix for that issue. No backward
 compatibility is kept (AGENTS.md): signatures change and call sites migrate.
+
+**Amended 2026-10-05 (§0): `String` becomes a uniquely owned value, not
+copy-on-write**, with `plans/VALUES_BY_DEFAULT.md` §0.
+
+---
+
+## 0. Amendment 2026-10-05: unique ownership instead of copy-on-write
+
+The maintainer adopted Hylo's model for every buffer
+(`plans/VALUES_BY_DEFAULT.md` §0). `String` still behaves as a value: after
+`t := s.clone()` the two are independent. It gets there without
+copy-on-write:
+
+- **The buffer has one owner and no count.** A mutator writes in place with
+  no uniqueness step. `clone()` copies the bytes (O(n), explicit).
+- **`String` is explicit-copy.** `t := s` moves when `s` is not used again;
+  otherwise it is a compile error naming `s.clone()`. That rule switches on
+  in VALUES_BY_DEFAULT V2b, together with the collections and the migration
+  §0.4 there measures. Until then `String` keeps today's RC buffer.
+
+**S3 splits in two:**
+
+- **S3a, lands (model-independent):**
+  - every mutator takes `inout(self)`, including `truncate`, `insert_str`,
+    `insert`, `remove` and `pop`;
+  - `as_bytes` is replaced by `to_bytes`, `into_bytes(own(self))` (`sink` after the rename) and
+    `get_byte`;
+  - `from_bytes`/`from_utf8` take their list by `own` (`sink` after the rename);
+  - no writable byte index;
+  - the 313 `as_bytes` call sites migrated;
+  - the two fixed issues (the writable byte index, and the write lost on an
+    empty copy).
+- **S3b, dropped:** the uniqueness step in every mutator and the O(1)
+  `clone()` (a dup). `clone()` stays a byte copy. An empty `String` still
+  allocates nothing.
+
+§2's "copy-on-write" rows and paragraphs, S3's uniqueness bullets in §5,
+§7's "values with copy-on-write" end state, and §8's COW risks are
+superseded by this section. S1 (E0908 on `inout` writes through a borrowed
+value) and S2 (count accuracy) stand; S2 matters only for `Rc`/`Arc` once
+V2b lands.
 
 ---
 
@@ -89,7 +130,7 @@ and a site that consumes the string uses `into_bytes()`. No `String`→`str`
 view is added: `as_str()` was removed to close the dangling-view hole, and
 that stays closed.
 
-## 4. Mutating a copy: where writes go, and the warning
+## 4. Mutating a copy: where writes go, and E0908
 
 Under value semantics a write lands in the binding that is written:
 
@@ -101,19 +142,34 @@ Under value semantics a write lands in the binding that is written:
   `for(xs, s => s.push_str("!"))` changes a copy.
 - **A struct field** is written through its place: `self.name.push_str(…)`.
 
-The dangerous shape is a write whose result is never observed: a by-value
-copy of a `String` (a parameter, a `for` element, a local copied from
-another place) that is mutated and then neither read again nor returned nor
-stored. **New warning (E-code allocated in S1):** "this writes the callee's
-own copy of `out`, and the copy is never read; take `inout(out)` to change
-the caller's string." It is a dead-store lint, so it has no false positives
-on code that uses the copy afterwards. It applies to every value type with
-`inout(self)` mutators, not only `String`.
+**The rule: writing through a borrowed copy is E0908.** DESIGN says a plain
+parameter is *borrowed* (an `inout` parameter is passed by reference, an
+`own` one is moved in). E0908 "write through a borrowed value" already rejects
+an assignment into a borrowed binding (a by-value parameter, a `match` or
+`for` binding) whose old value holds reference-counted data:
+`p.s = String.from("x")` is an error. The `inout` path skipped that check:
+passing such a place to an `inout` parameter, or calling an `inout(self)`
+method on it (`out.push_str("!")`), compiled. The write landed in the
+borrowed copy alone, and a buffer it allocated was never released. 1,000
+calls with an empty `String` leaked 33,000 bytes in 2,000 allocations on
+v0.2.49.
 
-The warning is also the migration tool. Code in `src/` and `std/` that
-appends to a plain `String` parameter and relies on the caller seeing it
-(true today for non-empty strings) is exactly what it reports. Every hit is
-fixed under the current semantics, before the flip.
+**S1 extends E0908 to `inout` arguments and `inout(self)` receivers**, with
+the same condition (the place's type holds reference-counted data) and the
+same fix-it: take `own(x)` or `inout(x)`, or copy into a local and write the
+copy. A non-reference-counted value (`struct(x : i32)`) stays writable as the
+callee's local copy, as assignment already allows.
+
+This replaces the warning this plan first proposed, for three reasons:
+- it is an existing, documented rule, not a new lint;
+- it catches every write through a borrowed `String`, including one whose
+  copy is read afterwards, which a write-only lint would miss, and that case
+  is exactly the code that relies on shared writes today;
+- it closes the leak.
+
+It is also the migration tool. Every site in `src/`, `std/` and `tests/`
+that it rejects is code that relied on the shared write, and it is fixed
+before the flip.
 
 ## 5. Phases
 
@@ -124,14 +180,18 @@ fast suite, the hollow sweep.
 - **S0: this document.** Also, the open issue's recommendation is corrected
   to value semantics, and the collections question is filed (§7) with its
   recommendation (values, as the next campaign).
-- **S1: the dead-write warning.**
-  - Implement it in the evaluator, with a registry entry and `yo explain`
-    text, both languages.
-  - Run it over `src/`, `std/` and `tests/`, and fix every hit by making the
-    parameter `inout`, returning the value, or deleting the dead write. No
-    semantic change yet; the fixes are correct under both semantics.
-  - Tests: the warning fires on each shape in §4 and stays silent when the
-    copy is read afterwards.
+- **S1: E0908 for `inout` writes through a borrowed value.**
+  - Extend the check to `inout` arguments and `inout(self)` receivers (§4) on
+    both call paths.
+  - Fix every hit in `src/`, `std/` and `tests/` by taking `inout`/`own`,
+    returning the value, or writing a local copy. Under today's semantics
+    these fixes behave the same as before for the non-empty case and correctly
+    for the empty one.
+  - Tests:
+    - the parameter, `for` element and `match` binding shapes are rejected;
+    - `inout`, `own` and local copies are accepted;
+    - a non-RC value type stays writable;
+    - the leak repro is clean under ASan.
 - **S2: count accuracy. DONE 2026-10-03** (`tests/rc.test.yo`, "COW S2").
   - **Measured:** a value type holding RC data (`struct(b : Box(i32))`, the
     shape `String` has) keeps an accurate live count in every position COW
@@ -161,7 +221,11 @@ fast suite, the hollow sweep.
     rule.
 - **S3: copy-on-write in `String`.**
   - Add the uniqueness step to every mutator, and make `truncate`,
-    `insert_str`, `insert`, `remove` and `pop` `inout(self)`.
+    `insert_str`, `insert`, `remove` and `pop` `inout(self)`. The step's
+    clone goes through the shared buffer's owner, as `ArrayList.clone`
+    does, not the current `with_allocator` scope (`VALUES_BY_DEFAULT`
+    §3.11); a test writes to a copy of an arena-built string outside the
+    scope and checks the clone's owner.
   - Replace `as_bytes` with `to_bytes` / `into_bytes`, and give
     `from_bytes` / `from_utf8` `own`.
   - Migrate every call site in `std/`, `src/`, `tests/` and the docs.
@@ -218,14 +282,13 @@ It is a **separate campaign after this one**, filed as
 `issues/retired/collections-value-or-reference-semantics.md`, decided and folded into `plans/VALUES_BY_DEFAULT.md`. Its
 migration is far larger: `src/` passes collections to helper functions that
 mutate them throughout, and may hold one list in two places on purpose. It
-needs its own measurements. It reuses everything this plan builds: S1's
-warning and S2's count guarantee are written for every value type, not
+needs its own measurements. It reuses everything this plan builds: S1's E0908 extension and S2's count guarantee apply to every value type, not
 `String` alone, and S3's uniqueness step is the same helper.
 
 ## 8. Risks
 
-- **A write that silently stops reaching the caller.** S1's warning exists
-  to find these before the flip; the fast suite and the fixpoint confirm
+- **A write that silently stops reaching the caller.** S1's E0908 extension
+  rejects these before the flip; the fast suite and the fixpoint confirm
   behaviour.
 - **Hidden O(n) on the first write to a shared buffer.** That is inherent
   to COW, and the price of independent copies. S3 measures it on the

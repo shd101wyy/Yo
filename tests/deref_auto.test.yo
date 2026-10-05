@@ -1,0 +1,135 @@
+// Auto-dereference through the `Deref` marker (plans/VALUES_BY_DEFAULT.md
+// §3.3, V1): on a `Box`/`Arc` whose own members lack a name, `w.field` and
+// `w.method()` mean `w.*.field` and `w.*.method()`, recursively through nested
+// wrappers; the wrapper's own members win. The file is deliberately NOT
+// pragma'd: rule D3 (no write through an `Arc` root in safe code) must still
+// fire through the auto-dereference.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+_P :: struct(n : i32, items : ArrayList(i32));
+impl(
+  _P,
+  get : (fn(self : Self) -> i32)(self.n),
+  bump : (fn(inout(self) : Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+derive(_P, Clone);
+_Q :: struct(n : i32, arr : Array(i32, 2));
+impl(
+  _Q,
+  get : (fn(self : Self) -> i32)(self.n),
+  bump : (fn(inout(self) : Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+_mk :: (fn(n : i32) -> _P)(_P(n : n, items : ArrayList(i32).new()));
+/// Generic over the receiver: one body reads `x.n` on a `_P` and on a
+/// `Box(_P)`; each specialization owns its body, so the Box call's rewrite
+/// must not leak into the plain call.
+_read_n :: (fn(generic(T : Type), x : T) -> i32)(x.n);
+_take :: (fn(v : i32) -> i32)(v + i32(1));
+// A payload field holding a function, called through the wrapper.
+_H :: struct(f : (fn(x : i32) -> i32));
+// A user type may not implement `Deref` (concrete or generic impl).
+_UserWrap :: struct(v : i32);
+_UserGen :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+test("auto-deref: field read through Box", {
+  b := box(_mk(i32(1)));
+  assert(b.n == i32(1), "b.n reads b.*.n");
+  assert((b.n + i32(1)) == i32(2), "inside an operator");
+  assert(_take(b.n) == i32(2), "as a call argument");
+  x := b.n;
+  assert(x == i32(1), "bound to a local");
+});
+test("auto-deref: method call through Box", {
+  b := box(_mk(i32(4)));
+  assert(b.get() == i32(4), "b.get() calls b.*.get()");
+  assert(b.items.len() == usize(0), "method on a forwarded field");
+});
+test("auto-deref: nested Box(Box(T)) reaches the innermost payload", {
+  bb := box(box(_mk(i32(2))));
+  assert(bb.n == i32(2), "field through two wrappers");
+  assert(bb.get() == i32(2), "method through two wrappers");
+  bb.bump();
+  assert(bb.*.*.n == i32(3), "inout(self) through two wrappers");
+  bb.n = i32(9);
+  assert(bb.*.*.n == i32(9), "write through two wrappers");
+});
+test("auto-deref: the wrapper's own members win", {
+  b := box(_mk(i32(5)));
+  // `_P` derives Clone too; `b.clone()` is the Box's clone, a `Box(_P)`.
+  // The annotation is the check: a forwarded `_P.clone` would be a type error.
+  (c : Box(_P)) = b.clone();
+  c.n = i32(6);
+  assert(b.n == i32(5), "the clone is a new cell");
+  assert(c.n == i32(6), "and its payload is reachable");
+  // `*` is the wrapper's own field: `b.*` is the payload, not forwarded.
+  (pl : _P) = b.*;
+  assert(pl.n == i32(5), "b.* names the payload");
+});
+test("auto-deref: a field write through Box is a place", {
+  b := box(_mk(i32(1)));
+  b.n = i32(5);
+  assert(b.*.n == i32(5), "b.n = v writes b.*.n");
+  // Today's Box shares its cell: the write is seen through every copy.
+  c := b;
+  c.n = i32(7);
+  assert(b.n == i32(7), "written through the shared cell");
+});
+test("auto-deref: inout(self) through Box", {
+  b := box(_mk(i32(1)));
+  b.bump();
+  assert(b.*.n == i32(2), "b.bump() mutates the payload");
+  b.items.push(i32(3));
+  b.items.push(i32(4));
+  assert(b.*.items.len() == usize(2), "b.items.push(x) mutates the payload's list");
+});
+test("auto-deref: Arc reads forward, writes are D3 errors in safe code", {
+  a := arc(_Q(n : i32(4), arr : [i32(1), i32(2)]));
+  assert(a.n == i32(4), "a.n reads a.*.n");
+  assert(a.get() == i32(4), "a.get() calls a.*.get()");
+  comptime_expect_error(a.bump(), "atomic object");
+  comptime_expect_error(a.n = i32(5), "atomic object");
+  assert(a.arr(usize(1)) == i32(2), "a.arr(i) reads through the Arc");
+  comptime_expect_error(a.arr(usize(0)) = i32(1), "atomic object");
+});
+test("auto-deref: one generic body serves a value and a Box", {
+  p := _mk(i32(3));
+  b := box(_mk(i32(6)));
+  assert(_read_n(p) == i32(3), "plain receiver");
+  assert(_read_n(b) == i32(6), "Box receiver");
+  assert(_read_n(p) == i32(3), "plain receiver again");
+});
+test("auto-deref: indexing a forwarded field (callee position)", {
+  b := box(_mk(i32(1)));
+  b.items.push(i32(5));
+  b.items.push(i32(6));
+  assert(b.items(usize(1)) == i32(6), "b.items(i) reads b.*.items(i)");
+  b.items(usize(0)) = i32(7);
+  assert(b.*.items(usize(0)) == i32(7), "b.items(i) = v writes the payload's list");
+  bb := box(box(_mk(i32(1))));
+  bb.items.push(i32(8));
+  assert(bb.items(usize(0)) == i32(8), "through two wrappers");
+  bb.items(usize(0)) = i32(9);
+  assert(bb.*.*.items(usize(0)) == i32(9), "written through two wrappers");
+});
+test("auto-deref: a function-typed payload field is callable", {
+  h := box(_H(f : (fn(x : i32) -> i32)(x + i32(1))));
+  assert(h.f(i32(1)) == i32(2), "h.f(x) calls h.*.f(x)");
+});
+test("auto-deref: only the prelude implements Deref", {
+  comptime_expect_error(impl(_UserWrap, Deref(Target : i32)), "Cannot implement Deref");
+  comptime_expect_error(impl(generic(T : Type), _UserGen(T), Deref(Target : T)), "Cannot implement Deref");
+  comptime_assert(Type.impls(Box(_P), Deref), "Box implements Deref");
+  comptime_assert(Type.impls(Arc(_Q), Deref), "Arc implements Deref");
+  comptime_assert(!Type.impls(_P, Deref), "a plain struct does not");
+});
+test("auto-deref: a miss names the payload (E0406, E0610)", {
+  b := box(_mk(i32(1)));
+  comptime_expect_error(b.nn, "its payload");
+  comptime_expect_error(b.nn, "has no field \"nn\" either");
+  comptime_expect_error(b.nope(), "has no field or method \"nope\" either");
+  bb := box(box(_mk(i32(1))));
+  comptime_expect_error(bb.nn, "has no field \"nn\" either");
+});

@@ -1,6 +1,6 @@
 # yo-self: ONE Bucket GC-tracer specialization shared across ALL Bucket instantiations
 
-**Status:** OPEN (stage-2 family, 3 clang errors as of 2026-07-09; also a latent
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN (stage-2 family, 3 clang errors as of 2026-07-09; also a latent
 wrong-offset tracing bug whenever two Bucket layouts happen to be
 pointer-compatible).
 

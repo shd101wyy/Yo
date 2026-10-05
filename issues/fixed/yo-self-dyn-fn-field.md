@@ -1,6 +1,6 @@
 # yo-self: Dyn(Fn) struct fields — dyn(closure) construction + field-call lowering unported
 
-**Status:** OPEN (stage-2 family, 4 clang errors as of 2026-07-09: 2x
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN (stage-2 family, 4 clang errors as of 2026-07-09: 2x
 `/* Error: dyn() call missing trait values */` + 2x "operand of type X where
 arithmetic or pointer type is required"). NOT covered by any corpus test (all
 dyn corpus tests are trait-object method dispatch).
@@ -67,7 +67,7 @@ effect_analysis.yo.
   Fn-trait dyn FIELD values; find where the call currently degrades to the
   `((cast)recv->field)(args)` struct-to-fnptr cast.
 
-## WIP attempt (2026-07-09) — saved as issues/wip-dyn-fn-field.patch
+## WIP attempt (2026-07-09) — saved as wip-dyn-fn-field.patch (removed in 487dea064)
 
 Three-part change (eval FnTraitT marker TraitVal + codegen closure-call-map
 wrapper path + other*fn_call.yo dyn-Fn vtable call lowering) BUILT clean and
@@ -136,7 +136,7 @@ Round-3 work items:
 2. Make the box() arg for a capture-free closure emit the capture-struct
    value (`(capture){}`), not the closure fn pointer
    (`(__yo_t19)(closure_yo_id_5820)` in round-2 C).
-3. Re-apply issues/wip-dyn-fn-field.patch (round-2 version, includes the
+3. Re-apply wip-dyn-fn-field.patch (removed in 487dea064) (round-2 version, includes the
    route-1 capture-struct boxing) and iterate on issues/repros/repro-dyn-fn-field.yo.
 
 Round-3 note: `inner_expected` (dyn.yo:306) is ALREADY a SomeT wrapping the

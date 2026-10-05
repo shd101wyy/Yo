@@ -116,9 +116,9 @@ _z3_exists_sync :: (fn(path : String) -> bool)({
   path_buf := path.to_cstr();
   cstr := path_buf.ptr().unwrap();
   buf := malloc(usize(512)).unwrap();
-  rc := unsafe(stat.stat((*char)(cstr), buf));
+  status := unsafe(stat.stat((*char)(cstr), buf));
   free(.Some(buf));
-  rc == int(0)
+  status == int(0)
 });
 /// Read a whole file synchronously; `.None` on any failure (the caller
 /// decides what a missing/unreadable file means).
@@ -212,7 +212,7 @@ _z3_ensure_dir_sync :: (fn(path : String) -> unit)({
 /// the temp dir is SHARED, and a counter-only name let one concurrent yo
 /// process's z3 read another's script or output file — wrong verdicts,
 /// different verify+ strips, and emitted C that flips under load
-/// (issues/verify-pass-emission-flips-under-load-with-z3.md). Temp names
+/// (issues/fixed/z3-temp-names-collided-across-concurrent-yo-processes.md). Temp names
 /// never reach emitted C, so seeding them from the wall of the clock does
 /// not affect compile determinism.
 (g_z3_tmp_prefix : Option(i64)) = Option(i64).None;
@@ -418,7 +418,8 @@ parse_z3_sexprs :: (fn(text : String) -> ArrayList(Z3Sexpr))({
         list := Z3Sexpr.List(frame);
         match(
           stack.pop(),
-          .Some(parent) => {
+          .Some(found) => {
+            parent := found;
             parent.push(list);
             stack.push(parent);
           },
@@ -442,7 +443,8 @@ parse_z3_sexprs :: (fn(text : String) -> ArrayList(Z3Sexpr))({
         atom := Z3Sexpr.Atom(text.substring(start, i));
         match(
           stack.pop(),
-          .Some(parent) => {
+          .Some(found) => {
+            parent := found;
             parent.push(atom);
             stack.push(parent);
           },

@@ -49,6 +49,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [引用语义类型](#引用语义类型)
     - [编译期引用计数优化](#编译期引用计数优化)
     - [显式分配器](#显式分配器)
+    - [只能移动的值](#只能移动的值)
 - [指针](#指针)
   - [指针操作](#指针操作)
   - [指针算术与比较](#指针算术与比较)
@@ -104,6 +105,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [使用 `${}` 语法的模板字符串插值：](#使用--语法的模板字符串插值)
       - [格式说明符 —— `${value:spec}`](#格式说明符--valuespec)
 - [集合](#集合)
+  - [修改集合：修改方法接收 `inout(self)`](#修改集合修改方法接收-inoutself)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
   - [HashSet](#hashset)
@@ -289,6 +291,8 @@ yo fmt --check             # 只检查格式，不写入变更
 完整的构建系统文档请参阅 [BUILD_SYSTEM.md](./BUILD_SYSTEM.md)。
 
 `yo fmt` 有意不提供配置，遵循类似 `go fmt` 的理念：所有 Yo 项目共享一种紧凑、一致的风格，固定使用 2 空格缩进。
+
+当 `yo fmt` 将要改写某个文件时，会先解析原文：解析失败会像词法错误一样报告（直接输出诊断信息并以退出码 1 结束），文件保持原样，因此一次格式化永远不会改写——或掩盖——解析器拒绝的代码。格式已规范的文件不会被解析；解析是否通过仍由 `yo check` 把关。
 
 `yo fmt` 会省略可被证明冗余的括号（省略后必须重新解析出相同的语法树，分组不可能改变才会去掉），并保留所有承载分组的括号。这包括同一运算符链上冗余的左侧括号——无论操作数个数——`(((20 - 5) - 4) - 3)` 会被格式化为 `20 - 5 - 4 - 3`；而显式加括号的右操作数永远保留：`20 - (5 - 4) - 3` 原样不动。
 
@@ -565,7 +569,7 @@ unsafe(unistd.close(fd));
 _ := unsafe(unistd.close(fd));
 ```
 
-`_ := expr` 会声明一个在作用域结束时丢弃的一次性绑定（`_` 可以在同一作用域内重复；`___` 不行）。只有在绑定本身有意义时才使用它——比如通过 `rc(...)` 统计释放次数的测试，或者需要强制求值路径的编译期报错用例。
+`_ := expr` 会声明一个在作用域结束时丢弃的一次性绑定（`_` 可以在同一作用域内重复；`___` 不行）。只有在绑定本身有意义时才使用它——比如通过 `ref_count(...)` 统计释放次数的测试，或者需要强制求值路径的编译期报错用例。
 
 ### 类型推断
 
@@ -660,7 +664,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### 参数模式是函数类型的一部分
 
-`fn(inout(x) : i32) -> unit`、`fn(own(x) : String) -> usize` 和 `fn(x : i32) -> unit` 是三个不同的类型：`inout` 参数按引用传递，`own` 参数被移动进被调函数，普通参数是借用。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
+`fn(inout(x) : i32) -> unit`、`fn(sink(x) : String) -> usize` 和 `fn(x : i32) -> unit` 是三个不同的类型：`inout` 参数按引用传递，`sink` 参数被移动进被调函数，普通参数是借用。`sink` 参数会消耗其实参：调用方的绑定在调用处结束。`own(x)` 是 `sink(x)` 的旧写法；在下一个版本之后的一次统一替换删除它之前，它仍被接受，并且表示同一个类型。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
 
 ```rust
 bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
@@ -713,7 +717,32 @@ create_user(name : `Alice`); // 使用默认值：age=18
 create_user(name : `Bob`, age : i32(30)); // 显式指定 age
 ```
 
-> 注意：默认参数必须使用编译期已知的值。
+默认值必须是**编译期已知的值**：编译器在函数定义处记录一次，每当调用省略该参数时就传入这个值。判断标准是整个值是否已知，而不是参数的类型是什么：
+
+```rust
+(n : i32) ?= i32(18)                    // ✅ 字面量
+(alloc : Option(Allocator)) ?= .None    // ✅ 无负载的变体：只有标签，是常量
+(alloc : Allocator) ?= Allocator.global() // ❌ 含有全局变量的地址，链接时才确定
+(x : i32) ?= seven()                    // ❌ 需要一次调用：在定义处报错 E1105
+```
+
+默认值中的名字在函数定义处解析，而不是在调用处：即使调用方有自己的 `K`，默认值 `K` 读到的也是定义模块的 `K`。
+
+如果自然的默认值需要运行时计算，就把默认值设为 `.None`，在函数体里再决定。这样省略的参数读作“未提供”，而不是某个哨兵值：
+
+```rust
+greet :: (fn(name : str, (greeting : Option(String)) ?= .None) -> String)(
+  match(greeting,
+    .Some(g) => `${g}, ${name}`,
+    .None => `Hello, ${name}`
+  )
+);
+
+greet("Ada");                                      // "Hello, Ada"
+greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
+```
+
+调用方要显式写 `.Some(...)`：`T` 不会被自动包装成 `Option(T)`。
 
 ### 泛型函数
 
@@ -1075,6 +1104,34 @@ p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
 
 不需要新关键字：两处的 `Point(...)` 是同一个构造调用。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。`std/arena` 的 `Arena` 在仍有活跃块时调用 `deinit` 会 panic。安全规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器与-arena)；完整指南见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
 
+#### 只能移动的值
+
+资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Dispose`，或声明了 `impl(T, MoveOnly())` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Box`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Dispose` 在计数归零时运行一次。
+
+```rust
+{ println } :: import("std/fmt");
+Fd :: struct(n : i32);
+impl(Fd, Dispose(
+  dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // 真实的实现会关闭这个描述符
+));
+
+peek :: (fn(f : Fd) -> i32)(f.n);        // 按值参数是借用：不复制
+keep :: (fn(sink(f) : Fd) -> unit)(());  // sink 参数把值移动进来
+
+main :: (fn() -> unit)({
+  a := Fd(n : i32(3));
+  n := peek(a);    // 借用；`a` 仍可使用
+  b := a;          // 把 `a` 移动到 `b`
+  // a.n           // E0901：使用了被移动的值：`a`
+  keep(b);         // 移动 `b`；`keep` 返回时把它 dispose
+});
+export(main);
+```
+
+每个复制点都会移动只能移动的值：`:=`、`=`、`sink` 实参、字段或元素写入、构造器实参、返回以及闭包捕获。移动之后再使用就是 E0901，其说明会指出该类型为什么只能移动。只能移动的值也不能从并不拥有它的存储中复制出来：按值参数以及 `match`/`for` 绑定只是借用它，字段属于其持有者（没有部分移动），模块级绑定永远不会被移动。在 `cond`/`match` 的各分支或循环的各个出口汇合处，只能移动的值要么在所有路径上都被移动，要么在所有路径上都不被移动（E0907）。它唯一的所有者在 drop 它时恰好运行一次 `dispose`，然后 drop 它的字段。实现了 `Clone` 的类型用 `x.clone()` 显式复制；要共享一个值，请把它放在引用类型之后。
+
+泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。`std/` 目前还没有使用只能移动的类型：它的资源仍是引用类型，会在[值语义计划](../../plans/VALUES_BY_DEFAULT.md)的后续步骤中变成只能移动的值。
+
 ## 指针
 
 Yo 使用指针 (`*(T)`) 进行直接内存访问，类似 C。对原始指针的解引用、算术运算等危险操作需要显式 `unsafe(...)` 包装 — 详见下文 [内存安全](#内存安全)。
@@ -1262,7 +1319,7 @@ main :: (fn() -> unit)({
 
 ### `inout` 参数
 
-要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与现有的 `own(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
+要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与 `sink(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
 
 ```rust
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
@@ -1289,7 +1346,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` 不能与 `own(...)`（相反的调用约定）或 `comptime`/`generic`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
+`inout(...)` 不能与 `sink(...)`（相反的调用约定）或 `comptime`/`generic`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
 
 ```rust
 double :: (fn(inout(n) : i32) -> unit)({
@@ -1983,7 +2040,7 @@ Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
 
 open_h :: (fn(fd : i32) -> Handle(Open))(Handle(Open)(fd : fd));
 read_h :: (fn(h : Handle(Open)) -> i32)(h.fd);
-close_h :: (fn(own(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
+close_h :: (fn(sink(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
 
 main :: (fn() -> unit)({
   h := open_h(i32(3));
@@ -1996,7 +2053,7 @@ export(main);
 
 只有当状态转换之后旧状态**无法**再被使用时，这个模式才是可靠的，因此有两条规则：
 
-- **句柄是 `ref` 类型，状态转换用 `own(...)` 接收它。** 移动使旧名字不可再用
+- **句柄是 `ref` 类型，状态转换用 `sink(...)` 接收它。** 移动使旧名字不可再用
   （E0901）。普通值结构体会被**复制**进调用，于是已关闭的句柄和它的 `Open`
   副本都仍然可用。
 - **没有其他别名保留旧状态。** 在转换之前被复制到另一个名字的 `ref` 句柄仍然
@@ -2005,7 +2062,7 @@ export(main);
 
 幻影参数目前必须放在 `ref(struct(...))` 上。幻影泛型**枚举**上的方法目前还无法
 通过 `comptime(K) : Type` 参数找到
-（`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`）。
+（`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`）。
 std 的 `File` 与套接字则在运行时保存状态：它们按设计是共享的 RC 句柄。
 
 ## C union
@@ -2446,6 +2503,44 @@ impl(Point, Format());
 
 Yo 在标准库中提供了高效的、引用计数的集合类型。
 
+### 修改集合：修改方法接收 `inout(self)`
+
+所有会改变集合的方法都接收 `inout(self) : Self`：`ArrayList`、`HashMap`、
+`HashSet`、`Deque`、`BTreeMap`、`LinkedList`、`PriorityQueue`、`OrderedMap`、
+`HeaderMap` 和 `StringBuilder` 的修改方法（`push`、`pop`、`insert`、`remove`、
+`clear`、`sort`、`retain`、`write_str` 等，也包括会取走缓冲区的
+`StringBuilder.to_string`）。只读方法（`len`、`get`、`contains`、`iter` 等）
+接收 `self : Self`。
+
+目前集合仍然是句柄，所以通过副本写入会影响原集合。集合变成唯一所有的值之后
+（`plans/VALUES_BY_DEFAULT.md` §6 V2b），副本需要显式的 `.clone()`，通过副本写入只会改变副本。代码要写成
+在两种规则下都正确：
+
+- **填充列表的辅助函数用 `inout` 接收它：** `fill :: (fn(inout(out) :
+  ArrayList(i32)) -> unit)(...)`。普通的 `out : ArrayList(i32)` 参数是被调用者
+  自己的副本。
+- **通过位置写集合的元素：** `rows(i).push(x)`、`m(k).push(x)`，或
+  `for(xs, inout(x) => x.push(...))`。`match` 绑定（`.Some(l) => l.push(x)`）
+  和按值的 `for` 绑定都是副本。
+- **存放在映射或 `Option` 字段里的列表要先取出、修改、再存回：**
+  `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
+  l.push(x); m.insert(k, l);`，或者先 `self.f.take()`，再 `self.f = .Some(l)`。
+- **两个持有者有意共享的列表用 `Box`：** `Box(ArrayList(T))`，通过
+  `b.*.push(x)` 写入。闭包和 `io.async` 体按值捕获，所以往列表里记录内容的闭包
+  要这样共享（或者返回这个列表）。
+
+`YO_AUDIT_INOUT_BORROW=1 yo check <path>` 会列出值语义切换后行为会变的每一处写入，
+而不是报错：`[inout-borrow]` 表示通过按值参数或 `match`/`for` 绑定的写入（`inout`
+实参或接收者，或对该位置的赋值），`[inout-borrow-unresolved]` 表示被调用者的
+修改摘要无法解析、写入是推定的，`[inout-borrow-capture]` 表示对闭包捕获的变量的
+写入。
+
+`YO_AUDIT_IMPLICIT_COPY=1 yo check <path>` 会列出唯一所有权下需要显式写出的拷贝
+（`plans/VALUES_BY_DEFAULT.md` §6 第 1 项）。每一行 `[implicit-copy]` 是对拥有堆数据的值
+（`String`、集合、`Box`、`Arc`、`Dyn` 或 `ref` 对象）的一次存储、绑定、返回、
+拥有型实参或闭包捕获，而它的来源之后仍然存活：借用的参数、字段读取、`match` 或
+`for` 绑定，或之后还会被读取的局部变量。最后一次使用的局部变量是移动，不会列出。
+
 ### ArrayList
 
 支持自动扩容的动态数组。
@@ -2880,14 +2975,13 @@ Yo 提供了 `Box` 和 `box` 用于将值类型堆分配并自动进行引用计
 > assert((a.* == i32(7)), "a 和 b 指向同一个值");
 > ```
 >
-> 保留这个名字是有意为之。`Rc` 在 prelude 中已经是一个 **trait**——即
-> `where(Self <: Rc)` 所使用的「该类型是引用计数 `object` 类型」约束——所以 `Box`
-> 无法改用这个名字。而且引用计数是 Yo **通用**的对象模型，并非某个容器的可选策略：
-> 每个 `ref(struct(...))` 都是引用计数的，`Box` 只是其中单字段的特例。把它命名为
-> 「那个引用计数的类型」反而会暗示其他类型不是。
+> 这个名字会保留到「默认值语义」V1（`plans/VALUES_BY_DEFAULT.md`）：届时该类型改名为
+> `Rc`，并引入唯一所有的 `Box`。在此之前，引用计数是 Yo **通用**的对象模型，
+> 并非某个容器的可选策略：每个 `ref(struct(...))` 都是引用计数的，`Box` 只是其中
+> 单字段的特例。
 >
 > 实际影响：共享是隐式的；`Box` 形成的环若不打破就会泄漏（Rust 的 `Box` 根本无法
-> 形成环）；用 `rc(b)` / `Iso` 来询问唯一性。
+> 形成环）；用 `ref_count(b)` / `Iso` 来询问唯一性。
 
 `Box(T)` 是一个泛型引用语义类型，可以包装任何值类型：
 
@@ -2905,7 +2999,12 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
 );
+// rc 是同一个构造函数，名称是 `Box` 改名为 `Rc` 之后计数单元将使用的名称
+// （plans/VALUES_BY_DEFAULT.md）
+rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 ```
+
+`rc` 是构造函数，不是计数：计数是 `ref_count(x)`。
 
 ### 使用示例
 
@@ -2925,6 +3024,39 @@ m := box(10);
 m.* = 20;
 assert(m.* == 20);
 ```
+
+### 自动解引用
+
+`Box` 和 `Arc` 实现了 prelude 中的 `Deref` 标记 trait
+（`Deref :: trait(Target : Type)`，`Target` 即载荷类型）。对 `Deref` 类型，
+包装器自身没有的字段或方法会到载荷上查找：`w.field` 即 `w.*.field`，
+`w.method()` 即 `w.*.method()`。
+
+```rust
+Point :: struct(x : i32, y : i32);
+impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
+p := box(Point(x : 3, y : 4));
+assert(p.x == 3);          // p.*.x
+p.x = 5;                   // 是一个位置：写入 p.*.x
+assert(p.norm1() == 9);    // p.*.norm1()
+pp := box(box(Point(x : 1, y : 2)));
+assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
+```
+
+- **包装器自身的成员优先。** `p.clone()` 是 `Box` 的 `clone`（得到一个新的
+  `Box`），而不是载荷的；`p.*` 永远就是载荷本身。
+- **位置。** 转发得到的字段是一个位置：`p.x = v` 以及 `inout(self)` 调用
+  （如 `p.items.push(v)`）都写入载荷。在没有 `pragma(Pragma.AllowUnsafe)`
+  的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `inout(self)` 的
+  `a.bump()`）：请通过 `Mutex` 或原子类型修改 `Arc` 的载荷。
+- **只有 `Box` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
+  编译错误：用户自定义的包装器应通过自己的字段和方法暴露载荷。
+- 当包装器和载荷都没有这个名字时，错误信息会说明这一点：
+  ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
+  field "z" either.``（E0406；方法则为 E0610）。
+- **被调用位置。** `p.items(i)` 对载荷的 `items` 进行索引，`p.f(x)` 调用载荷中
+  保存函数的字段。包装器自身的方法仍然优先，因此查找顺序为：包装器字段、包装器
+  方法、载荷字段、载荷方法。
 
 ### Box 与赋值
 
@@ -3216,7 +3348,7 @@ continuations）。处理器的类型是专门的**控制函数**类型
 
 效应可以与 `async`/`await` 组合使用：`io.async` 任务内部的处理器
 能够正确工作。如果在异步任务中调用了 `unwind`，该 Future 会进入
-`Aborted`（中止）状态：对它 `io.await` 会 panic，而已启动任务的
+`Aborted`（中止）状态：对它 `io.await` 会把中止传播给等待者，而已启动任务的
 `JoinHandle.await` 返回 `.None`。
 
 详细文档请参阅 [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md)。
@@ -3428,6 +3560,9 @@ t := Thread(unit).spawn(io => {
 t.join();
 assert(shared.* == i32(42), "main still sees shared value");
 ```
+
+`Arc(T)` 实现了 `Deref`，因此读取会转发到载荷（`shared.field`、
+`shared.method()`；见[自动解引用](#自动解引用)）；在安全代码中通过它写入会被拒绝。
 
 完整详情请参阅 [ARC.md](./ARC.md)。
 

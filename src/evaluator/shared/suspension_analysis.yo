@@ -14,8 +14,7 @@
 //! * `SuspensionPointDetector :: object(detect : Dyn(...), should_skip_body : Dyn(...))`.
 //!   Yo does not support generic object fields; `Dyn(Fn)` replaces `Impl(Fn)` in fields.
 //!   The typed side-channel (e.g. ArrayList(AwaitPoint)) is maintained INSIDE the detect
-//!   closure by the caller. See issues/suspension-analysis-typed-side-channel.md for the
-//!   reconstruction strategy required in Phase 2m/2n.
+//!   closure by the caller; callers reconstruct the typed lists after the walk.
 //!
 //! * `walk_expr_` carries `points : ArrayList(SuspensionPoint)` (base type). The
 //!   detect closure pushes base SuspensionPoint objects; callers reconstruct typed
@@ -26,8 +25,6 @@
 //!
 //! * `analyze_suspension_points` takes a `get_info` parameter — the
 //!   per-expression evaluation annotation lookup.
-//!   See issues/suspension-analysis-get-info-identity.md for the structural vs.
-//!   identity-based lookup strategy required in Phase 3.
 //!
 //! * `captured_variables` is a `HashMap(String, SuspensionCapturedVariable)` for O(1) dedup;
 //!   `captured_variable_ids_in_order` is a parallel `ArrayList(String)` that preserves
@@ -38,8 +35,8 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ast_expr_id, ast_expr_is_fn_call_of, BK_INOUT } :: import("../../expr.yo");
-{ ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion } :: import("../../expr_info.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_fn_call_of, BK_INOUT } :: import("../../expr.yo");
+{ ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { type_requires_comptime_modifier } :: import("../../types/utils.yo");
@@ -59,7 +56,10 @@ pragma(Pragma.AllowUnsafe);
 /// `Dyn(Fn)` is the correct approach. Construct with `dyn(closure_expr)`.
 SuspensionPointDetector :: ref(
   struct(
-    /// Detect suspension point(s) in a FnCall expression and push them to `points`.
+    /// Detect suspension point(s) in a FnCall expression and RETURN them; the
+    /// walk appends them to its `points`. (Returned rather than pushed into a
+    /// `points` argument: a callback writing a list it was handed by value
+    /// writes its own copy once collections are values.)
     /// The detector is responsible for constructing the full SuspensionPoint including
     /// system-specific fields. Use `extract_target_variable_id` for the common
     /// parent `:=` assignment pattern.
@@ -69,9 +69,8 @@ SuspensionPointDetector :: ref(
     detect : Dyn(
       Fn(
         expr : AstExpr,
-        parent_expr : Option(AstExpr),
-        points : ArrayList(SuspensionPoint)
-      ) -> unit
+        parent_expr : Option(AstExpr)
+      ) -> ArrayList(SuspensionPoint)
     ),
     /// Return true if this FnCall expression's body should be skipped
     /// (no recursion into func/args). Used for nested async blocks that
@@ -151,7 +150,7 @@ extract_target_variable_id :: (
   match(
     get_info(pe.clone()),
     .Some(pinfo) => {
-      pvars := get_variables_from_env(pinfo.env, var_name.clone());
+      pvars := scope_variables(ast_expr_id(var_expr), pinfo.env, var_name.clone());
       pn := pvars.len();
       if(pn > usize(0), {
         match(
@@ -171,7 +170,7 @@ extract_target_variable_id :: (
     get_info(var_expr.clone()),
     .None => Option(String).None,
     .Some(info) => {
-      variables := get_variables_from_env(info.env, var_name.clone());
+      variables := scope_variables(ast_expr_id(var_expr), info.env, var_name.clone());
       n := variables.len();
       if(n == usize(0), {
         return(Option(String).None);
@@ -201,14 +200,15 @@ extract_target_variable_id :: (
 /// its ExprInfo type, preserving the original behavior exactly).
 _capture_env_variable :: (
   fn(
+    key : ExprId,
     var_name : String,
     env : Environment,
     ty_override : Option(TypeValue),
     pattern_binding : bool,
-    captured_variables : HashMap(String, SuspensionCapturedVariable),
-    captured_variable_ids_in_order : ArrayList(String),
-    name_frame_to_original_id : HashMap(String, String),
-    variable_id_remapping : HashMap(String, String)
+    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    inout(captured_variable_ids_in_order) : ArrayList(String),
+    inout(name_frame_to_original_id) : HashMap(String, String),
+    inout(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )({
   // A MODULE-LEVEL global is not a local and must never be hoisted into the
@@ -233,7 +233,7 @@ _capture_env_variable :: (
   if(is_module_level_global(env.module_path, var_name.clone()), {
     return(());
   });
-  variables := get_variables_from_env(env, var_name.clone());
+  variables := scope_variables(key, env, var_name.clone());
   n_vars := variables.len();
   if(n_vars > usize(0), {
     variable := match(
@@ -362,10 +362,10 @@ _capture_pattern_bindings :: (
   fn(
     pat : AstExpr,
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    captured_variables : HashMap(String, SuspensionCapturedVariable),
-    captured_variable_ids_in_order : ArrayList(String),
-    name_frame_to_original_id : HashMap(String, String),
-    variable_id_remapping : HashMap(String, String)
+    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    inout(captured_variable_ids_in_order) : ArrayList(String),
+    inout(name_frame_to_original_id) : HashMap(String, String),
+    inout(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )(
   match(
@@ -374,14 +374,14 @@ _capture_pattern_bindings :: (
       match(
         get_info(pat),
         .Some(info) => {
-          vars := get_variables_from_env(info.env, tok.value.clone());
+          vars := scope_variables(ast_expr_id(pat), info.env, tok.value.clone());
           at_decl := match(
             vars.last(),
-            .Some(v) => ((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column))),
+            .Some(v) => ((v.token.module_path == tok.module_path) && (v.token.row == tok.row) && (v.token.column == tok.column)),
             .None => false
           );
           if(at_decl, {
-            _capture_env_variable(tok.value.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(ast_expr_id(pat), tok.value.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           });
         },
         .None => ()
@@ -419,10 +419,10 @@ _capture_argument_temp :: (
     arg : AstExpr,
     call : AstExpr,
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    captured_variables : HashMap(String, SuspensionCapturedVariable),
-    captured_variable_ids_in_order : ArrayList(String),
-    name_frame_to_original_id : HashMap(String, String),
-    variable_id_remapping : HashMap(String, String)
+    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    inout(captured_variable_ids_in_order) : ArrayList(String),
+    inout(name_frame_to_original_id) : HashMap(String, String),
+    inout(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )({
   value := match(
@@ -438,8 +438,8 @@ _capture_argument_temp :: (
         // The temp is bound in the env the call was evaluated in.
         g_arg_temps_across_suspension.insert(tn.clone());
         tenv := match(get_info(call), .Some(cinfo) => cinfo.env, .None => vinfo.env);
-        _capture_env_variable(tn.clone(), tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
-        _capture_env_variable(tn, vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+        _capture_env_variable(ast_expr_id(value), tn.clone(), tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+        _capture_env_variable(ast_expr_id(value), tn, vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
       },
       .None => ()
     ),
@@ -460,11 +460,11 @@ walk_expr_ :: (
   fn(
     expr : AstExpr,
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    points : ArrayList(SuspensionPoint),
-    captured_variables : HashMap(String, SuspensionCapturedVariable),
-    captured_variable_ids_in_order : ArrayList(String),
-    name_frame_to_original_id : HashMap(String, String),
-    variable_id_remapping : HashMap(String, String),
+    inout(points) : ArrayList(SuspensionPoint),
+    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    inout(captured_variable_ids_in_order) : ArrayList(String),
+    inout(name_frame_to_original_id) : HashMap(String, String),
+    inout(variable_id_remapping) : HashMap(String, String),
     detector : SuspensionPointDetector,
     parent_expr : Option(AstExpr)
   ) -> unit
@@ -483,7 +483,7 @@ walk_expr_ :: (
           get_info(expr_cloned.clone()),
           .None => (),
           .Some(info) => {
-            _capture_env_variable(var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(ast_expr_id(expr_cloned), var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           }
         );
       });
@@ -508,7 +508,7 @@ walk_expr_ :: (
               match(
                 get_info(expr_cloned.clone()),
                 .Some(binfo) => {
-                  _capture_env_variable(lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+                  _capture_env_variable(ast_expr_id(lhs_e), lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
                 },
                 .None => ()
               );
@@ -525,7 +525,7 @@ walk_expr_ :: (
                     inout_args.get(usize(0)),
                     .Some(ref_name) => match(
                       ref_name,
-                      .Atom(_, ref_tok) => _capture_env_variable(ref_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                      .Atom(_, ref_tok) => _capture_env_variable(ast_expr_id(ref_name), ref_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                       .FnCall(_, _, _, _, _) => ()
                     ),
                     .None => ()
@@ -534,7 +534,7 @@ walk_expr_ :: (
                     get_info(lhs_e.clone()),
                     .Some(linfo) => match(
                       linfo.source_variable,
-                      .Some(pin) => _capture_env_variable(pin.name.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                      .Some(pin) => _capture_env_variable(ast_expr_id(lhs_e), pin.name.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                       .None => ()
                     ),
                     .None => ()
@@ -873,7 +873,8 @@ walk_expr_ :: (
         // Default — detect suspension, then recurse into children
         // -------------------------------------------------------------------
         true => {
-          detector.detect(expr_cloned.clone(), parent_expr, points);
+          detected := detector.detect(expr_cloned.clone(), parent_expr);
+          points.extend(detected);
           if(detector.should_skip_body(expr_cloned.clone()), {
             // For skipped bodies, still walk deferred dup expressions
             match(

@@ -72,23 +72,26 @@ pragma(Pragma.AllowUnsafe);
 { atof } :: import("std/libc/stdlib");
 {
   format_error_message,
+  format_error_message_with_help,
   format_error_messages,
   format_error_messages_with_help,
   TokenAndError,
   YoError,
   with_code
 } :: import("../error.yo");
+{ raise_flow_violation } :: import("../types/flowability.yo");
 { suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
-{ generate_new_temp_variable_name, is_temp_variable_name }
+{ generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
+{ eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type_and_returns_comptime_value } :: import("../types/guards.yo");
+{ TypeValue, t_refine_inner } :: import("../types/definitions.yo");
+{ is_never_type, is_unit_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_iso_type, is_future_trait_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_contains_rc_type } :: import("../types/utils.yo");
+{ type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -206,8 +209,8 @@ attach_temp_variable_to_expr :: (
             info.env.module_path,
             usize(temp_tok.row),
             usize(temp_tok.column),
-            String.new(),
-            temp_tok.module_path
+            .None,
+            .Some(temp_tok.module_path)
           );
           add_variable_to_begin_block_frame(
             info.env,
@@ -444,20 +447,7 @@ require_expr_not_consumed :: (
           if(same_site, {
             return(());
           });
-          entries := ArrayList(TokenAndError).new();
-          entries.push(
-            TokenAndError(
-              token : ast_expr_token(rhs),
-              error_message : `use of moved value: \`${var_name}\``
-            )
-          );
-          entries.push(
-            TokenAndError(
-              token : consumed_tok.*,
-              error_message : String.from("value moved here")
-            )
-          );
-          exn.throw(dyn(format_error_messages(entries)));
+          exn.throw(dyn(use_of_moved_value_error(var_name, v.ty, ast_expr_token(rhs), consumed_tok.*)));
         }
       );
     }
@@ -503,6 +493,170 @@ expect_expr_to_have_been_evaluated :: (
     }
   )
 );
+// ---------------------------------------------------------------------------
+// Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, V3)
+// ---------------------------------------------------------------------------
+/// The E0901 note for a value named `name` of a type that is not implicitly
+/// copyable (`type_requires_explicit_copy`): for a move-only type, why it is
+/// move-only and the ways to use it without a copy; for an explicit-copy type,
+/// the `.clone()` that copies it. `.None` for an implicitly copyable type.
+move_only_help :: (fn(name : String, ty : TypeValue) -> Option(String))(
+  match(
+    move_only_reason(ty),
+    .Some(why) => Option(String).Some(
+      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), pass it \`inout\`, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
+    ),
+    .None => cond(
+      type_requires_explicit_copy(ty) => Option(String).Some(
+        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or pass it \`inout\`. A by-value parameter borrows it without a copy.`
+      ),
+      true => Option(String).None
+    )
+  )
+);
+/// The E0901 note for a value that has no name of its own (a field, an
+/// element, a dereference) and is not implicitly copyable: why its type is
+/// move-only, or the `.clone()` that copies an explicit-copy value.
+move_only_type_help :: (fn(ty : TypeValue) -> Option(String))(
+  match(
+    move_only_reason(ty),
+    .Some(why) => Option(String).Some(
+      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a by-value parameter, pass it \`inout\`, move its whole owner, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`).`
+    ),
+    .None => cond(
+      type_requires_explicit_copy(ty) => Option(String).Some(
+        `\`${type_to_string(ty)}\` is copied explicitly: call \`.clone()\` on it for a copy, lend it to a by-value parameter, or move its whole owner.`
+      ),
+      true => Option(String).None
+    )
+  )
+);
+/// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
+/// with the move-only note when `ty` is move-only.
+use_of_moved_value_error :: (fn(name : String, ty : TypeValue, use_tok : Token, moved_tok : Token) -> YoError)({
+  entries := ArrayList(TokenAndError).new();
+  entries.push(TokenAndError(token : use_tok, error_message : `use of moved value: \`${name}\``));
+  entries.push(TokenAndError(token : moved_tok, error_message : String.from("value moved here")));
+  with_code(format_error_messages_with_help(entries, move_only_help(name, ty)), E_USE_OF_MOVED_VALUE)
+});
+/// A short rendering of the place `e` names, for a message: the source
+/// rendering without the one pair of parentheses the printer wraps a call in.
+_place_text :: (fn(e : AstExpr) -> String)({
+  t := ast_expr_to_string(e);
+  if(!(t.starts_with("(") && t.ends_with(")")), {
+    return(t);
+  });
+  // Strip only a pair that encloses the whole text (`(a)(b)` keeps its own).
+  bytes := t.as_bytes();
+  (depth : i32) = i32(0);
+  (i : usize) = usize(0);
+  while(i < (bytes.len() - usize(1)), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    if(b == u8(40), {
+      depth = (depth + i32(1));
+    });
+    if(b == u8(41), {
+      depth = (depth - i32(1));
+    });
+    if(depth == i32(0), {
+      return(t);
+    });
+    i = (i + usize(1));
+  });
+  t.substring(usize(1), t.len() - usize(1))
+});
+/// Move the user-named local `v` at `tok` outside an expression that names it
+/// (a closure capture): the flow-logged consumption `set_expr_as_consumed`
+/// makes. The owner of a value that is not implicitly copyable gives it up
+/// here; a second move or a later read is E0901, a borrowed binding cannot
+/// give it up (E0901 too).
+move_captured_explicit_copy_variable :: (fn(v : Variable, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  match(
+    v.consumed_at_token,
+    .Some(ct) => {
+      same_site := ((ct.*.row == tok.row) && ((ct.*.column == tok.column) && (ct.*.module_path == tok.module_path)));
+      if(!same_site, {
+        raise_flow_violation(use_of_moved_value_error(v.name.clone(), v.ty, tok, ct.*), ctx, exn);
+      });
+    },
+    .None => {
+      if(!v.is_owning_the_rc_value || (v.is_ref || v.is_module_level), {
+        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` ${_explicit_copy_kind(v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, an \`inout\` binding or a module-level binding). Take it \`sink(...)\` to own it.`;
+        raise_flow_violation(with_code(format_error_message_with_help(tok, msg, move_only_help(v.name.clone(), v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
+      });
+      _log_user_move(v, tok, env);
+      v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+    }
+  );
+});
+/// `e` is `p.*`: a dereference.
+_is_deref_place :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(
+    e,
+    .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(1)), .Some(lbl) => (ast_expr_is_atom(lbl) && (ast_expr_token(lbl).value == "*")), .None => false),
+    .Atom(_, _) => false
+  )
+);
+/// "is move-only" or "is copied explicitly (`.clone()`)": the kind of a type
+/// that is not implicitly copyable, for a message.
+_explicit_copy_kind :: (fn(ty : TypeValue) -> String)(
+  cond(type_is_move_only(ty) => String.from("is move-only"), true => String.from("is copied only explicitly (`.clone()`)"))
+);
+/// Throw E0901 for a copy of the not-implicitly-copyable value `rhs` out of
+/// storage it does not own: a by-value parameter or a `match`/`for` binding (they borrow), an
+/// `inout` binding, a module-level binding, or a projection (a field, an
+/// element, a dereference). The value cannot be copied, and moving it out
+/// would leave its owner partly moved: Yo has no partial moves, so the owner
+/// is moved whole or not at all.
+_throw_explicit_copy_violation :: (fn(rhs : AstExpr, ty : TypeValue, what : String, ctx : EvalContext, exn : Exception) -> unit)({
+  name := _place_text(rhs);
+  msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}, and it cannot be moved either: ${what}`;
+  help := cond(ast_expr_is_atom(rhs) => move_only_help(name, ty), true => move_only_type_help(ty));
+  raise_flow_violation(
+    with_code(format_error_message_with_help(ast_expr_token(rhs), msg, help), E_USE_OF_MOVED_VALUE),
+    ctx,
+    exn
+  );
+});
+/// The move of a value that is not implicitly copyable
+/// (`type_requires_explicit_copy`: today a move-only one) at a point where a
+/// copyable RC value would be dupped (`set_expr_as_needs_to_call_dup`): `:=`,
+/// `=`, a `sink` argument, a
+/// field or element store, a return, a constructor or literal element. The
+/// owner gives the value up, with no dup:
+///
+/// - an owning temp (a call result, a constructor) transfers, as an RC temp
+///   does;
+/// - an owning named local is CONSUMED (`set_expr_as_consumed`): a later use
+///   is E0901, and its scope-end drop is skipped;
+/// - anything else is borrowed storage, and the copy is E0901
+///   (`_throw_explicit_copy_violation`).
+transfer_explicit_copy_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name : String, ctx : EvalContext, exn : Exception) -> unit)({
+  match(
+    find_variable_in_env(ei.env, variable_name.clone()),
+    .None => (),
+    .Some(v) => cond(
+      is_temp_variable_name(ei.env.module_path, variable_name) => {
+        if(v.is_owning_the_rc_value, {
+          if(v.consumed_at_token.is_none(), {
+            v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+          });
+        }, {
+          what := cond(
+            _is_deref_place(rhs) => String.from("it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves)."),
+            ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) => String.from("it is a field of another value, and moving it out would leave that value partly moved (Yo has no partial moves). Move the whole value instead."),
+            true => String.from("it is borrowed from the value that holds it (an element, or a binding into another value).")
+          );
+          _throw_explicit_copy_violation(rhs, ei.ty, what, ctx, exn);
+        });
+      },
+      v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
+      v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
+      v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
+      true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
+    )
+  );
+});
 // ---------------------------------------------------------------------------
 // set_expr_as_consumed
 // ---------------------------------------------------------------------------
@@ -620,26 +774,333 @@ set_expr_as_consumed :: (
               },
               // Step 4: throw `use of moved value`.
               true => {
-                entries := ArrayList(TokenAndError).new();
-                entries.push(
-                  TokenAndError(
-                    token : ast_expr_token(expr),
-                    error_message : `use of moved value: \`${name}\``
-                  )
-                );
-                entries.push(
-                  TokenAndError(
-                    token : consumed_tok.*,
-                    error_message : String.from("value moved here")
-                  )
-                );
-                exn.throw(dyn(format_error_messages(entries)));
+                exn.throw(dyn(use_of_moved_value_error(name, v.ty, ast_expr_token(expr), consumed_tok.*)));
               }
             )
           );
         }
       )
     )
+  );
+});
+// ---------------------------------------------------------------------------
+// YO_AUDIT_IMPLICIT_COPY (plans/VALUES_BY_DEFAULT.md §6, item 1)
+// ---------------------------------------------------------------------------
+/// Lists every dup the evaluator inserts that unique ownership turns into an
+/// explicit `.clone()`: a store, binding, return, owning argument or capture
+/// of an RC-bearing value (every dup is one, `type_contains_rc_type` gates
+/// them all) whose source stays alive. One stderr line per site:
+/// `file:line:col [implicit-copy] <category> <type> <path> source=<kind> \`<source>\``.
+/// A source that is borrowed (a by-value parameter, a `match`/`for` binding,
+/// an `inout` slot), a non-owning temporary (a field or index read: no
+/// partial moves, decision 19), a module-level value or a closure's own
+/// capture cannot be moved from, so its dup is reported at once. An owning
+/// local or `own` parameter is held PENDING and judged at its declaring
+/// frame's epilogue (`audit_judge_implicit_copies`, exprs/begin.yo): it is a
+/// copy only if the variable is read again after the site. Inert unless the
+/// knob is set: nothing else in the evaluator reads these tables.
+(g_audit_implicit_copy : bool) = debug_knob(`YO_AUDIT_IMPLICIT_COPY`).is_some();
+/// One dup whose source is an owning local, waiting for its frame's epilogue.
+ImplicitCopyPending :: struct(
+  /// The finished report line, printed if the variable is used again.
+  line : String,
+  /// The site's token position: a read of the variable at a later offset in
+  /// the same module is a use after the copy.
+  module_path : String,
+  byte_offset : u32
+);
+/// Variable id → its pending copy sites.
+(g_implicit_copy_pending : HashMap(usize, ArrayList(ImplicitCopyPending))) = HashMap(usize, ArrayList(ImplicitCopyPending)).new();
+/// Lines already printed: def-time trials, the checking phase and each
+/// specialization re-evaluate one body, so a site is reported once per
+/// distinct line (a generic body once per instantiated type).
+(g_implicit_copy_printed : HashSet(String)) = HashSet(String).new();
+/// What a `match` binding borrows from, by binding id: `temp` (an owned
+/// temporary such as a call result — the binding owns its part, so a store
+/// of it is not a copy here; any copy happened inside the callee), `local`
+/// (an owning local, `root_id`: the binding is a part of it, a copy if the
+/// local is read again), `macro` (a scrutinee a macro introduced — `for`'s
+/// element: a borrow) or `place` (a parameter, field, global: a borrow).
+ImplicitCopyRoot :: struct(kind : String, root_id : usize);
+(g_implicit_copy_match_roots : HashMap(usize, ImplicitCopyRoot)) = HashMap(usize, ImplicitCopyRoot).new();
+/// Record what `binding`, a pattern binding of a `match` whose evaluated
+/// scrutinee is described by `scr_info`, borrows from.
+audit_note_match_binding :: (fn(binding : Variable, scr_info : ExprInfo) -> unit)({
+  root := match(
+    scr_info.variable_name,
+    .Some(sn) => match(
+      find_variable_in_env(scr_info.env, sn),
+      .Some(sv) => match(
+        g_implicit_copy_match_roots.get(sv.id),
+        .Some(inherited) => inherited,
+        .None => cond(
+          (canonical_module_path(sv.token.module_path.clone()) != canonical_module_path(binding.token.module_path.clone())) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
+          is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond(sv.is_owning_the_rc_value => String.from("temp"), true => String.from("place")), root_id : sv.id),
+          (sv.is_owning_the_rc_value && !sv.is_module_level && !sv.is_ref) => ImplicitCopyRoot(kind : String.from("local"), root_id : sv.id),
+          true => ImplicitCopyRoot(kind : String.from("place"), root_id : sv.id)
+        )
+      ),
+      .None => ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))
+    ),
+    .None => ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))
+  );
+  g_implicit_copy_match_roots.insert(binding.id, root);
+});
+audit_implicit_copy_enabled :: (fn() -> bool)(g_audit_implicit_copy);
+/// Remove and return the pending sites of variable `id` (its frame's epilogue
+/// judges them), or none.
+audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(ImplicitCopyPending)))(
+  cond(
+    (g_implicit_copy_pending.len() == usize(0)) => Option(ArrayList(ImplicitCopyPending)).None,
+    true => g_implicit_copy_pending.remove(id)
+  )
+);
+audit_print_implicit_copy :: (fn(line : String) -> unit)({
+  if(g_implicit_copy_printed.insert(line.clone()), {
+    eprintln(line);
+  });
+});
+_IC_COLLECTIONS :: "ArrayList|HashMap|HashSet|BTreeMap|Deque|LinkedList|OrderedMap|PriorityQueue";
+/// The std collection a struct type name denotes (`ArrayList` or
+/// `ArrayList(String)` → `ArrayList`), or none.
+_implicit_copy_collection_name :: (fn(name : String) -> Option(String))({
+  bases := String.from(_IC_COLLECTIONS).split("|");
+  (i : usize) = usize(0);
+  while(i < bases.len(), {
+    match(
+      bases.get(i),
+      .Some(base) => if((name == base) || name.starts_with(`${base}(`), {
+        return(Option(String).Some(base));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(String).None
+});
+/// The category of the first RC-bearing member, for an aggregate.
+_implicit_copy_first_member :: (fn(members : ArrayList(TypeValue), depth : u32) -> Option(String))({
+  (mi : usize) = usize(0);
+  while(mi < members.len(), {
+    match(
+      members.get(mi),
+      .Some(m) => if(type_contains_rc_type(m), {
+        return(Option(String).Some(_implicit_copy_category_at(m, depth + u32(1))));
+      }),
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+  Option(String).None
+});
+/// No member holds an RC value: a `ref` type of plain data only.
+_implicit_copy_plain_members :: (fn(members : ArrayList(TypeValue)) -> bool)({
+  (pi : usize) = usize(0);
+  while(pi < members.len(), {
+    match(
+      members.get(pi),
+      .Some(m) => if(type_contains_rc_type(m), {
+        return(false);
+      }),
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  true
+});
+_implicit_copy_via :: (fn(inner : Option(String)) -> String)(
+  match(
+    inner,
+    .Some(c) => cond(
+      c.starts_with("via:") => c,
+      true => `via:${c}`
+    ),
+    .None => String.from("aggregate")
+  )
+);
+/// The audit category of an RC-bearing type: `String`, a collection's name,
+/// `Box`, `Arc`, `Dyn`, `closure`, `ref-object` (a `ref` struct/enum with an
+/// RC-bearing field; V5 makes it an `Rc`), `ref-object(plain)` (a `ref`
+/// type whose fields are all plain data), or `via:<category>` for a value
+/// aggregate (`Option(String)`, a tuple, a value struct) holding one.
+implicit_copy_category :: (fn(ty : TypeValue) -> String)(
+  _implicit_copy_category_at(ty, u32(0))
+);
+_implicit_copy_category_at :: (fn(ty : TypeValue, depth : u32) -> String)({
+  if(depth > u32(6), {
+    return(String.from("other"));
+  });
+  t := t_refine_inner(ty);
+  display := type_to_string(ty);
+  if(is_dyn_type(t), {
+    return(String.from("Dyn"));
+  });
+  if(is_iso_type(t), {
+    return(String.from("Arc"));
+  });
+  if(is_box_type(t), {
+    return(String.from("Box"));
+  });
+  match(
+    t,
+    // By the PRINTED name: an instantiation (`ArrayList(i32)`) carries an
+    // empty `name` (only `Box(...)` is stamped) and renders through the
+    // display-name side table (types/string.yo).
+    .Struct({ field_types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => match(
+      _implicit_copy_collection_name(display.clone()),
+      .Some(collection) => collection,
+      .None => cond(
+        (display == "String") => String.from("String"),
+        display.starts_with("Arc(") => String.from("Arc"),
+        (is_ref && is_atomic) => String.from("Arc"),
+        (is_ref && _implicit_copy_plain_members(field_types)) => String.from("ref-object(plain)"),
+        is_ref => String.from("ref-object"),
+        true => _implicit_copy_via(_implicit_copy_first_member(field_types, depth))
+      )
+    ),
+    .EnumT({ variant_fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => {
+      all_fields := ArrayList(TypeValue).new();
+      (vi : usize) = usize(0);
+      while(vi < variant_fields.len(), {
+        match(
+          variant_fields.get(vi),
+          .Some(vf) => {
+            (fi : usize) = usize(0);
+            while(fi < vf.len(), {
+              match(vf.get(fi), .Some(f) => all_fields.push(f), .None => ());
+              fi = (fi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      cond(
+        (is_ref && is_atomic) => String.from("Arc"),
+        (is_ref && _implicit_copy_plain_members(all_fields)) => String.from("ref-object(plain)"),
+        is_ref => String.from("ref-object"),
+        true => _implicit_copy_via(_implicit_copy_first_member(all_fields, depth))
+      )
+    },
+    .Tuple(field_labels : _, field_types : tfs) => _implicit_copy_via(_implicit_copy_first_member(tfs, depth)),
+    .Union(name : _, field_labels : _, field_types : ufs) => _implicit_copy_via(_implicit_copy_first_member(ufs, depth)),
+    .Array(element : el, length : _, length_var : _) => {
+      els := ArrayList(TypeValue).new();
+      els.push(el);
+      _implicit_copy_via(_implicit_copy_first_member(els, depth))
+    },
+    .Func({ result : _ }) => String.from("closure"),
+    // An open type parameter in a definition-time trial: each instantiation
+    // reports its concrete type, so this is the generic body itself.
+    .SomeT({ required_trait_types : st_traits }) => {
+      (sti : usize) = usize(0);
+      (is_future : bool) = false;
+      while(sti < st_traits.len(), {
+        match(
+          st_traits.get(sti),
+          .Some(st) => if(is_future_trait_type(st), {
+            is_future = true;
+          }),
+          .None => ()
+        );
+        sti = (sti + usize(1));
+      });
+      cond(is_future => String.from("future"), true => String.from("generic"))
+    },
+    _ => String.from("other")
+  )
+});
+/// Record one dup for the audit. `site_tok` is the copied expression's
+/// token, `source_name` the variable the dup reads (a temp for a projection),
+/// `source_text` the expression as written.
+audit_record_implicit_copy :: (
+  fn(
+    site_tok : Token,
+    ty : TypeValue,
+    copy_path : str,
+    env : Environment,
+    source_name : String,
+    source_text : String,
+    ctx : EvalContext,
+    /// False for a closure's own captures: `ctx.captured_variables` is then
+    /// the closure being built, not the function the site sits in.
+    in_closure_body_check : bool
+  ) -> unit
+)({
+  // Compiler-synthesized code (derives, generated helpers) is not a site a
+  // user migrates.
+  if(site_tok.module_path.starts_with("auto-generated://"), {
+    return(());
+  });
+  (kind : String) = String.from("unknown");
+  (pending_id : Option(usize)) = Option(usize).None;
+  match(
+    find_variable_in_env(env, source_name.clone()),
+    .Some(v) => {
+      captured := (in_closure_body_check && match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
+      cond(
+        is_any_temp_variable_name(v.name.clone()) => {
+          kind = String.from("projection");
+        },
+        v.is_module_level => {
+          kind = String.from("global");
+        },
+        v.is_ref => {
+          kind = String.from("inout-borrow");
+        },
+        captured => {
+          kind = String.from("capture-state");
+        },
+        (!v.is_owning_the_rc_value && g_implicit_copy_match_roots.get(v.id).is_some()) => match(
+          g_implicit_copy_match_roots.get(v.id),
+          .Some(r) => cond(
+            (r.kind == "temp") => {
+              kind = String.from("temp-payload");
+            },
+            (r.kind == "macro") => {
+              kind = String.from("for-element");
+            },
+            (r.kind == "local") => {
+              kind = String.from("match-local");
+              pending_id = Option(usize).Some(r.root_id);
+            },
+            true => {
+              kind = String.from("match-place");
+            }
+          ),
+          .None => ()
+        ),
+        !v.is_owning_the_rc_value => {
+          kind = cond(v.is_parameter => String.from("param-borrow"), true => String.from("binding-borrow"));
+        },
+        true => {
+          kind = cond(v.is_parameter => String.from("own-param"), true => String.from("local"));
+          pending_id = Option(usize).Some(v.id);
+        }
+      );
+    },
+    .None => ()
+  );
+  text := cond(
+    (source_text.len() > usize(60)) => `${source_text.substring(usize(0), usize(57))}...`,
+    true => source_text
+  );
+  line := `${display_module_path(site_tok.module_path)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [implicit-copy] ${implicit_copy_category(ty)} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} \`${text.replace("\n", String.from(" "))}\``;
+  match(
+    pending_id,
+    .Some(vid) => {
+      entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset);
+      match(
+        g_implicit_copy_pending.get(vid),
+        .Some(lst) => lst.push(entry),
+        .None => {
+          fresh := ArrayList(ImplicitCopyPending).new();
+          fresh.push(entry);
+          g_implicit_copy_pending.insert(vid, fresh);
+        }
+      );
+    },
+    .None => audit_print_implicit_copy(line)
   );
 });
 // ---------------------------------------------------------------------------
@@ -672,7 +1133,10 @@ set_expr_as_needs_to_call_dup :: (
   fn(
     rhs : AstExpr,
     ctx : EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// The store kind, for YO_AUDIT_IMPLICIT_COPY only: `binding`, `assign`,
+    /// `field-store`, `element`, `param`, `return` or `dyn`.
+    (copy_path : str) ?= "dup"
   ) -> unit
 )({
   // `expr.$.variableName` — no ExprInfo or no temp variable name ⇒ nothing to do.
@@ -692,6 +1156,12 @@ set_expr_as_needs_to_call_dup :: (
         .Some(info) => info,
         .None => new_expr_info_placeholder_for_unreachable_(rhs)
       );
+      // A value that is not implicitly copyable (a move-only one, §3.4) is
+      // moved here, never dupped.
+      if(type_requires_explicit_copy(ei.ty), {
+        transfer_explicit_copy_value(rhs, ei, variable_name, ctx, exn);
+        return(());
+      });
       // --- Compile-time value handling ---
       // Runtime results are `Some(UnknownVal)` — treat UnknownVal as NO
       // value here, or a runtime PARAM
@@ -764,6 +1234,9 @@ set_expr_as_needs_to_call_dup :: (
         });
       });
       // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
+      if(g_audit_implicit_copy, {
+        audit_record_implicit_copy(ast_expr_token(rhs), ei.ty, copy_path, ei.env, variable_name.clone(), ast_expr_to_string(rhs), ctx, true);
+      });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
       saved_expected := ctx.expected_type;
       ctx.expected_type = .None;
@@ -890,7 +1363,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
             ei.env.module_path,
             usize(0),
             usize(0),
-            `dup:${variable_name}`
+            .Some(`dup:${variable_name}`)
           );
           reg_var := add_variable_to_begin_block_frame(
             ei.env,
@@ -1212,7 +1685,7 @@ keep_last_arm_moves :: (fn(env : Environment, last_arm : AstExpr, group_log_star
 /// At a `break` or `continue`: the move state of every variable declared
 /// outside the loop that the body has touched so far (per path: the arm the
 /// jump sits in starts from the state before its branch).
-snapshot_loop_flow :: (fn(lc : LoopBodyCtx, into : ArrayList(LoopFlowSnapshot), env : Environment, site : Token) -> unit)({
+snapshot_loop_flow :: (fn(lc : LoopBodyCtx, inout(into) : ArrayList(LoopFlowSnapshot), env : Environment, site : Token) -> unit)({
   ids := ArrayList(usize).new();
   states := ArrayList(Option(Token)).new();
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
@@ -1297,7 +1770,7 @@ check_loop_flow :: (
               )
             );
             entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the loop here")));
-            exn.throw(dyn(with_code(format_error_messages(entries), E_USE_OF_MOVED_VALUE)));
+            exn.throw(dyn(with_code(format_error_messages_with_help(entries, move_only_help(v.name, v.ty)), E_USE_OF_MOVED_VALUE)));
           });
           // Ways out.
           exit_moved := ArrayList(Token).new();
@@ -2251,7 +2724,9 @@ in_compile_time_fn_body :: (fn(ctx : EvalContext) -> bool)(
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
+export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
+export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(doc_comment_lookup_key_from_token);

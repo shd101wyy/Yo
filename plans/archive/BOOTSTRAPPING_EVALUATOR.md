@@ -95,7 +95,7 @@ structure).
 > observes body-eval errors; commits `9d2e40c2`+`7380294c`), sync/mutex (SomeT
 > ids in the trait-registry lookup + call-site where-clause validation for marker
 > traits + trait-name stamping at `::`; commits `a821ed30`+`7a67b961`; see
-> `issues/yo-self-where-clause-full-enforcement.md` for the documented
+> `issues/fixed/yo-self-where-clause-full-enforcement.md` for the documented
 > enforcement scope), and — **crossing the closure-body def-eval wall**
 > (`fb92038d`) — the final three: algebraic_effects, ref_local_binding,
 > ref_closure_capture. Non-generic anonymous-function bodies now evaluate at
@@ -774,7 +774,7 @@ algebraic_effects, ref_local_binding, ref_closure_capture (2026-06-10). The
 
 **Remaining known divergences (documented, non-red):** full where-clause
 enforcement beyond marker×concrete
-(`issues/yo-self-where-clause-full-enforcement.md`); the Phase-3
+(`issues/fixed/yo-self-where-clause-full-enforcement.md`); the Phase-3
 simplifications listed in values/anonymous_function.yo's header
 (substituteSomeTypesFromEnv, await analysis, deferred-generic return-type
 check, body-vs-return compatibility); comptime arithmetic value folding Tier 2

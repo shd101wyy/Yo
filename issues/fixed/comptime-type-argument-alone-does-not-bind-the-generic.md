@@ -68,7 +68,7 @@ Two consequences worth noting for whoever fixes it:
 - the failure is silent-ish at eval time and only becomes loud in codegen when
   the value is used, which is the same late-failure signature as the
   under-resolution family (`issues/fixed/varbound-combinator-receiver-impl-match.md`,
-  `issues/iterator-chain-shared-stamp-cross-item-pollution.md`) — but the
+  `issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md`) — but the
   trigger here is much simpler and reproduces in three lines, so it may be a
   distinct, more tractable bug.
 

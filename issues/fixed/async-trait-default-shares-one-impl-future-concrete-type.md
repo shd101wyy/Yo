@@ -84,7 +84,7 @@ It is one layout change away from being a silent wrong-value bug.
 and the substitution appears to hand every implementor a type sharing ONE
 resolution cell, so the last materialization wins for every call site — the
 "SomeT id equality is not a shared `resolved_concrete` cell" channel that
-`issues/fixed/yo-self-recursive-instantiation-era-split-fixed.md` and the
+`yo-self-recursive-instantiation-era-split-fixed.md` (never filed) and the
 var-bound-receiver work already had to thread once.
 
 Fix direction: give each per-impl materialization its own SomeT resolution cell
@@ -133,7 +133,7 @@ shapes stay green, so the trigger needs the two-implementor + cross-module
 (+ test-arm cond) pile-up, not just a generic implementor with a default.
 
 This is the same under-resolution family as
-issues/iterator-chain-shared-stamp-cross-item-pollution.md (shared stamped
+issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md (shared stamped
 return instance + per-call SomeT cells; see also the gap-6 campaign notes) —
 but through THIS issue's mechanism: the default's `Impl(Future(...))` return
 resolving to one (here: abstract, never-emitted) concrete state type. Fixing

@@ -1,0 +1,12 @@
+# A `?=` default resolves its names where the function is DEFINED
+# (issues/fixed/a-default-parameter-value-resolves-names-in-the-callers-module.md).
+# The caller binds its own `K` and `LATE`; before the fix a direct call, a
+# generic call and an order-independent default read the caller's values
+# (99, 98) instead of the library's (5, 8), and a default naming the library's
+# `Allocator` import was E0401 at a caller without that import. The method
+# call already resolved in the library and stays covered. `short_alloc` pins
+# the `.None` default of `Option(Allocator)` from a pragma'd library called by
+# safe files. `Allocator` has been a prelude type since VALUES_BY_DEFAULT V1
+# (§3.11), so the import half is now covered by `K` alone.
+stdout_keep_match=^(f|g|bump|named_alloc|short_alloc|late|from_other)\(.*|^caller K = .*|error(\[E[0-9]+\])?: .*
+timeout=300

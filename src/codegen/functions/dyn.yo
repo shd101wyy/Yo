@@ -19,7 +19,7 @@
 { get_func_type } :: import("../../function_value.yo");
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ type_key, get_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
+{ type_key, get_type_string, dyn_slot_param_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 { type_contains_rc_type, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
@@ -28,7 +28,7 @@ _func_val_id :: (fn(v : EvalValue) -> String)(
 );
 /// True for the reserved dyn-method labels (___dup/___drop/___dispose/dispose).
 _is_reserved_dyn_label :: (fn(label : String) -> bool)(
-  (label == "___dup") || (label == "___drop") || ((label == "___dispose") || (label == "dispose"))
+  (label == "___dup") || (label == "___drop") || (label == "___dispose") || (label == "dispose")
 );
 /// Sanitized C field name of the single field of a Box(T) data type ("*").
 _box_field_name :: (fn(data_type : TypeValue) -> String)(
@@ -128,7 +128,8 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
           // the type-decl phase's box pass): emit the missing typedef into the
           // DECLARATIONS section now — see CodeGenContext.dyn_box_typedefs.
           if(!context.base.dyn_box_typedefs.contains(box_name.clone()), {
-            context.base.dyn_box_typedefs.insert(box_name.clone());
+            cg_base := context.base;
+            cg_base.dyn_box_typedefs.insert(box_name.clone());
             em.emit_declaration_line("typedef struct {");
             em.emit_declaration_line("  __yo_ref_header_t header;");
             em.emit_declaration_string_line(`  ${value_str} value;`);
@@ -316,8 +317,9 @@ _boxed_c_name :: (fn(data_type : TypeValue, context : FunctionGenerationContext)
   )
 );
 /// Build the wrapper signature param list: `void* self_ptr` plus one `argN` per
-/// impl parameter after the receiver, typed from `param_types[start..]`.
-_wrapper_params :: (fn(param_types : ArrayList(TypeValue), start : usize, context : FunctionGenerationContext) -> String)({
+/// impl parameter after the receiver, typed from `param_types[start..]` (an
+/// `inout` one, per `param_is_ref`, as `T*`: the vtable slot's spelling).
+_wrapper_params :: (fn(param_types : ArrayList(TypeValue), param_is_ref : ArrayList(bool), start : usize, context : FunctionGenerationContext) -> String)({
   out := String.from("void* self_ptr");
   n := param_types.len();
   (j : usize) = start;
@@ -326,7 +328,7 @@ _wrapper_params :: (fn(param_types : ArrayList(TypeValue), start : usize, contex
       param_types.get(j),
       .Some(pt) => {
         out.push_str(", ");
-        out.push_string(get_type_string(pt, context.base));
+        out.push_string(dyn_slot_param_type_string(Option(TypeValue).Some(pt), param_is_ref.get(j), context.base));
         out.push_str(" arg");
         // arg index is 1-based from the first non-self param.
         out.push_string(((j - start) + usize(1)).to_string());
@@ -373,10 +375,10 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
             .Some(rt) => if(is_fn_trait_type(rt.clone()), {
               match(
                 rt,
-                .FnTraitT({ call_param_types, call_result }) => {
+                .FnTraitT({ call_param_types, call_result, call_param_is_ref }) => {
                   return_str := get_type_string(call_result, context.base);
                   wrapper := `__yo_wrap_${impl_key}_call`;
-                  params := _wrapper_params(call_param_types.clone(), usize(0), context);
+                  params := _wrapper_params(call_param_types.clone(), call_param_is_ref.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
                   is_void := is_void_type(call_result);
@@ -541,13 +543,14 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                   // differs: the impl returns its concrete future,
                                   // the trait the Future interface pointer.
                                   slot_params_tys := match(slot_ty, .Some(.Func({ param_types : spt })) => spt, _ => param_types.clone());
+                                  slot_param_is_ref := match(slot_ty, .Some(.Func({ meta : sfm })) => sfm.*.param_is_ref, _ => param_is_ref.clone());
                                   slot_ret := match(slot_ty, .Some(.Func({ result : sres })) => get_type_string(sres, context.base), _ => return_str.clone());
-                                  params := _wrapper_params(slot_params_tys.clone(), usize(1), context);
+                                  params := _wrapper_params(slot_params_tys.clone(), slot_param_is_ref.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
                                   (ac_j : usize) = usize(1);
                                   while(ac_j < param_types.len(), {
-                                    impl_pt := match(param_types.get(ac_j), .Some(t) => get_type_string(t, context.base), .None => String.new());
-                                    slot_pt := match(slot_params_tys.get(ac_j), .Some(t) => get_type_string(t, context.base), .None => String.new());
+                                    impl_pt := match(param_types.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), param_is_ref.get(ac_j), context.base), .None => String.new());
+                                    slot_pt := match(slot_params_tys.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), slot_param_is_ref.get(ac_j), context.base), .None => String.new());
                                     arg_casts.push(if(impl_pt == slot_pt, String.new(), impl_pt));
                                     ac_j = (ac_j + usize(1));
                                   });
@@ -634,13 +637,15 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
         typeid_name := `__yo_typeid_${concrete_cname}`;
         if(!generated.contains(typeid_name.clone()) && !context.base.type_id_static_names.contains(typeid_name.clone()), {
           generated.insert(typeid_name.clone());
-          context.base.type_id_static_names.insert(typeid_name.clone());
-          context.base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
+          cg_base := context.base;
+          cg_base.type_id_static_names.insert(typeid_name.clone());
+          cg_base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
           context.base.emit_typeid_static(typeid_name.clone(), ` // TypeId for ${concrete_cname}`);
         }, {
           // Name already emitted by the typeid/downcast expression emitters —
           // still record the key mapping so vtables reference the shared static.
-          context.base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
+          cg_base := context.base;
+          cg_base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
         });
       },
       .None => ()

@@ -1,7 +1,11 @@
 # Async I/O API audit: `io.async` / `io.await` / `io.spawn`, `Future`, `JoinHandle`, `IoFuture`
 
-**Status: APPROVED 2026-10-03, phases A0–A5 in order, A0 starting; four
-bugs filed (two S1, two S2, §4).** The four questions in §6 were decided by
+**Status: APPROVED 2026-10-03, phases A0–A5 in order. A0 landed (#1154),
+A1 Generation A landed (#1158: the primitive, `JoinHandle.join`, the
+future-shaped combinators), A1 Generation B and A2–A5 landed together in
+#1167 (2026-10-04, on the v0.2.50 seed); four bugs filed (two S1, two S2, §4).
+The value-struct `JoinHandle` moved to `plans/VALUES_BY_DEFAULT.md` V3
+(§3.13 A3).** The four questions in §6 were decided by
 the user on 2026-10-03, taking the recommendation in each: aborts propagate,
 `IoFuture` stays a raw `i32`, the combinators take handles only,
 `FutureState.Pending` becomes `Cold`. Measured on develop `bcb57bfe7` with a compiler built from
@@ -270,11 +274,11 @@ Five programs under `tmp/` (gitignored), compiled with the tree binary
 
 | # | Probe | Result | Record |
 | --- | --- | --- | --- |
-| 1 | `io.spawn(IO_timer.sleep(30))`, `abort()`, sleep 80 ms, read state and await | `Aborted` right after the abort; `Completed` once the timer fired; `await` returns `.Some` | `issues/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md` (S2) |
-| 2 | A user struct with a method named `await`, called as `t.await(io)` | `check` OK; `compile`: ICE "JoinHandle.await return type must be Option(T)" | `issues/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md` (S1) |
+| 1 | `io.spawn(IO_timer.sleep(30))`, `abort()`, sleep 80 ms, read state and await | `Aborted` right after the abort; `Completed` once the timer fired; `await` returns `.Some` | `issues/fixed/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md` (S2) |
+| 2 | A user struct with a method named `await`, called as `t.await(io)` | `check` OK; `compile`: ICE "JoinHandle.await return type must be Option(T)" | `issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md` (S1) |
 | 3 | `JoinHandle.await` of an unwound task, then `io.await` of the same future in `main` | `.None`, then `panic: attempted to await an aborted Future` (rc 134) — as documented | §6 Q1, no issue |
-| 4 | Two `io.spawn` of one task with bundles `{ io, tell : tell_a }` then `{ io, tell : tell_b }`; the body yields twice then calls `ctx.tell` | `r1=2 r2=2`: the task ran under the second bundle | `issues/a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md` (S2) |
-| 5 | A `Future(i32, Ctx)` passed as `Impl(Future(i32))` and awaited with `io`; the body calls `ctx.raise` | `check` OK; the binary dies with rc 139, `lldb`: `EXC_BAD_ACCESS address=0x0`, frame #0 at `0x0` (a call through the zeroed handler slot) | `issues/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md` (S1) |
+| 4 | Two `io.spawn` of one task with bundles `{ io, tell : tell_a }` then `{ io, tell : tell_b }`; the body yields twice then calls `ctx.tell` | `r1=2 r2=2`: the task ran under the second bundle | `issues/fixed/a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md` (S2) |
+| 5 | A `Future(i32, Ctx)` passed as `Impl(Future(i32))` and awaited with `io`; the body calls `ctx.raise` | `check` OK; the binary dies with rc 139, `lldb`: `EXC_BAD_ACCESS address=0x0`, frame #0 at `0x0` (a call through the zeroed handler slot) | `issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md` (S1) |
 
 The reproducers are under `issues/repros/` with the same names.
 
@@ -294,13 +298,18 @@ at the cold start. A std docstring edit above a method shifts the
 `lsp-member-definition` golden; run `scripts/cli-diff-test.sh` before
 merging.
 
-### A1 — `JoinHandle.await` suspends inside a task; the combinators become futures
+### A1 — `JoinHandle.join` suspends inside a task; the combinators become futures
 
-Make `handle.await(io)` lower the way `io.await` does: inside a state machine
-it registers the task on the child future's waiter list and resumes with
-`.Some(dup(result))` or `.None` (no unwind takeover — the `Option` IS the
-observation, as for the blocking form); in a plain `fn` it stays the poll
-loop. Then rewrite the combinators as `io.async` bodies over that await:
+**As landed (2026-10-03).** Not a new lowering: one runtime primitive and a
+std method. `__yo_join_wait_new()` returns a park future and
+`__yo_join_wait_add(wait, task)` registers it as one of the task's waiters
+(an already-terminal task completes it at once); the task's completion or
+abort fires it like any waiter. `JoinHandle.join(io)` (`std/async`) is an
+`io.async` body that awaits such a wait and then reads the finished handle
+with `await` (which no longer polls), so `io.await(h.join(io), io)` is a real
+suspension in a task and the ordinary blocking poll in `main`.
+`handle.await(io)` stays the blocking form for plain `fn`s. The combinators
+are `io.async` bodies over `join` and the multi-handle wait:
 
 ```rust
 join_all   : (fn(handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(ArrayList(Option(T)), Io)))
@@ -309,23 +318,25 @@ race_first : …  -> Impl(Future(Option(T), Io))
 any, any_first, timeout : the same shape; timeout keeps Result(T, TimeoutError)
 ```
 
-`race` needs "wake me when ANY of these finishes": one `Park` per handle is
-not available from outside the task, so the runtime gains a waiter entry that
-wakes a parent on a child's terminal state without adopting its unwind — the
-same entry the suspending `await` uses. In `main`, `io.await(join_all(hs, io),
-io)` drives the loop exactly as today's blocking call did. Delete the three
-hand-rolled `is_finished` + `yield` loops, update ASYNC_AWAIT.md
-"Waiting for spawned tasks from inside a task" to the new one-liner, and let
-`backlog/ASYNC_DEADLINE_COMBINATOR.md` option A become `timeout` itself. The
-`YO_ASYNC_STRICT` panic stays for an `io.await` in a plain `fn` called from a
-task, which remains a nested loop.
+`race` and `timeout` add several handles to one wait ("wake me when ANY of
+these finishes"); `any` re-waits over the handles still running, since a wait
+with an already-terminal member resolves at once. In `main`,
+`io.await(join_all(hs, io), io)` drives the loop exactly as the blocking call
+did. The three hand-rolled `is_finished` + `yield` loops
+(`std/http/client.yo`, `std/process/command.yo`, `src/build_runner.yo`) are on
+the compiler's import path and keep their shape until `SEED_VERSION` carries
+the primitive (Generation B in `backlog/SEED_VERSION_AUTOMATION.md`);
+`backlog/ASYNC_DEADLINE_COMBINATOR.md` option A is now `timeout` itself. The
+`YO_ASYNC_STRICT` panic stays for `handle.await` and any `io.await` in a
+plain `fn` called from a task, which remain nested loops.
 
 Signature changes, no shims (AGENTS.md). Gates: `tests/async/combinators.test.yo`
-rewritten to await the futures, a new test that uses `join_all` and `timeout`
-INSIDE an `io.async` body under `YO_ASYNC_STRICT=1`, the three std/src call
-sites, `fixpoint_only.sh`.
+awaits the futures and adds the in-task cases (`join`, `join_all`,
+`race_first`, `any`, `timeout` inside `io.async` bodies, under `yo test`'s
+`YO_ASYNC_STRICT=1`; aborting a joiner leaves the joined task running), the
+two `tests/net/tcp.test.yo` call sites, `fixpoint_only.sh`.
 
-### A2 — One abort semantics (after §6 Q1)
+### A2 — One abort semantics (after §6 Q1) — landed 2026-10-03
 
 Recommended: delete both panics. An `io.await` that meets an already-aborted
 future takes over the unwind exactly as a waiting await does; `io.spawn` of an
@@ -333,7 +344,16 @@ aborted future returns a handle that reads `.None`. The plain-`fn` "silent
 zero `T` + escaped flag" row becomes the documented escape rule it already
 is for a handler unwind. Tests for every cell of the F2 table.
 
-### A3 — Close the cancellation and injection gaps (F3, F5, F6)
+### A3 — Close the cancellation and injection gaps (F3, F5, F6) — landed 2026-10-03
+
+As landed: the raw-future abort detaches its waiters, calls the backend's
+`cancel_fn` and stays Aborted (every backend completion skips -2); `io.spawn`
+copies its bundle into a cold future only; a named child is cancelled when the
+await that waits on it cold-started it (`__yo_started_child`, non-owning), and
+a named future someone else started keeps running; a bundled future is
+compatible with `Future(T)` only when the bundle is `Io`, and the await-site
+bundle check compares field types. The plan text below is the proposal.
+
 
 - `_generate_io_spawn`: inject the bundle only on the cold start; a second
   spawn of a running future keeps the running bundle. Add the bundle field
@@ -349,7 +369,23 @@ is for a handler unwind. Tests for every cell of the F2 table.
   bundle the static type does not name`), keep `Future(T)` for raw futures.
 - The bundle check compares field TYPES.
 
-### A4 — `IoFuture` hygiene (after §6 Q2)
+### A4 — `IoFuture` hygiene (after §6 Q2) — landed 2026-10-03
+
+As landed: the Windows runtime maps every Winsock code to errno
+(`__yo_wsa_to_errno`); resolver failures resolve to one stable `DNS_ERR_*`
+code per kind and `NetError.DNSFailed` carries a `DnsError` (fixes
+`issues/fixed/stddoc-io-dns-lookup-discards-the-gai-error-code.md`); `io.state`
+and `JoinHandle.state` read an in-flight raw future as `Running` (a mapping at
+the read, so no backend's state protocol changes); `FutureState.Pending` is
+`Cold`; the 16 hand-rolled checks of the exact `cond(r < 0 => throw
+from_errno(-r), true => ())` shape in `std/fs` and `std/process` are
+`IoError.check`, and the 14 that release resources before throwing keep their
+shape; `IoError.check` and `IoError.from_result` have unit tests
+(`tests/sys/constants.test.yo`). Not done: `sleep` has no error channel
+(`Future(unit)`, no `IoExn`), and its only failures are an allocation failure
+and its own cancellation, so it keeps discarding the `i32`. The plan text
+below is the proposal.
+
 
 Keep `IoFuture` a raw `i32` ABI at the `std/sys` layer. Normalise the two
 deviant families at the extern boundary so every negative value is an errno
@@ -362,7 +398,23 @@ Windows socket paths map WSA codes to errno equivalents in
 await lowering starts a future only when `state == 0 && vt != NULL`, so raw
 futures are unaffected). `sleep` checks its result.
 
-### A5 — Representation (seed-gated, already designed)
+### A5 — Representation (seed-gated, already designed) — partly landed 2026-10-03
+
+As landed: the async-builtin matchers consult the call's recorded marker
+before the spelling, and evaluation records a "not a builtin" marker for a
+user function spelled like one, which fixes two internal compiler errors (a
+user method named `await`; a non-`Io` parameter named `io` with an `await`
+method — `issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md`);
+`io.state` takes `E : Type.Struct` like its siblings. Not done here, each for a
+reason: the value-struct `JoinHandle` waits for the seed
+(`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`); the
+`...(E)` spread was removed on 2026-10-03 (user decision) from `Future`,
+function types and the synthesizer, and effect-row polymorphism stays as a
+`generic(E : Type.Struct)` parameter
+(`issues/fixed/effect-row-spreads-outlived-the-single-bundle-future.md`); a zero-sized `Io` is a measurement
+for `ASYNC_PERFORMANCE_HANDOVER.md`, not an API change. The plan text below is
+the proposal.
+
 
 `JoinHandle` as a value struct over the counted `Impl(Future)` (the open
 issue), `io.state` to `E : Type.Struct`, drop the `...(E)` spread, the
@@ -380,6 +432,11 @@ and a zero-sized `Io` measured on the spawn and await rows of
   is not pursued.
 - **Q3 (A1) — handles only.** A future has no identity until started, and a
   handle is what "a running task" means; the combinators do not spawn.
+  **Amended 2026-10-03** (`plans/VALUES_BY_DEFAULT.md` decision 14): once
+  futures can borrow their receiver, `timeout` and a two-way `select` also
+  take futures, run as scoped children, so a deadline or a race can wrap
+  `rx.recv(io)` or `s.next(io)`. The other combinators stay handles-only.
+  This lands with V3, not before.
 - **Q4 (F8) — rename.** `FutureState.Pending` becomes `FutureState.Cold`
   (the word every doc already uses for a not-started future), in A4 with the
   `Running` fix, no compatibility kept.

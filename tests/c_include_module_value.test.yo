@@ -21,14 +21,14 @@ c :: c_include(
   fflush : (fn(stream : ?*FILE) -> int)
 );
 test("a bound c_include module value: qualified call and qualified global", {
-  rc := unsafe(c.fputs((*char)("c_include module value: qualified\n"), c.stdout));
-  assert(rc >= int(0), "fputs through the module value wrote to the module value's stdout");
+  written := unsafe(c.fputs((*char)("c_include module value: qualified\n"), c.stdout));
+  assert(written >= int(0), "fputs through the module value wrote to the module value's stdout");
   assert(unsafe(c.fflush(.Some(c.stdout))) == int(0), "fflush through the module value");
 });
 test("a qualified opaque type names the same C type", {
   (stream : *c.FILE) = c.stdout;
-  rc := unsafe(c.fputs((*char)("typed through c.FILE\n"), stream));
-  assert(rc >= int(0), "a value typed through the qualified type is the C stream");
+  written := unsafe(c.fputs((*char)("typed through c.FILE\n"), stream));
+  assert(written >= int(0), "a value typed through the qualified type is the C stream");
 });
 // ── Selective import with a RENAMED function: the C symbol is `strlen`,
 //    the Yo name is `c_strlen` (the documented destructuring rename).

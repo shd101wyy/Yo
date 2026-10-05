@@ -215,8 +215,9 @@ break. It now carries the marker. `DateTimeError` (`std/time/datetime.yo`) gets
 it too: nothing dyn's one today, so it was not a break, but it is the same
 oversight and the marker is what makes the first `throw` of one compile.
 `PercentError` — the third type in
-`issues/tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md` —
-still needs a hand-written `ToString` and is left to that issue; nothing dyn's it,
+`issues/fixed/tls-and-datetime-errors-lack-the-error-impl-they-are-thrown-as.md` —
+still needed a hand-written `ToString` and was left to that issue (landed
+2026-10-03, as a `derive(PercentError, Error(...))`); nothing dyn's it,
 so the new check does not reach it.
 
 ## Regression tests
@@ -259,7 +260,7 @@ declared trait bound (symptom 2). One std site was in the second category
 - `issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md`
   — `dyn(<a Dyn value>)` is accepted by the evaluator and refused by codegen with
   an `/* Error: … */` comment written into an expression position.
-- `issues/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`
+- `issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`
   — the RESIDUAL of this bug's crash face, and the reason the fix here does not
   close it entirely: when the impl comes from a blanket
   `impl(generic(T), where(T <: ToString), ArrayList(T), ToString(...))`, the

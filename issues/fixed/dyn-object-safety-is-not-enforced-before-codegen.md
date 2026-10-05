@@ -48,8 +48,8 @@ that names the member. Then either implement that rule or correct DYN_DESIGN.md.
 
 ## Related
 
-`issues/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md`,
-`issues/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`.
+`issues/fixed/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md`,
+`issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md`.
 
 ## Fix
 

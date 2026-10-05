@@ -329,7 +329,7 @@ generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
 // the helpers live in context.yo (module-walk cell + binding-name scan),
 // shared with the anonymous-closure trial in values/anonymous_function.yo.
 _trial_eval_fn_body :: (
-  fn(body : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(body : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   // Reset the flow-violation flag so a stale flag from an earlier (propagated,
   // non-def-time) throw can't be mistaken for a violation in THIS body.
@@ -416,7 +416,7 @@ _type_binder_env_value :: (
       sig_some_ts.get(smi),
       .Some(st) => match(
         st,
-        .SomeT(_, st_name, _, _, _, _, _, _, _, _, _) => if(st_name == name, {
+        .SomeT(_, st_name, _, _, _, _, _, _, _, _) => if(st_name == name, {
           sig_match = Option(TypeValue).Some(st);
         }),
         _ => ()
@@ -432,6 +432,12 @@ _type_binder_env_value :: (
       fresh_some := t_some_t(name.clone(), level);
       // Stamp the fn's where-clause constraints for this label onto the fresh
       // SomeT (see the where_entries doc comment on _build_def_time_body_env).
+      // Collected into locals and built into the SomeT after the loop: its
+      // `match` payload bindings are copies once collections are values.
+      fs_req := ArrayList(TypeValue).new();
+      fs_req_lv := ArrayList(usize).new();
+      fs_neg := ArrayList(TypeValue).new();
+      fs_neg_lv := ArrayList(usize).new();
       (we_i : usize) = usize(0);
       while(we_i < where_entries.len(), {
         we := match(
@@ -443,23 +449,22 @@ _type_binder_env_value :: (
           }
         );
         if(we.lhs_label == name, {
-          match(
-            fresh_some,
-            .SomeT(_, _, _, _, fs_req, fs_req_lv, fs_neg, fs_neg_lv, _, _, _) => {
-              if(we.is_negated, {
-                fs_neg.push(we.trait_ty);
-                fs_neg_lv.push(usize(0));
-              }, {
-                fs_req.push(we.trait_ty);
-                fs_req_lv.push(usize(0));
-              });
-            },
-            _ => ()
-          );
+          if(we.is_negated, {
+            fs_neg.push(we.trait_ty);
+            fs_neg_lv.push(usize(0));
+          }, {
+            fs_req.push(we.trait_ty);
+            fs_req_lv.push(usize(0));
+          });
         });
         we_i = (we_i + usize(1));
       });
-      Option(EvalValue).Some(create_type_value(fresh_some))
+      stamped := match(
+        fresh_some,
+        .SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2) => TypeValue.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2),
+        other => other
+      );
+      Option(EvalValue).Some(create_type_value(stamped))
     }
   )
 });
@@ -743,7 +748,7 @@ _build_def_time_body_env :: (
                 rv.value.get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
-                  .TypeVal(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _, _)) =>
+                  .TypeVal(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _)) =>
                     resolve_some_binder_kind(rv_sname, rv_slvl),
                   _ => Option(TypeValue).None,
                   _ => Option(TypeValue).None
@@ -1209,7 +1214,7 @@ Result type: ${type_to_string(result_box)}`
       while(pti < n_pt, {
         pt_name := match(
           param_types.get(pti),
-          .Some(.SomeT(_, name, _, _, _, _, _, _, _, _, _)) => name,
+          .Some(.SomeT(_, name, _, _, _, _, _, _, _, _)) => name,
           .Some(_) => String.from(""),
           .None => String.from("")
         );
@@ -1969,7 +1974,7 @@ Result type: ${type_to_string(result_box)}`
                     .None => ()
                   );
                 });
-                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(result_box) || is_type_hierarchy_type(result_box) || (type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new())) || result_is_ref);
+                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(result_box) || is_type_hierarchy_type(result_box) || type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new()) || result_is_ref);
                 if(!ub_skip && !are_types_compatible(ub_ty, result_box), {
                   // The registration above already happened; a definition
                   // rejected here must not be emitted (its callers were

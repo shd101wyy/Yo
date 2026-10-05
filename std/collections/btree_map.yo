@@ -99,7 +99,7 @@ impl(
   /// `push`'s `Result` before computing `len() - 1`
   /// (issues/fixed/btree-map-insert-dropped-the-old-value-and-push-results-were-ignored.md).
   /// For new keys: append at end then shift-left to the sorted position.
-  insert : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> Option(V))({
+  insert : (fn(inout(self) : Self, k : K, v : V, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => {
@@ -128,7 +128,7 @@ impl(
   }),
   /// Remove the entry for `k` and return its value, or `.None` — O(log n)
   /// to find it, O(n) to close the gap, and the key order is preserved.
-  remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({
+  remove : (fn(inout(self) : Self, k : K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => {
@@ -145,7 +145,7 @@ impl(
     match(self.get(k), .Some(_) => true, .None => false)
   ),
   /// Remove and return the lowest entry — Rust's `pop_first`.
-  pop_first : (fn(self : Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
+  pop_first : (fn(inout(self) : Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
     match(
       self.first_entry(),
       .Some(e) => {
@@ -156,7 +156,7 @@ impl(
     )
   ),
   /// Remove and return the highest entry — Rust's `pop_last`.
-  pop_last : (fn(self : Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
+  pop_last : (fn(inout(self) : Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
     match(
       self.last_entry(),
       .Some(e) => {
@@ -402,7 +402,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       BTreeMap(K, V).new()
     ),
-    from_iter_add : (fn(acc : Self, item : MapEntry(K, V)) -> Self)({
+    from_iter_add : (fn(own(acc) : Self, item : MapEntry(K, V)) -> Self)({
       acc.insert(item.key, item.value);
       acc
     })

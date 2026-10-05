@@ -119,7 +119,7 @@ import("std/fmt");
   BF_ARRAY_FILL,
   BF_DERIVE,
   BF_DERIVE_RULE,
-  BF_RC,
+  BF_REF_COUNT,
   BF_THE,
   BF_DOWNCAST,
   BF_UPCAST,
@@ -376,7 +376,7 @@ _punned_field_name :: (fn(expr : AstExpr) -> String)(
 { evaluate_yo_process_functions } :: import("../builtins/process.yo");
 { evaluate_address_call } :: import("../builtins/ptr_fns.yo");
 { evaluate_quote } :: import("../builtins/quote.yo");
-{ evaluate_rc } :: import("../builtins/rc.yo");
+{ evaluate_ref_count } :: import("../builtins/rc.yo");
 {
   evaluate_yo_decr_rc,
   evaluate_yo_decr_rc_atomic,
@@ -704,10 +704,8 @@ _evaluate_expression :: (
               ast_expr_is_fn_call(arg0) &&
                 (
                   ast_expr_is_fn_call_of(arg0, BK_FN, .None) ||
-                    (
-                      ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN, .None) ||
-                        ast_expr_is_fn_call_of(arg0, BK_CTL, .None)
-                    )
+                    ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN, .None) ||
+                      ast_expr_is_fn_call_of(arg0, BK_CTL, .None)
                 )
             ) => {
               is_unsafe := ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN, .None);
@@ -1060,8 +1058,9 @@ _evaluate_expression :: (
           evaluate_downcast(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UPCAST, .None)) =>
           evaluate_upcast(expr, env, ctx, exn),
-        ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BF_RC, .None)) =>
-          evaluate_rc(expr, env, ctx, exn),
+        // `ref_count` is nine bytes; a wrong length gate makes the arm dead.
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_REF_COUNT, .None)) =>
+          evaluate_ref_count(expr, env, ctx, exn),
         ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_SUBTYPE_OF, .None)) =>
           evaluate_subtype_of(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_THE, .None)) =>

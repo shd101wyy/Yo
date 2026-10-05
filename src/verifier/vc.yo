@@ -356,7 +356,7 @@ _is_array_list_shape :: (fn(id : String, name : String, labels : ArrayList(Strin
     true => match(type_display_name(id.clone()), .Some(d) => d, .None => String.new())
   );
   head_ok := ((display == "ArrayList") || display.starts_with("ArrayList("));
-  fields_ok := ((labels.len() == usize(3)) && (match(labels.get(usize(0)), .Some(l0) => (l0 == "_ptr"), .None => false) && (match(labels.get(usize(1)), .Some(l1) => (l1 == "_length"), .None => false) && match(labels.get(usize(2)), .Some(l2) => (l2 == "_capacity"), .None => false))));
+  fields_ok := ((labels.len() == usize(3)) && match(labels.get(usize(0)), .Some(l0) => (l0 == "_ptr"), .None => false) && match(labels.get(usize(1)), .Some(l1) => (l1 == "_length"), .None => false) && match(labels.get(usize(2)), .Some(l2) => (l2 == "_capacity"), .None => false));
   head_ok && fields_ok
 });
 /// The element SORT of a modeled `ArrayList(T)`: `T` must be an integer or
@@ -581,7 +581,7 @@ _register_uninterpreted_sort :: (fn(name : String) -> unit)({
 _is_some_t_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => true,
+    .SomeT(_, _, _, _, _, _, _, _, _, _) => true,
     _ => false
   )
 );
@@ -593,7 +593,7 @@ _is_some_t_type :: (fn(t : TypeValue) -> bool)(
 _uninterpreted_sort_of :: (fn(t : TypeValue) -> VcSort)(
   match(
     t,
-    .SomeT(id, name, _, _, _, _, _, _, _, _, _) => VcSort.Uninterpreted(
+    .SomeT(id, name, _, _, _, _, _, _, _, _) => VcSort.Uninterpreted(
       name : `__yo_T_${_smt_sanitize(`${name}_${id}`)}`
     ),
     _ => VcSort.Uninterpreted(name : String.from("__yo_T_unknown"))
@@ -1538,7 +1538,7 @@ _sorted_strings :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
 });
 /// A term-level variable declaration collector: every `Var` in `t` needs a
 /// matching `declare-fun` in the query.
-_collect_declared :: (fn(t : VcTerm, out : HashMap(String, VcSort)) -> unit)(
+_collect_declared :: (fn(t : VcTerm, inout(out) : HashMap(String, VcSort)) -> unit)(
   match(
     t,
     .Var(name, sort) => {
@@ -2465,7 +2465,7 @@ _arm_ir_bind :: (
     e_ty : TypeValue,
     inout(ctx) : VcCtx,
     saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm))
+    inout(saved_vals) : ArrayList(Option(VcTerm))
   ) -> Option(VcTerm)
 )({
   parts := ArrayList(VcTerm).new();
@@ -2480,8 +2480,8 @@ _bind_one :: (
     name : String,
     term : VcTerm,
     inout(ctx) : VcCtx,
-    saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm))
+    inout(saved_names) : ArrayList(String),
+    inout(saved_vals) : ArrayList(Option(VcTerm))
   ) -> unit
 )({
   saved_names.push(name.clone());
@@ -2494,9 +2494,9 @@ _arm_ir_bind_into :: (
     scrut : VcTerm,
     e_ty : TypeValue,
     inout(ctx) : VcCtx,
-    saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm)),
-    parts : ArrayList(VcTerm)
+    inout(saved_names) : ArrayList(String),
+    inout(saved_vals) : ArrayList(Option(VcTerm)),
+    inout(parts) : ArrayList(VcTerm)
   ) -> bool
 )(
   match(
@@ -2609,9 +2609,9 @@ _subject_test :: (
     p : Pattern,
     scrut : VcTerm,
     inout(ctx) : VcCtx,
-    saved_names : ArrayList(String),
-    saved_vals : ArrayList(Option(VcTerm)),
-    parts : ArrayList(VcTerm)
+    inout(saved_names) : ArrayList(String),
+    inout(saved_vals) : ArrayList(Option(VcTerm)),
+    inout(parts) : ArrayList(VcTerm)
   ) -> bool
 )({
   subject := _pattern_subject_name(p);
@@ -3324,8 +3324,9 @@ _loop_invariant_terms :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr), fram
     .Some(ws) => match(
       frame,
       .Some(fr) => {
-        ws.push(_app2(VcOp.BvUle, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list)));
-        Option(ArrayList(VcTerm)).Some(ws)
+        terms := ws;
+        terms.push(_app2(VcOp.BvUle, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list)));
+        Option(ArrayList(VcTerm)).Some(terms)
       },
       .None => Option(ArrayList(VcTerm)).Some(ws)
     ),
@@ -3902,7 +3903,7 @@ _call_term :: (
       );
     });
     // AoRTE: division/remainder divisor non-zero.
-    if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
+    if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || (op == VcOp.BvSrem) || (op == VcOp.BvUrem), {
       _emit(ctx, String.from("divisor-nonzero"), ArrayList(VcTerm).new(), _nonzero_term(bt), _guard_site(e, String.from("divisor-nonzero")));
     });
     // AoRTE: shift amount within the shifted operand's width.
@@ -3933,7 +3934,7 @@ _call_term :: (
   if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
     a := _expr_term(ctx, args.get(usize(0)).unwrap());
     // 5b Phase 2: a signed negation traps on MIN (elision-only, §6).
-    if(ctx.elision_obligations && ((head == "-") && _int_is_signed(info.ty)), {
+    if(ctx.elision_obligations && (head == "-") && _int_is_signed(info.ty), {
       match(
         a,
         .Some(neg_t) => match(
@@ -6621,7 +6622,7 @@ _emit_binop_elision_obligation :: (
             true
           );
         },
-        ((op == VcOp.BvAdd) || ((op == VcOp.BvSub) || (op == VcOp.BvMul))) => {
+        ((op == VcOp.BvAdd) || (op == VcOp.BvSub) || (op == VcOp.BvMul)) => {
           ww := if(op == VcOp.BvMul, w * usize(2), w + usize(1));
           exact := _app2(op, _widen_or_trunc(at, w, ww, signed), _widen_or_trunc(bt, w, ww, signed));
           wrapped := _widen_or_trunc(_app2(op, at, bt), w, ww, signed);

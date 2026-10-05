@@ -276,12 +276,18 @@ push :: (fn(self : ArrayList(T), item : T) -> unit)
 - **Bare `<name>`**: exactly one index hit → print its full entry (the
   `kubectl explain` feel); several → ranked hit list with module provenance;
   `--verbose` prints the full entries of the top hits.
-- **`--search <q>`**: case-insensitive substring over name, signature, and
-  doc-first-line from `index.txt`. Ranking: exact name > name prefix > name
-  substring > signature/doc match; ties broken by (module, name) sort.
-  Deterministic. **`--deep`** additionally linear-scans the cached
-  `modules/*.md` bodies (≈ 3.4 MB of String scans — fast enough, and it is
-  opt-in so the default stays predictable).
+- **`--search <q>`**: case-insensitive AND match over name, module path,
+  signature, and doc-first-line from `index.txt` — the query is
+  whitespace-tokenized and every token must match somewhere (fixed
+  2026-10-03: it used to be one literal substring over the whole query, so a
+  natural-language query hit nothing). Ranking per token: exact name > name
+  prefix > name substring > module substring > signature > doc, the entry
+  scoring its weakest token; byte-identical entries (the same method on
+  several types of a module, signatures all printing `Self`) collapse to one
+  hit; ties broken by (module, name) sort. Deterministic. **`--deep`**
+  additionally linear-scans the cached `modules/*.md` bodies (≈ 3.4 MB of
+  String scans — fast enough, and it is opt-in so the default stays
+  predictable).
 - **`--format json`** for every query mode (mirrors `--error-format json`):
   one object per hit with stable field names `module`, `origin`, `name`,
   `kind`, `signature`, `doc`; errors as `{"error": "...", "suggestions":

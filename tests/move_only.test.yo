@@ -1,0 +1,299 @@
+// Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, phase V3, Generation A).
+//
+// A value type that implements `Dispose` or declares `MoveOnly`, and every
+// value aggregate holding one, cannot be copied: each move point (`:=`, `=`,
+// a `sink` argument, a field or element store, a return, a closure capture)
+// moves it, a use after the move is E0901, and its one owner disposes it
+// exactly once. `g_mo_disposed` counts the `dispose` runs of `_MoFd` and
+// `_MoLate`, and `g_mo_sum` adds up the disposed `_MoFd`s' `n`.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+(g_mo_disposed : i32) = i32(0);
+(g_mo_sum : i32) = i32(0);
+_MoFd :: struct(n : i32);
+impl(
+  _MoFd,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_mo_disposed = (g_mo_disposed + i32(1));
+      g_mo_sum = (g_mo_sum + self.n);
+    })
+  )
+);
+_MoHolder :: struct(fd : _MoFd, tag : i32);
+_MoToken :: struct(id : i32);
+impl(_MoToken, MoveOnly());
+_MoChoice :: enum(Open(fd : _MoFd), Closed);
+_MoRef :: ref(struct(fd : _MoFd));
+_mo_take :: (fn(sink(f) : _MoFd) -> i32)(f.n);
+_mo_peek :: (fn(f : _MoFd) -> i32)(f.n);
+_mo_make :: (fn(n : i32) -> _MoFd)({
+  x := _MoFd(n : n);
+  x
+});
+_mo_wrap :: (fn(sink(f) : _MoFd) -> _MoHolder)(_MoHolder(fd : f, tag : i32(0)));
+_mo_early :: (fn(c : bool) -> i32)({
+  a := _MoFd(n : i32(10));
+  if(c, {
+    return(_mo_take(a));
+  });
+  i32(0)
+});
+_mo_both_arms :: (fn(c : bool) -> i32)({
+  a := _MoFd(n : i32(20));
+  cond(c => _mo_take(a), true => _mo_take(a))
+});
+// The impl of a move-only type may come after its first use: `MoveOnly` is
+// derived on demand, not when the type is declared.
+_mo_late_user :: (fn() -> i32)({
+  a := _MoLate(n : i32(5));
+  b := a;
+  b.n
+});
+_MoLate :: struct(n : i32);
+impl(
+  _MoLate,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_mo_disposed = (g_mo_disposed + i32(1));
+    })
+  )
+);
+// `own(x)` is the old spelling of `sink(x)` (plans/VALUES_BY_DEFAULT.md
+// decision 15), accepted until the sweep after the next seed.
+_mo_take_old :: (fn(own(f) : _MoFd) -> i32)(f.n);
+_mo_dup_generic :: (fn(generic(T : Type), x : T) -> T)(x);
+_mo_move_generic :: (fn(generic(T : Type), sink(x) : T) -> T)(x);
+// ---------------------------------------------------------------------------
+// The marker
+// ---------------------------------------------------------------------------
+test("move-only: Dispose and MoveOnly make a value type move-only, and value aggregates inherit it", {
+  comptime_assert(Type.impls(_MoFd, MoveOnly), "a Dispose value type is move-only");
+  comptime_assert(Type.impls(_MoToken, MoveOnly), "a declared MoveOnly type is move-only");
+  comptime_assert(Type.impls(_MoHolder, MoveOnly), "a struct holding one is move-only");
+  comptime_assert(Type.impls(Option(_MoFd), MoveOnly), "an Option of one is move-only");
+  comptime_assert(Type.impls(Tuple(_MoFd, i32), MoveOnly), "a tuple holding one is move-only");
+  comptime_assert(Type.impls(_MoChoice, MoveOnly), "an enum carrying one is move-only");
+  comptime_assert(Type.impls(Array(_MoFd, 2), MoveOnly), "an array of them is move-only");
+  comptime_assert(!Type.impls(i32, MoveOnly), "i32 is copyable");
+  comptime_assert(!Type.impls(_MoRef, MoveOnly), "a reference type shares its payload: never move-only");
+  comptime_assert(!Type.impls(Box(_MoFd), MoveOnly), "Box is a reference type on this tree: never move-only");
+  comptime_assert(Type.contains_rc_type(_MoFd), "a move-only value has a drop to run");
+});
+_MoPlain :: struct(n : i32);
+test("move-only: the impl-site gate", {
+  comptime_expect_error(impl(_MoPlain, !MoveOnly), "Cannot use '!(MoveOnly)'");
+  comptime_expect_error(impl(_MoRef, MoveOnly()), "it is a reference type");
+  comptime_expect_error(impl(i32, Dispose(dispose : (fn(self : Self) -> unit)(()))), "cannot implement \"Dispose\"");
+  comptime_expect_error(impl(_MoToken, Trace(trace : (fn(self : Self, tracer : GcTracer) -> unit)(()))), "cannot implement \"Trace\"");
+});
+// ---------------------------------------------------------------------------
+// Every move point moves, and the one owner disposes once
+// ---------------------------------------------------------------------------
+test("move-only: `:=` moves, and the new owner disposes once", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(1));
+    b := a;
+    assert(b.n == i32(1), "b holds the value");
+    comptime_expect_error(a.n, "use of moved value");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "one dispose");
+});
+test("move-only: a by-value parameter borrows, a `sink` parameter moves", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(2));
+    assert(_mo_peek(a) == i32(2), "borrowed");
+    assert(_mo_peek(a) == i32(2), "still usable after a borrow");
+    assert(_mo_take(a) == i32(2), "moved in");
+    assert(g_mo_disposed == (before + i32(1)), "the callee disposed it");
+    comptime_expect_error(_mo_take(a), "use of moved value");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "disposed once");
+});
+test("move-only: `=` moves the right side, and the old value is disposed once", {
+  before := g_mo_disposed;
+  before_sum := g_mo_sum;
+  {
+    (x : _MoFd) = _MoFd(n : i32(3));
+    y := _MoFd(n : i32(4));
+    x = y;
+    assert(x.n == i32(4), "x holds the new value");
+    comptime_expect_error(y.n, "use of moved value");
+  };
+  assert(g_mo_disposed == (before + i32(2)), "old and new each disposed once");
+  assert(g_mo_sum == (before_sum + i32(7)), "3 and 4");
+});
+test("move-only: a field store and a constructor argument move", {
+  before := g_mo_disposed;
+  before_sum := g_mo_sum;
+  {
+    a := _MoFd(n : i32(5));
+    h := _MoHolder(fd : a, tag : i32(1));
+    comptime_expect_error(a.n, "use of moved value");
+    b := _MoFd(n : i32(6));
+    h.fd = b;
+    comptime_expect_error(b.n, "use of moved value");
+    assert(h.fd.n == i32(6), "the field holds the stored value");
+  };
+  assert(g_mo_disposed == (before + i32(2)), "each disposed once");
+  assert(g_mo_sum == (before_sum + i32(11)), "5 and 6");
+});
+test("move-only: Option, tuple, enum and array elements move in and dispose once", {
+  before := g_mo_disposed;
+  before_sum := g_mo_sum;
+  {
+    a := _MoFd(n : i32(1));
+    o := Option(_MoFd).Some(a);
+    b := _MoFd(n : i32(2));
+    t := (b, i32(0));
+    c := _MoFd(n : i32(3));
+    e := _MoChoice.Open(c);
+    d := _MoFd(n : i32(4));
+    arr := Array(_MoFd, 2)(d, _MoFd(n : i32(5)));
+    comptime_expect_error(d.n, "use of moved value");
+    assert(t.1 == i32(0), "tuple built");
+  };
+  assert(g_mo_disposed == (before + i32(5)), "five disposals");
+  assert(g_mo_sum == (before_sum + i32(15)), "1 to 5");
+});
+test("move-only: a return moves the value out, an early return disposes once", {
+  before := g_mo_disposed;
+  before_sum := g_mo_sum;
+  {
+    f := _mo_make(i32(7));
+    h := _mo_wrap(f);
+    assert(h.fd.n == i32(7), "moved through sink and a constructor");
+    assert(_mo_early(true) == i32(10), "the returning path moved it");
+    assert(_mo_early(false) == i32(0), "the other path drops it");
+    assert(_mo_both_arms(true) == i32(20), "moved in one arm");
+    assert(_mo_both_arms(false) == i32(20), "moved in the other arm");
+  };
+  assert(g_mo_disposed == (before + i32(5)), "each value disposed once");
+  assert(g_mo_sum == (before_sum + i32(67)), "7 + 10 + 10 + 20 + 20");
+});
+test("move-only: a closure capture moves the value, and the closure disposes it", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(8));
+    (f : Impl(Fn() -> i32)) = (() => a.n);
+    assert(f() == i32(8), "the closure owns the value");
+    comptime_expect_error(a.n, "use of moved value");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "the closure disposes once");
+});
+_mo_with :: (fn(f : Impl(Fn() -> i32)) -> i32)(f());
+_mo_with_sink :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());
+test("move-only: a closure passed straight to a borrowing parameter borrows its captures", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(11));
+    assert(_mo_with(() => a.n) == i32(11), "the closure reads the borrowed value");
+    assert(_mo_with(() => (a.n + i32(1))) == i32(12), "and again: nothing moved");
+    assert(a.n == i32(11), "a is still usable after the call");
+    assert(g_mo_disposed == before, "the borrowing closure disposes nothing");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "the owner disposes once");
+});
+test("move-only: a closure passed to a sink parameter escapes and moves its captures", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(12));
+    assert(_mo_with_sink(() => a.n) == i32(12), "the escaping closure owns the value");
+    comptime_expect_error(a.n, "use of moved value");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "disposed once, with the closure");
+});
+test("move-only: an impl declared after its first use", {
+  before := g_mo_disposed;
+  assert(_mo_late_user() == i32(5), "moved");
+  assert(g_mo_disposed == (before + i32(1)), "disposed once");
+  comptime_assert(Type.impls(_MoLate, MoveOnly), "derived on demand");
+});
+test("move-only: a generic `sink` parameter moves at the instantiation", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(9));
+    b := _mo_move_generic(a);
+    comptime_expect_error(a.n, "use of moved value");
+    assert(b.n == i32(9), "moved through the generic");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "disposed once");
+});
+// ---------------------------------------------------------------------------
+// Rejected copies
+// ---------------------------------------------------------------------------
+test("move-only: a borrow cannot be copied or moved out", {
+  a := _MoFd(n : i32(1));
+  comptime_expect_error((fn(f : _MoFd) -> _MoFd)(f), "it is borrowed");
+  comptime_expect_error(
+    (fn(f : _MoFd) -> i32)({
+      g := f;
+      g.n
+    }),
+    "it is borrowed"
+  );
+  comptime_expect_error((fn(inout(f) : _MoFd) -> i32)(_mo_take(f)), "it is an `inout` binding");
+  comptime_expect_error(
+    (fn(f : _MoFd) -> i32)({
+      (k : Impl(Fn() -> i32)) = (() => f.n);
+      k()
+    }),
+    "the closure captures `f`"
+  );
+  o := Option(_MoFd).Some(_MoFd(n : i32(2)));
+  comptime_expect_error(match(o, .Some(f) => _mo_take(f), .None => i32(0)), "it is borrowed");
+  assert(_mo_peek(a) == i32(1), "a is untouched");
+});
+test("move-only: no partial moves out of a field", {
+  h := _MoHolder(fd : _MoFd(n : i32(1)), tag : i32(2));
+  comptime_expect_error({
+    f := h.fd;
+    f.n
+  }, "no partial moves");
+  comptime_expect_error(_mo_take(h.fd), "no partial moves");
+  assert(_mo_peek(h.fd) == i32(1), "a field can still be borrowed");
+});
+test("move-only: a generic body that copies is rejected at the instantiation", {
+  a := _MoFd(n : i32(1));
+  comptime_expect_error(_mo_dup_generic(a), "whose type `_MoFd` is move-only");
+  xs := ArrayList(_MoFd).new();
+  comptime_expect_error(xs.get(usize(0)), "a dereference copies, it never moves");
+  assert(xs.len() == usize(0), "empty");
+});
+test("move-only: flow joins move on all paths or none", {
+  a := _MoFd(n : i32(1));
+  c := runtime(true);
+  comptime_expect_error(cond(c => _mo_take(a), true => i32(0)), "moved in some arms but not in others");
+  b := _MoFd(n : i32(2));
+  comptime_expect_error({
+    i := i32(0);
+    while(i < i32(2), {
+      _mo_take(b);
+      i = (i + i32(1));
+    });
+  }, "is moved inside the loop");
+  assert(_mo_peek(a) == i32(1), "a stays");
+});
+test("move-only: the E0901 note names why the type is move-only", {
+  h := _MoHolder(fd : _MoFd(n : i32(1)), tag : i32(2));
+  g := h;
+  comptime_expect_error(h.tag, "holds a move-only value in its field `fd`");
+  t := _MoToken(id : i32(3));
+  u := t;
+  comptime_expect_error(t.id, "declares MoveOnly");
+  assert((g.tag + u.id) == i32(5), "moved values");
+});
+test("move-only: `own` is the old spelling of `sink`, and both spell one function type", {
+  comptime_assert(Type.is_compatible_with((fn(own(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "own and sink are one parameter mode");
+  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(own(f) : _MoFd) -> i32)), "both directions");
+  comptime_assert(!Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(f : _MoFd) -> i32)), "sink is not a borrow");
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(3));
+    assert(_mo_take_old(a) == i32(3), "own moves like sink");
+    comptime_expect_error(a.n, "use of moved value");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "disposed once, by the callee");
+});

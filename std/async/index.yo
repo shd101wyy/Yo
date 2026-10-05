@@ -1,11 +1,11 @@
-//! Async task utilities — cooperative `yield` and `JoinHandle` combinators
-//! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 6).
+//! Async task utilities — cooperative `yield`, `JoinHandle.join` and the
+//! `JoinHandle` combinators (`plans/archive/STD_API_AUDIT.md` §7 P0 item 6,
+//! reshaped as futures by `plans/ASYNC_IO_API_AUDIT.md` A1).
 //!
-//! The combinators (`join_all`, `race`, `race_first`, `any`, `any_first`,
-//! `timeout`) are BLOCKING-POLL
-//! functions in the same sense as `JoinHandle.await`: they drive the event
-//! loop while they wait, so every spawned task keeps making progress. They
-//! take spawned handles, not futures — spawn at the call site:
+//! Every combinator (`join_all`, `race`, `race_first`, `any`, `any_first`,
+//! `timeout`) is a FUTURE: it suspends the awaiting task until its handles
+//! are done, so it works the same in `main` and inside an `io.async` body.
+//! They take spawned handles, not futures — spawn at the call site:
 //!
 //! ```yo
 //! { join_all, timeout } :: import("std/async");
@@ -16,7 +16,8 @@
 //! handles := ArrayList(JoinHandle(String)).new();
 //! handles.push(h1);
 //! handles.push(h2);
-//! results := join_all(handles, io); // ArrayList(Option(String))
+//! results := io.await(join_all(handles, io), io); // ArrayList(Option(String))
+//! one := io.await(h1.join(io), io);                 // Option(String), from a task too
 //! ```
 //!
 //! For the async-safe `Channel` and `Mutex` (usable INSIDE tasks without
@@ -25,16 +26,13 @@
 //!
 //! ## Stability
 //!
-//! unstable — the NAMES (`yield`, `join_all`, `race`, `race_first`, `any`,
-//! `any_first`, `timeout`, `TimeoutError`) keep their meanings, but the
-//! SHAPE is about to change: every combinator is a blocking-poll plain `fn`
-//! (it re-checks its handles around `__yo_async_poll_step`, with no timer
-//! under it since v0.2.32), so none of them can be called from inside an
-//! `io.async` body without nesting the event loop. Phase A1 of
-//! `plans/ASYNC_IO_API_AUDIT.md` turns each one into a future
-//! (`join_all(handles, io) -> Impl(Future(ArrayList(Option(T)), Io))`, and so
-//! on) built on a `JoinHandle.await` that suspends inside a task; the
-//! `JoinHandle`-not-`Future` argument type stays (decision Q3 there).
+//! unstable — the names (`yield`, `join`, `join_all`, `race`, `race_first`,
+//! `any`, `any_first`, `timeout`, `TimeoutError`) and the future-returning
+//! shape are settled as of 2026-10-03; the `JoinHandle`-not-`Future` argument
+//! type is a decision (`plans/ASYNC_IO_API_AUDIT.md` Q3). What may still
+//! change is the wait primitive under them (`__yo_join_wait_*`): today it
+//! wakes on ANY added task, which `any` works around by re-waiting over the
+//! handles still running.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { assert } :: import("../assert");
@@ -43,14 +41,8 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("../fmt");
 import("../string");
 IO_timer :: import("../sys/timer");
-{ __yo_async_yield_start } :: import("../sys/externs.yo");
-extern(
-  "Yo",
-  /// One event-loop step: drain ready tasks, then poll (and, when idle with
-  /// pending I/O, wait for) I/O completions. The same primitive
-  /// `JoinHandle.await`'s poll loop is built on.
-  __yo_async_poll_step : (fn() -> unit)
-);
+{ __yo_async_yield_start, __yo_join_wait_new, __yo_join_wait_add } :: import("../sys/externs.yo");
+{ IoFuture } :: import("../sys/future.yo");
 /// Suspend the current async task until the next event-loop turn: drain the
 /// ready queue, then poll (and, when idle with pending I/O, block in) I/O.
 ///
@@ -82,79 +74,127 @@ yield :: (fn(io : Io) -> Impl(Future(unit)))(
     ()
   })
 );
-/// Await every handle, in order, returning each task's result (`.None` for a
-/// task that was aborted). All tasks run concurrently on the loop — awaiting
-/// sequentially costs the SLOWEST task's wall time, not the sum. The handles
-/// are not consumed: a `JoinHandle` owns a reference to its task and may be
-/// awaited again (it re-reads the same result).
-join_all :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> ArrayList(Option(T)))({
-  out := ArrayList(Option(T)).with_capacity(handles.len());
+impl(
+  generic(T : Type),
+  JoinHandle(T),
+  /// Wait for the task from INSIDE a task: a future that resolves to the
+  /// task's result (`.None` if it was aborted) and suspends the awaiting task
+  /// until then — `io.await(h.join(io), io)`. `h.await(io)` returns the same
+  /// `Option(T)` but is a blocking poll of the event loop, which is right in
+  /// `main` or any plain `fn` and nests the loop inside an `io.async` body
+  /// (`YO_ASYNC_STRICT=1` panics there); `join` is the form for a task. In
+  /// `main`, `io.await(h.join(io), io)` and `h.await(io)` are equivalent.
+  ///
+  /// Joining does not consume the handle: a second `join` of a finished task
+  /// resolves at once and reads the same result. Aborting the JOINING task
+  /// cancels the wait; the joined task is untouched (it is another handle's
+  /// to abort).
+  join : (fn(self : Self, io : Io) -> Impl(Future(Option(T), Io)))(
+    io.async((io : Io) => {
+      w := unsafe(__yo_join_wait_new());
+      unsafe(__yo_join_wait_add(w, self.as_ptr()));
+      _w := io.await(w, io);
+      // Terminal now: this read returns without driving the loop.
+      self.await(io)
+    })
+  )
+);
+/// A wait that resolves when ANY of `handles` is terminal. Handles that are
+/// terminal already resolve it at once.
+_wait_any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T))) -> IoFuture)({
+  w := unsafe(__yo_join_wait_new());
   (i : usize) = usize(0);
   while(i < handles.len(), i = (i + usize(1)), {
     h := handles(i);
-    r := h.await(io);
-    out.push(r);
+    unsafe(__yo_join_wait_add(w, h.as_ptr()));
   });
-  out
+  w
 });
-/// Drive the loop until at least one handle is terminal (completed OR
-/// aborted) and return its index. The losers keep running: a `JoinHandle`
-/// dropped without an await DETACHES its task, so `abort()` the losers if
-/// their work is unwanted (`race_first` does that for you). Panics on an
-/// empty list.
-race :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> usize)({
-  assert(handles.len() > usize(0), "race: empty handle list");
-  (winner : Option(usize)) = Option(usize).None;
-  while(winner.is_none(), {
+/// Await every handle, in order, resolving to each task's result (`.None` for
+/// a task that was aborted). All tasks run concurrently on the loop — the wait
+/// costs the SLOWEST task's wall time, not the sum. The handles are not
+/// consumed: a `JoinHandle` owns a reference to its task and may be awaited
+/// again (it re-reads the same result).
+///
+/// ```yo
+/// results := io.await(join_all(handles, io), io); // ArrayList(Option(T))
+/// ```
+join_all :: (
+  fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(ArrayList(Option(T)), Io))
+)(
+  io.async((io : Io) => {
+    out := ArrayList(Option(T)).with_capacity(handles.len());
     (i : usize) = usize(0);
-    while((i < handles.len()) && winner.is_none(), {
+    while(i < handles.len(), i = (i + usize(1)), {
+      h := handles(i);
+      r := io.await(h.join(io), io);
+      out.push(r);
+    });
+    out
+  })
+);
+/// Resolve once at least one handle is terminal (completed OR aborted), to
+/// its index. The losers keep running: a `JoinHandle` dropped without an
+/// await DETACHES its task, so `abort()` the losers if their work is unwanted
+/// (`race_first` does that for you). Panics on an empty list.
+race :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(usize, Io)))({
+  assert(handles.len() > usize(0), "race: empty handle list");
+  io.async((io : Io) => {
+    _w := io.await(_wait_any(handles), io);
+    (winner : Option(usize)) = Option(usize).None;
+    (i : usize) = usize(0);
+    while((i < handles.len()) && winner.is_none(), i = (i + usize(1)), {
       h := handles(i);
       if(h.is_finished(), {
         winner = Option(usize).Some(i);
       });
-      i = (i + usize(1));
     });
-    if(winner.is_none(), {
-      __yo_async_poll_step();
-    });
-  });
-  winner.unwrap()
+    winner.unwrap()
+  })
 });
-/// Drive the loop until some handle COMPLETES (not merely aborts) and return
-/// its index, or `.None` once every handle is terminal without a completion.
-/// Like `race`, the losers keep running unless aborted (`any_first` aborts
-/// them). Panics on an empty list.
-any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Option(usize))({
+/// Resolve once some handle COMPLETES (not merely aborts), to its index, or
+/// to `.None` once every handle is terminal without a completion. Like
+/// `race`, the losers keep running unless aborted (`any_first` aborts them).
+/// Panics on an empty list.
+any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(usize), Io)))({
   assert(handles.len() > usize(0), "any: empty handle list");
-  (result : Option(usize)) = Option(usize).None;
-  (decided : bool) = false;
-  while(decided == false, {
-    (terminal : usize) = usize(0);
-    (i : usize) = usize(0);
-    while((i < handles.len()) && (decided == false), {
-      h := handles(i);
-      s := h.state();
-      if(s == FutureState.Completed, {
-        result = Option(usize).Some(i);
-        decided = true;
+  io.async((io : Io) => {
+    (result : Option(usize)) = Option(usize).None;
+    (decided : bool) = false;
+    while(decided == false, {
+      // Every handle still running; the wait below resolves when one of
+      // THESE ends, so an already-terminal (aborted) handle cannot keep
+      // resolving it at once.
+      pending := ArrayList(JoinHandle(T)).new();
+      (i : usize) = usize(0);
+      while((i < handles.len()) && (decided == false), i = (i + usize(1)), {
+        h := handles(i);
+        s := h.state();
+        cond(
+          (s == FutureState.Completed) => {
+            result = Option(usize).Some(i);
+            decided = true;
+          },
+          (s == FutureState.Aborted) => (),
+          true => pending.push(h)
+        );
       });
-      if(s == FutureState.Aborted, {
-        terminal = (terminal + usize(1));
-      });
-      i = (i + usize(1));
+      cond(
+        decided => (),
+        (pending.len() == usize(0)) => {
+          decided = true;
+        },
+        true => {
+          _w := io.await(_wait_any(pending), io);
+        }
+      );
     });
-    if((decided == false) && (terminal == handles.len()), {
-      decided = true;
-    });
-    if(decided == false, {
-      __yo_async_poll_step();
-    });
-  });
-  result
+    result
+  })
 });
-/// Await the FIRST handle to finish and abort the rest — `race` with the
-/// cleanup done for you. Returns the winner's result (`.None` if the winner
-/// was aborted rather than completed). Panics on an empty list.
+/// Resolve to the FIRST handle's result and abort the rest — `race` with the
+/// cleanup done for you (`.None` if the winner was aborted rather than
+/// completed). Panics on an empty list.
 ///
 /// This exists because `race`/`any` hand back an index and leave the losers
 /// running: dropping a `JoinHandle` DETACHES its task (Tokio's semantics,
@@ -164,47 +204,51 @@ any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Op
 /// carry a `Dispose` today (it owns a reference to the task's future), but
 /// abort-on-drop is deliberately not its semantics.
 ///
-/// Every loser is aborted AND awaited: the await lets a loser suspended in a
+/// Every loser is aborted AND joined: the join lets a loser suspended in a
 /// cancellable operation be released here rather than when that operation
 /// would have completed.
-race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Option(T))({
+race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
   assert(handles.len() > usize(0), "race_first: empty handle list");
-  w := race(handles, io);
-  (i : usize) = usize(0);
-  while(i < handles.len(), i = (i + usize(1)), {
-    cond(
-      (i == w) => (),
-      true => {
-        l := handles(i);
-        l.abort();
-        l.await(io);
-      }
-    );
-  });
-  win := handles(w);
-  win.await(io)
+  io.async((io : Io) => {
+    w := io.await(race(handles, io), io);
+    (i : usize) = usize(0);
+    while(i < handles.len(), i = (i + usize(1)), {
+      cond(
+        (i == w) => (),
+        true => {
+          l := handles(i);
+          l.abort();
+          _lr := io.await(l.join(io), io);
+        }
+      );
+    });
+    win := handles(w);
+    io.await(win.join(io), io)
+  })
 });
-/// Await the first handle to COMPLETE and abort the rest — `any` with the
-/// cleanup done for you. `.None` when every handle ended without completing.
-/// Panics on an empty list. See `race_first` for why this exists.
-any_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Option(T))({
+/// Resolve to the first handle to COMPLETE and abort the rest — `any` with
+/// the cleanup done for you. `.None` when every handle ended without
+/// completing. Panics on an empty list. See `race_first` for why this exists.
+any_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
   assert(handles.len() > usize(0), "any_first: empty handle list");
-  decided := any(handles, io);
-  (out : Option(T)) = Option(T).None;
-  (i : usize) = usize(0);
-  while(i < handles.len(), i = (i + usize(1)), {
-    h := handles(i);
-    cond(
-      match(decided, .Some(w) => (i == w), .None => false) => {
-        out = h.await(io);
-      },
-      true => {
-        h.abort();
-        h.await(io);
-      }
-    );
-  });
-  out
+  io.async((io : Io) => {
+    decided := io.await(any(handles, io), io);
+    (out : Option(T)) = Option(T).None;
+    (i : usize) = usize(0);
+    while(i < handles.len(), i = (i + usize(1)), {
+      h := handles(i);
+      cond(
+        match(decided, .Some(w) => (i == w), .None => false) => {
+          out = io.await(h.join(io), io);
+        },
+        true => {
+          h.abort();
+          _hr := io.await(h.join(io), io);
+        }
+      );
+    });
+    out
+  })
 });
 /// Why `timeout(...)` produced no value (D18).
 ///
@@ -226,11 +270,15 @@ derive(
     .Aborted => `timeout: the task was aborted before it produced a value`
   )
 );
-/// Await `handle` with a deadline: `.Ok(v)` if it finishes within `limit`,
-/// `.Err(TimeoutError.Elapsed)` if the deadline fires first (the handle is
-/// `abort()`ed), `.Err(TimeoutError.Aborted)` if the task was cancelled on
-/// its own. The handle stays valid either way (it can be awaited again).
-/// Millisecond granularity (the timer contract of `std/time/sleep`).
+/// Wait for `handle` with a deadline: `.Ok(v)` if it finishes within
+/// `limit`, `.Err(TimeoutError.Elapsed)` if the deadline fires first (the
+/// handle is `abort()`ed), `.Err(TimeoutError.Aborted)` if the task was
+/// cancelled on its own. The handle stays valid either way (it can be joined
+/// again). Millisecond granularity (the timer contract of `std/time/sleep`).
+///
+/// ```yo
+/// r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
+/// ```
 ///
 /// A task that finishes before the deadline leaves nothing behind: `abort()`
 /// on the deadline handle deregisters the armed timer in the I/O backend and
@@ -238,49 +286,56 @@ derive(
 /// the timer kept counting and held ~256 bytes per call for the whole
 /// remaining deadline (`issues/fixed/timeout-deadline-timer-future-leak.md`).
 timeout :: (
-  fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Result(T, TimeoutError)
+  fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), Io))
 )({
-  // The deadline is a spawned TASK, not a bare io-timer future: a raw
-  // `IoFuture` local would be auto-dropped at scope end while the backend
-  // still holds the armed timer (issues/fixed/pending-io-future-local-drop-uaf.md);
-  // inside a task the await machinery owns it correctly on every path.
   ms := Box(u64)(u64(limit.as_millis()));
-  deadline_fut := io.async((io : Io) => {
-    io.await(IO_timer.sleep(ms.*), io);
-    return(());
-  });
-  dh := io.spawn(deadline_fut, io);
-  (waiting : bool) = true;
-  // Which arm ended the wait — the ONLY place the two failure modes are
-  // distinguishable. After the loop, `handle.await` reports `.None` for a
-  // deadline abort and a self-abort alike.
-  (elapsed : bool) = false;
-  while(waiting, {
+  io.async((io : Io) => {
+    // The deadline is a spawned TASK, not a bare io-timer future: a raw
+    // `IoFuture` local would be auto-dropped at scope end while the backend
+    // still holds the armed timer (issues/fixed/pending-io-future-local-drop-uaf.md);
+    // inside a task the await machinery owns it correctly on every path.
+    deadline_fut := io.async((io : Io) => {
+      io.await(IO_timer.sleep(ms.*), io);
+      return(());
+    });
+    dh := io.spawn(deadline_fut, io);
+    // One wait over the task and the deadline: resolves when either ends.
+    w := unsafe(__yo_join_wait_new());
+    unsafe(__yo_join_wait_add(w, handle.as_ptr()));
+    unsafe(__yo_join_wait_add(w, dh.as_ptr()));
+    _w := io.await(w, io);
+    // Which arm ended the wait — the ONLY place the two failure modes are
+    // distinguishable. Afterwards `join` reports `.None` for a deadline abort
+    // and a self-abort alike.
+    (elapsed : bool) = false;
     cond(
-      handle.is_finished() => {
-        waiting = false;
-      },
-      dh.is_finished() => {
+      handle.is_finished() => (),
+      true => {
         handle.abort();
         elapsed = true;
-        waiting = false;
-      },
-      true => __yo_async_poll_step()
+      }
     );
-  });
-  // Abort and await the deadline handle. When the task finished first,
-  // the abort cancels the still-armed timer and releases the deadline task
-  // immediately (runtime_core.yo `__yo_async_io_cancel`), so the await that
-  // follows returns without waiting for `limit`.
-  dh.abort();
-  _deadline_r := dh.await(io);
-  match(
-    handle.await(io),
-    .Some(v) => .Ok(v),
-    .None => cond(
-      elapsed => .Err(TimeoutError.Elapsed),
-      true => .Err(TimeoutError.Aborted)
-    )
-  )
+    // Abort and join the deadline handle. When the task finished first, the
+    // abort cancels the still-armed timer and releases the deadline task
+    // immediately (runtime_core.yo `__yo_async_io_cancel`), so the join that
+    // follows resolves without waiting for `limit`.
+    dh.abort();
+    _deadline_r := io.await(dh.join(io), io);
+    // A typed local, not a bare `match` tail, until SEED_VERSION carries the
+    // fix for a generic `io.async` body whose tail builds bare variants: the
+    // seed compiles std/http's `timeout` call into the compiler and would give
+    // the result a second C type
+    // (issues/fixed/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md;
+    // Generation B in plans/backlog/SEED_VERSION_AUTOMATION.md).
+    (out : Result(T, TimeoutError)) = match(
+      io.await(handle.join(io), io),
+      .Some(v) => .Ok(v),
+      .None => cond(
+        elapsed => .Err(TimeoutError.Elapsed),
+        true => .Err(TimeoutError.Aborted)
+      )
+    );
+    out
+  })
 });
 export(yield, join_all, race, race_first, any, any_first, timeout, TimeoutError);

@@ -220,6 +220,6 @@ Gates in `tests/type_soundness.test.yo`:
   against its argument the reverse).
 
 Writing the reverse-direction canary at a call site found
-`issues/the-flow-relation-is-called-with-its-arguments-reversed.md`: v0.2.43
+`issues/fixed/the-flow-relation-is-called-with-its-arguments-reversed.md`: v0.2.43
 accepts an `atomic_ullong` for a `u64` parameter, and so does this change,
 because the argument check calls the relation as (parameter, argument).

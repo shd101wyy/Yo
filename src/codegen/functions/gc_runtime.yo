@@ -435,7 +435,7 @@ static inline void* __yo_incr_rc(void* ptr) {
 // Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
 //   - Increment: relaxed (no ordering needed for new reference creation)
 //   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
-//   - rc() check: acquire (see all prior writes before acting on uniqueness)
+//   - ref_count() check: acquire (see all prior writes before acting on uniqueness)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
@@ -641,7 +641,7 @@ static void __yo_decr_rc_tracked(void* ptr) {
 // Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
 //   - Increment: relaxed (no ordering needed for new reference creation)
 //   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
-//   - rc() check: acquire (see all prior writes before acting on uniqueness)
+//   - ref_count() check: acquire (see all prior writes before acting on uniqueness)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;

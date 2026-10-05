@@ -14,24 +14,27 @@
 //!   * The `value.type.isClosure` fallback closure-detection (Gap 2: FuncVal
 //!     carries no TypeValue) is omitted.
 { String } :: import("std/string");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ ArrayList } :: import("std/collections/array_list");
+{ AstExpr, ExprId, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
 { check_variable_is_closure_captured } :: import("./closures.yo");
 {
   get_variable_name_for_codegen,
+  get_variable_name_for_codegen_at,
   get_deferred_drop_target_atom_name,
   scope_stack_contains,
   get_type_string,
   sanitize_for_c_identifier,
   fresh_local_name
 } :: import("../utils/index.yo");
+{ deferred_drop_target_variable, _codegen_name_of_variables } :: import("../utils/index.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
-{ sm_local_field_name, sm_storage_id, sm_slot_of, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ sm_local_field_name, sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
+{ Environment, get_variables_from_env, Variable } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ expr_info_converted_runtime_type } :: import("../../expr_info.yo");
+{ expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
@@ -62,7 +65,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
   match(
     ei_opt,
     .Some(ei) => {
-      vars := get_variables_from_env(ei.env, var_name.clone());
+      vars := scope_variables(ast_expr_id(expr), ei.env, var_name.clone());
       if(vars.len() > usize(0), {
         match(
           vars.last(),
@@ -147,7 +150,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
     match(
       ei_opt,
       .Some(ei_s) => {
-        svars := get_variables_from_env(ei_s.env, var_name.clone());
+        svars := scope_variables(ast_expr_id(expr), ei_s.env, var_name.clone());
         if(svars.len() > usize(0), {
           match(
             svars.last(),
@@ -214,7 +217,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
   match(
     ei_opt,
     .Some(ei2) => {
-      vars2 := get_variables_from_env(ei2.env, var_name.clone());
+      vars2 := scope_variables(ast_expr_id(expr), ei2.env, var_name.clone());
       if(vars2.len() > usize(0), {
         match(
           vars2.last(),
@@ -258,7 +261,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
   // 4) Closure-captured (closure+effect SM): access through closure_context.
   if(match(context.current_closure_captures, .Some(caps) => caps.contains(var_name.clone()), .None => false)
   && context.current_closure_capture_frame_level.is_some(), {
-    cn := get_variable_name_for_codegen(var_name.clone(), match(ei_opt, .Some(e4) => Option(Environment).Some(e4.env), .None => Option(Environment).None));
+    cn := get_variable_name_for_codegen_at(ast_expr_id(expr), var_name.clone(), match(ei_opt, .Some(e4) => Option(Environment).Some(e4.env), .None => Option(Environment).None));
     match(
       context.current_closure_capture_type_c_name,
       .Some(ct) => return(Option(String).Some(`((${ct.clone()}*)closure_context)->${cn.clone()}`)),
@@ -283,7 +286,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
         is_ct_const := match(
           ei5.value,
           .Some(v) => if(!is_unknown_val(v), {
-            vars5 := get_variables_from_env(ei5.env, vn.clone());
+            vars5 := scope_variables(ast_expr_id(expr), ei5.env, vn.clone());
             n5 := vars5.len();
             cond(
               (n5 == usize(0)) => false,
@@ -301,7 +304,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
         // (issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md),
         // and since phase 6 such a local can be a C local of the resume
         // function rather than a field.
-        return(Option(String).Some(_var_read_code(var_name.clone(), Option(Environment).Some(ei5.env))));
+        return(Option(String).Some(_var_read_code(ast_expr_id(expr), var_name.clone(), Option(Environment).Some(ei5.env))));
       },
       .None => ()
     ),
@@ -312,6 +315,28 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
 /// Emit `___drop` lines for the loop-body locals declared since entering the
 /// current loop body, before a break/continue exit, filtered by liveness at
 /// the exit point.
+/// What a break/continue exit's lookup of a pending loop-body drop's target
+/// yields. Under the scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6)
+/// the exit's recorded env is gone and the drop's own target (through its
+/// atom's record) stands in, as at return points (`_cleanup_drop_variables`,
+/// return.yo).
+_exit_drop_variables :: (fn(exit_expr : AstExpr, env : Environment, var_name : String, drop_expr : AstExpr, context : FunctionGenerationContext) -> ArrayList(Variable))({
+  mode := scope_release_mode();
+  if(mode == usize(0), {
+    return(scope_variables(ast_expr_id(exit_expr), env, var_name));
+  });
+  rec := ArrayList(Variable).new();
+  match(deferred_drop_target_variable(drop_expr, context.base), .Some(tv) => rec.push(tv), .None => ());
+  if(mode == usize(1), {
+    truth := get_variables_from_env(env, var_name);
+    same := match(truth.last(), .Some(x) => match(rec.last(), .Some(y) => (x.id == y.id), .None => false), .None => rec.is_empty());
+    if(!same, {
+      scope_release_note_mismatch(String.from("exit-drop"));
+    });
+    return(truth);
+  });
+  rec
+});
 _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, indent : String, exit_expr : AstExpr) -> unit)(
   match(
     context.pending_deferred_drops,
@@ -345,7 +370,8 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
               skip := match(
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(var_name) => {
-                  c_name := get_variable_name_for_codegen(var_name.clone(), exit_env_opt);
+                  exit_vars := match(exit_env_opt, .Some(xe) => Option(ArrayList(Variable)).Some(_exit_drop_variables(exit_expr, xe, var_name.clone(), drop_expr, context)), .None => Option(ArrayList(Variable)).None);
+                  c_name := match(exit_vars, .Some(xv) => _codegen_name_of_variables(var_name.clone(), xv), .None => get_variable_name_for_codegen_at(ast_expr_id(exit_expr), var_name.clone(), exit_env_opt));
                   // A local with a task slot is never declared as a C
                   // variable (its binding writes `sm->…`), so the scope stack
                   // cannot vouch for it. The slot always exists and is zero
@@ -355,21 +381,20 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
                     exit_env_opt,
                     .Some(slot_env) => match(
                       context.state_machine_variables,
-                      .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(slot_env, var_name.clone(), smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some()),
+                      .Some(smv) => (context.in_async_state_machine.is_some() && match(match(exit_vars, .Some(xv) => xv.last(), .None => Option(Variable).None), .Some(slot_v) => sm_slot_of_variable(slot_v, smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some(), .None => sm_slot_of(ast_expr_id(exit_expr), slot_env, var_name.clone(), smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some())),
                       .None => false
                     ),
                     .None => false
                   );
                   (sk : bool) = false;
-                  if(!in_slot && !scope_stack_contains(context.base.declared_scopes, c_name), {
+                  if(!in_slot && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
                     sk = true;
                   }, {
                     // env-liveness: skip drops for variables not yet in
                     // scope/initialized at the exit point (exit env available).
                     sk = match(
-                      exit_env_opt,
-                      .Some(exit_env) => {
-                        vars := get_variables_from_env(exit_env, var_name);
+                      exit_vars,
+                      .Some(vars) => {
                         nv := vars.len();
                         cond(
                           (nv == usize(0)) => true,
@@ -414,14 +439,14 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
 // keyed on different names, so a variable could be "not captured" for the
 // guard and "captured" for the emitter. The guard won, and the closure body
 // referenced a variable that does not exist in it.
-_is_captured_here :: (fn(name : String, env_opt : Option(Environment), context : FunctionGenerationContext) -> bool)(
+_is_captured_here :: (fn(key : ExprId, name : String, env_opt : Option(Environment), context : FunctionGenerationContext) -> bool)(
   match(
     context.current_closure_captures,
     .Some(caps) => match(
       context.current_closure_capture_frame_level,
       .Some(level) => (
         caps.contains(name.clone()) &&
-          match(env_opt, .Some(e) => check_variable_is_closure_captured(name.clone(), e, level), .None => true)
+          match(env_opt, .Some(e) => check_variable_is_closure_captured(key, name.clone(), e, level), .None => true)
       ),
       .None => false
     ),
@@ -432,12 +457,12 @@ _is_captured_here :: (fn(name : String, env_opt : Option(Environment), context :
 /// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
 /// the C level `name` is `T*`, so a read dereferences). The deref here means a by-ref RECEIVER passed/used as a value
 /// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
-_var_read_code :: (fn(tv : String, env_opt : Option(Environment)) -> String)({
-  vn := get_variable_name_for_codegen(tv.clone(), env_opt);
+_var_read_code :: (fn(key : ExprId, tv : String, env_opt : Option(Environment)) -> String)({
+  vn := get_variable_name_for_codegen_at(key, tv.clone(), env_opt);
   is_ref := match(
     env_opt,
     .Some(e) => {
-      vs := get_variables_from_env(e, tv.clone());
+      vs := scope_variables(key, e, tv.clone());
       cond(
         (vs.len() == usize(0)) => false,
         true => match(vs.last(), .Some(v) => v.is_ref, .None => false)
@@ -633,7 +658,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             .Some(e) => match(
               ei.value,
               .Some(v) => if(!is_unknown_val(v), {
-                vars := get_variables_from_env(e, var_name.clone());
+                vars := scope_variables(ast_expr_id(expr), e, var_name.clone());
                 nv := vars.len();
                 cond(
                   (nv == usize(0)) => false,
@@ -659,7 +684,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
           // emitted the BARE identifier inside a closure body — undeclared in
           // the generated C
           // (issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md).
-          if(!_is_captured_here(tv.clone(), env_opt, context), {
+          if(!_is_captured_here(ast_expr_id(expr), tv.clone(), env_opt, context), {
             // Resolve a plain identifier by its SOURCE TOKEN, not the recorded
             // `variable_name`: attach_temp_variable_to_expr can
             // stamp a SPURIOUS temp `variable_name` onto a bare reference used as
@@ -668,7 +693,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             // lookup to the current binding's C name, so SSA/shadowing still work
             // (for a normal reference token == variable_name, so this is a no-op).
             // `_var_read_code` also derefs a by-ref (`inout(...)`) binding to `(*name)`.
-            return(_var_read_code(tv.clone(), env_opt));
+            return(_var_read_code(ast_expr_id(expr), tv.clone(), env_opt));
           });
         },
         .None => ()
@@ -676,7 +701,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       // Closure-captured access (the general path); otherwise a literal with a
       // comptime value is inlined, else the bare variable name.
       cap_name := tv.clone();
-      is_captured := _is_captured_here(cap_name.clone(), env_opt, context);
+      is_captured := _is_captured_here(ast_expr_id(expr), cap_name.clone(), env_opt, context);
       cond(
         is_captured => match(
           context.current_closure_capture_type_c_name,
@@ -684,12 +709,12 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             out := String.from("((");
             out.push_string(cap_ty);
             out.push_str("*)closure_context)->");
-            out.push_string(get_variable_name_for_codegen(cap_name.clone(), env_opt));
+            out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), env_opt));
             out
           },
           .None => {
             out := String.from("closure_context->");
-            out.push_string(get_variable_name_for_codegen(cap_name.clone(), env_opt));
+            out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), env_opt));
             out
           }
         ),
@@ -699,9 +724,9 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         match(ei.value, .Some(v) => !is_unknown_val(v), .None => false) => match(
           ei.value,
           .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty), context.base),
-          .None => _var_read_code(tv.clone(), env_opt)
+          .None => _var_read_code(ast_expr_id(expr), tv.clone(), env_opt)
         ),
-        true => _var_read_code(tv.clone(), env_opt)
+        true => _var_read_code(ast_expr_id(expr), tv.clone(), env_opt)
       )
     },
     .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
@@ -713,7 +738,7 @@ _is_ref_binding :: (fn(expr : AstExpr, name : String, context : FunctionGenerati
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => {
-      vs := get_variables_from_env(ei.env, name);
+      vs := scope_variables(ast_expr_id(expr), ei.env, name);
       cond(
         (vs.len() == usize(0)) => false,
         true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
@@ -737,10 +762,10 @@ _sm_consuming_read :: (fn(expr : AstExpr, name : String, sm_code : String, conte
   eid := ast_expr_id(expr);
   match(low.moved_reads.get(eid), .Some(t) => return(t), .None => ());
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(sm_code));
-  vs := get_variables_from_env(ei.env, name);
+  vs := scope_variables(eid, ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
-  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && ((ct.*.row == tok.row) && (ct.*.column == tok.column))), .None => false);
+  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && (ct.*.row == tok.row) && (ct.*.column == tok.column)), .None => false);
   if(!is_move || !type_contains_rc_type(ei.ty), {
     return(sm_code);
   });

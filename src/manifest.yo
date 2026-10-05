@@ -60,9 +60,9 @@ file_exists_sync :: (fn(path : String) -> bool)({
   // 512 bytes comfortably exceeds `struct stat` on every supported target;
   // only the return code is read.
   buf := malloc(usize(512)).unwrap();
-  rc := unsafe(stat((*char)(cstr), buf));
+  status := unsafe(stat((*char)(cstr), buf));
   free(.Some(buf));
-  rc == int(0)
+  status == int(0)
 });
 extern(
   "Yo",
@@ -302,7 +302,7 @@ _parse_dependency :: (
       (ki : usize) = usize(0);
       while(ki < keys.len(), {
         k := keys(ki);
-        known := ((k == "git") || ((k == "path") || ((k == "version") || ((k == "tag") || ((k == "branch") || (k == "rev"))))));
+        known := ((k == "git") || (k == "path") || (k == "version") || (k == "tag") || (k == "branch") || (k == "rev"));
         if(!known, {
           return(Result(ManifestDependency, String).Err(`${where_}: dependency "${name}" has an unknown key "${k}" (expected git, path, version, tag, branch, rev)`));
         });
@@ -362,7 +362,7 @@ _parse_dependency_table :: (
     table_name : String,
     dev : bool,
     where_ : String,
-    out : ArrayList(ManifestDependency)
+    inout(out) : ArrayList(ManifestDependency)
   ) -> Result(unit, String)
 )({
   match(
@@ -683,7 +683,7 @@ _ClosureEntry :: ref(
 /// Register `name` → `root`, rejecting one name at two different roots.
 _add_root :: (
   fn(
-    roots : ArrayList(ImportRoot),
+    inout(roots) : ArrayList(ImportRoot),
     name : String,
     root : String,
     via : String

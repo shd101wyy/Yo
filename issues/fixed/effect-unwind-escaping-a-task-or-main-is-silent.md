@@ -85,7 +85,7 @@ another**. Reading the emitted C:
   (`_call_is_handler_installation` rule 1 classifying the direct
   local-handler call in the batch context as propagate instead of install,
   or the install exit missing its clear). Filed as
-  `issues/effect-install-frame-exit-leaves-the-escaped-flag-dirty.md`; the
+  `issues/fixed/effect-install-frame-exit-leaves-the-escaped-flag-dirty.md`; the
   belt returns with that fix.
 
 ## Tests

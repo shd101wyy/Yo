@@ -236,12 +236,12 @@ impl(
   now_utc : (fn() -> Self)({
     sec := i64(0);
     nsec := i64(0);
-    rc := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
+    status := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
     // cond + panic (not assert) so the message String is only built on the
     // failure path.
     cond(
-      (rc == i32(0)) => (),
-      true => panic(`DateTime.now_utc: clock_gettime(CLOCK_REALTIME) failed (rc=${rc})`)
+      (status == i32(0)) => (),
+      true => panic(`DateTime.now_utc: clock_gettime(CLOCK_REALTIME) failed (rc=${status})`)
     );
     _from_unix_secs(sec, nsec)
   }),
@@ -254,10 +254,10 @@ impl(
   now : (fn() -> Self)({
     sec := i64(0);
     nsec := i64(0);
-    rc := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
+    status := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
     cond(
-      (rc == i32(0)) => (),
-      true => panic(`DateTime.now: clock_gettime(CLOCK_REALTIME) failed (rc=${rc})`)
+      (status == i32(0)) => (),
+      true => panic(`DateTime.now: clock_gettime(CLOCK_REALTIME) failed (rc=${status})`)
     );
     off := _local_utc_offset(sec);
     (local : DateTime) = _from_unix_secs(sec + i64(off), nsec);

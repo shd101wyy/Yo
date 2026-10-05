@@ -104,6 +104,18 @@ accessed with `value.*`. Treat this as a value payload accessor for reference-se
 not automatically as a pointer dereference; pointer dereference still applies
 when the receiver itself has pointer type.
 
+**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Box` and `Arc` implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers; the wrapper's own members win (`b.clone()` is Box's). Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
+
+`ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
+an atomic load for `Arc`/`atomic(ref(...))`/`Iso`); it is the only count builtin
+(`BF_REF_COUNT`). `rc` is an ordinary prelude function, the cell constructor
+(`rc(v)`, today exactly `box(v)` returning `Box(T)`; VALUES_BY_DEFAULT V1 renames
+`Box` to `Rc`). As a prelude name it cannot be redefined: a module-level or local
+binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
+named `rc` shadows it in its scope. `ref_count` is not in
+`is_reserved_builtin_binding_name`: the `markdown_yo` dependency binds a local
+`ref_count` counter, so reserving it breaks the build.
+
 ## Pointers
 
 - `Pointer` works in both compile-time and runtime contexts (`Runtime` and `Comptime` traits in `prelude.yo`).
@@ -383,14 +395,15 @@ lowering (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
 
 ```rust
 handle := io.spawn(task, ctx);   // → JoinHandle(T), ctx is the task's effect bundle
-result := handle.await(io);      // → Option(T)
+result := handle.await(io);      // → Option(T), blocking: main / plain fns only
+result := io.await(handle.join(io), io); // → Option(T), suspending: the form inside a task (std/async)
 handle.state(); handle.is_finished(); handle.abort();
 ```
 
 ### Semantics
 
 - `io.spawn(task, e)` copies the bundle `e` into the cold future, runs the task INLINE up to its first suspension point (spawn is not itself a suspension point), and returns a `JoinHandle(T)`.
-- `handle.await(io)` returns `Option(T)`: `.Some(result)` on completion, `.None` when the task was aborted (an effect handler called `unwind`, or `handle.abort()`). Awaiting does NOT consume the handle; a second await re-reads the same result (a fresh dup). Today it is a BLOCKING poll loop in every context, so inside an `io.async` body it nests the event loop (`YO_ASYNC_STRICT=1` panics there) — phase A1 of `plans/ASYNC_IO_API_AUDIT.md` makes it suspend inside a task.
+- `handle.await(io)` returns `Option(T)`: `.Some(result)` on completion, `.None` when the task was aborted (an effect handler called `unwind`, or `handle.abort()`). Awaiting does NOT consume the handle; a second await re-reads the same result (a fresh dup). It is a BLOCKING poll loop in every context, so inside an `io.async` body it nests the event loop (`YO_ASYNC_STRICT=1` panics there). Inside a task use **`io.await(handle.join(io), io)`** (`std/async`): the same `Option(T)` as a future that suspends the task. The `std/async` combinators (`join_all`, `race`, `race_first`, `any`, `any_first`, `timeout`) are futures of the same kind — `io.await(join_all(handles, io), io)` in `main` and in a task alike.
 - The handle owns a reference: the task and its result live as long as some copy of the handle does, and `Dispose` releases that reference. Dropping the last copy without awaiting DETACHES the task (it keeps running and frees itself when it finishes), which is what makes a fire-and-forget `io.spawn(task, e);` statement correct. Abort-on-drop is deliberately NOT the semantics.
 - `JoinHandle(T)` is `!Send` (the task lives on the spawner's loop thread); `Io` is `!Send` too.
 - The handle is a second heap object per spawn today (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`); the value-struct-over-counted-future form waits for a seed bump.
@@ -719,6 +732,14 @@ review defect, not a style preference.
 | text formats | `parse` / `stringify` | `decode_html`-style verb-first names |
 | conversion | `from_` / `to_` / `into_`, with Rust's discipline (`into_` consumes) | two spellings of one conversion (`to_cstr` vs `to_c_str`) |
 | comptime twins | `Comptime` prefix on the trait, `comptime_` prefix on the method | an infix `_comptime_` |
+
+A rename sweep must also rewrite the `test("<Type>.<method> …")` name strings
+that spell a renamed method (and any comment naming it): `--test-name-pattern`
+matches those strings, so a name left on the old spelling hides the test from
+the pattern that targets the method and offers phantom matches for a method
+that no longer exists (2026-10-03: 37 collection tests were still named
+`add`/`has`/`set`/`min`/`max`/`iter_ptr` a month after the rename —
+`issues/fixed/collection-test-names-still-use-pre-rename-method-spellings.md`).
 
 Two conventions that are easy to miss:
 

@@ -186,8 +186,9 @@ io.async(fn)                  // Create a cold Future (lazy, doesn't start)
 io.await(future, e)           // Start if cold, wait for completion, return result
 io.state(future)              // Query the current state of a Future (returns FutureState)
 io.spawn(future, e)           // Start a cold Future without waiting, returns JoinHandle(T)
-handle.await(io)              // Wait for spawned task, returns Option(T) (.None on unwind)
-yield(io)                     // Create a pre-completed Future (yields control to event loop)
+handle.await(io)              // Wait for spawned task, returns Option(T) (.None on unwind); a BLOCKING wait for main / plain fns
+handle.join(io)               // The same Option(T) as a Future (std/async): the form for inside a task
+yield(io)                     // Create a pending Future completed by the next loop turn (yields control to the event loop)
 
 // `e` is the EFFECT RECORD the future needs. For a pure-Io task that is just
 // `io`, e.g. `io.await(fut, io)`. For a future needing several effects, bundle
@@ -201,11 +202,11 @@ yield(io)                     // Create a pre-completed Future (yields control t
 3. `io.state(future)` returns the current `FutureState` without blocking or starting the Future
 4. `io.spawn(future)` starts a cold future without waiting — returns `JoinHandle(T)` for later awaiting
 5. `handle.await(io)` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on unwind (abort)
-6. Spawning an already **aborted** Future causes a **panic**
+6. Spawning an already **aborted** Future starts nothing: its `JoinHandle` reads `.None`
 7. All async code runs on the **same thread** — no thread spawning
 8. `yield()` suspends the current task and yields to other ready tasks in the event loop
 9. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
-10. Awaiting a Future that was **aborted** by an algebraic effect handler causes a **panic**
+10. Awaiting an **aborted** Future propagates the abort to the awaiter (see "Aborted Futures"), whether it was aborted before the await started or while it waited
 11. `io.spawn(future, e)` runs the task **inline up to its first suspension point** before returning; spawn is not itself a suspension point of the caller
 12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under
 
@@ -270,9 +271,15 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 1. **Type equality on the bundle.** `Future(T, E1)` matches `Future(T, E2)` when
    `E1` and `E2` are compatible types. There is no order-independent set matching
    anymore — there is no set, just one bundle.
-2. **Unannotated and annotated mix freely.** `Future(T)` (no bundle) is
-   compatible with `Future(T, E)` (any bundle). Use the unannotated form when
-   the caller doesn't need to refer to the effect type.
+2. **A bundle-less future fits any bundle; a bundled one fits `Future(T)`
+   only with `Io`.** A future whose type names no bundle (a raw `IoFuture`,
+   `yield`) is compatible with `Future(T, E)` for any `E`: it reads no
+   bundle. The other direction is narrower. An await or spawn through a
+   `Future(T)` type injects nothing, so a bundled future may be viewed as
+   `Future(T)` only when its bundle is `Io`, whose fields are compiler
+   builtins the body never calls through. A future whose bundle carries
+   handlers keeps its bundle in every type it is passed as; viewing it as
+   `Future(T)` is a `yo check` error.
 3. **Io when the body awaits.** Any async body that calls `io.await` / `yield`
    needs an `Io` in its bundle, so the bundle struct typically has an `io : Io`
    field.
@@ -321,7 +328,7 @@ provides:
 Io :: struct(
   async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
@@ -380,7 +387,16 @@ rb := hb.await(io);
 
 When an algebraic effect handler calls `unwind` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
 
-**With `io.await`**: Attempting to `io.await` on an aborted Future causes a **panic**.
+**With `io.await`**: the abort propagates to the awaiter. Inside an
+`io.async` body the awaiting task is aborted in turn, so a `JoinHandle.await`
+or `join` further up reads `.None`. In a plain `fn` the awaiting function
+takes over the unwind: a handler installed in that function catches it, and
+otherwise it escapes to the caller, up to `main`, where an escape prints
+`unhandled effect unwind escaped to top level` and aborts. The rule is the
+same whether the Future was aborted before the await started or while it
+waited, and whether or not its type names an effect bundle. (Until
+2026-10-03 the already-aborted case was a panic, "attempted to await an
+aborted Future".)
 
 **With `handle.await`**: `JoinHandle.await` returns `Option(T)` — `.None` on abort, safely catching the unwind:
 
@@ -420,15 +436,24 @@ export(main);
 the cancellation is **structured**: whatever the task is suspended on is
 cancelled with it.
 
-- A pending I/O operation or timer is cancelled at the OS level.
-- A child Future the task was awaiting is aborted in turn, recursively.
+- A pending I/O operation or timer is cancelled at the OS level, where the
+  backend has a cancel path (timers everywhere; on Linux the epoll and
+  io_uring descriptor and datagram operations; on macOS the kqueue-parked
+  descriptor operations). An operation without one runs to completion, and
+  the task stays aborted.
+- A child Future the task was awaiting is aborted in turn, recursively, when
+  the task started it: an anonymous `io.await(child(io), io)`, or a named
+  future this await cold-started. A named future someone else started may be
+  shared with other awaiters, so it keeps running.
+- A raw `IoFuture` spawned directly is cancelled the same way, and its handle
+  keeps reading `.None` after the operation's time.
 - A task parked on a `Mutex` or `Channel` leaves its queue. The next `unlock`
   or `send` skips the dead waiter and hands the lock or the message to a live
   one. Nothing is lost.
 - Every task awaiting the aborted one is woken. An `io.await` that was
   **waiting** when the abort happened aborts its own task too, so a
-  `JoinHandle.await` further up reads `.None`. (Starting an `io.await` on a
-  Future that is **already** aborted is still a panic.)
+  `JoinHandle.await` further up reads `.None`. Starting an `io.await` on a
+  Future that is **already** aborted behaves the same way.
 
 The aborted task's locals are dropped when its last reference goes away.
 
@@ -457,7 +482,7 @@ out, the task and everything it is blocked on are cancelled.
 
 | State | Meaning                                                | `FutureState` enum      |
 | ----- | ------------------------------------------------------ | ----------------------- |
-| 0     | Cold — not started yet                                 | `FutureState.Pending`   |
+| 0     | Cold — not started yet                                 | `FutureState.Cold`      |
 | 1..N  | Intermediate — suspended at an await/yield point       | `FutureState.Running`   |
 | -1    | Completed — result is available                        | `FutureState.Completed` |
 | -2    | Aborted — an effect handler called `unwind`, no result | `FutureState.Aborted`   |
@@ -468,7 +493,7 @@ out, the task and everything it is blocked on are cancelled.
 
 ```rust
 FutureState :: enum(
-  Pending = 0,
+  Cold = 0,
   // Cold — not started yet
   Running = 1,
   // In progress — suspended at an await/yield point
@@ -488,8 +513,8 @@ main :: (fn(io : Io) -> unit)({
     return(i32(42));
   });
 
-  // Before starting: Pending
-  assert(io.state(task) == FutureState.Pending, "cold future is Pending");
+  // Before starting: Cold
+  assert(io.state(task) == FutureState.Cold, "cold future is Cold");
 
   io.await(task, io);
 
@@ -655,31 +680,14 @@ The same walk over 100,000 pieces peaks at 4 MB.
 
 ### Waiting for spawned tasks from inside a task
 
-`handle.await(io)` and the `std/async` combinators (`join_all`, `race`,
-`race_first`, `any`, `any_first`, `timeout`) are **blocking waits**: each one
-loops over the event loop until its handles are finished. That is what you
-want in `main` or in any plain `fn`. Inside an `io.async` body it **nests the
-event loop**: the waiting task stays on the C stack while the inner loop runs
-the other tasks, the tasks under it on that stack cannot resume until the wait
-returns, and if the awaited work needs one of them the program deadlocks.
-
-By default the nested wait runs, so the mistake is easy to miss. With
-`YO_ASYNC_STRICT=1` the first wait inside a task that has to drive the loop is
-a deterministic panic, and `yo test` sets that variable for every test binary
-it runs under its default address sanitizer:
-
-```rust
-run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) => {
-    io.await(yield(io), io);
-    handles := ArrayList(JoinHandle(i32)).new();
-    handles.push(io.spawn(work(i32(1), io), io));
-    handles.push(io.spawn(work(i32(2), io), io));
-    outs := join_all(handles, io); // ✗ a blocking wait inside a task
-    i32(outs.len())
-  })
-);
-```
+`handle.await(io)` is a **blocking wait**: it loops over the event loop until
+the handle is finished. That is what you want in `main` or in any plain `fn`.
+Inside an `io.async` body it **nests the event loop**: the waiting task stays
+on the C stack while the inner loop runs the other tasks, the tasks under it
+on that stack cannot resume until the wait returns, and if the awaited work
+needs one of them the program deadlocks. With `YO_ASYNC_STRICT=1` such a wait
+is a deterministic panic, and `yo test` sets that variable for every test
+binary it runs under its default address sanitizer:
 
 ```
 panic: a blocking await ran inside an async task: an io.await in a non-io.async function,
@@ -687,15 +695,15 @@ JoinHandle.await, or a std/async combinator (join_all/race/any/timeout) was call
 spawned or awaited task. That nests the event loop and can deadlock. ...
 ```
 
-Calling `handles(i).await(io)` directly in place of `join_all` panics the same
-way. To collect spawned work from inside a task, suspend until every handle is
-terminal (`is_finished()` does not block; awaiting `yield` lets the loop run the
-other tasks), then read the results. A finished handle's `await` returns at once
-without driving the loop:
+The form for a task is **`handle.join(io)`** (`std/async`): a future that
+resolves to the same `Option(T)` and **suspends** the awaiting task until the
+handle is terminal. The `std/async` combinators (`join_all`, `race`,
+`race_first`, `any`, `any_first`, `timeout`) are futures of the same kind, so
+one spelling works in `main` and inside a task alike:
 
 ```rust
 { println } :: import("std/fmt");
-{ yield } :: import("std/async");
+{ join_all, yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
 
 work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
@@ -709,41 +717,38 @@ work :: (fn(id : i32, io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 
-all_finished :: (fn(handles : ArrayList(JoinHandle(i32))) -> bool)({
-  (i : usize) = usize(0);
-  (done : bool) = true;
-  while(i < handles.len(), {
-    if(!handles(i).is_finished(), { done = false; });
-    i = (i + usize(1));
-  });
-  done
-});
-
 run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
     handles := ArrayList(JoinHandle(i32)).new();
     handles.push(io.spawn(work(i32(1), io), io));
     handles.push(io.spawn(work(i32(2), io), io));
-    // ✓ suspend until every handle is terminal
-    while(!all_finished(handles), { io.await(yield(io), io); });
-    // every handle is finished, so `await` reads the result without waiting
+    // ✓ a real suspension point: the other tasks run while this one waits
+    outs := io.await(join_all(handles, io), io);
     (sum : i32) = i32(0);
     (i : usize) = usize(0);
-    while(i < handles.len(), {
-      match(handles(i).await(io), .Some(v) => { sum = (sum + v); }, .None => ());
+    while(i < outs.len(), {
+      match(outs(i), .Some(v) => { sum = (sum + v); }, .None => ());
       i = (i + usize(1));
     });
+    // one handle: the same shape
+    h := io.spawn(work(i32(3), io), io);
+    match(io.await(h.join(io), io), .Some(v) => { sum = (sum + v); }, .None => ());
     sum
   })
 );
 
 main :: (fn(io : Io) -> unit)({
   n := io.await(run_all(io), io);
-  println(`sum ${n}`); // sum 3, also under YO_ASYNC_STRICT=1
+  println(`sum ${n}`); // sum 6, also under YO_ASYNC_STRICT=1
 });
 export(main);
 ```
+
+Joining does not consume the handle, and a `join` of a finished task resolves
+at once. Under the wait is one runtime primitive, a park future the task's
+completion or abort wakes (`__yo_join_wait_new` / `__yo_join_wait_add` in
+`std/sys/externs`); `race` and `timeout` add several handles to one wait.
 
 ## Event Loop
 
@@ -1496,10 +1501,6 @@ parameters via `e : E`, and callers inject handlers at `io.await` or
 1. **Effect handlers are not closures** — handler functions are standalone C
    functions and cannot capture variables from the enclosing scope. Pass state
    via explicit parameters or `Box`. See `docs/en-US/ALGEBRAIC_EFFECTS.md`.
-
-2. **Waiting on a `JoinHandle` inside a task nests the event loop** — see
-   "Waiting for spawned tasks from inside a task" above. Phase A1 of
-   `plans/ASYNC_IO_API_AUDIT.md` removes this.
 
 Limitations listed in earlier revisions of this document — the 3-argument
 `while` in async, a binary expression as an async return value, and an

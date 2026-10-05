@@ -2,7 +2,7 @@
 
 # yo-self `check ./<heavy-std-file>` SIGBUS (rc=138, zero output)
 
-**Status:** OPEN — pre-existing, untriaged. Surfaced (not caused) while validating
+**Status:** RETIRED: filed under `issues/retired/` by #76. Before that the line read: OPEN — pre-existing, untriaged. Surfaced (not caused) while validating
 the return-body specialization fix.
 
 ## Symptom

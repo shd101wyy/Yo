@@ -567,7 +567,7 @@ export(
 /// are `"`; anything else passes through unchanged.
 str_lit_unquote_bytes :: (fn(raw : String) -> String)({
   n := raw.as_bytes().len();
-  if((n >= usize(2)) && ((raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34))), {
+  if((n >= usize(2)) && (raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34)), {
     bytes := raw.as_bytes();
     inner := ArrayList(u8).new();
     (i : usize) = usize(1);
@@ -797,10 +797,12 @@ generate_new_temp_variable_name :: (
     module_path : String,
     (row : usize) ?= usize(0),
     (column : usize) ?= usize(0),
-    (slot : String) ?= String.new(),
-    (anchor_module : String) ?= String.new()
+    (slot_opt : Option(String)) ?= .None,
+    (anchor_module_opt : Option(String)) ?= .None
   ) -> String
 )({
+  slot := match(slot_opt, .Some(s) => s, .None => String.new());
+  anchor_module := match(anchor_module_opt, .Some(a) => a, .None => String.new());
   prefix := generate_temp_variable_name_prefix(module_path);
   // The digit tail is a HASH of the mint site's identity (prefix + position
   // + slot) with this key's occurrence index appended — digits only, keeping
@@ -851,7 +853,7 @@ is_temp_variable_name :: (fn(module_path : String, var_name : String) -> bool)({
 /// substituted.
 _is_temp_prefix_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) ||
-    (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
+    ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
 );
 /// True iff `var_name` has the shape `generate_new_temp_variable_name`
 /// produces for ANY module path: `_`, at most twelve prefix bytes, `_temp_`,
@@ -975,16 +977,11 @@ owned_keys_record :: (fn(log : OwnedKeys, key : String) -> unit)({
   if((g_current_owner.len() == usize(0)) || !g_owner_logs_enabled, {
     return(());
   });
-  match(
-    log.by_owner.get(g_current_owner.clone()),
-    .Some(keys) => keys.push(key),
-    .None => {
-      keys := ArrayList(String).new();
-      keys.push(key);
-      log.by_owner.insert(g_current_owner.clone(), keys);
-      ()
-    }
-  );
+  // Taken out of the map and stored back: a `get` copy is not the stored
+  // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  keys := match(log.by_owner.remove(g_current_owner.clone()), .Some(k) => k, .None => ArrayList(String).new());
+  keys.push(key);
+  log.by_owner.insert(g_current_owner.clone(), keys);
 });
 /// Remove and return the keys recorded under `owner`.
 owned_keys_take :: (fn(log : OwnedKeys, owner : String) -> ArrayList(String))(
@@ -1089,11 +1086,11 @@ interpolation_body_end :: (fn(bytes : ArrayList(u8), start : usize) -> usize)({
         (depth : usize) = usize(1);
         (j : usize) = (i + usize(2));
         while((j < n) && (depth > usize(0)), {
-          if((bytes(j) == u8(0x2F)) && (((j + usize(1)) < n) && (bytes(j + usize(1)) == u8(0x2A))), {
+          if((bytes(j) == u8(0x2F)) && ((j + usize(1)) < n) && (bytes(j + usize(1)) == u8(0x2A)), {
             depth = (depth + usize(1));
             j = (j + usize(2));
           }, {
-            if((bytes(j) == u8(0x2A)) && (((j + usize(1)) < n) && (bytes(j + usize(1)) == u8(0x2F))), {
+            if((bytes(j) == u8(0x2A)) && ((j + usize(1)) < n) && (bytes(j + usize(1)) == u8(0x2F)), {
               depth = (depth - usize(1));
               j = (j + usize(2));
             }, {

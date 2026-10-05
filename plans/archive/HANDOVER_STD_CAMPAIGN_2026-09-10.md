@@ -223,7 +223,7 @@ an implementation sketch across parser/evaluator/codegen, seed-gating
 consequences, an acceptance list, and open questions for the maintainer.
 
 `ErrorChain`/`root_cause` is a sixth blocker but is a compiler DEFECT, not a
-missing feature — `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`
+missing feature — `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`
 (#521).
 
 ---

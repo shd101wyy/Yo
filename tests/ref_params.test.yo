@@ -116,5 +116,57 @@ test("inout parameter passed to an own parameter copies, the referenced slot sur
   n := via_param(s);
   assert(n == usize(3), "callee saw the value");
   assert(s == "abc!", "the referenced slot is intact and the parameter stayed usable after the own call");
-  assert(rc(s) == 1, "the copy handed to the own parameter was released by the callee; the slot owns its value once");
+  assert(ref_count(s) == 1, "the copy handed to the own parameter was released by the callee; the slot owns its value once");
+});
+{ ArrayList } :: import("std/collections/array_list");
+// issues/fixed/inout-self-tail-return-of-rc-struct-redeclares-the-parameter.md:
+// a fn-body TAIL that is a bare `inout` binding of a value struct holding RC
+// data (the tail carries a deferred dup) emitted `T self = (*self);` —
+// redefining the C pointer parameter — and `return self;` (the pointer). The
+// returned value is a copy of the caller's place holding its own +1.
+InoutBag :: struct(items : ArrayList(i32), n : i32);
+impl(
+  InoutBag,
+  touched : (fn(inout(self) : Self, x : i32) -> Self)({
+    self.n = x;
+    self
+  })
+);
+touch_bag :: (fn(inout(x) : InoutBag, k : i32) -> InoutBag)({
+  x.n = k;
+  x
+});
+InoutEntry :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_items : ArrayList(V), n : i32));
+impl(
+  generic(V : Type),
+  InoutEntry(V),
+  bumped : (fn(inout(self) : Self, k : i32) -> Self)({
+    self.n = (self.n + k);
+    self
+  })
+);
+test("returning an inout self of an RC-holding value struct as the body tail", {
+  b := InoutBag(items : ArrayList(i32).new(), n : i32(1));
+  b.items.push(i32(7));
+  c := b.touched(i32(5));
+  assert(b.n == i32(5), "the write landed in the caller's place");
+  assert(c.n == i32(5), "the returned copy carries the written value");
+  assert(c.items.len() == usize(1), "the copy shares the list");
+  assert(ref_count(b.items) == 2, "the returned copy owns its own reference to the list");
+});
+test("returning a plain inout parameter of an RC-holding value struct as the body tail", {
+  b := InoutBag(items : ArrayList(i32).new(), n : i32(1));
+  c := touch_bag(b, i32(9));
+  assert(b.n == i32(9), "the write landed in the caller's place");
+  assert(c.n == i32(9), "the returned copy carries the written value");
+  b.n = i32(3);
+  assert(c.n == i32(9), "the returned copy is independent of the caller's place");
+  assert(ref_count(b.items) == 2, "the returned copy owns its own reference to the list");
+});
+test("returning an inout self of a generic RC-holding value struct as the body tail", {
+  e := InoutEntry(i32)(_items : ArrayList(i32).new(), n : i32(1));
+  f := e.bumped(i32(2));
+  assert(e.n == i32(3), "the write landed in the caller's place");
+  assert(f.n == i32(3), "the returned copy carries the written value");
+  assert(ref_count(e._items) == 2, "the returned copy owns its own reference to the list");
 });

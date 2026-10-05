@@ -20,7 +20,7 @@
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position } :: import("../utils/index.yo");
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
@@ -137,23 +137,12 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(nm) => {
                   cn := sanitize_for_c_identifier(nm, false);
-                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
+                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.contains(cn)
                 },
                 .None => false
               );
               if(!skip_capture && !undeclared_temp, {
-                sc_skip := match(
-                  context.short_circuit_handled_drop_var_names,
-                  .Some(handled) => match(
-                    get_deferred_drop_target_atom_name(drop_expr),
-                    .Some(target) => if(handled.contains(target.clone()), {
-                      _r := handled.remove(target);
-                      true
-                    }, false),
-                    .None => false
-                  ),
-                  .None => false
-                );
+                sc_skip := match(get_deferred_drop_target_atom_name(drop_expr), .Some(target) => take_short_circuit_handled(context, target), .None => false);
                 if(!sc_skip, {
                   drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
                   // Record unconditionally, emit conditionally — the drop

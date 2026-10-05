@@ -20,6 +20,9 @@ pragma(Pragma.AllowUnsafe);
 { print } :: import("std/fmt");
 { fflush, stdout } :: import("std/libc/stdio");
 { Exception, IoExn } :: import("std/error");
+{ Instant } :: import("std/time/instant");
+{ Duration } :: import("std/time/duration");
+{ sleep_blocking } :: import("std/time/sleep");
 
 /// Read one framed LSP message body from `reader`.
 ///
@@ -103,6 +106,130 @@ write_lsp_message :: (fn(body : String) -> unit)({
   _f := unsafe(fflush(.Some(stdout)));
 });
 
+/// Why `wait_lsp_input` came back.
+LspInputWake :: enum(
+  /// Bytes are ready — in the reader's buffer or on the descriptor — so
+  /// `read_lsp_message` returns without blocking.
+  Readable,
+  /// The deadline passed with no input.
+  Idle
+);
+
+/// Wait until standard input has a message to read or `deadline` passes,
+/// polling the descriptor every 10 ms. This is what lets the server hold a
+/// DEBOUNCED analysis without blocking behind it: the plain blocking read
+/// (`read_lsp_message`) cannot wake on a timer, so while a debounce window
+/// is open the loop waits here instead, answering messages the moment they
+/// arrive and running the deferred analysis only when the stream goes idle
+/// (`issues/fixed/lsp-per-keystroke-full-reanalysis-limits-responsiveness.md`).
+///
+/// Readable wins over Idle when both hold: a message already in the pipe is
+/// served first (from the retained analysis — the mid-edit contract), so a
+/// steady stream of messages never has the analysis cut in front of it.
+/// The probe never consumes and never touches the async runtime's stdin
+/// read, so an unreadable verdict is purely "would block".
+wait_lsp_input :: (fn(reader : BufReader(Stdin), deadline : Instant) -> LspInputWake)({
+  (wake : LspInputWake) = LspInputWake.Idle;
+  (ready : bool) = false;
+  while(!ready, {
+    cond(
+      // Bytes the BufReader already drained from the descriptor are
+      // invisible to the OS probe — and fully framed messages can sit there
+      // after one read pulled two frames at once.
+      (reader.buffered() > usize(0)) => {
+        ready = true;
+        wake = LspInputWake.Readable;
+      },
+      stdin_has_input() => {
+        ready = true;
+        wake = LspInputWake.Readable;
+      },
+      (Instant.now() >= deadline) => {
+        ready = true;
+      },
+      true => sleep_blocking(Duration.from_millis(i64(10)))
+    );
+  });
+  wake
+});
+
+/// Whether standard input has bytes to read right now, without blocking.
+///
+/// Windows: `PeekNamedPipe` on the stdin pipe (the same ladder the runtime's
+/// own poll tick uses), else `WaitForSingleObject` with a zero timeout — a
+/// disk file is always signaled, a console signals on queued input. POSIX:
+/// `poll(2)` with a zero timeout, where readable includes POLLHUP/POLLERR
+/// (a closed pipe is "input": the read that follows returns EOF). On wasm
+/// there is no probe, so the answer is `false` and `wait_lsp_input`
+/// degrades to sleeping to the deadline — the blocking read path itself is
+/// unchanged. A platform arm that cannot decide reports `true`: that makes
+/// the wait fall through to the ordinary blocking read, never a spin.
+stdin_has_input :: (fn() -> bool)(
+  cond(
+    (platform == Platform.Windows) => _stdin_has_input_windows(),
+    ((platform == Platform.Linux) || (platform == Platform.Macos) || (platform == Platform.FreeBSD)) => _stdin_has_input_posix(),
+    true => false
+  )
+);
+
+/// `PeekNamedPipe` / `WaitForSingleObject` on the stdin handle (Windows).
+/// The `c_include` sits in the body so it is evaluated only when this arm
+/// is reached — the `<windows.h>` include never reaches other platforms' C
+/// (the `_setmode_binary_stdout_windows` convention).
+_stdin_has_input_windows :: (fn() -> bool)({
+  { GetStdHandle, PeekNamedPipe, WaitForSingleObject } :: c_include(
+    "<windows.h>",
+    // STD_INPUT_HANDLE = ((DWORD)-10); the handle is NULL when the process
+    // was spawned without one, hence the optional return. `avail` is
+    // `*(ulong)` because LPDWORD is C `unsigned long` — a distinct type from
+    // uint32_t even where both are 32 bits wide.
+    GetStdHandle : (fn(which : int) -> ?*void),
+    PeekNamedPipe : (
+      fn(pipe : *void, buf : ?*void, size : u32, read : ?*u32, avail : *ulong, left : ?*u32) -> int
+    ),
+    WaitForSingleObject : (fn(handle : *void, millis : u32) -> u32)
+  );
+  match(
+    unsafe(GetStdHandle(int(-10))),
+    .None => true,
+    .Some(h) => {
+      (avail : ulong) = ulong(0);
+      peeked := unsafe(PeekNamedPipe(h, Option(*void).None, u32(0), Option(*u32).None, &avail, Option(*u32).None));
+      cond(
+        (peeked != int(0)) => (avail > ulong(0)),
+        // Not a pipe (console, disk file): WAIT_OBJECT_0 = 0 means signaled.
+        true => (unsafe(WaitForSingleObject(h, u32(0))) == u32(0))
+      )
+    }
+  )
+});
+
+/// `poll(2)` with a zero timeout on fd 0 (POSIX platforms).
+_stdin_has_input_posix :: (fn() -> bool)({
+  // `fds` is `*void`: the header's parameter is `struct pollfd *`, which a
+  // `uint8_t *` does not convert to (clang -Wincompatible-pointer-types is an
+  // error; issues/fixed/lsp-stdin-poll-declaration-breaks-the-macos-build.md).
+  { poll } :: c_include("<poll.h>", poll : (fn(fds : *void, nfds : u32, timeout : int) -> int));
+  // struct pollfd { int fd; short events; short revents; } — offsets 0/4/6
+  // and 8 bytes total on every ABI this compiler targets (4-byte int
+  // alignment, little-endian), laid out by hand through one i64 slot.
+  (pfd : i64) = i64(0);
+  p := &pfd;
+  unsafe({
+    fd_field := (*int)(p);
+    fd_field.* = int(0);
+    events_field := (*i16)((*u8)(p).add(usize(4)));
+    events_field.* = i16(1);
+  });
+  ready := unsafe(poll((*void)(p), u32(1), int(0)));
+  if(ready <= int(0), {
+    return(false);
+  });
+  revents := unsafe((*i16)((*u8)(p).add(usize(6))).*);
+  // POLLIN (0x1) | POLLERR (0x8) | POLLHUP (0x10).
+  (revents & i16(0x19)) != i16(0)
+});
+
 /// Windows: put stdout in binary mode, once, before the first frame.
 ///
 /// The MSVC CRT opens stdout in TEXT mode, where libc stdio translates every
@@ -132,4 +259,4 @@ prepare_wire :: (fn() -> unit)(
     true => ()
   )
 );
-export(read_lsp_message, write_lsp_message, prepare_wire);
+export(read_lsp_message, write_lsp_message, prepare_wire, wait_lsp_input, LspInputWake);

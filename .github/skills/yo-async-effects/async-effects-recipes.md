@@ -7,7 +7,7 @@ These patterns cover normal Yo async code and algebraic effects.
 | Need                       | Pattern                                                |
 | -------------------------- | ------------------------------------------------------ |
 | Sequential async work      | `result := io.await(task, io)`                         |
-| Start work and wait later  | `handle := io.spawn(task, io)` then `handle.await(io)` |
+| Start work and wait later  | `handle := io.spawn(task, io)` then `handle.await(io)` (in `main`) or `io.await(handle.join(io), io)` (in a task) |
 | Yield to other ready tasks | `io.await(yield(io), io)`                                |
 | True multithreading        | Use thread or parallelism APIs, not `io.async` alone   |
 
@@ -72,7 +72,7 @@ export(main);
 ```
 
 - `io.spawn(...)` begins execution without waiting.
-- `handle.await(io)` returns `Option(T)` because a spawned task can abort via `unwind`.
+- `handle.await(io)` returns `Option(T)` because a spawned task can abort via `unwind`. It is a blocking poll: inside a task use `io.await(handle.join(io), io)` (`std/async`), the same `Option(T)` as a suspending future.
 
 ## Propagating and handling effects
 
@@ -202,7 +202,7 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
 - `unwind` is only valid inside a `ctl(...) -> R` body. From any other position
   (match arm, `cond` branch, `begin` block, plain `fn` body), use `return`.
 - `unwind` inside an async task aborts the future instead of completing it normally.
-- `io.await(...)` on an already-aborted future can panic; `JoinHandle.await(...)` converts abort into `.None`.
+- `io.await(...)` on an aborted future propagates the abort (the awaiting task aborts too; in a plain `fn` it escapes to the caller); `JoinHandle.await(...)` / `join(...)` convert the abort into `.None`.
 - Closures cannot be `ctl`, and they cannot capture a `ctl`-typed value. Handlers are bare (non-capturing) anonymous functions. If you need to use a `ctl` handler from inside a closure body, pass it in as an explicit parameter instead of capturing it.
 - Pointers and references to `ctl` types (or structs containing them) are rejected.
 - **`recur` inside `io.async` calls the lambda, not the outer function** — call the outer function by name (or use an iterative worklist) for async recursion.
@@ -215,25 +215,27 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   reached). This replaced the segment lowering, whose unsupported shapes were
   rejected with E0904 or silently miscompiled
   (`plans/ASYNC_STATE_MACHINE_GENERATION.md` phase 5).
-- **`join_all` / `race` / `any` / `timeout` are TOP-LEVEL combinators — never
-  call one from inside an `io.async` body.** They wait by looping
+- **Inside an `io.async` body, wait on a handle with `io.await(h.join(io), io)`,
+  never `h.await(io)`.** `JoinHandle.await` waits by looping
   `__yo_async_poll_step()`, and an `io.async` body always runs as a RESUMED
-  continuation, so the loop re-enters the event loop from inside a task: C37's
-  guard aborts under `YO_ASYNC_STRICT=1`, and without it the "concurrent" code
-  silently runs serially. To collect spawned work from inside an async body,
-  poll and yield, then read the results:
+  continuation, so that loop re-enters the event loop from inside a task:
+  C37's guard aborts under `YO_ASYNC_STRICT=1`, and without it the
+  "concurrent" code silently runs serially. `join` is the same `Option(T)` as
+  a future that suspends the task; the `std/async` combinators (`join_all`,
+  `race`, `race_first`, `any`, `any_first`, `timeout`) are futures too, so one
+  spelling works in `main` and in a task:
 
   ```rust
   // ✗ inside io.async — nests the event loop
-  outs := join_all(handles, io);
+  outs := join_all_blocking(handles, io);   // any plain-fn poll loop, e.g. h.await(io)
 
-  // ✓ every handle terminal first; then `await` reads without polling
-  while(runtime(_any_pending(handles)), { io.await(yield(io), io); });
-  (i : usize) = usize(0);
-  while(i < handles.len(), { outs.push(handles(i).await(io)); i = (i + usize(1)); });
+  // ✓ a real suspension point
+  outs := io.await(join_all(handles, io), io);
+  one := io.await(handles(usize(0)).join(io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
   ```
 
-  The `join_all`-style nesting above is the restriction that still stands
+  The blocking shape is the restriction that still stands for `h.await(io)`
   (it re-enters the event loop, `issues/fixed/build-scheduler-join-all-nests-the-event-loop.md`);
   ordinary await PLACEMENT no longer is — since #1018 an `io.await` may sit
   directly in (or nested inside) a `while` condition, a `cond` condition or

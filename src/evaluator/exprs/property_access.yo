@@ -14,6 +14,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom_of,
   ast_expr_is_fn_call_of,
   make_err_expr,
+  alloc_global_expr_id,
   BF_DOT
 } :: import("../../expr.yo");
 {
@@ -25,9 +26,12 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_origin_type,
   lookup_io_builtin_struct_field,
   ComptimeRef,
-  expr_info_set_comptime_ref
+  expr_info_set_comptime_ref,
+  scope_release_note_query,
+  mark_node_preevaluated,
+  unmark_node_preevaluated
 } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
@@ -44,14 +48,15 @@ pragma(Pragma.AllowUnsafe);
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ unknown_field_message, unknown_field_code, unknown_variant_message } :: import("../../types/utils.yo");
+{ unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
-{ TokenKind } :: import("../../token.yo");
+{ Token, TokenKind, intern_token_str } :: import("../../token.yo");
+{ deref_target_type } :: import("../trait_checking.yo");
 { gadt_branch_reachable } :: import("../../pattern.yo");
 { get_gadt_variant_args } :: import("../types/gadt_registry.yo");
 { Exception } :: import("std/error");
@@ -192,6 +197,61 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : String) -> Opti
     i = (i + usize(1));
   });
   result
+});
+// ---------------------------------------------------------------------------
+// Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3)
+// ---------------------------------------------------------------------------
+/// `.(obj, *)` — the explicit payload place of a `Deref` wrapper, built by
+/// the field and method auto-dereference hooks. Fresh ids; the tokens copy
+/// `at`'s position and module path, so a diagnostic on the synthesized node
+/// still points at the user's access.
+make_deref_expr :: (fn(obj : AstExpr, dot_tok : Token, at : Token) -> AstExpr)({
+  star_tok := Token(
+    kind : TokenKind.Operator,
+    value : intern_token_str(String.from("*")),
+    row : at.row,
+    column : at.column,
+    character : at.character,
+    byte_offset : at.byte_offset,
+    module_path : at.module_path,
+    input : at.input
+  );
+  args := ArrayList(AstExpr).new();
+  args.push(obj);
+  args.push(AstExpr.Atom(alloc_global_expr_id(), star_tok));
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), args, true, dot_tok)
+});
+/// The labels a field read can name on `t`: a struct's, tuple's or union's.
+_field_labels_of :: (fn(t : TypeValue) -> ArrayList(String))(
+  match(
+    t,
+    .Tuple(labels, _) => labels,
+    .Struct({ field_labels : labels }) => labels,
+    .Union(_, labels, _) => labels,
+    _ => ArrayList(String).new()
+  )
+);
+/// Where auto-dereference of `w.label` lands, for a `w` of `Deref` type `t`
+/// whose own fields lack `label`: `.Ok(())` when some payload in the chain
+/// (`t`'s `Target`, its `Target`, …) has a field `label`, else `.Err` with
+/// the innermost payload type reached (for the E0406 message).
+_deref_chain_has_field :: (fn(t : TypeValue, label : String, env : Environment) -> Result(unit, TypeValue))({
+  (cur : TypeValue) = t;
+  while(runtime(true), {
+    match(
+      deref_target_type(cur, env),
+      .None => {
+        return(.Err(cur));
+      },
+      .Some(payload) => {
+        cur = resolve_struct_shell(payload);
+        if(find_first_field_index(_field_labels_of(cur), label.clone()).is_some(), {
+          return(.Ok(()));
+        });
+      }
+    );
+  });
+  .Err(cur)
 });
 /// Build the path_collection for a field-access node.
 ///
@@ -589,6 +649,9 @@ evaluate_property_access :: (
     .Some(a) => a,
     .None => make_err_expr()
   );
+  if(ast_expr_is_atom(property_expr), {
+    scope_release_note_query(ast_expr_id(property_expr), ast_expr_token(property_expr).value);
+  });
   // Evaluate the object without passing the expected type (it applies to the
   // property result, not the object itself).
   old_expected_type := ctx.expected_type;
@@ -1381,7 +1444,7 @@ Raw pointer operations may dereference invalid memory.`
         st_prop_name := ast_expr_token(property_expr).value;
         st_rtt := match(
           type_val_inner,
-          .SomeT(_, _, _, _, rtt, _, _, _, _, _, _) => rtt,
+          .SomeT(_, _, _, _, rtt, _, _, _, _, _) => rtt,
           _ => ArrayList(TypeValue).new()
         );
         // Build the list of candidate traits: explicit
@@ -1697,6 +1760,56 @@ Raw pointer operations may dereference invalid memory.`
               );
               return(expr);
             });
+            // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): on a
+            // `Deref` wrapper (`Box`, `Arc`) whose own fields lack the label,
+            // `w.field` means `w.*.field`. The object argument is replaced
+            // IN PLACE by `w.*` and the access re-evaluated, so every later
+            // reader — codegen, the root-of-place walks (D3, E0908, inout),
+            // the dup/drop passes — sees the ordinary explicit chain; nested
+            // wrappers recurse through the same arm. `w` itself was already
+            // evaluated: it is marked so the re-evaluation reuses its
+            // ExprInfo. A pointer object is left alone (`p.*` there is the
+            // raw-pointer dereference).
+            // In callee position (`w.items(i)`, `w.f(x)`) the wrapper's own
+            // METHODS come first: the rewrite happens only when the wrapper
+            // has no method of that name; a payload METHOD is reached by the
+            // receiver retry in `_try_find_receiver_method`. So the order is
+            // wrapper field, wrapper method, payload field, payload method.
+            pa_is_callee := is_dot_callee(ast_expr_id(expr));
+            if(!is_pointer_type(original_obj_ty) && deref_target_type(base_ty, env).is_some(), {
+              match(
+                _deref_chain_has_field(base_ty, label_str.clone(), env),
+                .Ok(_) => if(!pa_is_callee || (get_receiver_methods_by_name_from_env(env, label_str.clone(), base_ty, false).len() == usize(0)), {
+                  // The tree's own object node, unless its evaluation
+                  // returned a different node that carries the ExprInfo.
+                  orig_obj := match(
+                    all_args.get(usize(0)),
+                    .Some(a) => cond(expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)).is_some() => a, true => object_expr),
+                    .None => object_expr
+                  );
+                  all_args(usize(0)) = make_deref_expr(orig_obj, ast_expr_token(expr), ast_expr_token(property_expr));
+                  obj_id := ast_expr_id(orig_obj);
+                  mark_node_preevaluated(obj_id);
+                  rewritten := recur(expr, env_in, ctx, exn);
+                  unmark_node_preevaluated(obj_id);
+                  return(rewritten);
+                }),
+                .Err(innermost) => if(!pa_is_callee, {
+                  exn.throw(
+                    dyn(
+                      with_code(
+                        format_error_message(
+                          ast_expr_token(property_expr),
+                          unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(object_expr), base_ty, innermost, _field_labels_of(innermost))
+                        ),
+                        unknown_field_code(base_ty)
+                      )
+                    )
+                  );
+                  return(expr);
+                })
+              );
+            });
             // Outside callee position a missing field is a user error:
             // nothing else can make `p.xx` mean something, because a method
             // is reached only through a call (`p.xx(...)`, whose callee this
@@ -1704,7 +1817,7 @@ Raw pointer operations may dereference invalid memory.`
             // silently, so `z := p.z` read "Failed to evaluate", an argument
             // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
-            if(!is_dot_callee(ast_expr_id(expr)), {
+            if(!pa_is_callee, {
               exn.throw(dyn(with_code(format_error_message(ast_expr_token(property_expr), unknown_field_message(label_str, base_ty, fields_labels)), unknown_field_code(base_ty))));
               return(expr);
             });
@@ -2168,4 +2281,4 @@ Raw pointer operations may dereference invalid memory.`
   });
   expr
 });
-export(evaluate_property_access);
+export(evaluate_property_access, make_deref_expr);

@@ -178,14 +178,14 @@ _binding_name_token :: (fn(exprs : ArrayList(AstExpr), head : String) -> Option(
 /// Within `e`, the label atom of the `member : T` pair declared by a
 /// `struct(...)` / `union(...)` / `newtype(...)` call (the first match in
 /// evaluation order).
-_find_field_label :: (fn(e : AstExpr, member : String, out : ArrayList(Token)) -> unit)({
+_find_field_label :: (fn(e : AstExpr, member : String, inout(out) : ArrayList(Token)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
     .FnCall(_, func_box, args, _, _) => {
       is_decl := (
         ast_expr_is_fn_call_of(e, "struct", .None) ||
-          (ast_expr_is_fn_call_of(e, "union", .None) || ast_expr_is_fn_call_of(e, "newtype", .None))
+          ast_expr_is_fn_call_of(e, "union", .None) || ast_expr_is_fn_call_of(e, "newtype", .None)
       );
       if(is_decl, {
         (i : usize) = usize(0);
@@ -227,7 +227,7 @@ _find_field_label :: (fn(e : AstExpr, member : String, out : ArrayList(Token)) -
 });
 /// Within `e`, the variant named `variant` declared by an `enum(...)` call —
 /// a bare atom (`Red`) or the callee of a payload variant (`Blue(v : i32)`).
-_find_variant_decl :: (fn(e : AstExpr, variant : String, out : ArrayList(Token)) -> unit)({
+_find_variant_decl :: (fn(e : AstExpr, variant : String, inout(out) : ArrayList(Token)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -293,7 +293,7 @@ _subtree_has_position :: (fn(e : AstExpr, at : Token) -> bool)({
 /// holds `body_at` — the `impl(...)` pair that declares a method whose body
 /// starts there.
 _find_method_label :: (
-  fn(e : AstExpr, member : String, body_at : Token, out : ArrayList(Token)) -> unit
+  fn(e : AstExpr, member : String, body_at : Token, inout(out) : ArrayList(Token)) -> unit
 )({
   match(
     e,
@@ -554,7 +554,7 @@ _module_member_decl :: (
 
 /// The label call enclosing a LABEL atom (`Point(x : 1)` for the `x`): the
 /// call whose direct argument is the `:` pair with that atom on the left.
-_find_label_call :: (fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -> unit)({
+_find_label_call :: (fn(e : AstExpr, target : Token, inout(out) : ArrayList(AstExpr)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -571,7 +571,7 @@ _find_label_call :: (fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -
                   pair.get(usize(0)),
                   .Some(lhs) => {
                     lt := ast_expr_token(lhs);
-                    if((lt.row == target.row) && ((lt.column == target.column) && (lt.value == target.value)), {
+                    if((lt.row == target.row) && (lt.column == target.column) && (lt.value == target.value), {
                       out.push(e);
                     });
                   },
@@ -1000,10 +1000,9 @@ handle_document_links :: (
       prev2 := _tok_before(tokens, prev.idx);
       next := _tok_after(tokens, i);
       if((prev.tok.kind == TokenKind.LParen) && (prev2.tok.kind == TokenKind.Identifier)
-      && (
+      &&
         (prev2.tok.value == String.from("import")) && (next.tok.kind == TokenKind.RParen)
-        && (t.value.len() > usize(0))
-      ), {
+        && (t.value.len() > usize(0)), {
         // The resolver answers a `file://` URI spelling (like every module
         // path in the loader); file_exists_sync and fs_path_to_uri both
         // want the plain path.

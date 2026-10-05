@@ -27,27 +27,27 @@ test("HashSet.with_capacity with small capacity uses default", {
   assert(set.capacity() >= usize(4));
 });
 // ===== Add Tests =====
-test("HashSet.add inserts new element", {
+test("HashSet.insert inserts new element", {
   set := HashSet(i32).new();
   result := set.insert(i32(42));
   assert(result == true);
   assert(set.len() == usize(1));
 });
-test("HashSet.add returns false for duplicate element", {
+test("HashSet.insert returns false for duplicate element", {
   set := HashSet(i32).new();
   set.insert(i32(10));
   result := set.insert(i32(10));
   assert(result == false);
   assert(set.len() == usize(1));
 });
-test("HashSet.add inserts multiple elements", {
+test("HashSet.insert inserts multiple elements", {
   set := HashSet(i32).new();
   set.insert(i32(1));
   set.insert(i32(2));
   set.insert(i32(3));
   assert(set.len() == usize(3));
 });
-test("HashSet.add handles many insertions and triggers resize", {
+test("HashSet.insert handles many insertions and triggers resize", {
   set := HashSet(i32).new();
   // Insert enough elements to trigger resize (> 7/8 of capacity)
   i := usize(0);
@@ -57,21 +57,21 @@ test("HashSet.add handles many insertions and triggers resize", {
   assert(set.len() == usize(20));
 });
 // ===== Has Tests =====
-test("HashSet.has returns true for existing element", {
+test("HashSet.contains returns true for existing element", {
   set := HashSet(i32).new();
   set.insert(i32(42));
   assert(set.contains(i32(42)));
 });
-test("HashSet.has returns false for non-existing element", {
+test("HashSet.contains returns false for non-existing element", {
   set := HashSet(i32).new();
   set.insert(i32(10));
   assert(!set.contains(i32(99)));
 });
-test("HashSet.has returns false for empty set", {
+test("HashSet.contains returns false for empty set", {
   set := HashSet(i32).new();
   assert(!set.contains(i32(42)));
 });
-test("HashSet.has works after multiple insertions", {
+test("HashSet.contains works after multiple insertions", {
   set := HashSet(i32).new();
   set.insert(i32(1));
   set.insert(i32(2));
@@ -456,7 +456,7 @@ test("HashSet with bool elements", {
   assert(set.contains(false));
 });
 // ===== Duplicate Addition Tests =====
-test("HashSet.add duplicate returns false and doesn't increase size", {
+test("HashSet.insert duplicate returns false and doesn't increase size", {
   set := HashSet(i32).new();
   result1 := set.insert(i32(5));
   result2 := set.insert(i32(5));

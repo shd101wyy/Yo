@@ -163,7 +163,7 @@ __derive_error :: (
     impl(
       #(ctx.target),
       ToString(
-        to_string : (self -> #(body.to_expr()))
+        to_string : ((self) -> #(body.to_expr()))
       ),
       Error()
     )
@@ -276,7 +276,7 @@ export(ResumableException);
 /// of `source()` is an `Option(Dyn(Error))`, and an `Option` of a trait object
 /// cannot take an inherent `Option` method — the specialization is called but
 /// never emitted, so the C fails to compile
-/// (issues/option-of-a-trait-object-never-emits-its-inherent-methods.md). That
+/// (issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md). That
 /// is a separate open defect; this walk stays clear of it.
 root_cause :: (fn(err : AnyError) -> AnyError)({
   (cur : AnyError) = err;
@@ -317,7 +317,7 @@ export(root_cause);
 /// The cursor is spelled with `match` rather than `Option`'s inherent methods
 /// throughout: `Option(Dyn(Trait))` cannot take one — the specialization is
 /// called but never emitted, so the C fails to compile
-/// (issues/option-of-a-trait-object-never-emits-its-inherent-methods.md).
+/// (issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md).
 ErrorChain :: ref(struct(_cur : Option(AnyError)));
 /// Start a chain at `err`. The first `next()` returns `err` itself.
 error_chain :: (fn(err : AnyError) -> ErrorChain)(

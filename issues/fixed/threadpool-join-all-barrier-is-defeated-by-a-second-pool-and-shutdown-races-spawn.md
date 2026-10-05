@@ -33,7 +33,7 @@ the worker pool is process-global. A module-level `_submissions := RawMutex.new(
 pool) replaces the per-pool `_mutex`, and `spawn` checks `_closed` after taking it. The barrier's
 argument then holds for every pool value. The real fix — a completion counter per pool, so
 `join_all` does not depend on round-robin at all — is blocked on
-`issues/spawn-wrapper-forwarded-io-crosses-specializations.md` (the pool cannot wrap the user's
+`issues/fixed/spawn-wrapper-forwarded-io-crosses-specializations.md` (the pool cannot wrap the user's
 task closure); the plan's Phase 5 schedules it behind that codegen fix. Tests: two pools in one
 test, one spamming `spawn` from a helper thread while the other calls `join_all` on slow tasks
 and asserts its counter; `shutdown` racing a `spawn` on a helper thread.
@@ -46,6 +46,6 @@ process; re-entry from an inline-run task uses `RawMutex.held_by_current_thread(
 reads `_closed` under the lock and `shutdown` sets it under the lock, which closes the second
 window. The per-pool completion counter (the fix that removes the round-robin dependency
 altogether) stays scheduled behind
-`issues/spawn-wrapper-forwarded-io-crosses-specializations.md` in the plan's Phase 6. Test: "a
+`issues/fixed/spawn-wrapper-forwarded-io-crosses-specializations.md` in the plan's Phase 6. Test: "a
 second pool submitting concurrently cannot make join_all return early" in
 `tests/thread_pool.test.yo`.

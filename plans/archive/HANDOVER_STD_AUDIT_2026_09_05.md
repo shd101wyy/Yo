@@ -181,7 +181,7 @@ change itself and only appeared under independent measurement.
    no fourth emitter. Fixed in `and_or.yo`; **still live at `begin.yo:154` and
    `drop_dup.yo:895`.**
 
-3. **`issues/comptime-str-passed-where-string-is-declared-emits-invalid-c.md`.**
+3. **`issues/fixed/comptime-str-passed-where-string-is-declared-emits-invalid-c.md`.**
    A `"..."` literal passed where `String` is declared passes `yo check` and
    then emits a C cast to a struct type. The C19 class.
 
