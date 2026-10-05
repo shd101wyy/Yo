@@ -953,6 +953,8 @@ p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
 
 静态方法（没有 `self` 的方法）没有可供推断的接收者，所以必须写出类型实参：`Pair(i32, bool).make(...)`。调用结果被期望的类型也不会提供它们。在这种情况下省略类型实参，或者第一个实参不是该构造器的实例，都会报 E0613，错误信息会给出该实参的类型。
 
+接收者可以像其他实参一样带标签（`Pair.first(self : p)`），构造器也可以带模块限定（`m.Pair.first(p)`）。匹配依据的是构造器的身份，所以函数体应用了另一个构造器的构造器是一个独立的构造器：对于别名 `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` 或偏应用 `Pair(i32, _)`，以 `IntPair(u8)` 构造的值是 `Pair(i32, u8)`，`Pair.first(q)` 和 `IntPair(u8).first(q)` 都接受它，而 `IntPair.first(q)` 会报 E0613。
+
 ```rust
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(a : A, b : B)

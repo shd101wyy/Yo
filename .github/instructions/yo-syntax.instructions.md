@@ -513,6 +513,7 @@ Use `recur(args)` only when calling the type constructor with **different** type
 
 - A static method (no `self`) has no receiver to infer from: `Pair.make(a, b)` is E0613. Write `Pair(A, B).make(a, b)`.
 - A first argument of another type (`Rc.clone(b)` for `b : Box(i32)`; no payload search, so `Box.clone(w)` for `w : Rc(Box(i32))` too) is E0613, and the message names its type. A method the instance lacks is E0610, as with any receiver.
+- The match is by constructor identity. An alias (`IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))`) or a partial application (`Pair(i32, _)`) is a constructor of its own, so `IntPair.first(q)` for `q : Pair(i32, u8)` is E0613: write `Pair.first(q)` or `IntPair(u8).first(q)`. A labeled receiver (`Pair.first(self : p)`) and a module-qualified constructor (`m.Pair.first(p)`) work.
 - **Seed gate:** `src/` and `std/` keep the written form (`Rc(T).clone(w)` or `w.clone()`) until `SEED_VERSION` carries the feature, because the seed compiles them (`plans/backlog/SEED_VERSION_AUTOMATION.md`). Tests run on the tree-built compiler and may use it.
 
 ## Module imports

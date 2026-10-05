@@ -982,6 +982,8 @@ A method can also be called on its type, with the receiver as the first argument
 
 A static method (one with no `self`) has no receiver to infer from, so its type arguments are written out: `Pair(i32, bool).make(...)`. The type the call's result is expected to have does not supply them either. Leaving them out there, or passing a first argument that is not an instance of the constructor, is E0613, and the message names the argument's type.
 
+The receiver may be labeled like any argument (`Pair.first(self : p)`), and the constructor may be module-qualified (`m.Pair.first(p)`). The match is by constructor identity, so a constructor whose body applies another one is a constructor of its own: for an alias `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` or a partial application `Pair(i32, _)`, a value built as `IntPair(u8)` is a `Pair(i32, u8)`, which `Pair.first(q)` and `IntPair(u8).first(q)` accept and `IntPair.first(q)` rejects with E0613.
+
 ```rust
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(a : A, b : B)

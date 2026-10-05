@@ -1910,6 +1910,18 @@ and in git, not a silent edit.
     registered cfid), so it is never ambiguous: an `Rc(Box(T))` argument is
     an `Rc` instance, not a `Box` one. Generic and trait impls are found as
     for the written form, because the call then proceeds as that form.
+    The AST is not rewritten: the receiver node's ExprInfo is overwritten
+    with the inferred `G(A, ...)`, so a generic body infers again per
+    specialization. A first rewrite of the receiver into a fresh atom
+    broke a module-qualified constructor (`m.Pair.first(p)`) in a generic
+    body, because the definition-time trial left an atom named `.` behind.
+  - **Aliases and partial applications** are constructors of their own
+    (identity, not inversion of a comptime function): `IntPair.first(q)`
+    for `q : Pair(i32, u8)` is E0613 telling the user that another
+    constructor built the argument; `Pair.first(q)` and
+    `IntPair(u8).first(q)` work. A labeled receiver
+    (`Pair.first(self : p)`) is the first argument too, since labels are
+    positional.
   - **Static methods.** A method with no `self` has nothing to infer from,
     so `Pair.make(a, b)` is E0613; the type arguments are written,
     `Pair(A, B).make(a, b)`. The type a binding expects of the result does
