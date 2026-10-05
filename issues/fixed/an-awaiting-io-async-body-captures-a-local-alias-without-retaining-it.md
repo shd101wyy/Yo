@@ -100,3 +100,8 @@ The dup/drop optimizer is unchanged.
 - a `ref(struct)` alias read after the await, with a Dispose counter: the task retains the value and releases it exactly once;
 - controls: a parameter alias, a direct capture, a `clone()`;
 - canaries for the paths the fix leaves alone: the body captures both the owner and the alias, and an owner and alias that are both locals of the body (the alias still shares the owner's slot across the await).
+
+## Verification
+
+- `tests/io_async_captured_alias.test.yo`: develop `c80de6ebe` stage-1 **2 passed / 4 failed** (exit 6 on the String shapes, SIGSEGV 11 on the ArrayList and ref-struct shapes); with the fix **6 passed**.
+- A/B emission, the develop stage-1 against the fixed one, both under one pinned `YO_STD`: `src/main.yo` (1,910,460 lines) is **byte-identical**. So are the runner batches of `tests/async_await.test.yo` (3 batches), `tests/closure.test.yo`, `tests/closure_inside_io_async.test.yo` and `tests/rc.test.yo`, each compiled from one fixed path. The only diff is the new test's batch: in each of the four failing shapes the `var_<owner>` field disappears, its abort-dispose drop disappears (`__yo_decr_rc` 377 → 373, `__yo_incr_rc` 45 → 45), and the reads become `sm->__capture.<alias>`. The canaries' C is unchanged.
