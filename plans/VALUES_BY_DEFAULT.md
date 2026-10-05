@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 35 in §4 are confirmed. No design question is open;
+- **Decisions:** all 36 in §4 are confirmed. No design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 
@@ -62,9 +62,9 @@ Unique ownership removes the question instead of answering it.
 
 | Kind | Which types | A copy is | Example |
 | --- | --- | --- | --- |
-| **implicitly copyable** | owns no heap memory and has no `Dispose`: integers, floats, `bool`, `rune`, raw pointers, `str` views, and structs, enums, tuples and arrays made only of these | a bitwise copy | `p2 := p` for `p : Point` |
+| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `rune`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy)` or `impl(T, Copy())`; and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy)` |
 | **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
-| **move-only** (§3.4) | implements `Dispose` or `MoveOnly`, or has a move-only field | an error unless it is the last use; `clone()` exists only if the type implements `Clone` (`Sender`) | `f2 := f` moves the `File` |
+| **move-only** (§3.4) | implements neither `Copy` nor `Clone` (decision 36); a `Dispose` type is never `Copy` | an error unless it is the last use; with `Clone` it is explicit-copy instead (`Sender`) | `f2 := f` moves the `File` |
 
 - **Moves are implicit at the last use, and copies are never implicit**
   except for the first kind.
@@ -346,6 +346,10 @@ Explicit sharing must not mean writing `.*` everywhere.
 A resource (a lock, a socket, a file, a thread handle) is a value that
 cannot be copied.
 
+- **Amended by decision 36 (2026-10-05).** After decision 36's
+  Generation B, a type is move-only when it implements neither `Copy` nor
+  `Clone`, and the `MoveOnly` marker below is deleted. The text below
+  describes the V3 compiler as landed (#1217).
 - **What is move-only.** A type is move-only iff it implements `Dispose`,
   or declares `impl(T, MoveOnly())`, or holds a move-only value in a field,
   variant payload, tuple element, array element or closure capture.
@@ -779,7 +783,7 @@ machinery.
 
 ## 4. Decisions
 
-All 35 are confirmed by the maintainer. A change is a dated amendment here
+All 36 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -793,6 +797,9 @@ and in git, not a silent edit.
    - `Dispose` implies it, `impl(T, MoveOnly())` opts a type in, and the
      type's structure propagates it.
    - Rejected: a type modifier.
+   - **Amended 2026-10-05 by decision 36.** Move-only becomes "neither
+     `Copy` nor `Clone`", and the `MoveOnly` marker is deleted in decision
+     36's Generation B.
 3. **Explicit copies are `Clone`.** `Sender` keeps `clone`, and `Receiver`
    stays uncloneable.
 4. **A write through `Rc` is a plain write**, guarded by §3.10's assert. No
@@ -842,9 +849,12 @@ and in git, not a silent edit.
     branch accepts `sink` as the interim spelling, and both are deleted at
     the V3b flip.
 16. **Implicitly copyable types copy implicitly, and every owning value's
-    copy is explicit.** The rule is structural (no heap, no `Dispose`), so
-    no annotation is needed. Requiring `.clone()` on `i32`, as Hylo does,
-    buys nothing.
+    copy is explicit.** Requiring `.clone()` on `i32`, as Hylo does, buys
+    nothing.
+    - **Amended 2026-10-05 by decision 36.** The first version made the
+      rule structural (no heap, no `Dispose`) with no annotation. Now a
+      named type copies implicitly only if it implements `Copy`. Anonymous
+      composites stay structural.
 17. **Copying an `Rc`/`Arc` needs `.clone()`,** as in Rust: a new handle is a
     new owner, and sharing is visible where it is created.
     - Enforced at V2c and sized by the §6 measurement.
@@ -1289,14 +1299,22 @@ and in git, not a silent edit.
         operand. The error names `imm(x)`. An operand written `mut(x)` is an
         error, because no operator writes an operand.
         - **Concrete operand types** are checked at the impl.
-        - **A generic impl's operand** (`Vec2(T)` by value) is checked per
-          instantiation, like the rest of Yo's generic code (§3.4). So
-          `Vec2(f32)` is accepted, and `Vec2(String)` is the error at that
-          instantiation, anchored at the user's call
-          (`_reported_at_user_call`).
-        - Rejecting a generic by-value operand at the impl would forbid the
-          main use, a numeric vector generic over its scalar. Yo has no
-          `Copy` bound to constrain `T` with (decision 16).
+        - **A generic impl's operand** (`Vec2(T)` by value) states its
+          requirement as a bound and is checked at the impl (amended
+          2026-10-05 by decision 36):
+          ```rust
+          impl(generic(T : Type), where(T <: Copy), Vec2(T), Copy());
+          impl(generic(T : Type), where(T <: Copy, T <: Add(T)), Vec2(T), Add(Vec2(T))(
+            Output : Vec2(T),
+            (+) : (fn(lhs : Self, rhs : Self) -> Self)(...)
+          ));
+          ```
+          Without the bound, `Vec2(T)` is not known to be `Copy`, and the
+          by-value operand is the error at the impl, naming
+          `where(T <: Copy)` or `imm(x)`.
+        - Until decision 36 lands, the check runs per instantiation, as
+          the rest of Yo's generic code does (§3.4). That is the interim
+          rule.
       - **Call sites are the same either way.** An operator takes no marker,
         and a generic body is specialized per instantiation, so `a + b`
         calls the concrete impl with its own convention.
@@ -1448,6 +1466,80 @@ and in git, not a silent edit.
       - `g(&f, &mut z)` is an overlap error;
       - the `match`-arm parse.
 
+36. **Implicit copy is a trait: `Copy`.** Confirmed 2026-10-05 by the
+    maintainer. A named type copies implicitly only if it implements
+    `Copy`, as in Rust. This replaces decision 16's structural rule for
+    named types.
+    - **Why.**
+      - **The author promises the copy as part of the API.** Under the
+        structural rule, adding a private `String` field to a public
+        struct silently turned every caller's `p2 := p` into E0901.
+      - **Some plain-data types should not copy** although they could: an
+        `Fd(i32)` without a `Dispose`, a type-state token, an arena index
+        that must stay unique, an `Array(u8, 4096)`.
+      - **Generic code can state the requirement** (`where(T <: Copy)`),
+        so decision 34's by-value operand check runs at the impl, not per
+        instantiation.
+      - "Explicit whenever we can" (the maintainer).
+    - **The rule.**
+      - `Copy :: trait()` is a prelude marker.
+      - A struct, enum or newtype opts in with `derive(T, Copy)` or
+        `impl(T, Copy())`, and a generic type with
+        `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())`.
+      - **The impl is checked.** Every field, payload and element must be
+        `Copy`, and the type must not implement `Dispose`, which is Rust's
+        `Copy`/`Drop` exclusion. A failing impl is an error naming the
+        first non-`Copy` part.
+      - **`Copy` provides `clone()`.** A `Copy` type's clone can only be the
+        bitwise copy, so the compiler supplies `Clone` and a manual `Clone`
+        impl is an error. Rust asks for both impls and requires that they
+        agree.
+      - **Prelude impls:** the integers, floats, `bool`, `rune`, `unit`, raw
+        pointers, `fn` pointers and `str` views; `Option(T)` and
+        `Result(T, E)` with `where(T <: Copy)` (and `E <: Copy`).
+      - **Structural for anonymous composites.** Tuples, `Array(T, N)`,
+        anonymous records `_(...)` and closures (their capture records)
+        have no declaration to annotate, so each is `Copy` when all its
+        parts are. Rust does the same for tuples, arrays and closures.
+      - **Never `Copy`:** `Rc`, `Arc`, `Box`, `String`, the collections,
+        `Dyn`, and every type with a `Dispose`.
+    - **The three kinds become Rust's** (§0.2):
+      - **`Copy`:** copies implicitly.
+      - **`Clone` without `Copy`:** explicit-copy.
+      - **Neither:** move-only.
+      - The `MoveOnly` marker (decision 2) and its structural derivation are
+        deleted, and `type_requires_explicit_copy` becomes
+        `!(T <: Copy)`. Only cloning keys on `Clone`.
+    - **First measurement.** Count the named plain-data types in `src/`,
+      `std/` and `tests/` that are copied implicitly today, which are the
+      types that need `Copy`. Do it with an audit flag like §6's before
+      the sweep PR is opened.
+    - **Phase.** Before V2b, which widens the same predicate to `String`
+      and the collections.
+      - **Generation A:**
+        - the prelude `Copy` trait and its impls;
+        - the impl check;
+        - the compiler-supplied `clone()`;
+        - the `derive` rule.
+
+        The seed sees `Copy` as an ordinary marker trait, so `std/` and
+        `src/` may add their impls at once.
+      - **Generation B:**
+        - the `yo fix` sweep, which adds `Copy` to every named type that is
+          copied implicitly today;
+        - the flip: a named type without `Copy` is no longer implicitly
+          copyable;
+        - deleting `MoveOnly`.
+    - **Tests:**
+      - a `derive(Point, Copy)` copy;
+      - a plain struct without `Copy` moves, and a later use is E0901;
+      - `impl(T, Copy())` over a `String` field is an error;
+      - `Copy` plus `Dispose` is an error;
+      - a manual `Clone` on a `Copy` type is an error;
+      - a generic `where(T <: Copy)` operator impl;
+      - a tuple of `Copy` parts copies implicitly;
+      - a closure whose captures are all `Copy` copies implicitly.
+
 **Considered and kept implicit** (2026-10-05, the maintainer):
 - **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
   is E0901, which points at the move. A marker such as Mojo's `s^` on every
@@ -1585,9 +1677,12 @@ and in git, not a silent edit.
    - **V3, std:** the resources become move-only values. Their cells are
      the unique `Box` (§3.4), so this half follows step 2. It is Generation
      B in any case, because it needs a seed that enforces move-only.
-6. **V2b:** projections, unique buffers, and the explicit-copy kind for
+6. **Decision 36:** the `Copy` trait (Generation A, then the sweep and
+   the flip), so that V2b widens a predicate that is already
+   `!(T <: Copy)`.
+7. **V2b:** projections, unique buffers, and the explicit-copy kind for
    `String`, the collections and `Dyn`. **V2c:** decision 17 for `Rc`/`Arc`.
-7. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
+8. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
 
 ### V0: decisions — DONE 2026-10-03
 
@@ -2168,9 +2263,9 @@ stage-2 RSS):
 
 ## 9. Open questions
 
-No design question is open. The last three were decided as decisions 31
-(the child wrapper in patterns), 34 (operator operands) and 35 (the closure
-capture list). Decision 18 was also
+No design question is open. The latest were decided as decisions 31 (the
+child wrapper in patterns), 34 (operator operands), 35 (the closure capture
+list) and 36 (the `Copy` trait). Decision 18 was also
 amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
