@@ -407,6 +407,218 @@ type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
     .None => false
   )
 );
+// ---------------------------------------------------------------------------
+// Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, V3)
+// ---------------------------------------------------------------------------
+/// Answers whether a value nominal type (a `struct`, `enum` or `newtype` that
+/// is not a reference type) itself declares move-only, and through which
+/// trait: `"Dispose"` or `"MoveOnly"`, concretely or through a generic impl
+/// whose receiver pattern matches it; `""` when it does not. Installed at
+/// init (the impl registries live above this module) and consulted only once
+/// `note_move_only_possible` has run, so a program with no such impl pays one
+/// flag test per nominal type visited.
+MoveOnlyNominalFn :: (fn(ty : TypeValue) -> String);
+(g_move_only_nominal_fn : Option(MoveOnlyNominalFn)) = Option(MoveOnlyNominalFn).None;
+/// Install the nominal move-only answer (`evaluator/trait_checking.yo` does at
+/// init).
+set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
+  g_move_only_nominal_fn = f;
+});
+/// Set once some `impl` that declares `Dispose` or `MoveOnly` has been seen
+/// (registered, or recorded pending by the lazy module walk): until then no
+/// type is move-only, and the move-only checks skip their work. Never
+/// cleared: it only gates a fast path.
+(g_move_only_possible : bool) = false;
+note_move_only_possible :: (fn() -> unit)({
+  g_move_only_possible = true;
+});
+/// True once a value type may be move-only (`note_move_only_possible`).
+move_only_declarations_exist :: (fn() -> bool)(g_move_only_possible);
+/// A value nominal type: a `struct`/`enum`/`newtype` without reference
+/// semantics. Only these can declare move-only; a reference type is a shared
+/// cell, so its copies alias and it is never move-only (§3.4: `Rc(T)` and
+/// `Arc(T)` never are).
+is_value_nominal_type :: (fn(ty_in : TypeValue) -> bool)({
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  match(
+    ty,
+    .Struct({ is_reference_semantics : is_ref }) => !is_ref,
+    .EnumT({ is_reference_semantics : is_ref }) => !is_ref,
+    _ => false
+  )
+});
+/// The trait through which `ty` (already shell-resolved), a value nominal
+/// type, declares move-only itself, or `""` (see `MoveOnlyNominalFn`).
+_nominal_move_only_trait :: (fn(ty : TypeValue) -> String)(
+  cond(
+    !g_move_only_possible => String.new(),
+    true => match(
+      g_move_only_nominal_fn,
+      .None => String.new(),
+      .Some(f) => if(is_value_nominal_type(ty), f(ty), String.new())
+    )
+  )
+);
+_nominal_declares_move_only :: (fn(ty : TypeValue) -> bool)(!_nominal_move_only_trait(ty).is_empty());
+/// Depth-limited walk for `type_is_move_only`, the shape of
+/// `_type_contains_rc_inner`. A reference type (and `Dyn`/`Iso`, which are
+/// cells too) stops the walk: it shares its payload, so it is copyable
+/// whatever it holds.
+_type_is_move_only_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  cond(
+    (depth > u32(8)) => false,
+    is_rc_type(ty) => false,
+    _nominal_declares_move_only(ty) => true,
+    true => match(
+      ty,
+      .Array(element : elem, length : _) => recur(elem, depth + u32(1)),
+      .Tuple(field_labels : _, field_types : fields) => {
+        (i : usize) = usize(0);
+        while(i < fields.len(), {
+          if(match(fields.get(i), .Some(ft) => recur(ft, depth + u32(1)), .None => false), {
+            return(true);
+          });
+          i = (i + usize(1));
+        });
+        false
+      },
+      .Struct({ field_types : fields }) => {
+        (i : usize) = usize(0);
+        while(i < fields.len(), {
+          if(match(fields.get(i), .Some(ft) => recur(ft, depth + u32(1)), .None => false), {
+            return(true);
+          });
+          i = (i + usize(1));
+        });
+        false
+      },
+      .EnumT({ variant_fields : all_fields }) => {
+        (vi : usize) = usize(0);
+        while(vi < all_fields.len(), {
+          vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          (fi : usize) = usize(0);
+          while(fi < vf.len(), {
+            if(match(vf.get(fi), .Some(ft) => recur(ft, depth + u32(1)), .None => false), {
+              return(true);
+            });
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+        false
+      },
+      // A generic parameter is judged where it is bound: a generic body is
+      // re-evaluated per instantiation (§3.4 "checked per instantiation").
+      .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(concrete, depth + u32(1)), .None => false),
+      _ => false
+    )
+  )
+});
+/// True if a value of `ty` cannot be copied, only moved (§3.4): a value
+/// nominal type implementing `Dispose` or `MoveOnly`, or a value aggregate
+/// (struct, enum, tuple, array, closure capture struct) with a move-only
+/// component. A reference type never is. `type_contains_rc_type` is true
+/// for every move-only type, so the ownership machinery (temps, drops,
+/// moves, joins) tracks these values like RC values; this predicate is what
+/// turns their copies into moves or errors.
+type_is_move_only :: (fn(ty : TypeValue) -> bool)(
+  g_move_only_possible && _type_is_move_only_inner(ty, u32(0))
+);
+/// True if a value of `ty` is not implicitly copyable: an implicit copy of it
+/// is a compile error and every copy point MOVES it (plans/VALUES_BY_DEFAULT.md
+/// §3.4 and the three kinds of type: implicitly copyable, explicit-copy,
+/// move-only). The move points, use-after-move (E0901), flow joins, the
+/// no-partial-moves rule and closure-capture moves all key on this predicate;
+/// only "may it be copied with `.clone()`" and the `Dispose` rule key on
+/// `type_is_move_only`, its strict sub-case. Today it holds exactly for
+/// move-only types: the explicit-copy kind (a value owning a buffer: `String`,
+/// the collections, a value `Box`, `Dyn`) joins in its own, separately
+/// measured migration.
+type_requires_explicit_copy :: (fn(ty : TypeValue) -> bool)(type_is_move_only(ty));
+/// Why `ty` is move-only, for the E0901 note: the declaring type and trait,
+/// reached through the component path ("`Holder` holds a move-only value in
+/// its field `fd` (`Fd`): `Fd` implements Dispose"). `.None` when it is not
+/// move-only.
+move_only_reason :: (fn(ty : TypeValue) -> Option(String))(
+  cond(g_move_only_possible => _move_only_reason_inner(ty, u32(0)), true => Option(String).None)
+);
+_move_only_reason_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(String))({
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  if((depth > u32(8)) || is_rc_type(ty), {
+    return(Option(String).None);
+  });
+  tn := _nominal_move_only_trait(ty);
+  if(tn == "Dispose", {
+    return(Option(String).Some(`\`${type_to_string(ty)}\` implements Dispose`));
+  });
+  if(tn == "MoveOnly", {
+    return(Option(String).Some(`\`${type_to_string(ty)}\` declares MoveOnly`));
+  });
+  // The first move-only component, as `<label> : <type>` and its own reason.
+  labels := ArrayList(String).new();
+  comps := ArrayList(TypeValue).new();
+  match(
+    ty,
+    .Array(element : elem, length : _) => {
+      labels.push(String.from("elements"));
+      comps.push(elem);
+    },
+    .Tuple({ field_types : fields }) => {
+      (i : usize) = usize(0);
+      while(i < fields.len(), {
+        labels.push(`element ${i.to_string()}`);
+        comps.push(match(fields.get(i), .Some(f) => f, .None => TypeValue.Unit));
+        i = (i + usize(1));
+      });
+    },
+    .Struct({ field_labels : fls, field_types : fields }) => {
+      (i : usize) = usize(0);
+      while(i < fields.len(), {
+        fl := match(fls.get(i), .Some(l) => l, .None => String.new());
+        labels.push(`field \`${fl}\``);
+        comps.push(match(fields.get(i), .Some(f) => f, .None => TypeValue.Unit));
+        i = (i + usize(1));
+      });
+    },
+    .EnumT({ variant_names : vns, variant_fields : all_fields }) => {
+      (vi : usize) = usize(0);
+      while(vi < all_fields.len(), {
+        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vn := match(vns.get(vi), .Some(n) => n, .None => String.new());
+        (fi : usize) = usize(0);
+        while(fi < vf.len(), {
+          labels.push(`variant \`${vn}\``);
+          comps.push(match(vf.get(fi), .Some(f) => f, .None => TypeValue.Unit));
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+    },
+    .SomeT({ resolution : rc }) => match(
+      rc,
+      .Some(concrete) => {
+        return(recur(concrete, depth + u32(1)));
+      },
+      .None => ()
+    ),
+    _ => ()
+  );
+  (ci : usize) = usize(0);
+  while(ci < comps.len(), {
+    c := match(comps.get(ci), .Some(t) => t, .None => TypeValue.Unit);
+    match(
+      recur(c, depth + u32(1)),
+      .Some(inner) => {
+        lbl := match(labels.get(ci), .Some(l) => l, .None => String.new());
+        return(Option(String).Some(`\`${type_to_string(ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string(c)}\`): ${inner}`));
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  Option(String).None
+});
 /// Private depth-limited recursive helper for type_contains_rc_type.
 ///
 /// Uses a depth limit instead of a checkedTypes set to prevent infinite
@@ -426,6 +638,9 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
     (depth > u32(8)) => false,
     // Direct RC type
     is_rc_type(ty) => true,
+    // A move-only value (§3.4) has a drop to run (its `dispose`) and an
+    // owner to track, exactly like an RC value; its fields are walked below.
+    _nominal_declares_move_only(ty) => true,
     true => match(
       ty,
       // Array — recurse on element type
@@ -556,12 +771,14 @@ type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
   });
   true
 });
-/// Return `true` if the type contains an RC-managed type (object/Dyn/Iso).
+/// Return `true` if the type contains an RC-managed type (object/Dyn/Iso) or
+/// a move-only value (`type_is_move_only`): a value whose copies and drops the
+/// ownership machinery must track. `Type.contains_rc_type(T)` reads this too,
+/// which is what makes a container drop (and so dispose) its move-only
+/// elements.
 ///
 /// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).
 /// Uses a depth limit to handle self-referential types safely.
-///
-///
 type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0))
 );
@@ -2317,7 +2534,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type);
+export(type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);

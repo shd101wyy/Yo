@@ -1070,3 +1070,30 @@ test("soundness: an operator unit does not implement is rejected", {
   comptime_expect_error(u + u, "No matching call found for operator");
   assert(u == (), "unit's Eq still dispatches");
 });
+// ---------------------------------------------------------------------------
+// issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md:
+// a `sink` move consumes the name. Reading a moved reference value read the
+// cell its new owner had already released.
+// ---------------------------------------------------------------------------
+(g_sink_read_disposed : i32) = i32(0);
+_SinkReadBox :: ref(struct(n : i32));
+impl(
+  _SinkReadBox,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_sink_read_disposed = (g_sink_read_disposed + i32(1));
+    })
+  )
+);
+_sink_read_take :: (fn(sink(h) : _SinkReadBox) -> i32)(h.n);
+test("soundness: a read after a sink move is E0901", {
+  before := g_sink_read_disposed;
+  a := _SinkReadBox(n : i32(1));
+  assert(_sink_read_take(a) == i32(1), "moved in");
+  assert(g_sink_read_disposed == (before + i32(1)), "the callee released the cell");
+  comptime_expect_error(a.n, "use of moved value");
+  b := _SinkReadBox(n : i32(2));
+  m := _sink_read_take(b);
+  comptime_expect_error(b, "use of moved value");
+  assert(m == i32(2), "the value was read before the move");
+});

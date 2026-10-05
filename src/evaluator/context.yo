@@ -15,6 +15,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
+{ note_move_only_possible } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
 {
@@ -1833,7 +1834,103 @@ impl_receiver_head_name :: (fn(recv : AstExpr) -> String)(
     true => String.new()
   )
 );
-_make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bool) -> Option(PendingDef))(
+/// AST ids of closure literals evaluated as the DIRECT argument of a call to a
+/// borrowing parameter (neither `sink` nor `inout`): such a closure cannot
+/// outlive the call, so it borrows its captures instead of owning them
+/// (plans/VALUES_BY_DEFAULT.md decision 22; V3 applies it to a closure that
+/// captures a value that is not implicitly copyable).
+(g_borrowing_closure_args : HashMap(usize, bool)) = HashMap(usize, bool).new();
+/// Record that `arg` (an argument expression, label stripped) is passed to a
+/// borrowing parameter.
+note_borrowing_argument :: (fn(arg : AstExpr) -> unit)({
+  if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).None), {
+    g_borrowing_closure_args.insert(ast_expr_id(arg), true);
+  });
+});
+/// True when the closure literal `e` is the direct argument of a borrowing
+/// parameter (`note_borrowing_argument`).
+closure_literal_is_borrowed :: (fn(e : AstExpr) -> bool)(g_borrowing_closure_args.contains_key(ast_expr_id(e)));
+/// Receiver head names of pending (unforced) impls that declare `Dispose` or
+/// `MoveOnly` (`""` for an un-nameable head): `force_pending_move_only_impls`
+/// forces them the first time a type's move-only status is asked.
+(g_pending_move_only_heads : HashMap(String, bool)) = HashMap(String, bool).new();
+/// An `impl(...)` statement with a `Dispose(...)` or `MoveOnly(...)` entry,
+/// read off the syntax (the trait is resolved when the impl is forced).
+_impl_expr_declares_move_only :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .FnCall(_, _, iargs, _, _) => {
+      (i : usize) = usize(1);
+      while(i < iargs.len(), {
+        match(
+          iargs.get(i),
+          .Some(arg) => match(
+            arg,
+            .FnCall(_, callee, _, _, _) => if(ast_expr_is_atom(callee) && ((ast_expr_token(callee).value == "Dispose") || (ast_expr_token(callee).value == "MoveOnly")), {
+              return(true);
+            }),
+            .Atom(_, _) => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    },
+    .Atom(_, _) => false
+  )
+);
+/// Force the unforced pending impls of `type_name` that declare `Dispose` or
+/// `MoveOnly` (plans/VALUES_BY_DEFAULT.md §3.4): a type's move-only status
+/// decides how every use of it is evaluated, so its impl cannot wait for a
+/// method miss or the module end. True when an impl was forced.
+force_pending_move_only_impls :: (fn(type_name : String) -> bool)({
+  if(g_pending_move_only_heads.len() == usize(0), {
+    return(false);
+  });
+  if(!(g_pending_move_only_heads.contains_key(type_name.clone()) || g_pending_move_only_heads.contains_key(String.new())), {
+    return(false);
+  });
+  g_pending_move_only_heads.remove(type_name.clone());
+  g_pending_move_only_heads.remove(String.new());
+  (forced : bool) = false;
+  (wi : usize) = g_module_walks.len();
+  while(wi > usize(0), {
+    wi = (wi - usize(1));
+    match(
+      g_module_walks.get(wi),
+      .Some(walk) => {
+        (di : usize) = usize(0);
+        while(di < walk.defs.len(), {
+          match(
+            walk.defs.get(di),
+            .Some(def) => {
+              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(def.expr));
+              if(is_target, {
+                match(
+                  force_pending_def(walk, def),
+                  .Some(_) => (),
+                  .None => {
+                    forced = true;
+                  }
+                );
+              });
+            },
+            .None => ()
+          );
+          di = (di + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
+  forced
+});
+_make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bool) -> Option(PendingDef))({
+  if(is_impl && _impl_expr_declares_move_only(e), {
+    g_pending_move_only_heads.insert(name.clone(), true);
+    note_move_only_possible();
+  });
   Option(PendingDef).Some(
     PendingDef(
       name : name,
@@ -1850,7 +1947,7 @@ _make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bo
       src_hash : fnv1a64(ast_expr_to_string(e))
     )
   )
-);
+});
 /// The member names an `extern(...)` statement declares: the label of each
 /// `label : type` argument (the optional leading language atom is skipped).
 /// Empty when no argument has that shape — the statement is then ordered and
@@ -3432,6 +3529,9 @@ export(
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
+  force_pending_move_only_impls,
+  note_borrowing_argument,
+  closure_literal_is_borrowed,
   type_head_name_for_impl_forcing,
   note_unlabeled_ensures_atom,
   is_unlabeled_ensures_atom

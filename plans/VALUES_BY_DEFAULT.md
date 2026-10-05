@@ -1354,26 +1354,77 @@ and in git, not a silent edit.
 
 ### V3: move-only, `Dispose`, resources
 
-**Compiler, Generation A** (branch `feat/vbd-v3-move-only`, PR pending):
-- **`MoveOnly` and the move points.**
-  - The `MoveOnly` marker, derived on demand (§3.4).
-  - The move points route a move-only operand through
-    `transfer_explicit_copy_value` (`src/evaluator/utils.yo`).
-  - Identifier reads check `consumed_at_token`.
-  - No partial moves.
-  - The E0901 note names why the type is move-only.
-  - E0907's loop rule is lifted for move-only values.
-- **`Dispose` on a value type implies `MoveOnly`.** `Dispose` on reference
-  types stays allowed until std's last such impl converts.
+**Compiler, Generation A, landed** (branch `feat/vbd-v3-move-only`):
+- **The marker, derived on demand.** `type_is_move_only`
+  (`src/types/utils.yo`) holds for a value `struct`/`enum`/`newtype` covered
+  by a `Dispose` or `MoveOnly` impl. It also holds for a value aggregate with
+  a move-only component (field, payload, tuple or array element, closure
+  capture). A reference type is never move-only and is not looked into.
+  - Impls are matched per instantiation (`nominal_declares_move_only`,
+    `src/evaluator/values/impl.yo`, memoized per `type_key`).
+  - A pending impl naming either trait is forced the first time its type is
+    asked about (`force_pending_move_only_impls`), so it may follow the
+    type's first use.
+  - `Type.impls(T, MoveOnly)` answers from the same walk.
+  - `impl(T, !(MoveOnly))` is rejected.
+  - `type_contains_rc_type` is true for a move-only type, which gives it
+    owning temps, drops and joins. std containers drop and dispose their
+    elements through `Type.contains_rc_type`.
+- **One predicate, `type_requires_explicit_copy`.** The move points,
+  use-after-move, flow joins, no partial moves and capture moves key on
+  it, and only cloning and the `Dispose` rule key on `MoveOnly`. Today it
+  equals `type_is_move_only`, and decision 16's explicit-copy kind widens
+  that one function.
+- **Move points.** `set_expr_as_needs_to_call_dup` routes such an operand
+  through `transfer_explicit_copy_value` (`src/evaluator/utils.yo`): `:=`,
+  `=`, a `sink` argument, field and element stores, constructor and literal
+  arguments, returns, escaping captures.
+  - An owning temp transfers, and an owning local is consumed.
+  - A copy out of a borrow, an `inout` or module-level binding, a field
+    (no partial moves), an element or a dereference is E0901. The note names
+    why the type is move-only.
+  - E0907 applies unchanged.
+  - A generic body that copies is E0901 at the user's instantiation, e.g.
+    `ArrayList(Fd).get`, and `push`, which still borrows `value`.
+- **Reads.** A read of a consumed user-named variable is E0901 for every
+  type, raised through the flow-violation channel so a closure or `io.async`
+  body re-raises it. A move the dup/drop pair optimizer makes is not a read
+  after a move. This fixes
+  `issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md`
+  (S1: a `ref` value read after a `sink` move read freed memory). Measured:
+  `check ./src` 0 errors, 308 of 309 test files, the 309th changed.
+- **`Dispose`.**
+  - On a value type, `Dispose` implies `MoveOnly`, so the old "error naming
+    the copyable field" has no referent.
+  - `MoveOnly` is accepted on value nominal types only, and `Trace` stays
+    reference-only (`receiver_kind_trait_violation_msg`,
+    `src/evaluator/trait_checking.yo`).
+  - Staged: `Dispose` on a reference type stays allowed. In the PR that
+    converts std's and the tests' last reference-type `Dispose`, delete
+    that arm.
+  - std may add a value-type `Dispose`/`MoveOnly` only once `SEED_VERSION`
+    carries this compiler (Generation B).
 - **Codegen.**
-  - A move-only value's drop calls the synthesized `___dispose` first.
-  - The dup/drop pair optimizer never sees a dup for one, so a move into a
-    field is a real consumption.
-- **Decision 22 for borrowing closure literals:** no dup, no move.
-- **The interim `sink(x)` spelling** (decision 15).
-- **A read after a `sink` move is E0901 for every type.** This fixes the S1
-  issue filed on the V3 branch (a `ref` value read after a `sink` move
-  read freed memory).
+  - A move-only value's drop calls its `___dispose` first (a synthesized
+    `self.dispose()`, `_synthesize_and_register_value_dispose`), then drops
+    its fields.
+  - No dup is ever built for one, so a move into a field is a real
+    consumption.
+- **Decision 22, partly.**
+  - An escaping closure moves a move-only capture in.
+  - A closure literal passed straight to a borrowing parameter borrows its
+    captures when one requires an explicit copy: no dup, no move
+    (`note_borrowing_argument`, `closure_literal_is_borrowed`).
+  - Borrowing for closures with only copyable captures is its own measured
+    step.
+- **The interim `sink(x)`** (decision 15; decision 30 replaces it in V3b).
+  It is the same flag as `own(x)`, so the two spell one function type.
+  Printing, messages, the registry and DESIGN say `sink`.
+- **Known limits.**
+  - The old value of `x = y` is disposed at block end
+    (`issues/questions/the-old-value-of-an-assignment-to-a-move-only-variable-is-disposed-at-the-end-of-the-block.md`).
+  - The `Box(_MoFd)` assertion in `tests/move_only.test.yo` flips with the
+    value `Box`.
 - **Async (§3.13):**
   - `MoveOnly` on state machines and `IoFuture`, and consuming
     `io.await`/`io.spawn` that move the result out (A1);

@@ -518,6 +518,10 @@ When you find a test that causes a C codegen bug, don't weaken the test. Create 
 
 For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`.
 
+### Move-only values ride the RC machinery, without dups
+
+A move-only value type (a value `struct`/`enum`/`newtype` with a `Dispose` or `MoveOnly` impl, or an aggregate holding one; `type_is_move_only` in `src/types/utils.yo`) makes `type_contains_rc_type` true, so it gets owning temps, scope-end drops and flow joins like an RC value. It never gets a dup: `set_expr_as_needs_to_call_dup` moves every value that is not implicitly copyable (`type_requires_explicit_copy`, today exactly the move-only ones; `transfer_explicit_copy_value`, `src/evaluator/utils.yo`) or rejects the copy (E0901), and a closure capture consumes it. Its drop (`generate_drop_code_for_value`) calls the type's `___dispose` first (a synthesized `self.dispose()`, registered by `collect_dispose_methods` → `_synthesize_and_register_value_dispose`), then drops its fields inline. A dup of a move-only value reaching codegen is an evaluator bug: find the copy point that skipped the funnel.
+
 ### A hand-written C declaration must be registered, or its drops vanish
 
 `generate_deferred_drop_expressions` (`src/codegen/exprs/drop_dup.yo`) silently

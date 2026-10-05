@@ -48,7 +48,12 @@ pragma(Pragma.AllowUnsafe);
   get_all_some_types,
   enum_phantom_type_arg_somes,
   is_bound_closure_identity,
-  resolve_cell_chain
+  resolve_cell_chain,
+  type_is_move_only,
+  move_only_declarations_exist,
+  is_value_nominal_type,
+  set_move_only_nominal_fn,
+  MoveOnlyNominalFn
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
@@ -62,7 +67,8 @@ pragma(Pragma.AllowUnsafe);
   set_type_implements_trait_full_fn,
   set_register_trait_value_fn,
   set_check_self_constraints_fn,
-  set_cell_only_trait_fn,
+  set_receiver_kind_trait_fn,
+  nominal_declares_move_only,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
@@ -192,7 +198,7 @@ AssocTypeCheckResult :: struct(
 /// Only `TraitT` has an explicit `id` field; `FnTraitT`/`FutureTraitT` use
 /// their `base_name` as a key (they cannot be the `Comptime`/`Runtime` traits).
 /// Identify which auto-derived MARKER trait `trait_type` is, by comparing its id
-/// against the fixed env marker set (Send/Comptime/Acyclic/Runtime); returns
+/// against the fixed env marker set (Send/Comptime/Acyclic/Runtime/MoveOnly); returns
 /// the marker name, or "" if it isn't one. Used by the step-4b on-demand
 /// re-derivation, which selects per-marker field rules. (The registry lookup
 /// itself matches by trait VALUE, not name — see `is_type_registered_as_trait`.)
@@ -206,6 +212,7 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
   markers.push(String.from("Comptime"));
   markers.push(String.from("Acyclic"));
   markers.push(String.from("Runtime"));
+  markers.push(String.from("MoveOnly"));
   (i : usize) = usize(0);
   (found : String) = String.from("");
   while((i < markers.len()) && found.is_empty(), {
@@ -660,6 +667,14 @@ type_implements_trait :: (
     if(eom == "Comptime", {
       return(TraitCheckResult(implemented : false, env : env));
     });
+  });
+  // MoveOnly is derived structurally from the impls that declare it
+  // (plans/VALUES_BY_DEFAULT.md §3.4): a value type implementing `Dispose` or
+  // `MoveOnly`, or an aggregate with a move-only component, where the other
+  // markers need EVERY component. `type_is_move_only` is that rule; a generic
+  // parameter keeps the bound-based path below.
+  if(move_only_declarations_exist() && !is_some_type(target) && _is_prelude_trait_named(trait_type, "MoveOnly", env), {
+    return(TraitCheckResult(implemented : type_is_move_only(target), env : env));
   });
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
@@ -1212,21 +1227,31 @@ _is_prelude_trait_named :: (fn(trait_type : TypeValue, name : str, env : Environ
     .None => false
   )
 );
-/// The cell-type gate on `Dispose` and `Trace`: `.Some(msg)` when `trait_type`
-/// is one of them and `target_type` is not a reference type (`ref(struct)`,
-/// `ref(enum)`, and their `atomic(...)` forms). A `SomeT` is resolved and an
-/// enum shell mapped to its final type first, as `type_implements_trait` does.
+/// The receiver-kind gate on `Dispose`, `MoveOnly` and `Trace`: `.Some(msg)`
+/// when `trait_type` is one of them and `target_type` may not implement it. A
+/// `SomeT` is resolved and an enum shell mapped to its final type first, as
+/// `type_implements_trait` does.
+///
+/// - `Dispose`: a value nominal type (`struct`, `enum`, `newtype`), which it
+///   makes move-only (plans/VALUES_BY_DEFAULT.md §3.4: `Dispose` implies
+///   `MoveOnly`, so its one owner disposes it once), or a reference type
+///   (`ref(struct)`, `ref(enum)`, and their `atomic(...)` forms), whose copies
+///   share one cell disposed at count zero. The reference arm is V3's staging
+///   (the plan's V3 section, "Staging"): std's resources are reference types
+///   until the std migration makes them value structs over a move-only cell,
+///   and the arm is deleted then. Any other receiver (a primitive, pointer,
+///   tuple, function, `Dyn`, blanket `T`) can be neither, so it is rejected.
+/// - `MoveOnly`: a value nominal type only. A reference type is how a value
+///   is shared (§3.4: `Rc(T)` and `Arc(T)` never are move-only).
+/// - `Trace`: a reference type only: a value has no header `traverse_fn` (it
+///   is traversed inline by whoever holds it).
 ///
 /// It replaces the deleted `Rc` marker trait, which the prelude required
-/// through `where(Self <: Rc)` on both traits and the compiler registered for
-/// exactly these types (`auto_derive_traits_for_struct_type` with
-/// `is_reference_semantics`), so the set a concrete impl may target is
-/// unchanged. The generic impl path, which never ran the selfConstraint check,
-/// calls this too, on the receiver pattern at the impl
+/// through `where(Self <: Rc)` on `Dispose` and `Trace`. The generic impl
+/// path, which never ran the selfConstraint check, calls this too, on the
+/// receiver pattern at the impl
 /// (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
-/// V3 of `plans/VALUES_BY_DEFAULT.md` re-scopes `Dispose` to move-only values
-/// (§3.6).
-cell_only_trait_violation_msg :: (
+receiver_kind_trait_violation_msg :: (
   fn(
     target_type : TypeValue,
     trait_type : TypeValue,
@@ -1235,6 +1260,7 @@ cell_only_trait_violation_msg :: (
 )({
   trait_name := cond(
     _is_prelude_trait_named(trait_type, "Dispose", env) => String.from("Dispose"),
+    _is_prelude_trait_named(trait_type, "MoveOnly", env) => String.from("MoveOnly"),
     _is_prelude_trait_named(trait_type, "Trace", env) => String.from("Trace"),
     true => String.from("")
   );
@@ -1245,16 +1271,32 @@ cell_only_trait_violation_msg :: (
   if(is_some_type(target), {
     target = resolve_enum_shell(get_value_of_some_type_from_env(env, target));
   });
-  if(is_reference_struct_type(target) || is_reference_enum_type(target), {
-    return(Option(String).None);
-  });
-  Option(String).Some(
-    `Type "${type_to_string(target_type)}" cannot implement "${trait_name}": only a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
+  is_reference := (is_reference_struct_type(target) || is_reference_enum_type(target));
+  is_value_nominal := is_value_nominal_type(target);
+  cond(
+    (trait_name == "Trace") => if(
+      is_reference,
+      Option(String).None,
+      Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "Trace": only a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it. A value is traversed inline by whoever holds it.`)
+    ),
+    (trait_name == "MoveOnly") => cond(
+      is_value_nominal => Option(String).None,
+      is_reference => Option(String).Some(
+        `Type "${type_to_string(target_type)}" cannot implement "MoveOnly": it is a reference type, and its copies share one cell, so it is never move-only. Declare MoveOnly on a value type (struct, enum, newtype) instead.`
+      ),
+      true => Option(String).Some(
+        `Type "${type_to_string(target_type)}" cannot implement "MoveOnly": only a value type (struct, enum, newtype) may declare it. Aggregates (tuples, arrays, closures) are move-only when a component is.`
+      )
+    ),
+    (is_value_nominal || is_reference) => Option(String).None,
+    true => Option(String).Some(
+      `Type "${type_to_string(target_type)}" cannot implement "Dispose": only a value type (struct, enum, newtype), which Dispose makes move-only, or a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
+    )
   )
 });
 /// Message-returning core of the impl-site self check: `.Some(msg)` when the
-/// target may not implement the trait (the `Dispose`/`Trace` cell-type gate,
-/// `cell_only_trait_violation_msg`) or violates a positive or negative
+/// target may not implement the trait (the `Dispose`/`MoveOnly`/`Trace`
+/// receiver gate, `receiver_kind_trait_violation_msg`) or violates a positive or negative
 /// selfConstraint on it, `.None` otherwise. Split out (throw-free) so
 /// `impl.yo`'s concrete-impl path can call it through the injected
 /// function-pointer hook (`set_check_self_constraints_fn`) without an import
@@ -1268,7 +1310,7 @@ check_self_constraints_violation_msg :: (
   ) -> Option(String)
 )({
   match(
-    cell_only_trait_violation_msg(target_type, trait_type, env),
+    receiver_kind_trait_violation_msg(target_type, trait_type, env),
     .Some(cell_msg) => {
       return(Option(String).Some(cell_msg));
     },
@@ -2332,7 +2374,8 @@ _trait_checking_init := (fn() -> bool)({
   set_type_implements_trait_full_fn(_type_implements_trait_full_adapter);
   set_register_trait_value_fn(register_type_trait_value);
   set_check_self_constraints_fn(check_self_constraints_violation_msg);
-  set_cell_only_trait_fn(cell_only_trait_violation_msg);
+  set_receiver_kind_trait_fn(receiver_kind_trait_violation_msg);
+  set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();

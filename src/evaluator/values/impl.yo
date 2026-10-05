@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
+{ get_all_some_types, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -112,7 +112,9 @@ pragma(Pragma.AllowUnsafe);
   pop_forcing_def,
   forcing_depths,
   truncate_forcing_depths,
-  call_evaluate_fn_body
+  call_evaluate_fn_body,
+  force_pending_move_only_impls,
+  type_head_name_for_impl_forcing
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
@@ -293,7 +295,8 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 });
 /// Type of `check_self_constraints_violation_msg` from trait_checking.yo:
 /// `.Some(error message)` when `target_type` may not implement `trait_ty` (a
-/// `Dispose`/`Trace` impl on a value type) or violates a positive or negative
+/// `Trace` impl on a value type, a `Dispose` on a primitive, a `MoveOnly` on a
+/// reference type) or violates a positive or negative
 /// selfConstraint on it, `.None` when satisfied. Routed via a function pointer to
 /// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
 /// the caller throws with its own token/exn, invoking it per trait entry.
@@ -304,20 +307,21 @@ CheckSelfConstraintsFn :: (fn(target_type : TypeValue, trait_ty : TypeValue, env
 set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
   g_check_self_constraints_fn = Option(CheckSelfConstraintsFn).Some(f);
 });
-/// `cell_only_trait_violation_msg` from trait_checking.yo: `.Some(error
-/// message)` when `trait_ty` is `Dispose` or `Trace` and `target_type` is not
-/// a reference type. The GENERIC impl path calls it on the receiver pattern
-/// (it does not run the full selfConstraint check, which a pattern over
-/// unbound type parameters cannot answer). A pattern's ref-ness cannot depend
-/// on its type arguments (a `cond` over a type parameter in a type
-/// constructor is rejected when the pattern is evaluated), so the pattern
-/// check covers every instantiation. Same function-pointer routing as above:
-/// impl.yo cannot import trait_checking.yo.
-(g_cell_only_trait_fn : Option(CheckSelfConstraintsFn)) =
+/// `receiver_kind_trait_violation_msg` from trait_checking.yo: `.Some(error
+/// message)` when `trait_ty` is `Dispose`, `MoveOnly` or `Trace` and
+/// `target_type` is not a receiver that trait accepts. The GENERIC impl path
+/// calls it on the receiver pattern (it does not run the full selfConstraint
+/// check, which a pattern over unbound type parameters cannot answer). A
+/// pattern's kind (value or reference, nominal or not) cannot depend on its
+/// type arguments (a `cond` over a type parameter in a type constructor is
+/// rejected when the pattern is evaluated), so the pattern check covers every
+/// instantiation. Same function-pointer routing as above: impl.yo cannot
+/// import trait_checking.yo.
+(g_receiver_kind_trait_fn : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
 /// Install the function pointer (called from trait_checking.yo init block).
-set_cell_only_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
-  g_cell_only_trait_fn = Option(CheckSelfConstraintsFn).Some(f);
+set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
+  g_receiver_kind_trait_fn = Option(CheckSelfConstraintsFn).Some(f);
 });
 // ---------------------------------------------------------------------------
 // `currentlyRegisteringConcreteImpls` registry
@@ -432,6 +436,26 @@ register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
     }
   );
 });
+// ---------------------------------------------------------------------------
+// Move-only declarations (plans/VALUES_BY_DEFAULT.md §3.4, V3)
+// ---------------------------------------------------------------------------
+/// One impl that makes a value nominal type move-only: `Dispose` or
+/// `MoveOnly` on a concrete receiver (`concrete_id`, the receiver's
+/// `type_id_or_empty`, the key every concrete impl registers under) or
+/// through a generic impl (`generic`, matched per instantiation).
+MoveOnlyDecl :: struct(
+  concrete_id : String,
+  generic : Option(GenericImplEntry),
+  /// `"Dispose"` or `"MoveOnly"`.
+  trait_name : String,
+  owner : String
+);
+(g_move_only_decls : ArrayList(MoveOnlyDecl)) = ArrayList(MoveOnlyDecl).new();
+/// `type_key` → answer; cleared whenever a declaration is added or purged.
+(g_move_only_memo : HashMap(String, String)) = HashMap(String, String).new();
+/// `type_key`s being answered: a generic impl's where-clause check can ask
+/// about the same type again (it reaches `type_contains_rc_type`).
+(g_move_only_in_flight : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Drop every generic-impl entry registered by `owner` (a `file://` abs
 /// module path). Phase B2 — called for each module the LSP invalidates.
 purge_generic_impls_owned_by :: (fn(owner : String) -> unit)({
@@ -461,6 +485,7 @@ purge_generic_impls_owned_by :: (fn(owner : String) -> unit)({
     });
     ki = (ki + usize(1));
   });
+  purge_move_only_decls_owned_by(owner);
 });
 /// Drop the concrete trait-impl records `owner` registered (coherence index;
 /// the LSP calls this beside `purge_generic_impls_owned_by`).
@@ -475,6 +500,41 @@ purge_concrete_trait_impls_owned_by :: (fn(owner : String) -> unit)({
       g_concrete_trait_impls.drain(i .. (i + usize(1)));
       g_concrete_trait_impl_owners.drain(i .. (i + usize(1)));
     });
+  });
+  purge_move_only_decls_owned_by(owner);
+});
+/// `impl(T, !(MoveOnly))` is rejected: `MoveOnly` follows from `Dispose` and
+/// from a type's components (plans/VALUES_BY_DEFAULT.md §3.4), so a negation
+/// could only make a type that must not be copied copyable.
+_reject_negative_move_only :: (fn(trait_ty : TypeValue, env : Environment, tok : Token, exn : Exception) -> unit)({
+  if(move_only_declaring_trait_name(trait_ty, env) == "MoveOnly", {
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          String.from("Cannot use '!(MoveOnly)': a type is move-only because it implements Dispose, declares MoveOnly or holds a move-only value, and a negative impl cannot make such a value copyable.")
+        )
+      )
+    );
+  });
+});
+/// Drop the declarations `owner` recorded (beside the impl registries' own
+/// purges, on an LSP/watch invalidation).
+purge_move_only_decls_owned_by :: (fn(owner : String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  (i : usize) = g_move_only_decls.len();
+  (changed : bool) = false;
+  while(i > usize(0), {
+    i = (i - usize(1));
+    if(match(g_move_only_decls.get(i), .Some(d) => (d.owner == owner), .None => false), {
+      g_move_only_decls.drain(i .. (i + usize(1)));
+      changed = true;
+    });
+  });
+  if(changed, {
+    g_move_only_memo.clear();
   });
 });
 /// Total generic-impl entries across all buckets (LSP leak gate).
@@ -4399,6 +4459,7 @@ evaluate_module_value :: (
         match(
           _try_lookup_trait_type(neg_head, forall_env, ctx, exn),
           .Some(neg_trait_ty) => {
+            _reject_negative_move_only(neg_trait_ty, forall_env, ast_expr_token(mf_expr), exn);
             neg_entry := GenericImplEntry(
               get_trait_key(neg_trait_ty),
               forall_names,
@@ -4479,15 +4540,15 @@ evaluate_module_value :: (
         g_trait_ty_opt := _try_lookup_trait_type(trait_fn_expr2, forall_env, ctx, exn);
         _throw_if_deref_impl_outside_prelude(g_trait_ty_opt, ast_expr_token(mf_expr), forall_env, ctx, exn);
         g_trait_ty := match(g_trait_ty_opt, .Some(t) => t, .None => t_unit());
-        // `Dispose`/`Trace` only on a reference type, as Case 3 checks through
-        // `g_check_self_constraints_fn`; a value or blanket receiver pattern
-        // (`Pair(T)` over a value struct, a bare `T`) used to register
-        // unchecked and its `dispose` never ran
+        // `Dispose`/`MoveOnly`/`Trace` only on the receivers they accept, as
+        // Case 3 checks through `g_check_self_constraints_fn`; a blanket
+        // receiver pattern (a bare `T`) used to register unchecked and its
+        // `dispose` never ran
         // (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
         match(
           g_trait_ty_opt,
           .Some(gtt) => match(
-            g_cell_only_trait_fn,
+            g_receiver_kind_trait_fn,
             .Some(cof) => match(
               cof(receiver_type_pattern, gtt, forall_env),
               .Some(co_msg) => {
@@ -4631,6 +4692,7 @@ evaluate_module_value :: (
         );
         _check_generic_impl_coherence(g_entry, forall_env, ast_expr_token(expr), exn);
         register_generic_impl(g_entry);
+        note_generic_move_only_impl(g_entry);
       });
     });
     // Restore self_type so the impl's parent scope sees its prior value.
@@ -4922,6 +4984,7 @@ evaluate_module_value :: (
                   )
                 );
               });
+              _reject_negative_move_only(neg_trait_ty, local_env, ast_expr_token(field_expr), exn);
               if(receiver_type_id != "", {
                 register_negative_impl(receiver_type_id.clone(), get_trait_key(neg_trait_ty));
               });
@@ -4987,9 +5050,9 @@ evaluate_module_value :: (
             .Some(ctt) => if(receiver_type_id != "", {
               // Self-constraint gate:
               // a trait with a `where(Self <: X)` clause can only be implemented
-              // on a receiver satisfying X, and `Dispose`/`Trace` only on a
-              // reference type — e.g. `impl(ValueStruct, Dispose(...))` is
-              // rejected.
+              // on a receiver satisfying X, and `Dispose`/`MoveOnly`/`Trace`
+              // only on the receivers they accept — e.g. `impl(RefStruct,
+              // MoveOnly())` is rejected.
               match(
                 g_check_self_constraints_fn,
                 .Some(cf) => match(
@@ -5030,6 +5093,7 @@ evaluate_module_value :: (
                 .Some(rf) => rf(receiver_type_id.clone(), ctt),
                 .None => ()
               );
+              note_concrete_move_only_impl(receiver_ty, ctt, receiver_type_id.clone(), local_env);
             }),
             .None => ()
           );
@@ -5510,12 +5574,100 @@ _impl_generic_impl_fallback_init := (fn() -> bool)({
   true
 })();
 export(evaluate_module_value);
+// The move-only declaration functions sit after every runtime binding they
+// reach (`try_match_generic_impl` reads module globals declared below the
+// registry).
+/// `"Dispose"` or `"MoveOnly"` when `trait_ty` is that prelude trait (by
+/// trait identity), else `""`.
+move_only_declaring_trait_name :: (fn(trait_ty : TypeValue, env : Environment) -> String)({
+  key := get_trait_key(trait_ty);
+  cond(
+    key.is_empty() => String.new(),
+    _named_trait_key_is(env, "Dispose", key.clone()) => String.from("Dispose"),
+    _named_trait_key_is(env, "MoveOnly", key.clone()) => String.from("MoveOnly"),
+    true => String.new()
+  )
+});
+_named_trait_key_is :: (fn(env : Environment, name : str, key : String) -> bool)(
+  match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(t) == key), .None => false)
+);
+/// The `MoveOnlyNominalFn` answer: the trait through which the value nominal
+/// `ty` declares move-only in a recorded impl, or `""`. `Dispose` wins over
+/// `MoveOnly` when both are declared (it is the one worth naming).
+nominal_declares_move_only :: (fn(ty : TypeValue) -> String)({
+  // A `Dispose`/`MoveOnly` impl the lazy module walk has not forced yet (it
+  // sits below the first use of its type) is forced now: whether the type is
+  // move-only decides how every use of it is evaluated.
+  if(force_pending_move_only_impls(type_head_name_for_impl_forcing(ty)), {
+    g_move_only_memo.clear();
+  });
+  key := type_key(ty);
+  match(
+    g_move_only_memo.get(key.clone()),
+    .Some(m) => {
+      return(m);
+    },
+    .None => ()
+  );
+  if(g_move_only_in_flight.contains_key(key.clone()), {
+    return(String.new());
+  });
+  g_move_only_in_flight.insert(key.clone(), true);
+  tid := type_id_or_empty(ty);
+  (found : String) = String.new();
+  (i : usize) = usize(0);
+  while((i < g_move_only_decls.len()) && (found != "Dispose"), {
+    match(
+      g_move_only_decls.get(i),
+      .Some(d) => {
+        hit := match(
+          d.generic,
+          .Some(ge) => try_match_generic_impl(ty, ge, ge.definition_env, true).is_some(),
+          .None => (d.concrete_id == tid)
+        );
+        if(hit, {
+          found = d.trait_name.clone();
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_move_only_in_flight.remove(key.clone());
+  g_move_only_memo.insert(key, found.clone());
+  found
+});
+_add_move_only_decl :: (fn(d : MoveOnlyDecl) -> unit)({
+  g_move_only_decls.push(d);
+  g_move_only_memo.clear();
+  note_move_only_possible();
+});
+/// Record a concrete `impl(T, Dispose(...))` / `impl(T, MoveOnly())` on a
+/// value nominal `T` (the impl-site gate has rejected every other receiver of
+/// these two traits).
+note_concrete_move_only_impl :: (fn(receiver_ty : TypeValue, trait_ty : TypeValue, receiver_type_id : String, env : Environment) -> unit)({
+  if(is_value_nominal_type(receiver_ty), {
+    tn := move_only_declaring_trait_name(trait_ty, env);
+    if(!tn.is_empty(), {
+      _add_move_only_decl(MoveOnlyDecl(concrete_id : receiver_type_id, generic : Option(GenericImplEntry).None, trait_name : tn, owner : registration_owner()));
+    });
+  });
+});
+/// Record a generic `Dispose`/`MoveOnly` impl over a value nominal pattern.
+note_generic_move_only_impl :: (fn(entry : GenericImplEntry) -> unit)({
+  if(is_value_nominal_type(entry.receiver_type_pattern), {
+    tn := move_only_declaring_trait_name(entry.trait_type, entry.definition_env);
+    if(!tn.is_empty(), {
+      _add_move_only_decl(MoveOnlyDecl(concrete_id : String.new(), generic : Option(GenericImplEntry).Some(entry), trait_name : tn, owner : registration_owner()));
+    });
+  });
+});
 export(GenericImplEntry, MethodCandidate);
 /// Entries in the injection memo (the B2 plateau test's probe).
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
-export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_cell_only_trait_fn, get_trait_key);
+export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only);
 export(register_generic_impl, purge_concrete_trait_impls_owned_by);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);

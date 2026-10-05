@@ -244,20 +244,44 @@ Acyclic :: trait(
   id := "Acyclic"
 );
 export(Acyclic);
+/// MoveOnly trait - a value that cannot be copied, only moved.
+///
+/// A value type is move-only when it implements `Dispose`, when it declares
+/// `impl(T, MoveOnly())`, or when one of its fields, variant payloads, tuple
+/// or array elements, or closure captures is move-only. The compiler derives
+/// it; a declaration is needed only for a type that has no `Dispose` but must
+/// still never be duplicated (a token, a unique id).
+///
+/// A copy of a move-only value is a compile error (E0901). `y := x` moves
+/// `x`, and so do passing it to an `own(...)` parameter, storing it in a
+/// field or element, returning it and capturing it in a closure. A by-value
+/// parameter borrows it, so `use_file(f)` needs no move. Only a value type
+/// (`struct`, `enum`, `newtype`, and the tuples, arrays and closures built
+/// from them) can be move-only. A reference type (`ref(struct(...))`, `Box`,
+/// `Arc`) is how a value is shared: its copies alias one cell, so it is never
+/// move-only, even around a move-only payload.
+MoveOnly :: trait(
+  id := "MoveOnly"
+);
+export(MoveOnly);
 /// Dispose trait - defines a dispose method for cleaning up resources.
-/// Only a reference type (`ref(struct(...))`, `ref(enum(...))` and their
-/// `atomic(...)` forms) may implement it; the compiler checks this at the
-/// `impl`.
+/// A value type (`struct`, `enum`, `newtype`) that implements it is
+/// move-only (`MoveOnly`): its one owner runs `dispose` exactly once, when it
+/// drops the value. A reference type (`ref(struct(...))`, `ref(enum(...))`
+/// and their `atomic(...)` forms) may implement it too: its copies share one
+/// cell, and `dispose` runs when the count reaches zero. No other type may
+/// implement it; the compiler checks this at the `impl`.
 Dispose :: trait(
   id := "Dispose",
   /// Release the resources `self` owns — a file descriptor, a socket, a lock,
-  /// a buffer the allocator handed out. Called automatically when the last
-  /// reference to the value goes away, so an implementor never calls it
-  /// directly and must tolerate being the only one who ever does.
+  /// a buffer the allocator handed out. Called automatically when the value's
+  /// owner drops it (a value type) or the last reference to it goes away (a
+  /// reference type), so an implementor never calls it directly and must
+  /// tolerate being the only one who ever does.
   ///
-  /// It must be safe to run exactly once: the runtime calls it at refcount
-  /// zero, and a type that also exposes an explicit `close`/`release` is
-  /// responsible for making the second call a no-op.
+  /// It must be safe to run exactly once, and a type that also exposes an
+  /// explicit `close`/`release` is responsible for making the second call a
+  /// no-op.
   dispose : (fn(self : Self) -> unit)
 );
 export(Dispose);

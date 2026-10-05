@@ -87,7 +87,8 @@ pragma(Pragma.AllowUnsafe);
   dyn_upcast_note,
   same_name_note,
   type_contains_some_type_deep,
-  mark_generic_independent
+  mark_generic_independent,
+  type_requires_explicit_copy
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -135,6 +136,7 @@ pragma(Pragma.AllowUnsafe);
   SpecializedFunctionCacheEntry,
   in_def_time_trial,
   force_pending_impls_for_type_name,
+  note_borrowing_argument,
   type_head_name_for_impl_forcing,
   call_function_value_marker
 } :: import("../context.yo");
@@ -820,6 +822,15 @@ consume_argument_for_parameter :: (
         if(arg_vars.len() > usize(0), {
           arg_var := match(arg_vars.last(), .Some(v) => v, .None => make_err_variable(caller_env));
           cond(
+            // An argument that is not implicitly copyable (a move-only one,
+            // plans/VALUES_BY_DEFAULT.md §3.4) is moved
+            // into the parameter, never copied: the transfer decides whether
+            // its storage may give it up (an owning local or temp) or the
+            // copy is E0901 (a borrow, an `inout` binding, a projection, a
+            // module-level binding).
+            type_requires_explicit_copy(arg_info.ty) => {
+              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+            },
             // An `inout` parameter or `inout(name) := place` binding names a
             // slot it does not own: the callee gets a COPY (+1) of the
             // referenced handle, and the binding stays usable — nothing is
@@ -1024,6 +1035,9 @@ check_if_function_parameter_matches_argument :: (
     ctx.expected_type = Option(ExpectedTypeCtx).None;
   }, {
     ctx.expected_type = .Some(ExpectedTypeCtx(ty : resolved_pt, env : callee_env_r));
+  });
+  if(!param_is_owning && !param_is_ref, {
+    note_borrowing_argument(actual_arg);
   });
   evaled_arg := evaluate_expression_raw(actual_arg, caller_env, ctx, exn);
   ctx.expected_type = saved_exp;

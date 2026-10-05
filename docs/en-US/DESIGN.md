@@ -49,6 +49,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Reference-Semantics Type](#reference-semantics-type)
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
     - [Explicit Allocators](#explicit-allocators)
+    - [Move-only values](#move-only-values)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
   - [Pointer Arithmetic and Comparison](#pointer-arithmetic-and-comparison)
@@ -678,7 +679,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(inout(x) : i32) -> unit`, `fn(own(x) : String) -> usize` and `fn(x : i32) -> unit` are three different types: an `inout` parameter is passed by reference, an `own` parameter is moved into the callee, and a plain parameter is borrowed. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
+`fn(inout(x) : i32) -> unit`, `fn(sink(x) : String) -> usize` and `fn(x : i32) -> unit` are three different types: an `inout` parameter is passed by reference, a `sink` parameter is moved into the callee, and a plain parameter is borrowed. A `sink` parameter consumes its argument: the caller's binding ends at the call. `own(x)` is the old spelling of `sink(x)`; it is still accepted, and spells the same type, until a sweep after the next release removes it. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
 
 ```rust
 bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
@@ -1134,6 +1135,34 @@ p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
 
 No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. `std/arena`'s `Arena` panics at `deinit` while a block is still live. The safety rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators-and-arenas); the full guide is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
 
+#### Move-only values
+
+A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is **move-only**, and so is every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Box`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.
+
+```rust
+{ println } :: import("std/fmt");
+Fd :: struct(n : i32);
+impl(Fd, Dispose(
+  dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // a real one would close the descriptor
+));
+
+peek :: (fn(f : Fd) -> i32)(f.n);        // a by-value parameter borrows: no copy
+keep :: (fn(sink(f) : Fd) -> unit)(());  // a sink parameter moves the value in
+
+main :: (fn() -> unit)({
+  a := Fd(n : i32(3));
+  n := peek(a);    // borrowed; `a` is still usable
+  b := a;          // moves `a` into `b`
+  // a.n           // E0901: use of moved value: `a`
+  keep(b);         // moves `b`; `keep` disposes it when it returns
+});
+export(main);
+```
+
+Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: a by-value parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. Where the arms of a `cond`/`match` or the ways out of a loop meet, a move-only value is moved on all of them or on none (E0907). Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
+
+A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
+
 ## Pointers
 
 Yo uses pointers (`*(T)`) for direct memory access, similar to C. Operations that dereference or do arithmetic on raw pointers require an explicit `unsafe(...)` wrap — see [Memory Safety](#memory-safety) below.
@@ -1324,7 +1353,7 @@ main :: (fn() -> unit)({
 
 ### `inout` Parameters
 
-For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
+For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to `sink(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
 
 ```rust
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
@@ -1351,7 +1380,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`generic` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
+`inout(...)` cannot be combined with `sink(...)` (opposite calling conventions) or with `comptime`/`generic` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
 
 ```rust
 double :: (fn(inout(n) : i32) -> unit)({
@@ -2076,7 +2105,7 @@ Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
 
 open_h :: (fn(fd : i32) -> Handle(Open))(Handle(Open)(fd : fd));
 read_h :: (fn(h : Handle(Open)) -> i32)(h.fd);
-close_h :: (fn(own(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
+close_h :: (fn(sink(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
 
 main :: (fn() -> unit)({
   h := open_h(i32(3));
@@ -2090,7 +2119,7 @@ export(main);
 The pattern is only sound when the old state CANNOT be used after a
 transition, so two rules apply:
 
-- **The handle is a `ref` type and the transition takes it with `own(...)`.**
+- **The handle is a `ref` type and the transition takes it with `sink(...)`.**
   The move makes the old name unusable (E0901). A plain value struct is
   COPIED into the call, so the closed handle and its `Open` copy would both
   stay usable.
