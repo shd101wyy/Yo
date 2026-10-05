@@ -23,6 +23,14 @@ BF_TYPEOF :: "typeof";
 BF_SIZEOF :: "sizeof";
 BF_ALIGNOF :: "alignof";
 BF_TYPEID :: "typeid";
+/// The snake_case spellings of the four C-style builtins
+/// (plans/VALUES_BY_DEFAULT.md V3b). Generation A accepts both spellings as
+/// exact synonyms (`ast_expr_is_size_of_call` and its siblings below);
+/// Generation B sweeps the tree to these and deletes the old names.
+BF_SIZE_OF :: "size_of";
+BF_ALIGN_OF :: "align_of";
+BF_TYPE_OF :: "type_of";
+BF_TYPE_ID :: "type_id";
 BF_RUNTIME :: "runtime";
 BF_UNWIND :: "unwind";
 BF_RECUR :: "recur";
@@ -114,6 +122,9 @@ BF_SET_SINGLE :: "set_single";
 BF_SET_ADD :: "set_add";
 BF_SET_CONTAINS :: "set_contains";
 BF_ADDRESS_OF :: "&";
+/// `addr_of(x)`: the raw-pointer address-of, today's `&x` spelled as a word
+/// (decision 33). Generation B deletes `&x` as address-of.
+BF_ADDR_OF :: "addr_of";
 BF_ARRAY_FILL :: "__yo_array_fill";
 BF_DERIVE :: "derive";
 BF_DERIVE_RULE :: "derive_rule";
@@ -348,6 +359,14 @@ BK_GENSYM :: "gensym";
 BK_COMPTIME_LIST_VAL :: "comptime_list";
 BK_REF :: "ref";
 BK_INOUT :: "inout";
+/// The V3b parameter modes (plans/VALUES_BY_DEFAULT.md decision 30).
+/// Generation A: `mut(x) : T` and `mut(y) := place` are exact synonyms of
+/// `inout(...)`, and `imm(x) : T` is a plain (borrowing) parameter.
+BK_MUT :: "mut";
+BK_IMM :: "imm";
+/// The call-site `&mut x` marker (decision 33): ONE prefix token, lexed by
+/// `tokenize` when `&` is directly followed by the word `mut`.
+BK_BORROW_MUT :: "&mut";
 /// A stable identifier for an AST expression node. Assigned during parsing.
 ExprId :: usize;
 /// An AST expression node. There are exactly two kinds:
@@ -625,6 +644,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
 );
 export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT);
 export(BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
+export(BF_SIZE_OF, BF_ALIGN_OF, BF_TYPE_OF, BF_TYPE_ID, BF_ADDR_OF, BK_MUT, BK_IMM, BK_BORROW_MUT);
 export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH, BK_THREAD_LOCAL);
 export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
 export(BK_EXTERN, BK_C_INCLUDE, BK_SUBTYPE_OF, BK_WHERE);
@@ -681,6 +701,47 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
       );
       count_ok
     }
+  )
+);
+/// `sizeof(T)` or its snake_case synonym `size_of(T)` (V3b Generation A).
+ast_expr_is_size_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_SIZEOF, arg_count) || ast_expr_is_fn_call_of(e, BF_SIZE_OF, arg_count)
+);
+/// `alignof(T)` or `align_of(T)` (V3b Generation A).
+ast_expr_is_align_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_ALIGNOF, arg_count) || ast_expr_is_fn_call_of(e, BF_ALIGN_OF, arg_count)
+);
+/// `typeof(x)` or `type_of(x)` (V3b Generation A).
+ast_expr_is_type_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_TYPEOF, arg_count) || ast_expr_is_fn_call_of(e, BF_TYPE_OF, arg_count)
+);
+/// `typeid(T)` or `type_id(T)` (V3b Generation A).
+ast_expr_is_type_id_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_TYPEID, arg_count) || ast_expr_is_fn_call_of(e, BF_TYPE_ID, arg_count)
+);
+/// The raw-pointer address-of: `&x` or `addr_of(x)` (decision 33).
+ast_expr_is_address_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, arg_count) || ast_expr_is_fn_call_of(e, BF_ADDR_OF, arg_count)
+);
+/// An exclusive-borrow wrapper on a parameter label or a local binding:
+/// `inout(x)` or its V3b synonym `mut(x)` (decision 30, Generation A).
+ast_expr_is_inout_mode_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
+  ast_expr_is_fn_call_of(e, BK_INOUT, arg_count) || ast_expr_is_fn_call_of(e, BK_MUT, arg_count)
+);
+/// The place under a call-site borrow marker (decision 33): `&mut x` and a
+/// `&x` that lends to a borrowing parameter both name the place `x`. Every
+/// walker that roots an argument's PLACE (the `inout` alias roots, D3, the
+/// mutation summary) reads through the marker with this; a `&x` that is the
+/// raw-pointer address-of is about `x` too, so seeing through it is sound for
+/// both readings. Anything else is returned unchanged.
+ast_expr_strip_borrow_marker :: (fn(e : AstExpr) -> AstExpr)(
+  cond(
+    (ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1)))) => match(
+      e,
+      .FnCall(_, _, sm_args, _, _) => match(sm_args.get(usize(0)), .Some(sm_a) => sm_a, .None => e),
+      .Atom(_, _) => e
+    ),
+    true => e
   )
 );
 /// True if `e` is a FnCall whose func is an Atom found in `func_names`,
@@ -1035,6 +1096,19 @@ _unwrap_if_label :: (fn(arg : AstExpr, label : str) -> Option(AstExpr))({
 /// actually carry one — a target-free subtree is returned unchanged by the
 /// copy-on-write check below, so parsing a module with neither costs one
 /// read-only walk instead of a full AST reconstruction.
+/// `match(&x, …)` or `match(&mut x, …)`: a scrutinee marked as a borrow
+/// (decision 33), peeled by `desugar_if_calls`.
+_is_borrowed_match_scrutinee :: (fn(e : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BK_MATCH, .None) && match(
+    e,
+    .FnCall(_, _, ms_args, _, _) => match(
+      ms_args.get(usize(0)),
+      .Some(s0) => (ast_expr_is_fn_call_of(s0, BK_BORROW_MUT, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(s0, BF_ADDRESS_OF, Option(usize).Some(usize(1)))),
+      .None => false
+    ),
+    .Atom(_, _) => false
+  )
+);
 _contains_desugar_target :: (fn(e : AstExpr) -> bool)(
   match(
     e,
@@ -1051,6 +1125,9 @@ _contains_desugar_target :: (fn(e : AstExpr) -> bool)(
         return(true);
       });
       if(_is_return_of_await(e), {
+        return(true);
+      });
+      if(_is_borrowed_match_scrutinee(e), {
         return(true);
       });
       if(recur(func_box), {
@@ -1253,6 +1330,28 @@ desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
           )
         );
       });
+      // `match(&x, …)` / `match(&mut x, …)` → `match(x, …)`
+      // (plans/VALUES_BY_DEFAULT.md decisions 26 and 33, V3b Generation A).
+      // A plain scrutinee already borrows and its arm bindings are read-only
+      // copies, so in Generation A both markers mean exactly today's plain
+      // scrutinee; Generation B makes a plain scrutinee consume and gives
+      // the markers their own meaning. No program matched on a raw pointer
+      // `&x` (the tree has none), so peeling is unambiguous.
+      if(_is_borrowed_match_scrutinee(e), {
+        bm_args := ArrayList(AstExpr).new();
+        (bm_i : usize) = usize(0);
+        while(bm_i < n_args, {
+          match(
+            args.get(bm_i),
+            .Some(a) => {
+              bm_args.push(recur(if(bm_i == usize(0), ast_expr_strip_borrow_marker(a), a)));
+            },
+            .None => ()
+          );
+          bm_i = (bm_i + usize(1));
+        });
+        return(AstExpr.FnCall(id, recur(func_box), bm_args, is_infix, tok));
+      });
       // Every argument of a `begin` block is a statement: a bare
       // `c_include(...)` / `extern(...)` there is the glob-destructure sugar.
       is_begin := ast_expr_is_fn_call_of(e, BK_BEGIN, .None);
@@ -1298,6 +1397,7 @@ desugar_program_if_calls :: (fn(program : ArrayList(AstExpr)) -> ArrayList(AstEx
 });
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
+export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_strip_borrow_marker);
 export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);

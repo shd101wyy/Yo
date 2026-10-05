@@ -12,8 +12,7 @@ import("std/fmt");
   ast_expr_token,
   ast_expr_id,
   ast_expr_to_string,
-  ast_expr_is_fn_call_of,
-  BF_TYPEOF,
+  ast_expr_is_type_of_call,
   make_err_expr
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
@@ -40,7 +39,7 @@ evaluate_typeof :: (
   ) -> AstExpr
 )({
   // Validate shape: `typeof` with exactly 1 argument.
-  if(!ast_expr_is_fn_call_of(expr, BF_TYPEOF, .Some(usize(1))), {
+  if(!ast_expr_is_type_of_call(expr, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(

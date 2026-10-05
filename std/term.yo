@@ -41,7 +41,7 @@ is_terminal :: (fn(s : Stream) -> bool)(
 );
 /// The terminal size of `s`, or `.None` when `s` is not a terminal (or the
 /// size is unavailable).
-size_of :: (fn(s : Stream) -> Option(TermSize))({
+term_size :: (fn(s : Stream) -> Option(TermSize))({
   ws := IO_tty.tty_winsize(_fd_of(s));
   cond(
     ((ws.width > i32(0)) && (ws.height > i32(0))) =>
@@ -51,7 +51,7 @@ size_of :: (fn(s : Stream) -> Option(TermSize))({
 });
 /// The terminal size of stdout, or `.None` when stdout is not a terminal.
 size :: (fn() -> Option(TermSize))(
-  size_of(Stream.Stdout)
+  term_size(Stream.Stdout)
 );
 /// True when it is reasonable to emit ANSI colors on `s`: the stream is a
 /// terminal, `NO_COLOR` is unset (https://no-color.org — any value disables),
@@ -79,4 +79,4 @@ restore_mode :: (fn() -> unit)({
   IO_tty.tty_reset();
   ()
 });
-export(Stream, TermSize, is_terminal, size_of, size, supports_color, enter_raw_mode, restore_mode);
+export(Stream, TermSize, is_terminal, term_size, size, supports_color, enter_raw_mode, restore_mode);

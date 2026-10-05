@@ -75,7 +75,7 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
 { ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution, scope_variables } :: import("../../expr_info.yo");
 {
   AstExpr,
-  BF_ADDRESS_OF,
+  ast_expr_is_address_of_call,
   BF_UNSAFE,
   BF_DROP,
   BF_DUP,
@@ -1162,7 +1162,7 @@ _inline_unwrap_transparent :: (fn(e : AstExpr) -> AstExpr)({
     inner,
     .Atom(_, _) => inner,
     .FnCall(_, _, addr_args, _, _) => if(
-      ast_expr_is_fn_call_of(inner, BF_ADDRESS_OF, .None) && (addr_args.len() == usize(1)),
+      ast_expr_is_address_of_call(inner, .None) && (addr_args.len() == usize(1)),
       match(addr_args.get(usize(0)), .Some(a) => a, .None => inner),
       inner
     )

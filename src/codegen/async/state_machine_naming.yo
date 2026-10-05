@@ -77,22 +77,12 @@ sm_local_field_name :: (fn(variable_id : String) -> String)(
     }
   )
 );
-/// The C field name for a captured variable in a state-machine struct (consistent
-/// across struct definition and use): `outer` → `__capture.<id>`; an alias wins;
-/// otherwise the registered stable name (Phase 2) with the historical `var_<id>`
-/// as the unregistered fallback.
-get_state_machine_field_name :: (
-  fn(variable_id : String, kind : Option(String), aliases : Option(HashMap(String, String))) -> String
-)({
-  match(
-    kind,
-    .Some(k) => if(k == "outer", {
-      o := String.from("__capture.");
-      o.push_string(sanitize_for_c_identifier(variable_id.clone(), false));
-      return(o);
-    }),
-    .None => ()
-  );
+/// The C field name for a state-machine local (consistent across struct
+/// definition and use): an alias wins; otherwise the registered stable name
+/// (Phase 2) with the historical `var_<id>` as the unregistered fallback. A
+/// captured (`.Outer`) variable never comes here: it lives in the capture
+/// struct, whose slot `sm_slot_of_variable` names.
+get_state_machine_field_name :: (fn(variable_id : String, aliases : Option(HashMap(String, String))) -> String)({
   match(
     aliases,
     .Some(a) => match(a.get(variable_id.clone()), .Some(al) => return(al), .None => ()),
@@ -130,29 +120,36 @@ sm_storage_id :: (fn(v : Variable, smv : HashMap(String, CapturedVariable), rema
 });
 /// The task slot (`sm->…`) of the binding `name` resolves to in `env`, or
 /// `.None` when it is a C local. `smv` is the state machine's captured-variable
-/// map, `remap` and `aliases` the context's id remapping and field aliases.
+/// map, `remap` and `aliases` the context's id remapping and field aliases,
+/// `capture_slot` the context's capture-struct field (`sm_capture_slot`).
 /// A local sharing a captured local's RC value is stored in that owner's
 /// slot (`sm_storage_id`).
 sm_slot_of :: (
-  fn(key : ExprId, env : Environment, name : String, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String))) -> Option(String)
+  fn(key : ExprId, env : Environment, name : String, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String)), capture_slot : String) -> Option(String)
 )({
   // Through node `key`'s recorded scope (scope-exit release,
   // plans/CODEGEN_MEMORY_REDUCTION.md §6.1).
   vs := scope_variables(key, env, name);
-  match(vs.last(), .Some(v) => sm_slot_of_variable(v, smv, remap, aliases), .None => Option(String).None)
+  match(vs.last(), .Some(v) => sm_slot_of_variable(v, smv, remap, aliases, capture_slot), .None => Option(String).None)
 });
-/// `sm_slot_of` for an already resolved binding.
+/// `sm_slot_of` for an already resolved binding. An outer (captured)
+/// variable's storage is its capture-struct field,
+/// `sm-><capture_slot>.<name>`, named by the variable's NAME and never the map
+/// key (an outer capture is registered under its id and its label; see
+/// `resolve_var_name_in_context`).
 sm_slot_of_variable :: (
-  fn(v : Variable, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String))) -> Option(String)
+  fn(v : Variable, smv : HashMap(String, CapturedVariable), remap : Option(HashMap(String, String)), aliases : Option(HashMap(String, String)), capture_slot : String) -> Option(String)
 )({
   id := sm_storage_id(v, smv, remap);
-  if(!smv.get(id.clone()).is_some(), {
-    return(Option(String).None);
-  });
+  cv := match(smv.get(id.clone()), .Some(c) => c, .None => return(Option(String).None));
   field := match(
-    aliases,
-    .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
-    .None => sm_local_field_name(id.clone())
+    cv.kind,
+    .Outer => `${capture_slot}.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
+    .Local => match(
+      aliases,
+      .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
+      .None => sm_local_field_name(id.clone())
+    )
   );
   Option(String).Some(`sm->${field}`)
 });

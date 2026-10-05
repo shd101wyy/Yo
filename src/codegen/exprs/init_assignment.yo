@@ -8,7 +8,7 @@
 //! compile-time variables are skipped (declared elsewhere / no runtime form).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BK_INOUT, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_inout_mode_call, BF_DOT } :: import("../../expr.yo");
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { Variable, Environment } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
@@ -91,7 +91,7 @@ _sm_binding_slot :: (fn(key : ExprId, env : Environment, name : String, context 
   if(context.in_async_state_machine.is_none(), {
     return(Option(String).None);
   });
-  sm_slot_of(key, env, name, smv, context.variable_id_remapping, context.state_machine_field_aliases)
+  sm_slot_of(key, env, name, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot)
 });
 /// A store into a named local's task slot gives the slot a value it owns: it
 /// clears the move flag a move out of its previous value set (`sm_move_flag_of`;
@@ -231,7 +231,7 @@ _sm_local_slot :: (fn(v : Variable, context : FunctionGenerationContext) -> Opti
         smv.get(canon),
         .Some(cv) => match(
           cv.kind,
-          .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), Option(String).Some(String.from("local")), context.state_machine_field_aliases)}`),
+          .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), context.state_machine_field_aliases)}`),
           .Outer => Option(String).None
         ),
         .None => Option(String).None
@@ -356,7 +356,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
   if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
     return(Option(String).Some(String.from("")));
   });
-  if(ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), {
+  if(ast_expr_is_inout_mode_call(lhs, Option(usize).Some(usize(1))), {
     // Keyed by the `inout(name)` name atom: its scope record holds the binding.
     inout_key := match(lhs, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => ast_expr_id(n), .None => ast_expr_id(expr)), .Atom(_, _) => ast_expr_id(expr));
     return(_generate_inout_local_binding(lhs, rhs, inout_key, Option(Environment).Some(ei.env), indent.clone(), context));

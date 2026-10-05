@@ -278,12 +278,23 @@ source order.
   local** (`sm_storage_id`). The suspension analysis has no closure boundary:
   for `sb := s` it records the owner `s` as a captured local even when both
   live in the enclosing function. The `io.async` re-kind pass
-  (`src/codegen/exprs/async.yo`) turns capture-struct labels into `.Outer`
+  (`src/codegen/exprs/async.yo`) turns the captures into `.Outer`
   and drops an owner whose alias is a capture and that the body does not
   capture itself. Without that, `s` got a `var_s_<hash>` field nothing wrote,
   and every read of `sb` went through it
   (issues/fixed/an-awaiting-io-async-body-captures-a-local-alias-without-retaining-it.md).
   A field in the SM struct that no state stores into is this class of bug.
+- **A capture is identified by its declaration site, never its name.** The
+  capture struct is name-keyed, and a `match` pattern binding may shadow a
+  captured name (`.Some(x)` in a body that captures `x`). The re-kind pass asks
+  `is_capture_field_binding(<capture struct id>, name, decl_site)`, a record
+  `create_capture_type_and_value` writes per field from the captured
+  `Variable`'s token (`FuncCapturedVarInfo.decl_site`). Matching by name made
+  the pattern binding `.Outer`: it got no slot and read garbage after its
+  await (issues/fixed/the-io-async-capture-re-kind-pass-matches-captures-by-name.md).
+  An `.Outer` entry's slot is `sm-><sm_capture_slot>.<name>`
+  (`sm_slot_of_variable` takes the context's `sm_capture_slot`, which a fused
+  await site renames).
 - **A consuming read of a slot takes the value where the consuming line
   runs** (`_sm_consuming_read`, via `Emitter.defer_move_zero`'s
   `/*yo_mv:…*/` marker): the evaluator's `consumed_at_token` is that atom. A

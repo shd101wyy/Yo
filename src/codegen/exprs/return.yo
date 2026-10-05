@@ -584,7 +584,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
                   cn := sanitize_for_c_identifier(vn.clone(), false);
                   in_slot := match(
                     context.state_machine_variables,
-                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(drop_expr), .Some(ta) => ast_expr_id(ta), .None => ast_expr_id(expr)), ei.env, vn, smv, context.variable_id_remapping, context.state_machine_field_aliases).is_some()),
+                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(drop_expr), .Some(ta) => ast_expr_id(ta), .None => ast_expr_id(expr)), ei.env, vn, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot).is_some()),
                     .None => false
                   );
                   !in_slot && !scope_stack_contains(context.base.declared_scopes.*, cn)

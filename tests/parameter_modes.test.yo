@@ -1,0 +1,142 @@
+//! V3b Generation A spellings (plans/VALUES_BY_DEFAULT.md decisions 30 and
+//! 33): `imm(x)`/`mut(x)` parameters and receivers, `mut(y) := place`, the
+//! call-site markers `&x`/`&mut x` in arguments and `match` scrutinees, and
+//! function types spelled with the modes. Generation A keeps today's meaning:
+//! a plain parameter still borrows, so `imm(x) : T` is exactly `x : T` and
+//! `mut(x) : T` is exactly `inout(x) : T`.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+
+_pm_len :: (fn(imm(s) : String) -> usize)(s.len());
+_pm_plain_len :: (fn(s : String) -> usize)(s.len());
+_pm_inc :: (fn(mut(n) : i32) -> unit)({
+  n = (n + i32(1));
+});
+_pm_swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({
+  t := a;
+  a = b;
+  b = t;
+});
+_pm_push_seven :: (fn(mut(xs) : ArrayList(i32)) -> unit)({
+  xs.push(i32(7));
+});
+_PmHolder :: struct(items : ArrayList(i32), n : i32);
+_PmCounter :: struct(n : i32);
+impl(
+  _PmCounter,
+  get : (fn(imm(self) : Self) -> i32)(self.n),
+  bump : (fn(mut(self) : Self, by : i32) -> unit)({
+    self.n = (self.n + by);
+  })
+);
+_PmShow :: trait(show : (fn(self : Self) -> i32));
+impl(_PmCounter, _PmShow(show : (fn(imm(self) : Self) -> i32)(self.n * i32(10))));
+_pm_apply_imm :: (fn(f : Impl(Fn(imm(s) : String) -> usize), s : String) -> usize)(f(s));
+_pm_apply_mut :: (fn(f : Impl(Fn(mut(n) : i32) -> unit), mut(v) : i32) -> unit)(f(v));
+
+test("imm parameters borrow, exactly like plain parameters", {
+  s := String.from("hello");
+  assert(_pm_len(s) == usize(5), "a bare argument to an imm parameter is a borrow");
+  assert(_pm_len(&s) == usize(5), "&s lends s to an imm parameter");
+  assert(_pm_plain_len(&s) == usize(5), "&s lends s to a plain parameter");
+  assert(s.len() == usize(5), "s stays usable after both borrows");
+});
+
+test("mut parameters are inout parameters", {
+  (c : i32) = i32(1);
+  _pm_inc(&mut c);
+  assert(c == i32(2), "&mut c lends c to a mut parameter");
+  _pm_inc(c);
+  assert(c == i32(3), "a bare argument to a mut parameter still lends the place");
+  (x : i32) = i32(1);
+  (y : i32) = i32(2);
+  _pm_swap(&mut x, &mut y);
+  assert((x == i32(2)) && (y == i32(1)), "swap through two &mut arguments");
+});
+
+test("&mut lends a field place", {
+  h := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
+  _pm_push_seven(&mut h.items);
+  _pm_inc(&mut h.n);
+  assert(h.items.len() == usize(1), "the push landed in h.items");
+  assert(h.n == i32(1), "the increment landed in h.n");
+});
+
+test("imm and mut receivers", {
+  (c : _PmCounter) = _PmCounter(n : i32(4));
+  c.bump(i32(3));
+  assert(c.get() == i32(7), "mut(self) writes the receiver; imm(self) reads it");
+  assert(c.show() == i32(70), "an imm(self) impl satisfies a trait's plain self method");
+});
+
+test("fn types spelled with imm and mut are today's fn types", {
+  comptime_assert(Type.is_compatible_with((fn(imm(x) : String) -> usize), (fn(x : String) -> usize)), "imm(x) is a plain parameter");
+  comptime_assert(Type.is_compatible_with((fn(x : String) -> usize), (fn(imm(x) : String) -> usize)), "both directions");
+  comptime_assert(Type.is_compatible_with((fn(mut(n) : i32) -> unit), (fn(inout(n) : i32) -> unit)), "mut(n) is inout(n)");
+  comptime_assert(Type.is_compatible_with((fn(inout(n) : i32) -> unit), (fn(mut(n) : i32) -> unit)), "both directions");
+  comptime_assert(!Type.is_compatible_with((fn(mut(n) : i32) -> unit), (fn(n : i32) -> unit)), "mut is not a plain parameter");
+  (f : (fn(x : String) -> usize)) = _pm_len;
+  s := String.from("abc");
+  assert(f(s) == usize(3), "an imm-parameter function is a value of the plain fn type");
+});
+
+test("Fn traits spelled with imm and mut", {
+  s := String.from("four");
+  assert(_pm_apply_imm(t => t.len(), s) == usize(4), "Impl(Fn(imm(s) : String) -> usize)");
+  (v : i32) = i32(1);
+  _pm_apply_mut(n => {
+    n = (n + i32(10));
+  }, v);
+  assert(v == i32(11), "Impl(Fn(mut(n) : i32) -> unit) writes through to the caller");
+});
+
+test("mut(y) := place is inout(y) := place", {
+  (x : i32) = i32(1);
+  mut(y) := x;
+  y = i32(5);
+  assert(x == i32(5), "a write through y lands in x");
+  x = i32(6);
+  assert(y == i32(6), "a write to x is seen through y");
+  h := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
+  mut(n) := h.n;
+  n = i32(9);
+  assert(h.n == i32(9), "a field place");
+});
+
+test("&x and &mut x scrutinees match the place", {
+  (o : Option(i32)) = .Some(i32(3));
+  r := match(&o, .Some(v) => v, .None => i32(0));
+  assert(r == i32(3), "match(&o, ...) reads o");
+  r2 := match(&mut o, .Some(v) => (v + i32(1)), .None => i32(0));
+  assert(r2 == i32(4), "match(&mut o, ...) reads o");
+  s := String.from("kept");
+  k := match(&s, t => t.len());
+  assert((k == usize(4)) && (s.len() == usize(4)), "s stays usable after a borrowed scrutinee");
+});
+
+test("a marker that does not fit the parameter is an error", {
+  s := String.from("x");
+  (c : i32) = i32(0);
+  comptime_expect_error(_pm_len(&mut s), "is not `mut`");
+  comptime_expect_error(_pm_inc(&c), "lend the place with `&mut c`");
+  comptime_expect_error({
+    p := &mut c;
+  }, "is not an expression of its own");
+  comptime_expect_error({
+    imm(y) := c;
+  }, "is not supported yet");
+  comptime_expect_error(addr_of(c), "not available in safe code");
+});
+
+// Decision 34's Dyn test: `LogicalNot`'s `(!)` takes `self` and returns
+// `bool`, so it has a vtable slot; a by-value impl is reached through it
+// (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
+_PmFlag :: struct(on : bool);
+impl(_PmFlag, LogicalNot((!) : (fn(self : Self) -> bool)(!self.on)));
+test("Dyn(LogicalNot) over a by-value operator impl", {
+  (d : Dyn(LogicalNot)) = dyn(_PmFlag(on : true));
+  assert(!!d, "!d negates through the Dyn");
+  (e : Dyn(LogicalNot)) = dyn(_PmFlag(on : false));
+  assert(!e, "!e negates through the Dyn");
+});

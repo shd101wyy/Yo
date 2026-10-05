@@ -60,7 +60,8 @@
   TypeField
 } :: import("../types/field.yo");
 {
-  register_struct_fields
+  register_struct_fields,
+  register_capture_field_decl_site
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
 { type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
@@ -81,7 +82,12 @@ FuncCapturedVarInfo :: struct(
   token : Token,
   ty : TypeValue,
   value : Option(EvalValue),
-  is_effect_param : bool
+  is_effect_param : bool,
+  /// The captured binding's declaration site (`module:row:col` of its
+  /// Variable's token, the format of `SuspensionCapturedVariable.decl_site`):
+  /// its identity, recorded per capture-struct field by
+  /// `create_capture_type_and_value` (`register_capture_field_decl_site`).
+  decl_site : String
 );
 // ---------------------------------------------------------------------------
 // CaptureTypeAndValueResult
@@ -819,7 +825,8 @@ enrich_captured_variables :: (
                         token : cap_info.token,
                         ty : v.ty,
                         value : v.value.get(usize(0)),
-                        is_effect_param : v.is_effect_param
+                        is_effect_param : v.is_effect_param,
+                        decl_site : `${v.token.module_path}:${v.token.row.to_string()}:${v.token.column.to_string()}`
                       );
                       result.insert(vn_copy.clone(), enriched);
                       ()
@@ -1017,8 +1024,24 @@ create_capture_type_and_value :: (
           fresh
         }
       );
-      // Register field metadata.
+      // Register field metadata, and each field's binding by declaration site:
+      // the io.async re-kind pass tells a capture from a body binding of the
+      // same name by it (src/codegen/exprs/async.yo).
       register_struct_fields(struct_id.clone(), type_fields);
+      match(
+        captured_vars_with_values,
+        .Some(sites_cvwv) => {
+          (dsi : usize) = usize(0);
+          while(dsi < field_labels.len(), dsi = (dsi + usize(1)), {
+            match(
+              field_labels.get(dsi),
+              .Some(dl) => match(sites_cvwv.get(dl.clone()), .Some(dfci) => register_capture_field_decl_site(struct_id.clone(), dl, dfci.decl_site), .None => ()),
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
       // Build the capture struct TypeValue.
       capture_ty := TypeValue.Struct(
         struct_id.clone(),

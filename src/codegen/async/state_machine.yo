@@ -15,7 +15,7 @@
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { is_io_future_type, collect_branch_await_exprs, emit_future_store_into_slot } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN, BK_INOUT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_step_expression } :: import("../exprs/while_loop.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
@@ -292,7 +292,7 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
           // `inout(name) := place`: `name` points into the place's root, so the
           // root keeps its storage to the end of its scope, and so does the
           // hidden local that pins the place's object.
-          if(ast_expr_is_fn_call_of(lhs.clone(), BK_INOUT, Option(usize).Some(usize(1))), {
+          if(ast_expr_is_inout_mode_call(lhs.clone(), Option(usize).Some(usize(1))), {
             _lv_mark_scope(_lv_place_root(rhs.clone()), w, context);
             match(
               context.base.get_expr_info(lhs),
@@ -360,7 +360,7 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
         },
         // `&x` / `inout(y) := x`: a pointer to the local can outlive any use
         // of its name, so it lives to the end of its scope.
-        ast_expr_is_fn_call_of(e.clone(), "&", Option(usize).Some(usize(1))) => {
+        ast_expr_is_address_of_call(e.clone(), Option(usize).Some(usize(1))) => {
           match(
             args.get(usize(0)),
             .Some(a) => {
