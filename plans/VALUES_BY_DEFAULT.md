@@ -809,8 +809,11 @@ and in git, not a silent edit.
 17. **Copying an `Rc`/`Arc` needs `.clone()`,** as in Rust: a new handle is a
     new owner, and sharing is visible where it is created.
     - Enforced at V2c and sized by the §6 measurement.
-    - If the count proves prohibitive, the fallback is implicit `Rc` copies:
-      one rule change, decided at V2c.
+    - **No fallback** (the maintainer, 2026-10-05). The first version kept
+      implicit `Rc` copies as a fallback in case the count proved
+      prohibitive. The measurement found about 3,500 copies in `src/` once
+      V5's `ref` objects are `Rc`, and the maintainer chose the explicit rule
+      regardless: migration cost does not decide the design.
 18. **Local borrows: `imm(y) := place` and `mut(y) := place`.** This is
     Hylo's model: its spec's immutable and mutable projections, with
     exclusivity for the projection's lifetime. Yo's local default is owned,
@@ -1452,13 +1455,18 @@ compiler; the std shapes are plain structs the seed lowers):
 **V2c: decision 17.**
 - **The rule.** Implicit `Rc`/`Arc` handle copies become E0901, with
   `.clone()` inserted by `yo fix`.
-- **Sizing.** It is sized by the §6 measurement's `Rc`/`Arc` count, and
-  lands before V5, so V5's ~60 new `Rc` contexts are written with explicit
-  clones.
+- **Sizing** (§6 measurement). Today's handle copies are 63 in `src/`, 136
+  in `std/` and 640 in `tests/`: today's `Box`, which V1 step 1 renames
+  `Rc`, plus `Arc`. Most of the `tests/` copies are handles captured by a
+  spawned closure.
+- **V5 inherits the rule.** V2c lands before V5, so V5's `ref` objects
+  become `Rc` with explicit clones from the start. That is the larger half:
+  3,049 copies in `src/`, 1,910 of them `TypeValue`/`AstExpr` (decision
+  21's trees) and 791 a `return(expr)` of a plain `ref` parameter. `yo fix`
+  inserts the clones, and many become borrows or moves under decision 30.
 - **Bundles.** It also decides A6's `Rc` bundle fields.
-- **Fallback.** If the count is prohibitive, decision 17's fallback
-  (implicit `Rc` copies) is decided here. The dup/drop pair optimizer then
-  stays for `Rc`.
+- **No fallback** (decision 17). Once V5 lands, the dup/drop pair optimizer
+  has no implicit copy left to cancel.
 
 ### V4: the compiler's trees
 
