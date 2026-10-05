@@ -1480,6 +1480,24 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
 - **Docs, instruction files, skills and the context pack** are rewritten.
   The seven skill-tree goldens move.
 - **Measured:** `check ./src` time and stage-2 RSS.
+- **The C-style builtins become snake_case, in the same release** (the
+  maintainer, 2026-10-05). Every other builtin is snake_case already
+  (`ref_count`, `comptime_eval`, `thread_local`, `va_start`, `macro_expand`,
+  `c_include`, `str_bytes`), and decision 33 adds `addr_of`. Rust spells
+  these the same way.
+
+  | Today | After | `.yo` uses | Collision to resolve first |
+  | --- | --- | ---: | --- |
+  | `sizeof` | `size_of` | 653 | `std/term.yo`'s function `size_of` (the terminal size) is renamed, e.g. `term_size`, because Yo has no shadowing |
+  | `alignof` | `align_of` | 39 | none |
+  | `typeof` | `type_of` | 62 | none |
+  | `typeid` | `type_id` | 37 | about 119 lines in `src/` use `type_id` as a local or a field. Locals are renamed (e.g. `tid`); fields are checked in the PR |
+
+  - **Generation A:** the compiler accepts both spellings
+    (`src/expr.yo`'s builtin constants and every place that matches them,
+    the diagnostics registry, the LSP and `yo context`).
+  - **Generation B:** the sweep over `src/`, `std/`, `tests/`, docs and
+    skills, then the old names are deleted, with no alias.
 
 ### V2: the collections become values
 
