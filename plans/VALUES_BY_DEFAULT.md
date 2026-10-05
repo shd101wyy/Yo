@@ -18,7 +18,9 @@ V2a (collection mutators take `inout(self)`, the audit lists collection
 writes) has landed; its status and the corrections it makes to §6 V2a are
 under "V2a status". Amended again 2026-10-05 after a review of what happens
 to the compile-time RC machinery under §0 (§0.9): decisions 25–29 confirmed
-with the maintainer (29: borrowed scalars and scalar pairs by value, everything else by `const T*`),
+with the maintainer, and decision 30 (parameters are by value by default;
+`imm(x)` and `mut(x)` spell the borrows; it supersedes the parameter parts of
+15, 22–24 and 29),
 phases placed for decision 17 and for `Box`'s and
 `Dyn`'s explicit copies (§0.8), and superseded notes on V1's `Box`
 definition, §3.10, §3.12, §3.13, V3 and V4.**
@@ -81,11 +83,12 @@ those are the only counted things in the language.
   storing it in a field, element or capture, and returning it are moves when
   `x` is not used afterwards. Otherwise they are E0901 with a note naming
   `x.clone()` (explicit-copy) or `Rc`/`Arc`/`inout` (move-only).
-- **Borrowing is the default and is free.** A plain parameter borrows, an
-  `inout` parameter is an exclusive borrow, and a `sink` parameter
-  (decision 15) consumes. This is Hylo's `let`/`inout`/`sink`; Yo has no
-  `set`. Borrows are second-class: they cannot be stored, returned or
-  captured, so no lifetimes appear in the language.
+- **Parameters are by value; borrowing is spelled** (decision 30). A plain
+  parameter takes its argument by value: a copy for the first kind, a move
+  for the others. `imm(x)` is a read-only borrow and `mut(x)` an exclusive
+  one. These are Mojo 1.0's names; Hylo's `let`/`inout` are the same modes.
+  Borrows are second-class: they cannot be stored, returned or captured, so
+  no lifetimes appear in the language.
 - **No buffer is ever shared, so no buffer is ever counted.** `String`'s and
   the collections' buffers are plain allocations owned by their value, like
   Rust's `Vec` and `String`. A mutator writes in place with no uniqueness
@@ -127,7 +130,9 @@ copies the first kind implicitly (decision 16).
 
 ### 0.3 Decisions
 
-15. **`own(x)` is renamed `sink(x)`.** Confirmed 2026-10-04: Yo's `own` is
+15. *(Superseded by decision 30: by value is the default, so `sink` and `own`
+    are deleted at the V3b flip; `sink` remains the interim spelling until
+    then.)* **`own(x)` is renamed `sink(x)`.** Confirmed 2026-10-04: Yo's `own` is
     already linear, consuming the argument binding even when it dups. Gen A
     accepts `sink` in V3; Gen B renames every site and deletes `own`.
     Corrected 2026-10-05: the implicit dup is not carried over.
@@ -268,7 +273,9 @@ copies the first kind implicitly (decision 16).
 23. **Confirmed 2026-10-05: no new closure types; `Fn` stays the one call trait.**
     Raised by the maintainer 2026-10-05 ("Do we need to introduce new type
     to distinguish closure's kind?").
-    - **Escaping is the parameter mode.** A plain `f : Impl(Fn(...))`
+    - **Escaping is the parameter mode.** *(Decision 30 flips the spelling:
+      `imm(f)` is the non-escaping borrow, and a plain `f` is by value and
+      may escape.)* A plain `f : Impl(Fn(...))`
       parameter is a borrow. It is second-class, so the callee cannot store,
       return or spawn it, and a closure passed there may borrow its captures
       (decision 22). A `sink(f) : Impl(Fn(...))` parameter owns, so the
@@ -334,8 +341,10 @@ copies the first kind implicitly (decision 16).
       and read position uses a `borrow` form. Chosen 2026-10-05 as the
       recommendation; V2b's first PR validates it on std's collections and
       `String` before it spreads.
-    - **Why `borrow` appears on results but not on parameters** (asked by
-      the maintainer, 2026-10-05). Each position has a default convention,
+    - *(Superseded by decision 30: every position owns by default; borrows
+      are spelled `imm`/`mut` everywhere, and `-> borrow(T)`/`-> inout(T)`
+      are `-> imm(T)`/`-> mut(T)`.)* **Why `borrow` appears on results but
+      not on parameters** (asked by the maintainer, 2026-10-05). Each position has a default convention,
       and only a non-default mode is written:
 
       | Position | Default (unwritten) | Written when different |
@@ -350,8 +359,11 @@ copies the first kind implicitly (decision 16).
       would be a second spelling of the default. The rejected alternative
       spelled every projection `-> inout(T)`, with mutability inferred from
       the receiver; that makes `inout` sometimes mean read-only.
-    - **Rejected 2026-10-05: `sink` as the parameter default, `in(x)` for
-      borrow** (raised by the maintainer to drop the `sink` keyword).
+    - *(Reversed by decision 30, later the same day: the maintainer chose
+      by-value parameters for a predictable C representation. The analysis
+      below is kept as the record of the costs.)* **Rejected 2026-10-05:
+      `sink` as the parameter default, `in(x)` for borrow** (raised by the
+      maintainer to drop the `sink` keyword).
       Measured on develop: 63 `own(` parameters in `src/` and `std/`,
       against about 700 `inout(` and about 17,000 parameter declarations,
       so almost every parameter reads. A consuming default would put `in`
@@ -439,7 +451,8 @@ copies the first kind implicitly (decision 16).
       `Option(Box(T))` would have only a clone per step or recursion between
       the two (`src/evaluator/exprs/runtime.yo` has such a hop loop). The
       projection step lands later, with V2b's projections PR (decision 24).
-26. **Confirmed 2026-10-05: a `match` scrutinee borrows by default.
+26. *(Decision 30 deletes `sink`; the spelling of a consuming `match` is
+    reopened as §9 Q14.)* **Confirmed 2026-10-05: a `match` scrutinee borrows by default.
     `match(sink(x), …)` consumes it, and matching an `inout` binding binds
     `inout`.**
     - **Default.** A scrutinee is a read position, like a parameter, so its
@@ -497,7 +510,9 @@ copies the first kind implicitly (decision 16).
       refines today's rule, under which `_reject_if_container_reachable`
       treats any closure argument as reaching the container.
     - **Value roots.** An `inout` or `sink` argument that overlaps any other
-      argument of the same call is a compile error. Two read arguments may
+      argument of the same call is a compile error. *(Under decision 30: a
+      `mut` argument, or a by-value argument of a type that is not
+      implicitly copyable, which is a move.)* Two read arguments may
       overlap.
       - Today `src/types/flowability.yo` and `docs/*/FLOWABILITY.md` allow a
         by-value argument to overlap an `inout` one, with a +1 forced
@@ -524,7 +539,11 @@ copies the first kind implicitly (decision 16).
       The `Rc` arm is its own PR right after V1 step 1's rename, which stays
       mechanical.
 
-29. **Confirmed 2026-10-05: a borrowed scalar or scalar pair is passed by
+29. *(Superseded by decision 30: with by-value parameters and spelled
+    borrows, the C signature is the Yo signature and no lowering rule is
+    needed. Kept for its analysis: Hylo's uniform pointers, the rejected
+    byte threshold, the `Dyn` wrapper argument, and async.)*
+    **Confirmed 2026-10-05: a borrowed scalar or scalar pair is passed by
     value; every other borrowed parameter by `const T*`.** Raised by the
     maintainer: the C signature must be predictable from the Yo signature,
     and a large struct must not be copied at every call.
@@ -644,6 +663,87 @@ copies the first kind implicitly (decision 16).
         value with no count change, which already behaves as `const T*`.
       - The unique `Box` is `const Box*` from its first commit.
 
+30. **Confirmed 2026-10-05: parameters are by value by default; `imm(x)`
+    and `mut(x)` spell the borrows.** Raised by the maintainer: a parameter's
+    C representation must be readable from its Yo signature, so a borrow is
+    written where it happens. This supersedes the parameter half of decision
+    24's per-position table, decision 15's `sink`, decision 29's lowering
+    rule, and decision 23's "a plain `Fn` parameter borrows".
+    - **The conventions:**
+
+      | Yo | Meaning | C |
+      | --- | --- | --- |
+      | `x : T` | by value: a copy for implicitly copyable `T`, a move otherwise (the caller gives `x` up, or passes `x.clone()`) | `T x` |
+      | `imm(x) : T` | read-only borrow | `const T* x` |
+      | `mut(x) : T` | exclusive read-write borrow | `T* x` |
+      | an `extern` C function's parameter | exactly the declared C type | as declared |
+
+      There is no lowering rule left: the C signature is the Yo signature.
+      `sink` and `own` are deleted, because by value is the default.
+      `inout` is renamed `mut`.
+    - **Receivers are written too:** `imm(self)` for a reading method,
+      `mut(self)` for a mutating one, and a plain `self` consumes, like
+      Rust's `&self`, `&mut self` and `self`. The maintainer chose this over
+      an exception that defaulted `self` to `imm`, so that every signature
+      reads the same way.
+    - **The same words in every position:**
+      - local borrows: `imm(y) := place`, `mut(y) := place` (decision 18);
+      - re-pointing: `imm(cur) = place`, `mut(cur) = place` (decision 25);
+      - projection results: `-> imm(T)`, `-> mut(T)` (decision 24);
+      - function types: `Fn(imm(String)) -> usize`.
+
+      Every position now owns by default and spells a borrow, which removes
+      decision 24's asymmetry between parameters and results. `imm(x)` is
+      accepted in parameter position.
+    - **Why `imm`/`mut`.** They are exact opposites and short. Mojo 1.0 uses
+      the same pair: it renamed `read` to `imm` to match its `Imm` type
+      prefix, after renaming `inout` to `mut` in 24.6. The two words collide
+      with no std method name; `read` and `write` are everywhere in std's
+      I/O. Rejected spellings: `borrow` (long), `read`/`write` (`write`
+      suggests write-only, like C#'s `out` or Hylo's `set`), `&`/`&!` (`&x`
+      is address-of in Yo expressions, and `!` already means "not",
+      including `!(MoveOnly)`), and `in`.
+    - **Callbacks.** A by-value `f : Impl(Fn(...))` may escape, so the closure
+      owns its captures. An `imm(f) : Impl(Fn(...))` parameter is
+      second-class, so a closure literal passed there borrows its captures
+      (decision 22). std's `for_each`, `map`, `filter` and `with_lock` take
+      `imm(f)`.
+    - **Writes.** A by-value parameter is the callee's own value, so
+      `p.n = (p.n + 1)` is legal on `p : Point`, as today. A write through an
+      `imm` parameter is E0908. This supersedes §9 Q13's resolution.
+    - **What the reversal costs, recorded from #1205.** `imm(...)` appears on
+      most `String`, collection, `Rc` and generic parameters, and on every
+      reading receiver. A forgotten `imm` on an owning type surfaces at the
+      caller as a use after move (E0901), and the note must name `imm(x)` in
+      the callee before `x.clone()` at the call. That is where the
+      silent-clone risk lives.
+    - **Migration is mechanical,** because today's plain parameter already
+      means a read-only borrow. `yo fix`:
+      - rewrites every plain parameter and receiver of a type that is not
+        implicitly copyable to `imm(...)`;
+      - rewrites `inout` to `mut`;
+      - rewrites `own(x)`/`sink(x)` to plain `x`.
+
+      Plain parameters of implicitly copyable types stay plain. Their
+      meaning, a copy, and their C (`T x`) are unchanged. So the sweep
+      changes no program's behavior, and the flip after it only changes what
+      new code means.
+    - **Async** (decision 14). A future that captures an `imm` or `mut`
+      argument is a borrowing future and is second-class. A by-value
+      argument is moved or copied into the frame, and the future stays
+      first-class.
+    - **Phase: V3b, after V3**, in two generations.
+      - **Generation A:** the compiler accepts `imm`/`mut` everywhere listed
+        above (with `mut` as `inout`'s synonym), and plain parameters still
+        borrow.
+      - **Generation B,** once `SEED_VERSION` carries A:
+        - the `yo fix` sweep over `src/`, `std/`, `tests/`, docs and skills;
+        - then the flip, where a plain parameter is by value;
+        - then the deletion of `own`, `sink`, `inout` and the old spelling.
+
+      V3's `sink` Generation A stays the interim
+      spelling of a consuming parameter until the flip.
+
 ### 0.4 First gate: measure the migration
 
 Before any phase is resized, an audit counts the copies the new rule turns
@@ -726,8 +826,11 @@ here. The phase sizes below are written without them, on purpose.
    `match(sink(x), …)` for move-only payloads (decision 26). Then
    `borrow(y) :=`, last-use live ranges and decision 25's re-pointing
    (without the projection step), which the unique `Box` needs.
-   Decision 29's `const T*` lowering for plain aggregates beyond a scalar
-   pair, with §9 Q13's E0908, in its own measured PR.
+   Then **V3b, the parameter conventions** (decision 30), in two
+   generations. Generation A accepts `imm`/`mut`. Generation B runs the
+   `yo fix` sweep, flips plain parameters to by value, and deletes `own`,
+   `sink` and `inout`. It replaces the earlier "`sink` sweep" and decision
+   29's struct-lowering PR.
 4. **V1 step 2: the unique `Box`.** It comes after V3 because it needs V3's
    general "requires an explicit copy" predicate. The new `Box` is
    explicit-copy from its first commit, so its copies are never implicit.
@@ -756,8 +859,7 @@ here. The phase sizes below are written without them, on purpose.
    clones from the start. If the count makes this prohibitive, decision 17's
    fallback (implicit `Rc` copies) is decided here, and the dup/drop pair
    optimizer then stays for `Rc` permanently.
-7. **V4** (trees, decision 21), **V5** (remove `ref`/`atomic`), then the
-   `sink` sweep (Gen B) once a seed carries V3.
+7. **V4** (trees, decision 21) and **V5** (remove `ref`/`atomic`).
 
 Generation A/B and the seed gate (§5) apply as before.
 
@@ -2347,7 +2449,9 @@ Per type, in this order, each its own PR, measured:
    patterns) or explicitly (`Box(p)`)? Implicit is what `ref(enum)` gives
    today and what 3,500 arms assume; explicit is what Rust does. Decide in
    V4's first PR, with the `TypeValue` conversion as the test.
-13. **Resolved 2026-10-05 (decision 29): field writes through a plain
+13. *(Superseded by decision 30: a by-value parameter is the callee's own
+   value, so writing it is legal; only an `imm` parameter is read-only.)*
+   **Resolved 2026-10-05 (decision 29): field writes through a plain
    parameter are E0908.** *(Original question:)* Today `p.n = (p.n + 1)` is
    legal on a by-value `p : Point`, because the callee writes its own copy.
    Under borrow-by-default (decision 24) a plain parameter is a read-only
@@ -2356,3 +2460,15 @@ Per type, in this order, each its own PR, measured:
    `q := p` or `inout(p)`. §0.4's audit counts the sites (field writes
    through plain parameters of implicitly copyable type) to size decision
    29's struct-lowering PR, which lands the error.
+14. **The spelling of a consuming `match`** (reopened by decision 30, which
+   deletes `sink`). Decision 26 keeps a scrutinee a borrow by default and
+   spelled consumption `match(sink(x), …)`. Two options:
+   - **(a)** Keep the borrowing default and choose a new consuming spelling.
+   - **(b)** Make a scrutinee by value, like a by-value parameter, with
+     `match(imm(x), …)` to borrow. This is consistent with decision 30, but
+     every reading `match` on an owning value would then spell `imm`, and
+     the compiler's ~3,500 tree-matching arms read.
+
+   Recommendation: (a). A `match` is not a call, reading matches dominate,
+   and an owned temporary scrutinee is already consumed. Pick the consuming
+   spelling with the maintainer before V3 lands decision 26.
