@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, generate_some_type_id, t_dyn } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
 { type_contains_some_type_deep } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -52,15 +52,12 @@ pragma(Pragma.AllowUnsafe);
 /// impl is registered against; non-boxed passes through. The codegen wrapper's
 /// is_boxed branch then unboxes `Box* -> &box->*` at the call. Requires the box's
 /// `Box(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
-/// Construct `Box(inner_type)` by calling the prelude `Box` comptime
-/// type-constructor with `V` pre-bound to inner_type in the callee env.
-/// evaluate_comptime_fn_call evals the body in the passed callee_env and
-/// does NOT bind params, so V must be pre-bound.
-_create_boxed_type :: (fn(inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))(
-  _create_box_type_via(String.from("Box"), inner_type, env, ctx, exn)
-);
-/// `Box(inner_type)`, or the atomic box `Arc(inner_type)` a `Dyn(..., Send)`
-/// payload takes, evaluated like the constructor call it stands for.
+/// `<ctor>(inner_type)` for a prelude cell type constructor `ctor` — the
+/// shared cell (`Box`/`Rc`), or the atomic box `Arc(inner_type)` a
+/// `Dyn(..., Send)` payload takes — evaluated like the constructor call it
+/// stands for: the prelude comptime type-constructor is called with `V`
+/// pre-bound to inner_type in the callee env (evaluate_comptime_fn_call evals
+/// the body in the passed callee_env and does NOT bind params).
 _create_box_type_via :: (fn(ctor : String, inner_type : TypeValue, env : Environment, ctx : EvalContext, exn : Exception) -> Option(TypeValue))({
   vars := get_variables_from_env(env, ctor.clone());
   (box_fv : Option(EvalValue)) = Option(EvalValue).None;
@@ -786,37 +783,42 @@ evaluate_dyn_value :: (
           Option(TypeValue).None
         );
         (exp_ty : TypeValue) = w_ty;
-        // dyn(box(<closure>)) special case: pass `Box(Impl-SomeT)` as the
-        // box call's expected type so its early return-type synthesis binds
-        // `V := <the Fn-carrying wrapper>` and the closure argument is
-        // contextually typed from the wrapper's Fn trait (concrete
-        // param types). Without it the closure is created through the
-        // no-expected placeholder fallback (`fn(y : y) -> _ret`) and
-        // its C signature emits `void*` params (the cluster-B family).
-        // (`Box(T)(...)` ctor calls are not recognized; the bare `box`
-        // head covers the dyn-closure pattern.)
-        dyn_box_closure := if(
-          ast_expr_is_fn_call_of(value_arg, "box", Option(usize).Some(usize(1))),
-          match(
-            value_arg,
-            .FnCall(_, _, dbc_args, _, _) => match(
-              dbc_args.get(usize(0)),
-              .Some(dbc_a0) => ast_expr_is_fn_call_of(dbc_a0, "=>", Option(usize).None),
-              .None => false
-            ),
-            _ => false
+        // dyn(box(<closure>)) special case — `box` or any other shared-cell
+        // constructor (`rc`, types/guards.yo `shared_cell_names_at`): pass
+        // `Box(Impl-SomeT)` (`Rc(...)` for `rc`) as the cell call's expected
+        // type so its early return-type synthesis binds `V := <the
+        // Fn-carrying wrapper>` and the closure argument is contextually
+        // typed from the wrapper's Fn trait (concrete param types). Without
+        // it the closure is created through the no-expected placeholder
+        // fallback (`fn(y : y) -> _ret`) and its C signature emits `void*`
+        // params (the cluster-B family). (`Box(T)(...)` ctor calls are not
+        // recognized; the bare constructor head covers the dyn-closure
+        // pattern.)
+        dyn_cell_closure_type := match(
+          value_arg,
+          .FnCall(_, dbc_fn, dbc_args, _, _) => cond(
+            (
+              (dbc_args.len() == usize(1)) && match(
+                dbc_args.get(usize(0)),
+                .Some(dbc_a0) => ast_expr_is_fn_call_of(dbc_a0, "=>", Option(usize).None),
+                .None => false
+              )
+            ) => match(dbc_fn, .Atom(_, dbc_tok) => shared_cell_type_name_of_constructor(dbc_tok.value), _ => Option(String).None),
+            true => Option(String).None
           ),
-          false
+          _ => Option(String).None
         );
-        if(dyn_box_closure, {
-          match(
-            _create_boxed_type(w_ty, env, ctx, exn),
+        match(
+          dyn_cell_closure_type,
+          .Some(dbc_cell) => match(
+            _create_box_type_via(dbc_cell, w_ty, env, ctx, exn),
             .Some(dbc_bt) => {
               exp_ty = dbc_bt;
             },
             .None => ()
-          );
-        });
+          ),
+          .None => ()
+        );
         inner_expected = Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
             ty : exp_ty,
@@ -947,10 +949,11 @@ evaluate_dyn_value :: (
     if(!is_reference_struct_type(ne_value_type) && !is_dyn_type(ne_value_type), {
       // The same box the executing path below picks: `arc` for a Send Dyn.
       ne_send := _dyn_target_requires_send(ctx.expected_type, ne_value_type);
+      ne_cell := shared_cell_canonical_names();
       match(
-        _create_box_type_via(if(ne_send, String.from("Arc"), String.from("Box")), ne_box_inner_ty, env, ctx, exn),
+        _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          ne_box_tok := synthetic_token(if(ne_send, String.from("arc"), String.from("box")), env.module_path);
+          ne_box_tok := synthetic_token(if(ne_send, String.from("arc"), String.from(ne_cell.constructor)), env.module_path);
           ne_box_atom := AstExpr.Atom(alloc_global_expr_id(), ne_box_tok);
           ne_box_args := ArrayList(AstExpr).new();
           ne_box_args.push(inner_ne);
@@ -1029,7 +1032,7 @@ evaluate_dyn_value :: (
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   (final_value_expr_ex : AstExpr) = eval_inner;
   if(!is_reference_struct_type(value_type) && !is_dyn_type(value_type), {
-    box_fn_name := if(_dyn_target_requires_send(ctx.expected_type, value_type), String.from("arc"), String.from("box"));
+    box_fn_name := if(_dyn_target_requires_send(ctx.expected_type, value_type), String.from("arc"), String.from(shared_cell_canonical_names().constructor));
     box_tok := synthetic_token(box_fn_name, cur_env.module_path);
     // Fresh node ids, as the non-executing path above mints them: the
     // ExprInfo side table is keyed by id, and id 0 is shared by every other

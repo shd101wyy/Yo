@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
-{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type } :: import("../../types/guards.yo");
+{ is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
 { macro_return_is_unquote } :: import("../types/function.yo");
 { type_contains_some_type, get_all_some_types, is_bound_closure_identity } :: import("../../types/utils.yo");
 {
@@ -1301,8 +1301,9 @@ evaluate_comptime_fn_call :: (
     );
     tai = (tai + usize(1));
   });
-  // Stamp the returned type's display name `Box(arg)` for the prelude `Box`
-  // constructor only. Naming every instantiation is NOT possible: the
+  // Stamp the returned type's display name `Box(arg)` for the prelude's
+  // shared cell only: `Box`, or its V1 name `Rc` (`is_shared_cell_type_name`,
+  // types/guards.yo, holds the list). Naming every instantiation is NOT possible: the
   // compatibility layer treats the struct NAME as nominal identity
   // (compatibility.yo:430), so broadly naming generic instantiations breaks
   // type unification (HashMap/ArrayList/nested generics — corpus 90→55). But
@@ -1317,7 +1318,7 @@ evaluate_comptime_fn_call :: (
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md). It is
   // equally unambiguous: `atomic(ref(struct((*) : V)))`.
   ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(ce).value, .None => String.from(""));
-  ctfe_box_name := if(!((ctfe_fn_name == "Box") || (ctfe_fn_name == "Arc")), String.from(""), {
+  ctfe_box_name := if(!(is_shared_cell_type_name(ctfe_fn_name) || (ctfe_fn_name == "Arc")), String.from(""), {
     nm := ctfe_fn_name.clone();
     nm.push_str("(");
     (cni : usize) = usize(0);
