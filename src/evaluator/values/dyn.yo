@@ -742,11 +742,13 @@ evaluate_dyn_value :: (
         dyn_cell_closure_type := match(
           value_arg,
           .FnCall(_, dbc_fn, dbc_args, _, _) => cond(
-            ((dbc_args.len() == usize(1)) && match(
-              dbc_args.get(usize(0)),
-              .Some(dbc_a0) => ast_expr_is_fn_call_of(dbc_a0, "=>", Option(usize).None),
-              .None => false
-            )) => match(dbc_fn, .Atom(_, dbc_tok) => shared_cell_type_name_of_constructor(dbc_tok.value), _ => Option(String).None),
+            (
+              (dbc_args.len() == usize(1)) && match(
+                dbc_args.get(usize(0)),
+                .Some(dbc_a0) => ast_expr_is_fn_call_of(dbc_a0, "=>", Option(usize).None),
+                .None => false
+              )
+            ) => match(dbc_fn, .Atom(_, dbc_tok) => shared_cell_type_name_of_constructor(dbc_tok.value), _ => Option(String).None),
             true => Option(String).None
           ),
           _ => Option(String).None
