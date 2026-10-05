@@ -186,7 +186,7 @@ impl(Counter,
 - Bare `Module` is not a type alias. Use `Type` for comptime type values; type
   reflection reports source-module namespaces as `TypeInfo.Struct(...)`.
 - Wrap `fn` types in parentheses when they appear after `:`
-- A method can be called on its type with the receiver first: `Point.norm(p)` is `p.norm()`. On a generic type the type arguments may be left out and are inferred from that first argument (`Box.clone(b)` is `Box(i32).clone(b)` for `b : Box(i32)`; decision 32 of `plans/VALUES_BY_DEFAULT.md`). A static method (no `self`) has nothing to infer from: write `Pair(i32, bool).make(...)`; `Pair.make(...)` is E0613. `src/`/`std/` must not use the inferred form until `SEED_VERSION` carries it.
+- A method can be called on its type with the receiver first: `Point.norm(p)` is `p.norm()`. On a generic type the type arguments may be left out and are inferred from that first argument (`Rc.clone(w)` is `Rc(i32).clone(w)` for `w : Rc(i32)`; decision 32 of `plans/VALUES_BY_DEFAULT.md`). A static method (no `self`) has nothing to infer from: write `Pair(i32, bool).make(...)`; `Pair.make(...)` is E0613. `src/`/`std/` must not use the inferred form until `SEED_VERSION` carries it.
 - **Module-level `::` definitions and `impl(...)` registrations are order-independent** (`docs/en-US/DEFINITION_ORDER.md`; see "Definition order" below for what stays ordered and the SEED GATE that still binds `std/` and `src/`). Sibling methods inside one `impl` block reference each other through `self.method()` / `Self.method(...)`, never by bare name.
 
 ### Named arguments and default values

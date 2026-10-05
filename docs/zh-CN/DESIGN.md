@@ -965,8 +965,8 @@ impl(
 
 p := Pair(i32, bool).make(i32(1), true); // 静态方法：写出类型实参
 a := Pair.first(p);                      // 从 `p` 推断 A := i32、B := bool
-b := box(i32(5));
-c := Box.clone(b);                       // 即 Box(i32).clone(b)
+w := rc(i32(5));
+c := Rc.clone(w);                        // 即 Rc(i32).clone(w)
 ```
 
 #### 关联常量

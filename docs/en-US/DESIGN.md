@@ -994,8 +994,8 @@ impl(
 
 p := Pair(i32, bool).make(i32(1), true); // static: type arguments written
 a := Pair.first(p);                      // A := i32, B := bool, from `p`
-b := box(i32(5));
-c := Box.clone(b);                       // Box(i32).clone(b)
+w := rc(i32(5));
+c := Rc.clone(w);                        // Rc(i32).clone(w)
 ```
 
 #### Associated constants

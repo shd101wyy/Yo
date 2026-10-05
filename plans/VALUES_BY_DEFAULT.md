@@ -1918,8 +1918,8 @@ and in git, not a silent edit.
     E0613 naming its type; a missing method stays E0610, which now names
     the instance (`No method "m" on Box(i32)`, not `on Type`).
   - **`Arc.clone(a)`** is the same E0610 as `Arc(i32).clone(a)` until V2c
-    gives `Arc` a `clone` (decision 17). `Rc.clone(w)` tests follow #1232,
-    which adds the prelude `Rc`.
+    gives `Arc` a `clone` (decision 17). `Rc.clone(w)` is tested on #1232's
+    prelude `Rc`.
   - Hook: `_infer_unapplied_ctor_receiver`
     (`src/evaluator/calls/function.yo`), before `_try_find_receiver_method`.
   - Test: `tests/unapplied_constructor_method.test.yo`.
@@ -1940,8 +1940,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
 (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 - Tests: the clash error with both suggested spellings, and forwarding of
   unclashed names unchanged.
-- **Sites, measured 2026-10-05** (Box and Arc only; #1232's `Rc` adds none
-  until step 1 renames): one source site.
+- **Sites, measured 2026-10-05:** two source sites.
   - Measured with a temporary probe in `_try_find_receiver_method`
     (`YO_AUDIT_D32`, not committed): an instance call whose receiver
     (pointer-stripped) has the method AND whose `deref_target_type`
@@ -1952,11 +1951,14 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     (563/633 files pass `check` standalone; the rest are negative
     fixtures). It sees only bodies `check` evaluates: a generic body only
     at the instantiations something reaches.
-  - **`clone`:** `src/` 0, `std/` 0, tests 1
-    (`tests/deref_auto.test.yo:63`, the test that pins "the wrapper's own
-    members win"). Six more evaluations are `derive(Clone)` bodies cloning
-    a `Box` field (`auto-generated://`): the derive rule, not a call site,
-    has to spell `Box.clone(self.f)`.
+  - **`clone`:** `src/` 0, `std/` 0, tests 2:
+    `tests/deref_auto.test.yo:63` (the test that pins "the wrapper's own
+    members win") and `tests/rc_cell.test.yo:129`. The probe ran on the
+    tree just before #1232 landed; #1232's diff adds that one `.clone()`
+    on a wrapper (read from the diff, not probed). Six more evaluations
+    are `derive(Clone)` bodies cloning a `Box` field
+    (`auto-generated://`): the derive rule, not a call site, has to spell
+    `Box.clone(self.f)`.
   - **Other names:** `id` at `tests/impl.test.yo:19` (`value.id()` with
     `T := Box(i32)`) and `hash` at `std/collections/hash_map.yo:233`
     (`key.hash(h)` with `K := Box(i32)`, reached from a test). Both are

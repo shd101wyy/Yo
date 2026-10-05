@@ -1,7 +1,7 @@
 // A method called through an UNAPPLIED generic type constructor, `G.m(x, ...)`
 // (plans/VALUES_BY_DEFAULT.md decision 32): `G`'s type arguments are inferred
 // from the receiver `x`, the call's first argument, as Rust infers
-// `Rc::clone`'s `T`. `Box.clone(b)` is `Box(i32).clone(b)` for `b : Box(i32)`.
+// `Rc::clone`'s `T`. `Rc.clone(w)` is `Rc(i32).clone(w)` for `w : Rc(i32)`.
 // The receiver must itself be an instance of `G`; a static method has no
 // receiver to infer from, so its type arguments are written (E0613); the
 // type a binding expects of the call's result does not supply them either.
@@ -68,6 +68,22 @@ test("Box.clone infers T inside a generic body", {
   assert(x.* == i32(9), "T := i32");
   assert(y.*, "T := bool");
 });
+test("Rc.clone(w) infers T from the receiver", {
+  w := rc(i32(5));
+  c := Rc.clone(w);
+  w.* = i32(7);
+  assert(c.* == i32(5), "today's Rc clone is a new cell (V2c makes it a handle)");
+  comptime_assert(Type.eq(typeof(Rc.clone(w)), Rc(i32)), "the result is an Rc(i32)");
+  comptime_assert(Type.eq(typeof(Rc.clone(rc(true))), Rc(bool)), "T := bool");
+  (d : Rc(i32)) = Rc(i32).clone(w);
+  assert(d.* == i32(7), "the applied spelling still works");
+});
+test("Rc.clone(w) on a nested wrapper names the outer constructor", {
+  w := rc(box(i32(2)));
+  c := Rc.clone(w);
+  comptime_assert(Type.eq(typeof(c), Rc(Box(i32))), "T := Box(i32), never a payload search");
+  comptime_expect_error(Box.clone(w), "which has type `Rc(Box(i32))`, not an instance of `Box`");
+});
 test("Arc.m(a) infers T from the receiver", {
   a := arc(i32(3));
   h := Arc._handle(a);
@@ -100,6 +116,9 @@ test("a static method has no receiver to infer from (E0613)", {
 test("a receiver of another type is E0613 naming both", {
   a := arc(i32(1));
   comptime_expect_error(Box.clone(a), "which has type `Arc(i32)`, not an instance of `Box`");
+  r := rc(i32(1));
+  comptime_expect_error(Box.clone(r), "which has type `Rc(i32)`, not an instance of `Box`");
+  comptime_expect_error(Rc.clone(box(i32(1))), "which has type `Box(i32)`, not an instance of `Rc`");
   b := box(box(i32(1)));
   comptime_expect_error(Arc._handle(b), "not an instance of `Arc`");
   comptime_expect_error(Box.clone(i32(1)), "which has type `i32`");
