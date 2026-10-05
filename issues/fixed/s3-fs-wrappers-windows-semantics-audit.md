@@ -110,6 +110,16 @@ both languages (`docs/{en-US,zh-CN}/STD_SYS_MODULE.md`: readlink row + two
 Windows-runtime bullets), plus `std/sys/socketpair.yo` / `std/sys/sockinfo.yo`
 doc comments that described the raw-WSA behaviour.
 
+Follow-up found by the first CI battery on the merged tree (2026-10-05,
+run 37292720878, `test (windows-11-arm)`): `tests/sys/dir.test.yo`'s
+"async symlink and readlink" asserted only that the answer STARTS with `/`
+or `\` — true of the old shim's `\\?\`-prefixed resolved path, false of the
+reparse-point readlink, whose answer for an absolute drive target starts
+with the drive letter (`readlink = 57`, then `Assertion failed`). None of
+the batch's own 13 test files covered it. The test now asserts the stronger
+POSIX contract on every platform: readlink answers the stored target byte
+for byte (length and `memcmp` against the absolute target path).
+
 Left open on purpose (recorded here, not fixed): the denied-parent
 try_exists contract is not expressible under Windows ACLs (a chmod-0 dir
 still allows enumeration), symlink creation still needs
