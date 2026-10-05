@@ -1630,17 +1630,55 @@ and in git, not a silent edit.
           form 2 at the cost of the `Rc` allocation. Lazy adapters that store
           their closure, std's `StreamMap`/`StreamFilter`
           (`std/async/stream.yo`) and generators, are where this shows.
-        - **If that case proves common,** `FnMut` fits Yo's modes cleanly
-          and can be added later. Its call would take `mut(self)`, and the
-          body could write its by-value captures. The costs are a third call
-          trait in every callback bound, in `Dyn` and in closure inference,
-          and `mut(f)`/`&mut f` wherever such a closure is called.
-      - **What it saves.** A third call trait would have to appear in
-        every API's bound, in `Dyn`, and in every closure's inferred kind,
-        and reading `f(x)` would no longer tell whether `f` itself changed.
-        Under decisions 35 and 37, a closure's environment never changes
-        while it lives, and a call either borrows it (`Fn`) or consumes it
-        (`FnOnce`).
+        - **If that case proves common, a stateful call is added the way
+          Hylo has it,** not as Rust's third trait (recorded 2026-10-05 by
+          the maintainer).
+      - **Hylo's design.** Hylo
+        (https://hylo-lang.org/docs/user/language-tour/functions-and-methods/)
+        has three capture kinds, its parameter conventions: `let`, `inout`
+        and `sink`.
+        - `let` and `inout` captures are inferred from the body. A `sink`
+          capture must be listed (`fun[var i = 0]`).
+        - A closure that changes its own state is an `inout` lambda,
+          `fun[var i = 0]() inout -> Int { … }`, and its call is marked:
+          `&counter()`.
+        - So Hylo's `FnMut` is the third receiver mode of one call, not a
+          third trait.
+        - Lambda types carry their environment (`[E]`, or erased), which is
+          Yo's `Impl(Fn(...))` versus `Dyn(Fn(...))`.
+        - Hylo's issue #1807 (a `let` capture of a temporary,
+          `fun[let c = c.copy()]`, used after its lifetime) is the hole
+          decision 35 closes by requiring a place for a borrow entry.
+      - **The planned addition, if it is ever made.**
+        - **One call trait.** `Fn` stays the only call trait, and a
+          closure's call takes one of the three receiver modes decision 30
+          already has: `imm(self)` (`Fn`), `self` (`FnOnce`), or `mut(self)`
+          (the stateful call). The spelling of the `mut` form in a type is
+          chosen when it is added. It must name the mode and must not be a
+          new trait name.
+        - **The body.** A closure whose body writes one of its by-value
+          captures gets the `mut(self)` call. A capture list makes its
+          initial state explicit: `{ n : 0 }() => { n = (n + 1); n }`.
+        - **The call site.** The call is marked as decision 33 marks any
+          exclusive borrow, `&mut counter()`, as Hylo's is `&counter()`.
+          A bare `counter()` on such a closure is the mismatch error. So
+          reading a call still tells whether the closure changes.
+        - **Holding one.** It needs a `mut` place to be called through:
+          `mut(f) : Impl(Fn(...))` with the `mut` call, or an owned local.
+          An `Fn` (`imm(self)`) closure is accepted wherever the `mut` call
+          is required, as `Fn` implies `FnOnce`.
+        - **Rejected for that future step:** a separate `FnMut` trait,
+          because a third trait name would recreate Rust's three-way split
+          in every bound and in `Dyn`.
+        - **What would trigger it:** stateful closures stored in lazy
+          adapters (`StreamMap`/`StreamFilter`) or generators that are
+          common enough that form 3's named struct is a burden.
+      - **What leaving it out saves today.** No callback bound, `Dyn` slot
+        or closure inference has to handle a third call mode. A closure's
+        environment never changes while it lives, and a call either borrows
+        it (`Fn`) or consumes it (`FnOnce`). The Hylo-style addition above
+        would keep calls readable through `&mut f()`. What it would add is
+        the mode in every bound that accepts a stateful closure.
     - **std switches to `Impl(FnOnce(...))` where it calls once:**
       - `Option`: `map`, `and_then`, `or_else`, `map_or_else`,
         `unwrap_or_else`, `ok_or_else`;
