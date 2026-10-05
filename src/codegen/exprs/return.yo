@@ -168,6 +168,12 @@ _variable_moved_before_cleanup_point :: (fn(v : Variable, cleanup_expr : AstExpr
   });
   variable_moved_at_cleanup_point(v, _get_last_comparable_token_in_expr(cleanup_expr, ast_expr_token(cleanup_expr)))
 });
+/// Whether `v`'s consumption token lies in the same token stream as the
+/// cleanup point `cleanup_expr`, so the two can be ordered at all. A variable
+/// with no consumption token is trivially ordered (nothing to compare).
+_consumption_is_ordered_against_cleanup_point :: (fn(v : Variable, cleanup_expr : AstExpr) -> bool)(
+  match(v.consumed_at_token, .Some(ct) => _tokens_are_comparable(ct.*, ast_expr_token(cleanup_expr)), .None => true)
+);
 /// Resolve which in-scope variable a pending drop targets at a cleanup point.
 /// Prefer the id match; on absence decide by declaration position (a target
 /// declared AFTER the cleanup point is the shadowing-bug case → skip).
@@ -621,9 +627,18 @@ generate_consumed_var_drops_for_escape :: (fn(indent : String, context : Functio
                               // count left through the consumer (return value,
                               // inout field write, own-arg callee), whose own
                               // release path covers it, and re-dropping here
-                              // would double-free.
+                              // would double-free. "Before" must be PROVABLE:
+                              // a consumption whose token is not in the escape
+                              // point's stream (a temp moved into a local by
+                              // macro-expanded code, e.g. the borrowed `for`'s
+                              // guard and iterator temps) cannot be ordered
+                              // against it, and emitting there released a count
+                              // the local's own drop also releases — a double
+                              // free on every unwind out of a borrowed `for`
+                              // body (issues/fixed/an-escape-drop-of-a-temp-moved-by-macro-expanded-code-double-frees.md).
                               cond(
                                 _variable_moved_before_cleanup_point(lv, expr) => false,
+                                !_consumption_is_ordered_against_cleanup_point(lv, expr) => false,
                                 true => (_drop_target_is_state_machine_field(lv, var_name.clone(), context) || scope_stack_contains(context.base.declared_scopes.*, lv_c_name))
                               )
                             },
