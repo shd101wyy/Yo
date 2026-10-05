@@ -130,7 +130,7 @@ usize arithmetic), container `_`-fields (E0405), `str.from_raw_parts` /
 (pointer-typed). `public-safe-report` learned the witness/written/spare
 token exemption.
 
-Filed on the way: `issues/prelude-methods-have-no-visibility-owner.md` (S3 —
+Filed on the way: `issues/fixed/prelude-methods-have-no-visibility-owner.md` (S3 —
 prelude-registered methods carry owner `""`, so a `_` method there would be
 public everywhere; none exists today) and
 `issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md` (every
