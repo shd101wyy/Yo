@@ -22,11 +22,11 @@
 // ---------------------------------------------------------------------------
 /// Strip leading underscore bytes (`_`) from a string.
 _strip_leading_underscores :: (fn(name : String) -> String)({
-  bytes := name.as_bytes();
+  bytes := name;
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     if(b != u8(95), {
       break;
     });
@@ -40,7 +40,7 @@ _strip_leading_underscores :: (fn(name : String) -> String)({
   (j : usize) = i;
   while(j < n, {
     match(
-      bytes.get(j),
+      bytes.get_byte(j),
       .Some(b) => {
         out.push(b);
         ()
@@ -53,14 +53,14 @@ _strip_leading_underscores :: (fn(name : String) -> String)({
 });
 /// Strip trailing underscore bytes (`_`) from a string.
 _strip_trailing_underscores :: (fn(name : String) -> String)({
-  bytes := name.as_bytes();
+  bytes := name;
   n := bytes.len();
   if(n == usize(0), {
     return(name);
   });
   (end : usize) = n;
   while(end > usize(0), {
-    b := match(bytes.get(end - usize(1)), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(end - usize(1)), .Some(x) => x, .None => u8(0));
     if(b != u8(95), {
       break;
     });
@@ -73,7 +73,7 @@ _strip_trailing_underscores :: (fn(name : String) -> String)({
   (j : usize) = usize(0);
   while(j < end, {
     match(
-      bytes.get(j),
+      bytes.get_byte(j),
       .Some(b) => {
         out.push(b);
         ()
@@ -109,7 +109,7 @@ is_upper_camel_case :: (fn(name : String, exn : Exception) -> bool)({
   if(trimmed.len() == usize(0), {
     return(false);
   });
-  first := match(trimmed.as_bytes().get(usize(0)), .Some(b) => b, .None => u8(0));
+  first := match(trimmed.get_byte(usize(0)), .Some(b) => b, .None => u8(0));
   _is_upper_byte(first) && !trimmed.contains(String.from("_"))
 });
 /// Check if the name is in `lowerCamelCase`.
@@ -123,19 +123,19 @@ is_lower_camel_case :: (fn(name : String, exn : Exception) -> bool)({
   if(trimmed.len() == usize(0), {
     return(false);
   });
-  first := match(trimmed.as_bytes().get(usize(0)), .Some(b) => b, .None => u8(0));
+  first := match(trimmed.get_byte(usize(0)), .Some(b) => b, .None => u8(0));
   _is_lower_byte(first) && !trimmed.contains(String.from("_"))
 });
 /// Check if the name is in `snake_case` (contains no uppercase letters).
 ///
 /// Scans byte-by-byte for uppercase ASCII letters.
 is_snake_case :: (fn(name : String) -> bool)({
-  bytes := name.as_bytes();
+  bytes := name;
   n := bytes.len();
   (i : usize) = usize(0);
   (found_upper : bool) = false;
   while((i < n) && !found_upper, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     if(_is_upper_byte(b), {
       found_upper = true;
     });

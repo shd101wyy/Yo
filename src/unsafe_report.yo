@@ -87,14 +87,14 @@ _is_ws_byte :: (fn(b : u8) -> bool)(
 /// with the original (escapes become two spaces), so a byte index in the
 /// stripped line IS the original byte index.
 _strip_comments_and_strings :: (fn(line : String) -> ArrayList(u8))({
-  bytes := line.as_bytes();
+  bytes := line;
   out := ArrayList(u8).new();
   (in_str : u8) = u8(0);
   (i : usize) = usize(0);
   n := bytes.len();
   while(i < n, {
-    ch := bytes(i);
-    if((in_str == u8(0)) && (ch == u8(47)) && ((i + usize(1)) < n) && (bytes(i + usize(1)) == u8(47)), {
+    ch := bytes.byte_at(i);
+    if((in_str == u8(0)) && (ch == u8(47)) && ((i + usize(1)) < n) && (bytes.byte_at(i + usize(1)) == u8(47)), {
       // Line comment: drop to end of line.
       return(out);
     });
@@ -164,13 +164,13 @@ _find_matching_close :: (fn(src_bytes : ArrayList(u8), open_idx : usize) -> Opti
 });
 /// True when the bytes at `i` spell `needle` (ASCII).
 _bytes_at :: (fn(src : ArrayList(u8), i : usize, needle : str) -> bool)({
-  nb := String.from(needle).as_bytes();
+  nb := String.from(needle);
   if((i + nb.len()) > src.len(), {
     return(false);
   });
   (k : usize) = usize(0);
   while(k < nb.len(), {
-    if(src(i + k) != nb(k), {
+    if(src(i + k) != nb.byte_at(k), {
       return(false);
     });
     k = (k + usize(1));
@@ -200,7 +200,7 @@ _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
   names := HashSet(String).new();
   (si : usize) = usize(0);
   while(si < srcs.len(), {
-    src := srcs(si).as_bytes();
+    src := srcs(si).to_bytes();
     n := src.len();
     (i : usize) = usize(0);
     while(i < n, {
@@ -242,7 +242,7 @@ _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
             while(j < close, {
               if(_is_ident_start_byte(src(j)) && if(j == usize(0), true, !_is_ident_byte(src(j - usize(1)))), {
                 name := _ident_at(src, j);
-                (k2 : usize) = (j + name.as_bytes().len());
+                (k2 : usize) = (j + name.len());
                 while((k2 < close) && ((src(k2) == u8(32)) || (src(k2) == u8(9))), {
                   k2 = (k2 + usize(1));
                 });
@@ -268,7 +268,7 @@ _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
                     names.insert(name.clone());
                   });
                 });
-                j = (j + name.as_bytes().len());
+                j = (j + name.len());
               }, {
                 j = (j + usize(1));
               });
@@ -296,7 +296,7 @@ _classify_unsafe_body :: (
   });
   name := _ident_at(src, k);
   if(name.len() > usize(0), {
-    (k2 : usize) = (k + name.as_bytes().len());
+    (k2 : usize) = (k + name.len());
     while((k2 < body_end) && _is_ws_byte(src(k2)), {
       k2 = (k2 + usize(1));
     });
@@ -420,14 +420,14 @@ _scan_line :: (
           cond(
             (prev.starts_with(`// SAFETY:`) || prev.starts_with(`//SAFETY:`)) => {
               // Drop the leading `//` and any following spaces.
-              pb := prev.as_bytes();
+              pb := prev;
               (p : usize) = usize(2);
-              while((p < pb.len()) && (pb(p) == u8(32)), {
+              while((p < pb.len()) && (pb.byte_at(p) == u8(32)), {
                 p = (p + usize(1));
               });
               sb := StringBuilder.new();
               while(p < pb.len(), {
-                sb.write_byte(pb(p));
+                sb.write_byte(pb.byte_at(p));
                 p = (p + usize(1));
               });
               safety_comment = Option(String).Some(sb.to_string());
@@ -503,7 +503,7 @@ _walk_yo_files :: (fn(root : String, io : Io, exn : Exception) -> Impl(Future(Ar
       return(ArrayList(String).new());
     });
     entries := e.io.await(fs_walker.walk(Path.new(walk_root.clone()), e.io), e);
-    root_prefix_len := walk_root.as_bytes().len();
+    root_prefix_len := walk_root.len();
     collected := ArrayList(String).new();
     (i : usize) = usize(0);
     while(runtime(i < entries.len()), {
@@ -560,7 +560,7 @@ generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> I
     while(f2 < yo_files.len(), {
       file := yo_files(f2);
       src := file_srcs(f2);
-      src_bytes := src.as_bytes();
+      src_bytes := src.to_bytes();
       lines := src.split(`\n`);
       prev := ArrayList(String).new();
       (has_pragma : bool) = false;
@@ -583,7 +583,7 @@ generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> I
         if(prev.len() > usize(8), {
           _removed := prev.remove(usize(0));
         });
-        line_start = (line_start + raw_line.as_bytes().len() + usize(1));
+        line_start = (line_start + raw_line.len() + usize(1));
         li = (li + usize(1));
       });
       if(has_pragma, {
@@ -778,11 +778,11 @@ format_unsafe_report :: (fn(report : UnsafeReport) -> String)({
 /// duplicated because unsafe_report is a leaf CLI module).
 _json_str :: (fn(text : String) -> String)({
   out := String.from("\"");
-  bytes := text.as_bytes();
+  bytes := text;
   n := bytes.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(34)) => out.push_str("\\\""),
       (b == u8(92)) => out.push_str("\\\\"),
@@ -793,10 +793,10 @@ _json_str :: (fn(text : String) -> String)({
       (b == u8(12)) => out.push_str("\\f"),
       (b < u8(32)) => {
         hex := `0123456789abcdef`;
-        hb := hex.as_bytes();
+        hb := hex;
         out.push_str("\\u00");
-        out.push_byte(match(hb.get(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
-        out.push_byte(match(hb.get(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get_byte(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get_byte(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
       },
       true => out.push_byte(b)
     );

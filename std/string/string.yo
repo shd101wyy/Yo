@@ -75,12 +75,21 @@ StringError :: enum(
   /// and at which byte offset.
   InvalidUtf8(cause : utf8.Utf8Error)
 );
+// Takes an owned list and lets it drop: the move that keeps every arm of
+// `String.from_utf8` consuming its `own(bytes)` (E0907).
+_release_bytes :: (fn(own(_b) : ArrayList(u8)) -> unit)(());
 /// Growable UTF-8 encoded string — the same shape as Rust's `String`.
 ///
-/// NOT immutable: `push_str` / `push_string` / `push_byte` / `reserve` / `clear`
-/// take `inout(self)` and mutate in place. Operators such as `+` still return a
-/// new string. For an immutable, atomically reference-counted string that is safe
-/// to share across threads, see `std/imm/string`.
+/// NOT immutable: every mutator (`push_str`, `push_string`, `push_byte`,
+/// `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`,
+/// `remove`, `pop`) takes `inout(self)` and writes in place. `clone()` copies
+/// the bytes (O(n)): the clone is independent of the original. A plain copy
+/// (`t := s`) still shares a non-empty buffer; VALUES_BY_DEFAULT V2b makes it
+/// a move or an error naming `clone()` (plans/STRING_VALUE_SEMANTICS.md §0).
+/// The bytes are copied (`to_bytes`) or moved (`into_bytes`), never lent.
+/// Operators such as `+` return a new string. For an immutable, atomically
+/// reference-counted string that is safe to share across threads, see
+/// `std/imm/string`.
 ///
 /// Empty strings use zero allocation (represented as `Option.None` internally).
 String :: newtype(
@@ -108,7 +117,10 @@ impl(
   /// slice taken at rune boundaries. For bytes of unknown provenance (a file, a
   /// socket, a subprocess) use `from_utf8`, which validates and reports where
   /// the input went wrong.
-  from_bytes : (fn(bytes : ArrayList(u8)) -> Self)(
+  ///
+  /// The list is moved in (`own`): the string takes the buffer over, so the
+  /// caller keeps no handle that could write the string's bytes.
+  from_bytes : (fn(own(bytes) : ArrayList(u8)) -> Self)(
     cond(
       (bytes.len() == usize(0)) => Self(_bytes : .None),
       true => Self(_bytes : .Some(bytes))
@@ -119,11 +131,14 @@ impl(
   /// The checked counterpart to `from_bytes`: `Err(StringError.InvalidUtf8)`
   /// carries a `Utf8Error` naming the defect and the byte offset it starts at.
   /// Validation is a single linear scan through `std/encoding/utf8`.
-  from_utf8 : (fn(bytes : ArrayList(u8)) -> Result(Self, StringError))(
+  from_utf8 : (fn(own(bytes) : ArrayList(u8)) -> Result(Self, StringError))(
     match(
       utf8.validate(bytes),
       .Ok(_) => .Ok(Self.from_bytes(bytes)),
-      .Err(cause) => .Err(.InvalidUtf8(cause))
+      .Err(cause) => {
+        _release_bytes(bytes);
+        .Err(.InvalidUtf8(cause))
+      }
     )
   ),
   /// Create a string from a slice of bytes str
@@ -184,8 +199,8 @@ impl(
   /// speaks: `at`, `substring`, the `s(a..b)` / `s(a..=b)` slice sugar,
   /// `index_of`, `last_index_of`, `contains(from_index)`,
   /// `starts_with(position)`, `ends_with(end_position)` and the `Pattern`
-  /// trait. It agrees with `str.len()`, `StringBuilder.len()`, `Index(usize)`
-  /// (which yields a `u8`) and Rust's `str::len()`.
+  /// trait. It agrees with `str.len()`, `StringBuilder.len()`, `byte_at` /
+  /// `get_byte` (which read a `u8`) and Rust's `str::len()`.
   ///
   /// For "how many runes" use `chars().count()` (O(n)); to walk runes together with
   /// the byte offset each one starts at, use `char_indices()`.
@@ -202,18 +217,53 @@ impl(
       .Some(al) => (al.len() == usize(0))
     )
   ),
-  /// Get a reference to the internal byte array
-  /// Returns an empty ArrayList if the string is empty
-  as_bytes : (fn(self : Self) -> ArrayList(u8))(
+  /// The byte at BYTE index `index`, or `.None` past the end — Rust's
+  /// `s.as_bytes().get(i)`. Reads the string in place; nothing is copied.
+  get_byte : (fn(self : Self, index : usize) -> Option(u8))(
+    match(
+      self._bytes,
+      .Some(b) => b.get(index),
+      .None => Option(u8).None
+    )
+  ),
+  /// The UTF-8 bytes as a new, independent list — O(n), the `to_` of
+  /// `as_`/`to_`/`into_`. Writing the list never changes the string. For
+  /// reading bytes in place use `len()`, `byte_at(i)`, `get_byte(i)` or
+  /// `bytes()`; to take the bytes out of a string you no longer need, use
+  /// `into_bytes()`, which copies nothing when the buffer is unique. The copy
+  /// is placed where the string's buffer lives (`ArrayList.clone`).
+  to_bytes : (fn(self : Self) -> ArrayList(u8))(
+    match(
+      self._bytes,
+      .None => ArrayList(u8).new(),
+      .Some(al) => al.clone()
+    )
+  ),
+  /// Consume the string and return its bytes — Rust's `into_bytes`. When no
+  /// other copy shares the buffer it is moved out with no copy; otherwise
+  /// the result is a copy, so the other copies keep their bytes and nothing
+  /// else can write them (until VALUES_BY_DEFAULT V2b makes the buffer
+  /// unique, a plain `t := s` still shares it).
+  into_bytes : (fn(own(self) : Self) -> ArrayList(u8))(
+    match(
+      self._bytes,
+      .None => ArrayList(u8).new(),
+      .Some(al) => cond(
+        (ref_count(al) > usize(1)) => al.clone(),
+        true => al
+      )
+    )
+  ),
+  /// The shared byte buffer itself, for READ-ONLY use inside `std/string/`
+  /// (private: member visibility keeps it in this directory, so no code
+  /// outside can write a string's bytes through it). Every caller only reads.
+  _byte_list : (fn(self : Self) -> ArrayList(u8))(
     match(
       self._bytes,
       .None => ArrayList(u8).new(),
       .Some(al) => al
     )
   ),
-  // as_bytes : (fn(self: Self) -> ArrayList(u8))({
-  //   return self._bytes;
-  // }),
   /// Get a str view into the string's UTF-8 bytes
   /// PRIVILEGED raw pointer to the heap buffer for C interop and pragma'd
   /// std internals — `ArrayList.ptr()`'s shape: `.None` before the first
@@ -317,6 +367,10 @@ impl(
   push_string : (fn(inout(self) : Self, other : Self) -> unit)({
     (olen : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
     if(olen > usize(0), {
+      // Grow first, then read `other`'s pointer: `other` may share this very
+      // buffer (`s.push_string(s)`), and a pointer taken before the growth
+      // would dangle (issues/fixed/a-string-pushed-onto-itself-reads-its-freed-buffer.md).
+      match(self._bytes, .Some(al) => al.ensure_total_capacity(al.len() + olen), .None => ());
       match(
         other._bytes,
         .Some(ob) => match(
@@ -915,7 +969,7 @@ impl(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
-      .Some(_) => String.from_bytes(unicode_case.to_uppercase_bytes(self.as_bytes()))
+      .Some(_) => String.from_bytes(unicode_case.to_uppercase_bytes(self._byte_list()))
     )
   ),
   /// Lowercase using the full Unicode 15.1 case mapping (all scripts, plus the
@@ -925,7 +979,7 @@ impl(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
-      .Some(_) => String.from_bytes(unicode_case.to_lowercase_bytes(self.as_bytes()))
+      .Some(_) => String.from_bytes(unicode_case.to_lowercase_bytes(self._byte_list()))
     )
   ),
   /// Uppercase ASCII letters A-Z only (byte-wise); all other bytes pass through
@@ -1398,7 +1452,7 @@ impl(
     is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool)({
       (n : usize) = haystack.len();
       (eff : usize) = if(end_position > n, n, end_position);
-      bytes := haystack.as_bytes();
+      bytes := haystack._byte_list();
       pos := usize(0);
       while(pos < eff, {
         d := utf8.decode_lossy(bytes, pos);
@@ -1413,7 +1467,7 @@ impl(
       false
     }),
     index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))({
-      bytes := haystack.as_bytes();
+      bytes := haystack._byte_list();
       n := bytes.len();
       pos := from_index;
       // A mid-rune `from_index` answers .None, not a bogus hit: skip to the
@@ -1439,7 +1493,7 @@ impl(
       )
     ),
     last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))({
-      bytes := haystack.as_bytes();
+      bytes := haystack._byte_list();
       n := bytes.len();
       lim := if(from_index > n, n, from_index);
       pos := usize(0);
@@ -1457,7 +1511,7 @@ impl(
       last
     }),
     length_in : (fn(self : Self, haystack : String, at : usize) -> usize)({
-      bytes := haystack.as_bytes();
+      bytes := haystack._byte_list();
       cond(
         (at < bytes.len()) =>
           match(
@@ -1473,7 +1527,7 @@ impl(
     }),
     split_of : (fn(self : Self, haystack : String) -> ArrayList(String))({
       parts := ArrayList(String).new();
-      bytes := haystack.as_bytes();
+      bytes := haystack._byte_list();
       n := bytes.len();
       seg_start := usize(0);
       pos := usize(0);
@@ -1869,10 +1923,10 @@ impl(
       where(P <: Pattern)
     ) -> Self
   )({
-    self_bytes := self.as_bytes();
+    self_bytes := self._byte_list();
     (n : usize) = self_bytes.len();
     out := ArrayList(u8).new();
-    nv_bytes := new_value.as_bytes();
+    nv_bytes := new_value._byte_list();
     (cut : usize) = usize(0);
     (done : usize) = usize(0);
     pos := usize(0);
@@ -2886,7 +2940,7 @@ _radix_magnitude_res :: (
     },
     true => ()
   );
-  bytes := s.as_bytes();
+  bytes := s._byte_list();
   (n : usize) = bytes.len();
   if(start >= n, {
     return(.Err(ParseIntError.Empty));
@@ -2921,7 +2975,7 @@ _parse_i64_radix_res :: (
     },
     true => ()
   );
-  bytes := s.as_bytes();
+  bytes := s._byte_list();
   (n : usize) = bytes.len();
   if(n == usize(0), {
     return(.Err(ParseIntError.Empty));
@@ -2969,7 +3023,7 @@ _parse_u64_radix_res :: (
     },
     true => ()
   );
-  bytes := s.as_bytes();
+  bytes := s._byte_list();
   (n : usize) = bytes.len();
   if(n == usize(0), {
     return(.Err(ParseIntError.Empty));
@@ -2991,7 +3045,7 @@ impl(
   /// DEPRECATED (D12), kept for one release: use `s.parse(f64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_f64 : (fn(self : Self) -> Option(f64))({
-    (ok : bool) = _f64_grammar_ok(self.as_bytes());
+    (ok : bool) = _f64_grammar_ok(self._byte_list());
     cond(
       ok => {
         // to_cstr() gives a NUL-terminated buffer — exactly what atof reads
@@ -3292,21 +3346,11 @@ impl(
     _parse_u64_radix_res(self, radix)
   )
 );
-/// Index trait implementation — access a single byte by index.
-/// Panics if the string is empty.
-impl(
-  String,
-  Index(usize)(
-    Output : u8,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
-      match(
-        self._bytes,
-        .Some(bytes) => &bytes(idx),
-        .None => __yo_panic("String: index on empty string")
-      )
-    )
-  )
-);
+// No `Index(usize)` impl: `Index.index` returns a writable place, and a
+// write through it (`s(i) = b`) would reach every string sharing the buffer
+// and could break UTF-8 (issues/fixed/a-string-byte-index-is-a-writable-place.md).
+// Read a byte with `byte_at(i)` / `get_byte(i)`. A read-only `s(i)` returns
+// with the Index read/write split (plans/VALUES_BY_DEFAULT.md §3.1).
 /// Default implementation — the empty string.
 impl(
   String,

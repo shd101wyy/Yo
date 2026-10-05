@@ -63,11 +63,11 @@ _render_markdown :: (fn(text : String) -> String)({
 // ── HTML escaping ────────────────────────────────────────────────────
 _escape_html :: (fn(text : String) -> String)({
   out := String.new();
-  bytes := text.as_bytes();
+  bytes := text;
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(38)) => out.push_str("&amp;"),
       (b == u8(60)) => out.push_str("&lt;"),
@@ -83,11 +83,11 @@ _escape_html :: (fn(text : String) -> String)({
 // ── JSON string escaping (JSON.stringify semantics, for the search index) ──
 _json_str :: (fn(text : String) -> String)({
   out := String.from("\"");
-  bytes := text.as_bytes();
+  bytes := text;
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(34)) => out.push_str("\\\""),
       (b == u8(92)) => out.push_str("\\\\"),
@@ -99,10 +99,10 @@ _json_str :: (fn(text : String) -> String)({
       (b < u8(32)) => {
         // \u00XX
         hex := `0123456789abcdef`;
-        hb := hex.as_bytes();
+        hb := hex;
         out.push_str("\\u00");
-        out.push_byte(match(hb.get(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
-        out.push_byte(match(hb.get(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get_byte(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get_byte(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
       },
       true => out.push_byte(b)
     );
@@ -115,11 +115,11 @@ _json_str :: (fn(text : String) -> String)({
 /// "collections/array_list" -> "collections__array_list"
 _module_to_filename :: (fn(name : String) -> String)({
   out := String.new();
-  bytes := name.as_bytes();
+  bytes := name;
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     if(b == u8(47), {
       out.push_str("__");
     }, {
@@ -136,13 +136,13 @@ _module_display_name :: (fn(name : String) -> String)({
 });
 /// Directory/group part, or "" for top-level.
 _module_group :: (fn(name : String) -> String)({
-  bytes := name.as_bytes();
+  bytes := name;
   n := bytes.len();
   (idx : usize) = usize(0);
   (found : bool) = false;
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     if(b == u8(47), {
       idx = i;
       found = true;
@@ -153,7 +153,7 @@ _module_group :: (fn(name : String) -> String)({
     prefix := ArrayList(u8).new();
     (j : usize) = usize(0);
     while(j < idx, {
-      prefix.push(match(bytes.get(j), .Some(x) => x, .None => u8(0)));
+      prefix.push(match(bytes.get_byte(j), .Some(x) => x, .None => u8(0)));
       j = (j + usize(1));
     });
     String.from_bytes(prefix)
@@ -237,23 +237,23 @@ _linkify_type :: (
 )({
   escaped := _escape_html(type_str);
   out := String.new();
-  bytes := escaped.as_bytes();
+  bytes := escaped;
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     // Word-boundary check: previous byte must not be a word byte.
-    prev_word := if(i > usize(0), _is_word_byte(match(bytes.get(i - usize(1)), .Some(x) => x, .None => u8(0))), false);
+    prev_word := if(i > usize(0), _is_word_byte(match(bytes.get_byte(i - usize(1)), .Some(x) => x, .None => u8(0))), false);
     if(_is_upper(b) && !prev_word, {
       // scan the identifier
       (j : usize) = i;
-      while((j < n) && _is_word_byte(match(bytes.get(j), .Some(x) => x, .None => u8(0))), {
+      while((j < n) && _is_word_byte(match(bytes.get_byte(j), .Some(x) => x, .None => u8(0))), {
         j = (j + usize(1));
       });
       word_bytes := ArrayList(u8).new();
       (k : usize) = i;
       while(k < j, {
-        word_bytes.push(match(bytes.get(k), .Some(x) => x, .None => u8(0)));
+        word_bytes.push(match(bytes.get_byte(k), .Some(x) => x, .None => u8(0)));
         k = (k + usize(1));
       });
       word := String.from_bytes(word_bytes);
@@ -267,12 +267,12 @@ _linkify_type :: (
           );
           if(use_anchor, {
             // just the anchor
-            hb := href.as_bytes();
+            hb := href;
             (hpos : usize) = usize(0);
             (hn : usize) = hb.len();
             (hfound : usize) = usize(0);
             while(hpos < hn, {
-              if(match(hb.get(hpos), .Some(x) => x, .None => u8(0)) == u8(35), {
+              if(match(hb.get_byte(hpos), .Some(x) => x, .None => u8(0)) == u8(35), {
                 hfound = hpos;
                 break;
               });
@@ -281,7 +281,7 @@ _linkify_type :: (
             anchor_bytes := ArrayList(u8).new();
             (ai : usize) = hfound;
             while(ai < hn, {
-              anchor_bytes.push(match(hb.get(ai), .Some(x) => x, .None => u8(0)));
+              anchor_bytes.push(match(hb.get_byte(ai), .Some(x) => x, .None => u8(0)));
               ai = (ai + usize(1));
             });
             anchor := String.from_bytes(anchor_bytes);
@@ -334,38 +334,38 @@ _first_sentence :: (fn(text : String) -> String)({
   first_line := match(trimmed.split(String.from("\n")).get(usize(0)), .Some(l) => l, .None => String.new());
   line := first_line.trim();
   // Strip a trailing \r (CRLF line endings).
-  lb := line.as_bytes();
+  lb := line;
   (ln : usize) = lb.len();
-  if((ln > usize(0)) && (match(lb.get(ln - usize(1)), .Some(x) => x, .None => u8(0)) == u8(13)), {
+  if((ln > usize(0)) && (match(lb.get_byte(ln - usize(1)), .Some(x) => x, .None => u8(0)) == u8(13)), {
     nb := ArrayList(u8).new();
     (ci : usize) = usize(0);
     while(ci < (ln - usize(1)), {
-      nb.push(match(lb.get(ci), .Some(x) => x, .None => u8(0)));
+      nb.push(match(lb.get_byte(ci), .Some(x) => x, .None => u8(0)));
       ci = (ci + usize(1));
     });
     line = String.from_bytes(nb).trim();
   });
-  bytes := line.as_bytes();
+  bytes := line;
   n := bytes.len();
   (result : String) = line.clone();
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < n) && !found, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     if((b == u8(46)) || (b == u8(33)) || (b == u8(63)), {
       // skip closers: ` " ' ) ] } >  (’ ” are multibyte; handled as bytes 0xE2..)
       (j : usize) = (i + usize(1));
       (closing : bool) = true;
       while((j < n) && closing, {
-        nb := match(bytes.get(j), .Some(x) => x, .None => u8(0));
+        nb := match(bytes.get_byte(j), .Some(x) => x, .None => u8(0));
         cond(
           ((nb == u8(96)) || (nb == u8(34)) || (nb == u8(39)) || (nb == u8(41)) || (nb == u8(93)) || (nb == u8(125)) || (nb == u8(62))) => {
             j = (j + usize(1));
           },
           // UTF-8 ’ (E2 80 99) or ” (E2 80 9D)
           ((nb == u8(0xE2)) && ((j + usize(2)) < n)) => {
-            b2 := match(bytes.get(j + usize(1)), .Some(x) => x, .None => u8(0));
-            b3 := match(bytes.get(j + usize(2)), .Some(x) => x, .None => u8(0));
+            b2 := match(bytes.get_byte(j + usize(1)), .Some(x) => x, .None => u8(0));
+            b3 := match(bytes.get_byte(j + usize(2)), .Some(x) => x, .None => u8(0));
             if((b2 == u8(0x80)) && ((b3 == u8(0x99)) || (b3 == u8(0x9D))), {
               j = (j + usize(3));
             }, {
@@ -380,14 +380,14 @@ _first_sentence :: (fn(text : String) -> String)({
       // after closers: whitespace or end?
       at_end := (j >= n);
       ws := if(at_end, true, {
-        wb := match(bytes.get(j), .Some(x) => x, .None => u8(0));
+        wb := match(bytes.get_byte(j), .Some(x) => x, .None => u8(0));
         (wb == u8(32)) || (wb == u8(9)) || (wb == u8(10)) || (wb == u8(13))
       });
       if(ws, {
         cut := ArrayList(u8).new();
         (ci2 : usize) = usize(0);
         while(ci2 <= i, {
-          cut.push(match(bytes.get(ci2), .Some(x) => x, .None => u8(0)));
+          cut.push(match(bytes.get_byte(ci2), .Some(x) => x, .None => u8(0)));
           ci2 = (ci2 + usize(1));
         });
         result = String.from_bytes(cut).trim();
@@ -1049,17 +1049,17 @@ _render_trait_impls :: (
         resolved := match(
           current_mod_file,
           .Some(cmf) => if(href.starts_with(`${cmf}.html#`), {
-            hb := href.as_bytes();
+            hb := href;
             (hp : usize) = usize(0);
             while(hp < hb.len(), {
-              if(match(hb.get(hp), .Some(x) => x, .None => u8(0)) == u8(35), {
+              if(match(hb.get_byte(hp), .Some(x) => x, .None => u8(0)) == u8(35), {
                 break;
               });
               hp = (hp + usize(1));
             });
             ab := ArrayList(u8).new();
             while(hp < hb.len(), {
-              ab.push(match(hb.get(hp), .Some(x) => x, .None => u8(0)));
+              ab.push(match(hb.get_byte(hp), .Some(x) => x, .None => u8(0)));
               hp = (hp + usize(1));
             });
             String.from_bytes(ab)
@@ -1335,17 +1335,17 @@ _render_trait :: (
           resolved := match(
             current_mod_file,
             .Some(cmf) => if(href.starts_with(`${cmf}.html#`), {
-              hb := href.as_bytes();
+              hb := href;
               (hp : usize) = usize(0);
               while(hp < hb.len(), {
-                if(match(hb.get(hp), .Some(x) => x, .None => u8(0)) == u8(35), {
+                if(match(hb.get_byte(hp), .Some(x) => x, .None => u8(0)) == u8(35), {
                   break;
                 });
                 hp = (hp + usize(1));
               });
               ab := ArrayList(u8).new();
               while(hp < hb.len(), {
-                ab.push(match(hb.get(hp), .Some(x) => x, .None => u8(0)));
+                ab.push(match(hb.get_byte(hp), .Some(x) => x, .None => u8(0)));
                 hp = (hp + usize(1));
               });
               String.from_bytes(ab)
@@ -1639,8 +1639,8 @@ _find_bytes_from :: (fn(hay : ArrayList(u8), needle : ArrayList(u8), start : usi
   Option(usize).None
 });
 _replace_occurrences :: (fn(text : String, from : String, to : String, first_only : bool) -> String)({
-  hay := text.as_bytes();
-  needle := from.as_bytes();
+  hay := text.to_bytes();
+  needle := from.to_bytes();
   out := ArrayList(u8).new();
   (pos : usize) = usize(0);
   (done : bool) = false;
@@ -1653,10 +1653,10 @@ _replace_occurrences :: (fn(text : String, from : String, to : String, first_onl
           out.push(match(hay.get(k), .Some(x) => x, .None => u8(0)));
           k = (k + usize(1));
         });
-        tb := to.as_bytes();
+        tb := to;
         (tk : usize) = usize(0);
         while(tk < tb.len(), {
-          out.push(match(tb.get(tk), .Some(x) => x, .None => u8(0)));
+          out.push(match(tb.get_byte(tk), .Some(x) => x, .None => u8(0)));
           tk = (tk + usize(1));
         });
         pos = (idx + needle.len());

@@ -61,16 +61,22 @@ get_info_none :: (fn(e : AstExpr) -> Option(ExprInfo))(
 // A detector that never detects anything.
 make_noop_detector :: (fn() -> SuspensionPointDetector)(
   SuspensionPointDetector(
-    detect : dyn((expr, parent_expr, points) => ()),
+    detect : dyn((expr, parent_expr) => ArrayList(SuspensionPoint).new()),
     should_skip_body : dyn(expr => false),
     follow_macro_expansions : false
   )
 );
-// A detector that pushes a SuspensionPoint for every FnCall it is shown.
-make_detect_all_detector :: (fn() -> SuspensionPointDetector)(
+// A detector that returns a SuspensionPoint for every FnCall it is shown.
+// The walker appends what `detect` returns (#1204 changed the callback from
+// pushing into a handed-in list), so the running index lives in a shared
+// counter cell, as `await_analysis`'s detector keeps its own state.
+make_detect_all_detector :: (fn() -> SuspensionPointDetector)({
+  next_index := box(usize(0));
   SuspensionPointDetector(
-    detect : dyn((expr, parent_expr, points) => {
-      idx := points.len();
+    detect : dyn((expr, parent_expr) => {
+      idx := next_index.*;
+      next_index.* = (idx + usize(1));
+      points := ArrayList(SuspensionPoint).new();
       sp := SuspensionPoint(
         index : idx,
         expr : expr.clone(),
@@ -86,11 +92,12 @@ make_detect_all_detector :: (fn() -> SuspensionPointDetector)(
         cond_branch_suspension_in_while : Option(ArrayList(bool)).None
       );
       points.push(sp);
+      points
     }),
     should_skip_body : dyn(expr => false),
     follow_macro_expansions : false
   )
-);
+});
 // ---------------------------------------------------------------------------
 // extract_target_variable_id
 // ---------------------------------------------------------------------------

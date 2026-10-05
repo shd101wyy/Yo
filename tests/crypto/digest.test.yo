@@ -13,7 +13,7 @@
 { crc32 } :: import("std/crypto/crc32");
 
 _b :: (fn(s : str) -> ArrayList(u8))(
-  String.from(s).as_bytes()
+  String.from(s).to_bytes()
 );
 _rep :: (fn(byte : u8, count : usize) -> ArrayList(u8))({
   out := ArrayList(u8).with_capacity(count);
@@ -47,26 +47,26 @@ test("SHA-512 FIPS vectors", {
 });
 test("streaming split updates equal the one-shot digest", {
   whole := `the quick brown fox jumps over the lazy dog, repeatedly, across block boundaries`.to_string();
-  wb := whole.as_bytes();
+  wb := whole;
   half := usize(37);
   first := ArrayList(u8).new();
   second := ArrayList(u8).new();
   (i : usize) = usize(0);
   while(i < wb.len(), i = (i + usize(1)), {
-    b := wb(i);
+    b := wb.byte_at(i);
     cond(
       (i < half) => first.push(b),
       true => second.push(b)
     );
   });
   split1 := Sha1.new().update(first).update(second).finish_hex();
-  assert(split1 == sha1_hex(whole.as_bytes()), "sha1 split == one-shot");
+  assert(split1 == sha1_hex(whole.to_bytes()), "sha1 split == one-shot");
   split512 := Sha512.new().update(first).update(second).finish_hex();
-  assert(split512 == sha512_hex(whole.as_bytes()), "sha512 split == one-shot");
+  assert(split512 == sha512_hex(whole.to_bytes()), "sha512 split == one-shot");
   split256 := Sha256.new().update(first).update(second).finish_hex();
-  assert(split256 == sha256_hex(whole.as_bytes()), "sha256 split == one-shot");
+  assert(split256 == sha256_hex(whole.to_bytes()), "sha256 split == one-shot");
   splitmd5 := Md5.new().update(first).update(second).finish_hex();
-  assert(splitmd5 == md5_hex(whole.as_bytes()), "md5 streaming == one-shot");
+  assert(splitmd5 == md5_hex(whole.to_bytes()), "md5 streaming == one-shot");
 });
 test("Md5 streaming type matches RFC 1321 vectors", {
   assert(Md5.new().update(_b("abc")).finish_hex() == `900150983cd24fb0d6963f7d28e17f72`, "abc");

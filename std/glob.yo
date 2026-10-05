@@ -218,7 +218,7 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi0 : usize, tb : ArrayList(u8), ti0
 /// costs O(|pattern| · |text|) per `**`-free segment; see `_glob_match_impl`
 /// for why only `**` recurses.
 glob_match :: (fn(pattern : String, text : String) -> bool)(
-  _glob_match_impl(pattern.as_bytes(), usize(0), text.as_bytes(), usize(0))
+  _glob_match_impl(pattern.to_bytes(), usize(0), text.to_bytes(), usize(0))
 );
 /// Compiled glob pattern that can be matched against strings.
 GlobPattern :: ref(
@@ -239,7 +239,7 @@ impl(
   /// Whether `text` matches this pattern — identical to `glob_match(p, text)`
   /// and with the same cost, since the pattern is not precompiled.
   matches : (fn(self : Self, text : String) -> bool)(
-    _glob_match_impl(self._pattern.as_bytes(), usize(0), text.as_bytes(), usize(0))
+    _glob_match_impl(self._pattern.to_bytes(), usize(0), text.to_bytes(), usize(0))
   )
 );
 export(glob_match, GlobPattern);

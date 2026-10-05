@@ -144,9 +144,11 @@ impl(
           }
         );
       });
+      at_end := (hit_eof && (line_bytes.len() == usize(0)));
+      line := String.from_bytes(line_bytes);
       cond(
-        (hit_eof && (line_bytes.len() == usize(0))) => Option(String).None,
-        true => Option(String).Some(String.from_bytes(line_bytes))
+        at_end => Option(String).None,
+        true => Option(String).Some(line)
       )
     })
   ),
@@ -254,7 +256,7 @@ impl(
   /// have made "write a string to a buffered writer" a pointer exercise.
   write_string : (fn(self : Self, s : String, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(e => {
-      bytes := s.as_bytes();
+      bytes := s;
       n := bytes.len();
       cond(
         (n > usize(0)) => {

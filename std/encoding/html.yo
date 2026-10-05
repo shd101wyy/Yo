@@ -393,11 +393,11 @@ decode :: (fn(input : String) -> String)({
 /// (plans/archive/STD_API_AUDIT.md D2 + §7 P0).
 encode :: (fn(input : String) -> String)({
   out := String.with_capacity(input.len());
-  bytes := input.as_bytes();
+  bytes := input;
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(38)) => out.push_str("&amp;"),
       (b == u8(60)) => out.push_str("&lt;"),

@@ -102,11 +102,11 @@ test("utf16.to_utf8 BMP character", {
   data := ArrayList(u16).new();
   data.push(u16(0x20AC));
   s := utf16.to_utf8(data).unwrap();
-  bytes := s.as_bytes();
+  bytes := s;
   assert(bytes.len() == usize(3), "euro sign should be 3 UTF-8 bytes");
-  assert(bytes(usize(0)) == u8(0xE2), "byte 0");
-  assert(bytes(usize(1)) == u8(0x82), "byte 1");
-  assert(bytes(usize(2)) == u8(0xAC), "byte 2");
+  assert(bytes.byte_at(usize(0)) == u8(0xE2), "byte 0");
+  assert(bytes.byte_at(usize(1)) == u8(0x82), "byte 1");
+  assert(bytes.byte_at(usize(2)) == u8(0xAC), "byte 2");
 });
 test("utf16.to_utf8 surrogate pair", {
   // U+1F600 as surrogate pair: D83D DE00
@@ -114,12 +114,12 @@ test("utf16.to_utf8 surrogate pair", {
   data.push(u16(0xD83D));
   data.push(u16(0xDE00));
   s := utf16.to_utf8(data).unwrap();
-  bytes := s.as_bytes();
+  bytes := s;
   assert(bytes.len() == usize(4), "U+1F600 should be 4 UTF-8 bytes");
-  assert(bytes(usize(0)) == u8(0xF0), "byte 0");
-  assert(bytes(usize(1)) == u8(0x9F), "byte 1");
-  assert(bytes(usize(2)) == u8(0x98), "byte 2");
-  assert(bytes(usize(3)) == u8(0x80), "byte 3");
+  assert(bytes.byte_at(usize(0)) == u8(0xF0), "byte 0");
+  assert(bytes.byte_at(usize(1)) == u8(0x9F), "byte 1");
+  assert(bytes.byte_at(usize(2)) == u8(0x98), "byte 2");
+  assert(bytes.byte_at(usize(3)) == u8(0x80), "byte 3");
 });
 // ===== Roundtrip =====
 test("utf16 roundtrip ASCII", {
@@ -140,12 +140,12 @@ test("utf16 roundtrip surrogate pair", {
   input := _make_str_4(u8(0xF0), u8(0x9F), u8(0x98), u8(0x80));
   units := utf16.from_utf8(input);
   result := utf16.to_utf8(units).unwrap();
-  bytes := result.as_bytes();
+  bytes := result;
   assert(bytes.len() == usize(4), "roundtrip should preserve length");
-  assert(bytes(usize(0)) == u8(0xF0), "roundtrip byte 0");
-  assert(bytes(usize(1)) == u8(0x9F), "roundtrip byte 1");
-  assert(bytes(usize(2)) == u8(0x98), "roundtrip byte 2");
-  assert(bytes(usize(3)) == u8(0x80), "roundtrip byte 3");
+  assert(bytes.byte_at(usize(0)) == u8(0xF0), "roundtrip byte 0");
+  assert(bytes.byte_at(usize(1)) == u8(0x9F), "roundtrip byte 1");
+  assert(bytes.byte_at(usize(2)) == u8(0x98), "roundtrip byte 2");
+  assert(bytes.byte_at(usize(3)) == u8(0x80), "roundtrip byte 3");
 });
 test("utf16.to_utf8_exn still throws for callers inside an effect scope", {
   exn := Exception(

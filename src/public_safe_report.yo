@@ -109,13 +109,13 @@ _psr_is_ws_byte :: (fn(b : u8) -> bool)(
   (b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13))
 );
 _psr_bytes_at :: (fn(src : ArrayList(u8), i : usize, needle : str) -> bool)({
-  nb := String.from(needle).as_bytes();
+  nb := String.from(needle);
   if((i + nb.len()) > src.len(), {
     return(false);
   });
   (k : usize) = usize(0);
   while(k < nb.len(), {
-    if(src(i + k) != nb(k), {
+    if(src(i + k) != nb.byte_at(k), {
       return(false);
     });
     k = (k + usize(1));
@@ -204,7 +204,7 @@ _bytes_end_with :: (fn(text : ArrayList(u8), end : usize, l : String) -> bool)({
   n := l.len();
   (i : usize) = usize(0);
   while(i < n, {
-    if(text((end - n) + i) != l(i), {
+    if(text((end - n) + i) != l.byte_at(i), {
       return(false);
     });
     i = (i + usize(1));
@@ -571,7 +571,7 @@ _extract_top_level_fn_decls :: (fn(src : ArrayList(u8)) -> ArrayList(_FnDecl))({
 /// Scan one file's declarations for pointer leaks. The declaration's
 /// `params_start` is captured at extraction time.
 _scan_file :: (fn(file : String, src_str : String, inout(findings) : ArrayList(PublicSafeFinding)) -> unit)({
-  src := src_str.as_bytes();
+  src := src_str.to_bytes();
   extern_spans := _find_extern_spans(src);
   decls := _extract_top_level_fn_decls(src);
   (di : usize) = usize(0);
@@ -579,7 +579,7 @@ _scan_file :: (fn(file : String, src_str : String, inout(findings) : ArrayList(P
     decl := decls(di);
     keep := (!decl.name.starts_with(`_`) && !_name_is_raw_pointer_api(decl.name.clone()));
     if(keep && !_position_inside_spans(decl.params_start, extern_spans), {
-      param_bytes := decl.param_text.as_bytes();
+      param_bytes := decl.param_text.to_bytes();
       param_hits := _find_pointer_types(param_bytes);
       (hi : usize) = usize(0);
       while(runtime(hi < param_hits.len()), {
@@ -601,7 +601,7 @@ _scan_file :: (fn(file : String, src_str : String, inout(findings) : ArrayList(P
         hi = (hi + usize(1));
       });
       if(decl.return_text.len() > usize(0), {
-        ret_bytes := decl.return_text.as_bytes();
+        ret_bytes := decl.return_text.to_bytes();
         ret_hits := _find_pointer_types(ret_bytes);
         if(ret_hits.len() > usize(0), {
           // The return text's absolute position is approximated via the
@@ -645,11 +645,11 @@ _psr_method_name :: (fn(body : String) -> Option(String))(
     body.index_of(" : (fn("),
     .Some(k) => {
       name := body.substring(usize(0), k);
-      bytes := name.as_bytes();
+      bytes := name;
       (ok : bool) = (k > usize(0));
       (bi : usize) = usize(0);
       while(runtime(ok && (bi < bytes.len())), {
-        ok = _psr_is_ident_byte(bytes(bi));
+        ok = _psr_is_ident_byte(bytes.byte_at(bi));
         bi = (bi + usize(1));
       });
       if(ok, Option(String).Some(name), Option(String).None)
@@ -749,7 +749,7 @@ _psr_walk_yo_files :: (fn(root : String, io : Io, exn : Exception) -> Impl(Futur
       return(ArrayList(String).new());
     });
     entries := e.io.await(fs_walker.walk(Path.new(walk_root.clone()), e.io), e);
-    root_prefix_len := walk_root.as_bytes().len();
+    root_prefix_len := walk_root.len();
     collected := ArrayList(String).new();
     (i : usize) = usize(0);
     while(runtime(i < entries.len()), {
@@ -793,7 +793,7 @@ generate_public_safe_report :: (fn(root_path : String, io : Io, exn : Exception)
       if(!_should_skip_file(file.clone()), {
         files_scanned = (files_scanned + usize(1));
         src := e.io.await(fs_file.read_to_string(Path.new(file.clone()), e.io), e);
-        decls := _extract_top_level_fn_decls(src.as_bytes());
+        decls := _extract_top_level_fn_decls(src.to_bytes());
         (di : usize) = usize(0);
         while(runtime(di < decls.len()), {
           decl := decls(di);
@@ -881,11 +881,11 @@ format_public_safe_report :: (fn(report : PublicSafeReport) -> String)({
 /// JSON string escaping (same shape as unsafe_report.yo's).
 _psr_json_str :: (fn(text : String) -> String)({
   out := String.from("\"");
-  bytes := text.as_bytes();
+  bytes := text;
   n := bytes.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(34)) => out.push_str("\\\""),
       (b == u8(92)) => out.push_str("\\\\"),
@@ -896,10 +896,10 @@ _psr_json_str :: (fn(text : String) -> String)({
       (b == u8(12)) => out.push_str("\\f"),
       (b < u8(32)) => {
         hex := `0123456789abcdef`;
-        hb := hex.as_bytes();
+        hb := hex;
         out.push_str("\\u00");
-        out.push_byte(match(hb.get(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
-        out.push_byte(match(hb.get(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get_byte(usize(b / u8(16))), .Some(x) => x, .None => u8(48)));
+        out.push_byte(match(hb.get_byte(usize(b % u8(16))), .Some(x) => x, .None => u8(48)));
       },
       true => out.push_byte(b)
     );
