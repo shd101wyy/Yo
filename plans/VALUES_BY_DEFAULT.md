@@ -1893,6 +1893,29 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     `&x`/`&mut x`. It uses an audit flag like §6's, and the count goes in
     this section before the sweep PR is opened. The edit changes no
     behaviour, but its size sets how the review is split.
+    - **Measured 2026-10-05** with `YO_AUDIT_BORROW_MARKERS=1 yo check`
+      (`audit_borrow_marker_site`, `src/evaluator/calls/helper.yo`), on the
+      tree compiler at the Generation A head, counting distinct source
+      positions. A site is a named place (`x`, `s.items`) passed to a
+      `mut`/`inout` parameter (`&mut`), or to a plain parameter whose
+      argument type is not implicitly copyable (`&`); receivers,
+      temporaries, `sink` and compile-time parameters are exempt.
+
+      | Tree | `&` | `&mut` | Total |
+      | --- | ---: | ---: | ---: |
+      | `src/` | 35,054 | 1,623 | 36,677 |
+      | `std/` | 2,438 | 321 | 2,759 |
+      | `tests/` (no `internal/`, `cli-cases/`) | 2,710 | 211 | 2,921 |
+
+      - `src/`'s `&` sites are dominated by the compiler's reference
+        handles: `AstExpr` 8,344, `TypeValue` 6,398, `String` 5,454,
+        `ArrayList` 2,768, `Environment` 2,493, `EvalContext` 1,319.
+        Most of them are `ref(...)` types today, so V4's tree rewrite
+        decides how many stay borrows.
+      - `tests/` is a lower bound: `check` fails 70 of its 636 files, which
+        need the test runner, and a failed file reports nothing.
+      - `check` evaluates a generic body only per instantiation it sees, so
+        a body no call instantiates reports nothing either.
 - **Generation A, as landed** (feat/vbd-v3b-gen-a). What each spelling
   maps to, so Generation B knows what to replace:
   - **Parameters and receivers.** `evaluate_function_parameter` strips
