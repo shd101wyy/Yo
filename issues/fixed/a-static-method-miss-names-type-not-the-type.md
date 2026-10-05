@@ -6,7 +6,7 @@ looked up on, so the user is not told which type lacks the method.
 **Found:** 2026-10-05, while testing decision 32 of `plans/VALUES_BY_DEFAULT.md`
 (`Box.nope(b)` through an unapplied type constructor).
 **Measured:** yo 0.2.52 seed.
-**Fixed:** `#1241`.
+**Fixed:** #1241.
 
 ## Repro
 

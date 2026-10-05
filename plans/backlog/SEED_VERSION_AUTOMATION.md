@@ -126,7 +126,7 @@ through an unapplied generic type constructor, its arguments inferred from
 the receiver. A seed without the feature reports it as E0610, so `src/` and
 `std/` may not use it until `SEED_VERSION` carries it.
 
-**Generation A DONE 2026-10-05** (`#1241`):
+**Generation A DONE 2026-10-05** (#1241):
 - `_infer_unapplied_ctor_receiver` (`src/evaluator/calls/function.yo`)
   infers `G(A, ...)` from the first argument's type.
 - Tests use it (`tests/unapplied_constructor_method.test.yo`); `src/` and
