@@ -1,0 +1,152 @@
+//! `Rc(T)` is the shared, counted cell under its plans/VALUES_BY_DEFAULT.md
+//! name (§6 V1 step 1, Generation A): everything today's `Box(T)` does, `Rc(T)`
+//! does too — construction by `rc(...)`, auto-dereference, patterns through
+//! the payload, `dyn` over the cell, a type built by a comptime function,
+//! `ref_count`, and `Clone`/`Eq`/`Hash`/`Default`. The compiler recognises the
+//! cell by name (`shared_cell_names_at`, src/types/guards.yo), so each case
+//! below that looks through the cell failed before it learned `Rc`.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+Counter :: struct(n : i32, items : ArrayList(i32));
+impl(
+  Counter,
+  bump : (fn(inout(self) : Self, by : i32) -> i32)({
+    self.n = (self.n + by);
+    self.n
+  })
+);
+Key :: struct(k : i32);
+derive(Key, Eq(Key), Clone, Hash);
+List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
+Cell :: enum(Value(v : Rc(i32)), Empty);
+Probe :: trait(
+  value : (fn(self : *Self) -> i32)
+);
+impl(i32, Probe(value : (self -> self.*)));
+Square :: struct(side : i32);
+impl(Square, Probe(value : (self -> (self.side * self.side))));
+probe :: (fn(p : Dyn(Probe)) -> i32)(p.value());
+/// A comptime function that builds the cell type: the instance is minted by a
+/// CTFE call of `Rc` inside it, and must be the same cell `rc(...)` builds.
+CellOf :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(T));
+test("rc(v) builds an Rc(T) whose handles share one cell", {
+  (a : Rc(i32)) = rc(i32(42));
+  b := a;
+  consume(b.* = i32(7));
+  assert(a.* == i32(7), "a write through one handle is seen through the other");
+  c := Rc(i32)(i32(3));
+  assert(c.* == i32(3), "the type constructor builds the same cell");
+});
+test("Rc and Box are two types in Generation A", {
+  comptime_expect_error({
+    (b : Box(i32)) = rc(i32(1));
+  });
+  comptime_expect_error({
+    (r : Rc(i32)) = box(i32(1));
+  });
+});
+test("ref_count reads an Rc's count", {
+  a := rc(i32(5));
+  assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+  {
+    a2 := a;
+    {
+      a3 := a2;
+      assert(ref_count(a) == usize(2), "a copy in an inner scope shares the cell");
+      assert(a3.* == i32(5), "the copy reads the same value");
+    };
+  };
+  assert(ref_count(a) == usize(1), "the copies released their count");
+});
+test("auto-dereference reads, writes and calls through an Rc", {
+  c := rc(Counter(n : i32(1), items : ArrayList(i32).new()));
+  assert(c.n == i32(1), "a payload field reads through the cell");
+  c.n = i32(2);
+  assert(c.*.n == i32(2), "a field write lands in the payload");
+  assert(c.bump(i32(3)) == i32(5), "a payload method is called through the cell");
+  c.items.push(i32(9));
+  assert(c.*.items.len() == usize(1), "a place write through the cell reaches the payload");
+  d := c;
+  d.n = i32(11);
+  assert(c.n == i32(11), "a write through one handle is shared");
+});
+test("nested patterns look through an Rc payload", {
+  f :: (fn(l : List) -> i32)(
+    match(
+      l,
+      .Cons(1, .Cons(n, _)) => n,
+      .Cons(h, _) => h,
+      .Nil => i32(0)
+    )
+  );
+  assert(f(List.Cons(1, rc(List.Cons(2, rc(List.Nil))))) == i32(2), "two levels through the cell");
+  assert(f(List.Cons(3, rc(List.Nil))) == i32(3), "the second arm");
+  assert(f(List.Nil) == i32(0), "the unit variant");
+  h :: (fn(c : Cell) -> i32)(
+    match(
+      c,
+      .Value(42) => i32(1),
+      .Value(_) => i32(2),
+      .Empty => i32(0)
+    )
+  );
+  assert(h(Cell.Value(rc(i32(42)))) == i32(1), "a literal sub-pattern through the cell");
+  assert(h(Cell.Value(rc(i32(7)))) == i32(2), "the fallback arm");
+  n :: (fn(r : Rc(List)) -> i32)(
+    match(
+      r,
+      .Cons(h, _) => h,
+      .Nil => i32(-1)
+    )
+  );
+  assert(n(rc(List.Cons(7, rc(List.Nil)))) == i32(7), "an Rc scrutinee takes payload patterns directly");
+  assert(n(rc(List.Nil)) == i32(-1), "and its unit variant");
+});
+test("a cell type built by a comptime function is the same Rc", {
+  (r : CellOf(List)) = rc(List.Cons(4, rc(List.Nil)));
+  head := match(
+    r,
+    .Cons(h, _) => h,
+    .Nil => i32(0)
+  );
+  assert(head == i32(4), "the CTFE-built Rc(List) is looked through like rc's");
+});
+test("dyn over an Rc dispatches on its payload", {
+  assert(probe(dyn(rc(i32(42)))) == i32(42), "dyn(rc(v))");
+  assert(probe(dyn(Rc(i32)(i32(43)))) == i32(43), "dyn(Rc(T)(v))");
+  (d : Dyn(Probe)) = dyn(rc(Square(side : i32(3))));
+  assert(probe(d) == i32(9), "a struct payload");
+  match(
+    downcast(d, Square),
+    .Some(s) => assert(s.side == i32(3), "the downcast reads the payload"),
+    .None => assert(false, "a dyn over rc(Square) downcasts to Square")
+  );
+});
+test("Rc implements Clone, Eq, Hash and Default by payload", {
+  a := rc(Key(k : i32(1)));
+  b := a.clone();
+  assert(a == b, "a clone is equal");
+  b.k = i32(2);
+  assert(a.k == i32(1), "the clone is a new cell");
+  assert(!(a == b), "and compares by payload");
+  m := HashMap(Rc(Key), i32).new();
+  m.insert(rc(Key(k : i32(3))), i32(30));
+  assert(m.get(rc(Key(k : i32(3)))).unwrap_or(i32(0)) == i32(30), "an equal cell hashes to the same entry");
+  (z : Rc(i32)) = (Rc(i32) <: Default).default();
+  assert(z.* == i32(0), "the default cell holds the payload's default");
+});
+test("dyn over an rc-wrapped closure types the closure from the Dyn", {
+  use_cb :: (fn(v : i32, cb : Dyn(Fn(u : i32) -> i32)) -> i32)({
+    return(cb(v));
+  });
+  a := 2;
+  x := use_cb(10, dyn(rc(u => (u + 1 + a))));
+  assert(x == 13, "a capturing closure in an rc cell");
+  y := use_cb(20, dyn(rc(u => (u * 2))));
+  assert(y == 40, "a non-capturing closure in an rc cell");
+  b := rc(i32(5));
+  z := use_cb(10, dyn(rc(u => (u + 1 + b.*))));
+  assert(z == 16, "a closure capturing an Rc, in an rc cell");
+});
