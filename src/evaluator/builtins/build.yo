@@ -910,11 +910,11 @@ _build_extract_variant :: (
 _build_split_ws :: (fn(s : String) -> ArrayList(String))({
   out := ArrayList(String).new();
   cur := String.new();
-  bytes := s.as_bytes();
+  bytes := s;
   (i : usize) = usize(0);
   n := bytes.len();
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       ((b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13))) => {
         if(cur.len() > usize(0), {

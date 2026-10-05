@@ -222,18 +222,18 @@ impl(
 /// zero? The RFC is explicit that `"01"` is not an index, so it must not
 /// silently resolve to element 1.
 _is_rfc6901_index :: (fn(token : String) -> bool)({
-  b := token.as_bytes();
+  b := token;
   if(b.len() == usize(0), {
     return(false);
   });
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
-    c := b(i);
+    c := b.byte_at(i);
     if((c < u8(48)) || (c > u8(57)), {
       return(false);
     });
   });
-  (b.len() == usize(1)) || (b(usize(0)) != u8(48))
+  (b.len() == usize(1)) || (b.byte_at(usize(0)) != u8(48))
 });
 /// Variant predicates and the numeric / mutating batteries
 /// (`serde_json::Value`'s `is_*`, `as_i64`/`as_u64`, `Map::insert`/`remove`,
@@ -1145,7 +1145,7 @@ parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
 /// takes the STATIC `str` view; runtime input — an HTTP body, an LSP frame —
 /// arrives as `String`.)
 parse_string :: (fn(s : String) -> Result(JsonValue, JsonError))(
-  parse_bytes(s.as_bytes())
+  parse_bytes(s.to_bytes())
 );
 /// `parse_bytes` as an effect, for callers already inside an effect
 /// scope. Same for the two below.
@@ -1173,10 +1173,10 @@ export(
 // ============================================================================
 _write_str_escaped :: (fn(s : String, inout(out) : ArrayList(u8)) -> unit)({
   out.push(u8(34)); // '"'
-  bytes := s.as_bytes();
+  bytes := s;
   i := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
-    b := bytes(i);
+    b := bytes.byte_at(i);
     cond(
       (b == u8(34)) => {
         out.push(u8(92));
@@ -1255,10 +1255,10 @@ _stringify_into :: (fn(value : JsonValue, inout(out) : ArrayList(u8)) -> unit)({
       // which is not valid JSON round-tripping of an integer, and would lose
       // exactness above 2^53 — the two things this variant exists to prevent.
       s3 := i.to_string();
-      ib := s3.as_bytes();
+      ib := s3;
       bi := usize(0);
       while(bi < ib.len(), bi = (bi + usize(1)), {
-        out.push(ib(bi));
+        out.push(ib.byte_at(bi));
       });
     },
     .Number(n) => {
@@ -1266,10 +1266,10 @@ _stringify_into :: (fn(value : JsonValue, inout(out) : ArrayList(u8)) -> unit)({
       buf_ptr := &(buf(usize(0)));
       unsafe(snprintf((*char)(buf_ptr), usize(32), "%g", n));
       s2 := String.from_cstr(buf_ptr).unwrap();
-      bytes := s2.as_bytes();
+      bytes := s2;
       i := usize(0);
       while(i < bytes.len(), i = (i + usize(1)), {
-        out.push(bytes(i));
+        out.push(bytes.byte_at(i));
       });
     },
     .Str(s) => {

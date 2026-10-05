@@ -89,19 +89,19 @@ _hex_val :: (fn(b : u8) -> Option(u8))(
 );
 /// Percent-encode `input` for use as a URI component.
 encode :: (fn(input : String) -> String)({
-  bytes := input.as_bytes();
+  bytes := input;
   n := bytes.len();
   out := String.with_capacity(n);
-  hex := _HEX_UPPER.to_string().as_bytes();
+  hex := _HEX_UPPER.to_string();
   (i : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       _is_unreserved(b) => out.push_byte(b),
       true => {
         out.push_byte(u8(37));
-        out.push_byte(match(hex.get(usize(b >> u8(4))), .Some(h) => h, .None => u8(48)));
-        out.push_byte(match(hex.get(usize(b & u8(15))), .Some(h) => h, .None => u8(48)));
+        out.push_byte(match(hex.get_byte(usize(b >> u8(4))), .Some(h) => h, .None => u8(48)));
+        out.push_byte(match(hex.get_byte(usize(b & u8(15))), .Some(h) => h, .None => u8(48)));
       }
     );
   });
@@ -111,19 +111,19 @@ encode :: (fn(input : String) -> String)({
 /// byte passes through (including `+`, which stays `+` — RFC 3986, not the
 /// form dialect).
 decode_bytes :: (fn(input : String) -> Result(ArrayList(u8), PercentError))({
-  bytes := input.as_bytes();
+  bytes := input;
   n := bytes.len();
   out := ArrayList(u8).with_capacity(n);
   (i : usize) = usize(0);
   while(i < n, {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(37)) => {
         if((i + usize(2)) >= n, {
           return(Result(ArrayList(u8), PercentError).Err(PercentError.TruncatedEscape(i)));
         });
-        hi_b := match(bytes.get(i + usize(1)), .Some(x) => x, .None => u8(0));
-        lo_b := match(bytes.get(i + usize(2)), .Some(x) => x, .None => u8(0));
+        hi_b := match(bytes.get_byte(i + usize(1)), .Some(x) => x, .None => u8(0));
+        lo_b := match(bytes.get_byte(i + usize(2)), .Some(x) => x, .None => u8(0));
         hi := match(
           _hex_val(hi_b),
           .Some(v) => v,

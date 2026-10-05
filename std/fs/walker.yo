@@ -318,13 +318,13 @@ walk_cstr :: (fn(root : *u8, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn
 /// is everything up to the last `/` BEFORE the first metacharacter
 /// (`*`, `?`, `[`), or `.` when the pattern is relative with no static dir.
 _glob_split :: (fn(pattern : String) -> struct(base : String, rest : String))({
-  bs := pattern.as_bytes();
+  bs := pattern;
   n := bs.len();
   // First metacharacter position (n = none).
   (meta : usize) = n;
   (i : usize) = usize(0);
   while((i < n) && (meta == n), {
-    b := match(bs.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bs.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       ((b == u8(42)) || (b == u8(63)) || (b == u8(91))) => {
         meta = i;
@@ -337,7 +337,7 @@ _glob_split :: (fn(pattern : String) -> struct(base : String, rest : String))({
   (cut : Option(usize)) = Option(usize).None;
   (j : usize) = usize(0);
   while(j < meta, {
-    b := match(bs.get(j), .Some(x) => x, .None => u8(0));
+    b := match(bs.get_byte(j), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(47)) => {
         cut = Option(usize).Some(j);

@@ -203,7 +203,7 @@ create_user(name: `Bob`, age: 30);
 ```
 
 - Named arguments must keep the same order as the definition
-- Default values use `?=` and must be compile-time known
+- Default values use `?=` and must be compile-time known. A default that needs runtime work is written `(p : Option(T)) ?= .None` with a `match` on `p` in the body; callers pass `.Some(x)` explicitly (a `T` is not wrapped into `Option(T)`). See DESIGN §Default parameter values.
 
 ### Effect parameters (explicit)
 
@@ -461,13 +461,14 @@ while(comptime((i < 10)), {
 });
 
 // for loop — 2-arg prelude macro iterating BY VALUE (implicit
-// .into_iter()). Reference-semantics elements are handles: mutating
-// them in the body mutates the element in place.
+// .into_iter()). ref(struct(...)) elements are handles: mutating
+// them in the body mutates the element in place. A value element
+// (String, struct, ...) is borrowed: writing its RC data is E0908.
 for(list, (x) => {
   process(x);
 });
-for(names, (s) => {
-  s.push_str("!");            // String element mutated in place
+for(names, inout(s) => {
+  s.push_str("!");            // borrowed form: String element written in place
 });
 
 // In-place struct/scalar element mutation: index loop + index writes.
@@ -1022,33 +1023,40 @@ process_map(counts);
 // counts now has "key" => 42
 ```
 
-### `String` out-parameters silently discard writes
+### `String` out-parameters take `inout`
 
-`String` is a **value** type whose byte buffer is lazily allocated (`_bytes : .None` until the first push). A `String` parameter is therefore a COPY: pushing into it allocates the buffer *in the copy*, and the caller sees nothing — no error, no warning, just an empty string. This is the opposite of `ArrayList`/`HashMap`/`HashSet` (RC `ref` types), where mutations DO propagate, which makes it an easy trap when a function needs to return two strings.
+`clone()` is a `String`'s independent copy (`plans/STRING_VALUE_SEMANTICS.md` §0): it copies the bytes, empty or not. A plain copy still shares a non-empty buffer until VALUES_BY_DEFAULT V2b, so write only through a clone. A by-value `String` parameter BORROWS the caller's value, so writing it (`push_str`, passing it to an `inout` parameter) is **E0908**. Before String S1 this compiled and the write was silently lost when the string was empty — an emitter buffer once vanished from the chunked-C output that way, with only a far-downstream `unknown type name` as the symptom. This is the opposite of `ArrayList`/`HashMap`/`HashSet` (RC `ref` types, until `plans/VALUES_BY_DEFAULT.md` V2), where mutations through a by-value parameter DO propagate.
 
 ```rust
-// WRONG — caller's `hdr`/`body` stay EMPTY, silently:
+// E0908 — a by-value parameter borrows the caller's string:
 split :: (fn(text : String, hdr_out : String, body_out : String) -> unit)({
-  hdr_out.push_str("...");   // mutates a copy
-  body_out.push_str("...");  // mutates a copy
+  hdr_out.push_str("...");   // error[E0908]
+});
+
+// CORRECT — `inout` parameters write the caller's variables:
+split :: (fn(text : String, inout(hdr_out) : String, inout(body_out) : String) -> unit)({
+  hdr_out.push_str("...");
+  body_out.push_str("...");
 });
 hdr := String.new();
 body := String.new();
-split(src, hdr, body);       // hdr and body are still empty
+split(src, hdr, body);       // hdr and body are filled
 
-// CORRECT — return a `ref` struct:
-Split :: ref(struct(head_part : String, body_part : String));
+// ALSO CORRECT — return the strings:
+Split :: struct(head_part : String, body_part : String);
 split :: (fn(text : String) -> Split)({
   Split(head_part : h, body_part : b)
 });
 
-// ALSO CORRECT — collect into an RC container (mutations propagate):
-collect :: (fn(text : String, out : ArrayList(String)) -> unit)({
-  out.push(String.from("..."));
+// ALSO CORRECT — work on a local clone and return it:
+shout :: (fn(s : String) -> String)({
+  t := s.clone();            // O(n): its own copy of the bytes
+  t.push_str("!");
+  t
 });
 ```
 
-This cost a full debug cycle in the chunked-C-emission work: an entire emitter buffer was dropped from the output, and the only symptom was a far-downstream C error (`unknown type name`) in the generated code. If a function must fill several strings, return a `ref` struct — and remember that a `String` fetched back out of an `ArrayList(String)` is likewise a value copy, so mutating it does not update the stored element.
+A `String` read out of an `ArrayList(String)` (`x := xs(i)`, a `for` value binding) is a copy too; write the element itself with `xs(i).push_str(...)` or `for(xs, inout(s) => ...)`.
 
 ### Definition order: `::` definitions and `impl` registrations are order-independent (in `std/` and `src/` too, since the seed bump after v0.2.24)
 
@@ -1601,7 +1609,7 @@ with a separator variable.
 
 ### Pushing RC struct fields into ArrayList does not need `.clone()`
 
-String (and other RC reference-semantics) fields of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
+String fields (and fields of other RC-holding types) of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
 
 ```rust
 names.push(param.name);
@@ -1611,7 +1619,7 @@ names.push(param.name);
 `h.name.clone()` — verified 2026-06); the historical
 `fn(self: String)` vs `fn(self: *(String))` ambiguity error no longer
 reproduces. `x.clone()` is the idiomatic replacement for the retired
-`String.from(x.as_str())` roundtrip.
+`String.from(x.as_str())` roundtrip; on a `String` it copies the bytes (O(n)).
 
 ### `.Some(expr)` needs an expected type
 
@@ -1828,7 +1836,7 @@ total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
 the `s(a..b)` / `s(a..=b)` sugar, `index_of`, `last_index_of`,
 `contains(from_index)`, `starts_with(position)`, `ends_with(end_position)` and
 the whole `Pattern` trait all speak BYTE offsets — the same unit as
-`byte_at` / `as_bytes` / `Index(usize)` / `str.len()` / `StringBuilder.len()`.
+`byte_at` / `get_byte` / `to_bytes` / `str.len()` / `StringBuilder.len()`.
 `String.from("a→b").len()` is `5`, not `3`. **This is the reverse of what it
 used to be**: before that flip they were rune-based, and mixing the two bases
 was the standing hazard. Rune work goes through `chars()` / `char_indices()`
@@ -1837,9 +1845,18 @@ composed with iterator methods (see the vocabulary below).
 **Comptime strings share the byte basis** (D4 PR 7, 2026-08-26): comptime
 `s.len()`, `s.slice(a, b)`, `s(i)` and `s(a..b)` all speak byte offsets too.
 Comptime `s(i)` yields the RUNE starting at byte `i` as a 1-rune `comptime_str`
-(mirroring runtime `at(i)`; runtime `s(i)` yields the `u8` — that result-type
-split is deliberate), and a mid-rune offset is a compile error where the
-runtime `substring` would panic.
+(mirroring runtime `at(i)`; at runtime the `u8` comes from `byte_at(i)` — that
+result-type split is deliberate), and a mid-rune offset is a compile error where
+the runtime `substring` would panic.
+
+**A runtime `String` has no `s(i)`** (String S3): it does not implement
+`Index(usize)`, so `s(usize(0))` is E0606 ("s is not callable") — a writable
+byte place would reach every string sharing the buffer and could break UTF-8. Read bytes with
+`byte_at(i)` (panics past the end) or `get_byte(i) -> Option(u8)`. `as_bytes`
+is gone: `to_bytes()` returns an independent `ArrayList(u8)`, `into_bytes()`
+(`own(self)`) moves the buffer out with no copy when unique, and
+`String.from_bytes(own(bytes))` / `from_utf8(own(bytes))` take the list over.
+The `s(a..b)` range sugar still works (it builds a new string).
 
 ```
 // ✅ byte loop, byte bound — the bases now agree

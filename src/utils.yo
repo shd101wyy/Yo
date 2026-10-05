@@ -168,10 +168,10 @@ surrogate_escape_error_message :: (fn() -> String)(
 /// The shared content-hash behind the stable id/name schemes.
 fnv1a64 :: (fn(s : String) -> u64)({
   (state : u64) = u64(14695981039346656037);
-  bytes := s.as_bytes();
+  bytes := s;
   (i : usize) = usize(0);
   while(i < bytes.len(), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     // FNV-1a's multiply wraps BY DESIGN (the hash identity depends on the
     // modular arithmetic; -fwrapv used to make that silent — Phase 3a-ii
     // migrated std/hash's copy but missed this inlined one).
@@ -206,10 +206,10 @@ _stable_id_module_stem :: (fn(module_path : String) -> String)({
         out.push_str("__");
       });
       seg := match(segments.get(si), .Some(s) => s, .None => String.new());
-      bytes := seg.as_bytes();
+      bytes := seg;
       (bi : usize) = usize(0);
       while(bi < bytes.len(), {
-        b := match(bytes.get(bi), .Some(x) => x, .None => u8(0));
+        b := match(bytes.get_byte(bi), .Some(x) => x, .None => u8(0));
         cond(
           (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) => {
             out.push_byte(b);
@@ -566,13 +566,13 @@ export(
 /// this stays as the explicit byte-level spelling. Only strips when both ends
 /// are `"`; anything else passes through unchanged.
 str_lit_unquote_bytes :: (fn(raw : String) -> String)({
-  n := raw.as_bytes().len();
+  n := raw.len();
   if((n >= usize(2)) && (raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34)), {
-    bytes := raw.as_bytes();
+    bytes := raw;
     inner := ArrayList(u8).new();
     (i : usize) = usize(1);
     while(i < (n - usize(1)), {
-      inner.push(match(bytes.get(i), .Some(b) => b, .None => u8(0)));
+      inner.push(match(bytes.get_byte(i), .Some(b) => b, .None => u8(0)));
       i = (i + usize(1));
     });
     String.from_bytes(inner)
@@ -763,12 +763,12 @@ profile_reset :: (fn() -> unit)({
 /// modules' temps from colliding.
 generate_temp_variable_name_prefix :: (fn(module_path : String) -> String)({
   result := String.new();
-  bytes := module_path.as_bytes();
+  bytes := module_path;
   n := bytes.len();
   i := usize(0);
   taken := usize(0);
   while((i < n) && (taken < usize(12)), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     is_alnum := (
       ((b >= u8(97)) && (b <= u8(122))) || // 'a'-'z'
       ((b >= u8(65)) && (b <= u8(90))) || // 'A'-'Z'
@@ -864,11 +864,11 @@ _is_temp_prefix_byte :: (fn(b : u8) -> bool)(
 /// std path while their tokens carry the `file://` spelling
 /// (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
 is_any_temp_variable_name :: (fn(var_name : String) -> bool)({
-  bytes := var_name.as_bytes();
+  bytes := var_name;
   n := bytes.len();
   // `_` + `_temp_` + one digit is the shortest possible spelling (an empty
   // module path yields the prefix `__temp_`).
-  if((n < usize(8)) || (match(bytes.get(usize(0)), .Some(b) => b, .None => u8(0)) != u8(95)), {
+  if((n < usize(8)) || (match(bytes.get_byte(usize(0)), .Some(b) => b, .None => u8(0)) != u8(95)), {
     return(false);
   });
   marker := String.from("_temp_");
@@ -882,7 +882,7 @@ is_any_temp_variable_name :: (fn(var_name : String) -> bool)({
       (prefix_ok : bool) = true;
       (i : usize) = usize(1);
       while(i < start, {
-        if(!_is_temp_prefix_byte(match(bytes.get(i), .Some(b) => b, .None => u8(0))), {
+        if(!_is_temp_prefix_byte(match(bytes.get_byte(i), .Some(b) => b, .None => u8(0))), {
           prefix_ok = false;
         });
         i = (i + usize(1));
@@ -891,7 +891,7 @@ is_any_temp_variable_name :: (fn(var_name : String) -> bool)({
         (digits_ok : bool) = true;
         (j : usize) = (start + usize(6));
         while(j < n, {
-          d := match(bytes.get(j), .Some(b) => b, .None => u8(0));
+          d := match(bytes.get_byte(j), .Some(b) => b, .None => u8(0));
           if((d < u8(48)) || (d > u8(57)), {
             digits_ok = false;
           });
@@ -1003,13 +1003,13 @@ _TS_TEXT :: u8(2);
 /// Past-the-end index of the `"..."` / `'...'` literal whose opening quote is
 /// at `at`: a backslash escapes the next byte, and a newline ends the scan
 /// (an unterminated literal is the lexer's diagnostic, not this scanner's).
-_skip_quoted_literal :: (fn(bytes : ArrayList(u8), at : usize) -> usize)({
+_skip_quoted_literal :: (fn(bytes : String, at : usize) -> usize)({
   n := bytes.len();
-  qb := bytes(at);
+  qb := bytes.byte_at(at);
   (i : usize) = (at + usize(1));
   (end : usize) = n;
   while(i < n, {
-    b := bytes(i);
+    b := bytes.byte_at(i);
     cond(
       (b == u8(0x5C)) => {
         i = (i + usize(2));
@@ -1038,15 +1038,15 @@ _skip_quoted_literal :: (fn(bytes : ArrayList(u8), at : usize) -> usize)({
 /// issues/fixed/template-interpolation-body-is-not-scanned-as-code.md.
 /// Byte-level on purpose: every delimiter is ASCII, and no byte of a UTF-8
 /// multi-byte sequence is.
-interpolation_body_end :: (fn(bytes : ArrayList(u8), start : usize) -> usize)({
+interpolation_body_end :: (fn(bytes : String, start : usize) -> usize)({
   n := bytes.len();
   modes := ArrayList(u8).new();
   modes.push(_TS_CODE);
   (i : usize) = start;
   (result : usize) = n;
   while(i < n, {
-    b := bytes(i);
-    nb := cond(((i + usize(1)) < n) => bytes(i + usize(1)), true => u8(0));
+    b := bytes.byte_at(i);
+    nb := cond(((i + usize(1)) < n) => bytes.byte_at(i + usize(1)), true => u8(0));
     top := modes(modes.len() - usize(1));
     cond(
       (top == _TS_TEXT) => cond(
@@ -1076,7 +1076,7 @@ interpolation_body_end :: (fn(bytes : ArrayList(u8), start : usize) -> usize)({
       // (issues/fixed/a-brace-or-quote-inside-a-comment-inside-an-interpolation-miscuts-the-body.md).
       ((b == u8(0x2F)) && (nb == u8(0x2F))) => {
         (j : usize) = i;
-        while((j < n) && (bytes(j) != u8(0x0A)), {
+        while((j < n) && (bytes.byte_at(j) != u8(0x0A)), {
           j = (j + usize(1));
         });
         i = j;
@@ -1086,11 +1086,11 @@ interpolation_body_end :: (fn(bytes : ArrayList(u8), start : usize) -> usize)({
         (depth : usize) = usize(1);
         (j : usize) = (i + usize(2));
         while((j < n) && (depth > usize(0)), {
-          if((bytes(j) == u8(0x2F)) && ((j + usize(1)) < n) && (bytes(j + usize(1)) == u8(0x2A)), {
+          if((bytes.byte_at(j) == u8(0x2F)) && ((j + usize(1)) < n) && (bytes.byte_at(j + usize(1)) == u8(0x2A)), {
             depth = (depth + usize(1));
             j = (j + usize(2));
           }, {
-            if((bytes(j) == u8(0x2A)) && ((j + usize(1)) < n) && (bytes(j + usize(1)) == u8(0x2F)), {
+            if((bytes.byte_at(j) == u8(0x2A)) && ((j + usize(1)) < n) && (bytes.byte_at(j + usize(1)) == u8(0x2F)), {
               depth = (depth - usize(1));
               j = (j + usize(2));
             }, {
@@ -1152,7 +1152,7 @@ _digit_value :: (fn(b : u8, base : i64) -> Option(i64))(
 );
 // Parse `bytes[start..]` as a non-negative integer in the given base.
 // Returns None if the slice is empty or contains an invalid digit.
-_parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> Option(i64))({
+_parse_prefixed_int :: (fn(bytes : String, start : usize, base : i64) -> Option(i64))({
   n := bytes.len();
   cond(
     (start >= n) => .None,
@@ -1162,7 +1162,7 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
       (ok : bool) = true;
       while((i < n) && ok, {
         match(
-          bytes.get(i),
+          bytes.get_byte(i),
           .Some(b) =>
             match(
               _digit_value(b, base),
@@ -1215,11 +1215,11 @@ parse_raw_int :: (fn(raw : String) -> Option(i64))({
   stripped := raw.replace_all(`_`, ``);
   cond(
     (stripped.starts_with(`0x`) || stripped.starts_with(`0X`)) =>
-      _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(16)),
+      _parse_prefixed_int(stripped, usize(2), i64(16)),
     (stripped.starts_with(`0b`) || stripped.starts_with(`0B`)) =>
-      _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(2)),
+      _parse_prefixed_int(stripped, usize(2), i64(2)),
     (stripped.starts_with(`0o`) || stripped.starts_with(`0O`)) =>
-      _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(8)),
+      _parse_prefixed_int(stripped, usize(2), i64(8)),
     // A signed literal is in i64's own range by construction.
     stripped.starts_with(`-`) => stripped.parse_i64(),
     // Unsigned magnitude, reinterpreted as the i64 bit pattern.

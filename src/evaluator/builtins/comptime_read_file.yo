@@ -120,7 +120,7 @@ evaluate_comptime_read_file :: (
     .Some(v) => match(
       v,
       .StrLit(raw) => {
-        n := raw.as_bytes().len();
+        n := raw.len();
         if((n >= usize(2)) && raw.starts_with("\"") && raw.ends_with("\""), raw.substring(usize(1), n - usize(1)), raw.clone())
       },
       _ => {
@@ -180,6 +180,11 @@ evaluate_comptime_read_file :: (
       );
     });
     data_bytes := read_file_sync(resolved.clone(), exn);
+    // Hash before the bytes are moved into the String (`from_bytes(own)`).
+    data_hash := cond(
+      input_hashing_enabled() => sha256_hex(data_bytes),
+      true => String.new()
+    );
     content = String.from_bytes(data_bytes);
     // The read is an INPUT EDGE (§4.9): `--emit-deps` lists this path, so the
     // build runner's stamp invalidates the artifact when the data file changes.
@@ -187,13 +192,7 @@ evaluate_comptime_read_file :: (
     // placeholder arguments and would poison the list. The hash is of the bytes
     // just read, so a mid-compile edit cannot be absorbed
     // (issues/yo-build-artifact-cache-serves-a-stale-binary.md).
-    record_input_file(
-      resolved.clone(),
-      cond(
-        input_hashing_enabled() => sha256_hex(data_bytes),
-        true => String.new()
-      )
-    );
+    record_input_file(resolved.clone(), data_hash);
   });
   info := new_expr_info(env, t_comptime_string());
   info.value = if(

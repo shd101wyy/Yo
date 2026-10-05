@@ -2606,10 +2606,10 @@ _print_cc_argv :: (fn(program : String, argv : ArrayList(String)) -> unit)(
 /// generated compile script must never let them reach the shell unquoted.
 _sh_quote :: (fn(s : String) -> String)({
   out := String.from("'");
-  b := s.as_bytes();
+  b := s;
   (i : usize) = usize(0);
   while(i < b.len(), {
-    ch := match(b.get(i), .Some(x) => x, .None => u8(0));
+    ch := match(b.get_byte(i), .Some(x) => x, .None => u8(0));
     if(ch == u8(39), {
       out.push_str("'\\''");
     }, {
@@ -2683,10 +2683,10 @@ _compile_chunks_parallel :: (
     objs.push(obj.clone());
     text_hash := match(chunk_text_hashes.get(i), .Some(h) => h, .None => String.new());
     stamp_src := ArrayList(u8).new();
-    sb := `${text_hash}\n${flags_key}\n${CURRENT_YO_VERSION}`.as_bytes();
+    sb := `${text_hash}\n${flags_key}\n${CURRENT_YO_VERSION}`;
     (si : usize) = usize(0);
     while(si < sb.len(), {
-      stamp_src.push(match(sb.get(si), .Some(x) => x, .None => u8(0)));
+      stamp_src.push(match(sb.get_byte(si), .Some(x) => x, .None => u8(0)));
       si = (si + usize(1));
     });
     stamp := sha256_hex(stamp_src);
@@ -2794,12 +2794,12 @@ _fmt_profile_ms :: (fn(ns : i64) -> String)({
 /// Minimal JSON string escaping: backslash, double quote, and control bytes
 /// as \u00XX. Module paths are the only strings that flow through here.
 _json_escape :: (fn(s : String) -> String)({
-  bytes := s.as_bytes();
+  bytes := s;
   out := ArrayList(u8).new();
   hexdigits := String.from("0123456789abcdef");
   (i : usize) = usize(0);
   while(i < bytes.len(), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(92)) => {
         out.push(u8(92));
@@ -4576,9 +4576,9 @@ run_compile :: (
     (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
     // `--emit-c` (a debug path) reads the spill whole to print it; the file
     // write below copies it in pieces.
-    (c_spilled : ArrayList(u8)) = ArrayList(u8).new();
+    (c_spilled : String) = String.new();
     if(emit_c && c_spill_exists, {
-      c_spilled = io.await(read(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn));
+      c_spilled = String.from_bytes(io.await(read(Path.new(code_spill_path.clone()), io), IoExn(io : io, exn : exn)));
     });
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
@@ -4600,7 +4600,7 @@ run_compile :: (
       (pi0 : usize) = usize(0);
       while(pi0 < c_parts.len(), {
         if((pi0 == usize(4)) && (c_spilled.len() > usize(0)), {
-          print(String.from_bytes(c_spilled));
+          print(c_spilled);
         });
         match(c_parts.get(pi0), .Some(part) => print(part), .None => ());
         pi0 = (pi0 + usize(1));
@@ -4647,7 +4647,7 @@ run_compile :: (
           cbody.push_string(match(chunk_parts.get(pi2), .Some(x) => x, .None => String.new()));
           io.await(write_string(Path.new(cf.clone()), cbody.clone(), io), IoExn(io : io, exn : exn));
           chunk_c_files.push(cf);
-          chunk_text_hashes.push(sha256_hex(cbody.as_bytes()));
+          chunk_text_hashes.push(sha256_hex(cbody.to_bytes()));
           unit_bytes := (cbody.len() + match(chunk_parts.get(usize(0)), .Some(h) => h.len(), .None => usize(0)));
           if(unit_bytes > chunk_max_bytes, {
             chunk_max_bytes = unit_bytes;

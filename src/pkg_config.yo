@@ -30,7 +30,7 @@ _is_ws_byte :: (fn(byte : u8) -> bool)(
 /// Split a string on ASCII whitespace boundaries, filtering empty tokens.
 _split_whitespace :: (fn(s : String) -> ArrayList(String))({
   result := ArrayList(String).new();
-  bytes := s.as_bytes();
+  bytes := s;
   n := bytes.len();
   k := usize(0);
   start := usize(0);
@@ -38,7 +38,7 @@ _split_whitespace :: (fn(s : String) -> ArrayList(String))({
   while(k < n, {
     b := u8(0);
     match(
-      bytes.get(k),
+      bytes.get_byte(k),
       .None => (),
       .Some(p) => {
         b = p;

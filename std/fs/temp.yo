@@ -82,7 +82,7 @@ impl(
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
       // Allocate a mutable C string for mkdtemp
-      template_bytes := template_str.as_bytes();
+      template_bytes := template_str;
       buf_len := (template_bytes.len() + usize(1));
       buf := (*u8)(malloc(buf_len).unwrap());
       // SAFETY: `buf` is a fresh malloc'd `buf_len = template_bytes.len() + 1`
@@ -196,7 +196,7 @@ impl(
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
-      template_bytes := template_str.as_bytes();
+      template_bytes := template_str;
       buf_len := (template_bytes.len() + usize(1));
       buf := (*u8)(malloc(buf_len).unwrap());
       // SAFETY: as in `TempDir.new_in` above — `buf` is a fresh malloc'd

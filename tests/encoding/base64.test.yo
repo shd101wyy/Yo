@@ -121,16 +121,16 @@ test("base64 url roundtrip", {
 });
 // ===== Text payloads go through the byte API =====
 // The former `base64_encode_string` / `base64_decode_string` pair was deleted
-// (plans/archive/STD_API_AUDIT.md §6): the first was `base64.encode(s.as_bytes())`,
+// (plans/archive/STD_API_AUDIT.md §6): the first was `base64.encode(s.to_bytes())`,
 // the second returned a stringly-typed `Result(String, String)` and silently
 // skipped whitespace. Text is bytes in, bytes out, then `String.from_utf8`.
 test("encode a String's bytes", {
-  assert(base64.encode(String.new().as_bytes()) == "", "empty");
-  assert(base64.encode(String.from("f").as_bytes()) == "Zg==", "f");
-  assert(base64.encode(String.from("fo").as_bytes()) == "Zm8=", "fo");
-  assert(base64.encode(String.from("foo").as_bytes()) == "Zm9v", "foo");
-  assert(base64.encode(String.from("foobar").as_bytes()) == "Zm9vYmFy", "foobar");
-  assert(base64.encode(String.from("Hello, World!").as_bytes()) == "SGVsbG8sIFdvcmxkIQ==", "Hello, World!");
+  assert(base64.encode(String.new().to_bytes()) == "", "empty");
+  assert(base64.encode(String.from("f").to_bytes()) == "Zg==", "f");
+  assert(base64.encode(String.from("fo").to_bytes()) == "Zm8=", "fo");
+  assert(base64.encode(String.from("foo").to_bytes()) == "Zm9v", "foo");
+  assert(base64.encode(String.from("foobar").to_bytes()) == "Zm9vYmFy", "foobar");
+  assert(base64.encode(String.from("Hello, World!").to_bytes()) == "SGVsbG8sIFdvcmxkIQ==", "Hello, World!");
 });
 test("decode to a String through from_utf8", {
   s := String.from_utf8(base64.decode(String.from("SGVsbG8sIFdvcmxkIQ==")).unwrap());

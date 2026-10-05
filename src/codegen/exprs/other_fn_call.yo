@@ -49,7 +49,7 @@ _is_ident_start :: (fn(b : u8) -> bool)(
 /// Length of the C identifier at `start` in `s` (0 if none).
 _scan_ident :: (fn(s : String, start : usize) -> usize)({
   // BYTE count — the loop reads byte_at (see _split_top_level_args_list).
-  n := s.as_bytes().len();
+  n := s.len();
   if((start >= n) || !_is_ident_start(s.byte_at(start)), usize(0), {
     (i : usize) = (start + usize(1));
     while((i < n) && _is_word_byte(s.byte_at(i)), {
@@ -62,7 +62,7 @@ _scan_ident :: (fn(s : String, start : usize) -> usize)({
 /// `close_b` bytes), or `s.len()` if unbalanced.
 _match_bracket :: (fn(s : String, open_idx : usize, open_b : u8, close_b : u8) -> usize)({
   // BYTE count — the loop reads byte_at (see _split_top_level_args_list).
-  n := s.as_bytes().len();
+  n := s.len();
   (depth : usize) = usize(0);
   (k : usize) = open_idx;
   while(k < n, {
@@ -84,11 +84,11 @@ _match_bracket :: (fn(s : String, open_idx : usize, open_b : u8, close_b : u8) -
 /// cannot take the BYTE indices these C-code scanners produce (see
 /// _split_top_level_args_list's note).
 _byte_slice :: (fn(s : String, from : usize, to : usize) -> String)({
-  bytes := s.as_bytes();
+  bytes := s;
   out := ArrayList(u8).new();
   (i : usize) = from;
   while((i < to) && (i < bytes.len()), {
-    out.push(match(bytes.get(i), .Some(b) => b, .None => u8(0)));
+    out.push(match(bytes.get_byte(i), .Some(b) => b, .None => u8(0)));
     i = (i + usize(1));
   });
   String.from_bytes(out)
@@ -105,10 +105,10 @@ _is_addressable_c_expr :: (fn(code : String) -> bool)({
       cont = false;
     }, {
       close := _match_bracket(s, usize(0), u8(40), u8(41));
-      if(close < (s.as_bytes().len() - usize(1)), {
+      if(close < (s.len() - usize(1)), {
         cont = false;
       }, {
-        s = _byte_slice(s, usize(1), s.as_bytes().len() - usize(1)).trim();
+        s = _byte_slice(s, usize(1), s.len() - usize(1)).trim();
       });
     });
   });
@@ -119,7 +119,7 @@ _is_addressable_c_expr :: (fn(code : String) -> bool)({
   if(s.byte_at(usize(0)) == u8(42), {
     return(true);
   });
-  n := s.as_bytes().len();
+  n := s.len();
   (i : usize) = usize(0);
   if(s.byte_at(usize(0)) == u8(40), {
     close := _match_bracket(s, usize(0), u8(40), u8(41));
@@ -181,7 +181,7 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
   // compound literal's closing " }": the collections batch C failed with
   // "expected '}'"). Same hardening as comptime_value.yo's
   // _strip_str_delims.
-  n := s.as_bytes().len();
+  n := s.len();
   (i : usize) = usize(0);
   // Track whether we're inside a C string/char literal (0 = not; else the quote
   // byte). A `)`/`}`/`,` inside a literal (e.g. the `)` in the str initializer

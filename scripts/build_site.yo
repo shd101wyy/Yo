@@ -54,9 +54,9 @@ _git :: (fn(root : String, git_args : ArrayList(String), io : Io) -> Option(Stri
     i = (i + usize(1));
   });
   // Any process failure unwinds _git with None (TS try/catch-to-undefined).
-  silent := Exception(throw : ((_err) -> unwind(Option(String).None)));
+  silent := Exception(throw : (_err -> unwind(Option(String).None)));
   out := io.await(cmd.output(io), IoExn(io : io, exn : silent));
-  if(!(out.status.success()), Option(String).None, {
+  if(!out.status.success(), Option(String).None, {
     s := String.from_bytes(out.stdout);
     t := s.trim();
     if(t.len() == usize(0), Option(String).None, Option(String).Some(t))
@@ -98,20 +98,20 @@ _detect_git_version :: (fn(root : String, io : Io) -> Option(String))({
 // character. Scanning bytes is also semantically right here — every marker
 // matched ("<", ">", "&", attr needles) is ASCII, and non-ASCII bytes are
 // copied through untouched.
-/// Byte at `i` (0 past the end).
-_byte_at :: (fn(bs : ArrayList(u8), i : usize) -> u8)(
-  match(bs.get(i), .Some(b) => b, .None => u8(0))
+/// Byte at `i` (0 past the end). Reads the string in place.
+_byte_at :: (fn(s : String, i : usize) -> u8)(
+  match(s.get_byte(i), .Some(b) => b, .None => u8(0))
 );
 /// Append an ASCII literal's bytes.
 _push_ascii :: (fn(out_b : ArrayList(u8), lit : str) -> unit)({
-  lb := String.from(lit).as_bytes();
+  lb := String.from(lit);
   (k : usize) = usize(0);
   while(k < lb.len(), k = (k + usize(1)), {
     out_b.push(_byte_at(lb, k));
   });
 });
 _escape_html :: (fn(text : String) -> String)({
-  bs := text.as_bytes();
+  bs := text;
   out_b := ArrayList(u8).new();
   (i : usize) = usize(0);
   n := bs.len();
@@ -133,7 +133,7 @@ _escape_html :: (fn(text : String) -> String)({
 /// non-alphanumerics, collapse/trim hyphens.
 _slugify :: (fn(text : String) -> String)({
   // Strip HTML tags (byte-wise; tag delimiters are ASCII).
-  text_b := text.as_bytes();
+  text_b := text;
   stripped_b := ArrayList(u8).new();
   (in_tag : bool) = false;
   (i : usize) = usize(0);
@@ -147,7 +147,7 @@ _slugify :: (fn(text : String) -> String)({
       (b == u8(62)) => {
         in_tag = false;
       },
-      !(in_tag) => {
+      !in_tag => {
         _p := stripped_b.push(b);
       },
       true => ()
@@ -156,21 +156,21 @@ _slugify :: (fn(text : String) -> String)({
   lowered := String.from_bytes(stripped_b).trim().to_lowercase();
   // Byte-wise classification: the TS regex [^a-z0-9-] drops every non-ASCII
   // character, so scanning UTF-8 bytes yields the same slug.
-  bs := lowered.as_bytes();
+  bs := lowered;
   slug_bytes := ArrayList(u8).new();
   (last_hyphen : bool) = true; // suppress leading hyphens
   (j : usize) = usize(0);
   m := bs.len();
   while(j < m, {
-    b := match(bs.get(j), .Some(x) => x, .None => u8(0));
+    b := match(bs.get_byte(j), .Some(x) => x, .None => u8(0));
     is_alnum := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(48)) && (b <= u8(57))));
     cond(
       is_alnum => {
         slug_bytes.push(b);
         last_hyphen = false;
       },
-      (((b == u8(32)) || (b == u8(9))) || (b == u8(45))) => {
-        if(!(last_hyphen), {
+      ((b == u8(32)) || (b == u8(9)) || (b == u8(45))) => {
+        if(!last_hyphen, {
           slug_bytes.push(u8(45));
           last_hyphen = true;
         });
@@ -195,7 +195,7 @@ _slugify :: (fn(text : String) -> String)({
 /// get -1, -2, … suffixes (TS injectHeadingIds).
 _inject_heading_ids :: (fn(html : String) -> String)({
   counts := HashMap(String, u32).new();
-  html_b := html.as_bytes();
+  html_b := html;
   out_b := ArrayList(u8).new();
   (i : usize) = usize(0);
   n := html_b.len();
@@ -203,7 +203,7 @@ _inject_heading_ids :: (fn(html : String) -> String)({
     (emitted : bool) = false;
     // `<hN>` — all four marker bytes are ASCII, so byte tests suffice.
     lvl_b := _byte_at(html_b, i + usize(2));
-    is_h := (((_byte_at(html_b, i) == u8(60)) && ((i + usize(3)) < n)) && ((_byte_at(html_b, i + usize(1)) == u8(104)) && (((lvl_b >= u8(49)) && (lvl_b <= u8(54))) && (_byte_at(html_b, i + usize(3)) == u8(62)))));
+    is_h := ((_byte_at(html_b, i) == u8(60)) && ((i + usize(3)) < n) && ((_byte_at(html_b, i + usize(1)) == u8(104)) && ((lvl_b >= u8(49)) && (lvl_b <= u8(54)) && (_byte_at(html_b, i + usize(3)) == u8(62)))));
     if(is_h, {
       lvl_s := ArrayList(u8).new();
       lvl_s.push(lvl_b);
@@ -219,7 +219,7 @@ _inject_heading_ids :: (fn(html : String) -> String)({
           _c := counts.insert(slug.clone(), count + u32(1));
           final_slug := if(count > u32(0), `${slug}-${count.to_string()}`, slug);
           heading := `<h${lvl} id="${final_slug}">${content}</h${lvl}>`;
-          hb := heading.as_bytes();
+          hb := heading;
           (hk : usize) = usize(0);
           while(hk < hb.len(), hk = (hk + usize(1)), {
             out_b.push(_byte_at(hb, hk));
@@ -230,7 +230,7 @@ _inject_heading_ids :: (fn(html : String) -> String)({
         .None => ()
       );
     });
-    if(!(emitted), {
+    if(!emitted, {
       out_b.push(_byte_at(html_b, i));
       i = (i + usize(1));
     });
@@ -244,9 +244,9 @@ _starts_with_at :: (fn(s : String, prefix : str, at : usize) -> bool)(
 );
 /// The TS rewriteReadmeLinks URL policy for a single href/src value.
 _rewrite_url :: (fn(url : String, github_blob : String, is_src : bool) -> String)({
-  keep := (((_starts_with_at(url, "http", usize(0)) || _starts_with_at(url, "#", usize(0))) || _starts_with_at(url, "std/", usize(0))) || _starts_with_at(url, "mailto:", usize(0)));
+  keep := (_starts_with_at(url, "http", usize(0)) || _starts_with_at(url, "#", usize(0)) || _starts_with_at(url, "std/", usize(0)) || _starts_with_at(url, "mailto:", usize(0)));
   cond(
-    (keep && !(is_src)) => url,
+    (keep && !is_src) => url,
     (is_src && _starts_with_at(url, "http", usize(0))) => url,
     true => {
       rel := if(_starts_with_at(url, "./", usize(0)), url.substring(usize(2), url.len()), url.clone());
@@ -604,7 +604,7 @@ _inject_home_link :: (fn(file : String, home_href : str, ie : IoExn) -> unit)({
 main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         eprintln(`build-site: error: ${err.to_string()}`);
         unsafe(exit(int(1)));
         unwind();
@@ -665,7 +665,7 @@ main :: (fn(io : Io) -> unit)({
   looks_like_tag := match(
     site_version,
     .Some(v) => {
-      vb := v.as_bytes();
+      vb := v.clone();
       (v.len() >= usize(2)) && ((_byte_at(vb, usize(0)) == u8(118)) && ((_byte_at(vb, usize(1)) >= u8(48)) && (_byte_at(vb, usize(1)) <= u8(57))))
     },
     .None => false
@@ -731,7 +731,7 @@ main :: (fn(io : Io) -> unit)({
     inst := match(installers.get(ii), .Some(x) => x, .None => String.new());
     src := `${root}/scripts/${inst}`;
     src_exists := io.await(exists(Path.new(src.clone()), io), io);
-    if(!(src_exists), {
+    if(!src_exists, {
       exn.throw(dyn(`build-site: scripts/${inst} is missing. The published site would serve a 404 at /${inst}, and the documented one-liner pipes that into a shell. Refusing to build.`));
     });
     _copy_file(src.clone(), `${output_dir}/${inst}`, ie);
@@ -755,7 +755,7 @@ main :: (fn(io : Io) -> unit)({
     .None => ()
   );
   doc_status := io.await(doc_cmd.status(io), ie);
-  if(!(doc_status.success()), {
+  if(!doc_status.success(), {
     exn.throw(dyn(`build-site: '${yo_bin} doc std/' failed with exit code ${doc_status.code().to_string()}`));
   });
   println(String.from("  ✓ Standard library docs generated"));

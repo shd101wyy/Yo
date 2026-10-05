@@ -6,7 +6,7 @@ Go 的模型相同。这条规则贯穿日常代码里会遇到的所有字符�
 
 | 类型 | `len()` | 切片 | 元素访问 |
 | --- | --- | --- | --- |
-| `String`（`std/string`） | 字节数，O(1) | `substring(a, b)` —— 字节 | `s(i)` → `u8`，`at(i)` → `Option(rune)` |
+| `String`（`std/string`） | 字节数，O(1) | `substring(a, b)` —— 字节 | `byte_at(i)` → `u8`，`get_byte(i)` → `Option(u8)`，`at(i)` → `Option(rune)` |
 | `str`（prelude；字符串字面量） | 字节数 | `s(a..b)` —— 零拷贝字节窗口 | `bytes(i)` → `u8`（越界即中止） |
 | `StringBuilder`（`std/string`） | 字节数 | — | — |
 | `comptime_str`（编译期） | 字节数 | `slice(a, b)` / `s(a..b)` —— 字节 | `s(i)` → 单 rune 的 `comptime_str` |
@@ -119,11 +119,48 @@ first := s.chars().next(); // Option(rune)
 和 `truncate_chars()` —— 已于 2026-08-26 移除；`len()` 加上面的惯用法就是
 全部词汇。）
 
-## 元素访问：`s(i)` 是一个字节
+## 元素访问：用 `byte_at(i)`，不用 `s(i)`
 
-`String` 上的 `Index` trait 返回偏移 `i` 处的**字节**（`u8`）—— 对 UTF-8
-缓冲区的字节级访问，没有边界要求。`byte_at(i)` 是同一件事的具名版本。解码用
-`at(i)`。
+`byte_at(i)` 返回偏移 `i` 处的**字节**（`u8`）—— 对 UTF-8 缓冲区的字节级访问，
+没有边界要求 —— 越界时 panic。`get_byte(i)` 是带检查的形式：越界返回 `.None`
+（对应 Rust 的 `s.as_bytes().get(i)`）。两者都就地读取字符串。解码用 `at(i)`。
+
+运行期的 `String` 没有 `s(i)`：它不实现 `Index(usize)`，所以 `s(usize(0))` 是
+E0606（"s is not callable"）。`Index` 交出的是一个可写的位置，通过它写入
+（`s(i) = b`）会影响所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。等 `Index`
+把读和写分开之后，只读的 `s(i)` 会回来。区间语法糖 `s(a..b)` 不受影响：它构建
+一个新字符串。
+
+```rust
+{ String } :: import("std/string");
+
+s := String.from("aé中");
+s.byte_at(usize(0)); // u8(97)
+s.get_byte(usize(9)); // .None —— 越界
+s(usize(1)..usize(3)); // "é" —— 一个新的 String
+```
+
+## 副本、克隆与字节列表
+
+每个修改方法（`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、
+`clear`、`truncate`、`insert_str`、`insert`、`remove`、`pop`）都接受
+`inout(self)` 并就地写入。`clone()` 复制字节（O(n)）；无论是否为空，克隆都独立于
+原值。普通的复制（`t := s`）目前仍共享非空的缓冲区，直到
+`plans/VALUES_BY_DEFAULT.md` 的 V2b 让 `String` 成为唯一所有的值（届时 `t := s`
+是移动，或报错并提示 `s.clone()`），所以只通过克隆写入。通过借用的副本（按值参数、
+`for` 或 `match` 的绑定）写入是 E0908；规则见
+[DESIGN.md](./DESIGN.md#通过-string-的副本写入)。
+
+`String` 之外的任何东西都不能写它的缓冲区，所以字节列表只会被复制或移动，不会出借：
+
+| 方法 | 结果 |
+| --- | --- |
+| `to_bytes()` | 一个新的、独立的 `ArrayList(u8)`，O(n) |
+| `into_bytes()` | 消耗字符串并把缓冲区移出；只有另一个副本共享它时才复制 |
+| `String.from_bytes(own(bytes))` | 接管列表，不检查 |
+| `String.from_utf8(own(bytes))` | 校验后接管列表；否则返回 `Err(.InvalidUtf8(...))` |
+
+读取字节用 `len()`、`byte_at(i)`、`get_byte(i)` 或 `bytes()` 迭代器，它们都不复制。
 
 ## 编译期字符串共享同一基准
 
@@ -144,8 +181,8 @@ comptime_assert(s(3 .. 6) == "中"); // 字节区间
   是编译错误；`slice` 对越界仍然钳制，一如既往。
 - **`s(i)` 产出的是单 rune 的 `comptime_str`，不是字节。** 编译期字符串是
   文本，不是字节缓冲区，所以编译期 `s(i)` 对应运行期的 `at(i)`（从字节 `i`
-  开始的 rune），而不是运行期的 `s(i)`（`u8`）。这个结果类型上的差异早于
-  字节迁移，是有意保留的。
+  开始的 rune），而不是运行期的 `byte_at(i)`（`u8`）；运行期的 `String` 根本没有
+  `s(i)`。这个结果类型上的差异早于字节迁移，是有意保留的。
 
 ## 实用规则
 
