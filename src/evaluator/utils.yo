@@ -803,8 +803,9 @@ _implicit_copy_category_at :: (fn(ty : TypeValue, depth : u32) -> String)({
   });
   match(
     t,
-    // By the PRINTED name of the unrefined type: matching the refined
-    // struct's `name` field missed `ArrayList(i32)` in the fixture.
+    // By the PRINTED name: an instantiation (`ArrayList(i32)`) carries an
+    // empty `name` (only `Box(...)` is stamped) and renders through the
+    // display-name side table (types/string.yo).
     .Struct({ field_types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => match(
       _implicit_copy_collection_name(display.clone()),
       .Some(collection) => collection,
