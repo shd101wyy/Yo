@@ -138,7 +138,7 @@ create_dir_all :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
           // ENOENT - try to create parents
           (errno == i32(ENOENT)) => {
             // Walk the path and create each component
-            bytes := path_s.as_bytes();
+            bytes := path_s;
             i := usize(1);
             // On Windows, skip past drive letter root (e.g., "C:\")
             // to avoid trying to mkdir "C:" which fails with EACCES
@@ -146,8 +146,8 @@ create_dir_all :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
               (platform == Platform.Windows) => {
                 cond(
                   (bytes.len() >= usize(3)) => {
-                    first := bytes(usize(0));
-                    second := bytes(usize(1));
+                    first := bytes.byte_at(usize(0));
+                    second := bytes.byte_at(usize(1));
                     is_drive_root := ((((first >= u8(65)) && (first <= u8(90))) || ((first >= u8(97)) && (first <= u8(122)))) && (second == u8(58)));
                     cond(
                       is_drive_root => {
@@ -162,7 +162,7 @@ create_dir_all :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
               true => ()
             );
             while(runtime(i < bytes.len()), {
-              b := bytes(i);
+              b := bytes.byte_at(i);
               cond(
                 ((b == u8(47)) || (b == u8(92))) => {
                   // '/' found - try to create this prefix

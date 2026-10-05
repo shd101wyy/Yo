@@ -272,10 +272,10 @@ test("the server round-trips a binary request body byte-for-byte", {
   task.await(io);
   io.await(srv.close(io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), "200");
-  got := r.body.as_bytes();
+  got := r.body;
   assert(got.len() == usize(4), `echoed 4 bytes (got ${got.len()})`);
-  assert(got(usize(0)) == u8(0x80), "continuation byte");
-  assert(got(usize(3)) == u8(66), "B");
+  assert(got.byte_at(usize(0)) == u8(0x80), "continuation byte");
+  assert(got.byte_at(usize(3)) == u8(66), "B");
 });
 // ============================================================================
 // RFC 9112 §5 field-line parsing (issues/fixed/http-content-length-ows-and-

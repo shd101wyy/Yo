@@ -353,20 +353,18 @@ impl(
   /// Write a `str`; returns the byte count written.
   write_str : (fn(self : Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
     s := String.from(data);
-    sb := s.as_bytes();
     io.async(e => {
-      n := e.io.await(self.write(sb.ptr().unwrap(), sb.len(), e.io), e);
+      n := e.io.await(self.write(s.ptr().unwrap(), s.len(), e.io), e);
       return(n);
     })
   }),
   /// Write a `String` (matches TcpStream.write_string); byte count written.
-  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
-    sb := data.as_bytes();
+  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
-      n := e.io.await(self.write(sb.ptr().unwrap(), sb.len(), e.io), e);
+      n := e.io.await(self.write(data.ptr().unwrap(), data.len(), e.io), e);
       return(n);
     })
-  }),
+  ),
   /// Close: best-effort close_notify, then the socket. Frees the OpenSSL
   /// objects — the stream must not be used afterwards.
   close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(

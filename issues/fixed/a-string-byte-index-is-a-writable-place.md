@@ -2,7 +2,7 @@
 
 **Severity:** S1: safe code can break `String`'s UTF-8 invariant, and the write reaches every copy that shares the buffer.
 
-**Status: OPEN.** Found 2026-10-03 while implementing `plans/STRING_VALUE_SEMANTICS.md` S1. **Measured on:** yo 0.2.49, `--std-path ./std`.
+**Status: FIXED** (String S3, `plans/STRING_VALUE_SEMANTICS.md`). `String` no longer implements `Index(usize)`: `s(i)` is E0606 and bytes are read with `byte_at(i)` / `get_byte(i)`, so safe code has no writable byte place. A read-only `s(i)` returns with the Index read/write split (`plans/VALUES_BY_DEFAULT.md` §3.1). Test: `tests/string/string.test.yo`, "A String has no writable byte place". Found 2026-10-03 while implementing S1; measured on yo 0.2.49.
 
 ## Symptom
 

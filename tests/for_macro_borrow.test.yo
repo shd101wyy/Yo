@@ -101,16 +101,18 @@ test("for(s.bytes(), (b) => body) on String iterates and reads bytes", {
   // 'x'=120 + 'y'=121 + 'z'=122 = 363
   assert(total == i32(363), "String byte sum 120+121+122=363");
 });
-test("String byte index writes mutate in place", {
+test("String bytes are rewritten through into_bytes / from_bytes (no byte index)", {
   s := `abc`;
+  b := s.into_bytes();
   i := usize(0);
-  while(i < s.len(), {
-    s(i) = (s(i) + u8(1));
+  while(i < b.len(), {
+    b(i) = (b(i) + u8(1));
     i = (i + usize(1));
   });
-  assert(s(usize(0)) == u8(98), "'a' -> 'b'");
-  assert(s(usize(1)) == u8(99), "'b' -> 'c'");
-  assert(s(usize(2)) == u8(100), "'c' -> 'd'");
+  t := String.from_bytes(b);
+  assert(t.byte_at(usize(0)) == u8(98), "'a' -> 'b'");
+  assert(t.byte_at(usize(1)) == u8(99), "'b' -> 'c'");
+  assert(t.byte_at(usize(2)) == u8(100), "'c' -> 'd'");
 });
 test("for(range-copy, (x) => body) iterates and reads", {
   arr := [i32(10), i32(20), i32(30), i32(40), i32(50)];
