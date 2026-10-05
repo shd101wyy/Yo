@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 32 in §4 are confirmed; no question is open.
+- **Decisions:** all 33 in §4 are confirmed; no question is open.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -76,6 +76,10 @@ Unique ownership removes the question instead of answering it.
 
   - Receivers are written the same way: `imm(self)`, `mut(self)`, and a
     plain `self` that consumes.
+  - **At the call site, the borrow is marked too** (decision 33): `f(&x)`
+    lends `x` to an `imm` parameter, `f(&mut x)` to a `mut` one, and a bare
+    `f(x)` passes by value. A mismatch is an error. Method receivers and
+    temporaries are exempt (`s.len()`, `show(make_name())`).
   - The same two words spell:
     - local borrows: `imm(y) := place` and `mut(y) := place`;
     - re-pointing a borrow: `imm(cur) = place`;
@@ -746,7 +750,7 @@ machinery.
 
 ## 4. Decisions
 
-All 32 are confirmed by the maintainer. A change is a dated amendment here
+All 33 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -949,7 +953,7 @@ and in git, not a silent edit.
     | an owned value or a temporary | consumed; the selected arm's bindings own their parts |
     | an `imm` binding (an `imm` parameter, a local `imm(y)`) | `imm` borrows |
     | a `mut` binding | `mut` places |
-    | `match(imm(x), …)` / `match(mut(x), …)` on an owned local | borrows, and `x` stays usable |
+    | `match(&x, …)` / `match(&mut x, …)` on an owned local (decision 33) | borrows, and `x` stays usable |
     | implicitly copyable data | a copy |
 
     - **Why by value.** A bare `x` means by value in every position
@@ -961,8 +965,8 @@ and in git, not a silent edit.
       borrow, so the match follows the scrutinee's mode. This is Rust's
       default binding modes. Most of the compiler's ~3,500 tree-matching
       arms are on parameters, which V3b makes `imm`, so they need no
-      annotation. The explicit `imm(x)`/`mut(x)` is needed only to keep
-      using an owned local after the match, which is where E0901 points.
+      annotation. The explicit `&x`/`&mut x` is needed only to keep using an
+      owned local after the match, which is where E0901 points.
     - **Rules for a consuming match:**
       - Guards see the bindings as borrows, and the move happens when an
         arm is selected (Rust's rule). A guard that consumed a binding would
@@ -1105,6 +1109,48 @@ and in git, not a silent edit.
       Today `Rc(T).clone(w)` works and `Rc.clone(w)` is E0610.
     - **Phase.** V1 Generation A; the call sites migrate with V1 step 1's
       rename.
+
+33. **A borrow is marked at the call site too: `&x` lends to an `imm`
+    parameter, `&mut x` to a `mut` one, and a bare `x` passes by value.**
+    Confirmed 2026-10-05 by the maintainer.
+    - **Why.** Without it, `show(s)` (a borrow) and `take(s)` (a move) look
+      the same at the call, although one keeps `s` and the other consumes
+      it. Decision 30 made the declaration readable, and this makes the
+      call readable too. It is Rust's spelling and reading (`&s`,
+      `&mut s`).
+      - Swift and Hylo mark only the mutable case (`&x` for `inout`);
+        marking both follows "explicit whenever possible".
+    - **Examples:**
+      ```rust
+      swap(&mut x, &mut y);
+      show(&s);               // s stays usable
+      take(s);                // moved
+      match(&opt, .Some(v) => print(v), .None => ());   // decision 26
+      ```
+    - **A mismatch is an error, never a conversion.** A bare `s` passed to
+      an `imm` parameter is an error naming `&s`. A `&s` passed to a
+      by-value parameter is an error naming `s` or `s.clone()`. So the
+      marker always tells the truth.
+    - **Exempt, because nothing is left to keep:**
+      - method receivers: `s.len()`, not `(&s).len()`, because the method's
+        `imm(self)`/`mut(self)` spells it. Rust exempts receivers the same
+        way;
+      - temporaries, literals and closure literals passed to an `imm`
+        parameter: `show(make_name())`, `xs.map(x => x + 1)`. A temporary
+        cannot go to a `mut` parameter, which needs a place.
+    - **Address-of becomes `addr_of(x)`.** Today `&x` makes a raw pointer
+      `*(T)` usable only in `pragma(Pragma.AllowUnsafe)` code. A word makes
+      unsafe pointer creation searchable and frees the sigil for safe code.
+      - `addr` was rejected because it has 558 uses as an identifier
+        (socket addresses), and Yo has no shadowing.
+      - `addr_of` is Rust's `ptr::addr_of!`, and it is unused in the tree.
+    - **`&mut` is one prefix token**, like `^` in `^v`. So `&mut s.items`
+      borrows `s.items`, and `&&` (logical and) is unaffected.
+    - **Vocabulary.** Declarations keep the words (`imm(s) : String`,
+      `mut(self)`, `imm(y) := place`), and arguments and scrutinees use the
+      sigils, which map one-to-one onto them.
+    - **Phase.** V3b, with decision 30: Generation A accepts both forms, and
+      Generation B sweeps and turns the mismatch error on.
 
 **Considered and kept implicit** (2026-10-05, the maintainer):
 - **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
@@ -1402,6 +1448,12 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   and receivers, in local bindings (renaming `inout(y) :=`), in re-points,
   in projection results and in function types. `mut` is `inout`'s synonym,
   and plain parameters still borrow.
+  - It also adds decision 33's call-site forms, `&x` and the `&mut` token,
+    and the `addr_of(x)` builtin for raw pointers.
+  - While `&x` still means address-of, the new meaning is selected by the
+    parameter's mode: an `imm`/`mut` parameter receives a borrow, and a
+    raw-pointer parameter keeps receiving a pointer.
+  - The mismatch error waits for Generation B.
 - **Generation B,** once `SEED_VERSION` carries Generation A:
   1. **The `yo fix` sweep** over `src/`, `std/`, `tests/`, docs and skills:
      - every plain parameter and receiver of a type that is not implicitly
@@ -1414,8 +1466,13 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
      changes no program's behaviour.
   2. **The flip:** a plain parameter is by value, and so is a plain `match`
      scrutinee (decision 26). The sweep first rewrites each `match` on an
-     owned local that is used after the match to `match(imm(x), …)`.
-  3. **Deleting** `own`, `sink` and `inout`.
+     owned local that is used after the match to `match(&x, …)`, and marks
+     every borrowed argument that is a named place `&x` or `&mut x`
+     (decision 33).
+  3. **Deleting** `own`, `sink` and `inout`, and `&x` as address-of: the
+     sweep rewrites every raw-pointer `&x` in std, `src/` and tests to
+     `addr_of(x)`, then `&x` means only a borrow. Decision 33's mismatch
+     error turns on.
 - **Callbacks:** std's `for_each`, `map`, `filter` and `with_lock` take
   `imm(f)`.
 - **Diagnostics:** E0901 at a caller names `imm(x)` in the callee before
@@ -1610,7 +1667,9 @@ stage-2 RSS):
 | an implicit `Rc`/`Arc` copy | `r.clone()` | E0901 (V2c) |
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value | V3 impl check |
 | a resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `mut` | E0901 + note |
-| a `match` on an owned local that is used afterwards | `match(imm(x), …)` | E0901 at the later use (V3b) |
+| a `match` on an owned local that is used afterwards | `match(&x, …)` | E0901 at the later use (V3b) |
+| a named place passed to an `imm`/`mut` parameter | `f(&x)` / `f(&mut x)` | the decision 33 mismatch error (V3b `yo fix`) |
+| `&x` making a raw pointer (unsafe code) | `addr_of(x)` | V3b Generation A rename |
 | a payload extracted from a dying value | `match(x, .Some(v) => v, …)`, the by-value default | — |
 | `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; `box(v, alloc : .Some(a))` | docs and skills; E0405 after V5 |
 | `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
