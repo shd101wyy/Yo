@@ -52,4 +52,5 @@ and the future is freed after its timer fires.
 Test: the existing `tests/sys/timer.test.yo` case. It is red on the emscripten
 leg without the fix (on this tree) and green with it. Its standalone shape ran
 `dropped 50`, `slept`, rc 0 under node with the fixed runtime spliced into the
-emitted C.
+emitted C. CI run 37338817036's `test-wasm32_emscripten` leg passed with the
+fix.

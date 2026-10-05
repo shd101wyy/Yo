@@ -36,7 +36,8 @@ test runner runs it once per batch, so PATH gained a ~50-byte entry for every
 batch: about 10 KB of duplicates on top of the runner image's already long
 PATH by the time `tests/process/` ran. The link to the symptom is inferred:
 the unbounded growth is certain from the code, and the failure is the first
-PATH search after it. The CI battery that runs this fix confirms it.
+PATH search after it. Confirmed by run 37338817036: with the fix, the same
+windows-latest leg passed this test and ran ~50 files past it.
 
 ## Fix
 

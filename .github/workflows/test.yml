@@ -1409,7 +1409,17 @@ jobs:
     # below the cap; windows-latest is deliberately NOT sharded (it is a REQUIRED
     # status context and renaming it would remove a required check), so the cap
     # is the only thing protecting it.
-    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 120 || 240 }}
+    #
+    # MEASURED 2026-10-05: windows-latest runs the suite under AddressSanitizer
+    # again (armed through the choco LLVM clang,
+    # issues/fixed/windows-images-lost-libasan.md), and that more than doubled
+    # its cost: run 37292720878 needed 86 min to reach file 206 of 310, and
+    # run 37338817036 was cancelled at the 120 min cap at ~file 256 — about
+    # 145 min for the whole leg against the 54-58 min uninstrumented runs above.
+    # windows-latest therefore takes the 240 min budget the non-Windows legs
+    # have. A hang still fails in bounded time, which is all this cap is for.
+    # windows-11-arm keeps 120: it is sharded and still runs uninstrumented.
+    timeout-minutes: ${{ matrix.os == 'windows-11-arm' && 120 || 240 }}
     env:
       YO_MAIN_STACK_MB: "4096"
       # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
