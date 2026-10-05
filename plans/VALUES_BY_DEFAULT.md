@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 34 in §4 are confirmed. No design question is open;
+- **Decisions:** all 35 in §4 are confirmed. No design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 
@@ -26,7 +26,7 @@ Progress:
     `imm(y) :=` (see V3).
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md):
-  S1 and S2 have landed, S3a is PR #1190, and S3b is dropped (§0 below).
+  S1, S2, S3a (#1190) and S4 (#1175) have landed, and S3b is dropped (§0 below).
 - Absorbs `issues/retired/collections-value-or-reference-semantics.md`.
 - No backward compatibility is kept (AGENTS.md): every user, `std/` and
   `src/` site migrates.
@@ -779,7 +779,7 @@ machinery.
 
 ## 4. Decisions
 
-All 34 are confirmed by the maintainer. A change is a dated amendment here
+All 35 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -916,9 +916,11 @@ and in git, not a silent edit.
       non-escaping closure.
     - An escaping closure moves its captures in at their last use, and
       otherwise needs an explicit copy: `s2 := s.clone(); h := () =>
-      log(s2)`. No capture-list syntax is added.
-    - `mut` captures stay forbidden, and writing through a borrowed capture
-      is E0908.
+      log(s2)`, or with a capture list `{ s2 : s.clone() }() => log(s2)`
+      (decision 35).
+    - Writing through a borrowed capture is E0908. A `mut` capture exists
+      only in a capture list, and only on a non-escaping closure (decision
+      35, amended 2026-10-05).
     - **Hooks:** `generate_captured_variable_dup_expressions` and
       `consume_captured_variables`. The latter is a stub today, which V3
       fills for move-only captures.
@@ -931,7 +933,10 @@ and in git, not a silent edit.
     - **`Dyn(Fn(...))`** is move-only. `Dyn(Fn(...), Clone)` is
       explicit-copy, with a `clone` slot.
     - **No `FnMut`/`FnOnce`.** A closure body never writes or moves its
-      captures. State goes through an `Rc` capture or a `mut` parameter.
+      own captures. State goes through a `mut` capture (decision 35), an
+      `Rc` capture or a `mut` parameter. A `mut` capture writes through the
+      captured pointer, not the closure's environment, so the call stays
+      `imm(self)`.
 24. **Projections (Hylo's subscripts), first cut.**
     - A function whose result is `mut(T)` is a mutable projection, and one
       whose result is `imm(T)` a read projection.
@@ -1368,6 +1373,81 @@ and in git, not a silent edit.
         - a `mut` operand is an error;
         - generic `a + b` calls each impl with its own convention.
 
+35. **A closure may carry a capture list: a record literal before its
+    parameters.** Proposed and confirmed 2026-10-05 by the maintainer.
+    - **The form.**
+      ```rust
+      h := { x, imm(y) : &y, mut(z) : &mut z }(m : i32) => (x + y + z + m);
+      h2 := { s2 : s.clone() }() => log(s2);
+      xs.for_each({ mut(count) }(x : i32) => { count = (count + x); });
+      ```
+      - **Desugaring.** The parser already rewrites `{...}` to `_(...)`, so
+        `{...}(params) => body` is `_(...)(params) => body`.
+      - A record is not callable, so the shape is new and ambiguous with
+        nothing.
+    - **Vocabulary.** It follows decision 33's split. The left of an entry
+      declares a field, so it takes the words (`imm(y)`, `mut(z)`). The
+      right initializes it, like an argument, so it takes the sigils (`&y`,
+      `&mut z`).
+    - **Puns, like `{ x }` for `x : x`:**
+      - `imm(y)` is `imm(y) : &y`, and `mut(z)` is `mut(z) : &mut z`.
+      - The long form renames a capture or captures a projected place:
+        `imm(name) : &self.name`.
+    - **Entries:**
+      - **`x` (or `x : e`) is by value.** Plain data copies. An owning value
+        moves at its last use; otherwise it is E0901, and the note names
+        `x : x.clone()`.
+      - **`imm(y) : &p` and `mut(z) : &mut p` borrow a place.** A borrow of a
+        temporary is an error (`imm(t) : &make_name()`), because the
+        temporary dies before the closure does.
+      - Any other initializer is an ordinary by-value field: `n :
+        s.len()`, `s2 : s.clone()`.
+    - **The list is exhaustive.**
+      - With a list, the body may name only the listed captures and
+        module-level items.
+      - `{}()` captures nothing, which asserts the closure is pure of local
+        state.
+      - Without a list, decision 22's rules are unchanged: a literal passed
+        to an `imm(f)` parameter borrows implicitly.
+    - **The closure's kind follows its capture record** (decision 22's
+      structural rule):
+      - An `imm` or `mut` capture makes the closure second-class. It cannot
+        be stored, returned, spawned, or passed to a by-value (escaping)
+        parameter. In `io.async`, it is a borrowing future (§3.13 A2).
+      - A `mut` capture also makes it move-only, because two copies of one
+        exclusive borrow would alias. `imm` captures copy freely.
+      - The borrows follow decisions 18 and 28. A captured place is frozen
+        for the closure's live range, and a closure argument overlaps
+        everything it captures, so `g(&f, &mut z)` stays an error.
+    - **`mut` captures on non-escaping closures are new.** This amends
+      decision 22, which forbade `mut` captures, and decision 23.
+      - It is sound for the reason Swift's non-escaping closures may
+        capture `inout`: the closure cannot outlive the borrow, and nothing
+        else reaches the place while the closure is live.
+      - A call writes through the captured pointer, so `Fn`'s call stays
+        `imm(self)` and no `FnMut` is added.
+      - It replaces the `Rc` counter that a `for_each` body needs today.
+    - **Parsing.** `{ x, y } => …` is a record pattern in a `match` arm.
+      `{…}(params) => …` is accepted only where a closure is expected, and
+      an arm pattern of that shape is an error. A parser test covers both.
+    - **Rejected:**
+      - `[imm(s), t]() => …` (C++/Rust style), which does not fit Yo's
+        syntax;
+      - leaving the capture mode implicit only, which was deferred until a
+        Yo-shaped spelling appeared.
+    - **Phase.** V3b. It needs the `imm`/`mut` words and the `&` sigils, so
+      Generation A adds the form, and the V3b sweep needs no migration for
+      it.
+    - **Tests:**
+      - each entry kind;
+      - the puns;
+      - exhaustiveness (naming an unlisted local is an error);
+      - an escaping closure with a borrow capture is an error;
+      - a `mut` capture counter through `for_each`;
+      - copying a `mut`-capturing closure is E0901;
+      - `g(&f, &mut z)` is an overlap error;
+      - the `match`-arm parse.
+
 **Considered and kept implicit** (2026-10-05, the maintainer):
 - **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
   is E0901, which points at the move. A marker such as Mojo's `s^` on every
@@ -1377,18 +1457,16 @@ and in git, not a silent edit.
 - **Allocator placement.** The `alloc` parameter is the explicit form, and
   `with_allocator` places everything a call tree creates (§3.11). Both
   stay.
-- **A closure's capture mode** follows the parameter it is passed to
-  (`imm(f)` or a by-value `f`, decision 22), which the callee's signature
-  spells.
-  - A capture list was deferred. `[imm(s), t] () => …` does not fit Yo's
-    syntax, and no Yo-shaped spelling has been proposed.
-  - This is to be revisited if one is.
+- **A closure's capture mode, when no capture list is written,** follows
+  the parameter the closure is passed to (`imm(f)` or a by-value `f`,
+  decision 22), which the callee's signature spells. The explicit form is
+  the capture list (decision 35).
 
 ## 5. Prerequisites, gates and the seed
 
 - **`STRING_VALUE_SEMANTICS`.** S1 (E0908 on `mut` writes through a
-  borrowed value) and S2 (count accuracy) have landed. S3a, the
-  model-independent part, is PR #1190, and S4 (docs) is #1175. S3b (the
+  borrowed value), S2 (count accuracy), S3a (the model-independent part,
+  #1190) and S4 (docs, #1175) have landed. S3b (the
   uniqueness step) is dropped (`plans/STRING_VALUE_SEMANTICS.md` §0).
 - **Each phase is one PR, or a stack with one battery** (AGENTS.md).
 - **Gates for every phase:**
@@ -1501,7 +1579,8 @@ and in git, not a silent edit.
    - Still to come: the async rules (§3.13), `Iso`, `Send`/`Sync`, then
      `imm(y) :=`, last-use live ranges, and decision 25's re-pointing
      without the projection step.
-4. **V3b:** the parameter conventions (decisions 30, 33 and 34).
+4. **V3b:** the parameter conventions (decisions 30, 33 and 34) and the
+   capture list (decision 35).
 5. **V1 step 2:** the unique `Box`, explicit-copy from its first commit.
    - **V3, std:** the resources become move-only values. Their cells are
      the unique `Box` (§3.4), so this half follows step 2. It is Generation
@@ -1735,6 +1814,8 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     parameter's mode: an `imm`/`mut` parameter receives a borrow, and a
     raw-pointer parameter keeps receiving a pointer.
   - The mismatch error waits for Generation B.
+  - It adds the closure capture list, `{ x, imm(y), mut(z) : &mut w }(params)
+    => body` (decision 35).
   - It adds `imm` to the operator traits' operands, and the impl check
     that allows by-value operands only on implicitly copyable types
     (decision 34).
@@ -2041,8 +2122,9 @@ stage-2 RSS):
 
 ## 9. Open questions
 
-No design question is open. The last two were decided as decisions 31 (the
-child wrapper in patterns) and 34 (operator operands). Decision 18 was also
+No design question is open. The last three were decided as decisions 31
+(the child wrapper in patterns), 34 (operator operands) and 35 (the closure
+capture list). Decision 18 was also
 amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
@@ -2053,5 +2135,4 @@ inside a settled design:
   `Rc` roots. Decided in V2b, when the collections' headers go.
 - **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
   the constructors' `alloc` parameter. Decided after V2b.
-- **A closure capture list,** if a Yo-shaped spelling is proposed
-  ("Considered and kept implicit", §4).
+- *(Decided as decision 35, 2026-10-05: the capture list.)*
