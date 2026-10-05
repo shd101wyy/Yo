@@ -131,12 +131,12 @@ is_reserved_operator_name :: (fn(name : String) -> bool)(
 /// the gate sites (its `unsafe :: impl(…)` namespace module predates the
 /// rule). The `__yo` runtime prefix is NOT reserved yet: src/ binds 133
 /// `__yo_*` names for the runtime's own C symbols, and the evaluator mints
-/// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules.
+/// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules. The V3b
+/// snake_case synonyms (`type_of` `size_of` `align_of` `type_id`) and the
+/// `addr_of` address-of builtin are on the first line
+/// (plans/VALUES_BY_DEFAULT.md V3b Generation A).
 is_reserved_builtin_binding_name :: (fn(name : String) -> bool)(
-  (name == "typeof") || (name == "sizeof") || (name == "alignof") || (name == "typeid") ||
-    // Their snake_case synonyms and the `addr_of` address-of builtin
-    // (plans/VALUES_BY_DEFAULT.md V3b Generation A).
-    (name == "type_of") || (name == "size_of") || (name == "align_of") || (name == "type_id") || (name == "addr_of") ||
+  (name == "typeof") || (name == "sizeof") || (name == "alignof") || (name == "typeid") || (name == "type_of") || (name == "size_of") || (name == "align_of") || (name == "type_id") || (name == "addr_of") ||
     (name == "runtime") || (name == "unwind") || (name == "recur") || (name == "consume")
     ||
       (name == "unsafe") || (name == "pragma") || (name == "asm") || (name == "global_asm") ||

@@ -83,9 +83,9 @@ test("fn types spelled with imm and mut are today's fn types", {
 
 test("Fn traits spelled with imm and mut", {
   s := String.from("four");
-  assert(_pm_apply_imm((t) => t.len(), s) == usize(4), "Impl(Fn(imm(s) : String) -> usize)");
+  assert(_pm_apply_imm(t => t.len(), s) == usize(4), "Impl(Fn(imm(s) : String) -> usize)");
   (v : i32) = i32(1);
-  _pm_apply_mut((n) => {
+  _pm_apply_mut(n => {
     n = (n + i32(10));
   }, v);
   assert(v == i32(11), "Impl(Fn(mut(n) : i32) -> unit) writes through to the caller");
@@ -129,25 +129,14 @@ test("a marker that does not fit the parameter is an error", {
   comptime_expect_error(addr_of(c), "not available in safe code");
 });
 
-// Decision 34: an operator impl on an implicitly copyable type may take its
-// operands by value. Through a `Dyn` the call goes through the trait's slot
-// (issues/fixed/an-operator-called-through-a-dyn-has-no-vtable-slot.md).
-_PmPt :: struct(x : i32, y : i32);
-impl(_PmPt, Eq(_PmPt)((==) : (fn(lhs : Self, rhs : _PmPt) -> bool)((lhs.x == rhs.x) && (lhs.y == rhs.y))));
-test("Dyn(Eq(Point)) over a by-value operator impl", {
-  (d : Dyn(Eq(_PmPt))) = dyn(_PmPt(x : i32(1), y : i32(2)));
-  assert(d == _PmPt(x : i32(1), y : i32(2)), "equal through the Dyn");
-  assert(!(d == _PmPt(x : i32(1), y : i32(3))), "unequal through the Dyn");
-  assert(d != _PmPt(x : i32(5), y : i32(2)), "the trait's default != through the Dyn");
-});
-
 // Decision 34's Dyn test: `LogicalNot`'s `(!)` takes `self` and returns
-// `bool`, so it has a vtable slot; a by-value impl is reached through it.
+// `bool`, so it has a vtable slot; a by-value impl is reached through it
+// (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
 _PmFlag :: struct(on : bool);
 impl(_PmFlag, LogicalNot((!) : (fn(self : Self) -> bool)(!self.on)));
 test("Dyn(LogicalNot) over a by-value operator impl", {
   (d : Dyn(LogicalNot)) = dyn(_PmFlag(on : true));
-  assert(!(!d), "!d negates through the Dyn");
+  assert(!!d, "!d negates through the Dyn");
   (e : Dyn(LogicalNot)) = dyn(_PmFlag(on : false));
   assert(!e, "!e negates through the Dyn");
 });

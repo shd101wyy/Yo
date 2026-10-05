@@ -2592,19 +2592,11 @@ _mentions_trait_self :: (fn(ty : TypeValue) -> bool)({
   false
 });
 /// Is the trait member `member_ty` a METHOD: a function whose first parameter
-/// is the receiver, labeled `self` or typed `Self`? Only methods are reached
-/// through a `Dyn` receiver. The operator traits name their receiver `lhs`
-/// (`Eq`'s `(==) : fn(lhs : Self, rhs : Rhs) -> bool`): reading only the
-/// label left `Dyn(Eq(Point))` without a `(==)` slot while the evaluator typed
-/// `d == p` through it, so the call was emitted as an abort stub
-/// (issues/fixed/an-operator-called-through-a-dyn-has-no-vtable-slot.md).
+/// is `self`? Only methods are reached through a `Dyn` receiver.
 dyn_member_is_method :: (fn(member_ty : TypeValue) -> bool)(
   match(
     member_ty,
-    .Func({ param_types : mpts, meta : m }) => (
-      match(m.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) ||
-        match(mpts.get(usize(0)), .Some(p0) => match(p0, .SomeT({ name : p0n }) => (p0n == "Self"), _ => false), .None => false)
-    ),
+    .Func({ meta : m }) => match(m.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false),
     _ => false
   )
 );

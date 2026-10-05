@@ -1870,12 +1870,15 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     a plain operand already means `imm`, so every existing impl (`String`'s
     `(==) : fn(lhs : Self, rhs : Self)`) is a borrowing one, and only the
     flip makes a plain operand by value. The wrapper's `*argN` load is
-    needed only once `imm` lowers to `const T*`. What Generation A does
-    carry is the `Dyn(Eq(Point))` test over a by-value impl, and the fix it
-    exposed: an operator member had no vtable slot, because a `Dyn` method
-    was recognized by the receiver's label `self` alone, never by the type
-    `Self` that `lhs` has
-    (`issues/fixed/an-operator-called-through-a-dyn-has-no-vtable-slot.md`).
+    needed only once `imm` lowers to `const T*`. The `Comptime*` twins stay
+    out of scope (decision 34). What Generation A does carry is the
+    `Dyn(LogicalNot)` test over a by-value impl, and the fix it exposed:
+    every `Dyn` over an operator member emitted its vtable wrapper under the
+    raw label (`__yo_wrap_<impl>_!`), which is not C
+    (`issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md`).
+    A binary operator through a `Dyn` still has no slot, and calling one is
+    an internal compiler error instead of a diagnostic
+    (`issues/a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md`).
   - **Name collisions** (grep, 2026-10-05). `imm` and `mut` name no
     function, local or field in `src/` or `std/`. Three uses must keep
     working, and Generation A carries a test for each:

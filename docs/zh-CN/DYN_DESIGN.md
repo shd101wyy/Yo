@@ -99,7 +99,7 @@ typedef struct {
 
 一个方法满足以下条件时，可以通过 `Dyn(Trait)` 接收者调用：
 
-1. 第一个参数是接收者：标签为 `self`（`self : Self`、`inout(self) : Self` 或 `self : *(Self)`），或者以其他标签声明为 `Self` 类型（例如运算符 trait 的 `lhs : Self`），因为 vtable 包装函数会为接收者拆箱；
+1. 第一个参数是 `self`（`self : Self`、`inout(self) : Self` 或 `self : *(Self)`，因为 vtable 包装函数会为接收者拆箱）；
 2. `Self` 不出现在签名的其他位置：既不是其他参数，也不是结果，也不在其中出现（`Option(Self)`、`Result(Self, E)`）；
 3. 不带 `generic(...)` 参数。
 
