@@ -1861,7 +1861,8 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     raw-pointer parameter keeps receiving a pointer.
   - The mismatch error waits for Generation B.
   - It adds the closure capture list, `{ x, imm(y), mut(z) : &mut w }(params)
-    => body` (decision 35).
+    => body` (decision 35), in a follow-up PR stacked on the parameter-mode
+    PR (feat/vbd-v3b-gen-a), which does not carry it.
   - Decision 34's operator-trait `imm` operands, its impl check and its
     `Dyn` wrapper adaptation are **not** in Generation A; they are
     Generation B's first item (below). The traits live in `std/prelude.yo`,
