@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 35 in §4 are confirmed. No design question is open;
+- **Decisions:** all 37 in §4 are confirmed. No design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 
@@ -62,9 +62,9 @@ Unique ownership removes the question instead of answering it.
 
 | Kind | Which types | A copy is | Example |
 | --- | --- | --- | --- |
-| **implicitly copyable** | owns no heap memory and has no `Dispose`: integers, floats, `bool`, `rune`, raw pointers, `str` views, and structs, enums, tuples and arrays made only of these | a bitwise copy | `p2 := p` for `p : Point` |
+| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `rune`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy)` or `impl(T, Copy())`; and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy)` |
 | **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
-| **move-only** (§3.4) | implements `Dispose` or `MoveOnly`, or has a move-only field | an error unless it is the last use; `clone()` exists only if the type implements `Clone` (`Sender`) | `f2 := f` moves the `File` |
+| **move-only** (§3.4) | implements neither `Copy` nor `Clone` (decision 36); a `Dispose` type is never `Copy` | an error unless it is the last use; with `Clone` it is explicit-copy instead (`Sender`) | `f2 := f` moves the `File` |
 
 - **Moves are implicit at the last use, and copies are never implicit**
   except for the first kind.
@@ -346,6 +346,10 @@ Explicit sharing must not mean writing `.*` everywhere.
 A resource (a lock, a socket, a file, a thread handle) is a value that
 cannot be copied.
 
+- **Amended by decision 36 (2026-10-05).** After decision 36's
+  Generation B, a type is move-only when it implements neither `Copy` nor
+  `Clone`, and the `MoveOnly` marker below is deleted. The text below
+  describes the V3 compiler as landed (#1217).
 - **What is move-only.** A type is move-only iff it implements `Dispose`,
   or declares `impl(T, MoveOnly())`, or holds a move-only value in a field,
   variant payload, tuple element, array element or closure capture.
@@ -779,7 +783,7 @@ machinery.
 
 ## 4. Decisions
 
-All 35 are confirmed by the maintainer. A change is a dated amendment here
+All 37 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -793,6 +797,9 @@ and in git, not a silent edit.
    - `Dispose` implies it, `impl(T, MoveOnly())` opts a type in, and the
      type's structure propagates it.
    - Rejected: a type modifier.
+   - **Amended 2026-10-05 by decision 36.** Move-only becomes "neither
+     `Copy` nor `Clone`", and the `MoveOnly` marker is deleted in decision
+     36's Generation B.
 3. **Explicit copies are `Clone`.** `Sender` keeps `clone`, and `Receiver`
    stays uncloneable.
 4. **A write through `Rc` is a plain write**, guarded by §3.10's assert. No
@@ -842,9 +849,12 @@ and in git, not a silent edit.
     branch accepts `sink` as the interim spelling, and both are deleted at
     the V3b flip.
 16. **Implicitly copyable types copy implicitly, and every owning value's
-    copy is explicit.** The rule is structural (no heap, no `Dispose`), so
-    no annotation is needed. Requiring `.clone()` on `i32`, as Hylo does,
-    buys nothing.
+    copy is explicit.** Requiring `.clone()` on `i32`, as Hylo does, buys
+    nothing.
+    - **Amended 2026-10-05 by decision 36.** The first version made the
+      rule structural (no heap, no `Dispose`) with no annotation. Now a
+      named type copies implicitly only if it implements `Copy`. Anonymous
+      composites stay structural.
 17. **Copying an `Rc`/`Arc` needs `.clone()`,** as in Rust: a new handle is a
     new owner, and sharing is visible where it is created.
     - Enforced at V2c and sized by the §6 measurement.
@@ -932,11 +942,13 @@ and in git, not a silent edit.
       instantiation. A generic that copies writes `Impl(Fn(...), Clone)`.
     - **`Dyn(Fn(...))`** is move-only. `Dyn(Fn(...), Clone)` is
       explicit-copy, with a `clone` slot.
-    - **No `FnMut`/`FnOnce`.** A closure body never writes or moves its
-      own captures. State goes through a `mut` capture (decision 35), an
-      `Rc` capture or a `mut` parameter. A `mut` capture writes through the
-      captured pointer, not the closure's environment, so the call stays
-      `imm(self)`.
+    - **No `FnMut`.** A closure body never writes its own captures. State
+      goes through a `mut` capture (decision 35), an `Rc` capture or a `mut`
+      parameter. A `mut` capture writes through the captured pointer, not
+      the closure's environment, so the call stays `imm(self)`. Decision 37
+      gives the reasons.
+    - **`FnOnce` is added by decision 37** (amended 2026-10-05). The first
+      version also had no `FnOnce`, so a body could not move a capture out.
 24. **Projections (Hylo's subscripts), first cut.**
     - A function whose result is `mut(T)` is a mutable projection, and one
       whose result is `imm(T)` a read projection.
@@ -1289,14 +1301,22 @@ and in git, not a silent edit.
         operand. The error names `imm(x)`. An operand written `mut(x)` is an
         error, because no operator writes an operand.
         - **Concrete operand types** are checked at the impl.
-        - **A generic impl's operand** (`Vec2(T)` by value) is checked per
-          instantiation, like the rest of Yo's generic code (§3.4). So
-          `Vec2(f32)` is accepted, and `Vec2(String)` is the error at that
-          instantiation, anchored at the user's call
-          (`_reported_at_user_call`).
-        - Rejecting a generic by-value operand at the impl would forbid the
-          main use, a numeric vector generic over its scalar. Yo has no
-          `Copy` bound to constrain `T` with (decision 16).
+        - **A generic impl's operand** (`Vec2(T)` by value) states its
+          requirement as a bound and is checked at the impl (amended
+          2026-10-05 by decision 36):
+          ```rust
+          impl(generic(T : Type), where(T <: Copy), Vec2(T), Copy());
+          impl(generic(T : Type), where(T <: Copy, T <: Add(T)), Vec2(T), Add(Vec2(T))(
+            Output : Vec2(T),
+            (+) : (fn(lhs : Self, rhs : Self) -> Self)(...)
+          ));
+          ```
+          Without the bound, `Vec2(T)` is not known to be `Copy`, and the
+          by-value operand is the error at the impl, naming
+          `where(T <: Copy)` or `imm(x)`.
+        - Until decision 36 lands, the check runs per instantiation, as
+          the rest of Yo's generic code does (§3.4). That is the interim
+          rule.
       - **Call sites are the same either way.** An operator takes no marker,
         and a generic body is specialized per instantiation, so `a + b`
         calls the concrete impl with its own convention.
@@ -1425,7 +1445,7 @@ and in git, not a silent edit.
         capture `inout`: the closure cannot outlive the borrow, and nothing
         else reaches the place while the closure is live.
       - A call writes through the captured pointer, so `Fn`'s call stays
-        `imm(self)` and no `FnMut` is added.
+        `imm(self)` and no `FnMut` is added (decision 37 explains why).
       - It replaces the `Rc` counter that a `for_each` body needs today.
     - **Parsing.** `{ x, y } => …` is a record pattern in a `match` arm.
       `{…}(params) => …` is accepted only where a closure is expected, and
@@ -1447,6 +1467,279 @@ and in git, not a silent edit.
       - copying a `mut`-capturing closure is E0901;
       - `g(&f, &mut z)` is an overlap error;
       - the `match`-arm parse.
+
+36. **Implicit copy is a trait: `Copy`.** Confirmed 2026-10-05 by the
+    maintainer. A named type copies implicitly only if it implements
+    `Copy`, as in Rust. This replaces decision 16's structural rule for
+    named types.
+    - **Why.**
+      - **The author promises the copy as part of the API.** Under the
+        structural rule, adding a private `String` field to a public
+        struct silently turned every caller's `p2 := p` into E0901.
+      - **Some plain-data types should not copy** although they could: an
+        `Fd(i32)` without a `Dispose`, a type-state token, an arena index
+        that must stay unique, an `Array(u8, 4096)`.
+      - **Generic code can state the requirement** (`where(T <: Copy)`),
+        so decision 34's by-value operand check runs at the impl, not per
+        instantiation.
+      - "Explicit whenever we can" (the maintainer).
+    - **The rule.**
+      - `Copy :: trait()` is a prelude marker.
+      - A struct, enum or newtype opts in with `derive(T, Copy)` or
+        `impl(T, Copy())`, and a generic type with
+        `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())`.
+      - **The impl is checked.** Every field, payload and element must be
+        `Copy`, and the type must not implement `Dispose`, which is Rust's
+        `Copy`/`Drop` exclusion. A failing impl is an error naming the
+        first non-`Copy` part.
+      - **`Copy` provides `clone()`.** A `Copy` type's clone can only be the
+        bitwise copy, so the compiler supplies `Clone` and a manual `Clone`
+        impl is an error. Rust asks for both impls and requires that they
+        agree.
+      - **Prelude impls:** the integers, floats, `bool`, `rune`, `unit`, raw
+        pointers, `fn` pointers and `str` views; `Option(T)` and
+        `Result(T, E)` with `where(T <: Copy)` (and `E <: Copy`).
+      - **Structural for anonymous composites.** Tuples, `Array(T, N)`,
+        anonymous records `_(...)` and closures (their capture records)
+        have no declaration to annotate, so each is `Copy` when all its
+        parts are. Rust does the same for tuples, arrays and closures.
+      - **Never `Copy`:** `Rc`, `Arc`, `Box`, `String`, the collections,
+        `Dyn`, and every type with a `Dispose`.
+    - **The three kinds become Rust's** (§0.2):
+      - **`Copy`:** copies implicitly.
+      - **`Clone` without `Copy`:** explicit-copy.
+      - **Neither:** move-only.
+      - The `MoveOnly` marker (decision 2) and its structural derivation are
+        deleted, and `type_requires_explicit_copy` becomes
+        `!(T <: Copy)`. Only cloning keys on `Clone`.
+    - **First measurement.** Count the named plain-data types in `src/`,
+      `std/` and `tests/` that are copied implicitly today, which are the
+      types that need `Copy`. Do it with an audit flag like §6's before
+      the sweep PR is opened.
+    - **Phase.** Before V2b, which widens the same predicate to `String`
+      and the collections.
+      - **Generation A:**
+        - the prelude `Copy` trait and its impls;
+        - the impl check;
+        - the compiler-supplied `clone()`;
+        - the `derive` rule.
+
+        The seed sees `Copy` as an ordinary marker trait, so `std/` and
+        `src/` may add their impls at once.
+      - **Generation B:**
+        - the `yo fix` sweep, which adds `Copy` to every named type that is
+          copied implicitly today;
+        - the flip: a named type without `Copy` is no longer implicitly
+          copyable;
+        - deleting `MoveOnly`.
+    - **Tests:**
+      - a `derive(Point, Copy)` copy;
+      - a plain struct without `Copy` moves, and a later use is E0901;
+      - `impl(T, Copy())` over a `String` field is an error;
+      - `Copy` plus `Dispose` is an error;
+      - a manual `Clone` on a `Copy` type is an error;
+      - a generic `where(T <: Copy)` operator impl;
+      - a tuple of `Copy` parts copies implicitly;
+      - a closure whose captures are all `Copy` copies implicitly.
+
+37. **`FnOnce` is added; `FnMut` is not.** Confirmed 2026-10-05 by the
+    maintainer. This amends decision 23.
+    - **Background.** Rust's three closure traits differ only in how a call
+      uses the closure's own environment:
+
+      | Rust | The call takes | Used for |
+      | --- | --- | --- |
+      | `Fn` | `&self` | reading captures |
+      | `FnMut` | `&mut self` | writing the closure's own state |
+      | `FnOnce` | `self` | moving a capture out |
+
+    - **`FnOnce(...)`.**
+      - Its call takes `self`, decision 30's consuming receiver.
+      - A closure whose body moves a capture out (`{ tx, msg }() =>
+        tx.send(msg)`) implements only `FnOnce`. Calling it consumes it,
+        and a second call is E0901, pointing at the first.
+      - **`Fn` implies `FnOnce`.** A borrowing call also serves for one
+        call, so an API that calls its argument once takes
+        `Impl(FnOnce(...))` and accepts both kinds.
+      - **Which trait a closure gets follows from its body**, by decision
+        22's structural rule: does the body move a capture out? There is
+        no annotation. A mismatch (an `FnOnce`-only closure passed where
+        `Fn` is required) is an error naming the line that moves.
+      - `Dyn(FnOnce(...))` is move-only, and its slot consumes the payload.
+    - **Why `FnOnce` is needed.**
+      - Moving out of a capture is about ownership, not mutation, and
+        nothing else expresses it.
+      - Without it, `tx.send(msg)` in a spawned closure is
+        `tx.send(msg.clone())` (a wasted copy), or an `Option` plus `take`
+        through a `mut`/`Rc` capture (noise).
+      - One-shot callbacks are common: thread and task spawns, the
+        `Option`/`Result` combinators, `with_lock`'s body.
+    - **Why no `FnMut`.** In Rust, an `FnMut` closure is a value whose own
+      state changes on every call. Yo never needs one, because every use
+      has an explicit spelling:
+      - **Mutating outside state from a non-escaping closure:** a `mut`
+        capture (decision 35), e.g. `xs.for_each({ mut(count) }(x : i32) =>
+        { count = (count + x); })`.
+        - The closure is second-class and move-only, so it cannot escape or
+          be duplicated.
+        - It is not `Sync`, so a parallel `for_each` that requires
+          `Impl(Fn(...), Sync)` rejects it.
+        - Those are exactly the hazards `FnMut`'s `&mut self` guards
+          against in Rust: two callers of one stateful closure, and a call
+          that runs while another is live.
+        - The call writes through the captured pointer, never the
+          environment, so `imm(self)` stays honest.
+      - **An escaping closure with private state** (Rust's `move || { n +=
+        1; n }` returned as `impl FnMut`):
+        - an `Rc` capture, `{ n : rc(0) }() => { n.* = (n.* + 1); n.* }`,
+          whose sharing and allocation are visible;
+        - or a named struct with a `mut(self)` method, which is what Yo's
+          iterators already are.
+
+        Both cost a little more than Rust's version, which is the point:
+        state that changes across calls is never hidden inside a value
+        that looks like a function.
+      - **Worked example: a counter.** What decision 37 rules out is only
+        that a closure's own captured variables change between calls. The
+        state lives where the closure points, or the counter is a named
+        type. The choice follows from whether it escapes:
+        ```rust
+        // 1. Non-escaping: a mut capture (decision 35). No allocation.
+        n := 0;
+        tick := { mut(n) }() => { n = (n + 1); n };
+        tick(); tick();                       // n == 2
+
+        // 2. Escaping, as a closure: the state lives in an Rc cell the closure holds.
+        make_counter :: (fn() -> Impl(Fn() -> i32))({
+          n := rc(0);
+          { n }() => { n.* = (n.* + 1); n.* }
+        });
+
+        // 3. Escaping, with no allocation: a named struct. This is what
+        // Rust compiles an FnMut closure to anyway.
+        Counter :: struct(n : i32);
+        impl(Counter, next : (fn(mut(self)) -> i32)({ self.n = (self.n + 1); self.n }));
+        c := Counter(n : 0);
+        c.next(); c.next();
+        ```
+        - **What is lost.** No capability, and no run-time cost: form 3
+          is the machine code of Rust's `FnMut` closure, which is itself an
+          anonymous struct with a `&mut self` call method.
+        - **The one case that is longer:** an escaping closure that keeps
+          its own state and must not allocate. It is written as form 3, or as
+          form 2 at the cost of the `Rc` allocation. Lazy adapters that store
+          their closure, std's `StreamMap`/`StreamFilter`
+          (`std/async/stream.yo`) and generators, are where this shows.
+        - **If that case proves common, a stateful call is added the way
+          Hylo has it,** not as Rust's third trait (recorded 2026-10-05 by
+          the maintainer).
+      - **Hylo's design.** Hylo
+        (https://hylo-lang.org/docs/user/language-tour/functions-and-methods/)
+        has three capture kinds, its parameter conventions: `let`, `inout`
+        and `sink`.
+        - `let` and `inout` captures are inferred from the body. A `sink`
+          capture must be listed (`fun[var i = 0]`).
+        - A closure that changes its own state is an `inout` lambda,
+          `fun[var i = 0]() inout -> Int { … }`, and its call is marked:
+          `&counter()`.
+        - So Hylo's `FnMut` is the third receiver mode of one call, not a
+          third trait.
+        - Lambda types carry their environment (`[E]`, or erased), which is
+          Yo's `Impl(Fn(...))` versus `Dyn(Fn(...))`.
+        - Hylo's issue #1807 (a `let` capture of a temporary,
+          `fun[let c = c.copy()]`, used after its lifetime) is the hole
+          decision 35 closes by requiring a place for a borrow entry.
+      - **The planned addition, if it is ever made.**
+        - **One call trait.** `Fn` stays the only call trait, and a
+          closure's call takes one of the three receiver modes decision 30
+          already has: `imm(self)` (`Fn`), `self` (`FnOnce`), or `mut(self)`
+          (the stateful call). The spelling of the `mut` form in a type is
+          chosen when it is added. It must name the mode and must not be a
+          new trait name.
+        - **The body.** A closure whose body writes one of its by-value
+          captures gets the `mut(self)` call. A capture list makes its
+          initial state explicit: `{ n : 0 }() => { n = (n + 1); n }`.
+        - **The call site is unmarked,** like every closure call (see "Calling
+          a closure" below): `counter()`, as `xs.push(1)` is unmarked.
+          Hylo marks `&counter()` because it also marks mutating method
+          calls (`&xs.append(y)`), and Yo exempts receivers (decision 33).
+        - **Holding one.** It needs a `mut` place to be called through:
+          `mut(f) : Impl(Fn(...))` with the `mut` call, or an owned local.
+          An `Fn` (`imm(self)`) closure is accepted wherever the `mut` call
+          is required, as `Fn` implies `FnOnce`.
+        - **Rejected for that future step:** a separate `FnMut` trait,
+          because a third trait name would recreate Rust's three-way split
+          in every bound and in `Dyn`.
+        - **What would trigger it:** stateful closures stored in lazy
+          adapters (`StreamMap`/`StreamFilter`) or generators that are
+          common enough that form 3's named struct is a burden.
+      - **What leaving it out saves today.** No callback bound, `Dyn` slot
+        or closure inference has to handle a third call mode. A closure's
+        environment never changes while it lives, and a call either borrows
+        it (`Fn`) or consumes it (`FnOnce`). The Hylo-style addition above
+        would add the mode to every bound that accepts a stateful closure.
+    - **Calling a closure is a receiver call, so it is never marked**
+      (amended 2026-10-05 by the maintainer).
+      - `f(x)` is `f`'s call method with `f` as the receiver, so decision
+        33's receiver exemption applies in every mode:
+        - an `Fn` call borrows `f`, like `s.len()`;
+        - an `FnOnce` call consumes it, like `h.join()`, and a later use is
+          E0901 pointing at the call;
+        - a stateful call, if one is added, borrows it exclusively, like
+          `xs.push(1)`.
+      - The mode is part of the closure's type, as a method's receiver mode
+        is part of its signature.
+      - Marking only closure calls (`&mut counter()`), or `imm` calls as
+        well (`&f()`), would be inconsistent with `s.len()` and
+        `xs.push(1)`. Both were rejected.
+      - **Passing a closure is an ordinary argument** and takes decision
+        33's markers:
+        ```rust
+        add := { k }(x : i32) => (x + k);
+        add(1); add(2);                      // an Fn call: unmarked, add stays usable
+        apply :: (fn(imm(f) : Impl(Fn(i32) -> i32), x : i32) -> i32)(f(x));
+        apply(&add, 5);                      // lending the closure: marked
+        apply((x : i32) => (x * 2), 5);      // a literal is a temporary: exempt
+        keep(add);                           // a by-value (escaping) parameter: moves add
+
+        send := { tx, msg }() => tx.send(msg);
+        send();                              // an FnOnce call: consumes send
+        send();                              // E0901: send was moved by the call above
+        run_once(send2);                     // a by-value Impl(FnOnce(...)) parameter: moves send2 in
+        ```
+      - **A stateful closure (if added) is passed with `&mut`:**
+        `step(&mut counter)` to a `mut(f)` parameter. It cannot be called
+        through an `imm` borrow, as `xs.push` cannot be called on `imm(xs)`.
+    - **std switches to `Impl(FnOnce(...))` where it calls once:**
+      - `Option`: `map`, `and_then`, `or_else`, `map_or_else`,
+        `unwrap_or_else`, `ok_or_else`;
+      - `Result`: `map`, `map_err`, `and_then`, `or_else`, `map_or_else`,
+        `unwrap_or_else`;
+      - `Thread.spawn` and `ThreadPool.spawn` (`std/thread.yo`), as
+        `Impl(FnOnce(...), Send)`;
+      - the `with_lock`/`try_with_lock` bodies of the sync `Mutex`
+        (`std/sync/mutex.yo`) and the async `with_lock` body
+        (`std/async/mutex.yo`);
+      - the body passed to `io.async`, which runs once as a state machine.
+
+      Callbacks that run per element keep `Impl(Fn(...))`: `for_each`, the
+      iterator `map`/`filter`, comparators and hashers.
+    - **Phase.**
+      - **Generation A:** the compiler. That means the prelude `FnOnce`
+        trait, the "moves a capture out" rule that decides a closure's
+        trait, the consuming call, `Fn` implies `FnOnce`, and the
+        `Dyn(FnOnce)` slot.
+      - **Generation B:** std's signatures switch, once the seed carries
+        Generation A. It lands with V3's move-only work, which already
+        tracks moves out of captures (`consume_captured_variables`).
+    - **Tests:**
+      - a spawned closure sends a captured `String` with no clone;
+      - a second call of an `FnOnce`-only closure is E0901;
+      - passing it where `Fn` is required is the error naming the moving
+        line;
+      - an `Fn` closure is accepted by an `FnOnce` parameter;
+      - `Dyn(FnOnce(...))` is called once;
+      - `unwrap_or_else` moves a captured value into its result.
 
 **Considered and kept implicit** (2026-10-05, the maintainer):
 - **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
@@ -1585,9 +1878,12 @@ and in git, not a silent edit.
    - **V3, std:** the resources become move-only values. Their cells are
      the unique `Box` (§3.4), so this half follows step 2. It is Generation
      B in any case, because it needs a seed that enforces move-only.
-6. **V2b:** projections, unique buffers, and the explicit-copy kind for
+6. **Decision 36:** the `Copy` trait (Generation A, then the sweep and
+   the flip), so that V2b widens a predicate that is already
+   `!(T <: Copy)`.
+7. **V2b:** projections, unique buffers, and the explicit-copy kind for
    `String`, the collections and `Dyn`. **V2c:** decision 17 for `Rc`/`Arc`.
-7. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
+8. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
 
 ### V0: decisions — DONE 2026-10-03
 
@@ -2168,9 +2464,9 @@ stage-2 RSS):
 
 ## 9. Open questions
 
-No design question is open. The last three were decided as decisions 31
-(the child wrapper in patterns), 34 (operator operands) and 35 (the closure
-capture list). Decision 18 was also
+No design question is open. The latest were decided as decisions 31 (the
+child wrapper in patterns), 34 (operator operands), 35 (the closure capture
+list), 36 (the `Copy` trait) and 37 (`FnOnce`, and no `FnMut`). Decision 18 was also
 amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
