@@ -50,13 +50,13 @@ pragma(Pragma.AllowUnsafe);
   fv_source_val,
   bind_parameter
 } :: import("../../env.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta, t_refine_inner } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
-{ EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
+{ EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
 { attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place } :: import("../utils.yo");
@@ -158,7 +158,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
-{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD } :: import("../../diagnostics.yo");
+{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -633,6 +633,21 @@ _try_find_receiver_method :: (
       .NoneForced => ()
     );
   });
+  // D32AUDIT-BEGIN (temporary measurement, removed before commit)
+  if(!is_static && (hits.len() > usize(0)) && debug_knob(`YO_AUDIT_D32`).is_some(), {
+    au_rt := match(receiver_type, .Pointer(au_p) => au_p, _ => receiver_type);
+    match(
+      deref_target_type(resolve_struct_shell(au_rt), env),
+      .Some(au_payload) => {
+        au_ph := get_receiver_methods_by_name_from_env(env, method_name.clone(), au_payload, false);
+        if(au_ph.len() > usize(0), {
+          eprintln(`[d32-clash] ${method_name} ${method_tok.module_path}:${method_tok.row.to_string()}:${method_tok.column.to_string()} ${type_to_string(au_rt)}`);
+        });
+      },
+      .None => ()
+    );
+  });
+  // D32AUDIT-END
   if(hits.len() == usize(0), {
     // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` wrapper
     // (`Box`, `Arc`) without the method forwards the call to its payload —
@@ -704,6 +719,159 @@ _try_find_receiver_method :: (
       receiver_value : receiver_value,
       all_hits : hits
     )
+  )
+});
+/// The func id of the comptime type constructor that minted `ty`: a struct's
+/// stamped `constructor_func_id` (or the id-keyed stamp), an enum's
+/// registered cfid. `""` for a type no constructor call produced.
+_instance_constructor_fid :: (fn(ty : TypeValue) -> String)(
+  match(
+    ty,
+    .Struct({ id : _ }) => struct_effective_ctor_fid(ty),
+    .EnumT({ id : ic_eid }) => lookup_enum_cfid(ic_eid.replace(String.from("__self_shell"), String.from(""))),
+    _ => String.new()
+  )
+);
+/// A method called through an UNAPPLIED generic type constructor,
+/// `G.m(x, ...)` (plans/VALUES_BY_DEFAULT.md decision 32: `Rc.clone(w)`,
+/// `Box.clone(b)`), infers `G`'s arguments from the receiver, as Rust infers
+/// `Rc::clone`'s `T`. The receiver of a static call is its first argument, so
+/// `x`'s own type must be an instantiation `G(A, ...)` of `G` (one pointer
+/// level is looked through: `G.m(&x)`); that instantiation IS the type the
+/// method is looked up on, so the callee's receiver is replaced in place by a
+/// fresh node whose ExprInfo carries `.TypeVal(G(A, ...))`, and the call
+/// proceeds exactly as `G(A, ...).m(x, ...)` (method lookup including generic
+/// impls, `Self`, codegen's static dispatch). The match is by constructor
+/// identity, never a search through payloads, so it is unambiguous: an
+/// `Rc(Box(T))` argument is an `Rc` instance and not a `Box` one.
+///
+/// Fires only when the receiver evaluated to a function value whose result is
+/// a type (a type constructor); any other callee is left as written. Nothing
+/// to infer from — no first argument, or one whose type is not a `G(...)` —
+/// is E0613 (a static method such as `Pair.make(a, b)` lands here: its
+/// arguments say nothing about `Self`, so the arguments are written out,
+/// `Pair(A, B).make(a, b)`). Like the no-method E0610 it is raised only
+/// outside overload dry-runs and definition-time trials, where a miss leaves
+/// the callee as written and the call degrades as it always did.
+///
+/// The first argument is evaluated here, with no expected type (it is the
+/// receiver: its type comes from itself). The returned id is that argument's:
+/// the caller marks it pre-evaluated around the method call's argument
+/// matching, as it does the receiver of `x.m()`, so it is not evaluated twice.
+_infer_unapplied_ctor_receiver :: (
+  fn(callee : AstExpr, args : ArrayList(AstExpr), env : Environment, ctx : EvalContext, exn : Exception) -> Option(usize)
+)({
+  if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(usize).None);
+  });
+  uc_dargs := match(
+    callee,
+    .FnCall(_, _, a, _, _) => a,
+    _ => {
+      return(Option(usize).None);
+    }
+  );
+  uc_recv := match(
+    uc_dargs.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      return(Option(usize).None);
+    }
+  );
+  uc_method := match(uc_dargs.get(usize(1)), .Some(m) => ast_expr_to_string(m), .None => String.from("?"));
+  uc_ctor_fid := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(uc_recv)),
+    .Some(uc_ri) => match(
+      uc_ri.value,
+      .Some(.FuncVal(uc_fvd, _)) => match(
+        get_func_type(uc_fvd.*.func_id),
+        .Func({ result : uc_res }) => if(is_type_hierarchy_type(uc_res), uc_fvd.*.func_id, String.new()),
+        _ => String.new()
+      ),
+      _ => String.new()
+    ),
+    .None => String.new()
+  );
+  if(uc_ctor_fid.len() == usize(0), {
+    return(Option(usize).None);
+  });
+  uc_ctor := ast_expr_to_string(uc_recv);
+  uc_may_throw := (!ctx.is_in_function_call_checking_phase && !in_def_time_trial());
+  uc_help := Option(String).Some(`write the type arguments: \`${uc_ctor}(...).${uc_method}(...)\``);
+  uc_arg0 := match(
+    args.get(usize(0)),
+    .Some(a) => a,
+    .None => {
+      if(uc_may_throw, {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(uc_recv),
+                `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}()\`: a method called through an unapplied type constructor infers them from its first argument, the receiver, and this call has none.`,
+                uc_help
+              ),
+              E_CANNOT_INFER
+            )
+          )
+        );
+      });
+      return(Option(usize).None);
+    }
+  );
+  uc_saved_et := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  uc_evaluated := evaluate_expression_raw(uc_arg0, env, ctx, exn);
+  ctx.expected_type = uc_saved_et;
+  uc_arg_ty := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(uc_evaluated)),
+    .Some(uc_ai) => uc_ai.ty,
+    .None => {
+      return(Option(usize).None);
+    }
+  );
+  uc_own := resolve_enum_shell(resolve_struct_shell(t_refine_inner(uc_arg_ty)));
+  uc_inst := cond(
+    (_instance_constructor_fid(uc_own) == uc_ctor_fid) => Option(TypeValue).Some(uc_own),
+    true => match(
+      uc_own,
+      .Pointer(uc_pointee) => {
+        uc_pt := resolve_enum_shell(resolve_struct_shell(t_refine_inner(uc_pointee)));
+        cond(
+          (_instance_constructor_fid(uc_pt) == uc_ctor_fid) => Option(TypeValue).Some(uc_pt),
+          true => Option(TypeValue).None
+        )
+      },
+      _ => Option(TypeValue).None
+    )
+  );
+  match(
+    uc_inst,
+    .Some(uc_self) => {
+      uc_node := AstExpr.Atom(alloc_global_expr_id(), ast_expr_token(uc_recv));
+      uc_info := new_expr_info(env, t_type());
+      uc_info.value = Option(EvalValue).Some(EvalValue.TypeVal(uc_self));
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(uc_node), uc_info);
+      uc_dargs(usize(0)) = uc_node;
+      Option(usize).Some(ast_expr_id(uc_arg0))
+    },
+    .None => {
+      if(uc_may_throw, {
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(uc_recv),
+                `Cannot infer the type parameters of \`${uc_ctor}\` in \`${uc_ctor}.${uc_method}(...)\`: they are inferred from the first argument, the receiver, which has type \`${type_to_string(uc_arg_ty)}\`, not an instance of \`${uc_ctor}\`.`,
+                uc_help
+              ),
+              E_CANNOT_INFER
+            )
+          )
+        );
+      });
+      Option(usize).None
+    }
   )
 });
 // ---------------------------------------------------------------------------
@@ -8542,6 +8710,9 @@ Fix: wrap the call:
     // First try instance-method dispatch for property-access callees
     // (when property_access.yo could not resolve the method).
     .None => {
+      // `G.m(x, ...)` through an unapplied type constructor: the receiver
+      // becomes `G(A, ...)`, inferred from `x` (decision 32).
+      uc_arg0_id := _infer_unapplied_ctor_receiver(evaluated_callee, args, callee_env, ctx, exn);
       method_info_opt0 := _try_find_receiver_method(evaluated_callee, callee_env, ctx);
       // Overload resolution: when the method name has multiple candidate
       // overloads, pick the one whose parameters match the arguments (the first
@@ -8668,6 +8839,7 @@ Fix: wrap the call:
           // `self` it must not be evaluated again (the exponential chain cost).
           recv_node_id := ast_expr_id(method_info.receiver_expr);
           mark_node_preevaluated(recv_node_id);
+          match(uc_arg0_id, .Some(uc_id) => mark_node_preevaluated(uc_id), .None => ());
           call_result_m := try_to_call_function_with_arguments(
             method_info.method_val_opt,
             m_callee_ty,
@@ -8682,6 +8854,7 @@ Fix: wrap the call:
             exn
           );
           unmark_node_preevaluated(recv_node_id);
+          match(uc_arg0_id, .Some(uc_id) => unmark_node_preevaluated(uc_id), .None => ());
           ctx.pending_method_self_type = Option(TypeValue).None;
           // Record the resolved/specialized method FuncVal in the non-destructive
           // method-callee VALUE side-table (keyed by this call's expr id) so

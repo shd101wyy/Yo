@@ -1,0 +1,114 @@
+// A method called through an UNAPPLIED generic type constructor, `G.m(x, ...)`
+// (plans/VALUES_BY_DEFAULT.md decision 32): `G`'s type arguments are inferred
+// from the receiver `x`, the call's first argument, as Rust infers
+// `Rc::clone`'s `T`. `Box.clone(b)` is `Box(i32).clone(b)` for `b : Box(i32)`.
+// The receiver must itself be an instance of `G`; a static method has no
+// receiver to infer from, so its type arguments are written (E0613).
+{ assert } :: import("std/assert");
+_Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(a : A, b : B)
+);
+impl(
+  generic(A : Type, B : Type),
+  _Pair(A, B),
+  first : (fn(self : Self) -> A)(self.a),
+  second : (fn(self : Self) -> B)(self.b),
+  set_first : (fn(inout(self) : Self, a : A) -> unit)({
+    self.a = a;
+  }),
+  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b))
+);
+_Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Some(value : T),
+    Empty
+  )
+);
+impl(
+  generic(T : Type),
+  _Tagged(T),
+  value_or : (fn(self : Self, d : T) -> T)(
+    match(
+      self,
+      .Some(v) => v,
+      .Empty => d
+    )
+  )
+);
+// `Arc` has no `Clone` in the prelude yet (decision 17 gives it the handle
+// copy in V2c), so the Arc case goes through a method of its own.
+impl(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  Arc(T),
+  _handle : (fn(self : Self) -> Self)(self)
+);
+/// One generic body, two specializations: `Box.clone(x)` infers `T` from each.
+_clone_box :: (fn(generic(T : Type), x : Box(T), where(T <: Clone)) -> Box(T))(Box.clone(x));
+test("Box.clone(b) infers T from the receiver", {
+  b := box(i32(5));
+  c := Box.clone(b);
+  b.* = i32(7);
+  assert(c.* == i32(5), "today's Box clone is an independent cell");
+  assert(b.* == i32(7), "the original is unchanged by the clone");
+  assert(ref_count(c) == usize(1), "the clone is a fresh cell");
+});
+test("Box.clone(b) has the type Box(i32).clone(b) has", {
+  b := box(i32(3));
+  (c : Box(i32)) = Box.clone(b);
+  d := Box(i32).clone(b);
+  assert(c.* == d.*, "both spellings clone the payload");
+  comptime_assert(Type.eq(typeof(Box.clone(b)), Box(i32)), "the result is a Box(i32)");
+});
+test("Box.clone infers T inside a generic body", {
+  x := _clone_box(box(i32(9)));
+  y := _clone_box(box(true));
+  assert(x.* == i32(9), "T := i32");
+  assert(y.*, "T := bool");
+});
+test("Box.clone(&b) looks through one pointer level", {
+  b := box(i32(4));
+  c := Box.clone(&(b));
+  assert(c.* == i32(4), "the pointee is the Box(i32)");
+});
+test("Arc.m(a) infers T from the receiver", {
+  a := arc(i32(3));
+  h := Arc._handle(a);
+  assert(h.* == i32(3), "the handle reads the payload");
+  assert(ref_count(a) == usize(2), "a second handle to one cell");
+});
+test("a user generic struct with two type parameters", {
+  p := _Pair(i32, bool)(a : i32(1), b : true);
+  assert(_Pair.first(p) == i32(1), "A := i32");
+  assert(_Pair.second(p), "B := bool");
+  _Pair.set_first(p, i32(8));
+  assert(p.a == i32(8), "an inout receiver");
+  assert(_Pair(i32, bool).first(p) == i32(8), "the applied spelling still works");
+});
+test("a user generic enum", {
+  t := _Tagged(i32).Some(i32(6));
+  e := _Tagged(i32).Empty;
+  assert(_Tagged.value_or(t, i32(0)) == i32(6), "T := i32");
+  assert(_Tagged.value_or(e, i32(2)) == i32(2), "the other variant");
+  o := Option(i32).Some(i32(4));
+  assert(Option.unwrap_or(o, i32(0)) == i32(4), "the prelude's Option too");
+});
+test("a static method has no receiver to infer from (E0613)", {
+  comptime_expect_error(_Pair.make(i32(1), true), "not an instance of `_Pair`");
+  comptime_expect_error(_Pair.make(i32(1), true), "_Pair(...).make(...)");
+  comptime_expect_error(Box.default(), "this call has none");
+  q := _Pair(i32, bool).make(i32(2), false);
+  assert(q.a == i32(2), "written type arguments call the static method");
+});
+test("a receiver of another type is E0613 naming both", {
+  a := arc(i32(1));
+  comptime_expect_error(Box.clone(a), "which has type `Arc(i32)`, not an instance of `Box`");
+  b := box(box(i32(1)));
+  comptime_expect_error(Arc._handle(b), "not an instance of `Arc`");
+  comptime_expect_error(Box.clone(i32(1)), "which has type `i32`");
+});
+test("a method the instance lacks is still E0610", {
+  b := box(i32(1));
+  comptime_expect_error(Box.nope(b), "No method \"nope\" on Box(i32)");
+  comptime_expect_error(Box(i32).nope(b), "No method \"nope\"");
+});

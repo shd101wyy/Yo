@@ -946,6 +946,29 @@ p := Point(x : 3, y : 4);
 p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
 ```
 
+#### 通过类型调用方法
+
+方法也可以在它的类型上调用，此时接收者作为第一个实参：`Point.distance_from_origin(p)` 就是 `p.distance_from_origin()`。泛型类型也可以这样调用，既可以写出类型实参（`Box(i32).clone(b)`），也可以省略（`Box.clone(b)`）。省略时，类型实参从第一个实参推断，而它本身必须是该类型构造器的一个实例，就像 Rust 推断 `Rc::clone(&w)` 的 `T` 一样。推断会穿过一层指针（`Box.clone(&(b))`）。这对任何泛型 struct 或 enum 都适用，不限于 prelude 的包装类型。
+
+静态方法（没有 `self` 的方法）没有可供推断的接收者，所以必须写出类型实参：`Pair(i32, bool).make(...)`。在这种情况下省略类型实参，或者第一个实参不是该构造器的实例，都会报 E0613，错误信息会给出该实参的类型。
+
+```rust
+Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(a : A, b : B)
+);
+impl(
+  generic(A : Type, B : Type),
+  Pair(A, B),
+  first : (fn(self : Self) -> A)(self.a),
+  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b))
+);
+
+p := Pair(i32, bool).make(i32(1), true); // 静态方法：写出类型实参
+a := Pair.first(p);                      // 从 `p` 推断 A := i32、B := bool
+b := box(i32(5));
+c := Box.clone(b);                       // 即 Box(i32).clone(b)
+```
+
 #### 关联常量
 
 `impl` 里除了方法，还可以声明普通的值成员。它可以直接从类型上读取，泛型函数体也可以从类型参数上读取。整数类型的 `MIN`、`MAX` 和 `BITS` 就是这样提供的（`u8.MAX`、`i16.MIN`、`u64.BITS`）。

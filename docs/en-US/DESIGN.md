@@ -975,6 +975,29 @@ p := Point(x : 3, y : 4);
 p.set_x(10); // No `&(p)` required — the compiler inserts it
 ```
 
+#### Calling a method through its type
+
+A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Box(i32).clone(b)`) or without them (`Box.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. One pointer level is looked through (`Box.clone(&(b))`). This works for any generic struct or enum, not only the prelude's wrappers.
+
+A static method (one with no `self`) has no receiver to infer from, so its type arguments are written out: `Pair(i32, bool).make(...)`. Leaving them out there, or passing a first argument that is not an instance of the constructor, is E0613, and the message names the argument's type.
+
+```rust
+Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(a : A, b : B)
+);
+impl(
+  generic(A : Type, B : Type),
+  Pair(A, B),
+  first : (fn(self : Self) -> A)(self.a),
+  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b))
+);
+
+p := Pair(i32, bool).make(i32(1), true); // static: type arguments written
+a := Pair.first(p);                      // A := i32, B := bool, from `p`
+b := box(i32(5));
+c := Box.clone(b);                       // Box(i32).clone(b)
+```
+
 #### Associated constants
 
 An `impl` may declare a plain value member beside its methods. It is read off the type, and a generic body can read it off a type parameter. The integer types carry `MIN`, `MAX` and `BITS` this way (`u8.MAX`, `i16.MIN`, `u64.BITS`).
