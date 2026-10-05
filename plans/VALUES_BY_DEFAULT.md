@@ -20,7 +20,7 @@ Progress:
   - V3's compiler Generation A (#1217);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
-  - V1 step 1, Generation A: the compiler learns the `Rc` names;
+  - V1 step 1, Generation A: the compiler learns the `Rc` names (#1232);
   - V3b Generation A;
   - V3's remaining compiler work: async, `Iso`, `Send`/`Sync`, and
     `imm(y) :=` (see V3).
@@ -1566,7 +1566,7 @@ and in git, not a silent edit.
   trait's key, #1191), `ref_count`, the pattern shapes (`box_inner_type`,
   `_box_shaped`: a single `*` field), and the type-identity rule
   (`compatibility.yo`: different constructor ids are different types).
-- **Generation A — done** (`feat/vbd-v1-rc-names`). The compiler knows both
+- **Generation A — done** (#1232). The compiler knows both
   names: every check above reads one list, `shared_cell_names_at`
   (`src/types/guards.yo`), with the canonical spelling first
   (`shared_cell_canonical_names`, what `dyn(v)` synthesizes). The canonical

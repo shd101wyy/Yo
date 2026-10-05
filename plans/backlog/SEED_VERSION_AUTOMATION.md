@@ -170,7 +170,7 @@ to the seed:
   ("does not implement the trait"). Measured 2026-10-05 with
   `tests/rc_cell.test.yo` under the seed and the tree's std.
 
-**Generation A DONE 2026-10-05** (`feat/vbd-v1-rc-names`):
+**Generation A DONE 2026-10-05** (#1232):
 - Every name check reads one list, `shared_cell_names_at` (`Box`, `Rc`).
 - The canonical spelling the compiler synthesizes stays `Box`/`box`
   (`shared_cell_canonical_names`).
