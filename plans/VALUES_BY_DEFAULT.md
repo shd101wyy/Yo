@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 30 in §4 are confirmed.
+- **Decisions:** all 31 in §4 are confirmed; no question is open.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -746,7 +746,7 @@ machinery.
 
 ## 4. Decisions
 
-All 30 are confirmed by the maintainer. A change is a dated amendment here
+All 31 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -1060,6 +1060,25 @@ and in git, not a silent edit.
         for its hidden lowering.
     - **Migration is mechanical**, because today's plain parameter already
       means a read-only borrow. See V3b.
+31. **A pattern spells the wrapper it looks through, as in Rust.**
+    Confirmed 2026-10-05 by the maintainer; it resolves the former §9 Q12.
+    - **The rule.** A `Box(Expr)` or `Rc(Expr)` scrutinee does not match
+      `Expr` patterns implicitly. The pattern names the wrapper: `Box(p)`
+      matches the payload of a `Box` against `p`, and `Rc(p)` and `Arc(p)`
+      do the same for their cells.
+      - Example: `match(e, .Add(Box(.Num(a)), Box(.Num(b))) => a + b, …)`.
+    - **Bindings inside `Rc(p)`/`Arc(p)` borrow** (decision 26), because
+      other handles may share the cell. Bindings inside `Box(p)` follow the
+      scrutinee's mode.
+    - **Why explicit.** It keeps every indirection visible where it is
+      crossed, which is the point of this plan. A pattern written against a
+      `Box` child is also not silently re-read when a type changes `Rc` to
+      `Box` or back.
+    - **Rejected: implicit see-through,** which is what `ref(enum)` gives
+      today and what the ~3,500 tree arms assume.
+    - **Cost.** V4 rewrites the arms that destructure children. The rewrite
+      is mechanical: each pattern position whose type is a wrapper gains
+      the wrapper's constructor.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -1403,12 +1422,14 @@ stage-2 RSS):
   unique `Box`, decided by measurement.
 - **Tests.** `tests/internal/*` as the differential, the fixpoint, and the
   memory ratchet.
-  - About 750 `TypeValue.`, 430 `EvalValue.` and 90 `AstExpr.`
-    constructions, and about 3,500 destructuring arms, must not need the
-    wrapper spelled in every pattern.
-  - So `match` sees through the child wrapper in pattern position (Q12):
-    one evaluator rule and one codegen rule, in `pattern_compile.yo` and
-    `codegen/exprs/match.yo`.
+  - **Wrapper patterns** (decision 31). `Box(p)`, `Rc(p)` and `Arc(p)`
+    patterns are one evaluator rule and one codegen rule, in
+    `pattern_compile.yo` and `codegen/exprs/match.yo`. They land in V4's
+    first PR, with the `TypeValue` conversion as the test.
+  - **Constructions and arms.** About 750 `TypeValue.`, 430 `EvalValue.` and
+    90 `AstExpr.` constructions are rewritten. So is each of the ~3,500
+    destructuring arms that reaches through a child, which a `yo fix`
+    repair inserts mechanically from the pattern position's type.
 
 ### V5: remove `ref(...)` and `atomic(...)`
 
@@ -1511,11 +1532,4 @@ stage-2 RSS):
 
 ## 9. Open questions
 
-12. **The child wrapper in patterns.** V4 needs `match` to see through `Rc`
-    (the large trees) and `Box` (the small trees) in pattern position. Two
-    spellings:
-    - **Implicit:** a `Box(Expr)` scrutinee matches `Expr` patterns. This is
-      what `ref(enum)` gives today, and what about 3,500 arms assume.
-    - **Explicit:** `Box(p)`, as in Rust.
-
-    Decide in V4's first PR, with the `TypeValue` conversion as the test.
+None. The last one (the child wrapper in patterns) is decision 31.
