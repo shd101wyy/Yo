@@ -18,7 +18,7 @@ V2a (collection mutators take `inout(self)`, the audit lists collection
 writes) has landed; its status and the corrections it makes to §6 V2a are
 under "V2a status". Amended again 2026-10-05 after a review of what happens
 to the compile-time RC machinery under §0 (§0.9): decisions 25–29 confirmed
-with the maintainer (29: parameters lower to C by kind),
+with the maintainer (29: borrowed scalars by value, everything else by `const T*`),
 phases placed for decision 17 and for `Box`'s and
 `Dyn`'s explicit copies (§0.8), and superseded notes on V1's `Box`
 definition, §3.10, §3.12, §3.13, V3 and V4.**
@@ -524,73 +524,98 @@ copies the first kind implicitly (decision 16).
       The `Rc` arm is its own PR right after V1 step 1's rename, which stays
       mechanical.
 
-29. **Confirmed 2026-10-05: parameters lower to C by the type's kind, not
-    its size.** Raised by the maintainer: the generated C signature must be
-    predictable from the Yo signature.
+29. **Confirmed 2026-10-05: a borrowed scalar is passed by value;
+    every other borrowed parameter by `const T*`.** Raised by the
+    maintainer: the C signature must be predictable from the Yo signature,
+    and a large struct must not be copied at every call.
     - **The rule:**
 
       | Yo parameter | C |
       | --- | --- |
-      | plain (borrow) of an implicitly copyable type (integers, floats, `bool`, `rune`, pointers, `str`, plain structs, enums, tuples and arrays) | `T x`, by value, exactly as C passes it |
-      | plain (borrow) of an owning type (`String`, collections, `Box`, `Dyn`, `Rc`/`Arc`, move-only) | `const T* x`, so nothing is copied or consumed |
+      | plain (borrow) of a scalar: integers, floats, `bool`, `rune`, raw pointers, fieldless enums | `T x` |
+      | plain (borrow) of anything else: structs, enums with payloads, tuples, arrays, `str`, `String`, collections, `Box`, `Dyn`, `Rc`/`Arc`, move-only types | `const T* x` |
       | `inout(x) : T` | `T* x` |
       | `sink(x) : T` | `T x`, by value; ownership moves in, and the callee drops it |
+      | a parameter of an `extern` C function | exactly the declared C type |
 
-      The receiver follows the same rule: `self` is passed like a plain
-      parameter of its type, and `inout(self)` like an `inout` parameter.
-    - **Why kind, not size.**
-      - **Predictable.** A size threshold (for example "by pointer above 16
-        bytes") was rejected, because the C signature would depend on a
-        struct's layout: adding a field could change every function that
-        takes it.
-      - **Target-independent.** It would also differ by target ABI: Windows
-        x64 already passes structs over 8 bytes by reference, and wasm32 has
-        its own rules. The kind rule emits the same C on every target and
-        leaves the platform ABI to the C compiler.
-      - **C interop for free.** A plain-data signature is exactly C's, so
-        `extern` declarations, exported functions and C callbacks need no
-        separate rule. Owning types never appear by value in a C-facing
-        signature.
-    - **The cost.** A large plain struct is copied at the call, as today and
-      as in C. On arm64 the C ABI already passes a composite over 16 bytes
-      through a pointer to a caller-made copy. If profiling shows such copies
-      matter, the remedy is an explicit, visible opt-in on that parameter,
-      not a hidden threshold.
-    - **`Dyn` is unaffected.** Each impl method is reached through a wrapper
-      defined with the vtable slot's signature (`void* self_ptr` plus the
-      trait's parameter types, `_wrapper_params` and
-      `generate_dyn_wrapper_functions` in `src/codegen/functions/dyn.yo`).
-      The wrapper converts the erased receiver to the impl's own spelling
-      and casts the other arguments. The trait's non-receiver parameters
-      have concrete types, so the kind rule gives every implementor the
-      same slot signature. The `Fn` `call` slot of `Dyn(Fn(...))` and
-      closures follow the same path. The rule is a function of the type
-      alone, and `generic(...)` functions are monomorphized, so every
-      caller, function pointer and translation unit (`--emit-chunks`)
-      agrees.
-    - **Async.** A borrowed owning argument is a pointer into the caller's
-      storage, so a future that captures one is a borrowing future, and
-      decision 14's second-class rule applies. Decision 14 already covers
-      `inout` and borrowed move-only arguments; this extends it to every
-      owning type. A borrowed plain-data argument is copied into the frame,
-      as today, and leaves the future first-class.
-    - **`restrict`.** `inout` could be emitted `T* restrict`, since decision
-      28 makes an `inout` argument exclusive among the arguments. A callee
-      may still reach a module-level place that a caller passed `inout`, so
-      `restrict` is emitted only once the module-level arms reject that case
-      for every type. It stays plain `T*` until then.
-    - **§9 Q13.** A plain-data parameter is the callee's own copy in C, so
-      allowing `p.n = (p.n + 1)` costs nothing. Making it an error is a
-      language choice (Hylo's read-only `let`), not a codegen need.
-    - **What changes.** Today every plain parameter is `T x`, and an owning
-      handle (`String`, `Box`) is its cell pointer by value with no count
-      change, which already behaves as `const T*`. The change lands with V2b,
-      when `String`, the collections and `Dyn` become `{ptr, len, cap}`-style
-      values: they switch to `const T*`. The unique `Box` (V1 step 2) does
-      the same from its first commit.
-    - **Measured with** `check ./src` time and stage-2 RSS, and a call-heavy
-      micro-benchmark (string and collection readers), against the
-      by-value spelling.
+      The receiver follows the same rule: `self` like a plain parameter of
+      its type, and `inout(self)` like an `inout` parameter.
+    - **This is Hylo's design, made concrete.**
+      - Hylo passes every parameter of every convention, and the result,
+        through a pointer, even an `Int`. The convention only adds LLVM
+        attributes: `noalias`, `nofree`, `nocapture`, and `readonly` for
+        `let` (`hylo-lang/hylo`, `Sources/CodeGen/LLVM/Transpilation.swift`,
+        "Parameters and return values are passed by reference").
+      - Its C calls are a separate instruction (`CallFFI`) that passes each
+        argument with its C type.
+      - Yo keeps scalars in registers, so that `add :: (fn(x : i32, y : i32)
+        -> i32)` stays `int32_t add(int32_t x, int32_t y)`, and keeps
+        Hylo's split between native calls and C calls.
+    - **Rejected alternatives, and why:**
+      - **Copy plain data by value whatever its size** (the first version of
+        this decision): a large struct is copied at every call.
+      - **A size threshold** (by pointer above 16 bytes): the C signature
+        would depend on the layout and differ by target ABI. Windows x64
+        already passes structs over 8 bytes by reference, and wasm32 has
+        its own rules.
+      - **A per-type marker** (`BorrowByPointer`): one more thing to know
+        and to forget.
+      - **By-value default with explicit `read`/`mut`:** C is just as
+        predictable, but `read(...)` lands on most `String`, collection and
+        callback parameters and on every reading `self`. The default stays
+        borrow (decision 24).
+    - **Cost.** A small struct such as `Point` or `str` is passed through a
+      pointer. Yo emits most functions `static inline`, so at `-O2` clang
+      inlines them or promotes a read-only pointer argument back to
+      registers (LLVM's argument promotion), which is what Hylo relies on.
+      The cost remains in `-O0` builds and across translation units. The
+      PR measures both.
+    - **Writes through a plain parameter.** A borrowed struct is now the
+      caller's storage, so `p.n = (p.n + 1)` on a plain `p : Point` cannot
+      stay legal as a write to a private copy. §9 Q13 decides between an
+      E0908 error (the recommendation; write `q := p` or take `inout(p)`)
+      and a copy into a local at entry.
+    - **Call sites.** An argument that is not an lvalue (a literal struct,
+      a call result) is materialized in a temporary whose address is
+      passed, as C++ does for `const T&`. A borrowed parameter passed on to
+      another borrowed parameter forwards the pointer without copying.
+    - **`Dyn`, closures and function pointers are unaffected.**
+      - Each `Dyn` impl method is reached through a wrapper defined with the
+        vtable slot's signature (`void* self_ptr` plus the trait's
+        parameter types, `_wrapper_params` and
+        `generate_dyn_wrapper_functions` in `src/codegen/functions/dyn.yo`).
+        The wrapper converts the erased receiver and casts the arguments.
+      - The rule depends only on a parameter's type, so every implementor
+        gets the same slot signature, and so does `Dyn(Fn(...))`'s `call`
+        slot.
+      - `generic(...)` functions are monomorphized, so every caller,
+        function pointer and translation unit (`--emit-chunks`) agrees.
+    - **C callbacks.** A Yo function passed to an `extern` parameter as a C
+      function pointer must have a C signature. With only scalar
+      parameters, its Yo and C lowerings coincide. A struct parameter there
+      is a compile error naming the fix: take a pointer `*(T)`, as C APIs
+      do.
+    - **Async.** An `async` function copies a borrowed implicitly copyable
+      argument into its frame at the call, which a borrow cannot tell from
+      sharing, so the future stays first-class. A borrowed owning argument
+      stays a pointer into the caller's storage: the future borrows it, and
+      decision 14's second-class rule applies. Decision 14 covered `inout`
+      and borrowed move-only arguments; this extends it to every owning
+      type.
+    - **`restrict`.** `inout` could be `T* restrict`, since decision 28
+      makes an `inout` argument exclusive among the arguments. A callee may
+      still reach a module-level place that a caller passed `inout`, so
+      `restrict` waits until the module-level arms reject that case for
+      every type.
+    - **Phases.**
+      - Plain structs, enums, tuples, arrays and `str` switch to `const T*`
+        in their own measured PR after V3. This is a codegen change plus Q13
+        (`check ./src` time, stage-2 RSS, a `-O0` and an `-O2` call-heavy
+        micro-benchmark).
+      - Owning types switch with V2b, when `String`, the collections and
+        `Dyn` become values. Today's handles are a cell pointer passed by
+        value with no count change, which already behaves as `const T*`.
+      - The unique `Box` is `const Box*` from its first commit.
 
 ### 0.4 First gate: measure the migration
 
@@ -674,6 +699,8 @@ here. The phase sizes below are written without them, on purpose.
    `match(sink(x), …)` for move-only payloads (decision 26). Then
    `borrow(y) :=`, last-use live ranges and decision 25's re-pointing
    (without the projection step), which the unique `Box` needs.
+   Decision 29's `const T*` lowering for plain structs, enums, tuples,
+   arrays and `str`, with §9 Q13, in its own measured PR.
 4. **V1 step 2: the unique `Box`.** It comes after V3 because it needs V3's
    general "requires an explicit copy" predicate. The new `Box` is
    explicit-copy from its first commit, so its copies are never implicit.
@@ -2298,7 +2325,9 @@ Per type, in this order, each its own PR, measured:
    callee writes its own copy. Under borrow-by-default (decision 24) a plain
    parameter is a read-only borrow, as Hylo's `let` is. Recommendation: make
    it E0908 and write `q := p` (an implicit copy for this kind) or take
-   `inout(p)`. Decision 29 passes plain data by value, so codegen does not
-   need the rule; it is a language choice. Measure first: §0.4's audit lists only dup points, so it gains
+   `inout(p)`. Decision 29 passes a borrowed struct as `const T*`, so the
+   write would reach the caller's storage. The choice is now between this
+   error and a copy into a local at entry, which would be a hidden copy.
+   Measure first: §0.4's audit lists only dup points, so it gains
    a count of field writes through plain parameters of implicitly copyable
-   type. V2b decides with that number.
+   type. Decision 29's struct-lowering PR decides with that number.
