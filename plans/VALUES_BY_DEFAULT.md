@@ -1249,6 +1249,25 @@ and in git, not a silent edit.
       - **Call sites are the same either way.** An operator takes no marker,
         and a generic body is specialized per instantiation, so `a + b`
         calls the concrete impl with its own convention.
+      - **`Dyn` is unaffected.** A vtable slot's type comes from the trait,
+        never from an impl, so an `imm` operand is `const T*` in the slot
+        for every impl.
+        - Each impl already gets a wrapper, `__yo_wrap_<impl>_<method>`
+          (`generate_dyn_wrapper_functions`, `src/codegen/functions/dyn.yo`).
+          The wrapper is defined with the slot's signature and forwards to
+          the impl, adapting where the two spellings differ (`arg_casts`).
+        - A by-value impl adds one more adaptation: its wrapper passes
+          `*argN` where the slot has a pointer. That is one load per call
+          through a `Dyn`, which already pays an indirect call.
+        - The receiver is `void* self_ptr` in every slot already, whatever
+          the impl's receiver mode.
+        - Many operator members never reach a vtable anyway:
+          `dyn_member_unsafe_reason` (`src/types/utils.yo`) drops a member
+          whose non-receiver parameter or result mentions `Self`, such as
+          `Self.Output`. One with concrete types, like `Eq(String)`'s `(==)`,
+          gets a slot.
+        - Test: a `Dyn(Eq(Point))` over a by-value `Point` impl compares
+          correctly.
       - **Only for the operator traits.** A named method's call site carries
         decision 33's marker. If an impl could change a parameter's mode,
         `p.eq(&q)` through the trait and `p.eq(q)` against the concrete
