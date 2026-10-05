@@ -42,6 +42,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Trait Method Disambiguation](#trait-method-disambiguation)
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
+    - [Calling a method through its type](#calling-a-method-through-its-type)
     - [Associated constants](#associated-constants)
   - [Private members](#private-members)
   - [recur](#recur)

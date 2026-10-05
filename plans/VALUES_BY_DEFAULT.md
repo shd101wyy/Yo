@@ -1902,7 +1902,7 @@ and in git, not a silent edit.
 - `Allocator` in the prelude (#1188, #1207);
 - decision 32, Generation A: a method called through an unapplied generic
   type constructor (`Box.clone(b)`, `Pair.first(p)`), its arguments inferred
-  from the receiver (`feat/vbd-d32-unapplied-ctor-method`).
+  from the receiver (`#1241`).
   - **The rule.** `G.m(x, ...)`, where `G` evaluates to a comptime function
     returning a `Type`, is `G(A, ...).m(x, ...)` when the type of `x`, the
     first argument, is an instantiation `G(A, ...)`. The match is by
