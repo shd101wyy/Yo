@@ -33,7 +33,7 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { write_string, copy } :: import("std/fs/file");
 { create_dir_all, remove_file } :: import("std/fs/dir");
 { Path } :: import("std/path");
-{ run_compile } :: import("../../src/main.yo");
+{ run_compile, windows_path_with_dir_first } :: import("../../src/main.yo");
 { file_exists_sync, read_file_sync } :: import("../../src/manifest.yo");
 
 test("the --sanitize address probe consults the chosen --c-compiler, not the system cc", {
@@ -134,4 +134,31 @@ test("the --sanitize address probe consults the chosen --c-compiler, not the sys
     log == String.from("asan\nplain\n"),
     `the fake cc must see the probe's -fsanitize=address invocation (asan) followed by the un-sanitized driver invocation (plain); got "${log}"`
   );
+});
+// The test runner puts the ASan runtime DLL directory on PATH once per BATCH.
+// A plain prepend added one more copy every batch, so a full Windows run grew
+// PATH by hundreds of entries. Late in the run (tests/process/command.test.yo,
+// ~200 batches in, run 37292720878) a child `cmd /C ping ...` reported
+// "'ping' is not recognized"
+// (issues/fixed/the-test-runner-prepends-the-asan-dll-dir-to-path-once-per-batch.md).
+// Putting the directory on PATH must be idempotent.
+test("the ASan DLL directory goes on PATH once, however many batches apply it", {
+  dll := String.from("C:\\LLVM\\lib\\clang\\21\\lib\\windows");
+  base := String.from("C:\\Windows\\system32;C:\\Windows");
+  once := windows_path_with_dir_first(base.clone(), dll.clone());
+  assert(once == `${dll};${base}`, `the first application prepends; got "${once}"`);
+  (p : String) = once.clone();
+  (i : i32) = i32(0);
+  while(i < i32(200), {
+    p = windows_path_with_dir_first(p.clone(), dll.clone());
+    i = (i + i32(1));
+  });
+  assert(p == once, `200 batches leave one entry; got ${p.len().to_string()} bytes`);
+  // Windows compares directories ignoring case and a trailing separator.
+  upper := String.from("C:\\llvm\\LIB\\clang\\21\\lib\\Windows\\");
+  assert(windows_path_with_dir_first(once.clone(), upper) == once, "a differently spelled copy is the same entry");
+  // Already present further down: left where it is.
+  later := `${base};${dll}`;
+  assert(windows_path_with_dir_first(later.clone(), dll.clone()) == later, "an entry later in PATH is not duplicated");
+  assert(windows_path_with_dir_first(String.from(""), dll.clone()) == dll, "an empty PATH becomes the directory alone");
 });

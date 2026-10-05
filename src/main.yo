@@ -2302,6 +2302,34 @@ _win_dirname :: (fn(p : String) -> String)({
   });
   p.substring(usize(0), usize(last_sep))
 });
+/// `dir` put at the front of the `;`-separated Windows search path `path`,
+/// unless an entry already names it (compared ignoring ASCII case and a
+/// trailing `\`, as Windows compares directories) — then `path` is returned
+/// unchanged. The test runner applies the ASan DLL directory once per batch,
+/// and a plain prepend grew PATH by one entry per batch: hundreds of files
+/// in, the variable outgrew what child processes can search and a late
+/// test's `cmd /C ping ...` reported "'ping' is not recognized"
+/// (issues/fixed/the-test-runner-prepends-the-asan-dll-dir-to-path-once-per-batch.md).
+windows_path_with_dir_first :: (fn(path : String, dir : String) -> String)({
+  want := dir.trim_end_matches("\\");
+  entries := path.split(";");
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    present := match(entries.get(i), .Some(e) => e.trim_end_matches("\\").eq_ignore_ascii_case(want.clone()), .None => false);
+    if(present, {
+      return(path);
+    });
+    i = (i + usize(1));
+  });
+  if(path.len() == usize(0), dir, `${dir};${path}`)
+});
+export(windows_path_with_dir_first);
+/// Put the ASan runtime DLL directory on this process's PATH (see
+/// `windows_path_with_dir_first`); children inherit it.
+_put_asan_dll_dir_on_path :: (fn(dll_dir : String) -> unit)({
+  cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
+  _sv_path := proc_env.set(String.from("PATH"), windows_path_with_dir_first(cur_path, dll_dir));
+});
 /// Windows: the directory holding clang's ASan runtime DLL, to prepend to
 /// PATH before running ASan-instrumented test binaries (the DLL lives at
 /// `<llvm-root>/lib/clang/<version>/lib/windows`). `.None` on any failure or
@@ -2571,10 +2599,7 @@ _asan_runtime_is_usable :: (fn(base : String, cc : String, io : Io) -> bool)({
     // run untouched.
     match(
       _find_clang_asan_dll_path(cc.clone(), io),
-      .Some(dll_dir) => {
-        cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
-        _sv_path := proc_env.set(String.from("PATH"), `${dll_dir};${cur_path}`);
-      },
+      .Some(dll_dir) => _put_asan_dll_dir_on_path(dll_dir),
       .None => ()
     );
     run_cmd.arg(String.from("-c"));
@@ -6604,10 +6629,7 @@ run_test :: (
             dll_cc := if((test_cc == "") || (test_cc == "cc"), String.from("clang"), test_cc.clone());
             match(
               _find_clang_asan_dll_path(dll_cc, io),
-              .Some(dll_dir) => {
-                cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
-                _sv_path := proc_env.set(String.from("PATH"), `${dll_dir};${cur_path}`);
-              },
+              .Some(dll_dir) => _put_asan_dll_dir_on_path(dll_dir),
               .None => ()
             );
           });
