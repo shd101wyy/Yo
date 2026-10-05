@@ -4,7 +4,9 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 33 in §4 are confirmed; no question is open.
+- **Decisions:** all 34 in §4 are confirmed. No design question is open;
+  the sub-decisions parked with the phase that settles them are listed in
+  §9.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -12,8 +14,16 @@ rejected alternatives are in git history (this file at commit 7e0efc70f, and PRs
 #1153–#1212).
 
 Progress:
-- **Landed:** V1 Generation A (#1186, #1188, #1191, #1207) and V2a (#1204).
-- **In progress:** V3 and the §6 measurement.
+- **Landed:**
+  - V1 Generation A (#1186, #1188, #1191, #1207);
+  - V2a (#1204);
+  - V3's compiler Generation A (#1217);
+  - the §6 measurement (#1220). Its call-site pass is deferred.
+- **In progress:**
+  - V1 step 1, Generation A: the compiler learns the `Rc` names;
+  - V3b Generation A;
+  - V3's remaining compiler work: async, `Iso`, `Send`/`Sync`, and
+    `imm(y) :=` (see V3).
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md):
   S1 and S2 have landed, S3a is PR #1190, and S3b is dropped (§0 below).
@@ -80,6 +90,9 @@ Unique ownership removes the question instead of answering it.
     lends `x` to an `imm` parameter, `f(&mut x)` to a `mut` one, and a bare
     `f(x)` passes by value. A mismatch is an error. Method receivers and
     temporaries are exempt (`s.len()`, `show(make_name())`).
+  - **Operators borrow their operands with no marker** (decision 34):
+    `a == b` and `a + b` keep both operands, because each operator's trait
+    declares them `imm`.
   - The same two words spell:
     - local borrows: `imm(y) := place` and `mut(y) := place`;
     - re-pointing a borrow: `imm(cur) = place`;
@@ -300,13 +313,19 @@ Explicit sharing must not mean writing `.*` everywhere.
   a raw pointer it stays the pointer dereference. In V5 this becomes the
   only reading, and `is_box_type` and the `*`-label tests move to the
   `Deref` check.
-- **Resolution order:** wrapper field, wrapper method, payload field,
-  payload method, at each level, recursively through nested wrappers
-  (`Rc(Box(T))` reaches `T`).
-  - A name both have is an error (decision 32), which names
+- **Resolution.** A member is looked up on the wrapper and on its
+  payload, recursively through nested wrappers (`Rc(Box(T))` reaches `T`).
+  - A name only one of them has resolves to that one.
+  - A name both have is an error (decision 32). The error names
     `Rc.clone(w)` for the wrapper's member and `w.*.clone()` for the
-    payload's. A name only one of them has forwards as above.
-  - The same order holds in callee position: `w.items(i)`,
+    payload's.
+  - So no order between the wrapper and the payload is ever needed to
+    choose.
+  - **The commonest clash is `clone`.** Every wrapper has it, and so does
+    every cloneable payload. So `w.clone()` on an `Rc(ArrayList(T))` or an
+    `Rc(String)` is the error, and the diagnostic and `yo fix` must offer
+    both spellings.
+  - The same rule holds in callee position: `w.items(i)`,
     `w.items(i) = v`, and `w.f(x)` for a function-typed payload field.
 - **Hooks:**
   - fields: the label-miss arm of `evaluate_property_access`
@@ -366,6 +385,9 @@ cannot be copied.
   `CRITICAL_SECTION` (`__YO_THREAD_SYNC_TYPE`) is `struct(_cell : Box(State))` with `State`
   move-only. RAII guards hold a raw pointer into that cell, in std code
   under `pragma(Pragma.AllowUnsafe)`.
+  - **This is the unique `Box` of V1 step 2.** An `Rc` cell cannot stand in
+    for it, because `Rc(T)` is never move-only, so the resource would not
+    derive move-only. That is why V3's std half follows V1 step 2 (§6).
 
 ### 3.5 The cell primitive is private
 
@@ -655,9 +677,15 @@ instead.
     `h.await(self, io)`.
   - **Borrowing:** `state`, `is_finished`, `abort` and `as_ptr`
     (`imm(self)`).
-  - **Status.** Generation A codegen is on branch `async-handle-gena`. It
-    lands with V3's compiler PR, and the prelude switch with V3's std PR
-    (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`).
+  - **Status (2026-10-05).** Not landed. V3's compiler PR (#1217) did not
+    carry it.
+    - Generation A codegen is on branch `async-handle-gena` (2026-10-03,
+      no PR). It lands in V3's async PR, rebased onto #1217's move-only
+      machinery.
+    - The prelude switch lands with V3's std half
+      (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`).
+    - Branch `async-handle-genb` holds the `Impl(Future(T))` shape that
+      "Why a pointer field" rejects. It is a record, not a candidate.
 - **A4. Combinators (`std/async/index.yo`) take handles by value, and two
   also take futures.**
   - **Future operands.** `timeout` and a two-way `select` accept futures, so
@@ -750,7 +778,7 @@ machinery.
 
 ## 4. Decisions
 
-All 33 are confirmed by the maintainer. A change is a dated amendment here
+All 34 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -778,9 +806,15 @@ and in git, not a silent edit.
 9. **`std/imm/` becomes a separate package at V5** (§3.9). Revised
    2026-10-05 by the maintainer: its role is persistence alone, and nothing
    in std or the compiler depends on it.
-10. **Phase order:** V1, V3, V3b, V2, V4, V5 (§6). V3 comes before V2 so
+10. **Phase order:** V1, V3, V3b, V2, V4, V5. V3 comes before V2 so
     that the move-only machinery is mature before the collections need
     the general predicate.
+    - **Amended 2026-10-05:** V1 is split around V3.
+      - Generation A and step 1 (the `Rc` rename) come first.
+      - Step 2 (the unique `Box`) comes after V3's compiler work and V3b,
+        and before V3's std half, which needs that `Box` for its
+        resource cells.
+      - §6 gives the full order.
 
 **Amendments, 2026-10-03:**
 
@@ -823,8 +857,18 @@ and in git, not a silent edit.
     exclusivity for the projection's lifetime. Yo's local default is owned,
     so the borrow is spelled. The conditions:
     1. **Second-class:** no store, return, escaping capture or spawn.
-    2. **Exclusivity:** while `imm(y)` is live, its root is neither written
-       nor moved. While `mut(y)` is live, its root is not accessed.
+    2. **Exclusivity, by place** (amended 2026-10-05 by the maintainer, so
+       that it matches decision 28's overlap rule).
+       - **What is frozen.** While `imm(y)` is live, the borrowed place is
+         neither written nor moved, and neither is any place it contains or
+         any place that contains it. While `mut(y)` is live, none of those
+         places is accessed.
+       - **Siblings stay free.** `mut(a) := s.left; mut(b) := s.right` is
+         accepted. Rust accepts it, and so does Swift for the stored
+         properties of a local struct.
+       - **Below an `Rc`/`Arc` deref, the cell is the unit,** because the
+         run-time flag is per cell. Two `mut` borrows of fields of one `Rc`
+         payload trip §3.10's assert.
     3. **Aliases:**
        - A value root has none, so rule 2 is checked statically.
        - A place reached through an `Rc`/`Arc` keeps the run-time flag on
@@ -994,9 +1038,15 @@ and in git, not a silent edit.
       move or drop a dispose.
     - **Lint.** A redundant-clone lint with a `yo fix` repair removes such
       clones from the source.
-    - **Phase:** V2b.
+    - **Phase:** V2b. The lint lands in the same PR as the first `yo fix`
+      sweep that inserts `.clone()`, so that the sweep's output is linted as
+      soon as it exists (amended 2026-10-05). §6 estimates that about 73% of
+      the sites want a real clone, so the sweep will insert some clones
+      where a move or a borrow was meant, and the lint is what catches
+      them.
 28. **Call arguments are exclusive.**
     - **Overlap.** Two places overlap when one is a prefix of the other.
+      Decision 18's local borrows use the same rule.
       Index and projection places on one root overlap conservatively. A
       non-escaping closure argument overlaps everything it captures, which
       refines today's rule that any closure argument reaches the container
@@ -1137,7 +1187,9 @@ and in git, not a silent edit.
         way;
       - temporaries, literals and closure literals passed to an `imm`
         parameter: `show(make_name())`, `xs.map(x => x + 1)`. A temporary
-        cannot go to a `mut` parameter, which needs a place.
+        cannot go to a `mut` parameter, which needs a place;
+      - operator operands, which each operator's trait declares `imm`
+        (decision 34).
     - **Address-of becomes `addr_of(x)`.** Today `&x` makes a raw pointer
       `*(T)` usable only in `pragma(Pragma.AllowUnsafe)` code. A word makes
       unsafe pointer creation searchable and frees the sigil for safe code.
@@ -1151,6 +1203,47 @@ and in git, not a silent edit.
       sigils, which map one-to-one onto them.
     - **Phase.** V3b, with decision 30: Generation A accepts both forms, and
       Generation B sweeps and turns the mismatch error on.
+
+34. **An operator borrows its operands, and its trait spells the mode
+    once.** Confirmed 2026-10-05 by the maintainer; an audit raised it,
+    because decision 33 did not cover an operator's operands.
+    - **The rule.** The prelude's operator traits declare their operands
+      `imm`, for example `Eq`'s `(==) : fn(imm(lhs) : Self, imm(rhs) : Rhs)
+      -> bool`.
+      - It covers `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Mod`, `BitAnd`,
+        `BitOr`, `BitXor`, `BitNot`, `BitLeftShift`, `BitRightShift`,
+        `Negate` and `LogicalNot`.
+      - The range traits (`RangeOp`, `RangeInclusiveOp`) are the exception.
+        A range stores its endpoints, so like a constructor it takes them by
+        value.
+      - Every impl matches its trait, so the mode is the same for every
+        type.
+    - **No marker at the operator.** `a == b` and `a + b` borrow both
+      operands, and no operator consumes or writes an operand.
+      - The operator itself is the marker, as `.` is for a receiver
+        (decision 33), because each operator has one mode for every impl.
+      - A `&` on an operand is an error.
+      - Implicitly copyable operands are unaffected.
+    - **Why.** On `String`, `==` is the most frequent call in the compiler:
+      the comment on `std/string/string.yo`'s `Eq` measures it at ~38% of a
+      stage-2 emit.
+      - By-value operands would move the right operand of every comparison.
+      - Markers would put two sigils on it (`&a == &b`) to say what every
+        operator means.
+    - **Arithmetic builds a new value.** `first + last` on `String` leaves
+      both operands usable. A consuming concatenation is a named method
+      (`s.append(t)`). Yo has no compound assignment, so `buf = buf + t` is
+      an ordinary assignment.
+    - **Rejected:**
+      - markers on operands;
+      - Rust's split, where comparisons borrow and arithmetic consumes,
+        because `+` on an owning type would then consume silently.
+    - **Indexing is not covered:** `xs(i)` is a projection (decision 24).
+    - **Phase.** V3b.
+      - Generation A adds `imm` to the traits' operands. Today's plain
+        parameters already borrow, so no program changes behaviour.
+      - The Generation B sweep rewrites every operator impl's operands to
+        `imm`, plain-data types included, because an impl matches its trait.
 
 **Considered and kept implicit** (2026-10-05, the maintainer):
 - **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
@@ -1231,9 +1324,14 @@ and in git, not a silent edit.
    | Not counted: a `match` binding of an owned temporary | 3,314 | 183 | 52 |
 
    - **By path, in `src/`:** 2,461 returns or block tails, 2,441 field
-     stores, 1,064 `y := x` bindings, 432 assignments, 143 captures. By
-     source: 2,689 field reads, 1,710 plain parameters, 1,229 `match`
-     bindings of a parameter or field, 839 locals used again.
+     stores, 1,064 `y := x` bindings, 432 assignments, 143 captures. The
+     remaining 10 (of 6,551) take the audit's smaller paths: element
+     stores, `Dyn` coercions and owning-parameter copies.
+   - **By source, in `src/`:** 2,689 field reads, 1,710 plain parameters,
+     1,229 `match` bindings of a parameter or field, 839 locals used again.
+     The remaining 84 are the smaller sources: `for` elements, module-level
+     values, `inout` bindings, closure state, and sites the audit could not
+     attribute.
    - **What the sites want.** In a sample of 30 counted `src/` lines, 22
      want a real `.clone()`, 16 of them of an `Rc`-to-be handle (`TypeValue`,
      `AstExpr`, `Environment`, `EvalValue`, `Token`). 4 want a borrow
@@ -1274,12 +1372,17 @@ and in git, not a silent edit.
      listed, because that argument stays a borrow.
 2. **V1 step 1:** rename every `Box` to `Rc`, mechanically. Decision 28's
    `Rc` arm follows as its own PR.
-3. **V3:** move-only values and the general predicate (in progress).
-   - It also brings decision 26 for move-only payloads.
-   - Then come `imm(y) :=`, last-use live ranges, and decision 25's
-     re-pointing without the projection step.
-4. **V3b:** the parameter conventions (decision 30).
+3. **V3, compiler:** move-only values and the general predicate.
+   - Generation A landed in #1217. It also brings decision 26 for move-only
+     payloads.
+   - Still to come: the async rules (§3.13), `Iso`, `Send`/`Sync`, then
+     `imm(y) :=`, last-use live ranges, and decision 25's re-pointing
+     without the projection step.
+4. **V3b:** the parameter conventions (decisions 30, 33 and 34).
 5. **V1 step 2:** the unique `Box`, explicit-copy from its first commit.
+   - **V3, std:** the resources become move-only values. Their cells are
+     the unique `Box` (§3.4), so this half follows step 2. It is Generation
+     B in any case, because it needs a seed that enforces move-only.
 6. **V2b:** projections, unique buffers, and the explicit-copy kind for
    `String`, the collections and `Dyn`. **V2c:** decision 17 for `Rc`/`Arc`.
 7. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
@@ -1354,7 +1457,7 @@ and in git, not a silent edit.
 
 ### V3: move-only, `Dispose`, resources
 
-**Compiler, Generation A, landed** (branch `feat/vbd-v3-move-only`):
+**Compiler, Generation A, landed in #1217:**
 - **The marker, derived on demand.** `type_is_move_only`
   (`src/types/utils.yo`) holds for a value `struct`/`enum`/`newtype` covered
   by a `Dispose` or `MoveOnly` impl. It also holds for a value aggregate with
@@ -1425,6 +1528,7 @@ and in git, not a silent edit.
     (`issues/questions/the-old-value-of-an-assignment-to-a-move-only-variable-is-disposed-at-the-end-of-the-block.md`).
   - The `Box(_MoFd)` assertion in `tests/move_only.test.yo` flips with the
     value `Box`.
+**Compiler, remaining** (none of it is in #1217):
 - **Async (§3.13):**
   - `MoveOnly` on state machines and `IoFuture`, and consuming
     `io.await`/`io.spawn` that move the result out (A1);
@@ -1438,11 +1542,14 @@ and in git, not a silent edit.
   `Thread.spawn` and the `Impl(Fn, Send)` boundaries take their bounds.
   Tests: `Channel(String)` and `Channel(ArrayList(T))` move under TSan, and
   an `Rc` payload is E0602.
-- **Then, in the same phase:** `imm(y) := place`, last-use live ranges, and
-  decision 25's re-pointing (without the projection step).
+- **Local borrows:** `imm(y) := place`, last-use live ranges, decision 18's
+  place-based exclusivity, and decision 25's re-pointing (without the
+  projection step).
 
 **std** (over `ref(struct)` still; Generation A for the type shapes,
-Generation B for methods that need the seed to enforce move-only):
+Generation B for methods that need the seed to enforce move-only). This half
+lands after V1 step 2, because its resource cells are the unique `Box`
+(§3.4, §6):
 - **Resources become move-only values.** Each resource of §2's third job
   becomes a value `struct` whose state lives in a move-only cell:
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`
@@ -1505,6 +1612,21 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     parameter's mode: an `imm`/`mut` parameter receives a borrow, and a
     raw-pointer parameter keeps receiving a pointer.
   - The mismatch error waits for Generation B.
+  - It adds `imm` to the operator traits' operands (decision 34).
+  - **Name collisions** (grep, 2026-10-05). `imm` and `mut` name no
+    function, local or field in `src/` or `std/`. Three uses must keep
+    working, and Generation A carries a test for each:
+    - `std/imm`'s module values in type position (`imm.Map`) next to
+      `imm(x)` in parameter position, until V5 moves the package out;
+    - inline asm's register class `imm` (`in(imm, v)`,
+      `src/evaluator/builtins/asm.yo`);
+    - asm's `inout` operand kind, a name matched inside `asm(...)`. It
+      stays valid after `inout` is deleted as a parameter mode.
+  - **Sizing the marker sweep.** Generation A also counts the borrowed
+    arguments that are named places, the sites Generation B rewrites to
+    `&x`/`&mut x`. It uses an audit flag like §6's, and the count goes in
+    this section before the sweep PR is opened. The edit changes no
+    behaviour, but its size sets how the review is split.
 - **Generation B,** once `SEED_VERSION` carries Generation A:
   1. **The `yo fix` sweep** over `src/`, `std/`, `tests/`, docs and skills:
      - every plain parameter and receiver of a type that is not implicitly
@@ -1762,6 +1884,11 @@ stage-2 RSS):
   and the easy fix is a silent `.clone()`. The note must name `imm(x)` in
   the callee first, and decision 27's lint catches clones that elision
   would remove.
+- **`yo fix` inserting `.clone()`.** This is the same failure mode at
+  scale: a tool that inserts a clone wherever one compiles. About 73% of
+  the measured sites want a clone, and the rest want a move or a borrow.
+  Decision 27's lint therefore lands in the sweep's own PR, and the sweep's
+  output is reviewed by category, not by site count.
 - **Local and re-pointed borrows** (decisions 18 and 25).
   - The exclusivity diagnostics must read well.
   - The "reached from `cur`" rule must see through pattern bindings and
@@ -1782,4 +1909,17 @@ stage-2 RSS):
 
 ## 9. Open questions
 
-None. The last one (the child wrapper in patterns) is decision 31.
+No design question is open. The last two were decided as decisions 31 (the
+child wrapper in patterns) and 34 (operator operands). Decision 18 was also
+amended to place-based exclusivity.
+
+**Parked with the phase that decides them.** These are smaller choices
+inside a settled design:
+- **A6:** what the bundle copy does with an `Rc`/`Arc` field: clone it,
+  or make bundles explicit-copy. Decided in V2c.
+- **§3.10:** whether `pragma(Pragma.StrictBorrow)` is deleted or kept for
+  `Rc` roots. Decided in V2b, when the collections' headers go.
+- **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
+  the constructors' `alloc` parameter. Decided after V2b.
+- **A closure capture list,** if a Yo-shaped spelling is proposed
+  ("Considered and kept implicit", §4).
