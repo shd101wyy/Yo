@@ -1941,7 +1941,30 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
 - Tests: the clash error with both suggested spellings, and forwarding of
   unclashed names unchanged.
 - **Sites, measured 2026-10-05** (Box and Arc only; #1232's `Rc` adds none
-  until step 1 renames): __D32COUNT__
+  until step 1 renames): one source site.
+  - Measured with a temporary probe in `_try_find_receiver_method`
+    (`YO_AUDIT_D32`, not committed): an instance call whose receiver
+    (pointer-stripped) has the method AND whose `deref_target_type`
+    payload has it too, printed per call and deduplicated on
+    `module:row:col`. Run with the tree-built compiler over
+    `check ./src` (278/278 files), `check ./std` (178/178) and
+    `check ./tests --exclude tests/internal --exclude tests/cli-cases`
+    (563/633 files pass `check` standalone; the rest are negative
+    fixtures). It sees only bodies `check` evaluates: a generic body only
+    at the instantiations something reaches.
+  - **`clone`:** `src/` 0, `std/` 0, tests 1
+    (`tests/deref_auto.test.yo:63`, the test that pins "the wrapper's own
+    members win"). Six more evaluations are `derive(Clone)` bodies cloning
+    a `Box` field (`auto-generated://`): the derive rule, not a call site,
+    has to spell `Box.clone(self.f)`.
+  - **Other names:** `id` at `tests/impl.test.yo:19` (`value.id()` with
+    `T := Box(i32)`) and `hash` at `std/collections/hash_map.yo:233`
+    (`key.hash(h)` with `K := Box(i32)`, reached from a test). Both are
+    trait-bound calls on a type parameter: the error must fire only where
+    the receiver's type is written as a wrapper, never at an instantiation
+    of a `T <: Trait` call.
+  - Box handles copy implicitly until V2c, so `.clone()` on one is rare
+    today; V2c's `Rc.clone(w)` sites (decision 17) are the sweep's bulk.
 
 **Step 1: rename every `Box(` to `Rc(` and `box(` to `rc(`** in `src/`,
 `std/`, `tests/`, docs and skills.

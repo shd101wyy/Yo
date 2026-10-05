@@ -633,21 +633,6 @@ _try_find_receiver_method :: (
       .NoneForced => ()
     );
   });
-  // D32AUDIT-BEGIN (temporary measurement, removed before commit)
-  if(!is_static && (hits.len() > usize(0)) && debug_knob(`YO_AUDIT_D32`).is_some(), {
-    au_rt := match(receiver_type, .Pointer(au_p) => au_p, _ => receiver_type);
-    match(
-      deref_target_type(resolve_struct_shell(au_rt), env),
-      .Some(au_payload) => {
-        au_ph := get_receiver_methods_by_name_from_env(env, method_name.clone(), au_payload, false);
-        if(au_ph.len() > usize(0), {
-          eprintln(`[d32-clash] ${method_name} ${method_tok.module_path}:${method_tok.row.to_string()}:${method_tok.column.to_string()} ${type_to_string(au_rt)}`);
-        });
-      },
-      .None => ()
-    );
-  });
-  // D32AUDIT-END
   if(hits.len() == usize(0), {
     // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` wrapper
     // (`Box`, `Arc`) without the method forwards the call to its payload —
