@@ -1161,7 +1161,8 @@ and in git, not a silent edit.
 - **Decision 22 for borrowing closure literals:** no dup, no move.
 - **The interim `sink(x)` spelling** (decision 15).
 - **A read after a `sink` move is E0901 for every type.** This fixes the S1
-  `issues/a-reference-value-read-after-a-sink-move-reads-freed-memory.md`.
+  issue filed on the V3 branch (a `ref` value read after a `sink` move
+  read freed memory).
 - **Async (§3.13):**
   - `MoveOnly` on state machines and `IoFuture`, and consuming
     `io.await`/`io.spawn` that move the result out (A1);
