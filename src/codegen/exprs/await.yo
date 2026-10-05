@@ -711,7 +711,7 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
       .Some(rvn) => match(
         context.state_machine_variables,
         .Some(smv) => match(
-          sm_slot_of(ast_expr_id(expr), expr_ei.env, rvn, smv, context.variable_id_remapping, context.state_machine_field_aliases),
+          sm_slot_of(ast_expr_id(expr), expr_ei.env, rvn, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot),
           .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${result_var.clone()};`),
           .None => ()
         ),

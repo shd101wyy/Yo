@@ -91,7 +91,7 @@ _sm_binding_slot :: (fn(key : ExprId, env : Environment, name : String, context 
   if(context.in_async_state_machine.is_none(), {
     return(Option(String).None);
   });
-  sm_slot_of(key, env, name, smv, context.variable_id_remapping, context.state_machine_field_aliases)
+  sm_slot_of(key, env, name, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot)
 });
 /// A store into a named local's task slot gives the slot a value it owns: it
 /// clears the move flag a move out of its previous value set (`sm_move_flag_of`;
@@ -231,7 +231,7 @@ _sm_local_slot :: (fn(v : Variable, context : FunctionGenerationContext) -> Opti
         smv.get(canon),
         .Some(cv) => match(
           cv.kind,
-          .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), Option(String).Some(String.from("local")), context.state_machine_field_aliases)}`),
+          .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), context.state_machine_field_aliases)}`),
           .Outer => Option(String).None
         ),
         .None => Option(String).None
