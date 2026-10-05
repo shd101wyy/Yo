@@ -1879,6 +1879,65 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     `&x`/`&mut x`. It uses an audit flag like §6's, and the count goes in
     this section before the sweep PR is opened. The edit changes no
     behaviour, but its size sets how the review is split.
+- **Generation A, as landed** (feat/vbd-v3b-gen-a). What each spelling
+  maps to, so Generation B knows what to replace:
+  - **Parameters and receivers.** `evaluate_function_parameter` strips
+    `imm(x)` and sets no flag, so `fn(imm(x) : T)` *is* `fn(x : T)`. It
+    reads `mut(x)` exactly like `inout(x)` (`param_is_ref`). Function types
+    and `Fn(...)` types go through the same parser, so `Fn(imm(s) : String)
+    -> usize` works. Function-type parameters still need labels:
+    `Fn(imm(String))` is not accepted, because `Fn(String)` is not.
+    `-> mut(T)` is rejected like `-> inout(T)`.
+  - **Types and diagnostics keep today's spellings** (`x : T`, `inout(x)`,
+    `sizeof`), so no golden moved. Generation B switches the printer to
+    `imm`/`mut` and the snake_case names.
+  - **Local bindings.** `mut(y) := place` is `inout(y) := place` at every
+    site that recognizes the binding (`ast_expr_is_inout_mode_call`).
+    `imm(y) := place` is rejected with "not supported yet". It is V3's
+    follow-up with last-use live ranges (decision 18).
+  - **`&mut`** is one operator token. The lexer emits it for a lone `&` that
+    ends an operator run and is directly followed by the word `mut`, so
+    `&&mut` is still `&&` followed by `mut`.
+  - **How `&x` is disambiguated today** (`apply_call_site_borrow_markers` in
+    `src/evaluator/calls/helper.yo`). Both call paths run it before any
+    argument rule reads the arguments. For argument `i` it looks at the
+    callee's declared parameter `i`:
+    - `&mut x` to an `inout`/`mut` parameter → the place `x`, exactly
+      today's `f(x)`;
+    - `&mut x` to any other parameter → an error;
+    - `&x` to an `inout`/`mut` parameter → an error naming `&mut x`;
+    - `&x` to a `sink` parameter, or to a parameter whose declared type is a
+      raw pointer `*(T)` or a `SomeT` (generic or `Impl(...)`) → today's
+      address-of, unchanged;
+    - `&x` to any other parameter → the place `x`, exactly today's `f(x)`.
+      Today such a call never type-checked, because there is no implicit
+      `*(T)` → `T` or `*(T)` → `Option(*(T))` conversion.
+
+    Variadic positions keep the address-of. A `&x` anywhere else (a
+    binding, a field store, a method-call receiver) is the address-of. A `&mut x`
+    anywhere else is an error. Generation B rewrites every address-of `&x`
+    to `addr_of(x)`, deletes the address-of reading, and turns the mismatch
+    error on for bare arguments.
+  - **Scrutinees.** The parser's desugar pass rewrites `match(&x, …)` and
+    `match(&mut x, …)` to `match(x, …)`. Today a plain scrutinee borrows
+    and its arm bindings are read-only copies, so both markers mean exactly
+    that. No match arm binds a `mut` place yet. A `match` inside `quote(...)`
+    is not desugared, as with `if`.
+  - **`addr_of(x)`** is dispatched to the address-of evaluator and emitter,
+    with the same unsafe-file gate.
+  - **`size_of`/`align_of`/`type_of`/`type_id`** match beside the old
+    names at every site: the evaluator dispatch, each builtin's shape
+    check, codegen, the mutation summary's pure-builtin list, and the
+    reserved-binding list. The LSP, `yo context`, the pack and the
+    diagnostics registry never named the old builtins, so nothing changed
+    there. The LSP keyword list gained `mut` and `imm`.
+  - **Collisions.** `std/term.yo`'s `size_of` became `term_size`. Six
+    `type_id` locals in `src/` became `tid`. Parameters and fields named
+    `type_id` are not binding sites and stay.
+  - **Not in Generation A:** `imm(y) :=`, re-points, projection results,
+    lambda parameters spelled `(mut(n)) => …` (a lambda takes its modes
+    from the expected `Fn` type, and `(inout(n)) => …` is not legal
+    either), and `for(xs, mut(x) => …)`.
 - **Generation B,** once `SEED_VERSION` carries Generation A:
   1. **The `yo fix` sweep** over `src/`, `std/`, `tests/`, docs and skills:
      - every plain parameter and receiver of a type that is not implicitly

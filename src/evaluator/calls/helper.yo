@@ -746,6 +746,9 @@ _param_type_takes_address :: (fn(t : TypeValue) -> bool)(
 /// error (neither has ever compiled: the address-of is not a place). There is
 /// no mismatch error for a BARE argument yet: Generation B turns it on.
 ///
+/// `first_is_receiver`: argument 0 is a method-form call's receiver, which
+/// is exempt.
+///
 /// Returns `args` itself when no argument carries a marker; otherwise a copy
 /// with each marker peeled (a `label : &x` argument keeps its label).
 /// Positions past `param_types` (variadic tails) are untouched. Every call
@@ -759,11 +762,14 @@ apply_call_site_borrow_markers :: (
     param_is_ref : ArrayList(bool),
     param_is_owning : ArrayList(bool),
     param_labels : ArrayList(String),
+    first_is_receiver : bool,
     exn : Exception
   ) -> ArrayList(AstExpr)
 )({
   (any_marker : bool) = false;
-  (mi : usize) = usize(0);
+  // A method-form call's receiver (`xs.len()`) is exempt (decision 33): it
+  // is never peeled, so `(&x).m()` keeps today's address-of.
+  (mi : usize) = if(first_is_receiver, usize(1), usize(0));
   while(mi < args.len(), {
     m_bare := _unlabeled_argument(match(args.get(mi), .Some(a) => a, .None => make_err_expr()));
     if(ast_expr_is_fn_call_of(m_bare, BK_BORROW_MUT, .Some(usize(1))) || ast_expr_is_fn_call_of(m_bare, BF_ADDRESS_OF, .Some(usize(1))), {
@@ -782,14 +788,14 @@ apply_call_site_borrow_markers :: (
     is_mut_marker := ast_expr_is_fn_call_of(bare, BK_BORROW_MUT, .Some(usize(1)));
     is_amp_marker := ast_expr_is_fn_call_of(bare, BF_ADDRESS_OF, .Some(usize(1)));
     (peel : bool) = false;
-    if((is_mut_marker || is_amp_marker) && (ai < param_types.len()), {
+    if((is_mut_marker || is_amp_marker) && (ai < param_types.len()) && !(first_is_receiver && (ai == usize(0))), {
       p_is_ref := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
       p_is_owning := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
       p_label := match(param_labels.get(ai), .Some(l) => l, .None => String.new());
       p_ty := match(param_types.get(ai), .Some(t) => t, .None => t_unit());
       place_text := ast_expr_to_string(ast_expr_strip_borrow_marker(bare));
       cond(
-        is_mut_marker && p_is_ref => {
+        (is_mut_marker && p_is_ref) => {
           peel = true;
         },
         is_mut_marker => {
@@ -6303,7 +6309,7 @@ try_to_call_function_with_arguments :: (
       });
       // Call-site borrow markers (`&x`, `&mut x`, decision 33): peeled once,
       // here, so every later step reads the place.
-      adjusted_args = apply_call_site_borrow_markers(adjusted_args, pt, pref, pio, pl, exn);
+      adjusted_args = apply_call_site_borrow_markers(adjusted_args, pt, pref, pio, pl, is_method_call, exn);
       // ----------------------------------------------------------------
       // Step 3: Argument count check.
       //
