@@ -40,9 +40,8 @@ name, a `match` pattern binding and a nested closure parameter, never reach
 (`match.yo`), and a nested closure is emitted as its own C function. That holds
 even before the name-matching re-kind was fixed
 (`issues/fixed/the-io-async-capture-re-kind-pass-matches-captures-by-name.md`),
-which could re-kind a pattern binding `.Outer`. The A/B emission diff of
-#1218 and of this fix shows no change from this function in `src/main.yo` or in
-the async test batches.
+which could re-kind a pattern binding `.Outer`. The A/B emission diff of this fix (below) shows no change from this function in
+`src/main.yo` or in the async test batches.
 
 ## Fix
 
@@ -68,4 +67,22 @@ fail.
 
 ## Verification
 
-AB_PLACEHOLDER
+- `tests/internal/state_machine_naming.test.yo`: with the old `.Outer` arm
+  **1 passed / 3 failed**; with the fix **4 passed**.
+- A/B emission: a stage-1 of develop `17e494faa` against the fixed stage-1,
+  both seed-built (v0.2.52, `--std-path ./std`) and run under one pinned
+  `YO_STD`. `src/main.yo` (1,916,666 lines of C) is **byte-identical**. So are
+  the kept runner batches of `tests/async_await.test.yo` (3 batches),
+  `tests/io_async_captured_alias.test.yo`, `tests/closure_inside_io_async.test.yo`,
+  `tests/closure.test.yo` and `tests/rc.test.yo`, each compiled from one fixed
+  path by both binaries.
+- The one batch that differs (from the re-kind fix in the same change, never from this function) is the new `tests/io_async_capture_identity.test.yo`,
+  22 diff lines, all in its own shapes. The String binding gains its
+  `var_x_<hash>` slot, stored at the binding and read after the await. The
+  scalar binding `n` gains a slot (`slot_0`, shared with `r`, whose ranges do
+  not overlap). The nested-closure-parameter canary gains two `size_t var_x_…`
+  fields that nothing reads or writes: a parameter named like the capture is
+  now treated like any other nested closure parameter, which already got such
+  dead fields before the fix (filed as
+  `issues/an-io-async-state-machine-declares-dead-fields-for-a-nested-closure-parameter.md`).
+  `__yo_incr_rc`/`__yo_decr_rc` counts are unchanged (21/172).
