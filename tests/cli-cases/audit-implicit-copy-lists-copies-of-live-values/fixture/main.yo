@@ -110,6 +110,13 @@ for_store :: (fn(xs : ArrayList(String)) -> usize)({
   });
   out.len()
 });
+// A field write through a by-value parameter of plain data writes the
+// callee's copy (§9 Q13): listed apart, `[plain-param-write]`.
+Point :: struct(x : i32, y : i32);
+nudge :: (fn(p : Point) -> i32)({
+  p.x = (p.x + 1);
+  p.x + p.y
+});
 // A `ref` handle (V5's `Rc`) and a plain-data `ref` object.
 ref_handles :: (fn() -> i32)({
   n := Node(label : String.from("n"));
@@ -142,5 +149,6 @@ main :: (fn() -> unit)({
   _n := capture_two();
   _o := match_parts(.Some(String.from("q")));
   _p := for_store(ArrayList(String).new());
+  _q := nudge(Point(x : 1, y : 2));
 });
 export(main);

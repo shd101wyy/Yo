@@ -86,9 +86,11 @@ pragma(Pragma.AllowUnsafe);
   require_expr_not_consumed,
   throw_expr_is_implicit_variable_error,
   set_expr_as_needs_to_call_dup,
-  attach_temp_variable_to_expr
+  attach_temp_variable_to_expr,
+  audit_implicit_copy_enabled,
+  audit_print_implicit_copy
 } :: import("../utils.yo");
-{ parse_raw_int, debug_knob } :: import("../../utils.yo");
+{ parse_raw_int, debug_knob, display_module_path } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -1058,6 +1060,19 @@ evaluate_assignment :: (
         flag_flow_violation(prop_viol_err);
         exn.throw(dyn(prop_viol_err));
       });
+    });
+    // YO_AUDIT_IMPLICIT_COPY (plans/VALUES_BY_DEFAULT.md §9 Q13): a write
+    // into a by-value parameter of plain data writes the callee's own copy
+    // today, and a borrow under unique ownership.
+    if(audit_implicit_copy_enabled(), {
+      match(
+        borrowed_value_root_of_place(evaluated_lhs, env, ctx),
+        .Some(pv) => if(pv.is_parameter && !type_contains_rc_type(pv.ty) && !ast_expr_token(lhs).module_path.starts_with("auto-generated://"), {
+          at := ast_expr_token(lhs);
+          audit_print_implicit_copy(`${display_module_path(at.module_path)}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} [plain-param-write] ${type_to_string(pv.ty).replace(" ", String.from(""))} \`${_place_source_text(lhs)}\` (${pv.name})`);
+        }),
+        .None => ()
+      );
     });
     // Step 3c — A write into a borrowed copy must not release RC data the
     // copy's owner still holds (E0908).
