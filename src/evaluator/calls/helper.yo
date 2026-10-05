@@ -78,6 +78,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { t_unit, t_type, t_ptr, t_usize, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -91,7 +92,8 @@ pragma(Pragma.AllowUnsafe);
   same_name_note,
   type_contains_some_type_deep,
   mark_generic_independent,
-  type_requires_explicit_copy
+  type_requires_explicit_copy,
+  type_contains_rc_type
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -722,6 +724,69 @@ strip_argument_label :: (fn(arg : AstExpr, param_label : String, exn : Exception
     );
   });
   match(cl_args.get(usize(1)), .Some(a) => a, .None => arg)
+});
+// ---------------------------------------------------------------------------
+// YO_AUDIT_BORROW_MARKERS (plans/VALUES_BY_DEFAULT.md V3b, decision 33)
+// ---------------------------------------------------------------------------
+/// Sizes Generation B's marker sweep: every argument that will carry a
+/// call-site marker once a bare argument means by value. One stderr line per
+/// distinct site, `file:line:col [borrow-marker] <&|&mut> <type> \`<arg>\``:
+///
+/// - `&mut` for a named place passed to a `mut`/`inout` parameter;
+/// - `&` for a named place passed to a borrowing (plain or `imm`) parameter
+///   whose argument type is not implicitly copyable (`type_contains_rc_type`:
+///   it owns a counted value or is move-only). A plain parameter of an
+///   implicitly copyable type stays plain in the sweep and takes no marker.
+///
+/// A named place is a variable or a field path rooted at one (`x`, `s.items`);
+/// temporaries, literals, closures and method-call receivers are exempt, and
+/// so are compile-time and `sink` parameters. Markers are peeled before the
+/// argument rules run, so an argument written with one is listed too (it
+/// already has the spelling Generation B wants). Inert unless the knob is set.
+(g_audit_borrow_markers : bool) = debug_knob(`YO_AUDIT_BORROW_MARKERS`).is_some();
+(g_borrow_marker_printed : HashSet(String)) = HashSet(String).new();
+_arg_is_named_place :: (fn(e : AstExpr) -> bool)(
+  cond(
+    ast_expr_is_atom(e) => (ast_expr_token(e).kind == TokenKind.Identifier),
+    ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => match(
+      e,
+      .FnCall(_, _, np_args, _, _) => match(
+        np_args.get(usize(1)),
+        .Some(np_field) => (ast_expr_is_atom(np_field) && match(np_args.get(usize(0)), .Some(np_base) => _arg_is_named_place(np_base), .None => false)),
+        .None => false
+      ),
+      .Atom(_, _) => false
+    ),
+    true => false
+  )
+);
+/// Report one argument for YO_AUDIT_BORROW_MARKERS (see above). `raw_arg` is
+/// the argument with its label stripped.
+audit_borrow_marker_site :: (
+  fn(raw_arg : AstExpr, arg_ty : TypeValue, param_is_ref : bool, param_is_owning : bool, param_is_ct : bool, ctx : EvalContext) -> unit
+)({
+  if(!g_audit_borrow_markers || param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase, {
+    return(());
+  });
+  if(!_arg_is_named_place(raw_arg), {
+    return(());
+  });
+  (marker : String) = String.new();
+  if(param_is_ref, {
+    marker = String.from("&mut");
+  }, {
+    if(type_contains_rc_type(arg_ty), {
+      marker = String.from("&");
+    });
+  });
+  if(marker.len() == usize(0), {
+    return(());
+  });
+  at := ast_expr_token(raw_arg);
+  line := `${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} [borrow-marker] ${marker} ${type_to_string(arg_ty)} \`${ast_expr_to_string(raw_arg)}\``;
+  if(g_borrow_marker_printed.insert(line.clone()), {
+    eprintln(line);
+  });
 });
 /// Does a `&x` argument to a parameter of declared type `t` keep today's
 /// meaning, the raw-pointer address-of? It does for a raw pointer parameter
@@ -7510,6 +7575,9 @@ try_to_call_function_with_arguments :: (
           callee_is_extern,
           argument_is_aliased_by_inout(parg, match(pref.get(pi), .Some(b) => b, .None => false), s7_inout_roots)
         );
+        if(!(is_method_call && (pi == usize(0))), {
+          audit_borrow_marker_site(_unlabeled_argument(parg), pr.arg_type, match(pref.get(pi), .Some(b) => b, .None => false), p_owning, match(call_param_comptime.get(pi), .Some(f) => f, .None => false), ctx);
+        });
         match(
           pr.s0_drop,
           .Some(s0d) => {
@@ -8739,7 +8807,7 @@ try_to_call_function_with_arguments :: (
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : Environment, label : String) -> Option(TypeValue))(_forall_binding_now(env, label));
-export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
+export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, audit_borrow_marker_site, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
