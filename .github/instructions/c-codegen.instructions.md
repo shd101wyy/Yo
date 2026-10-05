@@ -274,6 +274,16 @@ source order.
   abort dispose empties a flagged slot before its drops, and every store into
   the slot (binding, destructuring, reassignment) clears the flag
   (issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md).
+- **An alias is read through its owner's slot only when the owner is a body
+  local** (`sm_storage_id`). The suspension analysis has no closure boundary:
+  for `sb := s` it records the owner `s` as a captured local even when both
+  live in the enclosing function. The `io.async` re-kind pass
+  (`src/codegen/exprs/async.yo`) turns capture-struct labels into `.Outer`
+  and drops an owner whose alias is a capture and that the body does not
+  capture itself. Without that, `s` got a `var_s_<hash>` field nothing wrote,
+  and every read of `sb` went through it
+  (issues/fixed/an-awaiting-io-async-body-captures-a-local-alias-without-retaining-it.md).
+  A field in the SM struct that no state stores into is this class of bug.
 - **A consuming read of a slot takes the value where the consuming line
   runs** (`_sm_consuming_read`, via `Emitter.defer_move_zero`'s
   `/*yo_mv:…*/` marker): the evaluator's `consumed_at_token` is that atom. A
