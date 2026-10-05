@@ -2,7 +2,7 @@
 
 > **Status (2026-10-05).** This page describes today's compiler. Yo is moving
 > to unique ownership with explicit copies
-> ([`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) §0, §0.9).
+> ([`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) §0, §3.14).
 > - **What goes away:**
 >   - The rule that every assignment, constructor argument, return and block
 >     tail inserts `___dup`, and the dup/drop pair optimizer that cancels
@@ -15,7 +15,7 @@
 >     and otherwise need `.clone()`. Copying an `Rc`/`Arc` handle will need
 >     `.clone()` too.
 > - **What stays:** borrowing, now spelled `imm`/`mut`, scope-end drops and
->   use-after-move. E0908 stays as "an `imm` borrow is read-only" (§0.9).
+>   use-after-move. E0908 stays as "an `imm` borrow is read-only" (§3.14).
 > - **What changes for aliasing:**
 >   - Stage 0's +1 is replaced by a shared borrow mark on the `Rc` cells an
 >     argument is reached through (decision 28).
