@@ -1659,10 +1659,10 @@ and in git, not a silent edit.
         - **The body.** A closure whose body writes one of its by-value
           captures gets the `mut(self)` call. A capture list makes its
           initial state explicit: `{ n : 0 }() => { n = (n + 1); n }`.
-        - **The call site.** The call is marked as decision 33 marks any
-          exclusive borrow, `&mut counter()`, as Hylo's is `&counter()`.
-          A bare `counter()` on such a closure is the mismatch error. So
-          reading a call still tells whether the closure changes.
+        - **The call site is unmarked,** like every closure call (see "Calling
+          a closure" below): `counter()`, as `xs.push(1)` is unmarked.
+          Hylo marks `&counter()` because it also marks mutating method
+          calls (`&xs.append(y)`), and Yo exempts receivers (decision 33).
         - **Holding one.** It needs a `mut` place to be called through:
           `mut(f) : Impl(Fn(...))` with the `mut` call, or an owned local.
           An `Fn` (`imm(self)`) closure is accepted wherever the `mut` call
@@ -1677,8 +1677,39 @@ and in git, not a silent edit.
         or closure inference has to handle a third call mode. A closure's
         environment never changes while it lives, and a call either borrows
         it (`Fn`) or consumes it (`FnOnce`). The Hylo-style addition above
-        would keep calls readable through `&mut f()`. What it would add is
-        the mode in every bound that accepts a stateful closure.
+        would add the mode to every bound that accepts a stateful closure.
+    - **Calling a closure is a receiver call, so it is never marked**
+      (amended 2026-10-05 by the maintainer).
+      - `f(x)` is `f`'s call method with `f` as the receiver, so decision
+        33's receiver exemption applies in every mode:
+        - an `Fn` call borrows `f`, like `s.len()`;
+        - an `FnOnce` call consumes it, like `h.join()`, and a later use is
+          E0901 pointing at the call;
+        - a stateful call, if one is added, borrows it exclusively, like
+          `xs.push(1)`.
+      - The mode is part of the closure's type, as a method's receiver mode
+        is part of its signature.
+      - Marking only closure calls (`&mut counter()`), or `imm` calls as
+        well (`&f()`), would be inconsistent with `s.len()` and
+        `xs.push(1)`. Both were rejected.
+      - **Passing a closure is an ordinary argument** and takes decision
+        33's markers:
+        ```rust
+        add := { k }(x : i32) => (x + k);
+        add(1); add(2);                      // an Fn call: unmarked, add stays usable
+        apply :: (fn(imm(f) : Impl(Fn(i32) -> i32), x : i32) -> i32)(f(x));
+        apply(&add, 5);                      // lending the closure: marked
+        apply((x : i32) => (x * 2), 5);      // a literal is a temporary: exempt
+        keep(add);                           // a by-value (escaping) parameter: moves add
+
+        send := { tx, msg }() => tx.send(msg);
+        send();                              // an FnOnce call: consumes send
+        send();                              // E0901: send was moved by the call above
+        run_once(send2);                     // a by-value Impl(FnOnce(...)) parameter: moves send2 in
+        ```
+      - **A stateful closure (if added) is passed with `&mut`:**
+        `step(&mut counter)` to a `mut(f)` parameter. It cannot be called
+        through an `imm` borrow, as `xs.push` cannot be called on `imm(xs)`.
     - **std switches to `Impl(FnOnce(...))` where it calls once:**
       - `Option`: `map`, `and_then`, `or_else`, `map_or_else`,
         `unwrap_or_else`, `ok_or_else`;
