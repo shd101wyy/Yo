@@ -154,6 +154,36 @@ Generation A, #1188).
 - `docs/*/EXPLICIT_ALLOCATORS.md` says where the types live.
 
 
+## Seed-gated follow-up (2026-10-05): rename the shared cell `Box` to `Rc`
+
+`plans/VALUES_BY_DEFAULT.md` §6 V1 step 1. The rename is NOT plain std code
+to the seed:
+
+- The compiler recognises the shared cell by name. The CTFE instance-name
+  stamp (`comptime_fn.yo`) names only a `Box`/`Arc` call's result, and
+  `is_box_type`/`is_boxed_type` (`src/types/guards.yo`) test that name for a
+  `Box(` prefix. The `dyn(box(<closure>))` recognition and the `dyn(v)`
+  auto-box (`values/dyn.yo`) spell `box`.
+- The v0.2.52 seed has the same hard-coding. A std that spelled the cell
+  `Rc` would therefore get a seed-built stage-1 that cannot look through it:
+  every pattern on an `Rc` payload is E0609, and a `dyn` over one fails
+  ("does not implement the trait"). Measured 2026-10-05 with
+  `tests/rc_cell.test.yo` under the seed and the tree's std.
+
+**Generation A DONE 2026-10-05** (#1232):
+- Every name check reads one list, `shared_cell_names_at` (`Box`, `Rc`).
+- The canonical spelling the compiler synthesizes stays `Box`/`box`
+  (`shared_cell_canonical_names`).
+- The prelude defines `Rc(V)` beside `Box(V)` with the same impls, and
+  `rc(v)` returns `Rc(V)`. The seed lowers both, since no std or src code
+  constructs or matches an `Rc`.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+- The mechanical rename of every `Box(`/`box(` site in `src/`, `std/`,
+  `tests/`, docs and skills (counts in VALUES_BY_DEFAULT §6 V1 step 1).
+- Delete the prelude `Box`/`box`, and make `Rc`/`rc` canonical.
+- Delete the `Box` row from `shared_cell_names_at`.
+
 ## Seed-gated follow-up (2026-10-01): `ArrayList.push` states its elements
 
 **Generation A DONE 2026-10-01** (`feat/verifier-for-produced`,

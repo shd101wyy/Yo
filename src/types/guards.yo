@@ -298,16 +298,111 @@ is_newtype_type :: (fn(t : TypeValue) -> bool)(
 is_str_type :: (fn(t : TypeValue) -> bool)(
   match(t_refine_inner(t), .Str => true, _ => false)
 );
-/// True if `t` is `Box(T)` — a single-field reference-semantics Struct
-/// whose name starts with `Box(` and whose only field is labeled `*`.
-/// Used by RC and downcast codegen to look through the Box wrapper.
+// ---------------------------------------------------------------------------
+// The prelude's shared, counted cell, by name
+// ---------------------------------------------------------------------------
+/// One spelling of the prelude's shared, counted cell: its type constructor
+/// (`Box`) and its value constructor (`box`).
+SharedCellNames :: struct(type_name : str, constructor : str);
+/// The shared cell's CANONICAL spelling: the one the compiler synthesizes
+/// itself — the cell `dyn(...)` wraps around a payload that is not an object
+/// (`dyn(i32(1))` builds `box(i32(1))`, `values/dyn.yo`). It is `Box`/`box` in
+/// Generation A, because the std a seed-built compiler reads defines `Box`
+/// under every seed; Generation B makes it `Rc`/`rc`.
+shared_cell_canonical_names :: (fn() -> SharedCellNames)(
+  SharedCellNames(type_name : "Box", constructor : "box")
+);
+/// The ONE list of the shared cell's spellings, canonical first; `.None` past
+/// the end. Every name check on the cell reads it: the instance-name stamp
+/// (`comptime_fn.yo`), `is_box_type` / `is_boxed_type` below, and the
+/// `dyn(<ctor>(<closure>))` recognition (`values/dyn.yo`).
+///
+/// plans/VALUES_BY_DEFAULT.md §6 V1 step 1 renames `Box` to `Rc`. It is
+/// seed-gated: the seed compiles `src/` against the tree's `std/`, so the
+/// compiler must know both names before std or src may spell `Rc`.
+/// Generation A (this list) accepts both. Generation B, after a release whose
+/// seed carries it, renames every site, makes `Rc` canonical and deletes the
+/// `Box` row, until V1 step 2 reintroduces `Box` as the unique, uncounted
+/// cell (a separate type with no entry here).
+shared_cell_names_at :: (fn(i : usize) -> Option(SharedCellNames))(
+  cond(
+    (i == usize(0)) => .Some(shared_cell_canonical_names()),
+    (i == usize(1)) => .Some(SharedCellNames(type_name : "Rc", constructor : "rc")),
+    true => .None
+  )
+);
+/// True if `name` is a type constructor name of the shared cell (`Box`, `Rc`).
+is_shared_cell_type_name :: (fn(name : String) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while(!found, {
+    match(
+      shared_cell_names_at(i),
+      .Some(n) => {
+        found = (name == n.type_name);
+      },
+      .None => {
+        break;
+      }
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// The type constructor name a shared-cell VALUE constructor builds (`box` →
+/// `Box`, `rc` → `Rc`); `.None` for any other name.
+shared_cell_type_name_of_constructor :: (fn(fn_name : String) -> Option(String))({
+  (i : usize) = usize(0);
+  (out : Option(String)) = .None;
+  while(out.is_none(), {
+    match(
+      shared_cell_names_at(i),
+      .Some(n) => {
+        if(fn_name == n.constructor, {
+          out = .Some(String.from(n.type_name));
+        });
+      },
+      .None => {
+        break;
+      }
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// True if `name` is a STAMPED shared-cell instance name: a type constructor
+/// name from the list followed by `(` (`Box(i32)`, `Rc(Self)`).
+_is_shared_cell_instance_name :: (fn(name : String) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while(!found, {
+    match(
+      shared_cell_names_at(i),
+      .Some(n) => {
+        head := String.from(n.type_name);
+        head.push_str("(");
+        found = name.starts_with(head);
+      },
+      .None => {
+        break;
+      }
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// True if `t` is the prelude's shared cell (`Box(T)`, or `Rc(T)` — see
+/// `shared_cell_names_at`): a single-field reference-semantics Struct whose
+/// stamped name is a shared-cell instance name and whose only field is
+/// labeled `*`. Used by RC and downcast codegen, and by the pattern compiler,
+/// to look through the cell.
 is_box_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
     .Struct({ name, field_labels, is_reference_semantics : is_ref }) => cond(
       !is_ref => false,
       (field_labels.len() != usize(1)) => false,
-      !name.clone().starts_with(String.from("Box(")) => false,
+      !_is_shared_cell_instance_name(name) => false,
       true => match(
         field_labels.get(usize(0)),
         .Some(label) => (label == "*"),
@@ -687,8 +782,9 @@ is_function_specializable :: (fn(t : TypeValue) -> bool)(false);
 // Box / effects-row guards
 // ---------------------------------------------------------------------------
 //: a reference-semantics
-// struct with exactly one field labeled `*` whose typeName starts with
-// "Box(" — i.e. the prelude `Box(T)` wrapper.
+// struct with exactly one field labeled `*` whose typeName is a shared-cell
+// instance name (`Box(T)`, `Rc(T)`: `shared_cell_names_at`), or an `Arc` of a
+// non-object.
 is_boxed_type :: (fn(t : TypeValue) -> bool)(
   if(
     !is_reference_struct_type(t),
@@ -698,7 +794,7 @@ is_boxed_type :: (fn(t : TypeValue) -> bool)(
       .Struct({ name, field_labels, field_types }) =>
         (
           (field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && (
-            name.starts_with("Box(")
+            _is_shared_cell_instance_name(name)
             // A value boxed ATOMICALLY for a `Dyn(..., Send)` (`dyn(...)` boxes
             // with `arc` there; issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
             // An Arc of an OBJECT is an object in its own right, not a box.
@@ -844,6 +940,11 @@ export(
   is_newtype_type,
   is_str_type,
   is_box_type,
+  SharedCellNames,
+  shared_cell_names_at,
+  is_shared_cell_type_name,
+  shared_cell_type_name_of_constructor,
+  shared_cell_canonical_names,
   is_fn_trait_type,
   is_function_type_and_is_type_function,
   is_function_type_and_is_macro_function,

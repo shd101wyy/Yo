@@ -20,7 +20,7 @@ Progress:
   - V3's compiler Generation A (#1217);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
-  - V1 step 1, Generation A: the compiler learns the `Rc` names;
+  - V1 step 1, Generation A: the compiler learns the `Rc` names (#1232);
   - V3b Generation A;
   - V3's remaining compiler work: async, `Iso`, `Send`/`Sync`, and
     `imm(y) :=` (see V3).
@@ -1622,10 +1622,56 @@ and in git, not a silent edit.
 - **`arc` gains the `alloc` parameter.**
 
 **Step 1: rename every `Box(` to `Rc(` and `box(` to `rc(`** in `src/`,
-`std/`, `tests/`, docs and skills (56 + 8 + about 665 sites, plus docs).
+`std/`, `tests/`, docs and skills.
 - It is mechanical; the gates stay green because nothing changes
   semantically.
 - `Rc(V)` is today's `Box` definition and impls, renamed.
+- **It is seed-gated** (found 2026-10-05). The compiler recognises the
+  shared cell by NAME, and the seed (v0.2.52) has the same hard-coding. The
+  seed compiles `src/` against the tree's `std/`, so if std renamed `Box` to
+  `Rc` first, a seed-built stage-1 would misread every `Rc` cell at these
+  sites:
+
+  | Site | What keyed off the name |
+  | --- | --- |
+  | `src/evaluator/calls/comptime_fn.yo` (the instance-name stamp) | only a call of `Box` (or `Arc`) names its result `Box(T)`; every other check below reads that name |
+  | `src/types/guards.yo` `is_box_type` | `name.starts_with("Box(")`: patterns through the payload (`pattern.yo`, `pattern_compile.yo`), RC and downcast codegen |
+  | `src/types/guards.yo` `is_boxed_type` | the same prefix: the boxed-`dyn` vtable path and `downcast` |
+  | `src/evaluator/values/dyn.yo` | `dyn(box(<closure>))` recognised by the callee `box`; the auto-box of a non-object payload synthesizes `Box`/`box` |
+  | `src/verifier/vc.yo` | the "Box payload pattern" outside-the-subset message |
+  | `src/evaluator/values/impl.yo`, `src/diagnostics_registry.yo` (E0406, E0610) | diagnostics naming the `Deref` types |
+
+  Not name-keyed, so already correct for `Rc`: `Deref` and auto-deref (the
+  trait's key, #1191), `ref_count`, the pattern shapes (`box_inner_type`,
+  `_box_shaped`: a single `*` field), and the type-identity rule
+  (`compatibility.yo`: different constructor ids are different types).
+- **Generation A — done** (#1232). The compiler knows both
+  names: every check above reads one list, `shared_cell_names_at`
+  (`src/types/guards.yo`), with the canonical spelling first
+  (`shared_cell_canonical_names`, what `dyn(v)` synthesizes). The canonical
+  spelling stays `Box`/`box`, because the std a seed-built compiler reads
+  defines `Box` under every seed. The prelude gained `Rc(V)`, a second
+  definition with `Box`'s impls (`Isolation`, `Hash`, `Eq`, `Clone`,
+  `Default`, `Deref`), and `rc(v)` now returns `Rc(V)`. The seed lowers that
+  much, because nothing in `std/` or `src/` constructs or matches an `Rc`.
+  So in Generation A, `Rc` and `Box` are two types, and assigning one to the
+  other is a type error. `tests/rc_cell.test.yo` covers `Rc` everywhere
+  `Box` works: patterns through the payload, `dyn(rc(v))` and its
+  `downcast`, a cell type built by a comptime function, auto-deref, and
+  `ref_count`/`Clone`/`Eq`/`Hash`/`Default`. On the v0.2.52 seed it fails
+  to compile (E0609 on the first pattern through an `Rc`).
+- **Generation B** comes after a release whose seed carries Generation A.
+  It is the mechanical rename: about 215 + 16 + 633 `Box(` and 91 + 8 + 170
+  `box(` sites in `src/`/`std/`/`tests/`, plus about 85 + 101 in `docs/` and
+  9 + 8 in skills, and the diagnostics and help texts that suggest "`Box`"
+  as a reference type (`evaluator/utils.yo`, `calls/iso.yo`,
+  `types/enum.yo`, `types/struct.yo`). The same PR:
+  - deletes `Box` and `box` from the prelude;
+  - makes `Rc`/`rc` the canonical spelling in `shared_cell_canonical_names`;
+  - deletes the list's second row, so the list holds `Rc` alone.
+
+  V1 step 2 then reintroduces `Box` as the unique cell, a separate type
+  that is not on the list.
 
 **Step 2: the unique `Box`** (after V3 and decision 25).
 - **The type.** `Box(V)` is a uniquely owned cell with no count, a deep

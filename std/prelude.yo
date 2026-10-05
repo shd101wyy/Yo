@@ -9431,8 +9431,9 @@ export(Result);
 /// assert(a.* == i32(7), "a and b name the SAME value");
 /// ```
 ///
-/// The name is kept until `plans/VALUES_BY_DEFAULT.md` V1 renames this type
-/// to `Rc` and introduces a copy-on-write value `Box`. Until then, every
+/// `Rc(V)` (below) is the same cell under its `plans/VALUES_BY_DEFAULT.md`
+/// name: V1 step 1 renames every `Box` site to `Rc`, and V1 step 2 then
+/// reintroduces `Box` as a uniquely owned, uncounted cell. Until then, every
 /// `ref(struct(...))` in this language is refcounted; `Box` is simply the
 /// one-field case of that.
 ///
@@ -9461,23 +9462,6 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 /// Allocate a value on the heap, returning a `Box(V)`.
 box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
-/// Allocate a value in a fresh reference-counted cell: `rc(value)` takes
-/// ownership of `value` and returns a handle whose `ref_count` is 1.
-///
-/// Today this is exactly `box(value)` and returns a `Box(V)`, because Yo's
-/// `Box` is already reference counted (see above). It exists so that code can
-/// spell the shared, counted cell by its future name: VALUES_BY_DEFAULT V1
-/// renames `Box` to `Rc`, and then `rc(value)` returns an `Rc(V)`
-/// (plans/VALUES_BY_DEFAULT.md decision 11). `rc` is an ordinary function, not
-/// the count: the count is the `ref_count(x)` builtin.
-///
-/// ```yo
-/// a := rc(i32(42));
-/// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
-/// b := a;
-/// assert(b.* == i32(42), "a copy shares the cell");
-/// ```
-rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 impl(
   generic(T : Type),
   Box(T),
@@ -9526,7 +9510,92 @@ impl(
 );
 export(
   Box,
-  box,
+  box
+);
+/// Rc — a heap-allocated, reference-counted cell for a single value: the
+/// shared, counted cell's name under plans/VALUES_BY_DEFAULT.md (§3.2,
+/// decision 1). Copying a handle shares one heap value and bumps its count,
+/// as with Rust's `Rc<T>`; `w.*` names the payload, and `w.field` /
+/// `w.method()` reach it through auto-dereference (`Deref`).
+///
+/// `Rc(V)` has today's `Box(V)` definition and impls. The two names are two
+/// types until V1 step 1 renames every `Box` site to `Rc`; V1 step 2 then
+/// reintroduces `Box` as the unique, uncounted cell.
+///
+/// ```yo
+/// a := rc(i32(42));
+/// b := a;          // a second handle to the same value
+/// consume(b.* = i32(7));
+/// assert(a.* == i32(7), "a and b name the same value");
+/// ```
+Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      (*) : V
+    )
+  )
+);
+/// Allocate a value in a fresh reference-counted cell: `rc(value)` takes
+/// ownership of `value` and returns an `Rc(V)` whose `ref_count` is 1. `rc` is
+/// an ordinary function, not the count: the count is the `ref_count(x)`
+/// builtin (plans/VALUES_BY_DEFAULT.md decision 11).
+///
+/// ```yo
+/// a := rc(i32(42));
+/// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+/// b := a;
+/// assert(b.* == i32(42), "a copy shares the cell");
+/// ```
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
+impl(
+  generic(T : Type),
+  Rc(T),
+  Isolation(
+    can_isolate : ((self) -> (ref_count(self) == 1))
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Hash),
+  Rc(T),
+  Hash(
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Eq(T)),
+  Rc(T),
+  Eq(Rc(T))(
+    // SAFETY: an Rc always holds a non-null pointer to its counted cell; the
+    // deref is sound for as long as either operand is alive, which covers
+    // the duration of this comparison.
+    (==) : ((lhs, rhs) -> unsafe(lhs.* == rhs.*))
+  )
+);
+/// `Clone` — a new cell holding a clone of the payload, as `Box`'s does
+/// today (V2c's decision 17 makes an `Rc` clone a new handle).
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  Rc(T),
+  Clone(
+    clone : ((self) -> rc(self.*.clone()))
+  )
+);
+/// `Default` — a cell holding `T`'s default.
+impl(
+  generic(T : Type),
+  where(T <: Default),
+  Rc(T),
+  Default(
+    default : (fn() -> Self)(
+      rc((T <: Default).default())
+    )
+  )
+);
+export(
+  Rc,
   rc
 );
 /// Iso — an isolated reference-counted value that can be sent across threads.
@@ -9646,7 +9715,7 @@ export(Arc, arc);
 /// nested wrappers, and the wrapper's own members always win (`b.clone()` is
 /// the `Box`'s `clone`). `w.*` names the payload place.
 ///
-/// Implemented by `Box` and `Arc` only; any other `impl(..., Deref(...))` is
+/// Implemented by `Box`, `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
 /// a compile error, so every auto-dereference goes through one of the
 /// prelude's cells.
 ///
@@ -9663,6 +9732,7 @@ Deref :: trait(
 );
 export(Deref);
 impl(generic(T : Type), Box(T), Deref(Target : T));
+impl(generic(T : Type), Rc(T), Deref(Target : T));
 impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===
 extern(

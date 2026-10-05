@@ -169,7 +169,7 @@ assert(ref_count(b) == usize(1), "one owner");
 
 The count reflects the compiler's dup/drop optimizations, so a copy the optimizer cancelled does not show up; it is meant for uniqueness checks (copy-on-write) and tests, not program logic.
 
-`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns a handle whose `ref_count` is `1`. Today it is the same as `box(v)` and returns a `Box(T)`, since Yo's `Box` is already reference counted.
+`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns an `Rc(T)` handle whose `ref_count` is `1`. `Rc(T)` has the same definition and behaviour as today's `Box(T)` (Yo's `Box` is already reference counted); `Rc` is the shared cell's name going forward, and `Box` will become a uniquely owned cell (`plans/VALUES_BY_DEFAULT.md`).
 
 ```rust
 a := rc(i32(42));
