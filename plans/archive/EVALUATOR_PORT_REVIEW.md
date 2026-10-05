@@ -40,7 +40,7 @@ documented re-sync/feature item:
 7. HKT partial application (`Result(_, i32)`) + TypeApplication substitution
    resolution — masked by test trial-eval swallowing; codegen-selfhost item.
 8. Where-clause full enforcement beyond marker×concrete —
-   `issues/yo-self-where-clause-full-enforcement.md` (two
+   `issues/fixed/yo-self-where-clause-full-enforcement.md` (two
    `type_implements_trait` gaps documented with the widening path).
 9. `values/anonymous_function.yo` header simplifications —
    substituteSomeTypesFromEnv, await analysis, `checkDeferredGenericReturnType`
@@ -116,7 +116,7 @@ are fixed and it flips to `✅`.
   `issues/fixed/phase3-comptime-arithmetic-not-folded.md` (Bug C).
 - `exprs/identifer_and_operator.yo` — unbound-identifier soft fallback yields
   `UnknownVal(t_unit())` (intentional bootstrap crutch; see
-  `issues/yo-self-evaluator-gaps.md`). Confirm against TS behavior.
+  `issues/retired/yo-self-evaluator-gaps.md`). Confirm against TS behavior.
 
 ## yo-self-only files (no TS counterpart — review for justification, not 1-to-1)
 
@@ -273,7 +273,7 @@ gap is deferred on a larger feature (see note)
   WhereConstraintEntry side table (TS whereClauseExprs mirror), called from
   BOTH call paths (Step 8b + the inline FuncVal CTFE arm in calls/function.yo).
   Documented scope: marker traits × fully-concrete types
-  (`issues/yo-self-where-clause-full-enforcement.md`). Earlier Phase-3
+  (`issues/fixed/yo-self-where-clause-full-enforcement.md`). Earlier Phase-3
   deferrals (partial application etc.) still apply.
 - ⬜ `calls/index-trait.ts` → `calls/index_trait.yo`
 - ⬜ `calls/iso.ts` → `calls/iso.yo`

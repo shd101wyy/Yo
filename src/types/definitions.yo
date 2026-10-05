@@ -12,7 +12,7 @@
 //!     don't need a separate mutually-recursive struct (which would require
 //!     a forward-reference dance during evaluation).
 //!   * Generic / unresolved type information (`SomeType`, `TypeApplication`,
-//!     `EffectsRow`, traits with associated types, …) is intentionally kept
+//!     traits with associated types, …) is intentionally kept
 //!     minimal in this iteration — Phase 2b will fill in the details.
 //!
 //! Phase A.3.3: this file holds the TypeValue enum only. Type constructors
@@ -36,8 +36,6 @@ FuncMeta :: struct(
   // normal parameter labels (parallel to Func.param_types)
   implicit_labels : ArrayList(String),
   // implicit (`using`) parameter labels (parallel to Func.implicit_types)
-  implicit_spreads : ArrayList(bool),
-  // isEffectRowSpread flags
   /// True when the declared return is `comptime(...)`. Gates
   /// CTFE; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
   /// `should_cache` use it to route type-constructor calls through memoization.
@@ -156,7 +154,7 @@ TypeValue :: ref(
     /// field (empty `String` means positional). `field_types(i)` is the type.
     Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
     /// Function type. Phase 2b: generic type-vars, implicit (using) params,
-    /// effect-row-spread flags, and where-clause constraint types.
+    /// and where-clause constraint types.
     /// Self-typed (recursive) fields stay inline; the non-recursive metadata
     /// (labels, ref/own/variadic/extern/control flags) lives in `meta`
     /// (`Box(FuncMeta)`) so this variant no longer sets `sizeof(TypeValue)` to
@@ -303,8 +301,6 @@ TypeValue :: ref(
       // negative trait constraints
       negative_trait_levels : ArrayList(usize),
       // frame-level of each negative constraint
-      is_effects_row : bool,
-      // true when this SomeType represents an effect-row spread `E : Type.Struct`
       // When present, this SomeT represents a higher-kinded type variable
       // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
       // captures the kind so `F(A)` can be evaluated as a TypeApplication.
@@ -328,11 +324,6 @@ TypeValue :: ref(
     ExprT,
     /// A compile-time homogeneous list. `child` is the element type.
     ComptimeListT(child : Self),
-    /// An effects row — labels and types for `...` constraints.
-    EffectsRowT(
-      implicit_labels : ArrayList(String),
-      implicit_types : ArrayList(Self)
-    ),
     /// Application of a generic type constructor to arguments.
     /// `constructor` is always a `SomeT` (the type-constructor variable).
     TypeAppT(
@@ -356,7 +347,6 @@ TypeValue :: ref(
       call_result : Self,
       implicit_labels : ArrayList(String),
       implicit_types : ArrayList(Self),
-      implicit_spreads : ArrayList(bool),
       /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
       /// call signature is FLATTENED into the variant, and dropping this
       /// flag made a closure typed against
@@ -369,8 +359,7 @@ TypeValue :: ref(
       base_name : String,
       output : Self,
       effect_labels : ArrayList(String),
-      effect_types : ArrayList(Self),
-      effect_spreads : ArrayList(bool)
+      effect_types : ArrayList(Self)
     ),
     /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — "a `T` that
     /// satisfies `p`". Distinct at the type level (two predicates over the

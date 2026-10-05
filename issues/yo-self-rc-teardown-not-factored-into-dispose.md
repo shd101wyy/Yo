@@ -57,7 +57,7 @@ explains why function count and temp count are unchanged.
 
 Note yo-self is not missing dispose synthesis entirely: it has a recursive
 `___dispose` path used for narrow cases (see
-`issues/fixed/yo-self-ref-enum-dispose-leak-fixed.md`, where a missing `ref(enum)`
+`issues/fixed/ref-enum-missing-dispose-leak.md`, where a missing `ref(enum)`
 `___dispose` caused a leak). What is missing is TS's use of dispose functions as the
 GENERAL factoring for RC teardown.
 

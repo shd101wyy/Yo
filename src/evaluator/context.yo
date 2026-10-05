@@ -15,8 +15,9 @@
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
+{ note_move_only_possible } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of, find_variable_in_env } :: import("../env.yo");
+{ Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
 {
   AstExpr,
   ExprId,
@@ -813,7 +814,7 @@ track_variable_usage_resolved :: (
           // Don't track compile-time-only variables — judged by the
           // CALLER-RESOLVED binding when provided (current generation), not
           // the re-found one (possibly a stale def-time placeholder).
-          effective_cto := match(resolved_is_comptime, .Some(rc) => rc, .None => v.is_compile_time_only);
+          effective_cto := match(resolved_is_comptime, .Some(is_ct) => is_ct, .None => v.is_compile_time_only);
           if(effective_cto, {
             return(());
           });
@@ -847,10 +848,14 @@ track_variable_usage_resolved :: (
             usage : effective_usage,
             token : token
           );
+          // Taken out and stored back: a `match` binding is a copy of the
+          // map once collections are values.
           match(
-            context.captured_variables,
-            .Some(map) => {
-              map.insert(variable_name, new_entry);
+            context.captured_variables.take(),
+            .Some(found) => {
+              captured := found;
+              captured.insert(variable_name, new_entry);
+              context.captured_variables = Option(HashMap(String, CapturedVarInfo)).Some(captured);
             },
             .None => ()
           );
@@ -1075,7 +1080,7 @@ hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
         // (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md).
         // The location marker is the generated module path, which the
         // rendered diagnostic carries.
-        (msg.contains(String.from("--> auto-generated://")) || (msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found."))))) => {
+        (msg.contains(String.from("--> auto-generated://")) || msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
           // The swallowed dyn-message often already carries an "Error: " or
           // "error[E0401]: " prefix; format_error_message adds its own —
           // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".
@@ -1306,7 +1311,7 @@ finished_walk_expr_info_count :: (fn(path : String) -> Option(usize))({
     match(
       wopt,
       .Some(w) => if(canonical_module_path(w.module_path.clone()) == canon, {
-        return(match(w.ctx, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.len()), .None => Option(usize).None));
+        return(match(w.ctx, .Some(wc) => Option(usize).Some(wc.expr_info_table.data.*.len()), .None => Option(usize).None));
       }),
       .None => ()
     );
@@ -1829,7 +1834,103 @@ impl_receiver_head_name :: (fn(recv : AstExpr) -> String)(
     true => String.new()
   )
 );
-_make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bool) -> Option(PendingDef))(
+/// AST ids of closure literals evaluated as the DIRECT argument of a call to a
+/// borrowing parameter (neither `sink` nor `inout`): such a closure cannot
+/// outlive the call, so it borrows its captures instead of owning them
+/// (plans/VALUES_BY_DEFAULT.md decision 22; V3 applies it to a closure that
+/// captures a value that is not implicitly copyable).
+(g_borrowing_closure_args : HashMap(usize, bool)) = HashMap(usize, bool).new();
+/// Record that `arg` (an argument expression, label stripped) is passed to a
+/// borrowing parameter.
+note_borrowing_argument :: (fn(arg : AstExpr) -> unit)({
+  if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).None), {
+    g_borrowing_closure_args.insert(ast_expr_id(arg), true);
+  });
+});
+/// True when the closure literal `e` is the direct argument of a borrowing
+/// parameter (`note_borrowing_argument`).
+closure_literal_is_borrowed :: (fn(e : AstExpr) -> bool)(g_borrowing_closure_args.contains_key(ast_expr_id(e)));
+/// Receiver head names of pending (unforced) impls that declare `Dispose` or
+/// `MoveOnly` (`""` for an un-nameable head): `force_pending_move_only_impls`
+/// forces them the first time a type's move-only status is asked.
+(g_pending_move_only_heads : HashMap(String, bool)) = HashMap(String, bool).new();
+/// An `impl(...)` statement with a `Dispose(...)` or `MoveOnly(...)` entry,
+/// read off the syntax (the trait is resolved when the impl is forced).
+_impl_expr_declares_move_only :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .FnCall(_, _, iargs, _, _) => {
+      (i : usize) = usize(1);
+      while(i < iargs.len(), {
+        match(
+          iargs.get(i),
+          .Some(arg) => match(
+            arg,
+            .FnCall(_, callee, _, _, _) => if(ast_expr_is_atom(callee) && ((ast_expr_token(callee).value == "Dispose") || (ast_expr_token(callee).value == "MoveOnly")), {
+              return(true);
+            }),
+            .Atom(_, _) => ()
+          ),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    },
+    .Atom(_, _) => false
+  )
+);
+/// Force the unforced pending impls of `type_name` that declare `Dispose` or
+/// `MoveOnly` (plans/VALUES_BY_DEFAULT.md §3.4): a type's move-only status
+/// decides how every use of it is evaluated, so its impl cannot wait for a
+/// method miss or the module end. True when an impl was forced.
+force_pending_move_only_impls :: (fn(type_name : String) -> bool)({
+  if(g_pending_move_only_heads.len() == usize(0), {
+    return(false);
+  });
+  if(!(g_pending_move_only_heads.contains_key(type_name.clone()) || g_pending_move_only_heads.contains_key(String.new())), {
+    return(false);
+  });
+  g_pending_move_only_heads.remove(type_name.clone());
+  g_pending_move_only_heads.remove(String.new());
+  (forced : bool) = false;
+  (wi : usize) = g_module_walks.len();
+  while(wi > usize(0), {
+    wi = (wi - usize(1));
+    match(
+      g_module_walks.get(wi),
+      .Some(walk) => {
+        (di : usize) = usize(0);
+        while(di < walk.defs.len(), {
+          match(
+            walk.defs.get(di),
+            .Some(def) => {
+              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(def.expr));
+              if(is_target, {
+                match(
+                  force_pending_def(walk, def),
+                  .Some(_) => (),
+                  .None => {
+                    forced = true;
+                  }
+                );
+              });
+            },
+            .None => ()
+          );
+          di = (di + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
+  forced
+});
+_make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bool) -> Option(PendingDef))({
+  if(is_impl && _impl_expr_declares_move_only(e), {
+    g_pending_move_only_heads.insert(name.clone(), true);
+    note_move_only_possible();
+  });
   Option(PendingDef).Some(
     PendingDef(
       name : name,
@@ -1846,7 +1947,7 @@ _make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bo
       src_hash : fnv1a64(ast_expr_to_string(e))
     )
   )
-);
+});
 /// The member names an `extern(...)` statement declares: the label of each
 /// `label : type` argument (the optional leading language atom is skipped).
 /// Empty when no argument has that shape — the statement is then ordered and
@@ -2051,7 +2152,7 @@ _anchor_label_chars :: (fn(raw : String) -> String)({
   (ci : usize) = usize(0);
   while(ci < raw.len(), {
     b := raw.byte_at(ci);
-    ok := ((((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90)))) || (((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))));
+    ok := (((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95)));
     if(ok, {
       out.push_byte(b);
     }, {
@@ -2436,7 +2537,7 @@ _def_lhs_token_is :: (fn(def : PendingDef, tok : Token) -> bool)(
       cargs.get(usize(0)),
       .Some(lhs) => {
         lt := ast_expr_token(lhs);
-        (((lt.row == tok.row) && (lt.column == tok.column)) && (lt.module_path == tok.module_path))
+        ((lt.row == tok.row) && (lt.column == tok.column) && (lt.module_path == tok.module_path))
       },
       .None => false
     ),
@@ -2447,7 +2548,7 @@ pending_prebound_variable :: (fn(name : String, lhs_tok : Token) -> Option(Varia
   match(
     current_forcing_def(),
     .Some(def) => cond(
-      ((((!(def.is_impl) && (def.name == name)) && match(def.state, .Forcing => true, _ => false)) && _def_lhs_token_is(def, lhs_tok))) => def.variable,
+      (((!(def.is_impl) && (def.name == name)) && match(def.state, .Forcing => true, _ => false) && _def_lhs_token_is(def, lhs_tok))) => def.variable,
       true => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2458,7 +2559,7 @@ pending_prebound_variable :: (fn(name : String, lhs_tok : Token) -> Option(Varia
 record_pending_def_variable :: (fn(name : String, lhs_tok : Token, var : Variable) -> unit)(
   match(
     current_forcing_def(),
-    .Some(def) => if((((!(def.is_impl) && (def.name == name)) && def.variable.is_none()) && _def_lhs_token_is(def, lhs_tok)), {
+    .Some(def) => if(((!(def.is_impl) && (def.name == name)) && def.variable.is_none() && _def_lhs_token_is(def, lhs_tok)), {
       def.variable = Option(Variable).Some(var);
     }),
     .None => ()
@@ -2677,21 +2778,6 @@ adopt_resolved_definition :: (fn(env : Environment, var : Variable, module_frame
   );
   idx
 });
-/// True when `name` resolves to a binding from `env`: a variable in one of
-/// its frames, or a top-level definition of `module_path`'s active walk that
-/// the env does not hold yet (a lazy `::` definition later in the file, §4.2).
-/// Nothing is forced. A builtin whose name a binding takes over (`rc`) asks
-/// this before dispatching to itself.
-name_resolves_to_binding :: (fn(env : Environment, name : String, module_path : String) -> bool)(
-  cond(
-    find_variable_in_env(env, name.clone()).is_some() => true,
-    true => match(
-      _active_walk_for(module_path),
-      .Some(walk) => _find_def_by_name(walk.defs, name, false).is_some(),
-      .None => false
-    )
-  )
-);
 /// The identifier-miss hook (§4.2). `module_path` is the identifier TOKEN's
 /// module path — the module whose definitions the name can refer to (a macro
 /// expanded elsewhere still names its definition site's module).
@@ -2915,7 +3001,7 @@ _force_pending_impls_pass :: (fn(type_name : String, declaring : Option(String))
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && match(declaring, .Some(m) => _impl_expr_declares(def.expr, m), .None => true));
+              is_target := (def.is_impl && match(def.state, .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(def.expr, m), .None => true));
               if(is_target, {
                 match(
                   force_pending_def(walk, def),
@@ -3131,7 +3217,7 @@ impl_inner_field_at :: (fn(rec : ImplInFlight, top_index : usize, label : String
   while((i < rec.fields.len()) && found.is_none(), {
     match(
       rec.fields.get(i),
-      .Some(f) => if((f.is_inner && (f.top_index == top_index)) && (f.label == label), {
+      .Some(f) => if(f.is_inner && (f.top_index == top_index) && (f.label == label), {
         found = Option(ImplPendingField).Some(f);
       }),
       .None => ()
@@ -3425,7 +3511,6 @@ export(
   truncate_module_walks,
   truncate_forcing_stack,
   resolve_pending_definition,
-  name_resolves_to_binding,
   adopt_resolved_definition,
   ImplFieldState,
   ImplPendingField,
@@ -3444,6 +3529,9 @@ export(
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
+  force_pending_move_only_impls,
+  note_borrowing_argument,
+  closure_literal_is_borrowed,
   type_head_name_for_impl_forcing,
   note_unlabeled_ensures_atom,
   is_unlabeled_ensures_atom

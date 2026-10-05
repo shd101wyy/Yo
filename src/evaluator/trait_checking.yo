@@ -20,7 +20,15 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { TypeValue, FuncMeta } :: import("../types/definitions.yo");
-{ is_function_type, is_some_type, is_pointer_type, is_struct_type, is_enum_type } :: import("../types/guards.yo");
+{
+  is_function_type,
+  is_some_type,
+  is_pointer_type,
+  is_struct_type,
+  is_enum_type,
+  is_reference_struct_type,
+  is_reference_enum_type
+} :: import("../types/guards.yo");
 { enum_instance_node_id } :: import("../types/type_key.yo");
 {
   is_fn_trait_type,
@@ -40,7 +48,12 @@ pragma(Pragma.AllowUnsafe);
   get_all_some_types,
   enum_phantom_type_arg_somes,
   is_bound_closure_identity,
-  resolve_cell_chain
+  resolve_cell_chain,
+  type_is_move_only,
+  move_only_declarations_exist,
+  is_value_nominal_type,
+  set_move_only_nominal_fn,
+  MoveOnlyNominalFn
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
@@ -54,6 +67,8 @@ pragma(Pragma.AllowUnsafe);
   set_type_implements_trait_full_fn,
   set_register_trait_value_fn,
   set_check_self_constraints_fn,
+  set_receiver_kind_trait_fn,
+  nominal_declares_move_only,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
@@ -95,17 +110,7 @@ register_type_trait :: (fn(type_id : String, trait_name : str, env : Environment
   match(
     get_trait_type_from_env(env, String.from(trait_name)),
     .Some(trait_ty) => {
-      match(
-        g_type_trait_registry.get(type_id),
-        .Some(list) => {
-          list.push(trait_ty);
-        },
-        .None => {
-          new_list := ArrayList(TypeValue).new();
-          new_list.push(trait_ty);
-          g_type_trait_registry.insert(type_id, new_list);
-        }
-      );
+      register_type_trait_value(type_id, trait_ty);
     },
     .None => ()
   );
@@ -116,17 +121,11 @@ register_type_trait :: (fn(type_id : String, trait_name : str, env : Environment
 /// `Type.impls(T, SomeTrait)` resolves by id at step 4 — the base trait id
 /// `trait_ty` carries matches the id the query evaluates `SomeTrait` to.
 register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit)({
-  match(
-    g_type_trait_registry.get(type_id),
-    .Some(list) => {
-      list.push(trait_ty);
-    },
-    .None => {
-      new_list := ArrayList(TypeValue).new();
-      new_list.push(trait_ty);
-      g_type_trait_registry.insert(type_id, new_list);
-    }
-  );
+  // Taken out of the registry and stored back: a `get` copy is not the stored
+  // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  list := match(g_type_trait_registry.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  list.push(trait_ty);
+  g_type_trait_registry.insert(type_id, list);
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
 /// `base_name` for Fn/Future traits.
@@ -134,8 +133,8 @@ _trait_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _, _, _, _, _) => base_name,
-    .FutureTraitT(base_name, _, _, _, _) => base_name,
+    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
+    .FutureTraitT(base_name, _, _, _) => base_name,
     _ => String.from("")
   )
 );
@@ -199,7 +198,7 @@ AssocTypeCheckResult :: struct(
 /// Only `TraitT` has an explicit `id` field; `FnTraitT`/`FutureTraitT` use
 /// their `base_name` as a key (they cannot be the `Comptime`/`Runtime` traits).
 /// Identify which auto-derived MARKER trait `trait_type` is, by comparing its id
-/// against the fixed env marker set (Send/Comptime/Acyclic/Runtime/Rc); returns
+/// against the fixed env marker set (Send/Comptime/Acyclic/Runtime/MoveOnly); returns
 /// the marker name, or "" if it isn't one. Used by the step-4b on-demand
 /// re-derivation, which selects per-marker field rules. (The registry lookup
 /// itself matches by trait VALUE, not name — see `is_type_registered_as_trait`.)
@@ -213,7 +212,7 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
   markers.push(String.from("Comptime"));
   markers.push(String.from("Acyclic"));
   markers.push(String.from("Runtime"));
-  markers.push(String.from("Rc"));
+  markers.push(String.from("MoveOnly"));
   (i : usize) = usize(0);
   (found : String) = String.from("");
   while((i < markers.len()) && found.is_empty(), {
@@ -656,8 +655,8 @@ type_implements_trait :: (
   // An extern opaque type (`ExternOpaqueT`: `atomic_bool`, `FILE`) is a C
   // value that holds no Yo-managed reference: it is a runtime type, `Send`
   // (its thread-safety is the C library's contract, as for the C11 atomics
-  // that bound atomic structs' fields), `Acyclic`, not reference-counted and
-  // not a compile-time value. std cannot state these as impls: the seed that
+  // that bound atomic structs' fields), `Acyclic` and not a compile-time
+  // value. std cannot state these as impls: the seed that
   // compiles std reads an extern `X : Type` as a SomeT, so `impl(X, Send())`
   // would be a blanket impl. Any other trait needs a real impl.
   if(match(target, .ExternOpaqueT(_, _) => true, _ => false), {
@@ -665,9 +664,17 @@ type_implements_trait :: (
     if((eom == "Runtime") || (eom == "Send") || (eom == "Acyclic"), {
       return(TraitCheckResult(implemented : true, env : env));
     });
-    if((eom == "Comptime") || (eom == "Rc"), {
+    if(eom == "Comptime", {
       return(TraitCheckResult(implemented : false, env : env));
     });
+  });
+  // MoveOnly is derived structurally from the impls that declare it
+  // (plans/VALUES_BY_DEFAULT.md §3.4): a value type implementing `Dispose` or
+  // `MoveOnly`, or an aggregate with a move-only component, where the other
+  // markers need EVERY component. `type_is_move_only` is that rule; a generic
+  // parameter keeps the bound-based path below.
+  if(move_only_declarations_exist() && !is_some_type(target) && _is_prelude_trait_named(trait_type, "MoveOnly", env), {
+    return(TraitCheckResult(implemented : type_is_move_only(target), env : env));
   });
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
@@ -755,7 +762,7 @@ type_implements_trait :: (
   if(is_fn_trait_type(trait_type) && is_function_type(target), {
     fn_trait_call_ty := match(
       trait_type,
-      .FnTraitT(_, param_labels, param_types, result, _, _, _, _) => TypeValue.Func(
+      .FnTraitT(_, param_labels, param_types, result, _, _, _) => TypeValue.Func(
         ArrayList(TypeValue).new(),
         param_types,
         ArrayList(TypeValue).new(),
@@ -766,7 +773,6 @@ type_implements_trait :: (
             forall_labels : ArrayList(String).new(),
             param_labels : param_labels,
             implicit_labels : ArrayList(String).new(),
-            implicit_spreads : ArrayList(bool).new(),
             result_is_comptime_only : false,
             // Fn-trait call type (runtime)
             param_is_ref : ArrayList(bool).new(),
@@ -1042,7 +1048,7 @@ type_implements_trait :: (
   // via _add_where_clause_constraint (no separate env lookup needed).
   match(
     target,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
       (found_req : bool) = false;
       (found_neg : bool) = false;
       // Check required_trait_types.
@@ -1212,12 +1218,90 @@ type_implements_trait_bool :: (
 // ---------------------------------------------------------------------------
 // check_type_implements_self_constraints
 // ---------------------------------------------------------------------------
-/// Message-returning core of the self-constraint check: `.Some(msg)` when the
-/// target violates a positive or negative selfConstraint on the trait, `.None`
-/// otherwise. Split out (throw-free) so `impl.yo`'s concrete-impl path can
-/// call it through the injected function-pointer hook
-/// (`set_check_self_constraints_fn`) without an import cycle, and throw with
-/// its own token/exn — the same routing as `RegisterTraitValueFn`.
+/// True if `trait_type` is the prelude trait named `name` (by trait identity,
+/// the same comparison `type_implements_trait` makes).
+_is_prelude_trait_named :: (fn(trait_type : TypeValue, name : str, env : Environment) -> bool)(
+  match(
+    get_trait_type_from_env(env, String.from(name)),
+    .Some(t) => (_trait_type_id(t) == _trait_type_id(trait_type)),
+    .None => false
+  )
+);
+/// The receiver-kind gate on `Dispose`, `MoveOnly` and `Trace`: `.Some(msg)`
+/// when `trait_type` is one of them and `target_type` may not implement it. A
+/// `SomeT` is resolved and an enum shell mapped to its final type first, as
+/// `type_implements_trait` does.
+///
+/// - `Dispose`: a value nominal type (`struct`, `enum`, `newtype`), which it
+///   makes move-only (plans/VALUES_BY_DEFAULT.md §3.4: `Dispose` implies
+///   `MoveOnly`, so its one owner disposes it once), or a reference type
+///   (`ref(struct)`, `ref(enum)`, and their `atomic(...)` forms), whose copies
+///   share one cell disposed at count zero. The reference arm is V3's staging
+///   (the plan's V3 section, "Staging"): std's resources are reference types
+///   until the std migration makes them value structs over a move-only cell,
+///   and the arm is deleted then. Any other receiver (a primitive, pointer,
+///   tuple, function, `Dyn`, blanket `T`) can be neither, so it is rejected.
+/// - `MoveOnly`: a value nominal type only. A reference type is how a value
+///   is shared (§3.4: `Rc(T)` and `Arc(T)` never are move-only).
+/// - `Trace`: a reference type only: a value has no header `traverse_fn` (it
+///   is traversed inline by whoever holds it).
+///
+/// It replaces the deleted `Rc` marker trait, which the prelude required
+/// through `where(Self <: Rc)` on `Dispose` and `Trace`. The generic impl
+/// path, which never ran the selfConstraint check, calls this too, on the
+/// receiver pattern at the impl
+/// (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
+receiver_kind_trait_violation_msg :: (
+  fn(
+    target_type : TypeValue,
+    trait_type : TypeValue,
+    env : Environment
+  ) -> Option(String)
+)({
+  trait_name := cond(
+    _is_prelude_trait_named(trait_type, "Dispose", env) => String.from("Dispose"),
+    _is_prelude_trait_named(trait_type, "MoveOnly", env) => String.from("MoveOnly"),
+    _is_prelude_trait_named(trait_type, "Trace", env) => String.from("Trace"),
+    true => String.from("")
+  );
+  if(trait_name.is_empty(), {
+    return(Option(String).None);
+  });
+  (target : TypeValue) = resolve_enum_shell(target_type);
+  if(is_some_type(target), {
+    target = resolve_enum_shell(get_value_of_some_type_from_env(env, target));
+  });
+  is_reference := (is_reference_struct_type(target) || is_reference_enum_type(target));
+  is_value_nominal := is_value_nominal_type(target);
+  cond(
+    (trait_name == "Trace") => if(
+      is_reference,
+      Option(String).None,
+      Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "Trace": only a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it. A value is traversed inline by whoever holds it.`)
+    ),
+    (trait_name == "MoveOnly") => cond(
+      is_value_nominal => Option(String).None,
+      is_reference => Option(String).Some(
+        `Type "${type_to_string(target_type)}" cannot implement "MoveOnly": it is a reference type, and its copies share one cell, so it is never move-only. Declare MoveOnly on a value type (struct, enum, newtype) instead.`
+      ),
+      true => Option(String).Some(
+        `Type "${type_to_string(target_type)}" cannot implement "MoveOnly": only a value type (struct, enum, newtype) may declare it. Aggregates (tuples, arrays, closures) are move-only when a component is.`
+      )
+    ),
+    (is_value_nominal || is_reference) => Option(String).None,
+    true => Option(String).Some(
+      `Type "${type_to_string(target_type)}" cannot implement "Dispose": only a value type (struct, enum, newtype), which Dispose makes move-only, or a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
+    )
+  )
+});
+/// Message-returning core of the impl-site self check: `.Some(msg)` when the
+/// target may not implement the trait (the `Dispose`/`MoveOnly`/`Trace`
+/// receiver gate, `receiver_kind_trait_violation_msg`) or violates a positive or negative
+/// selfConstraint on it, `.None` otherwise. Split out (throw-free) so
+/// `impl.yo`'s concrete-impl path can call it through the injected
+/// function-pointer hook (`set_check_self_constraints_fn`) without an import
+/// cycle, and throw with its own token/exn — the same routing as
+/// `RegisterTraitValueFn`.
 check_self_constraints_violation_msg :: (
   fn(
     target_type : TypeValue,
@@ -1225,6 +1309,13 @@ check_self_constraints_violation_msg :: (
     env : Environment
   ) -> Option(String)
 )({
+  match(
+    receiver_kind_trait_violation_msg(target_type, trait_type, env),
+    .Some(cell_msg) => {
+      return(Option(String).Some(cell_msg));
+    },
+    .None => ()
+  );
   match(
     trait_type,
     .TraitT(name, _, _, _, _, _, self_constraints, neg_self_constraints, _, _) => {
@@ -1442,6 +1533,28 @@ type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
+// deref_target_type
+// ---------------------------------------------------------------------------
+/// The payload type auto-dereference forwards to: `Target` of the prelude's
+/// `Deref` marker when `ty` implements it (`Box(V)`, `Arc(V)` → `V`), else
+/// `.None` (plans/VALUES_BY_DEFAULT.md §3.3). Only a concrete struct can be a
+/// wrapper — a SomeT, pointer, Dyn or type value never auto-dereferences —
+/// and `Deref` is implementable only in the prelude (impl.yo), so a hit is
+/// always one of the known cells.
+deref_target_type :: (fn(ty : TypeValue, env : Environment) -> Option(TypeValue))({
+  if(!is_struct_type(ty), {
+    return(Option(TypeValue).None);
+  });
+  match(
+    get_trait_type_from_env(env, String.from("Deref")),
+    .None => Option(TypeValue).None,
+    .Some(deref_trait) => cond(
+      type_implements_trait_bool(ty, deref_trait, env) => resolve_assoc_type_for_target(ty, String.from("Target"), env),
+      true => Option(TypeValue).None
+    )
+  )
+});
+// ---------------------------------------------------------------------------
 // type_implements_fn
 // ---------------------------------------------------------------------------
 /// Check if a type implements Fn (is a function-like type).
@@ -1450,7 +1563,7 @@ type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
 type_implements_fn :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -1503,7 +1616,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty,
     .FnTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, _, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, _, _, _, _, _, _) => {
       // Walk the SomeT and its `resolution` chain: a where-clause `F`
       // whose Fn bound was
       // stripped by freshening still resolves through `__impl_fn` (which
@@ -1517,7 +1630,7 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
       while(eft_going, {
         match(
           eft_cur,
-          .SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, _, eft_rc) => {
+          .SomeT(eft_id, _, _, _, eft_rtt, _, _, _, _, eft_rc) => {
             n := eft_rtt.len();
             (i : usize) = usize(0);
             while((i < n) && eft_out.is_none(), {
@@ -1692,8 +1805,8 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env : Environment, markers_judged : bool) -> Option(TypeValue))(
   match(
     param_type,
-    .SomeT({ name : ip_nm, required_trait_types : ip_req, is_effects_row : ip_row }) => cond(
-      ((ip_nm != "Impl") || ip_row || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
+    .SomeT({ name : ip_nm, required_trait_types : ip_req }) => cond(
+      ((ip_nm != "Impl") || (get_all_some_types(arg_type).len() > usize(0))) => Option(TypeValue).None,
       true => {
         (ip_miss : Option(TypeValue)) = Option(TypeValue).None;
         (ip_i : usize) = usize(0);
@@ -1725,7 +1838,7 @@ judge_function_argument_markers :: (
   (judged : bool) = false;
   match(
     param_type,
-    .SomeT({ name : pn, required_trait_types : prtts, is_effects_row : prow }) => if((pn == "Impl") && !prow, {
+    .SomeT({ name : pn, required_trait_types : prtts }) => if(pn == "Impl", {
       (pi : usize) = usize(0);
       while(pi < prtts.len(), {
         match(
@@ -1771,7 +1884,7 @@ impl_argument_unmet_trait_message :: (
 type_implements_future :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -1827,7 +1940,7 @@ type_implements_future :: (fn(ty : TypeValue) -> bool)(
 /// let `should_skip_function_codegen` drop functions with a resolved-SomeT
 /// return). An extern opaque type is an `ExternOpaqueT`, not a SomeType.
 type_contains_some_type_for_codegen_param :: (
-  fn(ty : TypeValue, checked_ids : ArrayList(String)) -> bool
+  fn(ty : TypeValue, inout(checked_ids) : ArrayList(String)) -> bool
 )({
   // Cycle guard on nominal type id.
   nominal_id := match(
@@ -2017,7 +2130,7 @@ extract_future_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
     .FutureTraitT(base_name : _) => Option(TypeValue).Some(ty),
-    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+    .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
       n := required_trait_types.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -2143,7 +2256,7 @@ find_some_type_missing_comptime_constraint :: (
         // Check required_trait_types.
         match(
           ty,
-          .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _, _) => {
+          .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
             n := required_trait_types.len();
             (i : usize) = usize(0);
             (has_comptime : bool) = false;
@@ -2245,7 +2358,7 @@ _compat_implements_adapter :: (fn(t : TypeValue, trait_type : TypeValue) -> bool
 /// `ArrayList(Environment)` out-param — a NOVEL container instantiation over
 /// the compiler's own cyclic Environment type, whose C prototype rendering
 /// self-recursed unboundedly in get_type_string and SIGBUS'd every stage-2
-/// self-emit (issues/yo-self-arraylist-environment-prototype-recursion.md).
+/// self-emit.
 _type_implements_trait_full_adapter :: (
   fn(
     t : TypeValue,
@@ -2261,6 +2374,8 @@ _trait_checking_init := (fn() -> bool)({
   set_type_implements_trait_full_fn(_type_implements_trait_full_adapter);
   set_register_trait_value_fn(register_type_trait_value);
   set_check_self_constraints_fn(check_self_constraints_violation_msg);
+  set_receiver_kind_trait_fn(receiver_kind_trait_violation_msg);
+  set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();
@@ -2274,6 +2389,7 @@ export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_dispose, type_implements_acyclic);
+export(deref_target_type);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);

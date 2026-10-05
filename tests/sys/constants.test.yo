@@ -5,6 +5,7 @@ socket :: import("std/sys/socket");
 signals :: import("std/sys/signals");
 events :: import("std/sys/events");
 { IoError } :: import("std/sys/errors");
+{ Exception } :: import("std/error");
 { platform, Platform } :: import("std/process");
 test("Test Io constants", {
   // =========================================================================
@@ -82,4 +83,34 @@ test("Test Io constants", {
     .NotFound => assert(true, "IoError.from_errno(ENOENT) should be NotFound"),
     _ => assert(false, "IoError.from_errno(ENOENT) should be NotFound")
   );
+});
+// IoError.check / IoError.from_result: the two ways std turns a raw IoFuture
+// answer (non-negative result or negative errno) into a value or an error
+// (plans/ASYNC_IO_API_AUDIT.md A4).
+test("IoError.from_result splits a raw answer into Ok and a classified Err", {
+  { ENOENT } :: import("std/libc/errno");
+  ok := IoError.from_result(i32(7));
+  assert(match(ok, .Ok(v) => (v == i32(7)), .Err(_) => false), "a non-negative answer is Ok");
+  zero := IoError.from_result(i32(0));
+  assert(match(zero, .Ok(v) => (v == i32(0)), .Err(_) => false), "zero is Ok");
+  bad := IoError.from_result(i32(0) - i32(ENOENT));
+  assert(match(bad, .Ok(_) => false, .Err(e) => match(e, .NotFound => true, _ => false)), "-ENOENT is Err(NotFound)");
+});
+/// `IoError.check` under a handler that unwinds `-1`: the answer itself when
+/// it is non-negative, `-1` when check threw.
+_check_or_minus_one :: (fn(r : i32) -> i32)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(i32(-1));
+      }
+    )
+  );
+  IoError.check(r, exn)
+});
+test("IoError.check returns a non-negative answer and throws a negative one", {
+  { ENOENT } :: import("std/libc/errno");
+  assert(_check_or_minus_one(i32(5)) == i32(5), "a non-negative answer passes through");
+  assert(_check_or_minus_one(i32(0)) == i32(0), "zero passes through");
+  assert(_check_or_minus_one(i32(0) - i32(ENOENT)) == i32(-1), "a negative answer throws");
 });

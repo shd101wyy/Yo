@@ -101,7 +101,7 @@ _is_identifier :: (fn(s : String) -> bool)({
     digit := ((b >= u8(48)) && (b <= u8(57)));
     upper := ((b >= u8(65)) && (b <= u8(90)));
     lower := ((b >= u8(97)) && (b <= u8(122)));
-    if(!(digit || (upper || (lower || (b == u8(45))))), return(false));
+    if(!(digit || upper || lower || (b == u8(45))), return(false));
     i = (i + usize(1));
   });
   true
@@ -154,7 +154,7 @@ parse_semver :: (fn(tag : String) -> Option(SemVer))({
   minor_str := parts(usize(1));
   patch_str := parts(usize(2));
   if(
-    !(is_all_digits(major_str) && (is_all_digits(minor_str) && is_all_digits(patch_str))),
+    !(is_all_digits(major_str) && is_all_digits(minor_str) && is_all_digits(patch_str)),
     return(Option(SemVer).None)
   );
   major := match(major_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
@@ -552,7 +552,7 @@ version_req_matches :: (fn(req : VersionReq, v : SemVer) -> bool)({
     (i : usize) = usize(0);
     while(i < req.comparators.len(), {
       c := req.comparators(i);
-      same := ((c.pre.len() > usize(0)) && ((c.major == v.major) && (match(c.minor, .Some(m) => (m == v.minor), .None => false) && match(c.patch, .Some(p) => (p == v.patch), .None => false))));
+      same := ((c.pre.len() > usize(0)) && (c.major == v.major) && match(c.minor, .Some(m) => (m == v.minor), .None => false) && match(c.patch, .Some(p) => (p == v.patch), .None => false));
       if(same, {
         allowed = true;
       });
@@ -1227,7 +1227,7 @@ _resolve_package :: (
       from_index := e.io.await(read_tags_index(state.cache_root.clone(), remote.clone(), e.io, e.exn), e);
       indexed = from_index;
     });
-    if(fetch_tags && (state.options.offline && indexed.is_none()), {
+    if(fetch_tags && state.options.offline && indexed.is_none(), {
       e.exn.throw(
         dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${pkg.name}" needs the tags of ${pkg.url}, and the cache has no tag list for it`))
       );
@@ -1287,7 +1287,7 @@ _resolve_package :: (
       ref_text = old_ref.clone();
     });
     cached_branch := _cached_text(state.branch_urls, state.branch_names, pkg.url.clone());
-    resolve_branch := (is_default && ((ref_text.len() == usize(0)) && cached_branch.is_none()));
+    resolve_branch := (is_default && (ref_text.len() == usize(0)) && cached_branch.is_none());
     if(resolve_branch && state.options.offline, {
       e.exn.throw(
         dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving the default branch of ${pkg.url} ("${pkg.name}") needs the network`))
@@ -1302,7 +1302,7 @@ _resolve_package :: (
       ref_text = match(_cached_text(state.branch_urls, state.branch_names, pkg.url.clone()), .Some(b) => b, .None => String.from("main"));
     });
     // Already fetched at this ref in this run? Nothing to do.
-    if((pkg.ref_text == ref_text) && ((pkg.commit.len() > usize(0)) && (pkg.expanded_dir == pkg.dir)), {
+    if((pkg.ref_text == ref_text) && (pkg.commit.len() > usize(0)) && (pkg.expanded_dir == pkg.dir), {
       return(false);
     });
     if(verbose, {
@@ -1415,7 +1415,7 @@ _lock_diff :: (fn(old : LockFile, new : LockFile) -> String)({
     match(
       find_lock_entry(old, n.name.clone()),
       .None => out.push_string(`\n  + ${n.name} ${n.source}`),
-      .Some(o) => if((o.source != n.source) || ((o.commit != n.commit) || (o.integrity != n.integrity)), {
+      .Some(o) => if((o.source != n.source) || (o.commit != n.commit) || (o.integrity != n.integrity), {
         out.push_string(`\n  ~ ${n.name}: ${o.source} @ ${o.commit} → ${n.source} @ ${n.commit}`);
       })
     );

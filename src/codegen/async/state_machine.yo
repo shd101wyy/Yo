@@ -28,7 +28,7 @@
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
-{ get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_await_consumed_temp } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
@@ -215,7 +215,7 @@ _lv_pattern_bindings :: (fn(pat : AstExpr, scope_end : u64, w : _LiveWalk, conte
     .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
       match(
         _lv_resolve(pat, tok.value.clone(), w, context),
-        .Some(v) => if((v.token.module_path == tok.module_path) && ((v.token.row == tok.row) && (v.token.column == tok.column)), {
+        .Some(v) => if((v.token.module_path == tok.module_path) && (v.token.row == tok.row) && (v.token.column == tok.column), {
           _lv_declare(_lv_id(v, w), tok.value.clone(), _lv_pos(tok, w), scope_end, w);
           w.bindings.insert(_lv_id(v, w));
         }),
@@ -419,7 +419,7 @@ compute_cross_boundary_variables :: (
   // Suspension positions, and the future temps each await consumes.
   sus := ArrayList(u64).new();
   consumed_temps := HashSet(String).new();
-  note_await := (fn(ae : AstExpr, sus : ArrayList(u64), consumed : HashSet(String), w : _LiveWalk, context : FunctionGenerationContext) -> unit)({
+  note_await := (fn(ae : AstExpr, inout(sus) : ArrayList(u64), inout(consumed) : HashSet(String), w : _LiveWalk, context : FunctionGenerationContext) -> unit)({
     sus.push(_lv_pos(ast_expr_token(ae.clone()), w));
     match(
       ae,
@@ -852,15 +852,15 @@ uses_generic_future_interface :: (fn(future_type : TypeValue, context : Function
   });
   match(
     some_resolution(future_type),
-    .Some(rc) => {
-      if(is_some_type(rc), {
-        rcid := match(rc, .SomeT({ id }) => id, _ => String.from(""));
+    .Some(resolved) => {
+      if(is_some_type(resolved), {
+        rcid := match(resolved, .SomeT({ id }) => id, _ => String.from(""));
         if(context.base.types.contains_key(rcid), {
           return(false);
         });
       });
-      if(is_struct_type(rc), {
-        capture_id := match(rc, .Struct({ id }) => id, _ => String.from(""));
+      if(is_struct_type(resolved), {
+        capture_id := match(resolved, .Struct({ id }) => id, _ => String.from(""));
         it := context.base.types.into_iter();
         (go : bool) = true;
         while(go, {
@@ -1437,7 +1437,7 @@ _emit_await_result_store :: (
   em.emit_string_line(`${ind}  ${dest} = ${tmp};`);
   em.emit_string_line(`${ind}}`);
 });
-_append_exprs :: (fn(dst : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
+_append_exprs :: (fn(inout(dst) : ArrayList(AstExpr), src : ArrayList(AstExpr)) -> unit)({
   (i : usize) = usize(0);
   while(i < src.len(), {
     match(
@@ -1491,7 +1491,7 @@ inline_await_result_fields :: (fn(analysis : AwaitAnalysisResult, context : Func
   prefix := context.fusion_field_prefix.clone();
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
-  add := (fn(e : AstExpr, t : TypeValue, out : ArrayList(InlineAwaitResultField), seen : HashSet(usize), prefix : String) -> unit)({
+  add := (fn(e : AstExpr, t : TypeValue, inout(out) : ArrayList(InlineAwaitResultField), inout(seen) : HashSet(usize), prefix : String) -> unit)({
     if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.contains(_site_of(ast_expr_token(e.clone()))), {
       seen.insert(ast_expr_id(e));
       out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
@@ -1543,7 +1543,7 @@ inline_await_result_field_of :: (fn(expr : AstExpr, fields : ArrayList(InlineAwa
           return(Option(InlineAwaitResultField).Some(f));
         });
         ftok := ast_expr_token(f.expr);
-        if(by_pos.is_none() && ((ftok.row == tok.row) && ((ftok.column == tok.column) && (ftok.module_path == tok.module_path))), {
+        if(by_pos.is_none() && (ftok.row == tok.row) && (ftok.column == tok.column) && (ftok.module_path == tok.module_path), {
           by_pos = Option(InlineAwaitResultField).Some(f);
         });
       },
@@ -1647,9 +1647,18 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   inner := indent.clone();
   inner.push_str("  ");
   em.emit_string_line(`${indent}{`);
+  // A named state-machine future this await cold-starts is the task's child:
+  // the abort hook cancels it with the task. (Decided before the core starts
+  // it, on the same `state == 0` test the core's cold start uses.)
+  if(is_named && !is_io, {
+    em.emit_string_line(`${inner}sm->__yo_started_child = (${acc}->state == 0) ? (void*)${acc} : NULL;`);
+  });
   _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low.resume_function_name.clone(), expr, inner.clone(), context, label.clone());
   em.emit_string_line(`${indent}}`);
   em.emit_string_line(`${indent}${label}: ;`);
+  if(is_named && !is_io, {
+    em.emit_string_line(`${indent}sm->__yo_started_child = NULL;`);
+  });
   low.suspensions.push(InlineSuspension(state : k, in_slot : !is_named, is_io : is_io));
   // The awaited future was aborted: this task takes over its unwind, and
   // catches it (its own handler) or escapes too.
@@ -1679,7 +1688,7 @@ emit_inline_await :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       .Some(rty) => {
         local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
         em.emit_string_line(`${indent}${get_type_string(rty, context.base)} ${local};`);
-        context.base.declared_c_var_names.insert(local.clone());
+        declare_c_var_name(context.base, local.clone());
         _emit_await_result_store(local.clone(), `${acc}->result`, rty, false, indent.clone(), context);
         out = local;
       },
@@ -1873,33 +1882,45 @@ generate_async_block_cancel_pending_function_inline :: (
   em.emit_string_line(`// Abort hook for async block ${async_block_id.clone()} (single-pass lowering)`);
   em.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state) {`);
   em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
-  em.emit_string_line(`  if (sm->__yo_await_slot != NULL) {`);
-  em.emit_string_line(`    switch (prev_state) {`);
+  em.emit_string_line(`  switch (prev_state) {`);
   (i : usize) = usize(0);
   while(i < sps.len(), i = (i + usize(1)), {
     match(
       sps.get(i),
-      .Some(sp) => if(sp.in_slot, {
-        em.emit_string_line(`      case ${sp.state.to_string()}:`);
-        if(sp.is_io, {
-          em.emit_string_line(`        if (__yo_async_io_cancel(sm->__yo_await_slot)) {`);
-          em.emit_string_line(`          __yo_decr_rc(sm->__yo_await_slot);`);
-          em.emit_string_line(`          sm->__yo_await_slot = NULL;`);
-          em.emit_string_line(`          __yo_future_wake_waiters(sm_ptr);`);
-          em.emit_string_line(`          __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
-          em.emit_string_line(`          return;`);
-          em.emit_string_line(`        }`);
-        }, {
+      .Some(sp) => cond(
+        (sp.in_slot && sp.is_io) => {
+          em.emit_string_line(`    case ${sp.state.to_string()}:`);
+          em.emit_string_line(`      if (sm->__yo_await_slot != NULL && __yo_async_io_cancel(sm->__yo_await_slot)) {`);
+          em.emit_string_line(`        __yo_decr_rc(sm->__yo_await_slot);`);
+          em.emit_string_line(`        sm->__yo_await_slot = NULL;`);
+          em.emit_string_line(`        __yo_future_wake_waiters(sm_ptr);`);
+          em.emit_string_line(`        __yo_decr_rc(sm_ptr);  // the suspended task's own reference`);
+          em.emit_string_line(`        return;`);
+          em.emit_string_line(`      }`);
+          em.emit_string_line(`      break;`);
+        },
+        sp.in_slot => {
+          em.emit_string_line(`    case ${sp.state.to_string()}:`);
+          em.emit_string_line(`      if (sm->__yo_await_slot != NULL) {`);
           em.emit_string_line(`        __yo_future_abort(sm->__yo_await_slot);  // structured cancellation`);
-        });
-        em.emit_string_line(`        break;`);
-      }),
+          em.emit_string_line(`      }`);
+          em.emit_string_line(`      break;`);
+        },
+        !sp.is_io => {
+          // A named child this await started (see emit_inline_await).
+          em.emit_string_line(`    case ${sp.state.to_string()}:`);
+          em.emit_string_line(`      if (sm->__yo_started_child != NULL) {`);
+          em.emit_string_line(`        __yo_future_abort(sm->__yo_started_child);  // structured cancellation`);
+          em.emit_string_line(`      }`);
+          em.emit_string_line(`      break;`);
+        },
+        true => ()
+      ),
       .None => ()
     );
   });
-  em.emit_string_line(`      default:`);
-  em.emit_string_line(`        break;`);
-  em.emit_string_line(`    }`);
+  em.emit_string_line(`    default:`);
+  em.emit_string_line(`      break;`);
   em.emit_string_line(`  }`);
   em.emit_string_line(`  __yo_future_wake_waiters(sm_ptr);`);
   em.emit_string_line(`}`);

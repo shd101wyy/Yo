@@ -1,6 +1,6 @@
 # yo-self: `NAME :: <ctfe call>` inside a test-batch arm emits an undeclared C identifier
 
-**Status:** OPEN. Surfaced 2026-07-29 while adding the unary-neg regression
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN. Surfaced 2026-07-29 while adding the unary-neg regression
 test; dodged in that test by inlining the call into `comptime_assert`.
 
 ## Repro shape

@@ -148,9 +148,9 @@ _read_local_addr :: (fn(fd : i32, fallback : SocketAddr) -> SocketAddr)({
   buf := (*u8)(malloc(usize(128)).unwrap());
   len := (*u32)(malloc(usize(4)).unwrap());
   len.* = u32(128);
-  rc := SockInfo.getsockname(fd, buf, len);
+  status := SockInfo.getsockname(fd, buf, len);
   out := cond(
-    (rc == i32(0)) => sockaddr_to_socket_addr(buf),
+    (status == i32(0)) => sockaddr_to_socket_addr(buf),
     true => fallback
   );
   free(.Some((*void)(buf)));

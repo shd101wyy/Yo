@@ -26,10 +26,10 @@ import("std/fmt");
 { _call_generate_expr } :: import("./_expr.yo");
 { Environment } :: import("../../env.yo");
 { generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
 );
 /// True when position `idx` lies INSIDE a double-quoted C string literal in
 /// `s` (parity walk with `\\`-escape skipping): the word
@@ -144,7 +144,7 @@ _maybe_address_of :: (fn(value_expr : AstExpr, code : String, cond_outer_is_ptr 
 /// Whether the generated arm code is a control-flow statement (continue/break/
 /// goto/return) and should be emitted directly rather than assigned.
 _is_cf_code :: (fn(value_expr : AstExpr, code : String, context : FunctionGenerationContext) -> bool)(
-  (code == "continue") || ((code == "break") || (code.starts_with("goto") || (ast_expr_is_fn_call_of(value_expr, BK_RETURN, Option(usize).None) || _contains_word_return(code))))
+  (code == "continue") || (code == "break") || code.starts_with("goto") || ast_expr_is_fn_call_of(value_expr, BK_RETURN, Option(usize).None) || _contains_word_return(code)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -319,7 +319,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
             dline.push_string(raw_code.clone());
             dline.push_str(";");
             em.emit_string_line(dline);
-            context.base.declared_c_var_names.insert(vtv.clone());
+            declare_c_var_name(context.base, vtv.clone());
           });
           final_code = if(v_self && !is_inout_atom, raw_code.clone(), vtv);
           declared_temp = true;
@@ -346,7 +346,7 @@ _emit_value_arm_body :: (fn(value : AstExpr, value_indent : String, temp_var_opt
               dline2.push_string(generate_dup_code_for_value(final_code.clone(), vei.ty, context));
               dline2.push_str(";");
               em.emit_string_line(dline2);
-              context.base.declared_c_var_names.insert(dtv.clone());
+              declare_c_var_name(context.base, dtv.clone());
               final_code = dtv;
               dup_named = true;
             },
@@ -497,7 +497,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
                   dline.push_string(raw_code.clone());
                   dline.push_str(";");
                   em.emit_string_line(dline);
-                  context.base.declared_c_var_names.insert(ftv.clone());
+                  declare_c_var_name(context.base, ftv.clone());
                 });
               },
               .None => ()
@@ -703,7 +703,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
         // scope-end `___drop` of the result was silently dropped and a
         // match/cond passed as a call argument leaked its value
         // (issues/fixed/match-or-cond-call-argument-result-is-never-released.md).
-        context.base.declared_c_var_names.insert(tv.clone());
+        declare_c_var_name(context.base, tv.clone());
       },
       .None => ()
     )
@@ -764,7 +764,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                   if(!(value_code == tv), {
                     line.push_string(get_type_string(value_type, context.base));
                     line.push_str(" ");
-                    context.base.declared_c_var_names.insert(tv.clone());
+                    declare_c_var_name(context.base, tv.clone());
                   });
                   line.push_string(tv.clone());
                   line.push_str(" = ");

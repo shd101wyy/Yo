@@ -381,8 +381,11 @@ impl(
     self._program.instructions.len()
   ),
   _add_class : (fn(self : Self, ranges : ArrayList(CharRange), negated : bool) -> usize)({
-    idx := self._program.classes.len();
-    self._program.classes.push(ClassEntry(ranges : ranges, negated : negated));
+    // The program is a handle: push through a local of it, so the argument's
+    // `ranges` cannot alias the receiver's container chain.
+    prog := self._program;
+    idx := prog.classes.len();
+    prog.classes.push(ClassEntry(ranges : ranges, negated : negated));
     idx
   })
 );

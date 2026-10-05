@@ -150,7 +150,7 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   })
 });
 /// Push a str literal as bytes into an ArrayList(u8).
-_push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
+_push_str_bytes :: (fn(inout(buf) : ArrayList(u8), s : str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
@@ -162,7 +162,7 @@ _push_str_bytes :: (fn(buf : ArrayList(u8), s : str) -> unit)({
   });
 });
 /// Push a String's bytes into an ArrayList(u8).
-_push_string_bytes :: (fn(buf : ArrayList(u8), s : String) -> unit)({
+_push_string_bytes :: (fn(inout(buf) : ArrayList(u8), s : String) -> unit)({
   bytes := s.as_bytes();
   n := bytes.len();
   k := usize(0);
@@ -428,9 +428,9 @@ acquire_store_lock :: (
   io.async((e : IoExn) => {
     lock_path := store_lock_path(cache_root);
     file := e.io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, e.io), e);
-    rc := flock(file.fd(), LOCK_EX);
-    if(rc < i32(0), {
-      e.exn.throw(dyn(`Error: could not lock ${lock_path} (errno ${(i32(0) - rc).to_string()})`));
+    status := flock(file.fd(), LOCK_EX);
+    if(status < i32(0), {
+      e.exn.throw(dyn(`Error: could not lock ${lock_path} (errno ${(i32(0) - status).to_string()})`));
     });
     StoreLock(file : file)
   })
@@ -786,7 +786,7 @@ _source_url :: (fn(source : String) -> Option(String))({
 /// git resolves those against the CURRENT DIRECTORY of the child, so the
 /// resolver hands the fetcher an absolute path instead.
 is_local_git_path :: (fn(url : String) -> bool)(
-  url.starts_with(String.from("./")) || (url.starts_with(String.from("../")) || url.starts_with(String.from("/")))
+  url.starts_with(String.from("./")) || url.starts_with(String.from("../")) || url.starts_with(String.from("/"))
 );
 /// The URL git is given for a manifest `git` value: a local path is made
 /// absolute against the manifest's directory, anything else is as written.
@@ -827,11 +827,11 @@ fetch_package :: (
     mirror_dir := git_mirror_dir(cache_root.clone(), url.clone());
     mirror_present := e.io.await(exists(Path.new(mirror_dir.clone()), e.io), e.io);
     // Offline, the mirror is the only place a ref can be resolved.
-    if(needs_ls_remote && (offline && mirror_present), {
+    if(needs_ls_remote && offline && mirror_present, {
       from_mirror := e.io.await(mirror_rev_parse(mirror_dir.clone(), ref.clone(), e.io, e.exn), e);
       commit = match(from_mirror, .Some(c) => c.clone(), .None => String.new());
     });
-    if(needs_ls_remote && (offline && (commit.len() == usize(0))), {
+    if(needs_ls_remote && offline && (commit.len() == usize(0)), {
       e.exn.throw(
         dyn(format_coded_error(E_DEP_FETCH_FAILED, `--offline: resolving "${name}" (${url} @ ${ref}) to a commit needs the network`))
       );
@@ -950,7 +950,7 @@ GcReport :: ref(
   )
 );
 /// The store names (hex) and remote keys one project's lock references.
-_lock_references :: (fn(lock : LockFile, project_dir : String, tree_names : ArrayList(String), remote_keys : ArrayList(String)) -> unit)({
+_lock_references :: (fn(lock : LockFile, project_dir : String, inout(tree_names) : ArrayList(String), inout(remote_keys) : ArrayList(String)) -> unit)({
   prefix := String.from("sha256-");
   (i : usize) = usize(0);
   while(i < lock.packages.len(), {

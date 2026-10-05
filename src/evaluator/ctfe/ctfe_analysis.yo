@@ -93,7 +93,6 @@ create_comptime_function_type :: (fn(func_type : TypeValue) -> Option(TypeValue)
   param_types := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
   implicit_labels := match(func_type, .Func({ meta : __fm3 }) => __fm3.*.implicit_labels, _ => ArrayList(String).new());
   implicit_types := match(func_type, .Func({ implicit_types : it }) => it, _ => ArrayList(TypeValue).new());
-  implicit_spreads := match(func_type, .Func({ meta : __fm4 }) => __fm4.*.implicit_spreads, _ => ArrayList(bool).new());
   where_types := match(func_type, .Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
   result_box := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());
   match(
@@ -111,7 +110,6 @@ create_comptime_function_type :: (fn(func_type : TypeValue) -> Option(TypeValue)
             forall_labels : forall_labels,
             param_labels : param_labels,
             implicit_labels : implicit_labels,
-            implicit_spreads : implicit_spreads,
             result_is_comptime_only : true,
             param_is_ref : ArrayList(bool).new(),
             // preserve the original's metadata below
@@ -290,7 +288,7 @@ _try_eval_body_swallowing :: (
     func_type : TypeValue,
     env : Environment,
     ctx_p : EvalContext,
-    out : ArrayList(bool)
+    inout(out) : ArrayList(bool)
   ) -> unit
 )({
   inner_exn := Exception(

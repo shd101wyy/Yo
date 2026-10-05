@@ -70,9 +70,9 @@ wrapper half of the plan is `plans/backlog/ASYNC_AWAIT_SITE_FUSION.md`.
 
 ### 1. #1090: finish the generic-aggregate future fix
 
-`issues/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`
+`issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md`
 (S2) and its third shape, filed separately as
-`issues/a-generic-impl-dispose-never-runs-for-a-type-fn-instance-at-a-future.md`
+`issues/fixed/a-generic-impl-dispose-never-runs-for-a-type-fn-instance-at-a-future.md`
 (S2).
 
 **The two fixes on the branch:**

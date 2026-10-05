@@ -1,0 +1,58 @@
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ Deque } :: import("std/collections/deque");
+{ println } :: import("std/fmt");
+// Listed: a push through a by-value parameter.
+fill_copy :: (fn(out : ArrayList(i32)) -> unit)({
+  out.push(i32(1));
+});
+// Listed: an assignment through a by-value parameter.
+set_copy :: (fn(xs : ArrayList(i32)) -> unit)({
+  xs(usize(0)) = i32(2);
+});
+// Listed: a nested list written through the outer by-value parameter.
+nested_copy :: (fn(rows : ArrayList(ArrayList(i32))) -> unit)({
+  rows(usize(0)).push(i32(3));
+});
+// Listed as unresolved: `Deque.push_back`'s mutation mask is not resolved.
+deque_copy :: (fn(d : Deque(i32)) -> unit)({
+  d.push_back(i32(4));
+});
+// Not listed: an `inout` parameter is the caller's list.
+fill_inout :: (fn(inout(out) : ArrayList(i32)) -> unit)({
+  out.push(i32(5));
+});
+apply :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  fill_copy(xs);
+  set_copy(xs);
+  fill_inout(xs);
+  rows := ArrayList(ArrayList(i32)).new();
+  rows.push(ArrayList(i32).new());
+  nested_copy(rows);
+  deque_copy(Deque(i32).new());
+  // Listed: a `match` binding of a map value.
+  m := HashMap(i32, ArrayList(i32)).new();
+  m.insert(i32(1), ArrayList(i32).new());
+  match(m.get(i32(1)), .Some(l) => l.push(i32(6)), .None => ());
+  // Listed: a value `for` binding.
+  for(rows, row => row.push(i32(7)));
+  // Not listed: the borrowed `for` form writes the element in place.
+  for(rows, inout(row) => row.push(i32(8)));
+  // Listed as a capture: the closure's copy of `seen`.
+  seen := ArrayList(i32).new();
+  apply(() => {
+    seen.push(i32(9));
+  });
+  // Not listed: a `Box` is the explicit shared handle.
+  recorded := box(ArrayList(i32).new());
+  apply(() => {
+    recorded.*.push(i32(10));
+  });
+  // Not listed: a local.
+  local := ArrayList(i32).new();
+  local.push(i32(11));
+  println(xs.len());
+});
+export(main);

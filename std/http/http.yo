@@ -147,20 +147,20 @@ impl(
   ),
   /// Add a value for `name`, KEEPING any existing values. Rust's
   /// `HeaderMap::append`.
-  append : (fn(self : Self, name : String, value : String) -> unit)({
+  append : (fn(inout(self) : Self, name : String, value : String) -> unit)({
     self._entries.push(HttpHeader.new(name, value));
   }),
   /// Set `name` to exactly `value`, dropping every value it had. Rust's
   /// `HeaderMap::insert`. Returns the first previous value, if any — a caller
   /// overwriting a header usually wants to know it was there.
-  insert : (fn(self : Self, name : String, value : String) -> Option(String))({
+  insert : (fn(inout(self) : Self, name : String, value : String) -> Option(String))({
     prev := self.get(name);
     self.remove(name);
     self._entries.push(HttpHeader.new(name, value));
     prev
   }),
   /// Remove every value for `name`, returning how many field lines went.
-  remove : (fn(self : Self, name : String) -> usize)({
+  remove : (fn(inout(self) : Self, name : String) -> usize)({
     lower := name.to_lowercase();
     kept := ArrayList(HttpHeader).new();
     (removed : usize) = usize(0);

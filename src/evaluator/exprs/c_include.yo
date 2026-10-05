@@ -77,7 +77,11 @@ record_c_include_for_extern :: (fn(name : String, header : String) -> unit)({
         i = (i + usize(1));
       });
       if(!seen, {
-        list.push(header);
+        // Stored back: a `get` copy is not the stored list once collections
+        // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+        grown := list;
+        grown.push(header);
+        g_extern_c_includes.insert(name, grown);
       });
     },
     .None => {
@@ -356,7 +360,6 @@ User code should normally call stdlib wrappers (e.g. functions in
             forall_labels : m.*.forall_labels.clone(),
             param_labels : m.*.param_labels.clone(),
             implicit_labels : m.*.implicit_labels.clone(),
-            implicit_spreads : m.*.implicit_spreads.clone(),
             result_is_comptime_only : m.*.result_is_comptime_only,
             param_is_ref : m.*.param_is_ref.clone(),
             param_is_owning : m.*.param_is_owning.clone(),

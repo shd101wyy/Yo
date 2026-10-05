@@ -209,7 +209,7 @@ _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
       if(boundary_ok && _bytes_at(src, i, "c_include("), {
         open_idx = Option(usize).Some(i + usize(9));
       });
-      if(open_idx.is_none() && (boundary_ok && _bytes_at(src, i, "extern(")), {
+      if(open_idx.is_none() && boundary_ok && _bytes_at(src, i, "extern("), {
         // Require `"c"` then `,` after optional whitespace.
         (k : usize) = (i + usize(7));
         while((k < n) && _is_ws_byte(src(k)), {
@@ -474,7 +474,7 @@ _scan_line :: (
 });
 /// Recursively collect .yo files under `p`, skipping node_modules/.git/dist/
 /// yo-out/build and every dot-directory (but not a `.`/`..` root argument).
-_walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
+_walk_yo_files :: (fn(root : String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))(
   io.async((e : IoExn) => {
     // Built on std/fs/walker (its stack loop is the proven async-while
     // shape) with post-filtering: an entry is dropped when ANY path segment
@@ -491,14 +491,16 @@ _walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exc
     exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
       // Unreadable/missing root → skip.
-      return(());
+      return(ArrayList(String).new());
     });
     md := e.io.await(fs_metadata.metadata(Path.new(walk_root.clone()), e.io), e);
     if(!md.is_dir(), {
       if(root.ends_with(`.yo`), {
-        out.push(root.clone());
+        single := ArrayList(String).new();
+        single.push(root.clone());
+        return(single);
       });
-      return(());
+      return(ArrayList(String).new());
     });
     entries := e.io.await(fs_walker.walk(Path.new(walk_root.clone()), e.io), e);
     root_prefix_len := walk_root.as_bytes().len();
@@ -536,19 +538,13 @@ _walk_yo_files :: (fn(root : String, out : ArrayList(String), io : Io, exn : Exc
     // children walk when a directory name collides with a file-name prefix
     // (e.g. `b/` vs `b.yo`) — acceptable for an audit listing.
     collected.sort();
-    (ci : usize) = usize(0);
-    while(runtime(ci < collected.len()), {
-      out.push(collected(ci).clone());
-      ci = (ci + usize(1));
-    });
-    ()
+    collected
   })
 );
 /// Generate the report for every .yo file under `root_path`.
 generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> Impl(Future(UnsafeReport, IoExn)))(
   io.async((e : IoExn) => {
-    yo_files := ArrayList(String).new();
-    e.io.await(_walk_yo_files(root_path.clone(), yo_files, e.io, e.exn), e);
+    yo_files := e.io.await(_walk_yo_files(root_path.clone(), e.io, e.exn), e);
     privileged_files := ArrayList(String).new();
     findings := ArrayList(UnsafeFinding).new();
     // First pass: read every file once; harvest extern "c" names.

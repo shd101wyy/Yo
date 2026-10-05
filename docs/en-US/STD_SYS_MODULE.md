@@ -328,7 +328,7 @@ IOCP is Windows' native async I/O mechanism:
 - TCP send/recv use `WSASend`/`WSARecv` with OVERLAPPED
 - File handles are associated via `CreateIoCompletionPort` at open time; duplicate association is tolerated (`ERROR_INVALID_PARAMETER` on second call is ignored)
 - Winsock is initialized lazily via `WSAStartup` in `__yo_io_init()`
-- Winsock error codes are translated to errno at every socket-error site (`__yo_wsa_error_to_errno`), so `IoError.from_errno` classifies them on Windows like everywhere else: `WSAEADDRINUSE` surfaces as `AddressInUse`, would-block as `Again` (2026-10; before, socket failures came back as raw `os error 10048`-style "unknown I/O error")
+- Winsock error codes are translated to errno at every socket-error site (`__yo_wsa_to_errno`), so `IoError.from_errno` classifies them on Windows like everywhere else: `WSAEADDRINUSE` surfaces as `AddressInUse`, would-block as `WouldBlock`, a code with no errno counterpart as `EIO` (2026-10; before, socket failures came back as raw `os error 10048`-style "unknown I/O error")
 - `readlink` reads the reparse point (`FSCTL_GET_REPARSE_POINT`): a symlink/junction answers its substitute name with the object-manager prefix stripped, and a non-link throws `EINVAL` — the POSIX `readlink` contract (2026-10; the previous `GetFinalPathNameByHandleW` shim answered the link's own path and never threw)
 
 **Header conflict guard**: Every generated C file on Windows emits `WIN32_LEAN_AND_MEAN` and `_WINSOCKAPI_` to prevent `winsock.h`/`winsock2.h` redefinition errors.

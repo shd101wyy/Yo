@@ -3,7 +3,7 @@
 **Found:** 2026-09-25, while writing the D4 over-rejection canary for
 `tests/parallelism_soundness.test.yo` (`plans/PARALLELISM_SOUNDNESS.md` Phase 0).
 **Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 4). Was: OPEN. **Class:** valid code fails to compile (codegen). It is ALSO the accident
-that currently keeps `issues/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`
+that currently keeps `issues/fixed/a-capturing-closure-type-satisfies-a-send-bound-so-arc-and-channel-accept-it-at-check.md`
 from being a runtime hole: the non-Send case fails in clang for the same reason the Send case
 does.
 **Measured:** yo 0.2.41 seed against the develop tree's `std`, macOS arm64.

@@ -18,7 +18,7 @@
 //! call them that.
 //!
 //! Broadly stable: the core traits (`Clone`, `Eq`, `Ord`, `Hash`, `Dispose`,
-//! `Send`, `Rc`, the operator traits), `Option`, `Result`, `Box`, `Range`,
+//! `Send`, the operator traits), `Option`, `Result`, `Box`, `Range`,
 //! the numeric types and their inherent methods, and the async vocabulary
 //! (`Io`, `Future`, `JoinHandle`). These have Rust's names and meanings and
 //! are not expected to move.
@@ -253,24 +253,45 @@ Acyclic :: trait(
   id := "Acyclic"
 );
 export(Acyclic);
-/// The Rc trait means the type is reference counted `object` type.
-Rc :: trait(
-  id := "Rc"
+/// MoveOnly trait - a value that cannot be copied, only moved.
+///
+/// A value type is move-only when it implements `Dispose`, when it declares
+/// `impl(T, MoveOnly())`, or when one of its fields, variant payloads, tuple
+/// or array elements, or closure captures is move-only. The compiler derives
+/// it; a declaration is needed only for a type that has no `Dispose` but must
+/// still never be duplicated (a token, a unique id).
+///
+/// A copy of a move-only value is a compile error (E0901). `y := x` moves
+/// `x`, and so do passing it to an `own(...)` parameter, storing it in a
+/// field or element, returning it and capturing it in a closure. A by-value
+/// parameter borrows it, so `use_file(f)` needs no move. Only a value type
+/// (`struct`, `enum`, `newtype`, and the tuples, arrays and closures built
+/// from them) can be move-only. A reference type (`ref(struct(...))`, `Box`,
+/// `Arc`) is how a value is shared: its copies alias one cell, so it is never
+/// move-only, even around a move-only payload.
+MoveOnly :: trait(
+  id := "MoveOnly"
 );
-export(Rc);
+export(MoveOnly);
 /// Dispose trait - defines a dispose method for cleaning up resources.
+/// A value type (`struct`, `enum`, `newtype`) that implements it is
+/// move-only (`MoveOnly`): its one owner runs `dispose` exactly once, when it
+/// drops the value. A reference type (`ref(struct(...))`, `ref(enum(...))`
+/// and their `atomic(...)` forms) may implement it too: its copies share one
+/// cell, and `dispose` runs when the count reaches zero. No other type may
+/// implement it; the compiler checks this at the `impl`.
 Dispose :: trait(
   id := "Dispose",
   /// Release the resources `self` owns — a file descriptor, a socket, a lock,
-  /// a buffer the allocator handed out. Called automatically when the last
-  /// reference to the value goes away, so an implementor never calls it
-  /// directly and must tolerate being the only one who ever does.
+  /// a buffer the allocator handed out. Called automatically when the value's
+  /// owner drops it (a value type) or the last reference to it goes away (a
+  /// reference type), so an implementor never calls it directly and must
+  /// tolerate being the only one who ever does.
   ///
-  /// It must be safe to run exactly once: the runtime calls it at refcount
-  /// zero, and a type that also exposes an explicit `close`/`release` is
-  /// responsible for making the second call a no-op.
-  dispose : (fn(self : Self) -> unit),
-  where(Self <: Rc)
+  /// It must be safe to run exactly once, and a type that also exposes an
+  /// explicit `close`/`release` is responsible for making the second call a
+  /// no-op.
+  dispose : (fn(self : Self) -> unit)
 );
 export(Dispose);
 /// === Cycle-GC tracing ===
@@ -302,12 +323,50 @@ impl(
 /// `Option` and all value types); hand-implemented for containers whose elements
 /// live in a heap buffer (`ArrayList`, `HashMap`, …). The constructor wires
 /// `header.traverse_fn` to this `trace`.
+/// Like `Dispose`, only a reference type may implement it (checked at the
+/// `impl`).
 Trace :: trait(
   id := "Trace",
-  trace : (fn(self : Self, tracer : GcTracer) -> unit),
-  where(Self <: Rc)
+  trace : (fn(self : Self, tracer : GcTracer) -> unit)
 );
 export(Trace);
+// === Explicit allocators ===
+// `Allocator` and `AllocatorVTable` live here so prelude signatures can name
+// them; `std/allocator.yo` holds their methods (`Allocator.global()`,
+// `alloc`, `realloc`, `free`, `owner_of`, `same`), the owner prefix, the
+// global vtable, `with_allocator` and `current_allocator`
+// (plans/VALUES_BY_DEFAULT.md §3.11).
+/// The functions behind an `Allocator`. Implementing one needs
+/// `pragma(Pragma.AllowUnsafe)`.
+///
+/// - `alloc(ctx, size)` returns a block of at least `size` bytes aligned to
+///   16, or `.None`.
+/// - `realloc(ctx, ptr, new_size)` resizes a block this vtable's `alloc`
+///   returned, keeping its first `min(old, new_size)` bytes. `.None` leaves
+///   the original block untouched and still owned by the caller.
+/// - `free(ctx, ptr)` releases such a block.
+///
+/// There is no size at `free` and no aligned family: every container buffer
+/// and every RC block uses the plain family (see `std/allocator.yo`'s module notes).
+AllocatorVTable :: struct(
+  alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
+  realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
+  free : (fn(ctx : ?*void, ptr : ?*void) -> unit)
+);
+/// An allocator value: an opaque context plus an immortal vtable. Two words,
+/// copied freely; it is not reference counted, because an allocator must not
+/// itself need an allocator.
+Allocator :: struct(
+  ctx : ?*void,
+  vtable : *AllocatorVTable
+);
+// The audited base (plans/reference/PARALLELISM_RULES.md D1/D9): a bare `fn`
+// field is never `Send` on its own, so without this no allocator could cross
+// into a spawn body. Every std vtable function reaches no thread-affine
+// global and every std implementor guards its `ctx`; a user implementor is
+// under `AllowUnsafe` and carries the same obligation.
+impl(Allocator, Send());
+export(AllocatorVTable, Allocator);
 /// Index trait — enables `container(idx)` subscript syntax at runtime.
 /// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`).
 /// Implementations must define an `Output` associated type and an `index` method.
@@ -7733,7 +7792,6 @@ TypeInfo :: enum(
   ComptimeList(element : Type),
   // Metaprogramming (fieldless)
   Expr,
-  EffectsRow,
   TypeApplication
 );
 impl(TypeInfo, Comptime());
@@ -8763,7 +8821,7 @@ derive_rule(Ord, __derive_ord);
 /// placeholder for every INSTANTIATED generic (`Option(i32)`, `ArrayList(i32)`,
 /// any user generic), so a rendered `Option(String)` field would not reparse.
 /// Indexing sidesteps that entirely and needs no field type to be in scope at
-/// the impl site. See issues/type-to-comptime-string-placeholder-for-generics.md.
+/// the impl site.
 ///
 /// Structs only. An enum has no canonical default variant — Rust needs an
 /// explicit `#[default]` attribute to pick one, and Yo has no such attribute,
@@ -9382,23 +9440,21 @@ export(Result);
 /// assert(a.* == i32(7), "a and b name the SAME value");
 /// ```
 ///
-/// The name is kept deliberately: `Rc` is already a **trait** in this prelude
-/// (the "this type is a reference-counted `object` type" bound used by
-/// `where(Self <: Rc)`), so `Box` cannot be renamed to `Rc` without colliding
-/// with it — and reference counting is Yo's *universal* object model rather
-/// than one container's opt-in policy, so a distinct name for "the RC one"
-/// would be misleading in the other direction. Every `ref(struct(...))` in
-/// this language is refcounted; `Box` is simply the one-field case of that.
+/// The name is kept until `plans/VALUES_BY_DEFAULT.md` V1 renames this type
+/// to `Rc` and introduces a copy-on-write value `Box`. Until then, every
+/// `ref(struct(...))` in this language is refcounted; `Box` is simply the
+/// one-field case of that.
 ///
 /// Consequences worth knowing:
 /// - Sharing is silent. Two `Box` handles to one value is the normal case.
 /// - A `Box` cycle leaks unless broken (see `Isolation` / the cycle
 ///   collector); Rust's `Box` cannot form a cycle at all.
-/// - `rc(b)` reports the current reference count (the optimizer may cancel a
+/// - `ref_count(b)` reports the current reference count (the optimizer may cancel a
 ///   dup against a scope-end drop, so it is the live count, not a count of
 ///   names); `Iso`/`can_isolate` is how you ask for uniqueness.
 ///
-/// Use `box(value)` to allocate. Access the inner value with `b.*`.
+/// Use `box(value)` or `rc(value)` to allocate. Access the inner value with
+/// `b.*`.
 ///
 /// ## Example
 /// ```yo
@@ -9414,11 +9470,28 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 /// Allocate a value on the heap, returning a `Box(V)`.
 box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+/// Allocate a value in a fresh reference-counted cell: `rc(value)` takes
+/// ownership of `value` and returns a handle whose `ref_count` is 1.
+///
+/// Today this is exactly `box(value)` and returns a `Box(V)`, because Yo's
+/// `Box` is already reference counted (see above). It exists so that code can
+/// spell the shared, counted cell by its future name: VALUES_BY_DEFAULT V1
+/// renames `Box` to `Rc`, and then `rc(value)` returns an `Rc(V)`
+/// (plans/VALUES_BY_DEFAULT.md decision 11). `rc` is an ordinary function, not
+/// the count: the count is the `ref_count(x)` builtin.
+///
+/// ```yo
+/// a := rc(i32(42));
+/// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+/// b := a;
+/// assert(b.* == i32(42), "a copy shares the cell");
+/// ```
+rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 impl(
   generic(T : Type),
   Box(T),
   Isolation(
-    can_isolate : ((self) -> (rc(self) == 1))
+    can_isolate : ((self) -> (ref_count(self) == 1))
   )
 );
 impl(
@@ -9462,7 +9535,8 @@ impl(
 );
 export(
   Box,
-  box
+  box,
+  rc
 );
 /// Iso — an isolated reference-counted value that can be sent across threads.
 // SAFETY (rule D2, plans/reference/PARALLELISM_RULES.md): Iso(T) is
@@ -9573,6 +9647,32 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Ar
 // auto-derive) and Acyclic (prevents permanent leaks from Arc cycles).
 impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
 export(Arc, arc);
+/// === Deref ===
+/// Deref — marks a wrapper whose members forward to its payload `Target`
+/// (auto-dereference, plans/VALUES_BY_DEFAULT.md §3.3). Nothing is called at
+/// run time: `w.field` and `w.method()` on a `Deref` type whose own members
+/// lack that name mean `w.*.field` and `w.*.method()`, recursively through
+/// nested wrappers, and the wrapper's own members always win (`b.clone()` is
+/// the `Box`'s `clone`). `w.*` names the payload place.
+///
+/// Implemented by `Box` and `Arc` only; any other `impl(..., Deref(...))` is
+/// a compile error, so every auto-dereference goes through one of the
+/// prelude's cells.
+///
+/// ```yo
+/// P :: struct(n : i32);
+/// b := box(P(n : i32(1)));
+/// b.n = i32(2);              // writes b.*.n
+/// assert(b.n == i32(2), "read through the box");
+/// ```
+Deref :: trait(
+  id := "Deref",
+  /// The payload type `w.*` names.
+  Target : Type
+);
+export(Deref);
+impl(generic(T : Type), Box(T), Deref(Target : T));
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===
 extern(
   "Yo",
@@ -12066,16 +12166,20 @@ impl(
 );
 /// FutureState — the state of an async `Future`.
 FutureState :: enum(
-  /// The future has been created but not yet started.
-  Pending = 0,
-  /// The future is actively running.
+  /// The future is cold: created but not yet started (an `io.async` future
+  /// before its first `io.await` / `io.spawn`). Was `Pending` until
+  /// 2026-10-03; renamed because "pending" reads as Rust's "not ready yet",
+  /// which every suspended future is (plans/ASYNC_IO_API_AUDIT.md Q4).
+  Cold = 0,
+  /// The future has started and is not finished: suspended at an await, or
+  /// an I/O operation in flight.
   Running = 1,
   /// The future completed successfully.
   Completed = -(1),
   /// The future was aborted (e.g., via `unwind`).
   Aborted = -(2)
 );
-// SAFETY: FutureState is a plain enum of integer values (Pending, Done,
+// SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
 // Aborted) with no heap allocations. It is trivially Send and Acyclic.
 impl(FutureState, Acyclic());
 impl(FutureState, Runtime());
@@ -12122,7 +12226,7 @@ Io :: struct(
   /// Await a `Future`, suspending until its result is ready.
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   /// Inspect the current state of a `Future` without blocking.
-  state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
@@ -12135,7 +12239,7 @@ extern(
   "Yo",
   __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   __yo_io_await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  __yo_io_state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
+  __yo_io_state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
   __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 /// Built-in Io module instance. Automatically injected for `main` functions
@@ -12206,10 +12310,11 @@ impl(
   /// descriptor operations): the task and what it was waiting on are then
   /// released at once instead of when that operation would have completed.
   /// An operation with no cancel path still runs to completion and releases
-  /// the task then. Only the future in the task's anonymous await slot is
-  /// under the hook; a NAMED awaited child is not cancelled yet, and a raw
-  /// `IoFuture` spawned directly has no hook at all
-  /// (issues/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md).
+  /// the task then; the task stays `Aborted`. A child future the task is
+  /// awaiting is aborted with it when the task started it (an anonymous
+  /// `io.await(child(io), io)`, or a named future this await cold-started); a
+  /// named future someone else started may be shared and keeps running. A raw
+  /// `IoFuture` spawned directly is cancelled the same way.
   abort : (fn(self : JoinHandle(T)) -> unit)(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )

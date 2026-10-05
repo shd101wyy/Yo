@@ -6,7 +6,7 @@
 //!   * `t_ptr` / `t_array` — pointer/array constructors
 //!   * `t_func_simple` / `t_trait` / `t_trait_simple` / `t_module` / `t_module_simple`
 //!   * `t_some_t` — SomeType constructor (consumes a fresh id from the counter)
-//!   * `t_expr_t` / `t_comptime_list` / `t_effects_row` / `t_type_app` / `t_iso`
+//!   * `t_expr_t` / `t_comptime_list` / `t_type_app` / `t_iso`
 //!   * `t_dyn` / `t_dyn_simple` / `t_fn_trait` / `t_fn_trait_simple`
 //!   * `t_future_trait` / `t_future_trait_simple`
 //!   * `type_value_tag` — extract the `TypeTag` discriminator from a TypeValue
@@ -247,7 +247,6 @@ t_func_simple :: (
         forall_labels : ArrayList(String).new(),
         param_labels : param_labels,
         implicit_labels : ArrayList(String).new(),
-        implicit_spreads : ArrayList(bool).new(),
         result_is_comptime_only : false,
         // simple (runtime) function type
         param_is_ref : ArrayList(bool).new(),
@@ -306,9 +305,6 @@ t_expr_t :: (fn() -> TypeValue)(.ExprT);
 t_comptime_list :: (fn(child : TypeValue) -> TypeValue)(
   .ComptimeListT(child)
 );
-t_effects_row :: (fn(labels : ArrayList(String), types : ArrayList(TypeValue)) -> TypeValue)(
-  .EffectsRowT(labels, types)
-);
 t_type_app :: (fn(constructor : TypeValue, args : ArrayList(TypeValue)) -> TypeValue)(
   .TypeAppT(constructor, args)
 );
@@ -333,7 +329,7 @@ _dyn_trait_sort_key :: (fn(t : TypeValue) -> String)({
 /// printed type agree for every spelling
 /// (issues/fixed/dyn-trait-order-is-part-of-its-c-type.md). Insertion sort:
 /// the lists are a handful of traits.
-_sort_dyn_traits :: (fn(types : ArrayList(TypeValue), levels : ArrayList(usize)) -> unit)({
+_sort_dyn_traits :: (fn(inout(types) : ArrayList(TypeValue), inout(levels) : ArrayList(usize)) -> unit)({
   if(types.len() < usize(2), {
     return(());
   });
@@ -387,11 +383,10 @@ t_fn_trait :: (
     call_result : TypeValue,
     implicit_labels : ArrayList(String),
     implicit_types : ArrayList(TypeValue),
-    implicit_spreads : ArrayList(bool),
     call_param_is_ref : ArrayList(bool)
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, implicit_spreads, call_param_is_ref)
+  .FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, call_param_is_ref)
 );
 t_fn_trait_simple :: (
   fn(
@@ -400,21 +395,20 @@ t_fn_trait_simple :: (
     call_result : TypeValue
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new(), ArrayList(bool).new())
+  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
 );
 t_future_trait :: (
   fn(
     base_name : String,
     output : TypeValue,
     effect_labels : ArrayList(String),
-    effect_types : ArrayList(TypeValue),
-    effect_spreads : ArrayList(bool)
+    effect_types : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .FutureTraitT(base_name, output, effect_labels, effect_types, effect_spreads)
+  .FutureTraitT(base_name, output, effect_labels, effect_types)
 );
 t_future_trait_simple :: (fn(base_name : String, output : TypeValue) -> TypeValue)(
-  .FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
+  .FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
@@ -427,7 +421,6 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
-    false,
     Option(TypeValue).None,
     Option(TypeValue).None
   )
@@ -439,7 +432,7 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
 t_with_resolution :: (fn(t : TypeValue, concrete : TypeValue) -> TypeValue)(
   match(
     t,
-    .SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_ier, wr_kft, _) => TypeValue.SomeT(
+    .SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _) => TypeValue.SomeT(
       wr_id,
       wr_nm,
       wr_fl,
@@ -448,7 +441,6 @@ t_with_resolution :: (fn(t : TypeValue, concrete : TypeValue) -> TypeValue)(
       wr_rtl,
       wr_ntt,
       wr_ntl,
-      wr_ier,
       wr_kft,
       Option(TypeValue).Some(concrete)
     ),
@@ -483,7 +475,7 @@ t_extern_opaque :: (fn(name : String, c_name : String) -> TypeValue)(
 clone_some_fresh :: (fn(s : TypeValue) -> TypeValue)(
   match(
     s,
-    .SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, seff, skind, _) => .SomeT(
+    .SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _) => .SomeT(
       generate_some_type_id(),
       snm,
       sfl,
@@ -492,7 +484,6 @@ clone_some_fresh :: (fn(s : TypeValue) -> TypeValue)(
       sreql,
       sneg,
       snegl,
-      seff,
       skind,
       Option(TypeValue).None
     ),
@@ -514,7 +505,6 @@ t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) 
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
-    false,
     Option(TypeValue).Some(kind),
     Option(TypeValue).None
   )
@@ -576,7 +566,6 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
     .SomeT(name : _) => TypeTag.TSomeType,
     .ExprT => TypeTag.TExpr,
     .ComptimeListT(_) => TypeTag.TComptimeList,
-    .EffectsRowT(_, _) => TypeTag.TEffectsRow,
     .TypeAppT(_, _) => TypeTag.TTypeApplication,
     .IsoT(_) => TypeTag.TIso,
     .DynT(_, _, _, _) => TypeTag.TDyn,
@@ -618,7 +607,7 @@ _shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
 /// rebuilding (and formerly recursing forever into) the whole type universe
 /// for every defined field (issues/fixed/patch-self-shell-exponential-walk.md).
 _contains_self_shell :: (
-  fn(t : TypeValue, shell_id : String, visited : ArrayList(String)) -> bool
+  fn(t : TypeValue, shell_id : String, inout(visited) : ArrayList(String)) -> bool
 )(
   match(
     t,
@@ -704,7 +693,7 @@ _contains_self_shell :: (
 /// shared/cyclic node resolves at use sites via the finals registries (the
 /// documented deep-resolution path above).
 _patch_self_shell_guarded :: (
-  fn(t : TypeValue, shell_id : String, final_ty : TypeValue, visited : ArrayList(String)) -> TypeValue
+  fn(t : TypeValue, shell_id : String, final_ty : TypeValue, inout(visited) : ArrayList(String)) -> TypeValue
 )(
   match(
     t,
@@ -1108,7 +1097,6 @@ export(
   t_extern_opaque,
   t_expr_t,
   t_comptime_list,
-  t_effects_row,
   t_type_app,
   t_iso,
   t_dyn,

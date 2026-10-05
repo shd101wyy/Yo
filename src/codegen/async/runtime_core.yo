@@ -1235,13 +1235,16 @@ static void __yo_future_wake_waiters(void* fut) {
   }
 }
 
-// Non-blocking FutureState read: positive step indices read as Running (1),
-// matching io.state's mapping (0 Pending, -1 Completed, -2 Aborted).
+// Non-blocking FutureState read, io.state's mapping: positive step indices
+// read as Running (1), and so does a raw I/O future's pending 0 — it was
+// submitted when it was created, so it is never Cold (0 Cold, -1 Completed,
+// -2 Aborted).
 static int32_t __yo_join_handle_state_raw(void* fut) {
-  int s = ((__yo_future_header_t*)fut)->state;
+  __yo_future_header_t* h = (__yo_future_header_t*)fut;
+  int s = h->state;
   // Reading Aborted through the handle observes an effect-unwind abort.
   if (s == -2) __yo_task_abort_observed(fut);
-  return (s > 0) ? 1 : s;
+  return (s > 0 || (s == 0 && h->vt == NULL)) ? 1 : s;
 }
 
 // Abort a future: mark a non-terminal one Aborted, then let its hook cancel
@@ -1255,6 +1258,27 @@ static void __yo_future_abort(void* fut) {
   __yo_future_header_t* f = (__yo_future_header_t*)fut;
   int prev = f->state;
   if (prev < 0) {
+    return;
+  }
+  if (!f->vt) {
+    // A raw I/O future (an IoFuture spawned or held directly): no state
+    // machine, so no hook. Take the operation back where the backend can —
+    // the waiters are detached first so the cancel's completion wakes nobody
+    // with a Completed state — then mark it Aborted and wake them. An
+    // operation with no cancel path stays registered; its completion leaves
+    // the Aborted state alone (every backend's completion skips -2), so a
+    // handle never reads an aborted task as Completed again
+    // (issues/fixed/abort-of-a-directly-spawned-raw-io-future-is-undone-by-its-completion.md).
+    __yo_io_future_t* io = (__yo_io_future_t*)fut;
+    void (*cont)(void*) = atomic_exchange(&io->continuation_fn, NULL);
+    void* csm = atomic_exchange(&io->continuation_sm, NULL);
+    if (io->cancel_fn) {
+      (void)io->cancel_fn(io);
+    }
+    atomic_store(&io->state, -2);
+    if (cont) {
+      __yo_async_wake(cont, csm);
+    }
     return;
   }
   f->state = -2;

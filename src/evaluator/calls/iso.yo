@@ -72,7 +72,7 @@ _struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
 /// a `Dyn` without `Send` (code unknown here) is not. `.Some(reason)` names the
 /// first offending component.
 _iso_function_offense :: (
-  fn(ty : TypeValue, send : TypeValue, seen : ArrayList(String), env : Environment, ctx : EvalContext) -> Option(String)
+  fn(ty : TypeValue, send : TypeValue, inout(seen) : ArrayList(String), env : Environment, ctx : EvalContext) -> Option(String)
 )({
   // Cycle guard on nominal identity (ArrayList(T) reaches T through its buffer).
   nid := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid, _ => String.new());

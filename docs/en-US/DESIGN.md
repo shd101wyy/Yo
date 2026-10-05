@@ -49,6 +49,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Reference-Semantics Type](#reference-semantics-type)
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
     - [Explicit Allocators](#explicit-allocators)
+    - [Move-only values](#move-only-values)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
   - [Pointer Arithmetic and Comparison](#pointer-arithmetic-and-comparison)
@@ -104,6 +105,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
       - [Format specifications — `${value:spec}`](#format-specifications--valuespec)
 - [Collections](#collections)
+  - [Mutating a collection: mutators take `inout(self)`](#mutating-a-collection-mutators-take-inoutself)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
   - [HashSet](#hashset)
@@ -677,7 +679,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(inout(x) : i32) -> unit`, `fn(own(x) : String) -> usize` and `fn(x : i32) -> unit` are three different types: an `inout` parameter is passed by reference, an `own` parameter is moved into the callee, and a plain parameter is borrowed. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
+`fn(inout(x) : i32) -> unit`, `fn(sink(x) : String) -> usize` and `fn(x : i32) -> unit` are three different types: an `inout` parameter is passed by reference, a `sink` parameter is moved into the callee, and a plain parameter is borrowed. A `sink` parameter consumes its argument: the caller's binding ends at the call. `own(x)` is the old spelling of `sink(x)`; it is still accepted, and spells the same type, until a sweep after the next release removes it. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
 
 ```rust
 bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
@@ -1133,6 +1135,34 @@ p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
 
 No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. `std/arena`'s `Arena` panics at `deinit` while a block is still live. The safety rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators-and-arenas); the full guide is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
 
+#### Move-only values
+
+A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is **move-only**, and so is every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Box`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.
+
+```rust
+{ println } :: import("std/fmt");
+Fd :: struct(n : i32);
+impl(Fd, Dispose(
+  dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // a real one would close the descriptor
+));
+
+peek :: (fn(f : Fd) -> i32)(f.n);        // a by-value parameter borrows: no copy
+keep :: (fn(sink(f) : Fd) -> unit)(());  // a sink parameter moves the value in
+
+main :: (fn() -> unit)({
+  a := Fd(n : i32(3));
+  n := peek(a);    // borrowed; `a` is still usable
+  b := a;          // moves `a` into `b`
+  // a.n           // E0901: use of moved value: `a`
+  keep(b);         // moves `b`; `keep` disposes it when it returns
+});
+export(main);
+```
+
+Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: a by-value parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. Where the arms of a `cond`/`match` or the ways out of a loop meet, a move-only value is moved on all of them or on none (E0907). Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
+
+A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
+
 ## Pointers
 
 Yo uses pointers (`*(T)`) for direct memory access, similar to C. Operations that dereference or do arithmetic on raw pointers require an explicit `unsafe(...)` wrap — see [Memory Safety](#memory-safety) below.
@@ -1323,7 +1353,7 @@ main :: (fn() -> unit)({
 
 ### `inout` Parameters
 
-For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to the existing `own(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
+For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to `sink(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
 
 ```rust
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
@@ -1350,7 +1380,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` cannot be combined with `own(...)` (opposite calling conventions) or with `comptime`/`generic` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
+`inout(...)` cannot be combined with `sink(...)` (opposite calling conventions) or with `comptime`/`generic` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
 
 ```rust
 double :: (fn(inout(n) : i32) -> unit)({
@@ -2075,7 +2105,7 @@ Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
 
 open_h :: (fn(fd : i32) -> Handle(Open))(Handle(Open)(fd : fd));
 read_h :: (fn(h : Handle(Open)) -> i32)(h.fd);
-close_h :: (fn(own(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
+close_h :: (fn(sink(h) : Handle(Open)) -> Handle(Closed))(Handle(Closed)(fd : h.fd));
 
 main :: (fn() -> unit)({
   h := open_h(i32(3));
@@ -2089,7 +2119,7 @@ export(main);
 The pattern is only sound when the old state CANNOT be used after a
 transition, so two rules apply:
 
-- **The handle is a `ref` type and the transition takes it with `own(...)`.**
+- **The handle is a `ref` type and the transition takes it with `sink(...)`.**
   The move makes the old name unusable (E0901). A plain value struct is
   COPIED into the call, so the closed handle and its `Open` copy would both
   stay usable.
@@ -2099,7 +2129,7 @@ transition, so two rules apply:
 
 The phantom parameter must currently be on a `ref(struct(...))`. A method on
 a phantom generic ENUM is not yet found through a `comptime(K) : Type`
-parameter (`issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
+parameter (`issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`).
 std's `File` and sockets keep their state at run time instead: they are
 shared RC handles by design.
 
@@ -2577,6 +2607,49 @@ Please check [std/collections](../std/collections) for the full list of collecti
 
 Yo provides efficient, reference-counted collection types in the standard library.
 
+### Mutating a collection: mutators take `inout(self)`
+
+Every method that changes a collection takes `inout(self) : Self`: the
+mutators of `ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`,
+`LinkedList`, `PriorityQueue`, `OrderedMap`, `HeaderMap` and `StringBuilder`
+(`push`, `pop`, `insert`, `remove`, `clear`, `sort`, `retain`, `write_str`, …,
+including `StringBuilder.to_string`, which detaches the buffer). Read-only
+methods (`len`, `get`, `contains`, `iter`, …) take `self : Self`.
+
+The collections are still handles today, so a write through a copy of one
+reaches the original. That changes when they become uniquely owned values
+(`plans/VALUES_BY_DEFAULT.md` §6 V2b): a copy is then an explicit
+`.clone()`, and a write through it lands in the copy alone. Write the code so it is correct under both rules:
+
+- **A helper that fills a list takes it `inout`:** `fill :: (fn(inout(out) :
+  ArrayList(i32)) -> unit)(...)`. A plain `out : ArrayList(i32)` parameter is
+  the callee's copy.
+- **An element of a collection is written through its place:**
+  `rows(i).push(x)`, `m(k).push(x)`, or `for(xs, inout(x) => x.push(...))`. A
+  `match` binding (`.Some(l) => l.push(x)`) or a value `for` binding is a copy.
+- **A list stored in a map or an `Option` field is taken out, changed and stored
+  back:** `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
+  l.push(x); m.insert(k, l);`, or `self.f.take()` followed by
+  `self.f = .Some(l)`.
+- **A list two owners hold on purpose is a `Box`:** `Box(ArrayList(T))`, written
+  through `b.*.push(x)`. A closure or an `io.async` body captures by value, so a
+  closure that records into a list shares it this way (or returns the list).
+
+`YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists every write the flip would
+change instead of reporting it: `[inout-borrow]` for a write through a by-value
+parameter or a `match`/`for` binding (an `inout` argument or receiver, or an
+assignment into the place), `[inout-borrow-unresolved]` when the callee's
+mutation summary could not be resolved and the write is assumed, and
+`[inout-borrow-capture]` for a write to a variable a closure captured.
+
+`YO_AUDIT_IMPLICIT_COPY=1 yo check <path>` lists the copies unique ownership
+would make explicit (`plans/VALUES_BY_DEFAULT.md` §6, item 1). Each
+`[implicit-copy]` line is a store, binding, return, owning argument or capture
+of a value that owns heap data (a `String`, a collection, a `Box`, `Arc`,
+`Dyn` or `ref` object) whose source stays alive: a borrowed parameter, a field
+read, a `match` or `for` binding, or a local that is read again afterwards. A
+local used for the last time is a move and is not listed.
+
 ### ArrayList
 
 Dynamic array with automatic resizing.
@@ -3014,12 +3087,11 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 > assert((a.* == i32(7)), "a and b name the SAME value");
 > ```
 >
-> The name is kept on purpose. `Rc` is already a **trait** in the prelude —
-> the "this type is a reference-counted `object` type" bound written
-> `where(Self <: Rc)` — so `Box` cannot take that name. And reference counting
-> is Yo's *universal* object model, not one container's opt-in policy: every
-> `ref(struct(...))` is reference counted, and `Box` is simply the one-field
-> case. Naming it "the RC one" would imply the others are not.
+> The name stays until values-by-default V1 (`plans/VALUES_BY_DEFAULT.md`)
+> renames this type to `Rc` and introduces a uniquely owned `Box`. Until
+> then reference counting is Yo's *universal* object model, not one
+> container's opt-in policy: every `ref(struct(...))` is reference counted,
+> and `Box` is simply the one-field case.
 >
 > What this means in practice: sharing is silent, a `Box` cycle leaks unless
 > broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
@@ -3041,7 +3113,12 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 box :: (fn(generic(V : Type), value : V) -> Box(V))(
   Box(V)(value)
 );
+// rc is the same constructor under the name the counted cell will carry
+// once `Box` is renamed `Rc` (plans/VALUES_BY_DEFAULT.md)
+rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 ```
+
+`rc` is the constructor, not the count: the count is `ref_count(x)`.
 
 ### Usage Examples
 
@@ -3061,6 +3138,42 @@ m := box(10);
 m.* = 20;
 assert(m.* == 20);
 ```
+
+### Auto-dereference
+
+`Box` and `Arc` implement the prelude's `Deref` marker trait
+(`Deref :: trait(Target : Type)`, `Target` is the payload). On a `Deref`
+type, a field or method the wrapper does not have is looked up on the
+payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
+
+```rust
+Point :: struct(x : i32, y : i32);
+impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
+p := box(Point(x : 3, y : 4));
+assert(p.x == 3);          // p.*.x
+p.x = 5;                   // a place: writes p.*.x
+assert(p.norm1() == 9);    // p.*.norm1()
+pp := box(box(Point(x : 1, y : 2)));
+assert(pp.y == 2);         // nested wrappers: pp.*.*.y
+```
+
+- **The wrapper's own members come first.** `p.clone()` is `Box`'s `clone`
+  (a new `Box`), not the payload's; `p.*` is always the payload itself.
+- **Places.** A forwarded field is a place: `p.x = v` and an `inout(self)`
+  call such as `p.items.push(v)` write the payload. In a file without
+  `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is still rejected
+  (`a.n = v`, `a.bump()` with `inout(self)`): mutate an `Arc`'s payload
+  through a `Mutex` or an atomic.
+- **Only `Box` and `Arc` implement `Deref`.** `impl(MyWrapper, Deref(...))`
+  is a compile error: a user wrapper exposes its payload through its own
+  fields and methods.
+- When neither the wrapper nor its payload has the name, the error says so:
+  ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
+  field "z" either.`` (E0406; E0610 for a method).
+- **Callee position.** `p.items(i)` indexes the payload's `items`, and
+  `p.f(x)` calls a payload field that holds a function. The wrapper's own
+  methods still come first, so the order is wrapper field, wrapper method,
+  payload field, then payload method.
 
 ### Box with Assignments
 
@@ -3368,8 +3481,8 @@ ret` bodies cannot contain `unwind`.
 
 Effects compose with `async`/`await`: handlers inside `io.async`
 tasks work correctly. If `unwind` is called inside an async task, the
-Future enters the `Aborted` state: `io.await` on it panics, while a
-spawned task's `JoinHandle.await` returns `.None`.
+Future enters the `Aborted` state: `io.await` on it propagates the abort
+to the awaiter, while a spawned task's `JoinHandle.await` returns `.None`.
 
 See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive
 documentation.
@@ -3586,6 +3699,10 @@ t := Thread(unit).spawn(io => {
 t.join();
 assert(shared.* == i32(42), "main still sees shared value");
 ```
+
+`Arc(T)` implements `Deref`, so a read forwards to the payload
+(`shared.field`, `shared.method()`; see [Auto-dereference](#auto-dereference));
+a write through it is rejected in safe code.
 
 See [ARC.md](./ARC.md) for full details.
 

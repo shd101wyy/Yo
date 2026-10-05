@@ -2,7 +2,7 @@
 
 **Found:** 2026-09-25, parallelism-soundness audit (`plans/PARALLELISM_SOUNDNESS.md`, finding P-2).
 **Status:** FIXED 2026-09-26 (`plans/PARALLELISM_SOUNDNESS.md` Phase 2, rule D2). Was: OPEN. **Memory-unsafe in safe code** (SIGSEGV, both with and without threads).
-Companion of `issues/iso-checks-only-the-wrapper-refcount-not-the-interior.md` (the type-system
+Companion of `issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md` (the type-system
 audit's finding, which measured the interior-aliasing race through the same constructor); this
 record is about the two mechanisms underneath it, which are worse than that doc assumes.
 **Measured:** yo 0.2.41 seed against the develop tree's `std`, macOS arm64.

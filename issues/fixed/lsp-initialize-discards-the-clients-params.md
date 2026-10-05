@@ -9,7 +9,7 @@ Regression tests: `tests/cli-cases/lsp-position-encoding-utf32` (client offers
 `tests/cli-cases/lsp-position-encoding-utf16` (no offer → `utf-16`). The
 `lsp-handshake` golden's first frame now carries `"positionEncoding":"utf-16"`.
 
-**Status:** OPEN — found 2026-09-04 during the std-API-audit re-measurement of
+**Status:** FIXED: filed under `issues/fixed/` by #485. Before that the line read: OPEN — found 2026-09-04 during the std-API-audit re-measurement of
 the D4 PR 9 / LSP row. Reproduced at runtime against `yo 0.2.24`.
 **Severity:** api-lie. The server answers `initialize` with a fixed capability
 object it computed without ever looking at the request, and the object omits

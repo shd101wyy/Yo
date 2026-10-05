@@ -19,6 +19,15 @@ issues/fixed/inout-audit-c5-exact-assert-list-contradicts-the-landed-borrow-asse
 and §2's "copies copy the pointee" was wrong code on the RETURN channel for
 non-RC types until 2026-09-23 (`return(<inout local>)` returned the raw
 pointer as the value; issues/fixed/return-of-an-inout-local-binding-emits-the-pointer.md).
+**Amended 2026-10-05 by `plans/VALUES_BY_DEFAULT.md` §0 (unique ownership,
+decision 18):** the position stands — `inout(name) := place` and the borrowed
+`for` are the model's mutable local borrows (Hylo's `inout` bindings) — with
+three changes: (1) a read-only counterpart `borrow(name) := place` is added;
+(2) once collections are uniquely owned (V2b) a value-rooted container has no
+hidden aliases, so element bindings `inout(e) := xs(i)` become accepted
+(through projections, decision 24) and exclusivity is checked statically;
+(3) the runtime borrow flag narrows to `Rc`/`Arc`-rooted and module-level
+containers. §7.3's "collections stay `ref(struct)` handles" is superseded.
 Everything below is the frozen
 audit record.
 

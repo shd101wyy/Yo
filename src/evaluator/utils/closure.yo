@@ -1,7 +1,8 @@
 //! evaluator/utils/closure — closure capture helpers.
 //!
 //! Phase 3 simplifications:
-//!   - `consume_captured_variables`             → no-op (no move semantics)
+//!   - `consume_captured_variables`             → no-op (explicit-copy captures are
+//!     consumed in `generate_captured_variable_dup_expressions`)
 //!   - `build_path_collection_from_captured_variables` → empty list
 //!   - `validate_capture_trait_requirements`    → no-op
 //!   - `generate_captured_variable_dup_expressions` → no ARC (returns None)
@@ -62,9 +63,11 @@
   register_struct_fields
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
+{ type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
+{ move_captured_explicit_copy_variable } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ audit_implicit_copy_enabled, audit_record_implicit_copy } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -94,7 +97,10 @@ CaptureTypeAndValueResult :: struct(
 // ---------------------------------------------------------------------------
 /// Mark closure-captured variables as consumed (move semantics).
 ///
-/// Phase 3 stub: no move semantics yet — returns env unchanged.
+/// Not called: a capture copies (a dup per captured RC variable), and the one
+/// capture that moves, that of a value which is not implicitly copyable
+/// (`type_requires_explicit_copy`), is consumed where the capture is
+/// built (`generate_captured_variable_dup_expressions`). Returns env unchanged.
 consume_captured_variables :: (
   fn(
     _captured_variables : HashMap(String, CapturedVarInfo),
@@ -233,13 +239,13 @@ _declared_bound_requires :: (fn(ty : TypeValue, trait_type : TypeValue) -> bool)
 /// struct, it would be `Send` whatever its code reaches.
 (g_closure_fids_by_capture : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
 _some_id_of :: (fn(ty : TypeValue) -> String)(
-  match(ty, .SomeT(sid, _, _, _, _, _, _, _, _, _, _) => sid, _ => String.new())
+  match(ty, .SomeT(sid, _, _, _, _, _, _, _, _, _) => sid, _ => String.new())
 );
 _capture_id_of :: (fn(ty : TypeValue) -> String)(
   if(is_closure_capture_struct(ty), match(ty, .Struct({ id : cid }) => cid, _ => String.new()), String.new())
 );
 _note_fid_for_some_id :: (fn(sid : String, fid : String) -> unit)(_note_fid_in(g_closure_fids_by_some, sid, fid));
-_note_fid_in :: (fn(registry : HashMap(String, ArrayList(String)), sid : String, fid : String) -> unit)({
+_note_fid_in :: (fn(inout(registry) : HashMap(String, ArrayList(String)), sid : String, fid : String) -> unit)({
   if(sid.is_empty(), {
     return(());
   });
@@ -255,7 +261,11 @@ _note_fid_in :: (fn(registry : HashMap(String, ArrayList(String)), sid : String,
         fi = (fi + usize(1));
       });
       if(!seen, {
-        fids.push(fid);
+        // Stored back: a `get` copy is not the stored list once collections
+        // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+        grown := fids;
+        grown.push(fid);
+        registry.insert(sid, grown);
       });
     },
     .None => {
@@ -1091,18 +1101,44 @@ create_capture_type_and_value :: (
 // ---------------------------------------------------------------------------
 // generate_captured_variable_dup_expressions
 // ---------------------------------------------------------------------------
+/// Some captured variable's type is not implicitly copyable.
+_captures_require_explicit_copy :: (fn(cvwv_opt : Option(HashMap(String, FuncCapturedVarInfo))) -> bool)(
+  match(
+    cvwv_opt,
+    .Some(cvwv) => {
+      it := cvwv.values();
+      (more : bool) = true;
+      (found : bool) = false;
+      while(more && !found, {
+        match(
+          it.next(),
+          .Some(ci) => if(type_requires_explicit_copy(ci.ty), {
+            found = true;
+          }),
+          .None => {
+            more = false;
+          }
+        );
+      });
+      found
+    },
+    .None => false
+  )
+);
 /// Result type for `generate_captured_variable_dup_expressions`.
 CapturedVarDupResult :: struct(
   dup_exprs : Option(ArrayList(AstExpr)),
-  env : Environment
+  env : Environment,
+  /// The closure borrows its captures (see `borrow_captures` below): it owns
+  /// nothing, so its value gets no owning temp and no drop.
+  borrowed : bool
 );
 /// Generate `___dup()` expressions for captured ARC variables — one evaluated
 /// `___dup(name)` per captured variable whose type contains an RC-managed
 /// type. Codegen (generate_closure_construction) emits these as the capture
 /// struct's field initializers, so the capture holds its OWN reference; the
 /// constructing scope's local can then be dropped without freeing the value
-/// under the closure (the Command.status spawn-storage UAF —
-/// issues/yo-self-async-capture-missing-dup.md).
+/// under the closure (the Command.status spawn-storage UAF).
 ///
 /// The env is mutated in place, so the updated env needs no threading
 /// through the evaluated exprs — same as the `___drop` builder in
@@ -1112,10 +1148,25 @@ generate_captured_variable_dup_expressions :: (
     captured_vars_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
     env : Environment,
     ctx : EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// The closure's token: where a capture that is not implicitly copyable
+    /// is moved, and the copy site YO_AUDIT_IMPLICIT_COPY reports for each
+    /// dupped capture.
+    closure_tok : Token,
+    /// The closure literal is the direct argument of a borrowing parameter,
+    /// so it cannot outlive the call (plans/VALUES_BY_DEFAULT.md decision 22).
+    /// When it captures a value that is not implicitly copyable, it borrows
+    /// ALL its captures: no dup, no move, and every captured variable stays
+    /// usable after the call. (A non-escaping closure capturing only
+    /// copyable values keeps today's dupped captures; decision 22's general
+    /// form is its own measured change.)
+    (borrow_captures : bool) ?= false
   ) -> CapturedVarDupResult
 )({
   dup_exprs := ArrayList(AstExpr).new();
+  if(borrow_captures && _captures_require_explicit_copy(captured_vars_with_values), {
+    return(CapturedVarDupResult(dup_exprs : Option(ArrayList(AstExpr)).None, env : env, borrowed : true));
+  });
   match(
     captured_vars_with_values,
     .Some(cvwv) => if(cvwv.len() > usize(0), {
@@ -1126,12 +1177,35 @@ generate_captured_variable_dup_expressions :: (
           key_iter.next(),
           .Some(var_name) => match(
             cvwv.get(var_name.clone()),
-            .Some(ci) => if(type_contains_rc_type(ci.ty), {
-              dup_code := `___dup(${var_name})`;
-              dup_expr := generate_expr_from_code(dup_code, exn);
-              evaluated := evaluate_expression_raw(dup_expr, env, ctx, exn);
-              dup_exprs.push(evaluated);
-            }),
+            .Some(ci) => cond(
+              // A capture that is not implicitly copyable (a move-only one)
+              // is MOVED into the capture struct
+              // (plans/VALUES_BY_DEFAULT.md §3.4, §3.7): no dup, the field
+              // is initialized from the variable itself, and the variable is
+              // consumed, so its scope-end drop is skipped and the closure's
+              // drop disposes it. The capture struct is move-only too, by
+              // containment.
+              type_requires_explicit_copy(ci.ty) => {
+                cap_vars := get_variables_from_env(env, var_name.clone());
+                match(
+                  cap_vars.last(),
+                  .Some(cap_v) => if(!cap_v.is_compile_time_only, {
+                    move_captured_explicit_copy_variable(cap_v, closure_tok, env, ctx, exn);
+                  }),
+                  .None => ()
+                );
+              },
+              type_contains_rc_type(ci.ty) => {
+                if(audit_implicit_copy_enabled(), {
+                  audit_record_implicit_copy(closure_tok, ci.ty, "capture", env, var_name.clone(), var_name.clone(), ctx, false);
+                });
+                dup_code := `___dup(${var_name})`;
+                dup_expr := generate_expr_from_code(dup_code, exn);
+                evaluated := evaluate_expression_raw(dup_expr, env, ctx, exn);
+                dup_exprs.push(evaluated);
+              },
+              true => ()
+            ),
             .None => ()
           ),
           .None => {
@@ -1144,7 +1218,8 @@ generate_captured_variable_dup_expressions :: (
   );
   CapturedVarDupResult(
     dup_exprs : if(dup_exprs.len() > usize(0), Option(ArrayList(AstExpr)).Some(dup_exprs), Option(ArrayList(AstExpr)).None),
-    env : env
+    env : env,
+    borrowed : false
   )
 });
 export(FuncCapturedVarInfo);

@@ -159,7 +159,7 @@ throwing `UnsupportedScheme` — std stays honest.
    the connect body FTT'd on an unreachable `*(void)("")` post-throw
    placeholder (fixed by nullable-check-then-unwrap, no placeholder), and
    the read pump needed a single post-cond awaiting `if` instead of two
-   (issues/async-postwhile-multiple-await-ifs.md).
+   (issues/fixed/async-postwhile-multiple-await-ifs.md).
 2. ~~`std/http/client.yo`: route `https://` through TlsStream.~~ **LANDED
    2026-08-28** — scheme branch (TcpStream|TlsStream), generic-Reader shared
    response loop, default port 443, live https fetch pinned. (The

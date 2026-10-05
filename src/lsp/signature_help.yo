@@ -29,10 +29,10 @@ _find_enclosing_call :: (
     e : AstExpr,
     row : usize,
     col : usize,
-    best_callee : ArrayList(AstExpr),
-    best_active : ArrayList(usize),
-    best_row : ArrayList(usize),
-    best_col : ArrayList(usize)
+    inout(best_callee) : ArrayList(AstExpr),
+    inout(best_active) : ArrayList(usize),
+    inout(best_row) : ArrayList(usize),
+    inout(best_col) : ArrayList(usize)
   ) -> unit
 )({
   match(
@@ -128,7 +128,7 @@ handle_signature_help :: (
       c2 := best_col(ci);
       take := (
         chosen.is_none() ||
-          ((r > ch_row) || ((r == ch_row) && (c2 >= ch_col)))
+          (r > ch_row) || ((r == ch_row) && (c2 >= ch_col))
       );
       if(take, {
         chosen = Option(usize).Some(ci);

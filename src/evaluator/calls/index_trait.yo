@@ -97,7 +97,7 @@ _try_ctfe_range_ctor :: (
     fn_val : EvalValue,
     env : Environment,
     ctx : EvalContext,
-    out : ArrayList(TypeValue)
+    inout(out) : ArrayList(TypeValue)
   ) -> unit
 )({
   local_exn := Exception(
@@ -693,8 +693,8 @@ _try_comptime_array_index :: (
   caller_env := expr_info_adopt_env(info);
   arg_type := info.ty;
   arg_val := info.value;
-  rc := _check_range_type(arg_type, env, ctx);
-  if(rc.is_range, {
+  range_check := _check_range_type(arg_type, env, ctx);
+  if(range_check.is_range, {
     // Range slicing is no longer a comptime operation — fall through to the
     // runtime path (slice_copy rewriting happens before Index dispatch;
     // plans/archive/SLICE_REWORK.md Part C).
@@ -931,13 +931,13 @@ _try_comptime_string_index :: (
   );
   caller_env := expr_info_adopt_env(info);
   arg_type := info.ty;
-  rc := _check_range_type(arg_type, env, ctx);
+  range_check := _check_range_type(arg_type, env, ctx);
   result_val := _compute_comptime_string_index(
     str_value,
     arg_val,
     arg_expr,
-    rc.is_range,
-    rc.is_inclusive,
+    range_check.is_range,
+    range_check.is_inclusive,
     exn
   );
   result_ty := TypeValue.ComptimeString;
@@ -979,7 +979,7 @@ _try_comptime_string_index :: (
 /// is saved/cleared/restored at the CALL SITE, not here — a restore line after
 /// the call below would be skipped on the throw path and leak `None`.
 _specialize_index_method :: (
-  fn(mv : Option(EvalValue), mty : TypeValue, expr : AstExpr, caller_env : Environment, ctx : EvalContext, idx_expr : AstExpr, out : ArrayList(EvalValue)) -> unit
+  fn(mv : Option(EvalValue), mty : TypeValue, expr : AstExpr, caller_env : Environment, ctx : EvalContext, idx_expr : AstExpr, inout(out) : ArrayList(EvalValue)) -> unit
 )({
   recv := match(expr, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => expr);
   margs := ArrayList(AstExpr).new();

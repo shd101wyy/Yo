@@ -71,7 +71,7 @@ the emitted C.
 
 Closing these needs real borrow/alias inference (what Lobster does) or runtime exclusivity
 enforcement (what Swift does); tracked as part of
-`issues/borrowed-arg-invalidated-by-aliased-container-mutation.md`.
+`issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md`.
 
 ## Verification
 

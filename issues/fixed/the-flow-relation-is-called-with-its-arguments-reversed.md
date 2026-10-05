@@ -1,6 +1,6 @@
 # The flow relation is called with its arguments reversed
 
-**Status:** OPEN
+**Status:** FIXED: filed under `issues/fixed/` by #952. Before that the line read: OPEN
 **Found:** 2026-09-26, Type-system soundness Phase 3.8 (extern opaque types)
 **Repro:** `issues/repros/the-flow-relation-is-called-with-its-arguments-reversed.yo`
 

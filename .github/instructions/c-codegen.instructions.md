@@ -146,7 +146,7 @@ buffer (measured 2026-10-03 on a `mklink /J` junction AND a system junction:
 carries a `ULONG Flags` between the four name ushorts and `PathBuffer`; the
 mount-point variant does not — compute `PathBuffer`'s base per tag. Winsock
 errors never reach `errno`: every socket-error site must translate
-(`__yo_wsa_error_to_errno` in `runtime_io_windows.yo`) or `IoError.from_errno`
+(`__yo_wsa_to_errno` in `runtime_io_windows.yo`) or `IoError.from_errno`
 reports "unknown I/O error (os error 10048)"-style noise.
 
 ## Spelling a Yo name in C: `__yo_v_` (src/codegen/utils/index.yo)
@@ -301,6 +301,16 @@ source order.
   abort dispose empties a flagged slot before its drops, and every store into
   the slot (binding, destructuring, reassignment) clears the flag
   (issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md).
+- **An alias is read through its owner's slot only when the owner is a body
+  local** (`sm_storage_id`). The suspension analysis has no closure boundary:
+  for `sb := s` it records the owner `s` as a captured local even when both
+  live in the enclosing function. The `io.async` re-kind pass
+  (`src/codegen/exprs/async.yo`) turns capture-struct labels into `.Outer`
+  and drops an owner whose alias is a capture and that the body does not
+  capture itself. Without that, `s` got a `var_s_<hash>` field nothing wrote,
+  and every read of `sb` went through it
+  (issues/fixed/an-awaiting-io-async-body-captures-a-local-alias-without-retaining-it.md).
+  A field in the SM struct that no state stores into is this class of bug.
 - **A consuming read of a slot takes the value where the consuming line
   runs** (`_sm_consuming_read`, via `Emitter.defer_move_zero`'s
   `/*yo_mv:…*/` marker): the evaluator's `consumed_at_token` is that atom. A
@@ -493,7 +503,7 @@ functions are kernel32, the module `CreateThread` already links against. Test:
 
 ### RC headers: read an object of unknown layout through `__yo_rc_prefix_t`
 
-Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_header_small_t`. Every other RC type carries the 56-byte `__yo_ref_header_t`, of which the small header is a prefix. **Any runtime C that can see either layout** must read through `__yo_rc_prefix_t*`: incr/decr, `rc()`, the borrow checks, and GC visitors given a child pointer. It may cast to `__yo_ref_header_t*` only after testing `__YO_GC_TRACKED` through the prefix. A member access through the 56-byte type on a 16-byte object is undefined behavior even when only prefix fields are touched. The UBSan acceptance run caught exactly that (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`). In lightweight mode `__yo_rc_prefix_t` is the one header. `tests/internal/gc_runtime_atomics.test.yo` pins the rule.
+Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_header_small_t`. Every other RC type carries the 56-byte `__yo_ref_header_t`, of which the small header is a prefix. **Any runtime C that can see either layout** must read through `__yo_rc_prefix_t*`: incr/decr, `ref_count()`, the borrow checks, and GC visitors given a child pointer. It may cast to `__yo_ref_header_t*` only after testing `__YO_GC_TRACKED` through the prefix. A member access through the 56-byte type on a 16-byte object is undefined behavior even when only prefix fields are touched. The UBSan acceptance run caught exactly that (`issues/fixed/small-rc-header-accessed-through-the-full-header-type.md`). In lightweight mode `__yo_rc_prefix_t` is the one header. `tests/internal/gc_runtime_atomics.test.yo` pins the rule.
 
 **Explicit allocators changed this C contract** (`plans/reference/EXPLICIT_ALLOCATORS.md`, P0–P5 landed 2026-09-30):
 
@@ -534,6 +544,10 @@ When you find a test that causes a C codegen bug, don't weaken the test. Create 
 `src/evaluator/exprs/begin.yo` performs reference counting optimization that cancels out dup/drop pairs when possible.
 
 For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`.
+
+### Move-only values ride the RC machinery, without dups
+
+A move-only value type (a value `struct`/`enum`/`newtype` with a `Dispose` or `MoveOnly` impl, or an aggregate holding one; `type_is_move_only` in `src/types/utils.yo`) makes `type_contains_rc_type` true, so it gets owning temps, scope-end drops and flow joins like an RC value. It never gets a dup: `set_expr_as_needs_to_call_dup` moves every value that is not implicitly copyable (`type_requires_explicit_copy`, today exactly the move-only ones; `transfer_explicit_copy_value`, `src/evaluator/utils.yo`) or rejects the copy (E0901), and a closure capture consumes it. Its drop (`generate_drop_code_for_value`) calls the type's `___dispose` first (a synthesized `self.dispose()`, registered by `collect_dispose_methods` → `_synthesize_and_register_value_dispose`), then drops its fields inline. A dup of a move-only value reaching codegen is an evaluator bug: find the copy point that skipped the funnel.
 
 ### A hand-written C declaration must be registered, or its drops vanish
 
@@ -834,7 +848,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 `io.spawn(task, ctx)` (where `ctx` is the task's effect bundle) generates:
 
 1. Store the future pointer in a local variable
-2. Check abort state (panic if already aborted)
+2. (No abort check: an already-aborted future is not started — only a cold one is — and its handle reads `.None`. It was a panic until 2026-10-03, `plans/ASYNC_IO_API_AUDIT.md` A2.)
 3. Inject effect handler function pointers into the future's capture struct via `emit_io_spawn_effect_injection`
 4. Cold-start via `__yo_resume_fn` (with incr_rc for execution reference)
 5. `__yo_incr_rc` once more and return `__yo_new_<JoinHandle cname>((void*)fut)`: `JoinHandle(T)` is a `ref` struct in the prelude that OWNS that reference, and its `Dispose` calls `__yo_join_handle_release_raw`. A dropped, never-awaited handle detaches the task (the running task holds its own reference); `JoinHandle.await` does not consume the handle.

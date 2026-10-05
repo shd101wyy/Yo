@@ -1007,7 +1007,7 @@ exactly the ones that MUST (clamping, `try_substring`, `byte_at`/`Index`,
 **What this review changed:** the `async.yo` rune-cut fix + its corpus ratchet
 (now **156** files, was 155); the two empty-needle doc corrections in
 `std/string/string.yo` and two tests pinning them; two stale comments; one new
-issue (`issues/async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`,
+issue (`issues/fixed/async-effect-setter-emits-a-raw-non-ascii-identifier-as-a-c-member-name.md`,
 pre-existing and unrelated to D4); one duplicate issue retired.
 
 ### 6.2 Which existing tests cannot catch this class

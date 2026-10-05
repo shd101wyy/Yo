@@ -1311,7 +1311,7 @@ single2 :: (fn(a : AstExpr, b : AstExpr) -> ArrayList(AstExpr))({
 _hoist_old_in :: (
   fn(
     e : AstExpr,
-    snapshots : ArrayList(AstExpr),
+    inout(snapshots) : ArrayList(AstExpr),
     bind_op : String
   ) -> AstExpr
 )(
@@ -1602,7 +1602,7 @@ take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
 /// fn-type evaluation and the assert splice both RE-READ those tables by
 /// that id, so the planted clauses were evaluated inside the trait entry
 /// and tripped the env-sharing defect behind
-/// issues/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md.
+/// issues/fixed/trait-impl-method-contract-clauses-corrupt-operator-dispatch.md.
 /// The FuncVal id is never re-read by the evaluator — write-only, safe.
 /// (The lambda shape gets piece 1 from origin_id but not piece 2 — no body
 /// task exists for lambdas; pre-existing, recorded in the plan.)
@@ -2127,7 +2127,7 @@ _stash_callsite_contracts :: (
 /// `_trial_eval_fn_body` pattern); `YO_DEBUG_SWALLOW=1` prints what was
 /// dropped.
 _callsite_ensures_or_drop :: (
-  fn(p : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+  fn(p : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   drop_exn := Exception(
     throw : (
@@ -2742,7 +2742,7 @@ _contract_clause_runs :: (fn(pred : AstExpr, table : ExprInfoTable, allow_old : 
     .FnCall(_, head, args, _, _) => {
       if(ast_expr_is_atom(head), {
         hn := ast_expr_token(head).value;
-        if(((hn == BF_OLD) && !allow_old) || ((hn == BF_FORALL) || (hn == BF_EXISTS) || ((hn == BF_GHOST) || (hn == BF_DISTINCT))), {
+        if(((hn == BF_OLD) && !allow_old) || (hn == BF_FORALL) || (hn == BF_EXISTS) || (hn == BF_GHOST) || (hn == BF_DISTINCT), {
           return(false);
         });
         // A ghost fn defined anywhere in this module, forced yet or not.

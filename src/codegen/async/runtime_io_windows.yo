@@ -141,6 +141,59 @@ static bool __yo_is_at_fdcwd(int32_t dirfd) {
   return (dirfd == AT_FDCWD || dirfd == -2);
 }
 
+// Winsock reports its own codes (WSAECONNREFUSED = 10061, …), which share no
+// numbering with errno. Every socket path negates THIS mapping instead of the
+// raw code, so an IoFuture resolves to a negative errno on Windows as on every
+// other platform and IoError.from_errno classifies it the same way
+// (plans/ASYNC_IO_API_AUDIT.md F4: the Windows socket paths used to resolve to
+// negated WSA codes, which fell through to IoError.Other — a second bind of
+// one AF_UNIX path read "unknown I/O error (os error 10048)", not
+// AddressInUse: issues/fixed/s3-fs-wrappers-windows-semantics-audit.md). A
+// code with no errno counterpart becomes EIO.
+static int __yo_wsa_to_errno(int wsa) {
+  switch (wsa) {
+    case WSAEINTR: return EINTR;
+    case WSAEBADF: return EBADF;
+    case WSAEACCES: return EACCES;
+    case WSAEFAULT: return EFAULT;
+    case WSAEINVAL: return EINVAL;
+    case WSAEMFILE: return EMFILE;
+    case WSAEWOULDBLOCK: return EWOULDBLOCK;
+    case WSAEINPROGRESS: return EINPROGRESS;
+    case WSAEALREADY: return EALREADY;
+    case WSAENOTSOCK: return ENOTSOCK;
+    case WSAEDESTADDRREQ: return EDESTADDRREQ;
+    case WSAEMSGSIZE: return EMSGSIZE;
+    case WSAEPROTOTYPE: return EPROTOTYPE;
+    case WSAENOPROTOOPT: return ENOPROTOOPT;
+    case WSAEPROTONOSUPPORT: return EPROTONOSUPPORT;
+    case WSAESOCKTNOSUPPORT: return EPROTONOSUPPORT;
+    case WSAEOPNOTSUPP: return EOPNOTSUPP;
+    case WSAEPFNOSUPPORT: return EAFNOSUPPORT;
+    case WSAEAFNOSUPPORT: return EAFNOSUPPORT;
+    case WSAEADDRINUSE: return EADDRINUSE;
+    case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
+    case WSAENETDOWN: return ENETDOWN;
+    case WSAENETUNREACH: return ENETUNREACH;
+    case WSAENETRESET: return ENETRESET;
+    case WSAECONNABORTED: return ECONNABORTED;
+    case WSAECONNRESET: return ECONNRESET;
+    case WSAENOBUFS: return ENOBUFS;
+    case WSAEISCONN: return EISCONN;
+    case WSAENOTCONN: return ENOTCONN;
+    case WSAESHUTDOWN: return EPIPE;
+    case WSAETIMEDOUT: return ETIMEDOUT;
+    case WSAECONNREFUSED: return ECONNREFUSED;
+    case WSAENAMETOOLONG: return ENAMETOOLONG;
+    case WSAEHOSTUNREACH: return EHOSTUNREACH;
+    case WSAEHOSTDOWN: return EHOSTUNREACH;
+    case WSAELOOP: return ELOOP;
+    case WSAENOTEMPTY: return ENOTEMPTY;
+    case WSA_OPERATION_ABORTED: return ECANCELED;
+    default: return EIO;
+  }
+}
+
 static int __yo_win_last_error_to_errno(void) {
   DWORD err = GetLastError();
   switch (err) {
@@ -189,59 +242,6 @@ static int __yo_win_last_error_to_errno(void) {
 static int __yo_win_error_to_errno(DWORD err) {
   SetLastError(err);
   return __yo_win_last_error_to_errno();
-}
-
-// Winsock APIs do not fail through errno: they report WSA* codes (10000+),
-// and the socket paths in this runtime return those codes as NEGATIVE
-// errnos — so IoError.from_errno cannot classify them (WSAEADDRINUSE came
-// back as "unknown I/O error (os error 10048)", not AddressInUse; the
-// socketpair validation returns were negated WSA codes too). Translate at
-// every socket-error site: the same-name errno where the UCRT defines one
-// (it carries the full POSIX socket set), EAGAIN for would-block, and the
-// raw WSA value for anything exotic — the historical behaviour for every
-// WSA code, unchanged for the codes below (issues/fixed/s3-fs-wrappers-
-// windows-semantics-audit.md).
-static int __yo_wsa_error_to_errno(int wsa_err) {
-  switch (wsa_err) {
-    case WSAEINTR: return EINTR;
-    case WSAEBADF: return EBADF;
-    case WSAEACCES: return EACCES;
-    case WSAEFAULT: return EFAULT;
-    case WSAEINVAL: return EINVAL;
-    case WSAEMFILE: return EMFILE;
-    case WSAEWOULDBLOCK: return EAGAIN;
-    case WSAEINPROGRESS: return EINPROGRESS;
-    case WSAEALREADY: return EALREADY;
-    case WSAENOTSOCK: return ENOTSOCK;
-    case WSAEDESTADDRREQ: return EDESTADDRREQ;
-    case WSAEMSGSIZE: return EMSGSIZE;
-    case WSAEPROTOTYPE: return EPROTOTYPE;
-    case WSAENOPROTOOPT: return ENOPROTOOPT;
-    case WSAEPROTONOSUPPORT: return EPROTONOSUPPORT;
-    case WSAESOCKTNOSUPPORT: return ENOTSUP;
-    case WSAEOPNOTSUPP: return EOPNOTSUPP;
-    case WSAEPFNOSUPPORT: return EAFNOSUPPORT;
-    case WSAEAFNOSUPPORT: return EAFNOSUPPORT;
-    case WSAEADDRINUSE: return EADDRINUSE;
-    case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
-    case WSAENETDOWN: return ENETDOWN;
-    case WSAENETUNREACH: return ENETUNREACH;
-    case WSAENETRESET: return ENETRESET;
-    case WSAECONNABORTED: return ECONNABORTED;
-    case WSAECONNRESET: return ECONNRESET;
-    case WSAENOBUFS: return ENOBUFS;
-    case WSAEISCONN: return EISCONN;
-    case WSAENOTCONN: return ENOTCONN;
-    case WSAESHUTDOWN: return ENOTCONN;
-    case WSAETIMEDOUT: return ETIMEDOUT;
-    case WSAECONNREFUSED: return ECONNREFUSED;
-    case WSAEHOSTDOWN: return EHOSTUNREACH;
-    case WSAEHOSTUNREACH: return EHOSTUNREACH;
-    case WSAELOOP: return ELOOP;
-    case WSAENAMETOOLONG: return ENAMETOOLONG;
-    case WSAENOTEMPTY: return ENOTEMPTY;
-    default: return wsa_err;
-  }
 }
 
 static wchar_t* __yo_win_utf8_to_wide(const char* str) {
@@ -461,7 +461,7 @@ static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
   if (__yo_win_is_socket_fd(fd)) {
     u_long mode = ((flags & O_NONBLOCK) != 0) ? 1UL : 0UL;
     int result = ioctlsocket((SOCKET)(uintptr_t)(uint32_t)fd, FIONBIO, &mode);
-    return (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
+    return (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : 0;
   }
 
   intptr_t handle_value = _get_osfhandle(fd);
@@ -562,7 +562,7 @@ static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
     DWORD flags = 0;
     int result = WSARecv((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &recvd, &flags, NULL, NULL);
     __yo_free(bufs);
-    return (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : (int32_t)recvd;
+    return (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : (int32_t)recvd;
   }
 
   intptr_t hv = _get_osfhandle(fd);
@@ -654,7 +654,7 @@ static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
     DWORD sent = 0;
     int result = WSASend((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &sent, 0, NULL, NULL);
     __yo_free(bufs);
-    return (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : (int32_t)sent;
+    return (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : (int32_t)sent;
   }
 
   intptr_t whv = _get_osfhandle(fd);
@@ -1129,7 +1129,7 @@ static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrl
   int len = (int)(*addrlen);
   int result = getsockname((SOCKET)(uintptr_t)(uint32_t)sockfd, (struct sockaddr*)addr, &len);
   if (result == SOCKET_ERROR) {
-    return -__yo_wsa_error_to_errno(WSAGetLastError());
+    return -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   }
 
   *addrlen = (uint32_t)len;
@@ -1142,7 +1142,7 @@ static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrl
   int len = (int)(*addrlen);
   int result = getpeername((SOCKET)(uintptr_t)(uint32_t)sockfd, (struct sockaddr*)addr, &len);
   if (result == SOCKET_ERROR) {
-    return -__yo_wsa_error_to_errno(WSAGetLastError());
+    return -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   }
 
   *addrlen = (uint32_t)len;
@@ -1153,7 +1153,7 @@ static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optna
   __yo_wsa_init();
 
   int result = setsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (const char*)optval, (int)optlen);
-  return (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
+  return (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : 0;
 }
 
 static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname, void* optval, uint32_t* optlen) {
@@ -1162,7 +1162,7 @@ static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optna
   int len = (int)(*optlen);
   int result = getsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (char*)optval, &len);
   if (result == SOCKET_ERROR) {
-    return -__yo_wsa_error_to_errno(WSAGetLastError());
+    return -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   }
 
   *optlen = (uint32_t)len;
@@ -1177,17 +1177,17 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
   }
 
   if (sock_type != SOCK_STREAM) {
-    return -ENOTSUP;
+    return -__yo_wsa_to_errno(WSAESOCKTNOSUPPORT);
   }
 
   // Windows has no native socketpair(); emulate with loopback TCP.
   // Accept common caller domains used for socketpair APIs.
   if (!(domain == AF_UNIX || domain == AF_INET || domain == AF_UNSPEC)) {
-    return -EAFNOSUPPORT;
+    return -__yo_wsa_to_errno(WSAEAFNOSUPPORT);
   }
 
   if (!(protocol == 0 || protocol == IPPROTO_TCP)) {
-    return -EPROTONOSUPPORT;
+    return -__yo_wsa_to_errno(WSAEPROTONOSUPPORT);
   }
 
   SOCKET listener = INVALID_SOCKET;
@@ -1202,37 +1202,37 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
 
   listener = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
   if (listener == INVALID_SOCKET) {
-    return -__yo_wsa_error_to_errno(WSAGetLastError());
+    return -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   }
 
   if (bind(listener, (const struct sockaddr*)&addr, (int)sizeof(addr)) == SOCKET_ERROR) {
-    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
+    int32_t err = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
     closesocket(listener);
     return err;
   }
 
   if (listen(listener, 1) == SOCKET_ERROR) {
-    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
+    int32_t err = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
     closesocket(listener);
     return err;
   }
 
   int addrlen = (int)sizeof(addr);
   if (getsockname(listener, (struct sockaddr*)&addr, &addrlen) == SOCKET_ERROR) {
-    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
+    int32_t err = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
     closesocket(listener);
     return err;
   }
 
   client = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
   if (client == INVALID_SOCKET) {
-    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
+    int32_t err = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
     closesocket(listener);
     return err;
   }
 
   if (connect(client, (const struct sockaddr*)&addr, addrlen) == SOCKET_ERROR) {
-    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
+    int32_t err = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
     closesocket(client);
     closesocket(listener);
     return err;
@@ -1240,7 +1240,7 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
 
   server = accept(listener, NULL, NULL);
   if (server == INVALID_SOCKET) {
-    int32_t err = -__yo_wsa_error_to_errno(WSAGetLastError());
+    int32_t err = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
     closesocket(client);
     closesocket(listener);
     return err;
@@ -1393,7 +1393,7 @@ static int32_t __yo_sync_gethostname(char* name, size_t len) {
 
   int result = gethostname(name, (int)len);
   if (result == SOCKET_ERROR) {
-    return -__yo_wsa_error_to_errno(WSAGetLastError());
+    return -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   }
   name[len - 1] = '\\0';
   return 0;
@@ -2365,7 +2365,7 @@ static void __yo_win_finish_accept(__yo_win_overlapped_t* ov, bool ok) {
     DWORD flags = 0;
     DWORD transferred = 0;
     BOOL got = WSAGetOverlappedResult(ov->listen_sock, &ov->overlapped, &transferred, FALSE, &flags);
-    ov->future->result = got ? -ECONNABORTED : -__yo_wsa_error_to_errno(WSAGetLastError());
+    ov->future->result = got ? -ECONNABORTED : -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
     closesocket(ov->accept_sock);
     return;
   }
@@ -2647,7 +2647,7 @@ static void __yo_io_cleanup(void) {
     // Nothing fires for it now: mark it done and release the list's
     // reference.
     node->future->cancel_fn = NULL;
-    atomic_store(&node->future->state, -1);
+    { if (atomic_load(&node->future->state) != -2) atomic_store(&node->future->state, -1); }
     __yo_decr_rc((void*)node->future);
     __yo_free(node);
   }
@@ -2693,7 +2693,7 @@ static inline bool __yo_has_pending_io(void) {
 }
 
 static void __yo_io_wake_continuation(__yo_io_future_t* future) {
-  atomic_store_explicit(&future->state, -1, memory_order_release);
+  { if (atomic_load_explicit(&future->state, memory_order_acquire) != -2) atomic_store_explicit(&future->state, -1, memory_order_release); }
 
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
   void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
@@ -2876,12 +2876,12 @@ static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) 
   } else if (ov->is_socket) {
     // RtlNtStatusToDosError lives in ntdll; rather than dynamically loading
     // it, fall back to the same WSAGetOverlappedResult path on error so
-    // we get the proper WSA errno mapping.
+    // we get the WSA code, mapped to errno by __yo_wsa_to_errno.
     DWORD flags = 0;
     DWORD transferred = bytes;
     BOOL ok = WSAGetOverlappedResult(ov->sock, &ov->overlapped, &transferred, FALSE, &flags);
     if (!ok) {
-      ov->future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+      ov->future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
     } else {
       if (ov->out_fromlen) {
         *ov->out_fromlen = (uint32_t)ov->from_len;
@@ -3099,13 +3099,13 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
 
   if (fd < 0) {
     future->result = -EBADF;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3113,14 +3113,14 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   if (handle_type == FILE_TYPE_PIPE) {
     (void)offset;
     if (__yo_win_try_pipe_read(handle, fd, buffer, size, future)) {
-      atomic_store(&future->state, -1);
+      { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
       return future;
     }
     // Empty but open: park the read; __yo_poll_and_fs_event_tick retries it.
     __yo_win_pipe_read_t* pr = (__yo_win_pipe_read_t*)__yo_malloc(sizeof(__yo_win_pipe_read_t));
     if (!pr) {
       future->result = -ENOMEM;
-      atomic_store(&future->state, -1);
+      { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
       return future;
     }
     pr->fd = fd;
@@ -3140,7 +3140,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     (void)offset;
     int result = _read(fd, buffer, (unsigned int)size);
     future->result = (result < 0) ? -errno : result;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3149,7 +3149,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
   if (!ov) {
     future->result = -ENOMEM;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3159,7 +3159,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
     future->result = (int32_t)bytes_transferred;
     __yo_win_free_overlapped(ov);
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   DWORD err = GetLastError();
@@ -3170,7 +3170,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     } else {
       future->result = -__yo_win_error_to_errno(err);
     }
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3210,7 +3210,7 @@ static __yo_io_future_t* __yo_win_pipe_write_start(__yo_io_future_t* future, HAN
   __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, 0);
   if (!ov) {
     future->result = -ENOMEM;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   __yo_win_pipe_writer_t* w = __yo_win_pipe_writers;
@@ -3220,7 +3220,7 @@ static __yo_io_future_t* __yo_win_pipe_write_start(__yo_io_future_t* future, HAN
     if (!w) {
       __yo_win_free_overlapped(ov);
       future->result = -ENOMEM;
-      atomic_store(&future->state, -1);
+      { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
       return future;
     }
     w->handle = handle;
@@ -3313,13 +3313,13 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
 
   if (fd < 0) {
     future->result = -EBADF;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3334,7 +3334,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     (void)offset;
     int result = _write(fd, buffer, (unsigned int)size);
     future->result = (result < 0) ? -errno : result;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3352,7 +3352,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
   if (!ov) {
     future->result = -ENOMEM;
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3362,14 +3362,14 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
     future->result = (int32_t)bytes_transferred;
     __yo_win_free_overlapped(ov);
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
   DWORD err = GetLastError();
   if (err != ERROR_IO_PENDING) {
     __yo_win_free_overlapped(ov);
     future->result = -__yo_win_error_to_errno(err);
-    atomic_store(&future->state, -1);
+    { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
     return future;
   }
 
@@ -3991,7 +3991,7 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
 
   SOCKET s = WSASocketW(domain, type, protocol, NULL, 0, WSA_FLAG_OVERLAPPED);
   if (s == INVALID_SOCKET) {
-    future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+    future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   } else {
     if (__yo_io_iocp) {
       __yo_win_associate_handle((HANDLE)s);
@@ -4013,7 +4013,7 @@ static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr,
   atomic_init(&future->continuation_sm, NULL);
 
   int result = bind((SOCKET)(uintptr_t)(uint32_t)sockfd, (const struct sockaddr*)addr, (int)addrlen);
-  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
+  future->result = (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -4028,7 +4028,7 @@ static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog
   atomic_init(&future->continuation_sm, NULL);
 
   int result = listen((SOCKET)(uintptr_t)(uint32_t)sockfd, backlog);
-  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
+  future->result = (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -4075,7 +4075,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
     // IPPROTO_TCP is correct for exactly the two families gated above.
     SOCKET as = WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (as == INVALID_SOCKET) {
-      future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+      future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
       atomic_init(&future->state, -1);
       return future;
     }
@@ -4107,7 +4107,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
       return future;
     }
     closesocket(as);
-    future->result = -__yo_wsa_error_to_errno(err);
+    future->result = -(int32_t)__yo_wsa_to_errno(err);
     atomic_init(&future->state, -1);
     __yo_win_free_overlapped(ov);
     return future;
@@ -4116,7 +4116,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   int len = (int)(*addrlen);
   SOCKET result = accept(ls, (struct sockaddr*)addr, &len);
   if (result == INVALID_SOCKET) {
-    future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+    future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   } else {
     *addrlen = (uint32_t)len;
     if (__yo_io_iocp) {
@@ -4212,7 +4212,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
       __yo_pending_io_count++;
       return future;
     }
-    future->result = -__yo_wsa_error_to_errno(err);
+    future->result = -(int32_t)__yo_wsa_to_errno(err);
     atomic_init(&future->state, -1);
     __yo_win_free_overlapped(ov);
     return future;
@@ -4220,7 +4220,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
 
   // AF_UNIX (no ConnectEx) or a datagram socket: the historical plain call.
   int result = connect(s, (const struct sockaddr*)addr, (int)addrlen);
-  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
+  future->result = (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -4273,7 +4273,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
     return future;
   }
 
-  future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+  future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   atomic_init(&future->state, -1);
   __yo_win_free_overlapped(ov);
   return future;
@@ -4321,7 +4321,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
     return future;
   }
 
-  future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+  future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   atomic_init(&future->state, -1);
   __yo_win_free_overlapped(ov);
   return future;
@@ -4373,7 +4373,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
     return future;
   }
 
-  future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+  future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   atomic_init(&future->state, -1);
   __yo_win_free_overlapped(ov);
   return future;
@@ -4432,7 +4432,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
     return future;
   }
 
-  future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+  future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   atomic_init(&future->state, -1);
   __yo_win_free_overlapped(ov);
   return future;
@@ -4448,7 +4448,7 @@ static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) 
   atomic_init(&future->continuation_sm, NULL);
 
   int result = shutdown((SOCKET)(uintptr_t)(uint32_t)sockfd, how);
-  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
+  future->result = (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -4463,7 +4463,7 @@ static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t lev
   atomic_init(&future->continuation_sm, NULL);
 
   int result = setsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (const char*)optval, (int)optlen);
-  future->result = (result == SOCKET_ERROR) ? -__yo_wsa_error_to_errno(WSAGetLastError()) : 0;
+  future->result = (result == SOCKET_ERROR) ? -(int32_t)__yo_wsa_to_errno(WSAGetLastError()) : 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -4480,7 +4480,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
   int len = (int)(*optlen);
   int result = getsockopt((SOCKET)(uintptr_t)(uint32_t)sockfd, level, optname, (char*)optval, &len);
   if (result == SOCKET_ERROR) {
-    future->result = -__yo_wsa_error_to_errno(WSAGetLastError());
+    future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
   } else {
     *optlen = (uint32_t)len;
     future->result = 0;
@@ -4659,6 +4659,31 @@ static __yo_io_future_t* __yo_async_closedir_start(void* dir) {
 // DNS Operations (Windows)
 // ============================================================================
 
+// A resolver failure resolves to one stable negative code, the same on every
+// platform: -(4096 + kind). EAI_* values differ per platform (Linux's are
+// negative and collide with errno; macOS's are small positives; Windows's are
+// WSA codes), so std could not classify the raw value it used to get. The
+// range sits above every errno, so it never reads as one. Kinds: 1 not found,
+// 2 try again, 3 permanent failure, 4 out of memory, 5 anything else.
+// std/sys/dns.yo names them (DNS_ERR_*); std/net/dns maps them to DnsError
+// (plans/ASYNC_IO_API_AUDIT.md A4,
+// issues/fixed/stddoc-io-dns-lookup-discards-the-gai-error-code.md).
+static int32_t __yo_gai_to_result(int ret) {
+  if (ret == 0) return 0;
+  int kind = 5;
+  if (ret == EAI_NONAME) kind = 1;
+#ifdef EAI_NODATA
+  else if (ret == EAI_NODATA) kind = 1;
+#endif
+#ifdef EAI_ADDRFAMILY
+  else if (ret == EAI_ADDRFAMILY) kind = 1;
+#endif
+  else if (ret == EAI_AGAIN) kind = 2;
+  else if (ret == EAI_FAIL) kind = 3;
+  else if (ret == EAI_MEMORY) kind = 4;
+  return -(4096 + kind);
+}
+
 static __yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
                                                      const uint8_t* hints, uint8_t** result) {
   __yo_io_init();
@@ -4674,10 +4699,8 @@ static __yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const
 
   if (ret == 0) {
     *result = (uint8_t*)res;
-    future->result = 0;
-  } else {
-    future->result = ret;  // Return raw gai error code
   }
+  future->result = __yo_gai_to_result(ret);
   atomic_init(&future->state, -1);
 
   return future;
@@ -4696,7 +4719,7 @@ static __yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint3
 
   int ret = getnameinfo((const struct sockaddr*)addr, (socklen_t)addrlen,
                         (char*)host, (socklen_t)hostlen, (char*)service, (socklen_t)servlen, flags);
-  future->result = ret;  // Return raw gai error code
+  future->result = __yo_gai_to_result(ret);
   atomic_init(&future->state, -1);
 
   return future;
@@ -5554,7 +5577,7 @@ static int __yo_poll_and_fs_event_tick(void) {
             if (FD_ISSET(sock, &except_fds)) __yo_events |= 4;
           } else if (ret < 0) {
             if (ph->callback && ph->active) {
-              ph->callback(0, -__yo_wsa_error_to_errno(WSAGetLastError()), ph->user_data);
+              ph->callback(0, -(int)__yo_wsa_to_errno(WSAGetLastError()), ph->user_data);
               count++;
             }
             ph = next;

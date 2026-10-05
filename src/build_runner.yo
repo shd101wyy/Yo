@@ -30,7 +30,7 @@ _(env : warm_dbg_env) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { Command, Output, ExitStatus } :: import("std/process/command");
 { error_format, emit_rendered_text } :: import("./diagnostics.yo");
-{ yield } :: import("std/async");
+{ join_all } :: import("std/async");
 { mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path, _take_load_error, set_std_path_override, set_imports_file_override } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
 { Instant } :: import("std/time/instant");
@@ -218,13 +218,9 @@ _git_version :: (
 )(
   io.async((e : IoExn) => {
     // `git -C <dir>` rather than a cwd on the Command — `std/process/command.yo`
-    // has no `current_dir`. The output future runs as a
-    // SPAWNED TASK polled with is_finished + yield: a blocking await from
-    // inside a task nests the event loop (C37), and awaiting an aborted
-    // future directly would discard this closure's continuation. The
-    // suspending form is `io.await(t.join(e.io), e.io)`; the compiler adopts
-    // it once the seed carries `__yo_join_wait_new`
-    // (plans/backlog/SEED_VERSION_AUTOMATION.md, 2026-10-03 entry).
+    // has no `current_dir`. The output future runs as a SPAWNED TASK that this
+    // one JOINS: awaiting it directly would propagate its abort into this
+    // closure, and `join` reads an abort as `.None`.
     cmd := Command.new(String.from("git"));
     cmd.arg(String.from("-C"));
     cmd.arg(project_dir);
@@ -232,10 +228,7 @@ _git_version :: (
     cmd.arg(String.from("--tags"));
     cmd.arg(String.from("--always"));
     t := e.io.spawn(_git_output_task(cmd, e.io), e);
-    while(runtime(!t.is_finished()), {
-      e.io.await(yield(e.io), e.io);
-    });
-    out_opt := t.await(e.io);
+    out_opt := e.io.await(t.join(e.io), e.io);
     out := match(out_opt, .Some(o) => o, .None => return(Option(String).None));
     if(!out.status.success(), return(Option(String).None));
     v := String.from_bytes(out.stdout).trim();
@@ -883,8 +876,8 @@ _collect_linked_shared_libs :: (
     artifact : BuildArtifact,
     project_dir : String,
     effective_target : String,
-    dirs_out : ArrayList(String),
-    names_out : ArrayList(String)
+    inout(dirs_out) : ArrayList(String),
+    inout(names_out) : ArrayList(String)
   ) -> unit
 )({
   seen := ArrayList(String).new();
@@ -941,10 +934,10 @@ _collect_linked_shared_libs :: (
 _walk_dag :: (
   fn(
     registry : BuildRegistry,
-    nodes : HashMap(String, DAGNode),
-    visited : HashMap(String, bool),
+    inout(nodes) : HashMap(String, DAGNode),
+    inout(visited) : HashMap(String, bool),
     name : String,
-    missing : ArrayList(String)
+    inout(missing) : ArrayList(String)
   ) -> unit
 )({
   if(visited.contains_key(name), return(()));
@@ -1019,7 +1012,7 @@ build_dag_checked :: (
   fn(
     registry : BuildRegistry,
     root_step_name : String,
-    missing : ArrayList(String)
+    inout(missing) : ArrayList(String)
   ) -> ArrayList(DAGNode)
 )({
   nodes := HashMap(String, DAGNode).new();
@@ -1048,7 +1041,7 @@ _COLOR_BLACK :: i32(2);
 _dfs_cycle :: (
   fn(
     node_map : HashMap(String, DAGNode),
-    color : HashMap(String, i32),
+    inout(color) : HashMap(String, i32),
     name : String
   ) -> Option(String)
 )({
@@ -1153,8 +1146,8 @@ _read_dir_task :: (fn(dir : String, io : Io) -> Impl(Future(ArrayList(DirEntry),
 /// Collect `*.yo` files under `dir`, skipping build outputs and VCS/tooling
 /// directories. Names are sorted per directory for a deterministic stamp —
 /// read_dir order is platform-dependent (the readdir-order lesson). Each
-/// directory's read_dir runs as a spawned task polled with is_finished +
-/// yield (a blocking await from inside a task nests the event loop, C37);
+/// directory's read_dir runs as a spawned task this one joins (an abort —
+/// the entry is a file — reads as `.None`);
 /// breadth-first over a worklist, which visits exactly the recursion's set.
 /// Is `name` a directory among `entries`? A symlink is not followed: a link
 /// loop would hang the walk, and a linked source tree is stamped where it
@@ -1327,7 +1320,7 @@ _resolve_workspace_member :: (
   })
 );
 /// Append `v` to `out` unless it is already there.
-_push_unique_string :: (fn(out : ArrayList(String), v : String) -> unit)({
+_push_unique_string :: (fn(inout(out) : ArrayList(String), v : String) -> unit)({
   (i : usize) = usize(0);
   while(i < out.len(), {
     match(
@@ -1341,10 +1334,14 @@ _push_unique_string :: (fn(out : ArrayList(String), v : String) -> unit)({
   });
   out.push(v);
 });
+/// Every `.yo` file under `dir`. The async body returns the list rather
+/// than pushing into a caller's: a collection it captured is its own copy
+/// once collections are values (plans/VALUES_BY_DEFAULT.md §3.13).
 _cache_collect_yo_files :: (
-  fn(dir : String, out : ArrayList(String), io : Io) -> Impl(Future(unit, IoExn))
+  fn(dir : String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
+    out := ArrayList(String).new();
     work := ArrayList(String).new();
     work.push(dir.clone());
     (wi : usize) = usize(0);
@@ -1352,10 +1349,7 @@ _cache_collect_yo_files :: (
       d := work(wi).clone();
       wi = (wi + usize(1));
       t := e.io.spawn(_read_dir_task(d.clone(), e.io), e);
-      while(runtime(!t.is_finished()), {
-        e.io.await(yield(e.io), e.io);
-      });
-      entries := match(t.await(e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
+      entries := match(e.io.await(t.join(e.io), e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
       names := ArrayList(String).new();
       (i : usize) = usize(0);
       while(i < entries.len(), {
@@ -1374,7 +1368,7 @@ _cache_collect_yo_files :: (
         name := names(j);
         skip := (
           (name == "yo-out") ||
-            ((name == ".git") || ((name == "node_modules") || name.starts_with(String.from("tmp"))))
+            (name == ".git") || (name == "node_modules") || name.starts_with(String.from("tmp"))
         );
         if(!skip, {
           full := Path.new(d.clone()).join(Path.new(name.clone())).to_string();
@@ -1397,6 +1391,7 @@ _cache_collect_yo_files :: (
         j = (j + usize(1));
       });
     });
+    out
   })
 );
 _read_bytes_task :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
@@ -1416,11 +1411,8 @@ _cache_read_file :: (
 )(
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
-    while(runtime(!t.is_finished()), {
-      e.io.await(yield(e.io), e.io);
-    });
     match(
-      t.await(e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(bytes) => Option(ArrayList(u8)).Some(bytes),
       .None => Option(ArrayList(u8)).None
     )
@@ -1429,7 +1421,7 @@ _cache_read_file :: (
 /// Append `s2` and a newline to the stamp accumulator. A module-level fn
 /// rather than a local closure, so the io.async body using it stays a plain
 /// statement sequence.
-_stamp_push_str :: (fn(dst : ArrayList(u8), s2 : String) -> unit)({
+_stamp_push_str :: (fn(inout(dst) : ArrayList(u8), s2 : String) -> unit)({
   b := s2.as_bytes();
   (bi : usize) = usize(0);
   while(bi < b.len(), {
@@ -1636,14 +1628,13 @@ artifact_input_stamp :: (
     // No depfile yet — hash every `.yo` under the project and the whole std
     // tree, which is what every build used to do, per artifact (audit B10).
     if(!have_depfile, {
-      e.io.await(_cache_collect_yo_files(project_dir.clone(), files, e.io), e);
+      project_files := e.io.await(_cache_collect_yo_files(project_dir.clone(), e.io), e);
+      files.extend(project_files);
     });
     std_root := resolve_std_path();
     if(!have_depfile && (std_root.len() > usize(0)), {
-      e.io.await(
-        _cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), files, e.io),
-        e
-      );
+      std_files := e.io.await(_cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), e.io), e);
+      files.extend(std_files);
     });
     // The manifest and the lock are inputs to RESOLUTION, not to evaluation, so
     // no depfile names them — but changing either changes what `import("dep")`
@@ -1713,11 +1704,8 @@ _read_depfile :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(String), I
 _read_stamp :: (fn(path : String, io : Io) -> Impl(Future(Option(String), IoExn)))(
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
-    while(runtime(!t.is_finished()), {
-      e.io.await(yield(e.io), e.io);
-    });
     match(
-      t.await(e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
       .None => Option(String).None
     )
@@ -1740,11 +1728,8 @@ _write_string_task :: (fn(path : String, data : String, io : Io) -> Impl(Future(
 _write_stamp :: (fn(path : String, stamp : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     t := e.io.spawn(_write_string_task(path.clone(), stamp.clone(), e.io), e);
-    while(runtime(!t.is_finished()), {
-      e.io.await(yield(e.io), e.io);
-    });
     match(
-      t.await(e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(_u) => (),
       .None => ()
     )
@@ -2122,7 +2107,7 @@ compile_artifact :: (
     // Every await-bearing step below is a TOP-LEVEL statement of this
     // async closure ON PURPOSE: an await nested inside an if-branch here
     // silently lost its continuation (the cache-skip block after it never
-    // ran) — issues/async-await-in-nested-if-drops-continuation.md. The
+    // ran) — issues/retired/async-await-nested-if-lost-continuation.md. The
     // unconditional exists()/read are harmless when the cache is disabled.
     cache_enabled := match(proc_env.get(`YO_BUILD_NO_CACHE`), .Some(v) => (v != "1"), .None => true);
     // The stamp is computed unconditionally (a top-level await on purpose —
@@ -2474,7 +2459,7 @@ _run_doc_step :: (fn(opts : DocCommandOptions, io : Io) -> bool)({
   true
 });
 /// Append every element of `src` onto `dst` (ArrayList has no extend()).
-_push_all_strings :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> unit)({
+_push_all_strings :: (fn(inout(dst) : ArrayList(String), src : ArrayList(String)) -> unit)({
   (pa_i : usize) = usize(0);
   while(pa_i < src.len(), {
     match(
@@ -2672,7 +2657,7 @@ _dependency_failed :: (fn(node : DAGNode, results : HashMap(String, StepResult))
 /// `execute_node`, unless a dependency failed — then the node is reported as
 /// skipped without running. The branch lives in its own async fn so the
 /// caller's `await` stays a top-level statement (an await nested in an
-/// if-branch loses its continuation — issues/async-await-in-nested-if-drops-continuation.md).
+/// if-branch loses its continuation — issues/retired/async-await-nested-if-lost-continuation.md).
 _execute_node_unless_blocked :: (
   fn(
     node : DAGNode,
@@ -2701,24 +2686,16 @@ _execute_node_unless_blocked :: (
     r
   })
 );
-/// True while any handle in `handles` is still running. The poll predicate of
-/// `_execute_batch` below — a plain `fn` so the `while` condition carries no
-/// suspension point.
-_any_task_pending :: (fn(handles : ArrayList(JoinHandle(StepResult))) -> bool)({
-  (i : usize) = usize(0);
-  while(i < handles.len(), {
-    if(!handles(i).is_finished(), {
-      return(true);
-    });
-    i = (i + usize(1));
-  });
-  false
-});
 /// Run a batch of ready nodes CONCURRENTLY and collect their results in the
 /// batch's own order (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.8). Each
 /// node is a task; the compile/test/run children they spawn are what actually
 /// overlap. A task that unwinds is recorded as a failure rather than losing
 /// the node.
+///
+/// The batch's results come back in batch order for the caller to record:
+/// the async body reads `results` but does not write it, since a collection
+/// it captured is its own copy once collections are values
+/// (plans/VALUES_BY_DEFAULT.md §3.13).
 _execute_batch :: (
   fn(
     batch : ArrayList(DAGNode),
@@ -2726,7 +2703,7 @@ _execute_batch :: (
     ctx : ExecutionContext,
     io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IoExn))
+  ) -> Impl(Future(ArrayList(StepResult), IoExn))
 )(
   io.async((e : IoExn) => {
     handles := ArrayList(JoinHandle(StepResult)).new();
@@ -2737,28 +2714,12 @@ _execute_batch :: (
       handles.push(e.io.spawn(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e));
       i = (i + usize(1));
     });
-    // NOT `join_all`. Its body awaits each handle in turn, and
-    // `JoinHandle.await` on a handle that has NOT finished is a blocking
-    // `__yo_async_poll_step` loop — while `_execute_batch` itself runs inside
-    // `run_build`'s RESUMED continuation, so that loop nests the event loop.
-    // C37's guard aborts on exactly this under `YO_ASYNC_STRICT=1`
-    // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md), and
-    // outside strict mode it silently serialises the scheduler it was added to
-    // parallelise.
-    //
-    // The shape the guard's own message prescribes instead: poll
-    // `is_finished()` and await `yield`. Once every handle is terminal,
-    // `h.await` reads the result without polling at all — the emitted loop's
-    // condition is false on entry.
-    while(runtime(_any_task_pending(handles)), {
-      e.io.await(yield(e.io), e.io);
-    });
-    outs := ArrayList(Option(StepResult)).new();
-    (oi : usize) = usize(0);
-    while(oi < handles.len(), {
-      outs.push(handles(oi).await(e.io));
-      oi = (oi + usize(1));
-    });
+    // `join_all` is a future (plans/ASYNC_IO_API_AUDIT.md A1): awaiting it
+    // suspends `_execute_batch` while the step tasks run, so it no longer
+    // nests the event loop the way the blocking `JoinHandle.await` did
+    // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md).
+    outs := e.io.await(join_all(handles, e.io), e.io);
+    batch_results := ArrayList(StepResult).new();
     i = usize(0);
     while(i < batch.len(), {
       node := batch(i);
@@ -2780,10 +2741,10 @@ _execute_batch :: (
           description : `failed ${node.name}`
         )
       );
-      results.insert(node.name, result);
+      batch_results.push(result);
       i = (i + usize(1));
     });
-    ()
+    batch_results
   })
 );
 execute_dag :: (
@@ -2858,7 +2819,13 @@ execute_dag :: (
           bi = (bi + usize(1));
         });
         k = (k + batch.len());
-        e.io.await(_execute_batch(batch, results, ctx, e.io, e.exn), e);
+        batch_results := e.io.await(_execute_batch(batch, results, ctx, e.io, e.exn), e);
+        (ri : usize) = usize(0);
+        while(ri < batch_results.len(), {
+          br := batch_results(ri);
+          results.insert(br.name.clone(), br);
+          ri = (ri + usize(1));
+        });
       });
       // Mark complete and update in-degrees
       k = usize(0);
@@ -3076,7 +3043,7 @@ execute_step :: (
     // `--dry-run` is a REAL resolution that stops here (the plan's B7).
     // The early return keeps the await below a top-level statement: an await
     // nested in an if-branch loses its continuation
-    // (issues/async-await-in-nested-if-drops-continuation.md).
+    // (issues/retired/async-await-nested-if-lost-continuation.md).
     dag := _plan_step(step_name.clone(), ctx, e.exn);
     if(dry_run, {
       _print_plan(step_name.clone(), dag);

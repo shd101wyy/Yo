@@ -65,7 +65,7 @@ emit_warning :: (fn(d : Diagnostic) -> unit)({
     while(pi < g_pending_warnings.len(), {
       match(
         g_pending_warnings.get(pi),
-        .Some(p) => if((p.span.path == d.span.path) && ((p.span.row == d.span.row) && ((p.span.col == d.span.col) && (p.message == d.message))), {
+        .Some(p) => if((p.span.path == d.span.path) && (p.span.row == d.span.row) && (p.span.col == d.span.col) && (p.message == d.message), {
           return;
         }),
         .None => ()
@@ -517,7 +517,7 @@ _first_message_line :: (fn(message : String) -> String)({
 /// `|` gutters of every block in the group align. `color` wraps the header,
 /// anchor, gutter, carets and `help:` labels in ANSI SGR sequences; with it
 /// off the output is byte-identical to the pre-color renderer.
-_render_block :: (fn(d : Diagnostic, w : usize, color : bool, out : ArrayList(String)) -> unit)({
+_render_block :: (fn(d : Diagnostic, w : usize, color : bool, inout(out) : ArrayList(String)) -> unit)({
   prefix := _severity_prefix(d.severity);
   sev_ansi := _severity_ansi(d.severity);
   msg_lines := d.message.split(String.from("\n"));

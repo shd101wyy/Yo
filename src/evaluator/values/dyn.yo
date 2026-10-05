@@ -181,7 +181,7 @@ _dyn_bound_check_type :: (fn(t : TypeValue, env : Environment) -> Option(TypeVal
   // concrete as its own `resolution` (closures/futures).
   // Follow that resolution, then the env binding chain; if neither lands on a
   // concrete the bound is still undecidable here.
-  own_rc := match(t, .SomeT({ resolution : rc }) => rc, _ => Option(TypeValue).None);
+  own_rc := match(t, .SomeT({ resolution : carried }) => carried, _ => Option(TypeValue).None);
   resolved := match(own_rc, .Some(o) => o, .None => get_value_of_some_type_from_env(env, t));
   cond(
     is_some_type(resolved) => Option(TypeValue).None,
@@ -637,7 +637,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
             // C wrapper for the synthetic `call` slot resolves the closure fn
             // via the impl_closure_call_map (capture-struct id → closure C
             // name).
-            .FnTraitT(_, _, _, _, _, _, _, _) => {
+            .FnTraitT(_, _, _, _, _, _, _) => {
               trait_vals.push(
                 EvalValue.TraitVal(
                   String.from("Fn"),
@@ -727,7 +727,6 @@ evaluate_dyn_value :: (
           rtl,
           ntt,
           ntl,
-          false,
           Option(TypeValue).None,
           Option(TypeValue).None
         );
@@ -844,7 +843,7 @@ evaluate_dyn_value :: (
               // global misses there (round-5 finding).
               .Some(iec) => match(
                 iec.ty,
-                .SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_ier, bx_kft, _) => {
+                .SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_kft, _) => {
                   ne_box_inner_ty = TypeValue.SomeT(
                     bx_id,
                     bx_nm,
@@ -854,7 +853,6 @@ evaluate_dyn_value :: (
                     bx_rtl,
                     bx_ntt,
                     bx_ntl,
-                    bx_ier,
                     bx_kft,
                     Option(TypeValue).Some(cci.capture_type)
                   );
@@ -905,7 +903,7 @@ evaluate_dyn_value :: (
     // every `exn.throw(dyn(format_error_message(...)))` (the startup heap
     // corruption; see
     // issues/fixed/yo-self-dyn-throw-double-drop.md; repro /tmp/dd.yo).
-    set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn);
+    set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn, "dyn");
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
     out_info.runtime_arg_exprs_in_order = .Some(rt_args_ne);
@@ -993,7 +991,7 @@ evaluate_dyn_value :: (
     );
   });
   // Same ownership-transfer consumption as the non-executing path above.
-  set_expr_as_needs_to_call_dup(final_value_expr_ex, ctx, exn);
+  set_expr_as_needs_to_call_dup(final_value_expr_ex, ctx, exn, "dyn");
   // Determine the expected DynType:
   //   1. From context.expected_type when it is already a DynT.
   //   2. From final_value_type when it is a DynT.

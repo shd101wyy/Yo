@@ -69,7 +69,7 @@ reasoning about the other is how a working design gets declared impossible.
 
 ## Not to be confused with
 
-`issues/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md` — that one
+`issues/fixed/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md` — that one
 is a genuine USER error (`fill` is `comptime(val)` by construction and
 `T.default()` is a run-time call) reported as an abort stub instead of a
 diagnostic. **This** one is a compiler defect: the fill value is compile-time

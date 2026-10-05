@@ -32,6 +32,15 @@ io.async((e : Io) => {
 
 The inner task read `t.n` through NULL.
 
+**Superseded in part (2026-10-05).** "The language still lets `t` read that
+value" below no longer holds for a user move: a read after a `sink`/`own` move
+is E0901, because under `plans/VALUES_BY_DEFAULT.md` §0 a move consumes the
+name, and the new owner may already have released the value
+(`issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md`).
+The move flag still matters for the moves the dup/drop pair optimizer makes
+(`(cur : T) = t` with `t` read afterwards, which the evaluator marks only
+after the block), and for the abort dispose.
+
 ## Cause
 
 The evaluator records `(cur : Thing) = t` as `t`'s consumption, and the value moves to `cur` without a dup. The language still lets `t` read that value while its new owner holds it. Sync code keeps `t`'s C local as it is, and the old value is released at scope end.

@@ -23,7 +23,7 @@ seed and passes here.
 
 **Still open, and NOT this defect:** the combinator this was found for still
 cannot be written, on a THIRD defect —
-`issues/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`.
+`issues/fixed/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md`.
 
 **Originally filed:** OPEN.
 **Found:** 2026-09-14, probing whether `plans/backlog/ASYNC_DEADLINE_COMBINATOR.md`'s

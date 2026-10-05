@@ -1,6 +1,6 @@
 # Handover: what must land for v0.2.51, before VALUES_BY_DEFAULT starts
 
-**Status: ACTIVE handover, written 2026-10-04.** The session that ran
+**Status: ACTIVE handover, written 2026-10-04; §0 records the outcome.** The session that ran
 v0.2.50 stopped here. Develop is at `692399851` and `SEED_VERSION` is
 v0.2.50 (published, notes curated).
 
@@ -8,6 +8,57 @@ v0.2.50 (published, notes curated).
 [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) needs from a seed. Once
 v0.2.51 is published and the release pipeline bumps `SEED_VERSION` to it, the
 values-by-default migration starts with **V1 step 0b** (§5 below).
+
+## 0. Outcome (updated 2026-10-04, after the release)
+
+**v0.2.51 was published 2026-10-04 08:14 UTC** (release run 37183400572, curated notes). `SEED_VERSION` is v0.2.51 (`fe56b53cd`). The macos-x64 seed leg first failed: the download step compiled a truncated copy of a correct emit. It recovered with `gh run rerun --failed`. #1184 hardens the handoff with download-artifact v8 and a sha256 carried with the C (`issues/fixed/a-truncated-artifact-download-reached-clang-as-a-syntax-error.md`). The battery before it also exposed the formal-verification job's 60-minute timeout (#1183). markdown_yo **v0.0.10** is published, with markdown_yo#14 and the `rc` local rename.
+
+**What landed for v0.2.51:**
+
+| PR | What |
+| --- | --- |
+| #1172, #1173, #1174, #1176 | As planned in §1 (merged 2026-10-03/04). |
+| **#1178** | Replaces #1164, #1165 and the WIP `fix/newtype-ctor-retain`, folded into one PR with one battery: the newtype ctor retain fix (S1), `ref_count(x)` (V1 step 0a), and `?=` defaults (resolve in the defining module; a runtime-call default is E1105). The #1165 restack items of §1 are done. 42/42 CI jobs green. |
+| #1171, #1177 | s3 batches 1 and 3 (another session). |
+| #1179 | Fixes the macOS/Linux build break #1171 introduced (`poll` declared with `*u8`). |
+| #1167 | Async audit A2–A5 + A1 Generation B (yo-37). |
+| #1181 | `yo test` with a second path is an error (yo-37's branch, landed by yo-ab). |
+| #1182 | 205 dangling issue references repaired; `check-issue-refs.sh` reports 0 (yo-37's branch). |
+| #1183 | The formal-verification job's timeout is 90 minutes (it ran ~45 of 60 and a slow runner cancelled it). |
+| #1180 | Windows console UTF-8 (another session). |
+
+**S3's heap corruption (§3.1) is solved: it was the seed.**
+- A compiler built from S3 by the v0.2.50 seed corrupts its heap. A compiler built from the same S3 tree by a stage-1 of #1178, which carries the newtype-retain fix and #1172, passes `tests/string/string.test.yo` **302/302** with no corruption.
+- So S3 lands on a v0.2.51 seed, with no S3 code change. The suspects listed in §3.1 are cleared.
+- The test-file fix of §3.2 (`(f : Impl(Fn() -> String)) = …`) is committed (`d5699aece` on `feat/string-cow`, carried by `feat/string-cow-on-1178`).
+
+**Branches ready for the post-release agent.** All are pushed.
+
+- **`chore/flatten-on-1178`** (`15a0f7fcb`): the #1163 sweep regenerated on #1178.
+  - 542 groups in std/src.
+  - Token guard: 0 files differ once parens and whitespace are stripped.
+  - Formatted with #1178's stage-1.
+  - The scanner is committed on that branch as `scripts/flatten-andor-chains.py`. Its rule is §2's.
+  - Not gated yet. #1163 can be closed in its favour.
+- **`feat/string-cow-on-1178`** (`06391cdbf`): S3 rebased onto the flatten above (clean).
+  - Next: rebase onto the post-release develop, then run S3's remaining gates (§3.2).
+  - After that, S4 (#1175) restacks on it.
+- **`feat/ref-count-0b`**: **V1 step 0b**, prepared on #1178 and light-verified only.
+  - `rc.test` 75/75, `rc_binding_gives_way` 5/5, a dozen std test files, fmt clean.
+  - About 226 count reads renamed to `ref_count`, 37 `rc` bindings renamed.
+  - `BF_RC`, `_evaluate_rc_or_call`, `_rc_call_gave_way` and `name_resolves_to_binding` are deleted.
+  - Prelude `rc(own(value)) -> Box(V)` mirrors `box`.
+  - **Blocked on markdown_yo:** v0.0.9 binds a local `(rc : bool)` in `src/block/table.yo`, a shadowing error once the prelude exports `rc`. markdown_yo#14 now also renames it (`89853b7`).
+  - Done on the branch since: `yo.toml` is `^0.0.10` with a refreshed `yo.lock`, `ref_count` is reserved, and #1171's new `rc :=` local is renamed. A pre-check with a tree compiler gave `check ./std` 178/178 and `check ./src` 278/278 after that rename.
+  - Heavy gates still owed (all on the v0.2.51 seed): `check ./src`, build, fixpoint, `gates_fast`, the suite. Re-record the two skill goldens the light pass could not run (`build-stamp-dotted-dir`, `init-build-test`).
+
+**Order after the release:**
+1. Step 0b.
+2. The flatten.
+3. S3, then S4.
+4. V1 proper.
+
+S3 and step 0b are independent, so either can go first if markdown_yo v0.0.10 is late.
 
 Every item is a pushed branch or PR. No state lives only on the old machine.
 Re-create worktrees with `git worktree add`, then
@@ -25,7 +76,7 @@ submodule step: a stage-1 built without `vendor/mimalloc` fails GATE 7 on the
 | **#1163** | `chore/flatten-andor-chains` @ `07b731b97` | The `&&`/`||` flatten sweep: 539 groups in std and src, parens only. Generated on top of #1172. | Fixpoint holds; `gates_fast` GATEs 1–7 green (GATE 7 run separately) | After #1172 squash-merges, **regenerate** rather than rebase (§2). |
 | **#1164** | `feat/ref-count-builtin` @ `813c0d6d7` | **V1 step 0a.**<br>• `ref_count(x)` is the count builtin's new name.<br>• `rc(x)` gives way to a binding named `rc`: the evaluator decides in `_evaluate_rc_or_call` and codegen follows ExprInfo.<br>• `ref_count` is not reserved yet, because markdown_yo used a local named `ref_count`. | build, check src 278/278, fmt, fixpoint, rc.test 71/71; **`gates_fast` was still running when the session stopped** | Re-run `gates_fast` on the restacked head, then merge. |
 | **#1165** | `fix/default-param-values` @ `042e9f339` | **S1 and S2 default-parameter fixes.**<br>• `?=` defaults resolve in the defining module (the definition env is stored with the default exprs; `default_param_eval_env`).<br>• A runtime-call default is **E1105**.<br>• The compiler's own runtime defaults became `Option(T) ?= .None` or required parameters. | Fixpoint holds; `gates_fast` green (CLI 360 pass) | Restack and merge. At restack (§2):<br>• move `issues/a-default-parameter-value-*.md` (2 files) to `issues/fixed/`;<br>• update DESIGN §Default parameter values (en + zh) and the `?=` bullet in `.github/instructions/yo-syntax.instructions.md`: "enforced as E1105; names resolve where the function is defined". |
-| — | `fix/newtype-ctor-retain` @ `cd2bebfd5` (**WIP**, no PR) | **S1 use-after-free.** A newtype built from a field or a local (`V(_b : s._b)`, `b := …; V(_b : b)`) is emitted as a bare C cast with no retain. A subagent started the fix (`emit_deferred_dup_or_code` in the newtype constructor branch of `other_fn_call.yo`). The issue doc is on the S4 branch: `issues/a-newtype-built-from-a-field-projection-is-not-retained.md`. | none yet | Finish: the fix, tests (field / local / parameter / fresh local moved without a leak / call result), the issue doc moved to `issues/fixed/`, and full gates. Stack it on #1172. |
+| — | `fix/newtype-ctor-retain` @ `cd2bebfd5` (**WIP**, no PR) | **S1 use-after-free.** A newtype built from a field or a local (`V(_b : s._b)`, `b := …; V(_b : b)`) is emitted as a bare C cast with no retain. A subagent started the fix (`emit_deferred_dup_or_code` in the newtype constructor branch of `other_fn_call.yo`). The issue doc is on the S4 branch: `issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md`. | none yet | Finish: the fix, tests (field / local / parameter / fresh local moved without a leak / call result), the issue doc moved to `issues/fixed/`, and full gates. Stack it on #1172. |
 | — | `feat/string-cow` @ `fd7d1deeb` (**S3**, no PR yet) | **String copy-on-write** (`plans/STRING_VALUE_SEMANTICS.md` S3, "As implemented").<br>• A uniqueness step in every mutator; `clone` is O(1).<br>• `as_bytes` is gone: `to_bytes`, `into_bytes(own)`, `get_byte`; `from_bytes`/`from_utf8` take `own`.<br>• No `Index(usize)` on String.<br>• 313 `as_bytes` sites migrated, mostly to O(1) String snapshots.<br>• markdown_yo pinned by `rev` to markdown_yo#14 (`c950b8a`). | build ✓, check src 278/278 ✓, check std 178/178 ✓, fixpoint ✓, `--skip-c-compiler` compile ✓ | **Blocked:** §3.1. Then the remaining gates (§3.2). |
 | **#1175** | `docs/string-values-s4` @ `98831e238` (draft, base `feat/string-cow`) | **S4.**<br>• DESIGN, STRINGS, INDEX_TRAIT, EXPLICIT_ALLOCATORS and PARALLELISM (en + zh), instructions and skills.<br>• The seven skill-tree goldens re-recorded. | Docs examples compiled and run; scorecard diffs are S3's, not S4's (§3.2) | Restack on S3 after S3 lands. Move the newtype issue doc out of this PR and into the newtype-fix PR. |
 | **markdown_yo#14** | `chore/string-value-semantics` @ `c950b8a` | markdown_yo without `as_bytes`. Compiles against both the 0.2.47 std and the S3 std; 1056/1067 fixtures pass (11 skipped) on both; the footnote local is renamed `backref_count`. | green on both stds | Merge. Tagging a markdown_yo release (v0.0.10) is the maintainer's call. Until then the compiler pins it by `rev`. |
@@ -98,7 +149,7 @@ Suspects, in order:
 - **File an issue for a `check` gap.** `yo check` does not evaluate a generic body per instantiation, so an E0907 inside a generic std body appears only at `yo build`. S3 hit this in `std/http/wire.yo`, `std/io/bufio.yo` and `src/main.yo`.
   - **Workaround:** `yo compile src/main.yo --skip-c-compiler --std-path ./std` evaluates exactly what the build does, about 3× faster than a build.
   - It needs an `issues/` doc with a severity (S3 likely, as a quality rough edge) and a test.
-- **Dangling issue refs.** `scripts/check-issue-refs.sh` reports **204** dangling `issues/…` references on develop, for example `docs/*/DESIGN.md` → `issues/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`. It is a cleanup, not a release blocker; batch it in one docs PR.
+- **Dangling issue refs.** `scripts/check-issue-refs.sh` reports **204** dangling `issues/…` references on develop, for example `docs/*/DESIGN.md` → `issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md`. It is a cleanup, not a release blocker; batch it in one docs PR.
 - **Step 0a follow-up (0b).** Once markdown_yo#14 is merged, step 0b can reserve `ref_count` (add it to `is_reserved_builtin_binding_name` in `src/token.yo`).
 
 ## 5. Releasing v0.2.51

@@ -103,7 +103,7 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
       od_is_enum := match(od_ty, .EnumT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
       od_is_tuple := match(od_ty, .Tuple(_, _) => true, _ => false);
       od_is_union := match(od_ty, .Union(_, _, _) => true, _ => false);
-      od_is_future := match(od_ty, .FutureTraitT(_, _, _, _, _) => true, _ => false);
+      od_is_future := match(od_ty, .FutureTraitT(_, _, _, _) => true, _ => false);
       od_need_fwd := cond(
         od_is_struct => !(
           is_newtype_type(od_ty) && match(od_ty, .Struct({ field_types : od_fts }) => (od_fts.len() == usize(1)), _ => false)
@@ -374,7 +374,7 @@ static inline void __yo_sm_pools_drain(void) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, chunk_parts_out : ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : String, line_directives : bool, line_c_name : String, chunk_name_base : String) -> ArrayList(String))({
+compile_module :: (fn(module_value : EvalValue, inout(info) : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, inout(chunk_parts_out) : ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : String, line_directives : bool, line_c_name : String, chunk_name_base : String) -> ArrayList(String))({
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).
@@ -674,7 +674,7 @@ static Slice_uint8_t_u42_ __yo_args;
   if(cg_log_reads, {
     codegen_read_log_set(false);
     ks := codegen_read_keys();
-    eprintln(`[codegen-reads] table=${info.data.len().to_string()} read=${ks.len().to_string()}`);
+    eprintln(`[codegen-reads] table=${info.data.*.len().to_string()} read=${ks.len().to_string()}`);
     kit := ks.into_iter();
     (kgo : bool) = true;
     while(kgo, {

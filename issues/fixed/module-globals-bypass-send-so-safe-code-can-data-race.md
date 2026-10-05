@@ -62,7 +62,7 @@ In a file without the pragma, a module-level runtime binding obeys:
    pragma'd file is the audited base). The message names the chain: `calls 'fill', which
    references the module-level global 'g' (type ArrayList(i32)), which is not Send …`. Calls
    through closure values and dyn methods are not followed — the residual
-   `issues/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`.
+   `issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md`.
 2. **`static mut`.** A VALUE-typed (`Send`) global that is written — assigned, the root of a
    field/index store, or bound to an `inout` parameter of a callee that may write through it
    (the D3 mutation-mask decision) — may not also be reached by a `Send` closure. The write sites

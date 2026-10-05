@@ -259,6 +259,14 @@ is_pointer_value_capable_file :: (fn(module_path : Option(String), std_path : St
 /// privileged caller's policy like the unsafe and macro gates — passes.
 /// See plans/reference/FUNCTION_OVERLOADING_POLICY.md.
 is_overload_set_capable_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
+  is_prelude_or_generated_file(module_path, std_path)
+);
+/// Is the module path `std/prelude.yo` itself (under `std_path`), or
+/// compiler-synthesized `auto-generated://` code, which inherits the
+/// privileged caller's policy? The gate for prelude-only privileges: overload
+/// sets (above) and implementing the `Deref` marker
+/// (plans/VALUES_BY_DEFAULT.md §3.3, `evaluator/values/impl.yo`).
+is_prelude_or_generated_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
   match(
     module_path,
     .None => false,
@@ -309,7 +317,7 @@ is_class1_panic_receiver_type :: (fn(t : TypeValue) -> bool)(
     t_refine_inner(t),
     .EnumT(_, _, _, _, _, _, _, _, _, _) => {
       s := type_to_string(t);
-      s.starts_with(String.from("Option(")) || s.starts_with(String.from("Result(")) || ((s == "Option") || (s == "Result"))
+      s.starts_with(String.from("Option(")) || s.starts_with(String.from("Result(")) || (s == "Option") || (s == "Result")
     },
     // A `*(T)`-typed self parameter (`fn(self : *(Self))`-shaped impls):
     // look through the pointer.
@@ -365,6 +373,7 @@ export(
   is_macro_def_capable_file,
   is_pointer_value_capable_file,
   is_overload_set_capable_file,
+  is_prelude_or_generated_file,
   is_union_member_read_capable,
   union_member_read_error_message,
   is_class1_panic_method_name,

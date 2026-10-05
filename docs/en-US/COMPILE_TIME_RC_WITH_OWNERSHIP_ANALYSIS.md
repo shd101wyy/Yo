@@ -1,5 +1,30 @@
 # Compile-time Reference Counting with Ownership and Lifetime Analysis
 
+> **Status (2026-10-05).** This page describes today's compiler. Yo is moving
+> to unique ownership with explicit copies
+> ([`plans/VALUES_BY_DEFAULT.md`](../../plans/VALUES_BY_DEFAULT.md) §0, §3.14).
+> - **What goes away:**
+>   - The rule that every assignment, constructor argument, return and block
+>     tail inserts `___dup`, and the dup/drop pair optimizer that cancels
+>     those dups.
+>   - The `___dup` that `own()` inserts for a borrowed argument, and `own`
+>     itself. Parameters become by value by default: a copy for plain data,
+>     a move for owning values. Borrows are spelled `imm(x)` (read-only)
+>     and `mut(x)` (exclusive, today's `inout`), as decided in decision 30.
+>   - A `String`, a collection, `Box` and `Dyn` will move at their last use
+>     and otherwise need `.clone()`. Copying an `Rc`/`Arc` handle will need
+>     `.clone()` too.
+> - **What stays:** borrowing, now spelled `imm`/`mut`, scope-end drops and
+>   use-after-move. E0908 stays as "an `imm` borrow is read-only" (§3.14).
+> - **What changes for aliasing:**
+>   - Stage 0's +1 is replaced by a shared borrow mark on the `Rc` cells an
+>     argument is reached through (decision 28).
+>   - The runtime borrow flag narrows to `Rc`/`Arc` cells.
+>   - Module-level roots keep a static check.
+>
+> This page is edited as each phase lands, and becomes an "ownership and
+> moves" page when `ref(...)` is removed.
+
 Yo uses non-atomic reference counting for heap-allocated objects, and employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 
 Non-atomic RC is sound in Yo because GC-managed objects are **thread-local** and cannot be shared across threads unless they are explicitly `Send` (see [PARALLELISM.md](./PARALLELISM.md)).
@@ -13,14 +38,13 @@ Yo uses a simplified ownership model with clear rules:
 Both `:=` (initialization) and `=` (reassignment) make the LHS **own** the value:
 
 ```rust
-x := Point(x : i32(3), y : i32(4)); // temp_var owns Point(x: i32(3), y: i32(4)), RC = 1
-// ___dup(temp_var), x owns, RC = 2
-y := x; // ___dup(x), y owns, RC = 3
-z = y; // ___dup(y), ___drop(old z), z owns, RC = 4
-// End of scope: ___drop(z), ___drop(y), ___drop(x), ___drop(temp_var)
+x := Point(x : i32(3), y : i32(4)); // the constructor's result moves into x, RC = 1
+y := x; // ___dup(x), y owns, RC = 2
+z = y; // ___dup(y), ___drop(old z), z owns, RC = 3
+// End of scope: ___drop(z), ___drop(y), ___drop(x)
 ```
 
-**Rule:** Variables always own their values. Every assignment calls `___dup`, every scope exit calls `___drop`.
+**Rule:** Variables always own their values. Assigning from a named variable calls `___dup`; a fresh value (a constructor or call result) moves in with no dup. Every scope exit calls `___drop`.
 
 ### 2. Function Parameters: Borrow by Default
 
@@ -41,7 +65,7 @@ print_point(point); // No ___dup at call site, p borrows point
 
 ```rust
 // Destructuring assignment borrows
-Point(x, y) := point; // x and y borrow from point, no dup
+{ x, y } := point; // x and y borrow from point, no dup
 // Match destructuring borrows
 match(
   result,
@@ -145,26 +169,30 @@ assert(ref_count(b) == usize(1), "one owner");
 
 The count reflects the compiler's dup/drop optimizations, so a copy the optimizer cancelled does not show up; it is meant for uniqueness checks (copy-on-write) and tests, not program logic.
 
-`rc(x)` is the old name of `ref_count(x)` and is being retired: `rc` is to become an ordinary prelude function. It already gives way to any binding named `rc` in scope: a module that defines its own `rc` calls that definition. Write `ref_count(x)` in new code.
+`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns a handle whose `ref_count` is `1`. Today it is the same as `box(v)` and returns a `Box(T)`, since Yo's `Box` is already reference counted.
+
+```rust
+a := rc(i32(42));
+assert(ref_count(a) == usize(1), "a fresh cell has one owner");
+```
+
+Like every prelude name, `rc` cannot be redefined: a module-level or local definition named `rc` is a shadowing error. A function parameter or a `match` pattern binding named `rc` is allowed and shadows the prelude's `rc` inside its scope.
 
 ### Assignment Creates Ownership
 
-Using `:=` for initialization calls `___dup` to create a new owner:
+A fresh value moves into its first binding; initializing from a named variable calls `___dup` to create a new owner:
 
 ```rust
-p1 := Point(x : i32(3), y : i32(4)); // temp_var owns Point(x: i32(3), y: i32(4)), RC = 1
-// ___dup(temp_var)
-// p1 now owns the value, RC = 2
+p1 := Point(x : i32(3), y : i32(4)); // the constructor's result moves into p1, RC = 1
+p2 := p1; // ___dup(p1), p2 is a second owner, RC = 2
 ```
 
 When an owned variable goes out of scope, we automatically call `___drop` on it:
 
 ```rust
-p1 := Point(x : i32(3), y : i32(4)); // temp_var owns Point(x: i32(3), y: i32(4)), RC = 1
-// ___dup(temp_var), p1 owns, RC = 2
+p1 := Point(x : i32(3), y : i32(4)); // p1 owns, RC = 1
 // End of scope
-___drop(p1); // RC = 1
-___drop(temp_var); // RC = 0, memory freed
+___drop(p1); // RC = 0, memory freed
 ```
 
 ### Function Parameters Borrow
@@ -176,10 +204,9 @@ use_point :: (fn(p : Point) -> unit)({
   printf("(%d, %d)", p.x, p.y); // p borrows, no RC change
 });
 
-point := Point(x : i32(3), y : i32(4)); // temp_var owns, RC = 1
-// ___dup(temp_var), point owns, RC = 2
+point := Point(x : i32(3), y : i32(4)); // point owns, RC = 1
 use_point(point); // No ___dup, p borrows point
-// End of scope: ___drop(point), ___drop(temp_var)
+// End of scope: ___drop(point)
 ```
 
 ## The Lifetime Problem
@@ -187,15 +214,12 @@ use_point(point); // No ___dup, p borrows point
 **Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
 
 ```rust
-x := box(12); // temp_var_x owns box(12), RC = 1
-// ___dup(temp_var_x), x owns, RC = 2
+x := box(12); // x owns box(12), RC = 1
 {
-  y := box(13); // temp_var_y owns box(13), RC = 1
-  // ___dup(temp_var_y), y owns, RC = 2
+  y := box(13); // y owns box(13), RC = 1
   x = y; // DANGER if x just borrows from y...
   // End of inner scope
-  ___drop(y); // RC = 1
-  ___drop(temp_var_y); // RC = 0, memory freed
+  ___drop(y); // RC = 0, memory freed
 };
 
 printf("%d\n", x.*); // BUG: x would point to freed memory!
@@ -206,14 +230,12 @@ printf("%d\n", x.*); // BUG: x would point to freed memory!
 With our model (assignments always own):
 
 ```rust
-x := box(12); // ___dup, x owns, RC = 2
+x := box(12); // x owns box(12), RC = 1
 {
-  y := box(13); // ___dup, y owns, RC = 2
+  y := box(13); // y owns box(13), RC = 1
   x = y; // ___dup(y), ___drop(old x), x owns new value
-  // New box(13): RC = 3, old box(12): RC = 1
-  ___drop(y); // box(13): RC = 2
-  ___drop(temp_var_y); // box(13): RC = 1
-  ___drop(temp_var_x); // box(12): RC = 0, freed
+  // box(13): RC = 2; old box(12): RC = 0, freed
+  ___drop(y); // box(13): RC = 1
 };
 
 printf("%d\n", x.*); // ✅ Safe: x owns box(13), RC = 1
@@ -227,7 +249,7 @@ Yo prioritizes **safety and simplicity** with a path to optimization:
 1. **Always safe**: Code never has use-after-free bugs
 2. **Simple rules**: Assignments own, parameters borrow
 3. **Predictable**: Easy to understand when dup/drop happens
-4. **Optimizable**: Phase 2 analysis eliminates unnecessary operations
+4. **Optimizable**: the ownership analysis eliminates unnecessary operations
 
 **Example - simple and safe:**
 
@@ -245,7 +267,7 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 - ✅ Simple mental model (assignments always own)
 - ✅ Parameters borrow by default (efficient for reads)
 - ⚠️ May have RC overhead from assignments
-- ✅ Can be optimized away through Phase 2 analysis
+- ✅ Can be optimized away by the ownership analysis
 - ✅ **Borrowed-argument aliasing is closed** (2026-08, Lobster-style borrow
   inference in two stages). A borrowed parameter used to be invalidated when the
   callee mutated the same field through another handle **inside a loop**
@@ -256,7 +278,7 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
     parameter gets a caller-owned `+1` for the call. Plain locals stay `+0` (the
     caller's binding keeps them alive), as do owned temps, `inout` parameters, and
     extern/builtin callees (no Yo code runs inside them).
-  - **Stage 1** — per-callee **mutation summaries** (`src/evaluator/effects/mutation-summary.ts`)
+  - **Stage 1** — per-callee **mutation summaries** (`src/evaluator/effects/mutation_summary.yo`)
     ask "may this call transitively mutate RC container storage?"; the read-only
     majority get the `+0` borrow back. Stage 0 alone cost +23% self-compile time;
     Stage 1 returns all of it and more (45.3 s → 55.2 s → 38.5 s on
@@ -283,14 +305,12 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 **Always call `___dup` on the RHS when assigning ARC values:**
 
 ```rust
-p1 := Point(x : i32(3), y : i32(4)); // ___dup(temp_var), p1 owns
-p2 := Point(5, 6); // ___dup(temp_var2), p2 owns
-p2 = p1; // ___dup(p1), ___drop(old p2), p2 owns copy of p1's value
+p1 := Point(x : i32(3), y : i32(4)); // the result moves into p1 (no dup)
+p2 := Point(5, 6); // moves into p2
+p2 = p1; // ___dup(p1), ___drop(old p2), p2 shares p1's value
 // End of scope
 ___drop(p2); // Decrement RC
 ___drop(p1); // Decrement RC
-___drop(temp_var2);
-___drop(temp_var);
 ```
 
 **Field/index assignment also calls `___dup`:**
@@ -356,21 +376,21 @@ x := match(
 );
 ```
 
-**Note:** The Phase 1.5 optimization often cancels these dup calls when they're paired with corresponding drop calls, effectively transferring ownership rather than creating unnecessary copies.
+**Note:** The dup/drop pair optimizer (`_optimize_dup_drop_pairs`) often cancels these dup calls when they're paired with corresponding drop calls, effectively transferring ownership rather than creating unnecessary copies.
 
 #### Soundness condition for dup/drop cancellation
 
 Cancelling a dup against the scope-end drop is a **move**: the dup disappears AND the
 variable is marked consumed, so no path drops it. That is sound **only if the dup
 executes unconditionally on every path that reaches the scope end**. The optimizer
-(`searchRecursively` in `src/evaluator/exprs/begin.ts`) therefore:
+(`_optimize_dup_drop_pairs` in `src/evaluator/exprs/begin.yo`) therefore:
 
 - collects dups **branch-aware** for `cond`/`match`: a dup present in only SOME
-  fallthrough arms flags the variable (`varsWithPartialBranchDups`) and the pair is
+  fallthrough arms flags the variable (`vars_with_partial_branch_dups`) and the pair is
   preserved — dup on the taken arm, scope-end drop on every path;
-- counts a dup in EVERY arm once per arm, so `runtimeDupCount > 1` also preserves the
+- counts a dup in EVERY arm once per arm, so a runtime dup count above 1 also preserves the
   pair;
-- follows `$.macroExpansion` instead of the raw macro-call args, because `if(...)`
+- follows `ExprInfo.macro_expansion` instead of the raw macro-call args, because `if(...)`
   keeps its macro head in the AST and only its recorded `cond` expansion exposes the
   branch structure. Walking the raw args treated an arm-internal dup as unconditional
   and cancelled it — leaking one reference on every path that skipped the arm
@@ -454,42 +474,17 @@ while(true, {
 - Each iteration: `___dup(current.next)` + `___drop(old current_opt)`
 - End: `___drop(current_opt)` cleans up
 
-**Cost (before optimization):** 2 RC operations per iteration (dup + drop) + 1 initial dup + 1 final drop = 2N + 2 total for N iterations.
+**Cost:** 2 RC operations per iteration (dup + drop) + 1 initial dup + 1 final drop = 2N + 2 total for N iterations.
 
-#### Loop Traversal Borrow Chain Optimization
+#### No traversal optimization in the self-hosted compiler
 
-The compiler now detects this traversal pattern and eliminates **all** RC operations (2N + 2 → 0). The key insight: every node accessed through the traversal variable is kept alive by the parameter's ownership of the entire data structure. The net RC effect across all iterations is zero for every node, so removing all dup/drop operations is safe.
-
-**Pattern detection criteria:**
-
-1. A variable is initialized from a parameter (or field of a parameter) that does not own the RC value (`isOwningTheRcValue: false`)
-2. Inside a `while`-`match` loop, the variable is the match scrutinee
-3. In one match branch, the variable is reassigned from a field of the match binding (traversal step)
-4. The variable does not unwind the loop scope (no references after the loop except the begin block return value)
-5. **The loop body neither mutates the traversed structure nor lets a node escape the iteration** (`traversalLoopHasUnsafeUse`): no assignment through a projection or index (`node.next = …` severs the chain and frees the borrowed sublist mid-walk — a use-after-free, see `issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md`), and no call receiving a traversal name or a value of a traversal type (the callee could sever or retain the node). Read-only traversals — field reads, scalar comparisons, `return &(node.value)` — still optimize to zero RC operations.
-
-**What gets removed:**
-
-- Initial `___dup` on the parameter expression
-- Per-iteration `___dup` on the reassignment RHS
-- Per-iteration `___drop` of the old value (save + drop pair)
-- Scope-exit `___drop` at end of begin block
-- Before-return `___drop` in early-exit branches
-
-**Optimized output (0 RC operations):**
-
-```c
-void traverse(Node* head) {
-    // current_opt = head (no dup)
-    while (1) {
-        if (current_opt.tag == None) {
-            return;  // no drop
-        }
-        Node* current = current_opt.Some;
-        current_opt = current->next;  // no dup, no drop of old
-    }
-    // no scope-exit drop
-}
-```
-
-This optimization is implemented in `optimizeLoopTraversalBorrowChain` in `src/evaluator/exprs/begin.ts`.
+The retired TypeScript compiler recognized this loop and removed all of its
+RC operations (2N + 2 → 0). That optimization was never ported to the
+self-hosted compiler (the note in `src/evaluator/exprs/begin.yo` beside the
+pair optimizer), so each iteration pays the dup and the drop above.
+`issues/fixed/loop-traversal-borrow-chain-mutation-uaf.md` records the
+use-after-free its mutation guard had to close. Under unique ownership the
+language replaces it: a local borrow re-pointed into the node it already
+borrows walks the list (`plans/VALUES_BY_DEFAULT.md`, decision 25). Over
+`Box` nodes the walk has no count traffic; over `Rc` nodes each step pins the
+entered cell, one increment and one decrement.

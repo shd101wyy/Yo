@@ -28,7 +28,7 @@ env:
   # lockstep by the auto-bump in publish-release below and the consistency
   # guard in test.yml's `changes` job
   # (plans/backlog/SEED_VERSION_AUTOMATION.md).
-  SEED_VERSION: v0.2.50
+  SEED_VERSION: v0.2.52
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -650,6 +650,7 @@ jobs:
           # drifted pair silently ships the wrong heap. One source of truth
           # cannot drift.
           echo -n "${{ matrix.bundle_allocator }}" > "cross/allocator-${{ matrix.target }}.txt"
+          ( cd cross && sha256sum "yo-${{ matrix.target }}.c" > "yo-${{ matrix.target }}.c.sha256" )
           ls -la cross/ portable-arm/
 
       - name: Upload the bundle C
@@ -658,6 +659,7 @@ jobs:
           name: seed-cross-${{ matrix.target }}
           path: |
             cross/yo-${{ matrix.target }}.c
+            cross/yo-${{ matrix.target }}.c.sha256
             cross/allocator-${{ matrix.target }}.txt
           retention-days: 1
           if-no-files-found: error
@@ -724,10 +726,21 @@ jobs:
           submodules: recursive
 
       - name: Download the cross-emitted C
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: seed-cross-${{ matrix.target }}
           path: cross
+
+      # The C crosses a job boundary as an artifact. A download that
+      # extracted a truncated file once reported success, and the next step
+      # failed in clang at a line cut off mid-identifier (release run
+      # 37183400572; issues/fixed/a-truncated-artifact-download-reached-clang-as-a-syntax-error.md).
+      # The producer records the file's sha256; check it before compiling.
+      - name: Verify the cross-emitted C arrived intact
+        shell: bash
+        run: |
+          cd cross
+          if command -v sha256sum > /dev/null; then sha256sum -c "yo-${{ matrix.target }}.c.sha256"; else shasum -a 256 -c "yo-${{ matrix.target }}.c.sha256"; fi
 
       - name: Install LLVM/Clang
         if: runner.os == 'Windows'
@@ -1338,7 +1351,7 @@ jobs:
           ref: ${{ needs.release.outputs.sha }}
 
       - name: Download every platform arm
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: portable-c-*
           path: arms-raw

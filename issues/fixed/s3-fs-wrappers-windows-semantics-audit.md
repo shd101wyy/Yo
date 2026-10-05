@@ -88,6 +88,13 @@ in `src/codegen/async/runtime_io_windows.yo`:
    defines, WSAEWOULDBLOCK→EAGAIN) and routed all 33 socket-error sites
    through it; the three socketpair validation returns are now plain
    `-ENOTSUP`/`-EAFNOSUPPORT`/`-EPROTONOSUPPORT`.
+   *Merge note (2026-10-05):* develop landed the same translation in parallel
+   (`__yo_wsa_to_errno`, plans/ASYNC_IO_API_AUDIT.md A4/F4, #1167). The merge
+   keeps ONE table — develop's name and choices (WSAEWOULDBLOCK→EWOULDBLOCK,
+   both of which `IoError.from_errno` reads as `WouldBlock`; an unmapped code
+   →EIO; WSAESOCKTNOSUPPORT→EPROTONOSUPPORT, which is also what socketpair's
+   non-stream rejection now returns) plus this batch's three extra rows
+   (WSAEPFNOSUPPORT, WSAELOOP, WSAENOTEMPTY).
 
 Tests — `tests/fs/fs_convenience.test.yo`'s S3 section re-expressed
 per-platform: copy contents/byte-count, remove_dir_all on a plain tree,

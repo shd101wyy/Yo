@@ -200,7 +200,7 @@ Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, whic
 
 - **Primitive types**: `bool`, `i8`–`i64`, `u8`–`u64`, `f32`, `f64`, `isize`, `usize`, `str`
 - **C-compatible types**: `int`, `uint`, `short`, `long`, `longlong`, `char`, etc.
-- **Core traits**: `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Iterator`, `IntoIterator`, `TryFrom`, `TryInto`, `Dispose`, `Send`, `Rc`, `Acyclic`, etc.
+- **Core traits**: `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Iterator`, `IntoIterator`, `TryFrom`, `TryInto`, `Dispose`, `Send`, `Acyclic`, etc.
 - **Metaprogramming**: `Type`, `Expr`, `ExprList`, `Var`
 - **Async**: `Io`, `FutureState`, `JoinHandle`
 - **Utilities**: `assert`, `unsafe`, `try`, `for`, `not`, `arc`, `Box`, `box`

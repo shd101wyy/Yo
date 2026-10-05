@@ -21,7 +21,7 @@ Re-verified on develop `c52ce152c`, with a tree-built compiler:
 
 The regression guard is the existing cli case
 `tests/cli-cases/check-derive-rule-error-reaches-the-user` (a rule failing inside a
-`::` binding must fail `check`). `issues/repros/derive-rule-error-vanishes-entirely.yo`
+`::` binding must fail `check`). `derive-rule-error-vanishes-entirely.yo` (removed in #1062)
 was removed with this retirement: it no longer exercises a failure.
 
 ---
@@ -34,12 +34,12 @@ outer swallow is not.
 
 ## Reproducer
 
-`issues/repros/derive-rule-error-vanishes-entirely.yo`: a `derive_rule` whose
+`derive-rule-error-vanishes-entirely.yo` (removed in #1062): a `derive_rule` whose
 body raises inside a `::` binding.
 
 ```
-$ yo check   issues/repros/derive-rule-error-vanishes-entirely.yo ; echo rc=$?   # rc=0
-$ yo compile issues/repros/derive-rule-error-vanishes-entirely.yo ; echo rc=$?   # rc=0
+$ yo check   derive-rule-error-vanishes-entirely.yo ; echo rc=$?   # rc=0
+$ yo compile derive-rule-error-vanishes-entirely.yo ; echo rc=$?   # rc=0
 $ YO_DEBUG_SWALLOW=1 yo check … 2>&1 | grep expr_to_string
 [anon-swallow] error: Expected expression value for "__yo_expr_to_string" argument
 ```

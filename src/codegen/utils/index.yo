@@ -304,7 +304,7 @@ CodeGenContext :: ref(
     /// deferred-drop survived) — emitting `__yo_decr_rc(undeclared_temp)` is an
     /// undeclared-identifier error. Temp names are globally unique, so this
     /// accumulates across functions without needing a per-function reset.
-    declared_c_var_names : HashSet(String),
+    declared_c_var_names : Box(HashSet(String)),
     /// Block-scope stack of declared C var names (named locals + temps), encoded
     /// as a flat list with `"{"` sentinels at block boundaries, maintained by the
     /// emitter (`_emitter_track_scope`) during function-body emission. Read ONLY by
@@ -313,7 +313,7 @@ CodeGenContext :: ref(
     /// before AND still in scope). This is the block-scope-aware C-emission-order
     /// signal that the flat set and source-token heuristics could not provide. See
     /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
-    declared_scopes : ArrayList(String),
+    declared_scopes : Box(ArrayList(String)),
     /// Resolved concrete capture-struct type id → its generated closure impl fn.
     /// Populated at closure construction; read at closure call sites to emit
     /// `fn(&(cb), args)`.
@@ -404,8 +404,8 @@ impl(
       next_dispose_type_id : usize(1),
       sm_pool_ids : HashMap(String, usize).new(),
       dispose_thunks : HashSet(String).new(),
-      declared_c_var_names : HashSet(String).new(),
-      declared_scopes : ArrayList(String).new(),
+      declared_c_var_names : box(HashSet(String).new()),
+      declared_scopes : box(ArrayList(String).new()),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
       type_key_aliases : HashMap(String, String).new(),
       chunk_mode : false,
@@ -799,14 +799,13 @@ _build_c_reserved_words :: (fn() -> HashSet(String))({
 _c_reserved_words := _build_c_reserved_words();
 /// True if byte `b` is a valid C-identifier byte: `[a-zA-Z0-9_]`.
 _is_c_identifier_byte :: (fn(b : u8) -> bool)(
-  (
-    ((b >= u8(97)) && (b <= u8(122))) // a-z
-    || ((b >= u8(65)) && (b <= u8(90)))
-  ) // A-Z
-  || (
+  ((b >= u8(97)) && (b <= u8(122))) // a-z
+  || ((b >= u8(65)) && (b <= u8(90)))
+  // A-Z
+  ||
     ((b >= u8(48)) && (b <= u8(57))) // 0-9
     || (b == u8(95))
-  ) // _
+    // _
 );
 /// A fresh LOCAL name (`<prefix><k>`) unique within `current_function_name`'s
 /// emission (Phase 2, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the
@@ -1448,7 +1447,7 @@ _some_t_requires_future :: (fn(t : TypeValue) -> bool)(
       while((i < n) && !found, {
         match(
           rtts.get(i),
-          .Some(.FutureTraitT(_, _, _, _, _)) => {
+          .Some(.FutureTraitT(_, _, _, _)) => {
             found = true;
           },
           .Some(_) => (),
@@ -1478,7 +1477,7 @@ _extract_future_trait_of_some_t :: (fn(t : TypeValue) -> Option(TypeValue))(
           eft_rtts.get(eft_i),
           .Some(eft_rt) => match(
             eft_rt,
-            .FutureTraitT(_, _, _, _, _) => {
+            .FutureTraitT(_, _, _, _) => {
               eft_found = Option(TypeValue).Some(eft_rt);
             },
             _ => ()
@@ -1809,9 +1808,23 @@ get_variable_type_string :: (
   c_name := sanitize_for_c_identifier(var_name, false);
   // Record the declared C name (choke-point for every typed declaration) so the
   // deferred-drop pass can skip drops for temps that were never materialized.
-  context.declared_c_var_names.insert(c_name.clone());
+  declare_c_var_name(context, c_name.clone());
   result.push_string(c_name);
   result
+});
+/// Record `c_name` as a C declaration of the current function
+/// (`declared_c_var_names`). The set is a `Box` because the emitter holds the
+/// same set (`Emitter.declared_ref`) and writes it too.
+declare_c_var_name :: (fn(context : CodeGenContext, c_name : String) -> unit)({
+  names := context.declared_c_var_names;
+  names.*.insert(c_name);
+});
+/// Push `c_name` onto the current function's block-scope stack
+/// (`declared_scopes`), which the emitter shares the same way
+/// (`Emitter.scope_ref`).
+push_declared_scope :: (fn(context : CodeGenContext, c_name : String) -> unit)({
+  scopes := context.declared_scopes;
+  scopes.*.push(c_name);
 });
 /// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
 /// upper-cased).
@@ -2238,6 +2251,24 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : TypeValu
 is_self_named_atom :: (fn(expr : AstExpr, variable_name : String) -> bool)(
   ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value)
 );
+/// The C type of one parameter of a Dyn vtable slot and of the wrapper the
+/// slot points at. An `inout` parameter is `T*`, exactly as the function
+/// prototype spells it (`functions/declarations.yo`): the call site hands the
+/// slot the address of the place, and the impl or closure the wrapper forwards
+/// to takes a `T*` (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
+dyn_slot_param_type_string :: (fn(t : Option(TypeValue), is_ref : Option(bool), context : CodeGenContext) -> String)(
+  match(
+    t,
+    .Some(pt) => {
+      pts := get_type_string(pt, context);
+      if(match(is_ref, .Some(r) => r, .None => false), {
+        pts.push_str("*");
+      });
+      pts
+    },
+    .None => String.from("void*")
+  )
+);
 /// [`#line` directives, plans/reference/LINE_DIRECTIVES.md] The statement
 /// flush point helper: attribute the C about to be emitted for `expr` to the
 /// `.yo` position of its token. A no-op unless the compile ran with
@@ -2277,7 +2308,10 @@ export(
   type_key,
   get_type_string,
   get_storage_type_string,
+  dyn_slot_param_type_string,
   get_variable_type_string,
+  declare_c_var_name,
+  push_declared_scope,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,
   c_symbol_name,

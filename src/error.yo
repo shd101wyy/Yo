@@ -165,15 +165,12 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
         String.from("is not compatible with scrutinee type")
       )
     )
-  ) || (
-    msg.starts_with(String.from("Match patterns must be compile-time known")) || (
-      msg.starts_with(String.from("Or-pattern alternatives bind different names")) || (
+  ) ||
+    msg.starts_with(String.from("Match patterns must be compile-time known")) ||
+      msg.starts_with(String.from("Or-pattern alternatives bind different names")) ||
         msg.starts_with(String.from("Match guard must be bool")) || msg.starts_with(
           String.from("Range pattern bounds must be")
-        )
-      )
-    )
-  ), {
+        ), {
     return(_coded(E_INVALID_PATTERN));
   });
   if(msg.starts_with(String.from("No matching call found")), {

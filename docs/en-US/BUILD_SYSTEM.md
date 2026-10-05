@@ -116,8 +116,8 @@ Build artifacts use struct types with default field values (like Zig's options p
 | `root`      | `comptime_str` | _(required)_       | Path to main source file                   |
 | `target`    | `comptime_str` | `target_host`      | Target triple (e.g. `"wasm32-unknown-emscripten"`) |
 | `optimize`  | `Optimize`     | `Optimize.Debug`   | Optimization level                         |
-| `allocator` | `Allocator`    | `Allocator.System` | Memory allocator                           |
-| `heap_size` | `usize`        | `16777216` (16 MiB) | Fixed-region heap size (`Allocator.Fixed` only) |
+| `allocator` | `AllocatorKind` | `AllocatorKind.System` | Memory allocator                           |
+| `heap_size` | `usize`        | `16777216` (16 MiB) | Fixed-region heap size (`AllocatorKind.Fixed` only) |
 | `sanitize`  | `Sanitize`     | `Sanitize.None`    | Sanitizer                                  |
 
 ### `StaticLibrary`
@@ -165,11 +165,11 @@ Shared libraries compile with `-shared -fPIC` and produce `lib<name>.so` (Linux)
 
 | Value                | Description                               |
 | -------------------- | ----------------------------------------- |
-| `Allocator.Mimalloc` | High-performance allocator (mimalloc)     |
-| `Allocator.System`   | The platform's system allocator (default) |
-| `Allocator.Fixed`    | General-purpose TLSF allocator over ONE statically-sized region (see below) |
+| `AllocatorKind.Mimalloc` | High-performance allocator (mimalloc)     |
+| `AllocatorKind.System`   | The platform's system allocator (default) |
+| `AllocatorKind.Fixed`    | General-purpose TLSF allocator over ONE statically-sized region (see below) |
 
-`Allocator.Fixed` serves every allocation out of a single statically-sized
+`AllocatorKind.Fixed` serves every allocation out of a single statically-sized
 region in `.bss` — no libc heap (the first building block of the
 embedded/freestanding story). Set its size with the executable's `heap_size`
 field (bytes; 64 KiB to 4 GiB, rounded down to a 16-byte granule; default
@@ -851,7 +851,7 @@ wasm :: build.executable({
   root : "./src/main.yo",
   target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize : build.Optimize.ReleaseSmall,
-  allocator : build.Allocator.System
+  allocator : build.AllocatorKind.System
 });
 
 // Per-artifact C flags — useful for Emscripten-specific linker settings

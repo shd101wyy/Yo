@@ -1,6 +1,6 @@
 # `_patch_self_shell` walks shared type graphs as trees — exponential re-visits / allocation runaway
 
-**Status:** OPEN (2026-07-02). Under active bisect — the emit-C self-compile of
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN (2026-07-02). Under active bisect — the emit-C self-compile of
 `yo-self/main.yo` explodes at ~500 MB/s and never completes on recent HEADs;
 the sampled stack at explosion is dominated by this walk.
 

@@ -253,7 +253,7 @@ export(extract_bare_import_path, extract_import_path);
 /// yields `p`, and recursing into its `import(p)` child yields `p`
 /// again); callers dedup by resolved path.
 collect_import_paths_recursive :: (
-  fn(expr : AstExpr, out : ArrayList(String)) -> unit
+  fn(expr : AstExpr, inout(out) : ArrayList(String)) -> unit
 )({
   match(
     extract_import_path(expr),
@@ -407,8 +407,8 @@ collect_module_deps :: (
     path_str : String,
     base_dir : String,
     std_base : String,
-    visited : ArrayList(String),
-    all_exprs : ArrayList(AstExpr),
+    inout(visited) : ArrayList(String),
+    inout(all_exprs) : ArrayList(AstExpr),
     io : Io,
     exn : Exception
   ) -> unit
@@ -683,7 +683,7 @@ _index_std_dir :: (
   });
 });
 /// In-place insertion sort — the lists are directory listings.
-_sort_strings :: (fn(xs : ArrayList(String)) -> unit)({
+_sort_strings :: (fn(inout(xs) : ArrayList(String)) -> unit)({
   (i : usize) = usize(1);
   while(i < xs.len(), {
     (j : usize) = i;
@@ -699,7 +699,7 @@ _sort_strings :: (fn(xs : ArrayList(String)) -> unit)({
 _walk_check_dir :: (
   fn(
     dir : String,
-    out : ArrayList(String),
+    inout(out) : ArrayList(String),
     io : Io,
     exn : Exception
   ) -> unit
@@ -1020,7 +1020,7 @@ _PendingFix :: struct(row : usize, col : usize, len : usize, replacement : Strin
 /// position backwards so an earlier edit cannot invalidate a later span.
 /// Returns the number applied.
 _apply_fixes_to_file :: (
-  fn(path : String, fixes : ArrayList(_PendingFix), io : Io, exn : Exception) -> usize
+  fn(path : String, inout(fixes) : ArrayList(_PendingFix), io : Io, exn : Exception) -> usize
 )({
   if(fixes.len() == usize(0), {
     return(usize(0));
@@ -2376,7 +2376,7 @@ _path_has_extension :: (fn(p : String) -> bool)({
 /// fn boundary — the swallowing-probe pattern used throughout this file).
 /// Success is signalled by
 /// the push; a throw of any kind leaves `ok` empty.
-_try_remove_once :: (fn(path : String, io : Io, ok : ArrayList(bool)) -> unit)({
+_try_remove_once :: (fn(path : String, io : Io, inout(ok) : ArrayList(bool)) -> unit)({
   try_exn := Exception(
     throw : (
       _e -> {
@@ -2710,7 +2710,7 @@ _compile_chunks_parallel :: (
     out_base : String,
     jobs : usize,
     force_recompile : bool,
-    hits_out : ArrayList(usize),
+    inout(hits_out) : ArrayList(usize),
     verbose : bool,
     io : Io,
     exn : Exception
@@ -3401,9 +3401,9 @@ _physical_memory_mb_darwin :: (fn() -> usize)({
       .Some(op) => match(
         lens.ptr(),
         .Some(lp) => {
-          rc := unsafe(sysctlbyname((*char)(np), (*void)(op), (*void)(lp), .None, usize(0)));
+          status := unsafe(sysctlbyname((*char)(np), (*void)(op), (*void)(lp), .None, usize(0)));
           cond(
-            (rc == i32(0)) => match(out.get(usize(0)), .Some(b) => usize(b / u64(1048576)), .None => usize(0)),
+            (status == i32(0)) => match(out.get(usize(0)), .Some(b) => usize(b / u64(1048576)), .None => usize(0)),
             true => usize(0)
           )
         },
@@ -3532,7 +3532,7 @@ _parse_cc_diagnostic_line :: (fn(line : String) -> Option(Diagnostic))({
                 row_str.parse_u64(),
                 .Some(r64) => match(
                   col_str.parse_u64(),
-                  .Some(c64) => if((r64 > u64(0)) && ((path.len() > usize(0)) && (c64 > u64(0))), {
+                  .Some(c64) => if((r64 > u64(0)) && (path.len() > usize(0)) && (c64 > u64(0)), {
                     msg := line.substring(idx + best_marker_len, line.len());
                     Option(Diagnostic).Some(
                       Diagnostic(
@@ -4183,7 +4183,7 @@ run_compile :: (
     );
   });
   // ---- choices validation ----
-  if((cc != "") && ((cc != "cc") && (cc != "gcc") && ((cc != "clang") && (cc != "zig"))) && (cc != "emcc"), {
+  if((cc != "") && (cc != "cc") && (cc != "gcc") && (cc != "clang") && (cc != "zig") && (cc != "emcc"), {
     exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, emcc`));
   });
   if((allocator != "mimalloc") && (allocator != "system") && (allocator != "fixed"), {
@@ -4212,13 +4212,13 @@ run_compile :: (
   // "s" is -Os (optimize for size): clang, gcc, zig cc and emcc all accept
   // it, so unlike a "z" level it needs no per-compiler gate (gcc has no -Oz).
   // It is what the build system's release-small level forwards.
-  if((optimize != "") && ((optimize != "0") && (optimize != "1") && ((optimize != "2") && ((optimize != "3") && (optimize != "s")))), {
+  if((optimize != "") && (optimize != "0") && (optimize != "1") && (optimize != "2") && (optimize != "3") && (optimize != "s"), {
     exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3, s`));
   });
-  if((sanitize != "") && ((sanitize != "address") && (sanitize != "leak") && (sanitize != "thread") && (sanitize != "undefined")), {
+  if((sanitize != "") && (sanitize != "address") && (sanitize != "leak") && (sanitize != "thread") && (sanitize != "undefined"), {
     exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread, undefined`));
   });
-  if((emcc_environment != "") && ((emcc_environment != "web") && (emcc_environment != "node")), {
+  if((emcc_environment != "") && (emcc_environment != "web") && (emcc_environment != "node"), {
     exn.throw(dyn(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`));
   });
   // Chunked emission drives multiple TU inputs through the executable link
@@ -4887,7 +4887,7 @@ run_compile :: (
   // chunk flag. The condition matches the -O selection above exactly.
   // Not for wasm: emcc's LTO story is separate and chunked wasm is out of scope.
   chunk_lto_wanted := ((optimize != "") && (optimize != "0"));
-  if((emit_chunks >= usize(1)) && (chunk_lto_wanted && (!chunk_no_lto && !is_target_wasm(target))), {
+  if((emit_chunks >= usize(1)) && chunk_lto_wanted && (!chunk_no_lto && !is_target_wasm(target)), {
     cmd.arg(String.from("-flto=thin"));
   });
   if(debug_symbols, {
@@ -5434,7 +5434,7 @@ TEST_BATCH_SIZE :: usize(100);
 /// Entries in the shared codegen ExprInfoTable (0 outside `compile`), for
 /// `--profile`'s per-phase memory lines.
 _shared_table_entries :: (fn() -> usize)(
-  match(mm_shared_expr_info_table(), .Some(t) => t.data.len(), .None => usize(0))
+  match(mm_shared_expr_info_table(), .Some(t) => t.data.*.len(), .None => usize(0))
 );
 _current_rss_mb :: (fn() -> usize)(
   cond(
@@ -5533,9 +5533,9 @@ _current_rss_mb_darwin :: (fn() -> usize)({
   match(
     info.ptr(),
     .Some(out_ptr) => {
-      rc := unsafe(task_info(mach_task_self_, u32(20), (*void)(out_ptr), &count)); // MACH_TASK_BASIC_INFO = 20
+      status := unsafe(task_info(mach_task_self_, u32(20), (*void)(out_ptr), &count)); // MACH_TASK_BASIC_INFO = 20
       cond(
-        (rc == i32(0)) => match(info.get(usize(1)), .Some(resident) => usize(resident / u64(1048576)), .None => usize(0)),
+        (status == i32(0)) => match(info.get(usize(1)), .Some(resident) => usize(resident / u64(1048576)), .None => usize(0)),
         true => usize(0)
       )
     },
@@ -5619,8 +5619,8 @@ _exec_argv :: (fn(exec_cstrs : ArrayList(ArrayList(u8))) -> unit)({
       // is a hard -Werror there, while `void*` converts to any object
       // pointer implicitly on every platform
       // (issues/fixed/windows-ucrt-execve-const-qualifiers-break-self-build.md).
-      rc := unsafe(execve((*char)(prog), (*void)(exec_buf), (*void)(environ)));
-      eprintln(`exec-restart: execve failed rc=${rc.to_string()} — exiting instead`);
+      status := unsafe(execve((*char)(prog), (*void)(exec_buf), (*void)(environ)));
+      eprintln(`exec-restart: execve failed rc=${status.to_string()} — exiting instead`);
       unsafe(exit(int(1)));
     },
     .None => {
@@ -5638,6 +5638,9 @@ run_test :: (
   // The positional path defaults to "." — a bare `yo test` runs the current
   // directory.
   (target_path : String) = String.from(".");
+  // `yo test` takes ONE path; a second used to replace the first silently
+  // (issues/fixed/yo-test-silently-drops-every-path-but-the-last.md).
+  (path_given : bool) = false;
   (bail : bool) = false;
   (name_pattern : String) = String.from("");
   (verbose : bool) = false;
@@ -5840,8 +5843,12 @@ run_test :: (
         // Strict parsing: an unknown option is an error, never a path.
         exn.throw(dyn(`test: unknown option '${a}'. Usage: yo test [path] [--bail] [--test-name-pattern REGEX] [--exclude PATH] [--shard I/N] [--workspace] [--list] [--json] — see 'yo test --help'`));
       },
+      path_given => {
+        exn.throw(dyn(`test: one path per run, got '${target_path}' and '${a}'. Run each separately, or pass their common directory (with --exclude for what to skip)`));
+      },
       true => {
         target_path = a.clone();
+        path_given = true;
         ai = (ai + usize(1));
       }
     );
@@ -5989,7 +5996,7 @@ run_test :: (
     true => String.from(".bin")
   );
   // Resolved once: wasmtime needs the cwd as an explicit --dir grant below.
-  run_cwd := match(cwd(), .Ok(rc) => rc.to_string(), .Err(_) => String.from("."));
+  run_cwd := match(cwd(), .Ok(dir) => dir.to_string(), .Err(_) => String.from("."));
   if(wasm_target_kind != "", {
     wt_parsed := match(
       parse_target(wasm_target_kind.clone()),
@@ -6668,7 +6675,7 @@ run_test :: (
           // A leak is a FAILURE even at exit 0 —
           // unless staged off via YO_TEST_LEAK_VERDICT=0 (hoisted above,
           // where it also disables LSan's own exit-code).
-          has_leak := (leak_verdict && ((test_cc != "emcc") && use_asan) && (combined.contains("LeakSanitizer") || combined.contains("detected memory leaks") || combined.contains("Direct leak") || combined.contains("Indirect leak")));
+          has_leak := (leak_verdict && (test_cc != "emcc") && use_asan && (combined.contains("LeakSanitizer") || combined.contains("detected memory leaks") || combined.contains("Direct leak") || combined.contains("Indirect leak")));
           test_ms := (test_t0.elapsed().as_nanos() / i64(1000000));
           if((t_status == i32(0)) && !has_leak, {
             passed = (passed + usize(1));
@@ -6863,7 +6870,6 @@ run_test :: (
 ///   - a struct with a `ctl(...)` field — a handler record (`Exception`,
 ///     `ResumableException(T)`): kind `ctl`;
 ///   - the prelude's `Io` (its fields are the async primitives): kind `io`;
-///   - an effects row (`...(E)` implicit): kind `row`, listing its types.
 /// `Impl(Future(T, E))` results report `E` the same way under `future`.
 /// Human output is one line per fn; `--json` is one object per module.
 run_effects :: (
@@ -7094,25 +7100,6 @@ _effect_kinds_of_type :: (fn(t : TypeValue, depth : usize) -> ArrayList(String))
         _push_unique(kinds, String.from("io"));
       });
     },
-    .EffectsRowT({ implicit_types }) => {
-      _push_unique(kinds, String.from("row"));
-      (ri : usize) = usize(0);
-      while(ri < implicit_types.len(), {
-        match(
-          implicit_types.get(ri),
-          .Some(rt) => {
-            inner := recur(rt, depth + usize(1));
-            (ki : usize) = usize(0);
-            while(ki < inner.len(), {
-              match(inner.get(ki), .Some(k) => _push_unique(kinds, k.clone()), .None => ());
-              ki = (ki + usize(1));
-            });
-          },
-          .None => ()
-        );
-        ri = (ri + usize(1));
-      });
-    },
     _ => ()
   );
   kinds
@@ -7120,7 +7107,7 @@ _effect_kinds_of_type :: (fn(t : TypeValue, depth : usize) -> ArrayList(String))
 /// The effect labels/types of a `Future(T, E)` result: a bare `FutureTraitT`,
 /// or the one inside an `Impl(...)` SomeT's required traits.
 _collect_future_effects :: (
-  fn(t : TypeValue, labels : ArrayList(String), types : ArrayList(TypeValue)) -> unit
+  fn(t : TypeValue, inout(labels) : ArrayList(String), inout(types) : ArrayList(TypeValue)) -> unit
 )({
   match(
     t,
@@ -7142,7 +7129,7 @@ _collect_future_effects :: (
     _ => ()
   );
 });
-_push_unique :: (fn(xs : ArrayList(String), x : String) -> unit)({
+_push_unique :: (fn(inout(xs) : ArrayList(String), x : String) -> unit)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     if(xs(i) == x, {
@@ -7436,7 +7423,7 @@ run_add_cmd :: (
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     arg := argv(ai);
-    needs_value := ((arg == "--path") || ((arg == "--name") || ((arg == "--branch") || (arg == "--rev"))));
+    needs_value := ((arg == "--path") || (arg == "--name") || (arg == "--branch") || (arg == "--rev"));
     cond(
       needs_value => {
         if((ai + usize(1)) >= argv.len(), {
@@ -9755,7 +9742,7 @@ main :: (fn(io : Io) -> unit)({
     ai0 = (ai0 + usize(1));
   });
   if(err_format.len() > usize(0), {
-    if(!((err_format == "human") || ((err_format == "short") || (err_format == "json")) || (err_format == "sarif")), {
+    if(!((err_format == "human") || (err_format == "short") || (err_format == "json") || (err_format == "sarif")), {
       exn.throw(
         dyn(
           `Invalid --error-format '${err_format}' (expected: human, short, json or sarif). Set --error-format or YO_ERROR_FORMAT.`
@@ -9797,7 +9784,7 @@ main :: (fn(io : Io) -> unit)({
     ci0 = (ci0 + usize(1));
   });
   if(color_mode.len() > usize(0), {
-    if(!((color_mode == "auto") || ((color_mode == "always") || (color_mode == "never"))), {
+    if(!((color_mode == "auto") || (color_mode == "always") || (color_mode == "never")), {
       exn.throw(
         dyn(
           `Invalid --color '${color_mode}' (expected: auto, always or never). Set --color or YO_COLOR.`
@@ -9948,7 +9935,7 @@ main :: (fn(io : Io) -> unit)({
   // LSP and `yo fix` stay off — they consume the error channel only, and
   // the LSP's process lives long enough that an unflushed stash would leak.
   set_warnings_enabled(
-    (subcmd == "check") || ((subcmd == "compile") || (subcmd == "build"))
+    (subcmd == "check") || (subcmd == "compile") || (subcmd == "build")
   );
   if(subcmd == "explain", {
     run_explain(argv, io, exn);

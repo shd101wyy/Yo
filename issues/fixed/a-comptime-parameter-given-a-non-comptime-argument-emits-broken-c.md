@@ -279,7 +279,7 @@ the def-time trial as of #733, so a typed error raised here reaches
 ## Related
 
 - `issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md` (#733)
-- the reporter's `issues/array-fill-rejects-a-generic-dispatched-comptime-value.md`
+- the reporter's `array-fill-rejects-a-generic-dispatched-comptime-value.md` (re-diagnosed and split by #740 into `issues/fixed/a-function-generic-array-length-breaks-fill.md` and `issues/fixed/array-fill-accepts-a-runtime-value-and-aborts-at-run-time.md`)
   (title is known-stale: the generic framing was the reporter's own error, and
   the variable is literal-vs-call, not generic-vs-concrete)
 - `plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md` — the class this belongs

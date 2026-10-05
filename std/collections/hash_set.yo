@@ -32,7 +32,7 @@
 //! Freezing follows those two decisions.
 pragma(Pragma.AllowUnsafe);
 { MapEntry } :: import("./entry.yo");
-{ AllocError, Allocator } :: import("../allocator.yo");
+{ AllocError } :: import("../allocator.yo");
 { HashMap, HashMapError, HashMapIter, HashMapIterPtr } :: import("./hash_map");
 /// Error variants for HashSet operations.
 ///
@@ -96,7 +96,7 @@ impl(
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
   /// `.Ok(true)` when the element was NOT already present.
-  try_insert : (fn(self : Self, element : T) -> Result(bool, HashSetError))(
+  try_insert : (fn(inout(self) : Self, element : T) -> Result(bool, HashSetError))(
     match(
       self._map.try_insert(element, ()),
       .Ok(prev) => .Ok(prev.is_none()),
@@ -107,7 +107,7 @@ impl(
   ///
   /// PANICS on allocation failure (D9); `try_insert` is the allocator-aware
   /// form.
-  insert : (fn(self : Self, element : T) -> bool)(
+  insert : (fn(inout(self) : Self, element : T) -> bool)(
     self._map.insert(element, ()).is_none()
   ),
   /// True when `element` is in the set.
@@ -115,7 +115,7 @@ impl(
     self._map.contains_key(element)
   ),
   /// Remove `element`. Returns true when it WAS present.
-  remove : (fn(self : Self, element : T) -> bool)(
+  remove : (fn(inout(self) : Self, element : T) -> bool)(
     self._map.remove(element).is_some()
   ),
   /// Number of elements.
@@ -148,7 +148,7 @@ impl(
     self._map.is_empty()
   ),
   /// Remove every element, keeping the allocation.
-  clear : (fn(self : Self) -> unit)(
+  clear : (fn(inout(self) : Self) -> unit)(
     self._map.clear()
   ),
   /// True when every element of `self` is also in `other` — Rust's

@@ -1,6 +1,6 @@
 # yo-self: closures against where-clause-constrained `F` params emit `void*` C params
 
-**Status:** OPEN — diagnosed 2026-07-28 (probe-verified). The
+**Status:** FIXED: filed under `issues/fixed/` by #76. Before that the line read: OPEN — diagnosed 2026-07-28 (probe-verified). The
 `closure_capture_rc_leak` RED + part of the iterator-combinator hollow class.
 
 ## Shape

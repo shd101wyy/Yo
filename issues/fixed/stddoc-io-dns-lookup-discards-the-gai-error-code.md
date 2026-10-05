@@ -3,7 +3,7 @@
 **Severity:** S2 — every DNS failure is the same `DNSFailed(host)` — the getaddrinfo code (retryable vs permanent) is discarded
 
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
-**Status:** open. Filed, not fixed — the sweep is documentation-only.
+**Status:** FIXED 2026-10-03 (phase A4 of `plans/ASYNC_IO_API_AUDIT.md`).
 
 ## Behaviour
 
@@ -77,3 +77,27 @@ observed on the box this was found on, which resolved
 `this.host.does.not.exist.invalid` to 2 addresses. Use a name in a
 guaranteed-NXDOMAIN zone (`.invalid` is reserved for exactly this, so the
 wildcarding resolver is the anomaly) and tolerate the wildcard case explicitly.
+
+## Fix (2026-10-03)
+
+The sketch's typed shape, with the classification moved into the runtime,
+where each platform's `EAI_*` values and headers are already in scope:
+
+- `__yo_gai_to_result` (`src/codegen/async/runtime_io_common.yo`,
+  `runtime_io_windows.yo`; the wasm stubs return the "other" code) resolves a
+  failed `getaddrinfo`/`getnameinfo` to `-(4096 + kind)`, the same on every
+  platform. The raw value could not be classified in std: Linux's `EAI_*`
+  values are negative and collide with errno, macOS's are small positives,
+  and Windows's are WSA codes.
+- `std/sys/dns` names the codes (`DNS_ERR_NOT_FOUND`, `DNS_ERR_TRY_AGAIN`,
+  `DNS_ERR_FAIL`, `DNS_ERR_NO_MEMORY`, `DNS_ERR_OTHER`).
+- `std/net/errors` adds `DnsError` (`NotFound`, `TryAgain`, `Fail`,
+  `NoMemory`, `Other`), and `NetError.DNSFailed` carries
+  `(host : String, reason : DnsError)`; its message names both.
+
+A seed-built compiler emits the old runtime, whose raw code classifies as
+`DnsError.Other`: still a `DNSFailed`, so nothing depends on the seed.
+
+Regression test: "lookup_host of a nonexistent name fails with a classified
+DnsError" in `tests/net/dns.test.yo` (a `.invalid` name; it tolerates a
+wildcarding resolver and an unreachable one, and rejects `Other`).

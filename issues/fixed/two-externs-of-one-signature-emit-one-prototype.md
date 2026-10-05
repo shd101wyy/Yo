@@ -59,7 +59,7 @@ key. The collision therefore had no purpose and one pure effect: dropping
 prototypes, and dropping the `c_include` of whichever extern lost the race.
 
 This is another instance of the pattern in
-`issues/fixed/ts-registry-lookups-mis-port.md`: TS read the entry off the
+`ts-registry-lookups-mis-port.md` (never filed): TS read the entry off the
 function *value*, and the Yo port replaced that with a global table keyed by
 type key.
 

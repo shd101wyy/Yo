@@ -497,7 +497,7 @@ test("an arm that moves its payload into a thrown dyn: the aborted task releases
   g_disposed = i32(0);
   keep := Thing(n : i32(7));
   assert(_throw_moved(keep, io), "the throw unwinds to the handler");
-  assert(rc(keep) == 1, "the thrown payload and the task's scrutinee released it once between them");
+  assert(ref_count(keep) == 1, "the thrown payload and the task's scrutinee released it once between them");
   assert(g_disposed == i32(0), "keep is still alive");
 });
 
@@ -765,8 +765,10 @@ _move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
       }, {
         e.await(sleep(u64(200)), e);
       });
-      _keep_thing(t);
+      // Read before the move: a `sink` move consumes the name, so a read
+      // after it is E0901 (the test below).
       s = (s + t.n);
+      _keep_thing(t);
       i = (i + i32(1));
     });
     s
@@ -778,6 +780,14 @@ _abort_move_each_iteration :: (fn(io : Io) -> unit)({
   h.abort();
   _r := h.await(io);
 });
+// A read of a local after it moved into a `sink` parameter is E0901 in a task
+// as in sync code: the new owner may already have released the value
+// (issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md,
+// which supersedes the "still readable while the new owner holds it" rule of
+// issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md
+// for a `sink` move). `comptime_expect_error` cannot see an error inside an
+// `io.async` body (it observes the body's definition-time wrapper), so the
+// cli-case `read-after-sink-move-in-a-task-is-e0901` pins it.
 test("an aborted task releases a local re-bound after its previous value moved", {
   g_disposed = i32(0);
   _abort_move_each_iteration(io);

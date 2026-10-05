@@ -9,7 +9,6 @@
 //! Traits auto-derived here (stored in `g_type_trait_registry` in
 //! `evaluator/trait_checking.yo`):
 //!   - Send:     struct (value) if all fields Send; object only if atomic
-//!   - Rc:       object (reference-semantics) types only
 //!   - Acyclic:  struct if all fields Acyclic; object if not a cycle root
 //!   - Comptime: struct if all fields Comptime; object never
 //!   - Runtime:  object always; struct if all fields Runtime
@@ -142,10 +141,6 @@ auto_derive_traits_for_struct_type :: (
       register_type_trait(struct_id, "Send", env);
     });
   });
-  // Rc — object types only.
-  if(is_reference_semantics, {
-    register_type_trait(struct_id, "Rc", env);
-  });
   // Acyclic.
   // Object types: if not a cycle root.
   // Struct (value) types: all fields Acyclic.
@@ -199,11 +194,10 @@ _flatten_variant_fields :: (fn(variant_fields : ArrayList(ArrayList(TypeValue)))
 /// applied to the union of all variant field types. A value `enum(...)` gets
 /// the value-struct rules (each marker holds iff every field holds it); a
 /// `ref(enum(...))` / `atomic(ref(enum(...)))` gets the reference-struct rules
-/// — `Rc` always, `Send` only when atomic, `Runtime` always, `Comptime`
-/// never, `Acyclic` when no RC cycle (`can_type_form_rc_cycle` walks
-/// reference enums too). The enum rules used to predate `ref(enum)` and apply
-/// the value rules to every enum: no `Rc` (so `Dispose` was rejected) and a
-/// non-atomic ref enum was `Send`
+/// — `Send` only when atomic, `Runtime` always, `Comptime` never, `Acyclic`
+/// when no RC cycle (`can_type_form_rc_cycle` walks reference enums too). The
+/// enum rules used to predate `ref(enum)` and apply the value rules to every
+/// enum: a non-atomic ref enum was `Send`
 /// (issues/fixed/ref-enum-derives-value-enum-marker-traits.md).
 ///
 /// `self_type` is the final EnumT — used for `can_type_form_rc_cycle`.

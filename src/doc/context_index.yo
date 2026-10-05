@@ -214,7 +214,7 @@ _collapse_ws :: (fn(s : String) -> String)({
   (i : usize) = usize(0);
   while(i < s.len(), {
     b := s.byte_at(i);
-    is_ws := ((b == u8(32)) || (b == u8(9)) || ((b == u8(10)) || (b == u8(13))));
+    is_ws := ((b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13)));
     if(is_ws, {
       pending_space = (joined.len() > usize(0));
     }, {
@@ -263,9 +263,9 @@ context_lock :: (fn(cache_root : String, io : Io, exn : Exception) -> File)({
   io.await(create_dir_all(Path.new(context_dir(cache_root.clone())), io), IoExn(io : io, exn : exn));
   lock_path := Path.new(context_dir(cache_root)).join(Path.new(String.from("context.lock"))).to_string();
   lock_file := io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, io), IoExn(io : io, exn : exn));
-  rc := flock(lock_file.fd(), LOCK_EX);
-  if(rc < i32(0), {
-    exn.throw(dyn(`context: could not lock ${lock_path} (errno ${(i32(0) - rc).to_string()})`));
+  status := flock(lock_file.fd(), LOCK_EX);
+  if(status < i32(0), {
+    exn.throw(dyn(`context: could not lock ${lock_path} (errno ${(i32(0) - status).to_string()})`));
   });
   lock_file
 });
@@ -523,7 +523,7 @@ _export_kind :: (fn(tv : TypeValue) -> String)(
     is_function_type(tv) => `fn`,
     is_trait_type(tv) => `trait`,
     is_module_type(tv) => `module`,
-    (is_struct_type(tv) || (is_enum_type(tv) || is_union_type(tv))) => `type`,
+    (is_struct_type(tv) || is_enum_type(tv) || is_union_type(tv)) => `type`,
     true => `constant`
   )
 );
@@ -535,7 +535,7 @@ _export_kind :: (fn(tv : TypeValue) -> String)(
 _export_label_entries :: (
   fn(
     module : String,
-    entries : ArrayList(ContextIndexEntry),
+    inout(entries) : ArrayList(ContextIndexEntry),
     labels : ArrayList(String),
     types : ArrayList(TypeValue)
   ) -> unit
@@ -737,7 +737,7 @@ _mark_barrel_origins :: (
     file_path : String,
     root : String,
     prefix : String,
-    entries : ArrayList(ContextIndexEntry),
+    inout(entries) : ArrayList(ContextIndexEntry),
     io : Io,
     exn : Exception
   ) -> unit

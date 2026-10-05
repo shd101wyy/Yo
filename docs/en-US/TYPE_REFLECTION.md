@@ -76,7 +76,6 @@ TypeInfo :: enum(
   ComptimeList(element : Type),
   // === Metaprogramming (fieldless) ===
   Expr,
-  EffectsRow,
   TypeApplication
 );
 ```

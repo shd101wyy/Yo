@@ -30,6 +30,20 @@ register_type_decl_module :: (fn(type_id : String, module_path : String) -> unit
 type_decl_module :: (fn(type_id : String) -> Option(String))(
   match(g_type_decl_modules.get(type_id), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
 );
+/// Whether `t` is the prelude's `Io` struct: the effect bundle whose fields are
+/// the compiler's async builtins, never called through at run time. A future
+/// whose bundle is `Io` behaves the same whether or not the bundle was
+/// injected, which is what lets it be viewed as a bundle-less `Future(T)`.
+is_prelude_io_struct :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ id : sid, name : sname }) => (
+      (sname == "Io")
+      && match(type_decl_module(sid.clone()), .Some(m) => m.ends_with("prelude.yo"), .None => false)
+    ),
+    _ => false
+  )
+);
 // ---------------------------------------------------------------------------
 // c_include TYPE ADOPTION — "this Yo type IS the C type `Name` in <header>".
 //
@@ -373,7 +387,7 @@ is_iso_type :: (fn(t : TypeValue) -> bool)(
 /// atomically: an atomic reference struct, an atomic reference enum, or an
 /// `Iso(T)` wrapper — the three cases `drop_dup.yo` lowers to
 /// `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic`. Every READ of that count
-/// (`rc(x)`) must be an atomic load too, or it races the atomic RC ops
+/// (`ref_count(x)`) must be an atomic load too, or it races the atomic RC ops
 /// (issues/fixed/rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md).
 is_atomically_counted_rc_type :: (fn(t : TypeValue) -> bool)(
   is_atomic_reference_struct_type(t) || is_atomic_reference_enum_type(t) || is_iso_type(t)
@@ -695,9 +709,6 @@ is_boxed_type :: (fn(t : TypeValue) -> bool)(
     )
   )
 );
-is_effects_row_type :: (fn(t : TypeValue) -> bool)(
-  match(t_refine_inner(t), .EffectsRowT(implicit_labels : _) => true, _ => false)
-);
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -870,12 +881,12 @@ export(
   is_function_type_hard_generic,
   register_type_decl_module,
   type_decl_module,
+  is_prelude_io_struct,
   AdoptedExternCType,
   register_adopted_extern_c_type,
   get_adopted_extern_c_type,
   type_decl_id,
   is_function_specializable,
-  // Box / effects-row guards
-  is_boxed_type,
-  is_effects_row_type
+  // Box guards
+  is_boxed_type
 );

@@ -3,7 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio");
 import("std/string");
 import("std/fmt");
-{ NetError } :: import("std/net/errors");
+{ NetError, DnsError } :: import("std/net/errors");
 { IoError } :: import("std/sys/errors");
 { Error, AnyError, Exception } :: import("std/error");
 // ============================================================================
@@ -75,11 +75,12 @@ test("NetError.check negative value throws", {
   assert(false, "should have thrown");
 });
 test("NetError DNSFailed to_string", {
-  err := NetError.DNSFailed(`example.com`);
+  err := NetError.DNSFailed(host : `example.com`, reason : DnsError.TryAgain);
   s := err.to_string();
   unsafe(printf("  err = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s.contains(`DNS lookup failed`), "should contain DNS lookup failed");
   assert(s.contains(`example.com`), "should contain hostname");
+  assert(s.contains(`temporary resolver failure`), "should name the reason");
 });
 test("NetError Other to_string", {
   err := NetError.Other(`custom error message`);

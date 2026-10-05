@@ -29,7 +29,7 @@
 } :: import("../../expr_info.yo");
 { is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ note_state_machine_binding_id, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_dup_code_for_value, arm_value_with_dups, has_pending_emittable_drop } :: import("./drop_dup.yo");
@@ -37,13 +37,13 @@
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
-{ get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_enum_shell } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
 );
 /// Emit `<T> bind = init;` — through a fresh temp when `bind`'s own name
 /// appears in `init`. A C declaration's initializer is evaluated with the
@@ -184,7 +184,7 @@ _contains_word_return :: (fn(s : String) -> bool)({
 });
 /// Whether generated code is control flow that must NOT be assigned to a temp.
 _is_control_flow_code :: (fn(code : String) -> bool)(
-  (code.len() == usize(0)) || ((code == "break") || ((code == "continue") || (code.starts_with("goto") || _contains_word_return(code))))
+  (code.len() == usize(0)) || (code == "break") || (code == "continue") || code.starts_with("goto") || _contains_word_return(code)
 );
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
@@ -765,13 +765,7 @@ _inline_binding_sm_field :: (fn(tok : Token, context : FunctionGenerationContext
           .Some(k) => match(
             smv.get(k.clone()),
             .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && (cv.base.decl_site == site), {
-              match(
-                context.state_machine_binding_ids,
-                .Some(bids) => {
-                  bids.insert(k.clone());
-                },
-                .None => ()
-              );
+              note_state_machine_binding_id(context, k.clone());
               return(
                 Option(String).Some(
                   match(
@@ -820,46 +814,36 @@ _bind_pattern_name :: (fn(context : FunctionGenerationContext, indent : String, 
   _shadow_add(context, cname);
 });
 /// Record the slot a shadowed name lives in (`shadow_slots`).
-_shadow_slot_set :: (fn(context : FunctionGenerationContext, name : String, field : String) -> unit)(
-  match(
-    context.shadow_slots,
-    .Some(m) => {
-      m.insert(name, field);
-    },
-    .None => {
-      nm := HashMap(String, String).new();
-      nm.insert(name, field);
-      context.shadow_slots = Option(HashMap(String, String)).Some(nm);
-    }
-  )
-);
+_shadow_slot_set :: (fn(context : FunctionGenerationContext, name : String, field : String) -> unit)({
+  // Taken out and stored back: a `match` binding is a copy of the map once
+  // collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
+  slots := match(context.shadow_slots.take(), .Some(m) => m, .None => HashMap(String, String).new());
+  slots.insert(name, field);
+  context.shadow_slots = Option(HashMap(String, String)).Some(slots);
+});
 _shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
-  match(
-    context.local_shadowed_variables,
-    .Some(s) => {
-      s.insert(name);
-    },
-    .None => {
-      ns := HashSet(String).new();
-      ns.insert(name);
-      context.local_shadowed_variables = Option(HashSet(String)).Some(ns);
-    }
-  );
+  shadowed := match(context.local_shadowed_variables.take(), .Some(s) => s, .None => HashSet(String).new());
+  shadowed.insert(name);
+  context.local_shadowed_variables = Option(HashSet(String)).Some(shadowed);
 });
 /// Remove a name from the local-shadowed-variables set (after an arm body, so
 /// the shadow does not leak to sibling arms / outer scope).
 _shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
   match(
-    context.shadow_slots,
+    context.shadow_slots.take(),
     .Some(m) => {
-      _rs := m.remove(name.clone());
+      slots := m;
+      _rs := slots.remove(name.clone());
+      context.shadow_slots = Option(HashMap(String, String)).Some(slots);
     },
     .None => ()
   );
   match(
-    context.local_shadowed_variables,
+    context.local_shadowed_variables.take(),
     .Some(s) => {
-      _r := s.remove(name);
+      shadowed := s;
+      _r := shadowed.remove(name);
+      context.local_shadowed_variables = Option(HashSet(String)).Some(shadowed);
     },
     .None => ()
   );
@@ -1065,13 +1049,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
               if(context.sm_inline_lowering.is_some(), {
                 _shadow_slot_set(context, dvn.clone(), smb_field.clone());
               });
-              match(
-                context.state_machine_binding_ids,
-                .Some(bids) => {
-                  bids.insert(smb_id.clone());
-                },
-                .None => ()
-              );
+              note_state_machine_binding_id(context, smb_id.clone());
             });
           });
           _shadow_add(context, dvn.clone());
@@ -1513,13 +1491,11 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
               match(
                 found_at,
                 .Some(gi2) => {
-                  match(
-                    group_arm_indices.get(gi2),
-                    .Some(list) => {
-                      list.push(gi);
-                    },
-                    .None => ()
-                  );
+                  // In place through the index (a `get` copy would not be
+                  // the stored list once collections are values).
+                  if(gi2 < group_arm_indices.len(), {
+                    group_arm_indices(gi2).push(gi);
+                  });
                 },
                 .None => {
                   group_variant_names.push(vname.clone());
@@ -1711,7 +1687,7 @@ _enum_value_code :: (fn(path : String, ptrish : bool) -> String)(
 /// Does a value of type `t` sit behind a pointer in C (so members are reached
 /// with `->`)? Raw pointers and reference-semantics enums/structs.
 _position_is_ptrish :: (fn(t : TypeValue) -> bool)(
-  is_pointer_type(t) || (is_reference_enum_type(t) || is_reference_struct_type(t))
+  is_pointer_type(t) || is_reference_enum_type(t) || is_reference_struct_type(t)
 );
 /// The C test "the enum value at `path` is variant `vname`", for all three
 /// enum representations (nullable pointer, plain C enum, tagged union).
@@ -1789,7 +1765,7 @@ _struct_pattern_field_tys :: (fn(t : TypeValue) -> ArrayList(TypeValue))(
 );
 /// Collect `(name, type)` for every binding of `p` at a position of type `ty`
 /// (the declarations an or-pattern hoists before its alternatives).
-_collect_bind_decls :: (fn(p : Pattern, ty : TypeValue, names : ArrayList(String), types : ArrayList(TypeValue)) -> unit)({
+_collect_bind_decls :: (fn(p : Pattern, ty : TypeValue, inout(names) : ArrayList(String), inout(types) : ArrayList(TypeValue)) -> unit)({
   match(
     p,
     .Wildcard => (),
@@ -1884,7 +1860,7 @@ _emit_pattern_chain :: (
     emit_tests : bool,
     indent : String,
     labels : _MatchLabels,
-    shadows : ArrayList(String),
+    inout(shadows) : ArrayList(String),
     context : FunctionGenerationContext
   ) -> unit
 )({
@@ -2284,7 +2260,7 @@ _generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context 
         // scope-end `___drop` of the result was silently dropped and a
         // match/cond passed as a call argument leaked its value
         // (issues/fixed/match-or-cond-call-argument-result-is-never-released.md).
-        context.base.declared_c_var_names.insert(tv.clone());
+        declare_c_var_name(context.base, tv.clone());
       },
       .None => ()
     )
@@ -2318,7 +2294,7 @@ _generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context 
           match_value_type,
           matched_value_code.clone()
         );
-        context.base.declared_c_var_names.insert(subject_var_name.clone());
+        declare_c_var_name(context.base, subject_var_name.clone());
         // Inside a state machine the subject temp may also have an
         // `sm->var_<id>` field (its scope-end drop lands in the completion
         // state, which reads the field): store the value there too, or the

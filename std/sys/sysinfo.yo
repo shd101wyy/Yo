@@ -68,8 +68,8 @@ uname :: (fn(buf : *u8) -> i32)(
   __yo_sync_uname(buf)
 );
 /// Write the host name into `name`, at most `len` bytes — POSIX
-/// `gethostname(2)`. Returns 0 on success, a negative errno on failure (a
-/// negated WSA code on Windows).
+/// `gethostname(2)`. Returns 0 on success, a negative errno on failure (on
+/// Windows too: the runtime maps Winsock's codes to errno).
 ///
 /// The wrapper always writes a NUL at `name[len - 1]`, so a name longer than
 /// the buffer is silently TRUNCATED rather than reported as `-ENAMETOOLONG`.

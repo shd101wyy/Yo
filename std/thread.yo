@@ -360,7 +360,7 @@ spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
 /// rather than a `match` written inline in the async block below: the block is
 /// specialized per `T`, and an inline match there recorded ONE result type for
 /// every specialization — the first `T` won and every other one miscompiled
-/// (issues/an-async-blocks-tail-match-records-one-result-type-for-every-specialization.md).
+/// (this helper is the fix; no issue doc was filed).
 _take_blocking_result :: (
   fn(generic(T : Type), chan : Channel(T), where(T <: (Send, Acyclic))) -> T
 )(

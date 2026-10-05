@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
 { is_control_fn, mark_as_effect_record_member, mark_as_index_entry_method, get_func_type, fn_has_specializations } :: import("../../function_value.yo");
-{ get_all_some_types, type_contains_rc_type, type_contains_some_type, type_contains_some_type_deep, func_params_have_raw_some_type } :: import("../../types/utils.yo");
+{ get_all_some_types, type_contains_rc_type, type_contains_some_type, type_contains_some_type_deep, func_params_have_raw_some_type, type_is_move_only, is_value_nominal_type } :: import("../../types/utils.yo");
 { CodeGenContext, DynImplEntry, type_key, c_symbol_name, function_c_name, extern_c_global_matches } :: import("../utils/index.yo");
 { is_target_wasm } :: import("../../target.yo");
 { canonical_module_path } :: import("../../utils.yo");
@@ -913,10 +913,8 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         // use-site type carrying `is_control`.
         v_is_control := (
           is_control_fn(_func_val_id(v)) ||
-            (
-              match(get_func_type(_func_val_id(v)), .Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
-                match(ei.ty, .Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
-            )
+            match(get_func_type(_func_val_id(v)), .Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
+              match(ei.ty, .Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
         );
         cond(
           v_is_control => {
@@ -1609,8 +1607,56 @@ _synthesize_and_register_enum_dispose :: (
   code := `(fn(self : Self) -> unit)({ ${body} })`;
   _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
 });
+/// Register the `___dispose` of a move-only VALUE type with a user `Dispose`
+/// (plans/VALUES_BY_DEFAULT.md §3.4): `(fn(self : Self) -> unit)({ self.dispose(); () })`.
+/// It runs the user destructor only: the value's fields are dropped inline by
+/// `generate_drop_code_for_value`, which calls this first. Registering it here
+/// specializes the user `dispose` for `ct` (a generic impl included) and
+/// collects it for emission, the same route as the reference types' dispose.
+_synthesize_and_register_value_dispose :: (
+  fn(base : CodeGenContext, ctx : EvalContext, module_env : Environment, info : ExprInfoTable, exn : Exception, ct : TypeValue) -> unit
+)({
+  existing := get_type_trait_methods_by_name(type_key(ct), String.from("___dispose"));
+  if(existing.len() > usize(0), {
+    // Re-insert into this compile's emit list (the warm-compile reasoning of
+    // `_synthesize_and_register_dispose`).
+    (mi : usize) = usize(0);
+    while(mi < existing.len(), {
+      match(
+        existing.get(mi),
+        .Some(m) => match(
+          m.value,
+          .Some(mfv) => match(
+            mfv,
+            .FuncVal(__vdfvd, _) => {
+              fid := __vdfvd.*.func_id;
+              if(!base.has_function(fid.clone()), {
+                base.register_function(fid.clone(), mfv, function_c_name(fid));
+                find_function_calls_in_expr(__vdfvd.*.body, base, info);
+              });
+            },
+            _ => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
+    return(());
+  });
+  has_user_dispose := (
+    (find_methods_from_generic_impls(ct, String.from("dispose"), module_env).len() > usize(0))
+    || (get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("dispose")).len() > usize(0))
+  );
+  if(!has_user_dispose, {
+    return(());
+  });
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, String.from("(fn(self : Self) -> unit)({ self.dispose(); () })"), String.from("___dispose"));
+});
 /// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC
-/// struct and ref-enum type that lacks one, so freeing such a value recursively drops its RC fields
+/// struct and ref-enum type that lacks one (and the user destructor of every move-only
+/// value type, `_synthesize_and_register_value_dispose`), so freeing such a value recursively drops its RC fields
 /// (the runtime invokes header.dispose_fn — gc_runtime.yo:341 normal free / :658 collector).
 /// The RC-function synthesis is deferred to this pass (evaluator/types/utils.yo:19), so it
 /// runs here with the live ctx/exn threaded from run_compile, as in
@@ -1644,7 +1690,7 @@ collect_dispose_methods :: (
       // ("call to undeclared function 'yo_id_XXXX'"). Filter with the deep
       // predicate here so no `___dispose` is registered for a body that will
       // never be emitted.
-      .Some(entry) => if((is_reference_struct_type(entry.ty) || is_reference_enum_type(entry.ty)) && !type_contains_some_type_deep(entry.ty), {
+      .Some(entry) => if((is_reference_struct_type(entry.ty) || (is_reference_enum_type(entry.ty) || (is_value_nominal_type(entry.ty) && type_is_move_only(entry.ty)))) && !type_contains_some_type_deep(entry.ty), {
         type_list.push(entry.ty);
       }),
       .None => {
@@ -1656,11 +1702,11 @@ collect_dispose_methods :: (
   (ti : usize) = usize(0);
   while(ti < nt, {
     ct := match(type_list.get(ti), .Some(t) => t, .None => TypeValue.Unit);
-    if(is_reference_enum_type(ct), {
-      _synthesize_and_register_enum_dispose(base, ctx, module_env, info, exn, ct);
-    }, {
-      _synthesize_and_register_dispose(base, ctx, module_env, info, exn, ct);
-    });
+    cond(
+      is_value_nominal_type(ct) => _synthesize_and_register_value_dispose(base, ctx, module_env, info, exn, ct),
+      is_reference_enum_type(ct) => _synthesize_and_register_enum_dispose(base, ctx, module_env, info, exn, ct),
+      true => _synthesize_and_register_dispose(base, ctx, module_env, info, exn, ct)
+    );
     ti = (ti + usize(1));
   });
 });

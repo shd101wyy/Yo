@@ -391,6 +391,7 @@ The right shape for a function parameter depends on what kind of type the value 
 | Primitive (`i32`, `bool`, …)                                       | `name : Type` for read, `inout(name) : Type` for mutation | Same rule.                                                                                                          |
 | Receiver of mutating method on `ref(struct(...))`/`ref(enum(...))` | `self : Self`                                             | Reference semantics — explicit `inout(self)` is unnecessary noise (though it works).                                |
 | Receiver of mutating method on value type (trait or inherent)      | `inout(self) : Self`                                      | Caller-side writes propagate. Established for `Hash`, `Clone`, `ToString`, `Iterator`.                              |
+| A std collection (`ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`, `LinkedList`, `PriorityQueue`, `OrderedMap`, `HeaderMap`, `StringBuilder`) the callee writes | `inout(name) : Type` | They are `ref` handles today but become uniquely owned values (`plans/VALUES_BY_DEFAULT.md` V2b; a copy is then an explicit `.clone()`); their mutators already take `inout(self)`. |
 | Raw FFI pointer (legitimate `*(T)`)                                | `name : *(T)`                                             | Only when interfacing with C / the runtime ABI. Requires `pragma(Pragma.AllowUnsafe);` at the file top.             |
 
 **Anti-patterns to avoid:**
@@ -411,7 +412,7 @@ The same applies at call sites: don't wrap reference-semantics arguments with `&
 When choosing between `inout(self) : Self` and `self : Self` for a method receiver:
 
 - If the receiver type is fundamentally a value type (anything other than `ref(struct(...))` / `ref(enum(...))`), use `inout(self) : Self` for mutators.
-- If the receiver type is a reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), plain `self : Self` is the idiom — the methods documented in `src/env.yo`, `src/emitter.yo`, etc. follow this.
+- If the receiver type is a reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), plain `self : Self` is the idiom — the methods documented in `src/env.yo`, `src/emitter.yo`, etc. follow this. **Exception: the std collections** (the list in the table above) are `ref` today but are values-in-waiting: every mutator takes `inout(self)` and every helper that writes one takes it `inout` (VALUES_BY_DEFAULT V2a). `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists the writes through a borrowed copy that the V2b flip would lose.
 - Trait declarations should match the dominant case of their impl targets. Existing widely-implemented traits (`Hash`, `Clone`, `ToString`, `Iterator`, `Index`) use `inout(self) : Self` for the reasons above; new traits that are reference-semantics-specific can use plain `self : Self`.
 
 ## Recursion requires `recur`
@@ -564,6 +565,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
+- **`Box`/`Arc` auto-dereference** (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3): `b.x`, `b.x = v`, `b.m()` and `b.items.push(v)` on a `Box(P)` mean `b.*.x`, `b.*.x = v`, `b.*.m()`, `b.*.items.push(v)`; nested wrappers recurse (`bb.x` on `Box(Box(P))`). The wrapper's own members win (`b.clone()` is the Box's clone). In a safe file a write through an `Arc` is still D3 (`a.n = v`, `a.bump()` with `inout(self)`). Callee position forwards too: `b.items(i)` indexes `b.*.items`, `b.f(x)` calls a function-typed payload field; order is wrapper field, wrapper method, payload field, payload method. `std/`/`src/` must keep the explicit `.*` until the seed knows auto-deref.
 - **A tuple TYPE is `Tuple(A, B)`**, e.g. `(fn(x : i32) -> Tuple(String, usize))`. `(A, B)` in a type position is a tuple VALUE holding two types and fails with `Cannot store a type value in tuple, please use module instead`. Tuple values are `(a, b)`.
 - **`(a, b) := expr` bindings are immutable**: a later `a = ...` is E0902 `Cannot reassign "a"`. Bind each name with an annotation (`(a : usize) = ...;`) when it must be reassigned.
 - **A bare `import("std/fmt");` binds no names.** It evaluates the module (its impls and derive rules register), but `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401 `Variable "eprintln" not found` otherwise).
@@ -784,9 +786,17 @@ match(
 )
 ```
 
+## `sink(name) : T` parameters consume their argument
+
+`sink(x) : T` (plans/VALUES_BY_DEFAULT.md decision 15) moves the argument into the callee: the caller's binding ends at the call, and a later use is E0901. `own(x)` is the OLD spelling of `sink(x)`, still accepted (the seed and `std/` use it) and the same function type; the sweep that deletes `own` waits for the next seed. Type printing and messages say `sink`. Write `sink` in new code outside `std/` and `src/`; in `std/` and `src/` keep `own` until `SEED_VERSION` parses `sink`.
+
+## Move-only values (`Dispose` on a value type, `MoveOnly`)
+
+A value type (`struct`/`enum`/`newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is move-only, and so is any value aggregate holding one (`Option(Fd)`, `Tuple(Fd, i32)`, a struct field, a closure capture). Every copy point MOVES it (`:=`, `=`, a `sink` argument, a field/element store, a constructor argument, a return, a closure capture); a later read is E0901. It cannot be copied out of a by-value parameter or `match`/`for` binding (they borrow), an `inout` binding, a module-level binding, a field (`h.fd`: no partial moves) or a dereference. Pass it to a by-value parameter to lend it. A reference type (`ref(struct)`, `Box`, `Arc`) is never move-only. `MoveOnly` on a reference type, and `Dispose`/`MoveOnly` on a primitive, tuple or pointer, are rejected at the `impl`. Do NOT add a value-type `Dispose`/`MoveOnly` to `std/` until `SEED_VERSION` carries the move-only compiler: the v0.2.51 seed accepts it and never runs the dispose.
+
 ## `inout(name) : T` parameters for in-place mutation
 
-For mutating a caller's variable without raw pointers, use the `inout` parameter modifier. It wraps the parameter name (parallel to `own(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage.
+For mutating a caller's variable without raw pointers, use the `inout` parameter modifier. It wraps the parameter name (parallel to `sink(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage.
 
 ```rust
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
@@ -805,7 +815,7 @@ main :: (fn() -> unit)({
 
 Rules:
 
-- `inout(...)` cannot combine with `own(...)` (opposite calling conventions) or with `generic`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
+- `inout(...)` cannot combine with `sink(...)` (opposite calling conventions) or with `generic`/`using` parameters (those are erased at runtime — no callee-side binding to mutate).
 - `inout` CAN combine with `comptime` as `comptime(inout(name)) : T` (outer comptime, inner inout). The parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path. The prelude `ComptimeIndex` trait uses this form (`index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output)))`) to let comptime index methods mutate the caller's value without a raw pointer parameter.
 - Inside the callee, the inout-param identifier behaves like a regular variable for reads (`tmp := a;`) and assignments (`a = b;`).
 - Calls through inout-params chain naturally: `fn outer(inout(x))` calling `fn inner(inout(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
@@ -1094,7 +1104,7 @@ foo();
 bar();
 ```
 
-**Prefer the bare call over `_ := foo();` / `___ := foo();` when the result is unused** (a 2026-09-11 tree sweep removed 45 such discard bindings). Two cases where the binding is load-bearing — leave it: drop/borrow fixtures that count `rc(...)` or test the discard's own scope-end drop, and compile-error fixtures whose diagnostic fires only on the value-evaluation path a binding forces (a bare statement can skip it — e.g. the `list(i).*` clear-error fixture in `tests/collections/array_list.test.yo` errors under `_ := bad_list(usize(0)).*;` but passes as a bare `bad_list(usize(0)).*;` statement).
+**Prefer the bare call over `_ := foo();` / `___ := foo();` when the result is unused** (a 2026-09-11 tree sweep removed 45 such discard bindings). Two cases where the binding is load-bearing — leave it: drop/borrow fixtures that count `ref_count(...)` or test the discard's own scope-end drop, and compile-error fixtures whose diagnostic fires only on the value-evaluation path a binding forces (a bare statement can skip it — e.g. the `list(i).*` clear-error fixture in `tests/collections/array_list.test.yo` errors under `_ := bad_list(usize(0)).*;` but passes as a bare `bad_list(usize(0)).*;` statement).
 
 ## ArrayList indexing via `arr(index)`
 
@@ -1374,16 +1384,20 @@ count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
 });
 count(m, i32(3), i32(6));
 
-// 2. Use a closure, which does capture — BY VALUE. A reference type
-//    (`ref(struct(...))`: ArrayList, HashMap, String, …) still aliases its
-//    buffer through the copy, so a closure CAN be used as a recorder:
-calls := ArrayList(i32).new();
-f := (() => { calls.push(i32(1)); i32(7) });
+// 2. Use a closure, which does capture — BY VALUE. A list two places
+//    write on purpose is an explicit shared handle, `Box(ArrayList(T))`, so a
+//    closure can be used as a recorder:
+calls := box(ArrayList(i32).new());
+f := (() => { calls.*.push(i32(1)); i32(7) });
 ```
 
 That by-value rule is why an `i32` counter mutated inside a closure never comes
-back out, while pushing to a captured `ArrayList` does — see
-`.github/skills/yo-core-patterns/` and the `inout` audit note.
+back out. A captured bare `ArrayList` still shares its buffer today, but the
+collections become values (`plans/VALUES_BY_DEFAULT.md` V2b) and a push to the
+capture will then land in the closure's copy: record through a `Box`, or have
+the closure return what it built. `YO_AUDIT_INOUT_BORROW=1 yo check` lists such
+writes as `[inout-borrow-capture]` — see `.github/skills/yo-core-patterns/` and
+the `inout` audit note.
 
 ## A `=>` closure never fills a bare `fn(...)` slot (E0605)
 

@@ -328,7 +328,7 @@ IOCP 是 Windows 原生的异步 I/O 机制：
 - TCP send/recv 使用带 OVERLAPPED 的 `WSASend`/`WSARecv`
 - 文件句柄在打开时通过 `CreateIoCompletionPort` 关联；重复关联会被容忍（第二次调用的 `ERROR_INVALID_PARAMETER` 被忽略）
 - Winsock 通过 `__yo_io_init()` 中的 `WSAStartup` 延迟初始化
-- Winsock 错误码在每个 socket 错误出口处被翻译成 errno（`__yo_wsa_error_to_errno`），因此 `IoError.from_errno` 在 Windows 上也能像其他平台一样分类：`WSAEADDRINUSE` 表现为 `AddressInUse`，would-block 表现为 `Again`（2026-10；此前 socket 失败以 `os error 10048` 形式的"unknown I/O error"返回）
+- Winsock 错误码在每个 socket 错误出口处被翻译成 errno（`__yo_wsa_to_errno`），因此 `IoError.from_errno` 在 Windows 上也能像其他平台一样分类：`WSAEADDRINUSE` 表现为 `AddressInUse`，would-block 表现为 `WouldBlock`，没有 errno 对应项的错误码表现为 `EIO`（2026-10；此前 socket 失败以 `os error 10048` 形式的"unknown I/O error"返回）
 - `readlink` 读取重解析点（`FSCTL_GET_REPARSE_POINT`）：符号链接/联接（junction）返回去掉对象管理器前缀的 substitute 名称，非链接抛出 `EINVAL` —— 与 POSIX `readlink` 契约一致（2026-10；旧的 `GetFinalPathNameByHandleW` 垫片返回的是链接自身的路径，且从不抛出）
 
 **头文件冲突保护**：Windows 上每个生成的 C 文件都会输出 `WIN32_LEAN_AND_MEAN` 和 `_WINSOCKAPI_`，以防止 `winsock.h`/`winsock2.h` 重定义错误。

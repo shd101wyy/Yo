@@ -103,8 +103,8 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
   hc := io.spawn(c, io);
   io.await(yield(io), io);
   m.unlock();
-  rc := io.await(timeout(hc, Duration.from_millis(i64(200)), io), io);
-  assert(match(rc, .Ok(v) => (v == i32(2)), .Err(_) => false), "c got the lock the dead waiter was offered");
+  res := io.await(timeout(hc, Duration.from_millis(i64(200)), io), io);
+  assert(match(res, .Ok(v) => (v == i32(2)), .Err(_) => false), "c got the lock the dead waiter was offered");
   assert(!m.is_locked(), "nobody holds the mutex");
 });
 
@@ -382,7 +382,7 @@ test("an index result passed to an async call in a task is released", {
     assert(match(got, .Some(v) => (v == i32(11)), .None => false), "the task summed both");
   };
   t0 := keep(usize(0));
-  assert(rc(t0) == usize(2), `only keep and t0 hold Thing(5), rc ${rc(t0)}`);
+  assert(ref_count(t0) == usize(2), `only keep and t0 hold Thing(5), rc ${ref_count(t0)}`);
 });
 
 // issues/fixed/a-dyn-temp-in-a-state-machine-is-never-stored-to-its-field.md

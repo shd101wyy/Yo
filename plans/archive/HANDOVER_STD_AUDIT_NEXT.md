@@ -264,7 +264,7 @@ Only C29 is still an OPEN row in the audit's §2; everything else here lives
 as standalone issue docs. All are on develop; read the doc before touching.
 
 - **C29 — generic call type variables re-resolve PER ARGUMENT**
-  (`issues/generic-type-var-rebinds-per-argument.md`):
+  (`issues/fixed/generic-type-var-rebinds-per-argument.md`):
   `pair_same(generic(A), x : A, y : A)` accepts `(String, i32)`. Memory-safety
   face closed by C28's gate; wrong-value faces remain.
 - **Match-arm `&&` RHS-temp drop leaks the arm's C scope**
@@ -278,10 +278,10 @@ as standalone issue docs. All are on develop; read the doc before touching.
   repro in `issues/repros/`): blocks freeze item 13. Fixing this unlocks the
   KeyNotFound/ElementNotFound deletion.
 - **Async tail match/return hangs the state machine**
-  (`issues/async-tail-match-return-hangs-state-machine.md`): known hazard;
+  (`issues/fixed/async-tail-match-return-hangs-state-machine.md`): known hazard;
   sync-helper workaround documented in the glob-filter landing.
 - **Iterator chain shared-stamp cross-Item pollution**
-  (`issues/iterator-chain-shared-stamp-cross-item-pollution.md`): `.map(f)`
+  (`issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md`): `.map(f)`
   chains at two Item types in one module.
 - **`Variable.is_ref` family** —
   `issues/fixed/generic-trait-method-reads-primitive-inout-self-as-pointer.md`

@@ -1,0 +1,10 @@
+# YO_AUDIT_IMPLICIT_COPY (plans/VALUES_BY_DEFAULT.md §6, item 1) prints one line per
+# dup the evaluator inserts for an RC-bearing value whose source stays alive:
+# the copies unique ownership turns into an explicit `.clone()`. A borrowed,
+# projected or module-level source is always a copy; an owning local is one
+# only when it is read again after the site (a later read on the same path, or
+# a loop that runs the site again without reassigning it). The fixture's
+# comments say what each function should report; std's own lines are dropped.
+env=YO_AUDIT_IMPLICIT_COPY=1
+stdout_keep_match=^main\.yo:[0-9]+:[0-9]+ \[implicit-copy\] .*
+timeout=120

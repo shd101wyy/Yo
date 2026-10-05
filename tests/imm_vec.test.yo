@@ -377,7 +377,7 @@ test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles"
   comptime_expect_error(Vec(CyclicNode));
   assert(true, "rejected at comptime");
 });
-// REFERENCE-COUNT WITNESS: `rc(s)` on one shared ImmString counts exactly how
+// REFERENCE-COUNT WITNESS: `ref_count(s)` on one shared ImmString counts exactly how
 // many slots (plus the local) hold it, so every path below is a precise leak
 // gate — a dup without a matching drop shows as a count one too high, and a
 // dropped-garbage store shows as a crash or a count one too low.
@@ -386,7 +386,7 @@ test("Vec: a unique push that GROWS the buffer does not leak the moved elements"
   s := ImmString.from("w");
   v := Vec(ImmString).with_capacity(usize(1)).push(s).push(s);
   assert(v.len() == usize(2), "two slots");
-  assert(rc(s) == usize(3), `one local + two slots, got ${rc(s)}`);
+  assert(ref_count(s) == usize(3), `one local + two slots, got ${ref_count(s)}`);
 });
 test("Vec: a unique concat that GROWS the buffer does not leak the moved elements", {
   s := ImmString.from("w");
@@ -394,7 +394,7 @@ test("Vec: a unique concat that GROWS the buffer does not leak the moved element
   b := Vec(ImmString).new().push(s).push(s);
   c := a.concat(b);
   assert(c.len() == usize(3), "three slots in c");
-  assert(rc(s) == usize(6), `one local + c's three + b's two, got ${rc(s)}`);
+  assert(ref_count(s) == usize(6), `one local + c's three + b's two, got ${ref_count(s)}`);
 });
 test("Vec: a unique pop releases the popped slot exactly once", {
   s := ImmString.from("w");
@@ -402,15 +402,15 @@ test("Vec: a unique pop releases the popped slot exactly once", {
   r := v.pop();
   assert(r.value.is_some(), "popped a value");
   assert(r.vec.len() == usize(0), "vector is empty");
-  assert(rc(s) == usize(2), `one local + the popped value, got ${rc(s)}`);
+  assert(ref_count(s) == usize(2), `one local + the popped value, got ${ref_count(s)}`);
 });
 test("Vec: an in-place reverse swaps without leaking", {
   s := ImmString.from("w");
   t := ImmString.from("z");
   v := Vec(ImmString).new().push(s).push(t).reverse();
   assert(v(usize(0)).eq_str("z"), "reversed");
-  assert(rc(s) == usize(2), `s: one local + one slot, got ${rc(s)}`);
-  assert(rc(t) == usize(2), `t: one local + one slot, got ${rc(t)}`);
+  assert(ref_count(s) == usize(2), `s: one local + one slot, got ${ref_count(s)}`);
+  assert(ref_count(t) == usize(2), `t: one local + one slot, got ${ref_count(t)}`);
 });
 // A bare `p.* = v` into fresh malloc memory DROPS the garbage destination; this
 // test is red only when that garbage is a live-looking pointer — run it under
@@ -431,7 +431,7 @@ test("Vec: map, filter, a shared reverse, a shared dedup and zip_with initialize
   assert((r.len() == usize(3)) && (d.len() == usize(1)), "reverse keeps three, dedup keeps one");
   assert(z.len() == usize(3), "zip_with keeps three");
   // local + v(3) + m(3) + f(3) + r(3) + d(1) + z(3)
-  assert(rc(s) == usize(17), `every fresh buffer holds exactly one ref per slot, got ${rc(s)}`);
+  assert(ref_count(s) == usize(17), `every fresh buffer holds exactly one ref per slot, got ${ref_count(s)}`);
 });
 test("Vec Default is the empty vector", {
   xs := Vec(i32).default();

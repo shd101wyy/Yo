@@ -123,7 +123,7 @@ env:
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
   # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
-  SEED_VERSION: v0.2.50
+  SEED_VERSION: v0.2.52
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -421,7 +421,7 @@ jobs:
 
       - name: Download stage 1 (the tree's compiler)
         if: needs.stage1.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
 
@@ -482,7 +482,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # ~45 min nominal (five tests/internal files, each compiling the compiler); a
+    # slow runner takes ~1.45x, so 60 cancelled a passing run
+    # (issues/fixed/the-formal-verification-job-runs-within-a-quarter-of-its-timeout.md).
+    timeout-minutes: 90
     env:
       YO_TEST_Z3: "1"
       # discover_z3() resolves YO_Z3_PATH then the solvers cache — it never
@@ -662,7 +665,7 @@ jobs:
           sudo cp "/tmp/z3-install/z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
           z3 --version
       - name: Download stage 1
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Make the candidate executable
@@ -1255,7 +1258,7 @@ jobs:
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Download the candidate
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: suite-candidate
 
@@ -1332,7 +1335,7 @@ jobs:
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
       - name: Download the candidate
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: suite-candidate
 
@@ -1355,13 +1358,16 @@ jobs:
           ./yo-candidate compile src/main.yo --optimize 2 --allocator ${{ matrix.allocator }} \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
+          ( cd cross && sha256sum "yo-${{ matrix.target }}.c" > "yo-${{ matrix.target }}.c.sha256" )
           ls -la "cross/yo-${{ matrix.target }}.c"
 
       - name: Upload the emitted C
         uses: actions/upload-artifact@v4
         with:
           name: suite-c-${{ matrix.target }}
-          path: cross/yo-${{ matrix.target }}.c
+          path: |
+            cross/yo-${{ matrix.target }}.c
+            cross/yo-${{ matrix.target }}.c.sha256
           retention-days: 1
           if-no-files-found: error
 
@@ -1444,10 +1450,21 @@ jobs:
           submodules: recursive
 
       - name: Download the cross-emitted C
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: suite-c-${{ matrix.target }}
           path: cross
+
+      # The C crosses a job boundary as an artifact. A download that
+      # extracted a truncated file once reported success, and the next step
+      # failed in clang at a line cut off mid-identifier (release run
+      # 37183400572; issues/fixed/a-truncated-artifact-download-reached-clang-as-a-syntax-error.md).
+      # The producer records the file's sha256; check it before compiling.
+      - name: Verify the cross-emitted C arrived intact
+        shell: bash
+        run: |
+          cd cross
+          if command -v sha256sum > /dev/null; then sha256sum -c "yo-${{ matrix.target }}.c.sha256"; else shasum -a 256 -c "yo-${{ matrix.target }}.c.sha256"; fi
 
       - name: Install LLVM/Clang
         if: runner.os == 'Windows'
@@ -1621,7 +1638,7 @@ jobs:
         with:
           submodules: recursive
       - name: Download stage 1
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Make the candidate executable
@@ -1668,7 +1685,7 @@ jobs:
         with:
           submodules: recursive
       - name: Download stage 1
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Install the stage-1 binary
@@ -1707,7 +1724,7 @@ jobs:
         with:
           submodules: recursive
       - name: Download stage 1
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Make the candidate executable
@@ -1830,7 +1847,7 @@ jobs:
         # The fixpoint's stage 1 is the same seed-built binary every self-hosted
         # job used to rebuild; `stage1` builds it once (with `--std-path ./std`,
         # see that job's note) and this job starts at stage 2.
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Install the stage-1 binary
@@ -1939,7 +1956,7 @@ jobs:
           sudo apt-get $APT_OPTS install -y time
 
       - name: Download stage-2 artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bootstrap-stage2
           path: /tmp/stage2
@@ -2008,7 +2025,7 @@ jobs:
           sudo apt-get $APT_OPTS install -y time
 
       - name: Download stage-2 artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bootstrap-stage2
           path: /tmp/stage2
@@ -2049,7 +2066,7 @@ jobs:
           sudo apt-get $APT_OPTS install -y libssl-dev
 
       - name: Download stage-2 artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bootstrap-stage2
           path: /tmp/stage2
@@ -2155,7 +2172,7 @@ jobs:
         # binary is the same seed-built stage 1 every one of these jobs used to
         # rebuild for itself (P2.5 step 24b: `yo build` stays the canonical
         # builder; it just runs in `stage1`).
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Install the stage-1 binary
@@ -2298,7 +2315,7 @@ jobs:
         # binary is the same seed-built stage 1 every one of these jobs used to
         # rebuild for itself (P2.5 step 24b: `yo build` stays the canonical
         # builder; it just runs in `stage1`).
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Install the stage-1 binary
@@ -2571,7 +2588,7 @@ jobs:
         # binary is the same seed-built stage 1 every one of these jobs used to
         # rebuild for itself (P2.5 step 24b: `yo build` stays the canonical
         # builder; it just runs in `stage1`).
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Install the stage-1 binary
@@ -2864,7 +2881,7 @@ jobs:
         # binary is the same seed-built stage 1 every one of these jobs used to
         # rebuild for itself (P2.5 step 24b: `yo build` stays the canonical
         # builder; it just runs in `stage1`).
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: yo-stage1
       - name: Install the stage-1 binary

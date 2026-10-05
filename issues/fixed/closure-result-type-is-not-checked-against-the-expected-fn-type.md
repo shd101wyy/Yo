@@ -48,9 +48,9 @@ shapes above.
 
 ## Related
 
-- `issues/generic-fn-body-is-not-checked-against-its-declared-result-type.md` (same missing check
+- `issues/fixed/generic-fn-body-is-not-checked-against-its-declared-result-type.md` (same missing check
   on the generic path).
-- `issues/closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`.
+- `issues/fixed/closure-body-type-errors-are-swallowed-into-a-runtime-abort.md`.
 
 ## Fix (2026-09-24, concrete result)
 

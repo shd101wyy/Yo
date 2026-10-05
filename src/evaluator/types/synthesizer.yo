@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
-{ type_value_tag, t_effects_row, t_usize, resolve_enum_shell, enum_phantom_positions } :: import("../../types/creators.yo");
+{ type_value_tag, t_usize, resolve_enum_shell, enum_phantom_positions } :: import("../../types/creators.yo");
 {
   is_some_type,
   is_function_type,
@@ -63,7 +63,6 @@ _is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
   is_comptime_list_type,
   is_module_type,
   is_trait_type,
-  is_effects_row_type,
   is_type_application_type,
   is_type_hierarchy_type
 }
@@ -100,16 +99,6 @@ SynthesizeResult :: ref(
   )
 );
 // ---------------------------------------------------------------------------
-// Internal data type: one implicit/effect parameter entry
-// ---------------------------------------------------------------------------
-ImplicitEntry :: ref(
-  struct(
-    label : String,
-    ty : TypeValue,
-    is_spread : bool
-  )
-);
-// ---------------------------------------------------------------------------
 // Checked-pair anti-circularity state
 // ---------------------------------------------------------------------------
 /// A pair of type IDs used to detect circular synthesis.
@@ -143,7 +132,7 @@ _synthesize_phantom_type_args :: (
     flags : ArrayList(bool),
     ee : Environment,
     ge : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -171,7 +160,7 @@ synthesize_types :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -195,7 +184,7 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
     .Struct({ id }) => id,
     .EnumT(id, _, _, _, _, _, _, _, _, _) => id,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
-    .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id,
+    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
     _ => type_to_string_key(ty)
   )
 );
@@ -324,7 +313,7 @@ _bind_some_type :: (
         .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, .SomeT({ id : ovid }) => ovid, _ => variable_bound_some_id(old_var)), _ => String.from("")),
         .None => String.from("")
       );
-      identity_mismatch := ((source_some_id.len() > usize(0)) && ((found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id)));
+      identity_mismatch := ((source_some_id.len() > usize(0)) && (found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id));
       // A SELF-MARKER shadow-add (`F := SomeT(F-source)`) over a DIFFERENT
       // lineage's same-named binding is pure poison: it carries no binding
       // information (the source SomeT resolves to "unbound" with or without
@@ -389,7 +378,6 @@ _bind_some_type :: (
         is_implicit : old_var.is_implicit,
         is_created_from_destructuring_atom_variable : old_var.is_created_from_destructuring_atom_variable,
         rare : old_var.rare,
-        is_from_effect_spread : old_var.is_from_effect_spread,
         is_effect_param : old_var.is_effect_param,
         is_module_level : old_var.is_module_level,
         is_ref : false,
@@ -421,7 +409,7 @@ can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> boo
 /// Check if a SomeType (identified by `some_type_id`) occurs anywhere in `ty`.
 /// Prevents infinite types like T = Option(T).
 /// `visited` is a list of type IDs already being checked (prevents cycles).
-_occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeValue, visited : ArrayList(String), exn : Exception) -> bool)({
+_occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeValue, inout(visited) : ArrayList(String), exn : Exception) -> bool)({
   ty_id := synthesis_type_id(ty);
   // Prevent infinite recursion on cyclic types
   (found_visited : bool) = false;
@@ -449,7 +437,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
   visited.push(ty_id);
   match(
     ty,
-    .SomeT(sid, _, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
+    .SomeT(sid, _, _, _, _, _, _, _, _, _) => (some_type_id == sid),
     .Struct({ field_types }) => {
       (res : bool) = false;
       i := usize(0);
@@ -589,7 +577,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .FutureTraitT(_, out_box, _, ets, _) => {
+    .FutureTraitT(_, out_box, _, ets) => {
       if(recur(some_type_id, some_type_name, out_box, visited, exn), {
         return(true);
       });
@@ -611,7 +599,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
       });
       res
     },
-    .FnTraitT(_, _, call_param_types, call_result, _, _, _, _) => {
+    .FnTraitT(_, _, call_param_types, call_result, _, _, _) => {
       (res : bool) = false;
       i := usize(0);
       while((i < call_param_types.len()) && !res, {
@@ -734,154 +722,22 @@ _flow_coercion_without_binders :: (fn(expected_ty : TypeValue, given_ty : TypeVa
 _anchor :: (fn(tok : Option(Token), fallback_name : String, module_path : String) -> Token)(
   match(tok, .Some(t) => t, .None => synthetic_token(fallback_name, module_path))
 );
-/// Build an ArrayList(ImplicitEntry) from parallel arrays (with expansion
-/// of resolved EffectsRowT spreads).
-_expand_effects :: (
-  fn(
-    labels : ArrayList(String),
-    types : ArrayList(TypeValue),
-    spreads : ArrayList(bool)
-  ) -> ArrayList(ImplicitEntry)
-)({
-  result := ArrayList(ImplicitEntry).new();
-  n := labels.len();
-  i := usize(0);
-  while(i < n, {
-    lbl := match(
-      labels.get(i),
-      .Some(s) => s,
-      .None => {
-        i = n;
-        break;
-      }
-    );
-    ty := match(
-      types.get(i),
-      .Some(t) => t,
-      .None => {
-        i = n;
-        break;
-      }
-    );
-    is_spr := match(spreads.get(i), .Some(b) => b, .None => false);
-    if(is_spr && is_effects_row_type(ty), {
-      // Solved spread — expand into concrete entries
-      match(
-        ty,
-        .EffectsRowT(row_labels, row_types) => {
-          ri := usize(0);
-          while(ri < row_labels.len(), {
-            rl := match(
-              row_labels.get(ri),
-              .Some(s) => s,
-              .None => {
-                ri = row_labels.len();
-                break;
-              }
-            );
-            rt := match(
-              row_types.get(ri),
-              .Some(t) => t,
-              .None => {
-                ri = row_labels.len();
-                break;
-              }
-            );
-            result.push(ImplicitEntry(label : rl, ty : rt, is_spread : false));
-            ri = (ri + usize(1));
-          });
-        },
-        _ => ()
-      );
-    }, {
-      // Regular or unresolved spread — pass through
-      if(!is_spr, {
-        result.push(ImplicitEntry(label : lbl, ty : ty, is_spread : is_spr));
-      });
-      // Unresolved SomeType spreads on given side are skipped
-    });
-    i = (i + usize(1));
-  });
-  result
-});
-/// Synthesize effects between two FutureTraitT or function implicit param lists.
-/// Uses set-based matching with the "at most one unsolved spread" rule.
+/// Synthesize the effect lists of two FutureTraitT types, or the implicit
+/// parameter lists of two function types: each expected entry is matched
+/// against the first not-yet-matched given entry of the same type identity
+/// (set-based, order-independent), and the pair is synthesized.
 _synthesize_implicit_params :: (
   fn(
-    expected_labels : ArrayList(String),
     expected_types : ArrayList(TypeValue),
-    expected_spreads : ArrayList(bool),
-    given_labels : ArrayList(String),
     given_types : ArrayList(TypeValue),
-    given_spreads : ArrayList(bool),
     expected_env : Environment,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> unit
 )({
-  // Build ImplicitEntry lists
-  concrete_expected := ArrayList(ImplicitEntry).new();
-  solved_spreads := ArrayList(ImplicitEntry).new();
-  unsolved_spreads := ArrayList(ImplicitEntry).new();
-  n_exp := expected_labels.len();
-  (ei : usize) = usize(0);
-  while(ei < n_exp, {
-    lbl := match(
-      expected_labels.get(ei),
-      .Some(s) => s,
-      .None => {
-        ei = n_exp;
-        break;
-      }
-    );
-    ty := match(
-      expected_types.get(ei),
-      .Some(t) => t,
-      .None => {
-        ei = n_exp;
-        break;
-      }
-    );
-    is_spr := match(expected_spreads.get(ei), .Some(b) => b, .None => false);
-    entry := ImplicitEntry(label : lbl, ty : ty, is_spread : is_spr);
-    cond(
-      is_spr => {
-        if(is_effects_row_type(ty), {
-          solved_spreads.push(entry);
-        }, {
-          match(
-            ty,
-            .SomeT(_, _, _, _, _, _, _, _, is_er, _, _) => {
-              if(is_er, {
-                unsolved_spreads.push(entry);
-              });
-            },
-            _ => ()
-          );
-        });
-      },
-      true => {
-        concrete_expected.push(entry);
-      }
-    );
-    ei = (ei + usize(1));
-  });
-  if(unsolved_spreads.len() > usize(1), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          _anchor(opts_token(opts, expected_env), String.from("E"), expected_env.module_path),
-          String.from("Ambiguous effect row unification: multiple unsolved effect row variables. At most one effect row spread can be unsolved during type unification.")
-        )
-      )
-    );
-  });
-  // Collect given concrete entries (expand resolved spreads)
-  given_concrete := _expand_effects(given_labels, given_types, given_spreads);
-  n_giv := given_concrete.len();
-  // Track matched indices on the given side
+  n_giv := given_types.len();
   matched_given := ArrayList(bool).new();
   {
     (mgi : usize) = usize(0);
@@ -890,41 +746,32 @@ _synthesize_implicit_params :: (
       mgi = (mgi + usize(1));
     });
   };
-  // 1. Match concrete expected params against given (set-based by type id)
-  n_ce := concrete_expected.len();
-  matched_expected := ArrayList(bool).new();
-  {
-    (mei : usize) = usize(0);
-    while(mei < n_ce, {
-      matched_expected.push(false);
-      mei = (mei + usize(1));
-    });
-  };
-  (cei : usize) = usize(0);
-  while(cei < n_ce, {
-    exp := match(
-      concrete_expected.get(cei),
-      .Some(e) => e,
+  n_exp := expected_types.len();
+  (ei : usize) = usize(0);
+  while(ei < n_exp, {
+    exp_ty := match(
+      expected_types.get(ei),
+      .Some(t) => t,
       .None => {
-        cei = n_ce;
+        ei = n_exp;
         break;
       }
     );
-    exp_id := synthesis_type_id(exp.ty);
+    exp_id := synthesis_type_id(exp_ty);
     (gj : usize) = usize(0);
     while(gj < n_giv, {
       already_matched := match(matched_given.get(gj), .Some(b) => b, .None => false);
       if(!already_matched, {
-        giv := match(
-          given_concrete.get(gj),
+        giv_ty := match(
+          given_types.get(gj),
           .Some(g) => g,
           .None => {
             gj = n_giv;
             break;
           }
         );
-        if(exp_id == synthesis_type_id(giv.ty), {
-          res := _synthesize_types_impl(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
+        if(exp_id == synthesis_type_id(giv_ty), {
+          res := _synthesize_types_impl(exp_ty, expected_env, giv_ty, given_env, checked, opts, exn);
           expected_env.frames = res.expected_env.frames;
           expected_env.module_path = res.expected_env.module_path;
           expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
@@ -934,161 +781,12 @@ _synthesize_implicit_params :: (
           given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
           given_env.input_string = res.given_env.input_string;
           matched_given(gj) = true;
-          matched_expected(cei) = true;
           gj = n_giv; // break
         });
       });
       gj = (gj + usize(1));
     });
-    cei = (cei + usize(1));
-  });
-  // 2. Match solved spreads' expanded effects against given
-  n_ss := solved_spreads.len();
-  (ssi : usize) = usize(0);
-  while(ssi < n_ss, {
-    spread := match(
-      solved_spreads.get(ssi),
-      .Some(s) => s,
-      .None => {
-        ssi = n_ss;
-        break;
-      }
-    );
-    expanded := match(
-      spread.ty,
-      .EffectsRowT(row_labels, row_types) => {
-        r := ArrayList(ImplicitEntry).new();
-        ri := usize(0);
-        while(ri < row_labels.len(), {
-          rl := match(
-            row_labels.get(ri),
-            .Some(s) => s,
-            .None => {
-              ri = row_labels.len();
-              break;
-            }
-          );
-          rt := match(
-            row_types.get(ri),
-            .Some(t) => t,
-            .None => {
-              ri = row_labels.len();
-              break;
-            }
-          );
-          r.push(ImplicitEntry(label : rl, ty : rt, is_spread : false));
-          ri = (ri + usize(1));
-        });
-        r
-      },
-      _ => ArrayList(ImplicitEntry).new()
-    );
-    n_exp_effects := expanded.len();
-    (eei : usize) = usize(0);
-    while(eei < n_exp_effects, {
-      exp := match(
-        expanded.get(eei),
-        .Some(e) => e,
-        .None => {
-          eei = n_exp_effects;
-          break;
-        }
-      );
-      exp_id := synthesis_type_id(exp.ty);
-      (gj : usize) = usize(0);
-      while(gj < n_giv, {
-        already_matched := match(matched_given.get(gj), .Some(b) => b, .None => false);
-        if(!already_matched, {
-          giv := match(
-            given_concrete.get(gj),
-            .Some(g) => g,
-            .None => {
-              gj = n_giv;
-              break;
-            }
-          );
-          if(exp_id == synthesis_type_id(giv.ty), {
-            res := _synthesize_types_impl(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
-            expected_env.frames = res.expected_env.frames;
-            expected_env.module_path = res.expected_env.module_path;
-            expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
-            expected_env.input_string = res.expected_env.input_string;
-            given_env.frames = res.given_env.frames;
-            given_env.module_path = res.given_env.module_path;
-            given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
-            given_env.input_string = res.given_env.input_string;
-            matched_given(gj) = true;
-            gj = n_giv; // break
-          });
-        });
-        gj = (gj + usize(1));
-      });
-      eei = (eei + usize(1));
-    });
-    ssi = (ssi + usize(1));
-  });
-  // Verify all concrete expected params were matched before binding the spread
-  if(unsolved_spreads.len() == usize(1), {
-    (matched_exp_count : usize) = usize(0);
-    (mci : usize) = usize(0);
-    while(mci < matched_expected.len(), {
-      b := match(matched_expected.get(mci), .Some(v) => v, .None => false);
-      if(b, {
-        matched_exp_count = (matched_exp_count + usize(1));
-      });
-      mci = (mci + usize(1));
-    });
-    if(matched_exp_count < n_ce, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            _anchor(opts_token(opts, expected_env), String.from("E"), expected_env.module_path),
-            String.from("Effect row unification failed: some expected effects not found in given implicit parameters.")
-          )
-        )
-      );
-    });
-  });
-  // 3. Bind the single unsolved spread to remaining unmatched given params
-  if(unsolved_spreads.len() == usize(1), {
-    unsolved := match(
-      unsolved_spreads.get(usize(0)),
-      .Some(u) => u,
-      .None => {
-        return(());
-      }
-    );
-    match(
-      unsolved.ty,
-      .SomeT(_, sname, _, _, _, _, _, _, is_er, _, _) => {
-        if(is_er, {
-          // Collect remaining unmatched given entries
-          remaining_labels := ArrayList(String).new();
-          remaining_types := ArrayList(TypeValue).new();
-          (ri : usize) = usize(0);
-          while(ri < n_giv, {
-            already := match(matched_given.get(ri), .Some(b) => b, .None => false);
-            if(!already, {
-              giv := match(
-                given_concrete.get(ri),
-                .Some(g) => g,
-                .None => {
-                  ri = n_giv;
-                  break;
-                }
-              );
-              remaining_labels.push(giv.label);
-              remaining_types.push(giv.ty);
-            });
-            ri = (ri + usize(1));
-          });
-          effects_row := t_effects_row(remaining_labels, remaining_types);
-          type_val := EvalValue.TypeVal(effects_row);
-          _bind_some_type(expected_env, sname, String.from(""), type_val, TypeValue.TypeUni(usize(1)), opts_token(opts, expected_env), exn);
-        });
-      },
-      _ => ()
-    );
+    ei = (ei + usize(1));
   });
 });
 // ---------------------------------------------------------------------------
@@ -1101,7 +799,7 @@ _synthesize_fn_traits :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -1116,25 +814,25 @@ _synthesize_fn_traits :: (
   // `Future(i32,IoExn)` "Cannot unify unit and i32").
   exp_params := match(
     expected_ty,
-    .FnTraitT(_, _, pts, _, _, _, _, _) => pts,
+    .FnTraitT(_, _, pts, _, _, _, _) => pts,
     .Func({ param_types : pts }) => pts,
     _ => ArrayList(TypeValue).new()
   );
   giv_params := match(
     given_ty,
-    .FnTraitT(_, _, pts, _, _, _, _, _) => pts,
+    .FnTraitT(_, _, pts, _, _, _, _) => pts,
     .Func({ param_types : pts }) => pts,
     _ => ArrayList(TypeValue).new()
   );
   exp_result := match(
     expected_ty,
-    .FnTraitT(_, _, _, r, _, _, _, _) => r,
+    .FnTraitT(_, _, _, r, _, _, _) => r,
     .Func({ result : r }) => r,
     _ => TypeValue.Unit
   );
   giv_result := match(
     given_ty,
-    .FnTraitT(_, _, _, r, _, _, _, _) => r,
+    .FnTraitT(_, _, _, r, _, _, _) => r,
     .Func({ result : r }) => r,
     _ => TypeValue.Unit
   );
@@ -1178,38 +876,22 @@ _synthesize_future_traits :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
 )({
-  exp_out := match(expected_ty, .FutureTraitT(_, out, _, _, _) => out, _ => TypeValue.Unit);
-  giv_out := match(given_ty, .FutureTraitT(_, out, _, _, _) => out, _ => TypeValue.Unit);
+  exp_out := match(expected_ty, .FutureTraitT(_, out, _, _) => out, _ => TypeValue.Unit);
+  giv_out := match(given_ty, .FutureTraitT(_, out, _, _) => out, _ => TypeValue.Unit);
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   res := _synthesize_types_impl(exp_out, ee, giv_out, ge, checked, opts, exn);
   ee = res.expected_env;
   ge = res.given_env;
   // Synthesize effects
-  exp_el := match(expected_ty, .FutureTraitT(_, _, els, _, _) => els, _ => ArrayList(String).new());
-  exp_et := match(expected_ty, .FutureTraitT(_, _, _, ets, _) => ets, _ => ArrayList(TypeValue).new());
-  exp_es := match(expected_ty, .FutureTraitT(_, _, _, _, ess) => ess, _ => ArrayList(bool).new());
-  giv_el := match(given_ty, .FutureTraitT(_, _, els, _, _) => els, _ => ArrayList(String).new());
-  giv_et := match(given_ty, .FutureTraitT(_, _, _, ets, _) => ets, _ => ArrayList(TypeValue).new());
-  giv_es := match(given_ty, .FutureTraitT(_, _, _, _, ess) => ess, _ => ArrayList(bool).new());
-  _synthesize_implicit_params(
-    exp_el,
-    exp_et,
-    exp_es,
-    giv_el,
-    giv_et,
-    giv_es,
-    ee,
-    ge,
-    checked,
-    opts,
-    exn
-  );
+  exp_et := match(expected_ty, .FutureTraitT(_, _, _, ets) => ets, _ => ArrayList(TypeValue).new());
+  giv_et := match(given_ty, .FutureTraitT(_, _, _, ets) => ets, _ => ArrayList(TypeValue).new());
+  _synthesize_implicit_params(exp_et, giv_et, ee, ge, checked, opts, exn);
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 // ---------------------------------------------------------------------------
@@ -1230,7 +912,7 @@ _synthesize_types_impl :: (
     expected_env : Environment,
     given_ty : TypeValue,
     given_env : Environment,
-    checked : ArrayList(TypePair),
+    inout(checked) : ArrayList(TypePair),
     opts : Option(SynthesizeOptions),
     exn : Exception
   ) -> SynthesizeResult
@@ -1255,8 +937,8 @@ _synthesize_types_impl :: (
     giv_self_ident := is_bound_closure_identity(given_ty);
     expected_bound := if(exp_self_ident, expected_ty, get_value_of_some_type_from_env(ee, expected_ty));
     given_bound := if(giv_self_ident, given_ty, get_value_of_some_type_from_env(ge, given_ty));
-    exp_some_id := match(expected_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_some_id := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_some_id := match(expected_ty, .SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_some_id := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
     // A resolved closure identity (`is_bound_closure_identity`) is a
     // binding, not a free variable: with `T := <k1's Impl>` from the
     // receiver, `value : T` against `<k2's Impl>` must not rebind `T`
@@ -1282,31 +964,31 @@ _synthesize_types_impl :: (
       !exp_bound_is_some => {
         // Expected is bound — use its value to bind given
         val := EvalValue.TypeVal(expected_bound);
-        _bind_some_type(ge, match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(given_ty, .SomeT(gid9, _, _, _, _, _, _, _, _, _, _) => gid9, _ => ``), val, expected_bound, tok, exn);
+        _bind_some_type(ge, match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), match(given_ty, .SomeT(gid9, _, _, _, _, _, _, _, _, _) => gid9, _ => ``), val, expected_bound, tok, exn);
       },
       !giv_bound_is_some => {
         // Given is bound — use its value to bind expected
         val := EvalValue.TypeVal(given_bound);
-        _bind_some_type(ee, match(expected_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(expected_ty, .SomeT(eid9, _, _, _, _, _, _, _, _, _, _) => eid9, _ => ``), val, given_bound, tok, exn);
+        _bind_some_type(ee, match(expected_ty, .SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), match(expected_ty, .SomeT(eid9, _, _, _, _, _, _, _, _, _) => eid9, _ => ``), val, given_bound, tok, exn);
       },
       (exp_some_id == giv_some_id) => (),
       // Same SomeType — nothing to do
       true => {
         // Both unbound — bind expected to given.type (given is the unification target)
         val := EvalValue.TypeVal(given_ty);
-        _bind_some_type(ee, match(expected_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(expected_ty, .SomeT(eid8, _, _, _, _, _, _, _, _, _, _) => eid8, _ => ``), val, given_ty, tok, exn);
+        _bind_some_type(ee, match(expected_ty, .SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), match(expected_ty, .SomeT(eid8, _, _, _, _, _, _, _, _, _) => eid8, _ => ``), val, given_ty, tok, exn);
         val2 := EvalValue.TypeVal(given_ty);
-        _bind_some_type(ge, match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``), match(given_ty, .SomeT(gid8, _, _, _, _, _, _, _, _, _, _) => gid8, _ => ``), val2, given_ty, tok, exn);
+        _bind_some_type(ge, match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``), match(given_ty, .SomeT(gid8, _, _, _, _, _, _, _, _, _) => gid8, _ => ``), val2, given_ty, tok, exn);
       }
     );
     // After unifying, recursively synthesize required trait type parameters
     if(exp_some_id != giv_some_id, {
       match(
         expected_ty,
-        .SomeT(_, _, _, _, expected_traits, _, _, _, _, _, _) => {
+        .SomeT(_, _, _, _, expected_traits, _, _, _, _, _) => {
           match(
             given_ty,
-            .SomeT(_, _, _, _, given_traits, _, _, _, _, _, _) => {
+            .SomeT(_, _, _, _, given_traits, _, _, _, _, _) => {
               n_et := expected_traits.len();
               (eti : usize) = usize(0);
               while(eti < n_et, {
@@ -1381,10 +1063,10 @@ _synthesize_types_impl :: (
       return(_synthesize_types_impl(resolve_cell_chain(expected_ty), ee, given_ty, ge, checked, opts, exn));
     });
     bound := get_value_of_some_type_from_env(ee, expected_ty);
-    exp_id2 := match(expected_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    exp_name := match(expected_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
-    exp_traits := match(expected_ty, .SomeT(_, _, _, _, rts, _, _, _, _, _, _) => rts, _ => ArrayList(TypeValue).new());
-    if(is_some_type(bound) && match(bound, .SomeT(bid, _, _, _, _, _, _, _, _, _, _) => (bid == exp_id2), _ => false), {
+    exp_id2 := match(expected_ty, .SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    exp_name := match(expected_ty, .SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``);
+    exp_traits := match(expected_ty, .SomeT(_, _, _, _, rts, _, _, _, _, _) => rts, _ => ArrayList(TypeValue).new());
+    if(is_some_type(bound) && match(bound, .SomeT(bid, _, _, _, _, _, _, _, _, _) => (bid == exp_id2), _ => false), {
       // Unbound — bind to given_ty
       // Occurs check
       {
@@ -1446,8 +1128,8 @@ _synthesize_types_impl :: (
       return(_synthesize_types_impl(expected_ty, ee, resolve_cell_chain(given_ty), ge, checked, opts, exn));
     });
     existing_bound := get_value_of_some_type_from_env(ge, given_ty);
-    giv_id2 := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _, _) => id, _ => ``);
-    giv_name := match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
+    giv_id2 := match(given_ty, .SomeT(id, _, _, _, _, _, _, _, _, _) => id, _ => ``);
+    giv_name := match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _) => n, _ => ``);
     if(!is_some_type(existing_bound), {
       // Given is already bound — recurse
       res := _synthesize_types_impl(expected_ty, ee, existing_bound, ge, checked, opts, exn);
@@ -1928,8 +1610,8 @@ _synthesize_types_impl :: (
         gj = (gj + usize(1));
         same_kind := match(
           et,
-          .FnTraitT(eb, _, _, _, _, _, _, _) => match(gt, .FnTraitT(gb, _, _, _, _, _, _, _) => (eb == gb), _ => false),
-          .FutureTraitT(_, _, _, _, _) => is_future_trait_type(gt),
+          .FnTraitT(eb, _, _, _, _, _, _) => match(gt, .FnTraitT(gb, _, _, _, _, _, _) => (eb == gb), _ => false),
+          .FutureTraitT(_, _, _, _) => is_future_trait_type(gt),
           .TraitT(_, _, _, _, eid, _, _, _, _, _) => match(gt, .TraitT(_, _, _, _, gid, _, _, _, _, _) => (eid == gid), _ => false),
           _ => false
         );
@@ -2001,12 +1683,8 @@ _synthesize_types_impl :: (
     giv_fa := match(given_ty, .Func({ forall_types : fats }) => fats, _ => ArrayList(TypeValue).new());
     exp_pt := match(expected_ty, .Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
     giv_pt := match(given_ty, .Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
-    exp_il := match(expected_ty, .Func({ meta : __fm2 }) => __fm2.*.implicit_labels, _ => ArrayList(String).new());
     exp_it := match(expected_ty, .Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
-    exp_is := match(expected_ty, .Func({ meta : __fm3 }) => __fm3.*.implicit_spreads, _ => ArrayList(bool).new());
-    giv_il := match(given_ty, .Func({ meta : __fm4 }) => __fm4.*.implicit_labels, _ => ArrayList(String).new());
     giv_it := match(given_ty, .Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
-    giv_is := match(given_ty, .Func({ meta : __fm5 }) => __fm5.*.implicit_spreads, _ => ArrayList(bool).new());
     exp_ret := match(expected_ty, .Func({ result : r }) => r, _ => TypeValue.Unit);
     giv_ret := match(given_ty, .Func({ result : r }) => r, _ => TypeValue.Unit);
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {
@@ -2060,20 +1738,8 @@ _synthesize_types_impl :: (
         ge = res.given_env;
         pi = (pi + usize(1));
       });
-      // Synthesize implicit params (effect row unification)
-      _synthesize_implicit_params(
-        exp_il,
-        exp_it,
-        exp_is,
-        giv_il,
-        giv_it,
-        giv_is,
-        ee,
-        ge,
-        checked,
-        opts,
-        exn
-      );
+      // Synthesize implicit params
+      _synthesize_implicit_params(exp_it, giv_it, ee, ge, checked, opts, exn);
       // Synthesize return type
       res := _synthesize_types_impl(exp_ret, ee, giv_ret, ge, checked, opts, exn);
       ee = res.expected_env;
@@ -2194,44 +1860,6 @@ _synthesize_types_impl :: (
     });
     return(SynthesizeResult(expected_env : ee, given_env : ge));
   });
-  // Case: EffectsRow + EffectsRow
-  if(is_effects_row_type(expected_ty) && is_effects_row_type(given_ty), {
-    exp_el := match(expected_ty, .EffectsRowT(ls, _) => ls, _ => ArrayList(String).new());
-    exp_et := match(expected_ty, .EffectsRowT(_, ts) => ts, _ => ArrayList(TypeValue).new());
-    giv_el := match(given_ty, .EffectsRowT(ls, _) => ls, _ => ArrayList(String).new());
-    giv_et := match(given_ty, .EffectsRowT(_, ts) => ts, _ => ArrayList(TypeValue).new());
-    // Treat all as non-spread concrete entries
-    empty_spreads := ArrayList(bool).new();
-    {
-      (si : usize) = usize(0);
-      while(si < exp_el.len(), {
-        empty_spreads.push(false);
-        si = (si + usize(1));
-      });
-    };
-    empty_giv_spreads := ArrayList(bool).new();
-    {
-      (si : usize) = usize(0);
-      while(si < giv_el.len(), {
-        empty_giv_spreads.push(false);
-        si = (si + usize(1));
-      });
-    };
-    _synthesize_implicit_params(
-      exp_el,
-      exp_et,
-      empty_spreads,
-      giv_el,
-      giv_et,
-      empty_giv_spreads,
-      ee,
-      ge,
-      checked,
-      opts,
-      exn
-    );
-    return(SynthesizeResult(expected_env : ee, given_env : ge));
-  });
   // Case: TypeHierarchy expected with concrete given — valid, no synthesis needed
   if(is_type_hierarchy_type(expected_ty) && !is_type_hierarchy_type(given_ty), {
     return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -2309,5 +1937,5 @@ _synthesize_types_impl :: (
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
-export(SynthesizeOptions, SynthesizeResult, ImplicitEntry, TypePair);
+export(SynthesizeOptions, SynthesizeResult, TypePair);
 export(can_assign_type_hierarchy, synthesize_types);

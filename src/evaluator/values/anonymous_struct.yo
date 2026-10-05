@@ -147,7 +147,7 @@ evaluate_anonymous_struct_value :: (
     ctx.self_type = old_self;
     match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
     evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
-    set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
+    set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn, "field-store");
     // Extract info from expr_info_table
     arg_info := match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg)),

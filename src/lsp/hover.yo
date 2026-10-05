@@ -152,7 +152,7 @@ _find_token_at :: (
     );
     skip := (
       (t.kind == TokenKind.Whitespace) ||
-        ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment))
+        (t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment)
     );
     if(!skip && (usize(t.row) == line), {
       // `character` and `t.column` are RUNE columns, so the token width has
@@ -171,7 +171,7 @@ _find_token_at :: (
 
 /// Collect Atom exprs matching the target token by (value, row, column).
 _collect_candidates :: (
-  fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -> unit
+  fn(e : AstExpr, target : Token, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   match(
     e,
@@ -247,7 +247,7 @@ _select_best_variable :: (
           if(visible, {
             later := (
               best_visible.is_none() ||
-                ((usize(it.row) > best_row) || ((usize(it.row) == best_row) && (usize(it.column) >= best_col)))
+                (usize(it.row) > best_row) || ((usize(it.row) == best_row) && (usize(it.column) >= best_col))
             );
             if(later, {
               best_visible = Option(Variable).Some(v);
@@ -283,11 +283,9 @@ AtomRoles :: ref(
 /// labels (struct literals, labelled arguments, `impl` methods, `struct` /
 /// `enum` field declarations).
 _is_declaring_callee :: (fn(callee : String) -> bool)(
-  (callee == "fn") || ((callee == "unsafe_fn") || (callee == "ctl")) ||
-    (
-      (callee == "Fn") || ((callee == "generic") || (callee == "given")) ||
-        ((callee == "=") || ((callee == ":=") || (callee == "?=")))
-    )
+  (callee == "fn") || (callee == "unsafe_fn") || (callee == "ctl") ||
+    (callee == "Fn") || (callee == "generic") || (callee == "given") ||
+      (callee == "=") || (callee == ":=") || (callee == "?=")
 );
 /// Mark the member position `a` of a `.` call: a bare atom (`p.x`, `.Red`)
 /// or a call whose callee is the member (`p.dist()`, `.Some(v)`) — the
@@ -425,7 +423,7 @@ atom_is_member_or_label :: (fn(roles : AtomRoles, id : usize) -> bool)(
 /// — the type of THAT call is the accessed member's type (`p.x` → the field
 /// type), which is what hover shows for a member.
 _find_member_access :: (
-  fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -> unit
+  fn(e : AstExpr, target : Token, inout(out) : ArrayList(AstExpr)) -> unit
 )({
   match(
     e,
@@ -443,7 +441,7 @@ _find_member_access :: (
                 .Atom(_, at) => at,
                 .FnCall(_, mf, _, _, ct) => match(mf, .Atom(_, ft) => ft, .FnCall(_, _, _, _, _) => ct)
               );
-              if((mt.row == target.row) && ((mt.column == target.column) && (mt.value == target.value)), {
+              if((mt.row == target.row) && (mt.column == target.column) && (mt.value == target.value), {
                 out.push(e);
               });
             },
@@ -652,7 +650,7 @@ handle_hover :: (
       "contents",
       // The MarkupContent kind follows the client's `hover.contentFormat`
       // capability — markdown unless the client listed formats that exclude
-      // it (issues/lsp-hover-claims-markdown-without-the-capability.md).
+      // it (issues/fixed/lsp-hover-claims-markdown-without-the-capability.md).
       jb().put("kind", jstr(cond(hover_markdown() => String.from("markdown"), true => String.from("plaintext")))).put(
         "value",
         jstr(content)

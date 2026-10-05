@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
-{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type } :: import("./guards.yo");
+{ is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
 {
@@ -50,49 +50,6 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
     i = (i + usize(1));
   });
   false
-});
-// Flatten effects arrays into out_labels / out_types, expanding EffectsRowT spreads.
-// ArrayList is RC-shared — mutations to out_* are visible to the caller.
-_flatten_effects :: (
-  fn(
-    labels : ArrayList(String),
-    types : ArrayList(TypeValue),
-    spreads : ArrayList(bool),
-    out_labels : ArrayList(String),
-    out_types : ArrayList(TypeValue)
-  ) -> unit
-)({
-  i := usize(0);
-  n := labels.len();
-  while(i < n, {
-    lbl := match(labels.get(i), .Some(v) => v, .None => ``);
-    ty := match(types.get(i), .Some(v) => v, .None => TypeValue.Unit);
-    sp := match(spreads.get(i), .Some(v) => v, .None => false);
-    if(sp, {
-      match(
-        ty,
-        .EffectsRowT(implicit_labels : row_labels, implicit_types : row_types) => {
-          j := usize(0);
-          m := row_labels.len();
-          while(j < m, {
-            rl := match(row_labels.get(j), .Some(v) => v, .None => ``);
-            rt := match(row_types.get(j), .Some(v) => v, .None => TypeValue.Unit);
-            out_labels.push(rl);
-            out_types.push(rt);
-            j = (j + usize(1));
-          });
-        },
-        _ => {
-          out_labels.push(lbl);
-          out_types.push(ty);
-        }
-      );
-    }, {
-      out_labels.push(lbl);
-      out_types.push(ty);
-    });
-    i = (i + usize(1));
-  });
 });
 /// Does the bound `req` mention the SomeT `self_var` (same name and frame
 /// level)? Looks inside a trait's member types and an Fn trait's signature,
@@ -249,7 +206,7 @@ _binder_level :: (fn(types : ArrayList(TypeValue), label : String) -> Option(usi
   while(i < types.len(), {
     t := match(types.get(i), .Some(x) => x, .None => TypeValue.Unit);
     somes := get_all_some_types(t);
-    match(t, .SomeT(_, _, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
+    match(t, .SomeT(_, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
     (j : usize) = usize(0);
     while(j < somes.len(), {
       match(
@@ -326,12 +283,59 @@ _is_identity_mode :: (fn(mode : _CompatMode) -> bool)(
 _exact_mode :: (fn(mode : _CompatMode) -> _CompatMode)(
   match(mode, .Identity => _CompatMode.Identity, _ => _CompatMode.Invariant)
 );
+/// The `Future(...)` requirement `t` carries: itself, or the first one in a
+/// SomeT's required traits.
+_future_trait_of :: (fn(t : TypeValue) -> Option(TypeValue))(
+  match(
+    t,
+    .FutureTraitT(base_name : _) => Option(TypeValue).Some(t),
+    .SomeT(required_trait_types : rtt) => {
+      (i : usize) = usize(0);
+      while(i < rtt.len(), i = (i + usize(1)), {
+        match(rtt.get(i), .Some(.FutureTraitT(base_name : _)) => return(rtt.get(i)), _ => ());
+      });
+      Option(TypeValue).None
+    },
+    _ => Option(TypeValue).None
+  )
+);
+/// A SomeT's resolution when it has one, else the type itself.
+_resolved_or_self :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    resolve_cell_chain(t),
+    .SomeT({ resolution : r }) => match(r, .Some(x) => resolve_cell_chain(x), .None => resolve_cell_chain(t)),
+    other => other
+  )
+);
+/// True when `actual` is a future whose bundle carries something other than
+/// `Io` and `expected` is a future that names no bundle: an await or spawn
+/// through `expected` injects nothing, so the body would run against a zeroed
+/// bundle. An unresolved (generic) bundle is not judged here: it is checked
+/// again at the concrete call.
+future_view_drops_a_bundle :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
+  ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
+  af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
+  e_types := match(ef, .FutureTraitT(effect_types : ets) => ets, _ => ArrayList(TypeValue).new());
+  a_types := match(af, .FutureTraitT(effect_types : ats) => ats, _ => ArrayList(TypeValue).new());
+  if((e_types.len() != usize(0)) || (a_types.len() == usize(0)), {
+    return(false);
+  });
+  (drops : bool) = false;
+  (i : usize) = usize(0);
+  while(i < a_types.len(), i = (i + usize(1)), {
+    at := _resolved_or_self(match(a_types.get(i), .Some(v) => v, .None => TypeValue.Unit));
+    if(!is_some_type(at) && !is_prelude_io_struct(at), {
+      drops = true;
+    });
+  });
+  drops
+});
 _compat_impl :: (
   fn(
     actual : TypeValue,
     expected : TypeValue,
     mode : _CompatMode,
-    visited : ArrayList(String)
+    inout(visited) : ArrayList(String)
   ) -> bool
 )({
   require_exact := match(mode, .Flow => false, _ => true);
@@ -343,6 +347,15 @@ _compat_impl :: (
   // (plans/reference/TYPE_IDENTITY.md, Phase 3.6).
   if(is_never_type(actual), {
     return(!require_exact || is_never_type(expected));
+  });
+  // --- A bundled future may not be viewed as a bundle-less one ---------------
+  // Checked before any SomeT unwrapping: an `Impl(Future(...))` argument
+  // otherwise recurs into its concrete state-machine type, whose `Future`
+  // trait check matches by name and never reaches the effect comparison in
+  // the FutureTraitT branch below
+  // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
+  if(future_view_drops_a_bundle(actual, expected), {
+    return(false);
   });
   // --- ComptimeInt widening -------------------------------------------------
   if(is_comptime_int_type(actual), {
@@ -1063,7 +1076,7 @@ _compat_impl :: (
       // instantiations carry type_arguments, and cfid-empty copies SHARE
       // their original's id (caught by the id-equality arm). See
       // issues/fixed/yo-self-same-name-local-struct-spec-cache-collision.md.
-      ((aname.len() != usize(0)) && (aname == ename) && ((ata.len() == usize(0)) && (eta.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected)))) => false, 
+      ((aname.len() != usize(0)) && (aname == ename) && (ata.len() == usize(0)) && (eta.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, 
       // CAPTURE-STRUCT nominal identity (exact only): each closure's capture
       // struct is minted ONCE under a deterministic `capture_<id>` struct id
       // (utils/closure.yo g_capture_struct_ids) and is never re-minted as an
@@ -1086,7 +1099,7 @@ _compat_impl :: (
       // (issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md).
       // Limited to non-generic declarations: an instantiation's unstamped
       // copy may legitimately be nameless.
-      (((aname.len() == usize(0)) != (ename.len() == usize(0))) && ((ata.len() == usize(0)) && (eta.len() == usize(0))) && ((acfid.len() == usize(0)) && (ecfid.len() == usize(0))) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, (alabels.len() != elabels.len()) => false, true => {
+      (((aname.len() == usize(0)) != (ename.len() == usize(0))) && (ata.len() == usize(0)) && (eta.len() == usize(0)) && (acfid.len() == usize(0)) && (ecfid.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, (alabels.len() != elabels.len()) => false, true => {
         vkey := (aid + String.from("=>") + eid);
         cond(
           _visited_contains(visited, vkey) => true,
@@ -1373,10 +1386,9 @@ _compat_impl :: (
         true => {
           (xw_ok : bool) = (
             (aname == ename) && (artt.len() == ertt.len())
-            && (
+            &&
               (artt.len() > usize(0))
-              && (_wrapper_carrier_args_concrete(artt) && _wrapper_carrier_args_concrete(ertt))
-            )
+              && _wrapper_carrier_args_concrete(artt) && _wrapper_carrier_args_concrete(ertt)
           );
 
           (xw_i : usize) = usize(0);
@@ -1403,30 +1415,6 @@ _compat_impl :: (
     .ComptimeListT(achild) => match(
       expected,
       .ComptimeListT(echild) => recur(achild, echild, mode, visited),
-      _ => false
-    ),
-    .EffectsRowT(implicit_labels : als, implicit_types : ats) => match(
-      expected,
-      .EffectsRowT(implicit_labels : els, implicit_types : ets) => {
-        if(als.len() != els.len(), {
-          return(false);
-        });
-        i := usize(0);
-        while(i < als.len(), {
-          al := match(als.get(i), .Some(v) => v, .None => ``);
-          el := match(els.get(i), .Some(v) => v, .None => ``);
-          at := match(ats.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          et := match(ets.get(i), .Some(v) => v, .None => TypeValue.Unit);
-          if(al != el, {
-            return(false);
-          });
-          if(!recur(at, et, mode, visited), {
-            return(false);
-          });
-          i = (i + usize(1));
-        });
-        true
-      },
       _ => false
     ),
     .TypeAppT(constructor : acon, args : aargs) => match(
@@ -1558,24 +1546,35 @@ _compat_impl :: (
       _ => false
     ),
     // FutureTraitT: same base_name, compatible output, order-independent effects
-    .FutureTraitT(base_name : abn, output : aout, effect_labels : aels, effect_types : aets, effect_spreads : aesp) =>
+    .FutureTraitT(base_name : abn, output : aout, effect_types : flat_a_types) =>
       match(
         expected,
-        .FutureTraitT(base_name : ebn, output : eout, effect_labels : eels, effect_types : eets, effect_spreads : eesp) => {
+        .FutureTraitT(base_name : ebn, output : eout, effect_types : flat_e_types) => {
           if(abn != ebn, {
             return(false);
           });
           if(!recur(aout, eout, mode, visited), {
             return(false);
           });
-          flat_a_labels := ArrayList(String).new();
-          flat_a_types := ArrayList(TypeValue).new();
-          flat_e_labels := ArrayList(String).new();
-          flat_e_types := ArrayList(TypeValue).new();
-          _flatten_effects(aels, aets, aesp, flat_a_labels, flat_a_types);
-          _flatten_effects(eels, eets, eesp, flat_e_labels, flat_e_types);
-          // Backward compat: empty effects on either side → compatible
-          if((flat_a_types.len() == usize(0)) || (flat_e_types.len() == usize(0)), {
+          // A bundle-less future (a raw `IoFuture`, `yield`) is compatible with
+          // any bundle: it never reads one.
+          if(flat_a_types.len() == usize(0), {
+            return(true);
+          });
+          // The other direction, a bundled future viewed as `Future(T)`, is
+          // compatible only when the bundle is the prelude's `Io`: an await or
+          // spawn through the view injects nothing, so the body runs against a
+          // zeroed bundle, which only `Io` (builtins, never called through)
+          // survives. A handler bundle viewed this way called a null handler
+          // (issues/fixed/a-bundled-future-viewed-as-future-t-runs-with-a-zeroed-bundle-and-segfaults.md).
+          if(flat_e_types.len() == usize(0), {
+            (ai0 : usize) = usize(0);
+            while(ai0 < flat_a_types.len(), ai0 = (ai0 + usize(1)), {
+              at0 := match(flat_a_types.get(ai0), .Some(v) => resolve_cell_chain(v), .None => TypeValue.Unit);
+              if(!is_prelude_io_struct(at0), {
+                return(false);
+              });
+            });
             return(true);
           });
           if(flat_a_types.len() != flat_e_types.len(), {
@@ -1642,7 +1641,7 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
   (a_top : TypeValue) = t_refine_inner(actual);
   (e_top : TypeValue) = t_refine_inner(expected);
   if(match(e_top, .ExternOpaqueT(_, _) => true, _ => false), {
-    if(is_numeric_type(a_top) || is_bool_type(a_top) || (is_c_compatible_type(a_top) || (is_comptime_int_type(a_top) || is_comptime_float_type(a_top))), {
+    if(is_numeric_type(a_top) || is_bool_type(a_top) || is_c_compatible_type(a_top) || is_comptime_int_type(a_top) || is_comptime_float_type(a_top), {
       return(true);
     });
   });
@@ -1663,4 +1662,4 @@ are_types_compatible_invariant :: (fn(actual : TypeValue, expected : TypeValue) 
 are_function_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Flow, ArrayList(String).new())
 );
-export(are_types_compatible, are_types_compatible_exact, are_types_compatible_invariant, are_function_types_compatible, set_compat_type_implements_trait_fn);
+export(are_types_compatible, are_types_compatible_exact, are_types_compatible_invariant, are_function_types_compatible, set_compat_type_implements_trait_fn, future_view_drops_a_bundle);

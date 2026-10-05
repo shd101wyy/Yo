@@ -1461,7 +1461,7 @@ static void __yo_io_cleanup(void) {
     __yo_pending_io_count--;
     (void)__yo_ring_untrack_fd(future, -ECANCELED);
     future->result = -ECANCELED;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     __yo_decr_rc((void*)future);
   }
   __yo_timer_teardown();
@@ -1834,7 +1834,7 @@ static struct __yo_uring_sqe* __yo_io_get_sqe(void) {
 // the contract every platform keeps (std/sys/timer.yo).
 // Mark a future done and queue whoever is suspended on it.
 static void __yo_io_wake(__yo_io_future_t* future) {
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
   void (*cont_fn)(void*) = future->continuation_fn;
   void* cont_sm = future->continuation_sm;
   if (cont_fn && cont_sm) {
@@ -1941,7 +1941,7 @@ static void __yo_timer_arm(__yo_io_future_t* future, uint64_t milliseconds) {
         __yo_timers, cap * sizeof(__yo_timer_t*));
     if (!heap) {
       future->result = -ENOMEM;
-      future->state = -1;
+      { if (future->state != -2) future->state = -1; }
       return;
     }
     __yo_timers = heap;
@@ -1986,7 +1986,7 @@ static void __yo_timer_teardown(void) {
     t->future->cancel_fn = NULL;
     t->future->backend_link = NULL;
     t->future->result = -ECANCELED;
-    t->future->state = -1;
+    { if (t->future->state != -2) t->future->state = -1; }
     __yo_pending_io_count--;
     __yo_decr_rc((void*)t->future);
     __yo_free(t);
@@ -2478,7 +2478,7 @@ static __yo_io_future_t* __yo_io_new_future(void) {
 static __yo_io_future_t* __yo_io_done_future(int32_t result) {
   __yo_io_future_t* future = __yo_io_new_future();
   future->result = result;
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
   return future;
 }
 
@@ -2600,7 +2600,7 @@ static __yo_io_future_t* __yo_epoll_read_start(int32_t fd, void* buffer, uint32_
   __yo_epoll_pending_t* p = __yo_epoll_park(__YO_EOP_READ, future, EPOLLIN, fd);
   if (!p) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   p->read.fd = fd;
@@ -2629,7 +2629,7 @@ static __yo_io_future_t* __yo_epoll_write_start(int32_t fd, const void* buffer, 
   __yo_epoll_pending_t* p = __yo_epoll_park(__YO_EOP_WRITE, future, EPOLLOUT, fd);
   if (!p) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   p->write.fd = fd;
@@ -2709,7 +2709,7 @@ static __yo_io_future_t* __yo_epoll_accept_start(int32_t sockfd, void* addr, uin
   __yo_epoll_pending_t* p = __yo_epoll_park(__YO_EOP_ACCEPT, future, EPOLLIN, sockfd);
   if (!p) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   p->accept.fd = sockfd;
@@ -2739,7 +2739,7 @@ static __yo_io_future_t* __yo_epoll_connect_start(int32_t sockfd, const void* ad
   __yo_epoll_pending_t* p = __yo_epoll_park(__YO_EOP_CONNECT, future, EPOLLOUT, sockfd);
   if (!p) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   p->connect.fd = sockfd;
@@ -2758,7 +2758,7 @@ static __yo_io_future_t* __yo_epoll_send_start(int32_t sockfd, const void* buf, 
   __yo_epoll_pending_t* p = __yo_epoll_park(__YO_EOP_SEND, future, EPOLLOUT, sockfd);
   if (!p) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   p->send.fd = sockfd;
@@ -2784,7 +2784,7 @@ static __yo_io_future_t* __yo_epoll_recv_start(int32_t sockfd, void* buf, size_t
   __yo_epoll_pending_t* p = __yo_epoll_park(__YO_EOP_RECV, future, EPOLLIN, sockfd);
   if (!p) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   p->recv.fd = sockfd;
@@ -2803,13 +2803,13 @@ static __yo_io_future_t* __yo_epoll_sendto_park(int32_t sockfd, const void* buf,
                                                 __yo_io_future_t* future) {
   if (addrlen > sizeof(struct sockaddr_storage)) {
     future->result = -EINVAL;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   __yo_epoll_pending_t* p = __yo_epoll_park(__YO_EOP_SENDTO, future, EPOLLOUT, sockfd);
   if (!p) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   p->sendto.fd = sockfd;
@@ -2828,7 +2828,7 @@ static __yo_io_future_t* __yo_epoll_recvfrom_park(int32_t sockfd, void* buf, siz
   __yo_epoll_pending_t* p = __yo_epoll_park(__YO_EOP_RECVFROM, future, EPOLLIN, sockfd);
   if (!p) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   p->recvfrom.fd = sockfd;
@@ -2896,7 +2896,7 @@ static void __yo_epoll_teardown(void) {
         __yo_epoll_pending_t* nx = pw->next_waiter;
         pw->future->backend_link = NULL;
         pw->future->result = -ECANCELED;
-        pw->future->state = -1;
+        { if (pw->future->state != -2) pw->future->state = -1; }
         __yo_decr_rc((void*)pw->future);
         __yo_epoll_free_pending(pw);
         pw = nx;
@@ -2993,7 +2993,7 @@ static void __yo_io_process_cqe(struct __yo_uring_cqe* cqe) {
               future->result, __yo_pending_io_count);
   
   // Mark as completed (state -1 = done)
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
 
   // Post-completion op hooks, BEFORE the continuation runs so a resumed task
   // observes them. cancel_fn identity is each op's type tag (see the
@@ -3299,7 +3299,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   if (!sqe) {
     // Queue full
     future->result = -EAGAIN;
-    future->state = -1;  // Mark as completed
+    { if (future->state != -2) future->state = -1; }  // Mark as completed
     ASYNC_DEBUG("[Io] WARNING: io_uring SQ full, returning EAGAIN\\n");
     return future;
   }
@@ -3390,7 +3390,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   if (!sqe) {
     // Queue full
     future->result = -EAGAIN;
-    future->state = -1;  // Mark as completed
+    { if (future->state != -2) future->state = -1; }  // Mark as completed
     ASYNC_DEBUG("[Io] WARNING: io_uring SQ full, returning EAGAIN\\n");
     return future;
   }
@@ -3441,7 +3441,7 @@ static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   
@@ -3480,7 +3480,7 @@ static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   
@@ -3572,7 +3572,7 @@ static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   
@@ -3607,7 +3607,7 @@ static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   
@@ -3646,7 +3646,7 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
 
@@ -3685,7 +3685,7 @@ static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, i
   // F_SETFL).
   int result = socket(domain, type | SOCK_NONBLOCK, protocol);
   future->result = (result < 0) ? -errno : result;
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
 
   ASYNC_DEBUG("[Io] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
               domain, type, protocol, future->result);
@@ -3708,7 +3708,7 @@ static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr,
   
   int result = bind(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
   future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
   
   ASYNC_DEBUG("[Io] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
   
@@ -3730,7 +3730,7 @@ static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog
   
   int result = listen(sockfd, backlog);
   future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
   
   ASYNC_DEBUG("[Io] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
   
@@ -3759,7 +3759,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   
@@ -3804,7 +3804,7 @@ static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* ad
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   
@@ -3868,7 +3868,7 @@ static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, 
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   
@@ -3922,7 +3922,7 @@ static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   
@@ -3967,7 +3967,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
     ssize_t result = sendto(sockfd, buf, len, flags | MSG_DONTWAIT, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
     if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
       future->result = (result < 0) ? -errno : (int32_t)result;
-      future->state = -1;
+      { if (future->state != -2) future->state = -1; }
       ASYNC_DEBUG("[Io] sendto completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
       return future;
     }
@@ -3975,7 +3975,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
 
   if (addrlen > sizeof(struct sockaddr_storage)) {
     future->result = -EINVAL;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
 
@@ -3984,7 +3984,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     future->result = -__yo_backend_errno;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   // Send buffer full — complete through the ring. The kernel reads the msghdr
@@ -3994,7 +3994,7 @@ static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
 
@@ -4048,7 +4048,7 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
     ssize_t result = recvfrom(sockfd, buf, len, flags | MSG_DONTWAIT, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
     if (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
       future->result = (result < 0) ? -errno : (int32_t)result;
-      future->state = -1;
+      { if (future->state != -2) future->state = -1; }
       ASYNC_DEBUG("[Io] recvfrom completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
       return future;
     }
@@ -4059,14 +4059,14 @@ static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, si
   }
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     future->result = -__yo_backend_errno;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
   // Quiet socket — arm RECVMSG and let the task park.
   struct __yo_uring_sqe* sqe = __yo_io_get_sqe();
   if (!sqe) {
     future->result = -EAGAIN;
-    future->state = -1;
+    { if (future->state != -2) future->state = -1; }
     return future;
   }
 
@@ -4102,7 +4102,7 @@ static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) 
   
   int result = shutdown(sockfd, how);
   future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
   
   ASYNC_DEBUG("[Io] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
   
@@ -4125,7 +4125,7 @@ static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t lev
   
   int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
   future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
   
   ASYNC_DEBUG("[Io] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
               sockfd, level, optname, future->result);
@@ -4149,7 +4149,7 @@ static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t lev
   
   int result = getsockopt(sockfd, level, optname, optval, (socklen_t*)optlen);
   future->result = (result < 0) ? -errno : 0;
-  future->state = -1;
+  { if (future->state != -2) future->state = -1; }
   
   ASYNC_DEBUG("[Io] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
               sockfd, level, optname, future->result);

@@ -1,7 +1,7 @@
 # A `::` binding accepts a `cond` (or `if`) whose condition is a runtime value
 
 **Found:** 2026-09-25, re-measuring finding #11 of
-`issues/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md` during
+`issues/fixed/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md` during
 `plans/TYPE_SYSTEM_SOUNDNESS.md` Phase 4.4. **Severity:** HIGH (`check` passes, and the
 program is either rejected by the C compiler or aborts at runtime).
 **Status:** FIXED on `tss/phase4-4`.
