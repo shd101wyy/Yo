@@ -77,22 +77,12 @@ sm_local_field_name :: (fn(variable_id : String) -> String)(
     }
   )
 );
-/// The C field name for a captured variable in a state-machine struct (consistent
-/// across struct definition and use): `outer` → `__capture.<id>`; an alias wins;
-/// otherwise the registered stable name (Phase 2) with the historical `var_<id>`
-/// as the unregistered fallback.
-get_state_machine_field_name :: (
-  fn(variable_id : String, kind : Option(String), aliases : Option(HashMap(String, String))) -> String
-)({
-  match(
-    kind,
-    .Some(k) => if(k == "outer", {
-      o := String.from("__capture.");
-      o.push_string(sanitize_for_c_identifier(variable_id.clone(), false));
-      return(o);
-    }),
-    .None => ()
-  );
+/// The C field name for a state-machine local (consistent across struct
+/// definition and use): an alias wins; otherwise the registered stable name
+/// (Phase 2) with the historical `var_<id>` as the unregistered fallback. A
+/// captured (`.Outer`) variable never comes here: it lives in the capture
+/// struct, whose slot `sm_slot_of_variable` names.
+get_state_machine_field_name :: (fn(variable_id : String, aliases : Option(HashMap(String, String))) -> String)({
   match(
     aliases,
     .Some(a) => match(a.get(variable_id.clone()), .Some(al) => return(al), .None => ()),

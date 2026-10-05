@@ -649,7 +649,7 @@ emit_async_block_struct_definition :: (
         local_variables.get(li),
         .Some(variable) => {
           var_type_c_name := get_type_string(variable.base.ty, context.base);
-          field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
+          field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(HashMap(String, String)).None);
           em.emit_declaration_string_line(`  ${var_type_c_name} ${field_name};  // ${variable.base.name.clone()}`);
           // A named local's move flag (`note_sm_move_flag_field`): set by a
           // move out of the slot, which keeps the value readable.
@@ -1198,7 +1198,7 @@ generate_async_block_state_dispose_function :: (
         // A member of a shared slot is dropped through the slot, below.
         is_shared := overlapping_slot_aliases.contains_key(v.base.id.to_string());
         if(is_local && cross_boundary_ids.contains(v.base.id.to_string()) && !await_future_temp_var_aliases.contains_key(v.base.id.to_string()) && !is_owning && !is_binding && !is_shared, {
-          field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
+          field_name := get_state_machine_field_name(v.base.id.to_string(), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
             _rc_field_drop_line(field_ref.clone(), v.base.ty, String.from("    "), context),
