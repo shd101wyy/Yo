@@ -1102,6 +1102,31 @@ and in git, not a silent edit.
           Hylo's `set`;
         - `&`/`&!`: `&x` is address-of in Yo, and `!` means "not";
         - `in`.
+    - **A borrow is a mode, never a type** (the maintainer, 2026-10-05).
+      Making `&T`/`&mut T` types, as Rust does, with `x : &String` replacing
+      `imm(x) : String` and `impl(&String, Add(…))` possible, was considered
+      and rejected:
+      - **Without lifetimes, a borrow type leaks.** `ArrayList(&String)`,
+        `Option(&T)`, a field `r : &T`, and a generic `T := &String` would
+        all be expressible. Keeping them second-class would need a new "type
+        that cannot be stored" kind, checked at every instantiation and
+        field. Hylo, Swift and Mojo keep conventions out of types for the
+        same reason.
+      - **The C would stop being readable from the signature.** In
+        `fn(x : T)` with `T := &String`, `x` is a pointer, which defeats
+        this decision's reason.
+      - **Operators would consume.** Rust's operator traits take their
+        operands by value, so `String + String` moves both. Keeping them
+        means `&a + &b`, or four impls per pair. Decision 34 gives
+        per-impl modes without that.
+      - **Method lookup would need auto-ref/auto-deref probing** to choose
+        between `impl(String, …)` and `impl(&String, …)`. That is a hidden
+        rule.
+      - **The `&` spelling as a mode** (`x : &String` that is not a type)
+        was also declined. It would put a non-type in type position, and
+        Rust readers would expect `Option(&T)` to work. The words
+        `imm`/`mut` say "mode", and the sigils stay at arguments and
+        scrutinees (decision 33).
     - **Writes.** A by-value parameter is the callee's own value, so writing
       it is legal. A write through `imm` is E0908.
     - **Callbacks.** std's `for_each`, `map`, `filter` and `with_lock` take
@@ -1217,6 +1242,18 @@ and in git, not a silent edit.
       - The range traits (`RangeOp`, `RangeInclusiveOp`) are the exception.
         A range stores its endpoints, so like a constructor it takes them by
         value.
+      - **The `Comptime*` twins are out of scope.** Their operands are
+        `comptime(lhs)`/`comptime(rhs)`, compile-time values with no run-time
+        convention and no C signature, so `imm` has nothing to say about
+        them. They are `ComptimeAdd` through `ComptimeBitXor`, `ComptimeEq`,
+        `ComptimeOrd`, `ComptimeNegate`, `ComptimeLogicalNot`,
+        `ComptimeBitNot` and the two `ComptimeRange*` traits. The sweep
+        leaves them unchanged.
+      - **Operand names.** The binary traits name their operands `lhs` and
+        `rhs` (`std/prelude.yo`), and the unary traits name theirs `self`.
+        An impl may name its first operand `self`, as std's do; the name
+        does not change the mode. The rule covers every operand alike, so a
+        binary operator has no receiver in decision 30's sense.
     - **An impl may take an implicitly copyable operand by value**
       (amended 2026-10-05 by the maintainer). Where the trait declares
       `imm(x) : T` and `T` is implicitly copyable, the impl may write
@@ -1243,9 +1280,18 @@ and in git, not a silent edit.
         signature, as decision 30 requires. The impl's author chooses, and
         the compiler never picks a lowering.
       - **The check.** A by-value operand whose type is not implicitly
-        copyable is an error at the impl, because it would consume the
-        caller's operand. The error names `imm(x)`. An operand written
-        `mut(x)` is an error, because no operator writes an operand.
+        copyable is an error, because it would consume the caller's
+        operand. The error names `imm(x)`. An operand written `mut(x)` is an
+        error, because no operator writes an operand.
+        - **Concrete operand types** are checked at the impl.
+        - **A generic impl's operand** (`Vec2(T)` by value) is checked per
+          instantiation, like the rest of Yo's generic code (§3.4). So
+          `Vec2(f32)` is accepted, and `Vec2(String)` is the error at that
+          instantiation, anchored at the user's call
+          (`_reported_at_user_call`).
+        - Rejecting a generic by-value operand at the impl would forbid the
+          main use, a numeric vector generic over its scalar. Yo has no
+          `Copy` bound to constrain `T` with (decision 16).
       - **Call sites are the same either way.** An operator takes no marker,
         and a generic body is specialized per instantiation, so `a + b`
         calls the concrete impl with its own convention.
@@ -1261,12 +1307,20 @@ and in git, not a silent edit.
           through a `Dyn`, which already pays an indirect call.
         - The receiver is `void* self_ptr` in every slot already, whatever
           the impl's receiver mode.
-        - Many operator members never reach a vtable anyway:
-          `dyn_member_unsafe_reason` (`src/types/utils.yo`) drops a member
-          whose non-receiver parameter or result mentions `Self`, such as
-          `Self.Output`. One with concrete types, like `Eq(String)`'s `(==)`,
-          gets a slot.
-        - Test: a `Dyn(Eq(Point))` over a by-value `Point` impl compares
+        - **Which operators have a slot** (corrected 2026-10-05; #1229 said
+          `Eq(String)`'s `(==)` had one, and it does not):
+          - A slot needs a first parameter labelled `self` in the trait
+            (`dyn_member_is_method`, `src/types/utils.yo`). The binary
+            traits label theirs `lhs`, so no binary operator is callable
+            through a `Dyn` today.
+          - `dyn_member_unsafe_reason` also drops a member whose result
+            mentions `Self`, which removes `Negate` and `BitNot`
+            (`Self.Output`).
+          - That leaves `LogicalNot`'s `(!)`, which takes `self` and returns
+            `bool`.
+          - The wrapper rule covers any operator member that gains a slot
+            later.
+        - Test: a `Dyn(LogicalNot)` over a by-value impl negates
           correctly.
       - **Only for the operator traits.** A named method's call site carries
         decision 33's marker. If an impl could change a parameter's mode,
@@ -1721,6 +1775,13 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   `imm(f)`.
 - **Diagnostics:** E0901 at a caller names `imm(x)` in the callee before
   `x.clone()` at the call.
+- **Stale compiler comments.** Three comments say "Yo has no `mut`; the
+  body is the signature", which is false once `mut(x)` exists. They are
+  `src/codegen/functions/generation.yo` (`_maybe_emit_method_entry_borrow_assert`)
+  and `src/evaluator/effects/mutation_summary.yo` (twice, at the file's
+  mask overview and at `function_param_mutation_mask`). Generation A
+  rewrites them to "a `mut` parameter spells the write, and the mask still
+  covers the writes reached through a `ref` object until V5".
 - **Docs, instruction files, skills and the context pack** are rewritten.
   The seven skill-tree goldens move.
 - **Measured:** `check ./src` time and stage-2 RSS.
