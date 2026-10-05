@@ -2506,6 +2506,12 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 修改摘要无法解析、写入是推定的，`[inout-borrow-capture]` 表示对闭包捕获的变量的
 写入。
 
+`YO_AUDIT_IMPLICIT_COPY=1 yo check <path>` 会列出唯一所有权下需要显式写出的拷贝
+（`plans/VALUES_BY_DEFAULT.md` §6 第 1 项）。每一行 `[implicit-copy]` 是对拥有堆数据的值
+（`String`、集合、`Box`、`Arc`、`Dyn` 或 `ref` 对象）的一次存储、绑定、返回、
+拥有型实参或闭包捕获，而它的来源之后仍然存活：借用的参数、字段读取、`match` 或
+`for` 绑定，或之后还会被读取的局部变量。最后一次使用的局部变量是移动，不会列出。
+
 ### ArrayList
 
 支持自动扩容的动态数组。

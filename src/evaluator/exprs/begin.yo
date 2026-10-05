@@ -21,6 +21,7 @@ pragma(Pragma.AllowUnsafe);
   BK_RETURN,
   BK_BREAK,
   BF_DUP,
+  BF_DROP,
   BF_UNWIND,
   BK_ASSIGN,
   BK_INIT_ASSIGN,
@@ -96,7 +97,11 @@ pragma(Pragma.AllowUnsafe);
   consume_case_body_temp_var,
   set_expr_as_needs_to_call_dup,
   get_dup_use_site_token,
-  snapshot_loop_flow
+  snapshot_loop_flow,
+  ImplicitCopyPending,
+  audit_implicit_copy_enabled,
+  audit_take_implicit_copy_pending,
+  audit_print_implicit_copy
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -1467,6 +1472,248 @@ _optimize_dup_drop_pairs :: (
     });
   });
 });
+// ---------------------------------------------------------------------------
+// YO_AUDIT_IMPLICIT_COPY: is the copied variable used again?
+// ---------------------------------------------------------------------------
+/// What `_ic_scan` found for one pending copy site.
+_ICScan :: ref(
+  struct(
+    /// A node at the site's position was visited.
+    site_seen : bool,
+    /// Reads of the variable seen.
+    reads : usize,
+    /// A read after the site: the copy is a real copy.
+    later : bool,
+    /// The path through the site has left the function (`return`, `unwind`,
+    /// `panic`), so nothing after it reads the variable.
+    done : bool
+  )
+);
+_ic_new_scan :: (fn() -> _ICScan)(
+  _ICScan(site_seen : false, reads : usize(0), later : false, done : false)
+);
+/// `e` ends by leaving the function: its last statement is `return`,
+/// `unwind` or `panic` (`break`/`continue` stay in the function).
+_ic_exits_function :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, _, args, _, _) => cond(
+      (ast_expr_is_fn_call_of(e, BK_RETURN, .None) || ast_expr_is_fn_call_of(e, BF_UNWIND, .None) || ast_expr_is_fn_call_of(e, "panic", .None)) => true,
+      ast_expr_is_fn_call_of(e, BK_BEGIN, .None) => {
+        (k : usize) = args.len();
+        while((k > usize(0)) && (ast_expr_is_fn_call_of(args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
+          k = (k - usize(1));
+        });
+        (k > usize(0)) && _ic_exits_function(args(k - usize(1)))
+      },
+      true => false
+    )
+  )
+);
+/// Fold a nested scan into `acc`.
+_ic_merge :: (fn(acc : _ICScan, sub : _ICScan) -> unit)({
+  acc.reads = (acc.reads + sub.reads);
+  if(sub.site_seen, {
+    acc.site_seen = true;
+  });
+  if(sub.later, {
+    acc.later = true;
+  });
+  if(sub.done, {
+    acc.done = true;
+  });
+});
+_ic_read :: (fn(tok : Token, site : ImplicitCopyPending, acc : _ICScan) -> unit)({
+  acc.reads = (acc.reads + usize(1));
+  if((tok.module_path == site.module_path) && (tok.byte_offset > site.byte_offset), {
+    acc.later = true;
+  });
+});
+/// Walk `e` in the declaring block for reads of `v` after `site`. A read is
+/// an atom resolving to `v` (by id, so a shadowing binding is not one), or a
+/// closure literal capturing `v` (its body is another function, so only its
+/// position counts). The left side of `v = …`, a field name after `.` and a
+/// label before `:` are not reads. A `while` that contains the site and reads
+/// `v` runs the site again, so the copy is live unless the loop reassigns
+/// `v`. Follows `macro_expansion` as the dup collector does.
+_ic_scan :: (fn(e : AstExpr, v : Variable, site : ImplicitCopyPending, acc : _ICScan, ctx : EvalContext) -> unit)({
+  if(acc.later || acc.done, {
+    return(());
+  });
+  tok := ast_expr_token(e);
+  if((tok.byte_offset == site.byte_offset) && (tok.module_path == site.module_path), {
+    acc.site_seen = true;
+  });
+  ei_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(e));
+  match(
+    ei_opt,
+    .Some(ei) => {
+      match(
+        expr_info_macro_expansion(ei),
+        .Some(mx) => {
+          recur(mx, v, site, acc, ctx);
+          return(());
+        },
+        .None => ()
+      );
+      if(match(expr_info_is_anonymous_function_definition(ei), .Some(b) => b, .None => false), {
+        match(
+          expr_info_deferred_dup_expressions(ei),
+          .Some(dl) => {
+            (di : usize) = usize(0);
+            while(di < dl.len(), {
+              match(
+                dl.get(di),
+                .Some(d) => if(match(_dup_call_target_name(d), .Some(n) => (n == v.name), .None => false), {
+                  _ic_read(tok, site, acc);
+                }),
+                .None => ()
+              );
+              di = (di + usize(1));
+            });
+          },
+          .None => ()
+        );
+        return(());
+      });
+    },
+    .None => ()
+  );
+  match(
+    e,
+    .Atom(_, atok) => if(atok.value == v.name, {
+      match(
+        ei_opt,
+        .Some(aei) => match(
+          get_variables_from_env(aei.env, v.name.clone()).last(),
+          .Some(rv) => if(rv.id == v.id, {
+            _ic_read(atok, site, acc);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+    }),
+    .FnCall(_, f, args, _, _) => {
+      if(_dup_call_target_name(e).is_some() || ast_expr_is_fn_call_of(e, BF_DROP, Option(usize).None), {
+        return(());
+      });
+      first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      second := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+      if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
+        recur(first, v, site, acc, ctx);
+        return(());
+      });
+      if(ast_expr_is_fn_call_of(e, ":", Option(usize).Some(usize(2))) && ast_expr_is_atom(first), {
+        recur(second, v, site, acc, ctx);
+        return(());
+      });
+      if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && ast_expr_is_atom(first) && (ast_expr_token(first).value == v.name), {
+        recur(second, v, site, acc, ctx);
+        return(());
+      });
+      // A branch: an arm whose BODY holds the site excludes the arms after
+      // it, and one that leaves the function ends the path.
+      if(ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+        (bi : usize) = usize(0);
+        while((bi < args.len()) && !(acc.later || acc.done), {
+          arm := match(args.get(bi), .Some(a) => a, .None => make_err_expr());
+          (taken : bool) = false;
+          if(ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
+            match(
+              arm,
+              .FnCall(_, _, arm_args, _, _) => {
+                arm_head := match(arm_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+                arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+                recur(arm_head, v, site, acc, ctx);
+                body_scan := _ic_new_scan();
+                recur(arm_body, v, site, body_scan, ctx);
+                _ic_merge(acc, body_scan);
+                if(body_scan.site_seen, {
+                  taken = true;
+                  if(_ic_exits_function(arm_body), {
+                    acc.done = true;
+                  });
+                });
+              },
+              .Atom(_, _) => ()
+            );
+          }, {
+            recur(arm, v, site, acc, ctx);
+          });
+          bi = cond(taken => args.len(), true => (bi + usize(1)));
+        });
+        return(());
+      });
+      // Leaving the function: nothing after a `return` holding the site runs.
+      is_exit := (ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None));
+      is_while := ast_expr_is_fn_call_of(e, "while", Option(usize).None);
+      scan := cond((is_while || is_exit) => _ic_new_scan(), true => acc);
+      recur(f, v, site, scan, ctx);
+      (ai : usize) = usize(0);
+      while((ai < args.len()) && !(scan.later || scan.done), {
+        match(args.get(ai), .Some(a) => recur(a, v, site, scan, ctx), .None => ());
+        ai = (ai + usize(1));
+      });
+      if(is_exit, {
+        _ic_merge(acc, scan);
+        if(scan.site_seen, {
+          acc.done = true;
+        });
+      });
+      if(is_while, {
+        // The loop runs the site again unless that path left the function
+        // or the loop reassigns the variable.
+        repeats := (scan.site_seen && !scan.done && (scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx));
+        _ic_merge(acc, scan);
+        if(repeats, {
+          acc.later = true;
+        });
+      });
+    }
+  );
+});
+/// Judge the pending copies of `frame`'s variables
+/// (`audit_record_implicit_copy`, evaluator/utils.yo) against the block that
+/// declares them, which holds every later use: a copy whose variable is read
+/// again is printed; one with no later read was the last use, a move.
+_audit_judge_implicit_copies :: (fn(frame : Frame, begin_args : ArrayList(AstExpr), ctx : EvalContext) -> unit)({
+  fvars := frame.variables;
+  (i : usize) = usize(0);
+  while(i < fvars.len(), {
+    match(
+      fvars.get(i),
+      .Some(v) => match(
+        audit_take_implicit_copy_pending(v.id),
+        .Some(sites) => {
+          (si : usize) = usize(0);
+          while(si < sites.len(), {
+            match(
+              sites.get(si),
+              .Some(site) => {
+                acc := _ic_new_scan();
+                (ci : usize) = usize(0);
+                while((ci < begin_args.len()) && !acc.later, {
+                  match(begin_args.get(ci), .Some(c) => _ic_scan(c, v, site, acc, ctx), .None => ());
+                  ci = (ci + usize(1));
+                });
+                if(acc.later, {
+                  audit_print_implicit_copy(site.line);
+                });
+              },
+              .None => ()
+            );
+            si = (si + usize(1));
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 _schedule_scope_end_drops :: (
   fn(
     frame : Frame,
@@ -2577,7 +2824,7 @@ _evaluate_begin_expression_impl :: (
         // (where the temp does exist): owning temps still consume, non-RC and
         // inlinable-concrete values still decline — only the borrowed case
         // gains its balancing +1 (the round-3 borrowed-field-tail UAF).
-        set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn);
+        set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn, "return");
       });
       if(nrv > usize(0), {
         match(
@@ -2638,7 +2885,7 @@ _evaluate_begin_expression_impl :: (
                 rv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(last_expr)));
               }, {
                 // Borrow/outer-frame share: balancing dup.
-                set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn);
+                set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn, "return");
               });
             });
           }
@@ -2646,6 +2893,15 @@ _evaluate_begin_expression_impl :: (
       });
     }
   );
+  // YO_AUDIT_IMPLICIT_COPY: judge the pending copies of this block's locals
+  // and, for a function body, of its parameters (plans/VALUES_BY_DEFAULT.md
+  // §6, item 1). Read-only.
+  if(audit_implicit_copy_enabled(), {
+    match(current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(audit_fr, begin_args, ctx), .None => ());
+    if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
+      match(env.frames.get(env.frames.len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(audit_pfr, begin_args, ctx), .None => ());
+    });
+  });
   // OPTIMIZE_DUP_AND_DROP_PAIRS: cancel each candidate
   // local's single runtime dup against its scope-end drop — a MOVE. Winners
   // are marked consumed HERE so the scheduler's e5 gate skips their drop and

@@ -1110,15 +1110,80 @@ and in git, not a silent edit.
 
 **Order.** Each item notes its status.
 
-1. **First gate: measure the migration** (in progress).
-   `YO_AUDIT_IMPLICIT_COPY=1` lists every dup the evaluator inserts for a
-   value of the explicit-copy kind whose source is used again: the copies
-   the new rule turns into errors.
-   - It runs over `src/`, `std/` and `tests/`, split by type: `String`, each
-     collection, `Box`, `Dyn`, and `Rc`/`Arc` handles (to size V2c).
-   - It samples whether each site wants a move, a borrow or a real clone.
-   - The numbers are recorded here, and the phases below are sized with
-     them.
+1. **First gate: measure the migration** (measured 2026-10-05, on develop
+   `d342d58bb` plus the audit). `YO_AUDIT_IMPLICIT_COPY=1 yo check <path>`
+   prints one line per dup the evaluator inserts for a value of the
+   explicit-copy kind whose source is used again: the copies the new rule
+   turns into errors.
+   - **Counted.** A source that cannot be moved from is listed at once: a
+     plain (borrowed) parameter, a field or index read (no partial moves,
+     decision 19), a `match` binding of a parameter or field, a `for`
+     element, a module-level value. An owning local is listed only if it is
+     read again after the site, judged at its block's end (another arm of
+     the same branch does not count, an arm that returns ends the path, a
+     loop counts unless it reassigns the local).
+   - **Run as** `check ./src`, `check ./std --std-path ./std`, and
+     `check ./tests --exclude tests/internal --exclude tests/cli-cases --std-path ./std`
+     with a tree-built compiler. Each set keeps its own directory's lines,
+     one per site and instantiated type.
+
+   | Category (with aggregates holding it) | `src/` | `std/` | `tests/` |
+   | --- | ---: | ---: | ---: |
+   | `String` | 1,614 | 210 | 101 |
+   | `ArrayList` | 1,303 | 80 | 105 |
+   | other collections | 76 | 21 | 6 |
+   | `Dyn` | 9 | 6 | 8 |
+   | `Box` (today's: V1 step 1's `Rc`) | 63 | 3 | 187 |
+   | `Arc` | 0 | 133 | 453 |
+   | `ref` objects with owning fields (V5's `Rc`) | 3,049 | 219 | 113 |
+   | `ref` objects of plain fields | 436 | 65 | 129 |
+   | other | 1 | 1 | 8 |
+   | **Copies** | **6,551** | **738** | **1,110** |
+   | Not counted: call sites of a parameter the callee stores (estimate) | ~1,000 | | |
+   | Not counted: a `match` binding of an owned temporary | 3,314 | 183 | 52 |
+
+   - **By path, in `src/`:** 2,461 returns or block tails, 2,441 field
+     stores, 1,064 `y := x` bindings, 432 assignments, 143 captures. By
+     source: 2,689 field reads, 1,710 plain parameters, 1,229 `match`
+     bindings of a parameter or field, 839 locals used again.
+   - **What the sites want.** In a sample of 30 counted `src/` lines, 22
+     want a real `.clone()`, 16 of them of an `Rc`-to-be handle (`TypeValue`,
+     `AstExpr`, `Environment`, `EvalValue`, `Token`). 4 want a borrow
+     (`imm(y) :=`, or a read-only `match` binding), 2 a move by
+     `take`/`replace`, 1 a by-value parameter (decision 30), and 1 an
+     explicit `Rc` (`ComptimeRef.ArrayRef` in `evaluator/calls/index_trait.yo`
+     shares a list on purpose). So about 73% clones, 13% borrows, 10% moves.
+   - **The parameters.** A plain parameter that the callee stores
+     (`ArrayList.push(value : T)`, `HashMap.insert`) copies inside the callee
+     today, once per element type. Once it is by value (decision 30), the
+     copy moves to each call site whose argument lives on. `src/` has 4,103
+     `.push(`/`.insert(` calls; 7 of a sample of 28 pass a live value, hence
+     the ~1,000 estimate. Counting them needs a pass from a callee's stored
+     parameter to its call sites (deferred). The 1,710 plain-parameter sites
+     above are each a `.clone()` in the callee or a by-value parameter.
+   - **The `match` binding of an owned temporary**
+     (`match(xs.get(i), .Some(x) => x, …)`) owns its payload, so it is not a
+     copy there. 7 of a sample of 11 unwrap an accessor that copies (`get`,
+     `last`, a map lookup): decision 20's migration, at the accessor.
+   - **`Rc`/`Arc` handles, sizing V2c (decision 17).** Today's `Box` and
+     `Arc` copies: 63 in `src/`, 136 in `std/`, 640 in `tests/` (most of
+     `tests/`' are handles captured by a spawned closure and used again).
+     V5 makes the `ref` objects `Rc` and adds 3,049 in `src/`, 219 in
+     `std/`, 113 in `tests/`. Of the 3,485 `ref` copies in `src/`, 1,910 are
+     `TypeValue` or `AstExpr` (decision 21's trees) and 791 return a plain
+     `ref` parameter unchanged (`return(expr)` across the evaluator).
+   - **Field writes through a plain parameter of plain data**, measured
+     before decision 30 made them legal: 0 in `src/`, 0 in `std/`, 1 in
+     `tests/`.
+   - **Precision.** Over: a read after a reassignment still counts (except in
+     a loop), a `break` arm is treated as staying in the function, every
+     capture counts (decision 22's non-escaping literals borrow; 143 in
+     `src/`, 154 in `std/`, 744 in `tests/`). Under: the call sites above;
+     destructuring, `Dyn` downcasts and spawn handles, whose dups are
+     emitted by codegen, which `check` never reaches; an owning parameter
+     stored in a single-expression body (no block end to judge it at). The
+     aliasing guard on a field passed to a borrowing parameter is not
+     listed, because that argument stays a borrow.
 2. **V1 step 1:** rename every `Box` to `Rc`, mechanically. Decision 28's
    `Rc` arm follows as its own PR.
 3. **V3:** move-only values and the general predicate (in progress).
