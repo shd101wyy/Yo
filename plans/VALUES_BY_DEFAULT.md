@@ -456,18 +456,27 @@ This renames today's `Send` to `Sync` at the `Arc`/`Mutex`/`RwLock`
 bounds, plus a wider `Send` for the transfer points. D1, D2, D4 and D9 of
 `PARALLELISM_RULES.md` keep their shape (decision 8, V3).
 
-### 3.9 `std/imm/` stays
+### 3.9 `std/imm/` becomes a separate package
 
 `std/imm/` (`string`, `list`, `vec`, `map`, `set`, `sorted_map`,
 `sorted_set`; 4,300 lines) is the atomically counted, immutable,
 structurally shared family.
-- **Its role is persistence:** an update yields a new version that shares
-  structure with the old one (undo stacks, snapshots).
-- **Concurrent reads no longer need it,** since `Arc(ArrayList(T))` covers
+- **Its only remaining role is persistence:** an update yields a new
+  version that shares structure with the old one (undo stacks, snapshots).
+  Concurrent reads no longer need it, since `Arc(ArrayList(T))` covers
   them.
-- **V5:** its types become values over atomic cells, with the same API.
-- **Open:** whether persistence alone justifies 4,300 lines is a later
-  decision (decision 9).
+- **Nothing depends on it.** No `src/` or other `std/` module imports it;
+  only its own tests, the docs and a few `src/` comments mention it.
+- **So it leaves std at V5** (decision 9, revised 2026-10-05) and becomes a
+  standalone package.
+  - Its types are rewritten as values over atomic cells at that point
+    anyway, so it moves once, already in the final language. A package may
+    use the cell primitive in a `pragma(Pragma.AllowUnsafe)` file
+    (decision 6).
+  - **It stays in CI** as a vendored package, built and tested like
+    `vendor/markdown_yo`. It has been a useful compiler stress test:
+    generic recursion, cache keys and atomic counts. Several fixed issues
+    and `src/` comments trace bugs to `std/imm/map.yo` and `sorted_map.yo`.
 
 ### 3.10 Exclusivity: no `RefCell`
 
@@ -762,7 +771,9 @@ and in git, not a silent edit.
    move-only otherwise. Sharing is `Rc(Dyn(Trait))`.
 8. **`Send` is a move; `Sync` is sharing** (§3.8). There is no isolation
    walk.
-9. **`std/imm/` stays** (§3.9).
+9. **`std/imm/` becomes a separate package at V5** (§3.9). Revised
+   2026-10-05 by the maintainer: its role is persistence alone, and nothing
+   in std or the compiler depends on it.
 10. **Phase order:** V1, V3, V3b, V2, V4, V5 (§6). V3 comes before V2 so
     that the move-only machinery is mature before the collections need
     the general predicate.
@@ -925,27 +936,45 @@ and in git, not a silent edit.
       ```
     - **Phase.** It lands with `imm(y) :=` and last-use live ranges, before
       the unique `Box`. The projection step lands with V2b.
-26. **A `match` scrutinee borrows by default, and `match(move(x), …)`
-    consumes it.**
-    - **Borrowing.** A scrutinee is a read position, so its bindings borrow
-      the payload. A `mut` scrutinee binds `mut` places (decision 25 needs
-      this).
-    - **`match(move(x), …)`.** `x` is consumed, and the selected arm's
-      bindings own their parts.
-      - Guards see borrows, and the move happens when an arm is selected
-        (Rust's rule).
-      - Unbound parts are dropped on arm entry.
-      - Below the first `Rc`/`Arc` deref, bindings borrow, and the consumed
-        handle lives until the `match` ends.
-    - **An owned temporary scrutinee** (a call result) is consumed without
-      the spelling.
-    - **`move`** reads as what happens, and is unused elsewhere in Yo.
-      Inferring consumption from "`x` is not used again" was rejected: an
-      unrelated later line would change what the bindings mean.
-    - **Rejected: by-value scrutinees with `match(imm(x), …)` to borrow.**
-      Reading matches dominate (about 3,500 tree-matching arms in `src/`).
-    - **Phase.** V3 for move-only payloads, and V2b for the explicit-copy
-      kind.
+26. **A `match` takes its scrutinee by value, the way a parameter does; a
+    borrowed scrutinee is matched through its borrow.** Revised 2026-10-05
+    by the maintainer ("we need to do it right"). This replaces a first
+    version that borrowed by default and consumed with `match(move(x), …)`.
+
+    | Scrutinee | Bindings |
+    | --- | --- |
+    | an owned value or a temporary | consumed; the selected arm's bindings own their parts |
+    | an `imm` binding (an `imm` parameter, a local `imm(y)`) | `imm` borrows |
+    | a `mut` binding | `mut` places |
+    | `match(imm(x), …)` / `match(mut(x), …)` on an owned local | borrows, and `x` stays usable |
+    | implicitly copyable data | a copy |
+
+    - **Why by value.** A bare `x` means by value in every position
+      (decision 30), and a scrutinee is no exception. It also removes two
+      special cases: a `move` keyword, and the rule that a temporary is
+      consumed without one. `match(make_opt(), .Some(v) => v, …)` and
+      `match(x, .Some(v) => v, …)` behave alike.
+    - **Why a borrow is matched through.** Nothing can be moved out of a
+      borrow, so the match follows the scrutinee's mode. This is Rust's
+      default binding modes. Most of the compiler's ~3,500 tree-matching
+      arms are on parameters, which V3b makes `imm`, so they need no
+      annotation. The explicit `imm(x)`/`mut(x)` is needed only to keep
+      using an owned local after the match, which is where E0901 points.
+    - **Rules for a consuming match:**
+      - Guards see the bindings as borrows, and the move happens when an
+        arm is selected (Rust's rule). A guard that consumed a binding would
+        otherwise leave the next arm a moved payload.
+      - Parts the pattern does not bind (`_`, unbound fields) are dropped
+        when the arm is entered.
+      - Below the first `Rc`/`Arc` deref, bindings borrow, because other
+        handles may share the cell. The consumed handle lives until the
+        `match` ends.
+    - **`mut` scrutinees** bind `mut` places, which decision 25's cursor
+      walk needs.
+    - **Phase.** V3 for move-only payloads, then V3b, which makes plain
+      scrutinees by value together with plain parameters, and V2b for the
+      explicit-copy kind. Until V3b, a plain scrutinee borrows, as today.
+
 27. **The compiler may elide a `.clone()` whose source is dead, as an
     optimization, never as semantics.**
     - **When.** Only where the move checker would accept the move instead:
@@ -1114,8 +1143,8 @@ and in git, not a silent edit.
 **Step 2: the unique `Box`** (after V3 and decision 25).
 - **The type.** `Box(V)` is a uniquely owned cell with no count, a deep
   `Clone`, `Eq`/`Hash`/`Default` by payload, and `box(v, alloc)`. It is
-  explicit-copy from its first commit, and decision 26's
-  `match(move(b), …)` applies to its payloads.
+  explicit-copy from its first commit, and decision 26's consuming match
+  applies to its payloads.
 - **Sites that move back to `Box`** (recursion and size only):
   - `Option(Box(Self))`: `is_owning_the_same_rc_value_as` on `Variable`,
     `CapturedVariable`, `SuspensionCapturedVariable` and
@@ -1247,7 +1276,9 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
      Plain parameters of implicitly copyable types stay plain: their
      meaning (a copy) and their C (`T x`) are unchanged. So the sweep
      changes no program's behaviour.
-  2. **The flip:** a plain parameter is by value.
+  2. **The flip:** a plain parameter is by value, and so is a plain `match`
+     scrutinee (decision 26). The sweep first rewrites each `match` on an
+     owned local that is used after the match to `match(imm(x), …)`.
   3. **Deleting** `own`, `sink` and `inout`.
 - **Callbacks:** std's `for_each`, `map`, `filter` and `with_lock` take
   `imm(f)`.
@@ -1388,7 +1419,12 @@ stage-2 RSS):
   - the wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`
     (each wrapper's only field becomes the private `_cell`, so
     `Box(T)(…)` outside the prelude is E0405);
-  - `std/imm` moves onto atomic cells;
+  - `std/imm` moves onto atomic cells and out of std, into its own
+    repository (§3.9), vendored under `vendor/` and built and tested in CI
+    like `vendor/markdown_yo`. Its `tests/imm_*` files and
+    `docs/*/IMMUTABLE_COLLECTIONS.md` go with it, and DESIGN, STRINGS,
+    ARC, CYCLE_COLLECTION, MEMORY_SAFETY and the syntax cheatsheet point to
+    the package;
   - the tests migrate (~150 declarations in 68 files):
     `tests/ref_struct.test.yo`, `tests/ref_enum.test.yo` and
     `tests/atomic_object.test.yo` become the `Rc`/`Box`/`Arc` test files.
@@ -1407,7 +1443,7 @@ stage-2 RSS):
     Reference-Semantics Types);
   - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (rescoped,
     §3.14), CYCLE_COLLECTION, ISOLATED, ARC, THREAD_SAFETY, PARALLELISM,
-    IMMUTABLE_COLLECTIONS, DYN_DESIGN, STRINGS, TYPE_REFLECTION and
+    IMMUTABLE_COLLECTIONS (moves to the package), DYN_DESIGN, STRINGS, TYPE_REFLECTION and
     DERIVE_TRAITS;
   - the instruction files, the three skills (re-record the seven skill-tree
     goldens) and the pack (`yo context`);
@@ -1431,7 +1467,8 @@ stage-2 RSS):
 | an implicit `Rc`/`Arc` copy | `r.clone()` | E0901 (V2c) |
 | `Dispose where(Self <: Rc)` | `Dispose` on a move-only value | V3 impl check |
 | a resource copied (`m2 := m`) | `Arc(Mutex(T))`, `clone()`, or `mut` | E0901 + note |
-| a payload extracted from a dying value | `match(move(x), …)` | E0901 at the binding's use |
+| a `match` on an owned local that is used afterwards | `match(imm(x), …)` | E0901 at the later use (V3b) |
+| a payload extracted from a dying value | `match(x, .Some(v) => v, …)`, the by-value default | — |
 | `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; `box(v, alloc : .Some(a))` | docs and skills; E0405 after V5 |
 | `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
 | `rc(x)` (the count) | `ref_count(x)` on an `Rc`/`Arc` | done (#1186) |
