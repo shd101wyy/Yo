@@ -102,8 +102,9 @@ typedef struct {
 
 A method can be called through a `Dyn(Trait)` receiver when:
 
-1. its first parameter is `self` (`self : Self`, `inout(self) : Self` or `self : *(Self)`, since the
-   vtable wrapper unboxes the receiver);
+1. its first parameter is the receiver: labeled `self` (`self : Self`, `inout(self) : Self` or
+   `self : *(Self)`) or typed `Self` under another label, like the operator traits' `lhs : Self`,
+   since the vtable wrapper unboxes the receiver;
 2. `Self` appears nowhere else in its signature: not as another parameter, not as the result, and
    not inside one (`Option(Self)`, `Result(Self, E)`);
 3. it takes no `generic(...)` parameters.

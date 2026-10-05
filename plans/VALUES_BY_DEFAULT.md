@@ -1862,9 +1862,20 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - The mismatch error waits for Generation B.
   - It adds the closure capture list, `{ x, imm(y), mut(z) : &mut w }(params)
     => body` (decision 35).
-  - It adds `imm` to the operator traits' operands, and the impl check
-    that allows by-value operands only on implicitly copyable types
-    (decision 34).
+  - Decision 34's operator-trait `imm` operands, its impl check and its
+    `Dyn` wrapper adaptation are **not** in Generation A; they are
+    Generation B's first item (below). The traits live in `std/prelude.yo`,
+    which the seed compiles, and v0.2.52 rejects `imm(lhs)` as a parameter
+    label. The impl check has nothing to check until then: in Generation A
+    a plain operand already means `imm`, so every existing impl (`String`'s
+    `(==) : fn(lhs : Self, rhs : Self)`) is a borrowing one, and only the
+    flip makes a plain operand by value. The wrapper's `*argN` load is
+    needed only once `imm` lowers to `const T*`. What Generation A does
+    carry is the `Dyn(Eq(Point))` test over a by-value impl, and the fix it
+    exposed: an operator member had no vtable slot, because a `Dyn` method
+    was recognized by the receiver's label `self` alone, never by the type
+    `Self` that `lhs` has
+    (`issues/fixed/an-operator-called-through-a-dyn-has-no-vtable-slot.md`).
   - **Name collisions** (grep, 2026-10-05). `imm` and `mut` name no
     function, local or field in `src/` or `std/`. Three uses must keep
     working, and Generation A carries a test for each:
@@ -1939,6 +1950,13 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     from the expected `Fn` type, and `(inout(n)) => …` is not legal
     either), and `for(xs, mut(x) => …)`.
 - **Generation B,** once `SEED_VERSION` carries Generation A:
+  0. **Decision 34 first:** the prelude's operator traits declare their
+     operands `imm` (`RangeOp`/`RangeInclusiveOp` excepted); the impl check
+     rejects a by-value operand whose type is not implicitly copyable, and
+     a `mut` operand, naming `imm(x)`; and the `Dyn` wrapper passes `*argN`
+     to a by-value impl. It must land with the flip, not before: until a
+     plain operand is by value, the check would reject every existing
+     owning-type impl.
   1. **The `yo fix` sweep** over `src/`, `std/`, `tests/`, docs and skills:
      - every plain parameter and receiver of a type that is not implicitly
        copyable becomes `imm(...)`;
