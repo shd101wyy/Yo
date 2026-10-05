@@ -65,14 +65,14 @@
   BK_BEGIN,
   BK_COND,
   BK_MATCH,
-  BF_ADDRESS_OF,
   BK_TUPLE,
   BK_ARRAY_VAL,
   BF_RECUR,
   BF_RUNTIME,
   BF_YO_BORROW_CHECK,
-  BF_SIZEOF,
-  BF_TYPEID,
+  ast_expr_is_size_of_call,
+  ast_expr_is_type_id_call,
+  ast_expr_is_address_of_call,
   BF_DOWNCAST,
   BF_UPCAST,
   BK_WHILE,
@@ -876,7 +876,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   if(ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), return(generate_begin(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None), return(_store_result_temp_in_task(expr, generate_cond_expression(expr, indent.clone(), context), indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(_store_result_temp_in_task(expr, generate_match_expression(expr, indent.clone(), context), indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
+  if(ast_expr_is_address_of_call(expr, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), return(generate_anonymous_tuple(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r), .None => ()));
   // `Array(T, N)(a, b)` with RUNTIME elements. The array-literal form reaches
@@ -907,8 +907,8 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // `__yo_borrow_check(coll, loop)`: the strict-mode check ran in the
   // evaluator; only the loop is emitted.
   if(ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, Option(usize).Some(usize(2))), return(match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(1)), .Some(inner) => _call_generate_expr(inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))));
-  if(ast_expr_is_fn_call_of(expr, BF_SIZEOF, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BF_TYPEID, Option(usize).Some(usize(1))), return(generate_typeid(expr, indent.clone(), context)));
+  if(ast_expr_is_size_of_call(expr, Option(usize).Some(usize(1))), return(generate_sizeof(expr, indent.clone(), context)));
+  if(ast_expr_is_type_id_call(expr, Option(usize).Some(usize(1))), return(generate_typeid(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_DOWNCAST, Option(usize).Some(usize(2))), return(generate_downcast(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_UPCAST, Option(usize).Some(usize(2))), return(generate_upcast(expr, indent.clone(), context)));
   if(is_builtin_yo_inline_function(_func_name(expr)), return(_generate_inline_call(expr, indent.clone(), context)));

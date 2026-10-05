@@ -62,6 +62,12 @@ import("std/fmt");
   BK_CONST,
   BF_TYPEOF,
   BF_SIZEOF,
+  BF_TYPE_OF,
+  BF_SIZE_OF,
+  BF_ALIGN_OF,
+  BF_TYPE_ID,
+  BF_ADDR_OF,
+  BK_BORROW_MUT,
   BF_UNSAFE,
   BF_PRAGMA,
   BF_REQUIRES,
@@ -985,6 +991,13 @@ _evaluate_expression :: (
           evaluate_typeof(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_SIZEOF, .None)) =>
           evaluate_size_of(expr, env, ctx, exn),
+        // The snake_case spellings (V3b Generation A): `type_of`, `size_of`
+        // and `type_id` are seven bytes, `align_of` eight; a wrong length
+        // gate makes the arm dead.
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_TYPE_OF, .None)) =>
+          evaluate_typeof(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_SIZE_OF, .None)) =>
+          evaluate_size_of(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UNSAFE, .None)) =>
           evaluate_unsafe(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_PRAGMA, .None)) =>
@@ -1054,6 +1067,10 @@ _evaluate_expression :: (
           evaluate_align_of(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEID, .None)) =>
           evaluate_type_id(expr, env, ctx, exn),
+        ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_ALIGN_OF, .None)) =>
+          evaluate_align_of(expr, env, ctx, exn),
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_TYPE_ID, .None)) =>
+          evaluate_type_id(expr, env, ctx, exn),
         ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_DOWNCAST, .None)) =>
           evaluate_downcast(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_UPCAST, .None)) =>
@@ -1073,6 +1090,23 @@ _evaluate_expression :: (
           evaluate_iso_type_call(expr, env, ctx, exn),
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(1)))) =>
           evaluate_address_call(expr, env, ctx, exn),
+        // `addr_of(x)` is today's address-of `&x` (decision 33).
+        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ADDR_OF, .Some(usize(1)))) =>
+          evaluate_address_call(expr, env, ctx, exn),
+        // `&mut x` is a call-site marker, consumed where it is legal (a call
+        // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
+        // Anywhere else it is not an expression.
+        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .None)) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `\`&mut x\` lends a place to a \`mut\` (\`inout\`) parameter: it is written as a call argument or a \`match\` scrutinee, and is not an expression of its own. Pass the place itself, or take a raw pointer with \`addr_of(x)\`.`
+              )
+            )
+          );
+          expr
+        },
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TUPLE_TYPE, .None)) =>
           evaluate_tuple_type(expr, env, ctx, exn),
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_ARRAY, .None)) =>
