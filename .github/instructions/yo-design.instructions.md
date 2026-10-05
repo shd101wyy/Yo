@@ -104,13 +104,19 @@ accessed with `value.*`. Treat this as a value payload accessor for reference-se
 not automatically as a pointer dereference; pointer dereference still applies
 when the receiver itself has pointer type.
 
-**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Box` and `Arc` implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers; the wrapper's own members win (`b.clone()` is Box's). Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
+**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Box`, `Rc` and `Arc` implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers; the wrapper's own members win (`b.clone()` is Box's). Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
 
 `ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
 an atomic load for `Arc`/`atomic(ref(...))`/`Iso`); it is the only count builtin
 (`BF_REF_COUNT`). `rc` is an ordinary prelude function, the cell constructor
-(`rc(v)`, today exactly `box(v)` returning `Box(T)`; VALUES_BY_DEFAULT V1 renames
-`Box` to `Rc`). As a prelude name it cannot be redefined: a module-level or local
+(`rc(v)` returns an `Rc(T)`). **`Rc(T)` and `Box(T)` are two prelude types with
+the same definition and impls** (VALUES_BY_DEFAULT §6 V1 step 1, Generation A):
+`Rc` is the shared cell's V1 name, and Generation B renames every `Box` site to it.
+The compiler recognises the shared cell BY NAME in a few places (the instance-name
+stamp in `comptime_fn.yo`, `is_box_type`/`is_boxed_type`, `dyn(<ctor>(<closure>))`);
+every such check reads the one list `shared_cell_names_at` (`src/types/guards.yo`),
+never a literal `"Box"`. `dyn(v)` on a non-object still synthesizes the canonical
+`box(v)` (`shared_cell_canonical_names`). As a prelude name it cannot be redefined: a module-level or local
 binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
 named `rc` shadows it in its scope. `ref_count` is not in
 `is_reserved_builtin_binding_name`: the `markdown_yo` dependency binds a local

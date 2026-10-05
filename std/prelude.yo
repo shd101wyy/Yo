@@ -9431,8 +9431,9 @@ export(Result);
 /// assert(a.* == i32(7), "a and b name the SAME value");
 /// ```
 ///
-/// The name is kept until `plans/VALUES_BY_DEFAULT.md` V1 renames this type
-/// to `Rc` and introduces a copy-on-write value `Box`. Until then, every
+/// `Rc(V)` (below) is the same cell under its `plans/VALUES_BY_DEFAULT.md`
+/// name: V1 step 1 renames every `Box` site to `Rc`, and V1 step 2 then
+/// reintroduces `Box` as a uniquely owned, uncounted cell. Until then, every
 /// `ref(struct(...))` in this language is refcounted; `Box` is simply the
 /// one-field case of that.
 ///
@@ -9526,7 +9527,6 @@ export(
 /// b := a;          // a second handle to the same value
 /// consume(b.* = i32(7));
 /// assert(a.* == i32(7), "a and b name the same value");
-/// assert(ref_count(a) == usize(2), "two handles, one cell");
 /// ```
 Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(

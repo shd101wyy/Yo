@@ -24,8 +24,8 @@ test("the prelude rc(v) builds a cell with ref_count 1", {
   };
   assert(ref_count(b) == usize(1), "the copies released their count");
 });
-test("rc(v) is box(v): the same type, the same sharing", {
-  (b : Box(i32)) = rc(i32(1));
+test("rc(v) builds an Rc(V), the shared cell", {
+  (b : Rc(i32)) = rc(i32(1));
   b2 := b;
   consume(b2.* = i32(2));
   assert(b.* == i32(2), "a write through one handle is seen through the other");
