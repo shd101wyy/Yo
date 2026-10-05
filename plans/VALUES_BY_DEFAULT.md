@@ -91,8 +91,9 @@ Unique ownership removes the question instead of answering it.
     `f(x)` passes by value. A mismatch is an error. Method receivers and
     temporaries are exempt (`s.len()`, `show(make_name())`).
   - **Operators borrow their operands with no marker** (decision 34):
-    `a == b` and `a + b` keep both operands, because each operator's trait
-    declares them `imm`.
+    `a == b` and `a + b` keep both operands. Each operator's trait declares
+    them `imm`, and an impl on an implicitly copyable type may take them by
+    value instead (`Point op(Point, Point)`).
   - The same two words spell:
     - local borrows: `imm(y) := place` and `mut(y) := place`;
     - re-pointing a borrow: `imm(cur) = place`;
@@ -1188,7 +1189,7 @@ and in git, not a silent edit.
       - temporaries, literals and closure literals passed to an `imm`
         parameter: `show(make_name())`, `xs.map(x => x + 1)`. A temporary
         cannot go to a `mut` parameter, which needs a place;
-      - operator operands, which each operator's trait declares `imm`
+      - operator operands, which no operator consumes or writes
         (decision 34).
     - **Address-of becomes `addr_of(x)`.** Today `&x` makes a raw pointer
       `*(T)` usable only in `pragma(Pragma.AllowUnsafe)` code. A word makes
@@ -1216,14 +1217,48 @@ and in git, not a silent edit.
       - The range traits (`RangeOp`, `RangeInclusiveOp`) are the exception.
         A range stores its endpoints, so like a constructor it takes them by
         value.
-      - Every impl matches its trait, so the mode is the same for every
-        type.
-    - **No marker at the operator.** `a == b` and `a + b` borrow both
-      operands, and no operator consumes or writes an operand.
+    - **An impl may take an implicitly copyable operand by value**
+      (amended 2026-10-05 by the maintainer). Where the trait declares
+      `imm(x) : T` and `T` is implicitly copyable, the impl may write
+      `x : T` instead:
+      ```rust
+      impl(Point, Add(Point)(
+        Output : Point,
+        (+) : (fn(lhs : Self, rhs : Self) -> Self)(...)             // Point op(Point, Point)
+      ));
+      impl(String, Add(String)(
+        Output : String,
+        (+) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> Self)(...)   // String op(const String*, const String*)
+      ));
+      ```
+      - **Why it is sound.** For an implicitly copyable type, a copy keeps
+        every promise an `imm` borrow makes: the caller keeps its value,
+        and nothing the callee does reaches it. The by-value impl is the
+        cheaper way to meet the trait's contract.
+      - **Why it is wanted.** Without it, every small value type behind an
+        operator is passed by pointer. A `Point` of two `i32`s fits in one
+        register, but by pointer the caller stores it to memory first, and
+        only inlining removes the indirection.
+      - **The C stays readable.** The impl's own signature is its C
+        signature, as decision 30 requires. The impl's author chooses, and
+        the compiler never picks a lowering.
+      - **The check.** A by-value operand whose type is not implicitly
+        copyable is an error at the impl, because it would consume the
+        caller's operand. The error names `imm(x)`. An operand written
+        `mut(x)` is an error, because no operator writes an operand.
+      - **Call sites are the same either way.** An operator takes no marker,
+        and a generic body is specialized per instantiation, so `a + b`
+        calls the concrete impl with its own convention.
+      - **Only for the operator traits.** A named method's call site carries
+        decision 33's marker. If an impl could change a parameter's mode,
+        `p.eq(&q)` through the trait and `p.eq(q)` against the concrete
+        type would disagree. Extending the rule to every trait method would
+        need its own marker decision.
+    - **No marker at the operator.** `a == b` and `a + b` never consume or
+      write an operand, whichever mode the impl chose.
       - The operator itself is the marker, as `.` is for a receiver
-        (decision 33), because each operator has one mode for every impl.
+        (decision 33).
       - A `&` on an operand is an error.
-      - Implicitly copyable operands are unaffected.
     - **Why.** On `String`, `==` is the most frequent call in the compiler:
       the comment on `std/string/string.yo`'s `Eq` measures it at ~38% of a
       stage-2 emit.
@@ -1237,13 +1272,28 @@ and in git, not a silent edit.
     - **Rejected:**
       - markers on operands;
       - Rust's split, where comparisons borrow and arithmetic consumes,
-        because `+` on an owning type would then consume silently.
+        because `+` on an owning type would then consume silently;
+      - `imm` for every impl, which puts small value types behind a
+        pointer;
+      - impls on borrows, Rust's `impl Add for &String`, which doubles the
+        impl surface for a borrow Yo does not make first-class;
+      - a mode parameter on the trait (`Add(Rhs, mode)`), heavy machinery
+        for one rule.
     - **Indexing is not covered:** `xs(i)` is a projection (decision 24).
     - **Phase.** V3b.
-      - Generation A adds `imm` to the traits' operands. Today's plain
-        parameters already borrow, so no program changes behaviour.
-      - The Generation B sweep rewrites every operator impl's operands to
-        `imm`, plain-data types included, because an impl matches its trait.
+      - Generation A adds `imm` to the traits' operands. It also adds the
+        impl check: `imm`, or by value for an implicitly copyable type.
+        Today's plain parameters already borrow, so no program changes
+        behaviour.
+      - The Generation B sweep rewrites the operands of operator impls on
+        types that are not implicitly copyable to `imm`. The impls on plain
+        data keep their by-value operands.
+      - Tests:
+        - a by-value `Point` `+` emits `Point op(Point, Point)`;
+        - a `String` `+` emits `const String*` operands;
+        - a by-value `String` operand is the impl error;
+        - a `mut` operand is an error;
+        - generic `a + b` calls each impl with its own convention.
 
 **Considered and kept implicit** (2026-10-05, the maintainer):
 - **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
@@ -1612,7 +1662,9 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     parameter's mode: an `imm`/`mut` parameter receives a borrow, and a
     raw-pointer parameter keeps receiving a pointer.
   - The mismatch error waits for Generation B.
-  - It adds `imm` to the operator traits' operands (decision 34).
+  - It adds `imm` to the operator traits' operands, and the impl check
+    that allows by-value operands only on implicitly copyable types
+    (decision 34).
   - **Name collisions** (grep, 2026-10-05). `imm` and `mut` name no
     function, local or field in `src/` or `std/`. Three uses must keep
     working, and Generation A carries a test for each:
