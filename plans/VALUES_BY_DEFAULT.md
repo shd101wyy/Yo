@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 31 in §4 are confirmed; no question is open.
+- **Decisions:** all 32 in §4 are confirmed; no question is open.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -299,9 +299,9 @@ Explicit sharing must not mean writing `.*` everywhere.
 - **Resolution order:** wrapper field, wrapper method, payload field,
   payload method, at each level, recursively through nested wrappers
   (`Rc(Box(T))` reaches `T`).
-  - A name both have resolves to the wrapper's, silently, the way an
-    inherent method beats a trait method. E0616 stays among traits at one
-    level.
+  - A name both have is an error (decision 32), which names
+    `Rc.clone(w)` for the wrapper's member and `w.*.clone()` for the
+    payload's. A name only one of them has forwards as above.
   - The same order holds in callee position: `w.items(i)`,
     `w.items(i) = v`, and `w.f(x)` for a function-typed payload field.
 - **Hooks:**
@@ -746,7 +746,7 @@ machinery.
 
 ## 4. Decisions
 
-All 31 are confirmed by the maintainer. A change is a dated amendment here
+All 32 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -1083,6 +1083,45 @@ and in git, not a silent edit.
       is mechanical: each pattern position whose type is a wrapper gains
       the wrapper's constructor.
 
+32. **A member name both the wrapper and its payload have is an error;
+    the wrapper's is spelled `Rc.clone(w)`.** Confirmed 2026-10-05 by the
+    maintainer ("whenever we could be explicit, lets do explicit").
+    - **The rule.** If `w : Rc(T)` (or `Box(T)`, `Arc(T)`) and both the
+      wrapper and `T` have a member `m`, then `w.m` is an error. It names
+      both spellings:
+      - `Rc.clone(w)` for the wrapper's member (`Box.clone(b)`,
+        `Arc.clone(a)`);
+      - `w.*.clone()` for the payload's.
+
+      A name only one of them has forwards (§3.3).
+    - **This is Rust's convention, made a rule.** Rust's `w.clone()` on an
+      `Rc` compiles and means the handle copy. The Rust book recommends
+      `Rc::clone(&w)`, and clippy's `clone_on_ref_ptr` lint enforces it, so
+      that a cheap handle copy reads differently from a deep clone. Yo
+      rejects the ambiguous form outright.
+    - **The spelling needs one small feature:** calling a method through an
+      unapplied generic type constructor, with its arguments inferred from
+      the receiver (`Rc.clone(w)`, as Rust infers `Rc::clone`'s `T`).
+      Today `Rc(T).clone(w)` works and `Rc.clone(w)` is E0610.
+    - **Phase.** V1 Generation A; the call sites migrate with V1 step 1's
+      rename.
+
+**Considered and kept implicit** (2026-10-05, the maintainer):
+- **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
+  is E0901, which points at the move. A marker such as Mojo's `s^` on every
+  by-value pass was rejected.
+- **Copies of plain data** (decision 16). The copy is free and has no
+  observable effect.
+- **Allocator placement.** The `alloc` parameter is the explicit form, and
+  `with_allocator` places everything a call tree creates (§3.11). Both
+  stay.
+- **A closure's capture mode** follows the parameter it is passed to
+  (`imm(f)` or a by-value `f`, decision 22), which the callee's signature
+  spells.
+  - A capture list was deferred. `[imm(s), t] () => …` does not fit Yo's
+    syntax, and no Yo-shaped spelling has been proposed.
+  - This is to be revisited if one is.
+
 ## 5. Prerequisites, gates and the seed
 
 - **`STRING_VALUE_SEMANTICS`.** S1 (E0908 on `mut` writes through a
@@ -1213,6 +1252,16 @@ and in git, not a silent edit.
 - `Allocator` in the prelude (#1188, #1207).
 
 **Remaining, Generation A:**
+- **Decision 32.**
+  - The wrapper/payload name clash becomes an error, in
+    `evaluate_property_access` and `_try_find_receiver_method`.
+  - A method can be called through an unapplied generic type constructor
+    (`Rc.clone(w)`), with the arguments inferred from the receiver.
+  - Tests: the clash error with both suggested spellings; `Rc.clone(w)`,
+    `Box.clone(b)` and `Arc.clone(a)` inferring `T`; and forwarding of
+    unclashed names unchanged.
+  - Measured 2026-10-05: `Box(i32).clone(b)` and `String.len(s)` compile
+    today, and `Box.clone(b)` is E0610.
 - **The exclusivity assert moves to the write-through-`Rc` site** (§3.10).
   Tests: a closure and an async fn that mutate a captured
   `Rc(ArrayList(T))` while a `for` borrows it panic deterministically.
@@ -1594,9 +1643,9 @@ stage-2 RSS):
     place a callee could reach.
 - **The compiler's trees (decision 21).** With `Rc` children, `check ./src`
   time and RSS should stay flat. V4 measures each tree.
-- **Auto-dereference precedence.** Wrapper members win silently. A payload
-  method shadowed by a wrapper method (`clone` on `Rc(T)` vs `T.clone`) is
-  reached with `w.*.clone()`. This is documented and tested.
+- **Auto-dereference precedence.** Decision 32 makes a wrapper/payload name
+  clash an error. So the risk is the error's text: it must name both
+  spellings, and `yo fix` must offer them.
 - **Move-only in generic std code.** Errors raised at instantiation inside
   std must read well. `_reported_at_user_call` anchors them at the user's
   call.
