@@ -587,9 +587,9 @@ _ := unsafe(unistd.close(fd));
 ### Type inference
 
 ```rust
-// String is an reference-semantics type with automatic reference counting
-(my_string : String) = String.from("Hello, world"); // Heap-allocated
-my_string_2 := my_string; // Both point to the same object (RC incremented)
+// String's bytes live on the heap, behind a reference-counted buffer
+(my_string : String) = String.from("Hello, world"); // Heap-allocated bytes
+my_string_2 := my_string; // Today a copy shares the buffer; my_string.clone() is an independent copy
 // Primitive types are copied
 my_int := 1; // Stack-allocated
 my_int_2 := my_int; // my_int_2 is a copy
@@ -1728,7 +1728,7 @@ for(iter_expr, variable => {
 });
 ```
 
-The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For reference-semantics element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(coll, inout(x) => body)` below, or an index loop with index writes:
 
 ```rust
 // Value form — each `x` is yielded by value.
@@ -1740,8 +1740,11 @@ for(list, value => {
 });
 
 // Reference-semantics elements are handles — mutation lands in the collection.
-for(names, s => {
-  s.push_str("!");
+Counter :: ref(struct(n : i32));
+counters := ArrayList(Counter).new();
+counters.push(Counter(n : i32(1)));
+for(counters, c => {
+  c.n = (c.n + i32(1));
 });
 
 // Struct/scalar elements: index writes mutate in place.
@@ -2476,11 +2479,14 @@ s3 := (*u8)("Hi"); // Or use a pointer cast to get a C string pointer.
 ### String (Growable UTF-8 String)
 
 Heap-allocated, growable UTF-8 string — the same shape as Rust's `String`. It is
-NOT immutable: `push_str`, `push_string`, `push_byte`, `reserve` and `clear` take
+NOT immutable: `push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`,
+`clear`, `truncate`, `insert_str`, `insert`, `remove` and `pop` take
 `inout(self)` and mutate in place. Operators like `+` still produce a new string.
 
 For an immutable, atomically reference-counted string that is safe to share across
 threads, see `std/imm/string`, whose "modification" methods all return a new value.
+For a mutable builder that several owners share, use `StringBuilder`, a
+reference-semantics type.
 
 ```rust
 s := String.new();
@@ -2490,58 +2496,87 @@ s3 := (s + s2); // Create a new string.
 
 #### Writing through a copy of a `String`
 
-`String` has reference semantics: a copy shares the original's buffer
-(§Type inference), whether the copy comes from an assignment, a parameter,
-a collection read (`xs(i)`) or a `for` loop element. A write through the copy
-is visible through the original.
+`clone()` is the independent copy. It copies the bytes (O(n)), so nothing
+done to the clone is visible through the original, and the reverse, whether or
+not the original was empty. Every mutator takes `inout(self)` and writes in
+place, and an empty `String` allocates nothing until its first write.
 
-**Known defect (S1, `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`).** An empty `String` has no buffer yet; none is
-allocated until the first write. A write through a copy of an empty `String`
-therefore allocates a buffer in the copy alone, and the original never sees
-it. Nothing reports the lost write.
+A plain copy (`t := s`, a struct copy, a value read out of a collection) still
+copies only the handle. A non-empty buffer is shared, so a write through the
+copy is visible through the original. An empty string has no buffer yet, so
+the copy's first write allocates one of its own, and the original never sees
+it.
 
-Until that is fixed, do not rely on a write through a copy. Take the string as
-`inout(out) : String`, return the result, or call `.clone()` when you want an
-independent string. The example shows both the shared and the lost write:
+**Known defect (S1, `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`).**
+That split is the open half of the issue. `plans/VALUES_BY_DEFAULT.md` V2b
+closes it by making `String` uniquely owned: `t := s` becomes a move, or an
+error naming `s.clone()` when `s` is used again. Until then, do not write
+through a plain copy.
+
+A write lands where it is written:
+
+- **A plain parameter** `fn(out : String)` borrows the caller's value. Writing
+  it (`out.push_str("!")`, or passing it to an `inout` parameter) is E0908. To
+  change the caller's string, take `inout(out) : String`; to produce a new one,
+  return it; to work on a private copy, clone it into a local
+  (`t := out.clone();`) and write the local.
+- **A `for` or `match` binding** borrows too: `for(xs, s => s.push_str("!"))`
+  is E0908. `for(xs, inout(s) => s.push_str("!"))` writes each element in
+  place, and so does `xs(i).push_str("!")`.
+- **A struct field** is written through its place: `p.name.push_str("!")` on an
+  `inout(p)` parameter or a local.
 
 ```rust
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 
-// A plain `String` parameter is a copy of the caller's handle.
-append_copy :: (fn(out : String) -> unit)({
-  out.push_str("!");
-});
-
 // `inout` passes the caller's variable itself.
 append_inout :: (fn(inout(out) : String) -> unit)({
   out.push_str("!");
 });
 
+// A by-value parameter is borrowed: write a local clone and return it.
+with_bang :: (fn(s : String) -> String)({
+  t := s.clone();
+  t.push_str("!");
+  t
+});
+
 main :: (fn() -> unit)({
-  a := String.new();
-  append_copy(a); // lost (the defect): `a` had no buffer, the write allocated one in the copy
-  b := String.from("hi");
-  append_copy(b); // visible: the copy shares `b`'s buffer
-  println(`"${a}" "${b}"`); // "" "hi!"
+  a := String.from("hi");
+  b := a.clone(); // b has its own copy of the bytes
+  b.push_str("?"); // a is untouched
+  println(`"${a}" "${b}"`); // "hi" "hi?"
+
+  e := String.new();
+  f := e.clone();
+  f.push_str("x"); // empty or not, a clone is independent
+  println(`"${e}" "${f}"`); // "" "x"
 
   c := String.new();
   append_inout(c);
-  d := b.clone();
-  d.push_str("?"); // an independent buffer
-  println(`"${c}" "${b}" "${d}"`); // "!" "hi!" "hi!?"
+  d := with_bang(a);
+  println(`"${c}" "${a}" "${d}"`); // "!" "hi" "hi!"
 
   names := ArrayList(String).new();
   names.push(String.new());
   names.push(String.from("n"));
-  for(names, s => {
-    s.push_str("!");
+  for(names, inout(s) => {
+    s.push_str("!"); // writes the element in place
   });
-  println(`"${names(usize(0))}" "${names(usize(1))}"`); // "" "n!"
+  println(`"${names(usize(0))}" "${names(usize(1))}"`); // "!" "n!"
 });
 export(main);
 ```
+
+Because nothing outside a `String` may write its buffer, the byte API copies or
+moves instead of lending: `to_bytes()` returns an independent `ArrayList(u8)`,
+`into_bytes()` consumes the string and moves the buffer out (no copy when no
+other copy shares it), and `from_bytes(own(bytes))` / `from_utf8(own(bytes))`
+take the list over. Bytes are read in place with `len()`, `byte_at(i)`,
+`get_byte(i)` and `bytes()`; a runtime `String` has no `s(i)` (see
+[STRINGS.md](./STRINGS.md)).
 
 #### Template string interpolation with `${}` syntax:
 

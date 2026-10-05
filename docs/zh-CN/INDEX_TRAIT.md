@@ -231,14 +231,17 @@ v := d(usize(0)); // 10
 
 O(1) 随机访问，正确处理环形缓冲区回绕。
 
-### String — `Index(usize)`
+### String — 不实现 `Index(usize)`
+
+`String` 不实现 `Index`，所以运行期的 `s(i)` 是 E0606（"s is not callable"）。请改用具名方法读取字节：
 
 ```rust
 (s : String) = `Hello`;
-b := s(usize(0)); // u8(72) — 字节级访问（'H'）
+b := s.byte_at(usize(0)); // u8(72) — 字节级访问（'H'）；越界时 panic
+c := s.get_byte(usize(9)); // .None — 带检查的形式
 ```
 
-返回 `u8` — 对内部 UTF-8 缓冲区的字节级索引。如需字符级访问，请使用 `chars()` 迭代器。其余所有字符串索引（`substring`、`index_of`、`s(a..b)` 语法糖等）同样是字节偏移 —— 完整契约见 [STRINGS.md](./STRINGS.md)。
+`index` 返回一个可写的位置：通过这个位置写入（`s(i) = b`）会改变所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。Rust 的 `String` 同样没有可写的字节索引。等 `Index` 把读和写分开（在位置形式之外增加按值读取的形式）之后，只读的 `s(i)` 会回来。如需字符级访问，请使用 `chars()` 迭代器。区间语法糖 `s(a..b)` 不受影响；它和其余所有字符串索引（`substring`、`index_of` 等）都是字节偏移 —— 完整契约见 [STRINGS.md](./STRINGS.md)。
 
 ## 错误处理
 
