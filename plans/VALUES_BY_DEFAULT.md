@@ -1599,6 +1599,42 @@ and in git, not a silent edit.
         Both cost a little more than Rust's version, which is the point:
         state that changes across calls is never hidden inside a value
         that looks like a function.
+      - **Worked example: a counter.** What decision 37 rules out is only
+        that a closure's own captured variables change between calls. The
+        state lives where the closure points, or the counter is a named
+        type. The choice follows from whether it escapes:
+        ```rust
+        // 1. Non-escaping: a mut capture (decision 35). No allocation.
+        n := 0;
+        tick := { mut(n) }() => { n = (n + 1); n };
+        tick(); tick();                       // n == 2
+
+        // 2. Escaping, as a closure: the state lives in an Rc cell the closure holds.
+        make_counter :: (fn() -> Impl(Fn() -> i32))({
+          n := rc(0);
+          { n }() => { n.* = (n.* + 1); n.* }
+        });
+
+        // 3. Escaping, with no allocation: a named struct. This is what
+        // Rust compiles an FnMut closure to anyway.
+        Counter :: struct(n : i32);
+        impl(Counter, next : (fn(mut(self)) -> i32)({ self.n = (self.n + 1); self.n }));
+        c := Counter(n : 0);
+        c.next(); c.next();
+        ```
+        - **What is lost.** No capability, and no run-time cost: form 3
+          is the machine code of Rust's `FnMut` closure, which is itself an
+          anonymous struct with a `&mut self` call method.
+        - **The one case that is longer:** an escaping closure that keeps
+          its own state and must not allocate. It is written as form 3, or as
+          form 2 at the cost of the `Rc` allocation. Lazy adapters that store
+          their closure, std's `StreamMap`/`StreamFilter`
+          (`std/async/stream.yo`) and generators, are where this shows.
+        - **If that case proves common,** `FnMut` fits Yo's modes cleanly
+          and can be added later. Its call would take `mut(self)`, and the
+          body could write its by-value captures. The costs are a third call
+          trait in every callback bound, in `Dyn` and in closure inference,
+          and `mut(f)`/`&mut f` wherever such a closure is called.
       - **What it saves.** A third call trait would have to appear in
         every API's bound, in `Dyn`, and in every closure's inferred kind,
         and reading `f(x)` would no longer tell whether `f` itself changed.
