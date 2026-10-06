@@ -879,6 +879,33 @@ _copy_blockers_into :: (fn(ty_in : TypeValue, copy_tt : TypeValue, env : Environ
     pi = (pi + usize(1));
   });
 });
+/// Is `bound` the trait `wanted`, or one of its supertraits: a trait its
+/// `where(Self <: …)` clause names, transitively? A type parameter bounded by
+/// `bound` implements every supertrait, as in Rust: `where(T <: Copy)` gives
+/// `T <: Clone` (plans/VALUES_BY_DEFAULT.md decision 36). The depth guard
+/// stops a cyclic `where(Self <: …)` chain.
+_trait_or_supertrait_is :: (fn(bound : TypeValue, wanted : TypeValue, depth : u32) -> bool)({
+  if(_trait_type_id(bound) == _trait_type_id(wanted), {
+    return(true);
+  });
+  if(depth > u32(8), {
+    return(false);
+  });
+  match(
+    bound,
+    .TraitT({ self_constraints : st_scs }) => {
+      (si : usize) = usize(0);
+      while(si < st_scs.len(), {
+        if(recur(match(st_scs.get(si), .Some(sc) => sc, .None => TypeValue.Unit), wanted, depth + u32(1)), {
+          return(true);
+        });
+        si = (si + usize(1));
+      });
+    },
+    _ => ()
+  );
+  false
+});
 // ---------------------------------------------------------------------------
 // type_implements_trait
 // ---------------------------------------------------------------------------
@@ -1369,7 +1396,7 @@ type_implements_trait :: (
             continue;
           }
         );
-        if(_trait_type_id(req_t) == _trait_type_id(trait_type), {
+        if(_trait_or_supertrait_is(req_t, trait_type, u32(0)), {
           found_req = true;
         });
         ir = (ir + usize(1));
@@ -1411,7 +1438,7 @@ type_implements_trait :: (
                 continue;
               }
             );
-            if(_trait_type_id(wr_t) == _trait_type_id(trait_type), {
+            if(_trait_or_supertrait_is(wr_t, trait_type, u32(0)), {
               found_req = true;
             });
             iwr = (iwr + usize(1));
