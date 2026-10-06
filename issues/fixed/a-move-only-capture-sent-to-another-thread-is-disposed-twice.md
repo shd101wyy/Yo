@@ -66,3 +66,9 @@ nothing that compiles disposes a value twice.
 `tests/send_sync.test.yo`, "A borrow capture is never Send": the `spawn(pool, …)` literal over a
 `Dispose` value is a `comptime_expect_error`. On develop it compiled (the expectation failed);
 with the fix it is rejected with "a borrow capture is never Send".
+
+*(2026-10-06, later the same day: the follow-up landed — the spawn boundaries now take the
+closure `own`, so that `spawn(pool, …)` literal is VALID and moves its capture in. The rule
+"a borrow capture is never Send" stays pinned in the same file through a plain BORROWING
+parameter (`_ss_run_send`), which is still rejected, beside two positive tests that move a
+`Dispose` capture through `Thread.spawn` and `spawn(pool, …)` and count one dispose each.)*
