@@ -4,7 +4,7 @@
 
 **Status:** FIXED 2026-10-06 (feat/vbd-send-sync), by rejecting it: decision 38 E of
 `plans/VALUES_BY_DEFAULT.md` ("a borrow capture is never `Send`"). Moving the value into the
-thread is the open follow-up `issues/a-move-only-value-cannot-be-moved-into-thread-spawn.md`.
+thread is the follow-up, now fixed: `issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`.
 
 ## Symptom
 
