@@ -18,11 +18,11 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 // The derivation, by reflection
 // ============================================================================
 SsPoint :: struct(x : i32, y : i32);
-SsRawHolder :: struct(p : ?(*(i32)));
+SsRawHolder :: struct(p : ?*i32);
 SsCell :: ref(struct(v : i32));
 SsSpeak :: trait(speak : (fn(self : Self) -> i32));
 SsDog :: struct(n : i32);
-impl(SsDog, SsSpeak(speak : ((self) -> self.n)));
+impl(SsDog, SsSpeak(speak : (self -> self.n)));
 test("primitives and plain data are Send and Sync", {
   comptime_assert(Type.impls(i32, Send), "i32 is Send");
   comptime_assert(Type.impls(i32, Sync), "i32 is Sync");
@@ -54,12 +54,12 @@ test("atomic cells are Send and Sync", {
   comptime_assert(Type.impls(Channel(i32), Sync), "Channel(i32) is Sync");
 });
 test("a raw pointer is neither Send nor Sync, and neither is a struct holding one", {
-  comptime_assert(!Type.impls(*(i32), Send), "a raw pointer is not Send");
-  comptime_assert(!Type.impls(*(i32), Sync), "a raw pointer is not Sync");
-  comptime_assert(!Type.impls(?*(i32), Send), "a nullable raw pointer is not Send");
+  comptime_assert(!Type.impls(*i32, Send), "a raw pointer is not Send");
+  comptime_assert(!Type.impls(*i32, Sync), "a raw pointer is not Sync");
+  comptime_assert(!Type.impls(?*i32, Send), "a nullable raw pointer is not Send");
   comptime_assert(!Type.impls(SsRawHolder, Send), "a raw-pointer struct is not Send");
   comptime_assert(!Type.impls(SsRawHolder, Sync), "a raw-pointer struct is not Sync");
-  comptime_assert(Type.impls(*(i32), Acyclic), "a raw pointer stays Acyclic");
+  comptime_assert(Type.impls(*i32, Acyclic), "a raw pointer stays Acyclic");
 });
 test("Io and JoinHandle declare negative markers", {
   comptime_assert(!Type.impls(Io, Send), "Io is not Send");
@@ -78,48 +78,39 @@ test("a Dyn is Send or Sync only through an explicit bound", {
 // Thread boundaries
 // ============================================================================
 // A channel moves its payload to the receiving thread. An Rc payload is E0602.
-comptime_expect_error(
-  {
-    _rc_channel :: (fn() -> unit)({
-      _ch := Channel(Rc(i32)).new(usize(1));
-    });
-    _rc_channel();
-  },
-  "Send"
-);
+comptime_expect_error({
+  _rc_channel :: (fn() -> unit)({
+    _ch := Channel(Rc(i32)).new(usize(1));
+  });
+  _rc_channel();
+}, "Send");
 // A struct holding a raw pointer cannot cross Thread.spawn.
-comptime_expect_error(
-  {
-    _spawn_raw_holder :: (fn() -> unit)({
-      xs := ArrayList(i32).new();
-      xs.push(i32(1));
-      // `ptr()` is safe: it hands out the buffer's raw pointer.
-      h := SsRawHolder(p : xs.ptr());
-      t := Thread(unit).spawn(io => {
-        _q := h.p;
-        ()
-      });
-      t.join();
+comptime_expect_error({
+  _spawn_raw_holder :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    // `ptr()` is safe: it hands out the buffer's raw pointer.
+    h := SsRawHolder(p : xs.ptr());
+    t := Thread(unit).spawn(io => {
+      _q := h.p;
+      ()
     });
-    _spawn_raw_holder();
-  },
-  "does not implement Send"
-);
+    t.join();
+  });
+  _spawn_raw_holder();
+}, "does not implement Send");
 // A Dyn without Send cannot cross Thread.spawn.
-comptime_expect_error(
-  {
-    _spawn_plain_dyn :: (fn() -> unit)({
-      (d : Dyn(SsSpeak)) = dyn(SsDog(n : i32(3)));
-      t := Thread(unit).spawn(io => {
-        _n := d.speak();
-        ()
-      });
-      t.join();
+comptime_expect_error({
+  _spawn_plain_dyn :: (fn() -> unit)({
+    (d : Dyn(SsSpeak)) = dyn(SsDog(n : i32(3)));
+    t := Thread(unit).spawn(io => {
+      _n := d.speak();
+      ()
     });
-    _spawn_plain_dyn();
-  },
-  "does not implement Send"
-);
+    t.join();
+  });
+  _spawn_plain_dyn();
+}, "does not implement Send");
 // Over-rejection canary: a Dyn(Trait, Send) does cross it.
 _spawn_send_dyn :: (fn() -> i32)({
   (d : Dyn(SsSpeak, Send)) = dyn(SsDog(n : i32(4)));
@@ -135,20 +126,14 @@ test("a Dyn(Trait, Send) crosses Thread.spawn", {
   assert(_spawn_send_dyn() == i32(4), "the spawned thread called the trait object");
 });
 // A manual Sync impl needs pragma(Pragma.AllowUnsafe), as a manual Send does.
-comptime_expect_error(
-  {
-    _SsClaimsSync :: struct(p : *(i32));
-    impl(_SsClaimsSync, Sync());
-  },
-  "requires pragma(Pragma.AllowUnsafe)"
-);
+comptime_expect_error({
+  _SsClaimsSync :: struct(p : *i32);
+  impl(_SsClaimsSync, Sync());
+}, "requires pragma(Pragma.AllowUnsafe)");
 // An atomic object is shared by every copy, so each field must be Sync.
-comptime_expect_error(
-  {
-    _SsAtomicRaw :: atomic(ref(struct(p : *(i32))));
-  },
-  "atomic object must implement Sync"
-);
+comptime_expect_error({
+  _SsAtomicRaw :: atomic(ref(struct(p : *i32)));
+}, "atomic object must implement Sync");
 
 // ============================================================================
 // Closures (decision 38 E)
@@ -157,16 +142,13 @@ comptime_expect_error(
 // `imm(f)` parameter captures by borrow, and an `imm` capture of an Rc is not
 // Sync.
 _run_sync :: (fn(imm(f) : Impl(Fn() -> i32, Sync)) -> i32)(f());
-comptime_expect_error(
-  {
-    _imm_capture_of_rc :: (fn() -> i32)({
-      r := rc(i32(1));
-      _run_sync(() => r.*)
-    });
-    _imm_capture_of_rc();
-  },
-  "does not implement Sync"
-);
+comptime_expect_error({
+  _imm_capture_of_rc :: (fn() -> i32)({
+    r := rc(i32(1));
+    _run_sync(() => r.*)
+  });
+  _imm_capture_of_rc();
+}, "does not implement Sync");
 test("a closure over plain data is Sync", {
   n := i32(5);
   assert(_run_sync(() => (n + i32(1))) == i32(6), "the Sync closure ran");
@@ -174,13 +156,10 @@ test("a closure over plain data is Sync", {
 // D1 covers a Sync slot as well as a Send one: a closure that may run on
 // several threads may not reach a non-Sync module-level global.
 (g_ss_names : ArrayList(i32)) = ArrayList(i32).new();
-comptime_expect_error(
-  {
-    _sync_reaches_global :: (fn() -> i32)(_run_sync(() => i32(g_ss_names.len())));
-    _sync_reaches_global();
-  },
-  "module-level global 'g_ss_names'"
-);
+comptime_expect_error({
+  _sync_reaches_global :: (fn() -> i32)(_run_sync(() => i32(g_ss_names.len())));
+  _sync_reaches_global();
+}, "module-level global 'g_ss_names'");
 // A borrow capture is never Send. A closure literal passed to a borrowing
 // parameter borrows a capture that is not implicitly copyable (a move-only
 // one), so it stays in the caller's frame; `spawn(pool, cb)` takes `cb` by
@@ -189,23 +168,20 @@ _SsFd :: struct(fd : i32);
 impl(
   _SsFd,
   Dispose(
-    dispose : ((self) -> ())
+    dispose : (self -> ())
   )
 );
-comptime_expect_error(
-  {
-    _pool_spawn_borrowed :: (fn() -> unit)({
-      f := _SsFd(fd : i32(3));
-      pool := ThreadPool.new(usize(1));
-      spawn(pool, io => {
-        _n := f.fd;
-        ()
-      });
+comptime_expect_error({
+  _pool_spawn_borrowed :: (fn() -> unit)({
+    f := _SsFd(fd : i32(3));
+    pool := ThreadPool.new(usize(1));
+    spawn(pool, io => {
+      _n := f.fd;
+      ()
     });
-    _pool_spawn_borrowed();
-  },
-  "a borrow capture is never Send"
-);
+  });
+  _pool_spawn_borrowed();
+}, "a borrow capture is never Send");
 
 // ============================================================================
 // Moves through a channel, at run time (TSan: tests/send_sync.test.yo is in
