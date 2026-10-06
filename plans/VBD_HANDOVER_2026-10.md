@@ -27,7 +27,6 @@ Read in this order:
 The campaign's earlier releases (v0.2.51 and v0.2.52) are published.
 
 **Rules the maintainer set during the campaign. Follow them:**
-- **Agents:** at most **4 concurrent agents**, counting subagents and workflow agents together.
 - **Design style:**
   - "whenever we could be explicit, lets do explicit". Migration cost and backward compatibility never decide a design (AGENTS.md: no compatibility scaffolding).
   - When a design question comes up, propose a recommendation and ask. Record every confirmed decision as a dated amendment in `VALUES_BY_DEFAULT.md` §4, never as a silent edit.
