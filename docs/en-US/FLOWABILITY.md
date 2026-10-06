@@ -44,7 +44,7 @@ it freezes its place:
   iteration uses it again);
 - a borrow of a borrow keeps its source live as long as itself.
 
-A conflicting access is E0909, and a write through an `imm` borrow is E0908.
+A conflicting access is E0911, and a write through an `imm` borrow is E0908.
 Two more rules cover the places the compiler cannot see every alias of: a
 borrow of a **module-level** place may not be live across a call (a callee
 can reach the place by name), and a borrow whose place passes through a
@@ -78,7 +78,7 @@ append :: (fn(mut(list) : List, v : i32) -> unit)({
 
 A sibling root, a module-level place or a call result is rejected. The
 declared place (`list.head`) stays frozen for `cur`'s whole live range, and a
-re-point is E0909 while a borrow derived from `cur`'s current target is
+re-point is E0911 while a borrow derived from `cur`'s current target is
 live. Each step into a cell pins it and releases the cell the previous step
 pinned, so the walk is memory-safe even when another handle drops a node.
 
@@ -86,6 +86,17 @@ pinned, so the walk is memory-safe even when another handle drops a node.
 captured by closures, or placed inside generic types. An `inout` is born
 at a call boundary or a binding and dies with the enclosing scope — it can
 never outlive the storage it points into.
+
+For the same reason a **local borrow never crosses the function boundary**:
+`return(y)` and a body whose result expression is the borrow (or a place
+reached from it, including a nested block the body's result ends in) are
+**E0912** (decision 18 rule 1). Even where reading through a borrow of an
+implicitly copyable type produces a copy today, the spelling names the
+borrow itself, not the value it reads through. Read the value out into an
+owned local first (`v := y;` … `v`); a call or an operation on the borrow
+(`y.len()`, `y + i32(0)`) already produces a value and is fine. An
+`inout`/`mut` **parameter** is a different mechanism: returning it still
+returns the pointee copy.
 
 The argument passed to an `inout` parameter is a simple lvalue **place**:
 

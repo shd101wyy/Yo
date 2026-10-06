@@ -188,8 +188,10 @@ to the seed:
 
 **Generation A DONE 2026-10-06** (feat/vbd-local-borrows): the compiler
 accepts `imm(y) := place` and the re-points `imm(cur) = place` /
-`mut(cur) = place`, and enforces last-use live ranges and place-based
-exclusivity (E0909) for every local borrow, `inout(y) :=` included.
+`mut(cur) = place`, and enforces last-use live ranges, place-based
+exclusivity (E0911) and the function boundary (E0912: `return(<a place
+rooted at the borrow>)` and a body-tail yielding one are rejected) for
+every local borrow, `inout(y) :=` included.
 
 **Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
 nothing to flip. `std/` and `src/` may then write `imm(y) :=` and re-points

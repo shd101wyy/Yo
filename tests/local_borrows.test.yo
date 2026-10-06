@@ -7,7 +7,7 @@
 ///
 /// The `await` rule (rule 4) is a whole-program error inside an `io.async`
 /// body, which `comptime_expect_error` cannot observe: it is pinned by
-/// tests/cli-cases/local-borrow-across-an-await-through-a-cell-is-e0909.
+/// tests/cli-cases/local-borrow-across-an-await-through-a-cell-is-e0911.
 { String } :: import("std/string");
 Point :: struct(x : i32, y : i32);
 Shape :: struct(origin : Point, name : String);
@@ -234,7 +234,7 @@ comptime_expect_error(
   "is an `imm` borrow, which is read-only"
 );
 
-// --- Rejected: accesses that conflict with a live borrow (E0909) --------------
+// --- Rejected: accesses that conflict with a live borrow (E0911) --------------
 comptime_expect_error(
   write_under_imm_rejected :: (fn() -> unit)({
     x := i32(1);
@@ -427,3 +427,88 @@ comptime_expect_error(
   }),
   "Cannot write `l1.head` here"
 );
+
+// --- Rejected: a borrow crosses the function boundary (E0912) ----------------
+// Decision 18 rule 1 (decision 38 A): a borrow is second-class — no return,
+// store, escaping capture or spawn. `return(<borrow>)` and a body whose
+// result expression is one name the BORROW as the function's result, not
+// the value it reads through, so both are rejected even where reading
+// through a borrow of an implicitly copyable type produces a copy today.
+comptime_expect_error(
+  return_of_a_borrow_rejected :: (fn() -> i32)({
+    x := i32(1);
+    imm(y) := x;
+    return(y);
+  }),
+  "Cannot return the local borrow `y`"
+);
+comptime_expect_error(
+  return_of_a_place_reached_from_a_borrow_rejected :: (fn() -> i32)({
+    sh := Shape(origin : Point(x : i32(1), y : i32(2)), name : String.from("sq"));
+    imm(y) := sh.origin;
+    return(y.x);
+  }),
+  "Cannot return the local borrow `y`"
+);
+comptime_expect_error(
+  body_tail_yielding_a_borrow_rejected :: (fn() -> i32)({
+    x := i32(1);
+    imm(y) := x;
+    y
+  }),
+  "Cannot return the local borrow `y`"
+);
+comptime_expect_error(
+  a_nested_block_the_body_result_ends_in_yielding_a_borrow_rejected :: (fn() -> i32)({
+    x := i32(1);
+    imm(y) := x;
+    {
+      _x2 := i32(0);
+      y
+    }
+  }),
+  "Cannot return the local borrow `y`"
+);
+comptime_expect_error(
+  a_borrow_declared_in_the_result_block_itself_is_rejected_too :: (fn() -> i32)({
+    x := i32(1);
+    {
+      imm(y) := x;
+      y
+    }
+  }),
+  "Cannot return the local borrow `y`"
+);
+comptime_expect_error(
+  a_mut_borrow_tail_is_rejected_like_an_imm_one :: (fn() -> i32)({
+    x := i32(1);
+    mut(y) := x;
+    return(y);
+  }),
+  "Cannot return the local borrow `y`"
+);
+comptime_expect_error(
+  an_inout_borrow_is_muts_synonym_so_its_return_is_rejected_too :: (fn() -> String)({
+    s := String.from("a");
+    inout(r) := s;
+    return(r);
+  }),
+  "Cannot return the local borrow `r`"
+);
+// The way out (the E0912 help): read the value out into an owned local
+// first, or return the value of an operation on the borrow.
+ret_scalar :: (fn() -> i32)({
+  x := i32(1);
+  imm(y) := x;
+  v := y;
+  v
+});
+ret_through_op :: (fn() -> i32)({
+  x := i32(1);
+  imm(y) := x;
+  (y + i32(0))
+});
+test("copying a borrow out before returning the copy is the way out", {
+  assert(ret_scalar() == i32(1), "`v := y` reads through the borrow and v owns the copy");
+  assert(ret_through_op() == i32(1), "an operation on the borrow reads through it");
+});

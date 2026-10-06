@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_WRITE_THROUGH_BORROW, E_BORROW_CONFLICT } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -563,9 +563,28 @@ use_of_moved_value_error :: (fn(name : String, ty : TypeValue, use_tok : Token, 
   entries.push(TokenAndError(token : moved_tok, error_message : String.from("value moved here")));
   with_code(format_error_messages_with_help(entries, move_only_help(name, ty)), E_USE_OF_MOVED_VALUE)
 });
-/// A short rendering of the place `e` names, for a message: the source
-/// rendering without the one pair of parentheses the printer wraps a call in.
+/// A short rendering of the place `e` names, for a message: a field chain
+/// reads as written (`sh.origin.y`, not the general printer's
+/// `(sh.origin).y` — its parenthesized dot call leaves one pair behind), a
+/// borrow marker is dropped (`&mut x` names `x`), and other expressions keep
+/// the source rendering without the one pair of parentheses the printer
+/// wraps a call in.
 _place_text :: (fn(e : AstExpr) -> String)({
+  (s : AstExpr) = ast_expr_strip_borrow_marker(e);
+  cond(
+    ast_expr_is_fn_call_of(s, BF_DOT, Option(usize).Some(usize(2))) => match(
+      s,
+      .FnCall(_, _, dot_args, _, _) => match(
+        dot_args.get(usize(0)),
+        .Some(recv) => `${_place_text(recv)}.${_place_text(match(dot_args.get(usize(1)), .Some(f) => f, .None => make_err_expr()))}`,
+        .None => _place_text_of_other(s)
+      ),
+      .Atom(_, _) => _place_text_of_other(s)
+    ),
+    true => _place_text_of_other(s)
+  )
+});
+_place_text_of_other :: (fn(e : AstExpr) -> String)({
   t := ast_expr_to_string(e);
   if(!(t.starts_with("(") && t.ends_with(")")), {
     return(t);
@@ -761,7 +780,7 @@ set_expr_as_consumed :: (
           // handle it does not own, and a later write through the alias
           // would over-release it (§2.1). Reject while any borrower is live.
           // A local borrow (decision 18) is live until its last use: a move of
-          // a place it freezes is E0909 inside that range, and free after it.
+          // a place it freezes is E0911 inside that range, and free after it.
           // Only a binding outside the local-borrow model (none in safe code)
           // keeps the scope-wide gate below.
           if(local_borrows_active(), {
@@ -3140,7 +3159,7 @@ local_borrow_scrutinee_source :: (fn(scrutinee : AstExpr, env : Environment, ctx
 local_borrow_note_pattern_binding :: (fn(name : String, decl : Token, borrow : LocalBorrowInfo) -> unit)({
   g_local_borrow_patterns.push(LocalBorrowPatternBinding(name : name, decl : decl, borrow : borrow));
 });
-/// E0909: the access `kind` of `place` at `tok` conflicts with the live
+/// E0911: the access `kind` of `place` at `tok` conflicts with the live
 /// borrow `info`, which freezes `frozen`.
 _lb_raise_conflict :: (
   fn(info : LocalBorrowInfo, frozen : LocalBorrowPlace, place : LocalBorrowPlace, kind : LocalBorrowAccess, tok : Token, ctx : EvalContext, exn : Exception) -> unit
@@ -3172,10 +3191,10 @@ _lb_raise_conflict :: (
     info.is_mut => `make the access after \`${info.name}\`'s last use, or make it through \`${info.name}\``,
     true => `make the access after \`${info.name}\`'s last use, or borrow with \`mut(${info.name}) := ...\` to write through the borrow`
   );
-  raise_flow_violation(with_code(format_error_messages_with_help(entries, Option(String).Some(help)), E_BORROW_CONFLICT), ctx, exn);
+  raise_flow_violation(with_code(format_error_messages_with_help(entries, Option(String).Some(help)), E_LOCAL_BORROW_CONFLICT), ctx, exn);
 });
 _lb_tok_after :: (fn(a : Token, b : Token) -> bool)((a.module_path == b.module_path) && (a.character > b.character));
-/// An access of `place` at `tok`: E0909 if it conflicts with a live local
+/// An access of `place` at `tok`: E0911 if it conflicts with a live local
 /// borrow (decision 18, rule 2). A read conflicts with a live `mut` borrow;
 /// a write, a move or an exclusive borrow with any live borrow.
 local_borrow_access :: (fn(place : LocalBorrowPlace, kind : LocalBorrowAccess, tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
@@ -3239,7 +3258,7 @@ local_borrow_require_writable :: (fn(place : LocalBorrowPlace, what : String, to
   )
 );
 /// A write (an assignment target, a `mut` argument the callee writes) of the
-/// place `e`: E0908 through an `imm` borrow, E0909 against a live borrow.
+/// place `e`: E0908 through an `imm` borrow, E0911 against a live borrow.
 local_borrow_write_expr :: (fn(e : AstExpr, what : String, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)(
   if(local_borrows_active(), {
     match(
@@ -3252,6 +3271,86 @@ local_borrow_write_expr :: (fn(e : AstExpr, what : String, tok : Token, env : En
     );
   })
 );
+/// Does `e` NAME STORAGE — the result expression is a place: an identifier
+/// atom, or a field-access chain (a `.field` step whose field is a name atom)
+/// rooted at one? A call or an index on the place (`y.len()`, `xs(i)`)
+/// produces a VALUE — its result is the callee's, not the place — so an
+/// expression ending in one is not a place; `local_borrow_place_of` (whose
+/// notion of a place is "what an access touches", so `xs(i)` names `xs`
+/// whole) does not distinguish the two.
+local_borrow_result_is_place :: (fn(e : AstExpr) -> bool)({
+  (p : AstExpr) = ast_expr_strip_borrow_marker(e);
+  if(ast_expr_is_atom(p), {
+    return(true);
+  });
+  cond(
+    ast_expr_is_fn_call_of(p, BF_DOT, Option(usize).Some(usize(2))) => match(
+      p,
+      .FnCall(_, _, dot_args, _, _) => match(
+        dot_args.get(usize(1)),
+        .Some(f) => cond(
+          !ast_expr_is_atom(f) => false,
+          true => match(
+            dot_args.get(usize(0)),
+            .Some(recv0) => local_borrow_result_is_place(ast_expr_strip_borrow_marker(recv0)),
+            .None => false
+          )
+        ),
+        .None => false
+      ),
+      .Atom(_, _) => false
+    ),
+    true => false
+  )
+});
+/// The function-result escape check (decision 18 rule 1, decision 38 A):
+/// `e` is a place expression rooted at a local borrow — the borrow itself
+/// (`y`) or a place reached from it through the field steps the place model
+/// tracks (`y.x`) — so the expression naming the function's result names the
+/// BORROW, which is second-class, not the value it reads through.
+local_borrow_result_borrow_of :: (fn(e : AstExpr, env : Environment, ctx : EvalContext) -> Option(LocalBorrowInfo))(
+  cond(
+    local_borrow_result_is_place(e) => match(
+      local_borrow_place_of(e, env, ctx),
+      .Some(p) => local_borrow_info_of(p.root_name.clone(), p.root_decl),
+      .None => Option(LocalBorrowInfo).None
+    ),
+    true => Option(LocalBorrowInfo).None
+  )
+);
+/// E0912: the local borrow `info` is the function's result — `return(...)`
+/// names it as its argument at `tok`, or the body's result expression is the
+/// place it names (a block tail that yields it). A borrow is second-class
+/// (decision 18 rule 1, decision 38 A): the value it names may be read
+/// through and copied out, but the borrow itself never crosses the function
+/// boundary.
+local_borrow_reject_result_borrow :: (fn(info : LocalBorrowInfo, tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
+  ftext := match(
+    info.places.get(usize(0)),
+    .Some(p0) => _lb_place_text(p0),
+    .None => info.name.clone()
+  );
+  entries := ArrayList(TokenAndError).new();
+  entries.push(
+    TokenAndError(
+      token : tok,
+      error_message : `Cannot return the local borrow \`${info.name}\`: it borrows \`${ftext}\` with \`${_lb_mode(info)}\` and is second-class, so it may not cross the function boundary (no return, store, escaping capture or spawn).`
+    )
+  );
+  entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` borrows \`${ftext}\` here:`));
+  raise_flow_violation(
+    with_code(
+      format_error_messages_with_help(
+        entries,
+        Option(String).Some(`read the value out first — copy it into an owned local (\`v := ${info.name};\`) and return that, or return the value of an operation on it (\`return((${info.name} + i32(0)))\` for a scalar)`)
+      ),
+      E_LOCAL_BORROW_ESCAPES
+    ),
+    ctx,
+    exn
+  );
+  ()
+});
 /// Rule 3 (decision 18): a borrow of a module-level place may not be live
 /// across a call, which could reach the place by name. `tok` is the call.
 local_borrow_note_call :: (fn(tok : Token, callee_text : String, ctx : EvalContext, exn : Exception) -> unit)({
@@ -3274,7 +3373,7 @@ local_borrow_note_call :: (fn(tok : Token, callee_text : String, ctx : EvalConte
         raise_flow_violation(
           with_code(
             format_error_messages_with_help(entries, Option(String).Some(String.from("end the borrow before the call, or copy the value into a local, work on the local, and assign it back after the call"))),
-            E_BORROW_CONFLICT
+            E_LOCAL_BORROW_CONFLICT
           ),
           ctx,
           exn
@@ -3308,7 +3407,7 @@ local_borrow_note_await :: (fn(tok : Token, ctx : EvalContext, exn : Exception) 
         raise_flow_violation(
           with_code(
             format_error_messages_with_help(entries, Option(String).Some(String.from("end the borrow before the `await` and borrow again after it, or borrow a place the task owns (a local value)"))),
-            E_BORROW_CONFLICT
+            E_LOCAL_BORROW_CONFLICT
           ),
           ctx,
           exn
@@ -3550,7 +3649,7 @@ local_borrow_require_no_live_derived :: (fn(info : LocalBorrowInfo, tok : Token,
         raise_flow_violation(
           with_code(
             format_error_messages_with_help(entries, Option(String).Some(`end \`${d.name}\` (its last use) before the re-point`)),
-            E_BORROW_CONFLICT
+            E_LOCAL_BORROW_CONFLICT
           ),
           ctx,
           exn
@@ -3607,5 +3706,8 @@ export(
   local_borrow_is_scalar_type,
   local_borrow_range_of,
   local_borrow_register,
-  local_borrow_require_no_live_derived
+  local_borrow_require_no_live_derived,
+  local_borrow_result_is_place,
+  local_borrow_result_borrow_of,
+  local_borrow_reject_result_borrow
 );

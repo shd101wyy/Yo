@@ -12,7 +12,7 @@
 /// Since plans/VALUES_BY_DEFAULT.md decision 18 a binding is EXCLUSIVE until
 /// its last use (`inout` is `mut`'s synonym): the root is read or written
 /// only after the binding's last use, never interleaved with it. The
-/// interleaved forms this file used to accept are E0909 now (below, and in
+/// interleaved forms this file used to accept are E0911 now (below, and in
 /// tests/local_borrows.test.yo).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -115,7 +115,7 @@ test("inout binding to an object field: write-through, and the pin outlives a ha
   assert(h.n == i32(100), "h names the new object after the binding ended");
   assert(h2.n == i32(42), "final value");
 });
-// Reassigning the borrowed handle while the binding is live is E0909: the
+// Reassigning the borrowed handle while the binding is live is E0911: the
 // object is a reference cell, and below a cell the cell is the unit.
 comptime_expect_error(
   reassign_the_borrowed_handle :: (fn() -> unit)({
@@ -181,7 +181,8 @@ test("pin is released on break and on early return", {
   early :: (fn(target : Holder) -> i32)({
     inout(n) := target.n;
     if(n > i32(0), {
-      return(n);
+      v := n;
+      return(v);
     });
     n = i32(-1);
     n
@@ -247,7 +248,7 @@ test("a struct literal reading a borrowed root after the binding's last use copi
   assert(ref_count(h.s) == 1, "the literal's field owns its value once");
   assert(ref_count(s) == 1, "the root owns its new value once");
 });
-// Reading the root into a literal while the binding is still used is E0909.
+// Reading the root into a literal while the binding is still used is E0911.
 comptime_expect_error(
   literal_reads_a_live_borrowed_root :: (fn() -> unit)({
     s := String.from("a");
@@ -361,33 +362,72 @@ comptime_expect_error(
     consume(r);
   })
 );
-// Returning through a binding copies the POINTEE — the bare `return(y)` of a
-// scalar binding used to emit the raw pointer variable as the value (wrong
-// number + a stack-address leak) because the return-arg atom's recorded env
-// lacks the binding, so `generate_atom` fell back to the bare name
-// (issues/fixed/return-of-an-inout-local-binding-emits-the-pointer.md). RC
-// returns already went through the deferred-dup path and were correct.
+// Returning a binding is REJECTED (E0912): an `inout(name) := place` binding
+// is a local borrow (`mut`'s Generation A synonym,
+// plans/VALUES_BY_DEFAULT.md decision 18), and a borrow is second-class —
+// no return, store, escaping capture or spawn (decision 18 rule 1, decision
+// 38 A). Until the parameter-convention phases the bare `return(y)` used to
+// copy the pointee — a scalar binding returned the value (never the raw
+// pointer variable, that was
+// issues/fixed/return-of-an-inout-local-binding-emits-the-pointer.md) and an
+// RC binding a balanced pointee copy — but the spelling names the borrow
+// itself, so it is rejected now: once borrows stop copying, the same
+// spelling would have to move the borrowed place or escape the borrow
+// itself. The way out reads the value out first (`v := y;` then
+// `return(v)`), which is what the positive test below pins (the pointee
+// copy, with balanced counts, is still what a read through the binding
+// produces).
+comptime_expect_error(
+  returning_a_scalar_binding_rejected :: (fn() -> i32)({
+    x := i32(1);
+    inout(y) := x;
+    y = i32(2);
+    return(y);
+  }),
+  "Cannot return the local borrow `y`"
+);
+comptime_expect_error(
+  returning_a_struct_field_binding_rejected :: (fn() -> i32)({
+    p := Point(x : i32(1), y : i32(2));
+    inout(px) := p.x;
+    px = i32(10);
+    return(px);
+  }),
+  "Cannot return the local borrow `px`"
+);
+comptime_expect_error(
+  returning_an_rc_binding_rejected :: (fn() -> String)({
+    s := String.from("target");
+    inout(r) := s;
+    r.push_str("!");
+    return(r);
+  }),
+  "Cannot return the local borrow `r`"
+);
 ret_scalar :: (fn() -> i32)({
   x := i32(1);
   inout(y) := x;
   y = i32(2);
-  return(y);
+  v := y;
+  v
 });
 ret_struct :: (fn() -> i32)({
   p := Point(x : i32(1), y : i32(2));
   inout(px) := p.x;
   px = i32(10);
-  return(px);
+  v := px;
+  v
 });
 ret_rc :: (fn() -> String)({
   s := String.from("target");
   inout(r) := s;
   r.push_str("!");
-  return(r);
+  v := r;
+  v
 });
-test("return through a binding copies the pointee (scalar, field, RC)", {
-  assert(ret_scalar() == i32(2), "explicit return of a scalar binding returns the pointee, not the pointer");
-  assert(ret_struct() == i32(10), "a value-struct field binding returns the field value");
-  assert(ret_rc() == "target!", "an RC binding returns the pointee copy");
+test("reading a binding out before returning the copy is the way out (scalar, field, RC)", {
+  assert(ret_scalar() == i32(2), "the scalar copy is the pointee, never the pointer");
+  assert(ret_struct() == i32(10), "a value-struct field binding copies the field value");
+  assert(ret_rc() == "target!", "an RC binding's read-out is the pointee copy");
   assert(ref_count(ret_rc()) == 1, "the returned RC value owns its count");
 });

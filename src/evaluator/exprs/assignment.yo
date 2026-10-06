@@ -592,7 +592,7 @@ get_root_expr_of_place :: (fn(expr : AstExpr) -> AstExpr)(
 /// `lb_place` is set for a place a local borrow may be watching
 /// (plans/VALUES_BY_DEFAULT.md decision 18): if the callee writes it, the
 /// write goes through `local_borrow_require_writable` (E0908 through an
-/// `imm` borrow) and `local_borrow_access` (E0909 against a live borrow).
+/// `imm` borrow) and `local_borrow_access` (E0911 against a live borrow).
 D3PendingInout :: struct(
   param_index : usize,
   place : AstExpr,
@@ -1072,7 +1072,7 @@ evaluate_assignment :: (
     env.input_string = prop_rhs_info.env.input_string;
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(prop_rhs, env, ctx, exn);
-    // A write of the place: E0908 through an `imm` local borrow, E0909 while a
+    // A write of the place: E0908 through an `imm` local borrow, E0911 while a
     // borrow of an overlapping place is live (plans/VALUES_BY_DEFAULT.md
     // decision 18).
     local_borrow_write_expr(evaluated_lhs, `write \`${_place_source_text(lhs)}\``, ast_expr_token(lhs), env, ctx, exn);
@@ -1771,7 +1771,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // Check if the RHS variable has been consumed (moved).
   require_expr_not_consumed(rhs_evaled, env, ctx, exn);
   // A write of the whole variable (decision 18): through an `imm` local
-  // borrow it is E0908; against a live borrow of the variable, E0909. A
+  // borrow it is E0908; against a live borrow of the variable, E0911. A
   // `mut` borrow's own assignment writes its target, which it holds.
   if(local_borrows_active() && !is_typed_binding_lhs, {
     lb_target := local_borrow_place_of_variable(variable);

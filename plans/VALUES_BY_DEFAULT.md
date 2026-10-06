@@ -2315,7 +2315,32 @@ and in git, not a silent edit.
       outermost place), assignment targets, the `mut`/`inout` arguments and
       receivers the callee's mutation mask says it writes (`d3_check_pending`),
       moves (`set_expr_as_consumed`), and a `mut` binding (an exclusive
-      access). A conflict is the new E0909; a write through `imm` is E0908.
+      access). A conflict is E0911 (`E_LOCAL_BORROW_CONFLICT`); a write
+      through `imm` is E0908.
+    - **The function boundary (decision 18 rule 1, decision 38 A).** A
+      local borrow never crosses the function boundary:
+      `return(<a place rooted at the borrow>)` and a body whose result
+      expression is one (a block tail that yields it, including a nested
+      block the body's result ends in) are **E0912**
+      (`E_LOCAL_BORROW_ESCAPES`); reading the value out into an owned local
+      first (`v := y;` … `v`) is the way out. A call or index on the place
+      (`y.len()`, `xs(i)`) and an operation on the borrow are fine: their
+      result is the callee's, not the place. The rejection covers
+      `imm`/`mut`/`inout` bindings alike; `inout`/`mut` **parameters** are a
+      different mechanism and still return the pointee copy until V3b's
+      plain parameters become borrows. A `cond`/`match` arm whose block
+      yields a borrow as the body's result is not yet caught (it is the
+      same escape shape; the arms flow through the cond/match evaluators,
+      which do not carry the chain identity) — it joins the rule with
+      decision 38 A's closure work, the closure analogue being E0909 there
+      (`feat/vbd-capture-lists`' `E_BORROW_ESCAPES`).
+      `issues/fixed/a-local-borrow-crossed-the-function-boundary-in-a-return-or-a-body-tail.md`
+      records the bug (both shapes were accepted, returning the pointee
+      copy) and the fix.
+    - **Error codes.** The local-borrow rules take **E0911/E0912**; the
+      closure branch (`feat/vbd-capture-lists`) keeps **E0909/E0910** for
+      `E_BORROW_ESCAPES`/`E_BORROW_CONFLICT`, so both branches merge without
+      a collision.
     - **Live ranges.** A binding's block hands it the statements after it
       (`local_borrow_set_lookahead`). The range ends at the innermost
       statement holding the last mention that is not a block or a branch arm:
@@ -2336,7 +2361,7 @@ and in git, not a silent edit.
       a re-point crossed a cell or a module-level root.
     - **Decision 38 A** as it applies to local borrows: a borrow of a borrow
       extends its parents' ranges to its own (transitive freeze), and a
-      re-point is E0909 while a borrow derived from the re-pointed one is
+      re-point is E0911 while a borrow derived from the re-pointed one is
       live. Closures cannot capture a local borrow today (the existing
       rejection), and borrowing futures are A2's, so the capture and future
       halves of 38 A have nothing to act on yet; they land with decision 35's
