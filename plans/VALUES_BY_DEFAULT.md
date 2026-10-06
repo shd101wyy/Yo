@@ -70,7 +70,7 @@ Unique ownership removes the question instead of answering it.
 
 | Kind | Which types | A copy is | Example |
 | --- | --- | --- | --- |
-| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `rune`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy)` or `impl(T, Copy())`; and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy)` |
+| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `rune`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
 | **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
 | **move-only** (§3.4) | implements neither `Copy` nor `Clone` (decision 36); a `Dispose` type is never `Copy` | an error unless it is the last use; with `Clone` it is explicit-copy instead (`Sender`) | `f2 := f` moves the `File` |
 
@@ -1499,18 +1499,32 @@ and in git, not a silent edit.
       - "Explicit whenever we can" (the maintainer).
     - **The rule.**
       - `Copy :: trait()` is a prelude marker.
-      - A struct, enum or newtype opts in with `derive(T, Copy)` or
-        `impl(T, Copy())`, and a generic type with
+      - A struct, enum or newtype opts in with `derive(T, Copy, Clone)`, or
+        with `impl(T, Copy())` beside a `Clone` impl. A generic type uses
         `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())`.
       - **The impl is checked.** Every field, payload and element must be
         `Copy`, and the type must not implement `Dispose`, which is Rust's
         `Copy`/`Drop` exclusion. A failing impl is an error naming the
         first non-`Copy` part.
-      - **`Copy` and `Clone`** (amended 2026-10-06 by the maintainer; the
-        first text rejected `derive(T, Clone)` on a `Copy` type, which made a
-        conditionally `Copy` generic type impossible to write):
-        - **No `Clone` written:** the compiler supplies `clone()`, the bitwise
-          copy.
+      - **`Copy` and `Clone`** (amended twice on 2026-10-06 by the maintainer.
+        The first text rejected `derive(T, Clone)` on a `Copy` type, which
+        made a conditionally `Copy` generic type impossible to write. The
+        second amendment makes `Copy` require `Clone`, as in Rust.)
+        - **`Copy` requires `Clone`**, Rust's `Copy: Clone` supertrait.
+          `impl(T, Copy())` needs a `Clone` impl that covers the same
+          instantiations. `derive(T, Copy)` without `Clone` is an error
+          naming `derive(T, Copy, Clone)`. The compiler never synthesizes a
+          `Clone` impl.
+          - **Why.** A synthesized impl is an implicit one:
+            `Type.impls(Point, Clone)` would be true, and `where(T <: Clone)`
+            would accept `Point`, with no `Clone` in the source.
+          - Synthesis also needs coherence rules for impls nobody wrote: an
+            inherited conditional bound, and no overlap with a derived or
+            hand-written generic `Clone`. A supertrait check is one rule.
+          - `derive(T, Copy, Clone)` is what Rust programmers, and agents,
+            already write.
+          - The cost is one word per `Copy` type, added by the decision 36
+            sweep.
         - **`derive(T, Clone)` is allowed.** A derived clone is field-wise,
           and for `Copy` fields that is exactly the bitwise copy, so it
           cannot diverge. It is the spelling for a type that is `Copy` only
@@ -1527,21 +1541,24 @@ and in git, not a silent edit.
           and a divergent one would break the rule that cloning a `Copy`
           value is the copy. Decision 27's elision and generic code calling
           `x.clone()` on a `Copy` `T` rely on that rule. The error names
-          `derive(T, Clone)`, or no `Clone` at all.
+          `derive(T, Clone)`.
         - **A generic hand-written `Clone` that also serves non-`Copy`
           instantiations is allowed.** The prelude `Option(T)`'s
           `.Some(v) => .Some(v.clone())` is one: at a `Copy` `T` its
           structural clone reduces to the copy.
-        - Rust requires `Copy: Clone` and accepts any `Clone`, leaving
-          divergence to a Clippy lint. Yo rejects the one case it can check
-          without breaking generics.
-      - **Prelude impls:** the integers, floats, `bool`, `rune`, `unit`, raw
-        pointers, `fn` pointers and `str` views; `Option(T)` and
-        `Result(T, E)` with `where(T <: Copy)` (and `E <: Copy`).
+        - **The one difference from Rust.** Rust's documentation says a
+          `Copy` type's `Clone` must equal the copy, but leaves divergence
+          to a Clippy lint (`expl_impl_clone_on_copy`). Yo enforces it in
+          the one case that can be checked without breaking generics.
+      - **Prelude impls,** each beside its `Clone`: the integers, floats,
+        `bool`, `rune`, `unit`, raw pointers, `fn` pointers and `str` views;
+        `Option(T)` and `Result(T, E)` with `where(T <: Copy)` (and
+        `E <: Copy`).
       - **Structural for anonymous composites.** Tuples, `Array(T, N)`,
         anonymous records `_(...)` and closures (their capture records)
-        have no declaration to annotate, so each is `Copy` when all its
-        parts are. Rust does the same for tuples, arrays and closures.
+        have no declaration to annotate. Each is `Copy`, and `Clone`, when
+        all its parts are. Rust does the same for tuples, arrays and
+        closures.
       - **Never `Copy`:** `Rc`, `Arc`, `Box`, `String`, the collections,
         `Dyn`, and every type with a `Dispose`.
     - **The three kinds become Rust's** (§0.2):
@@ -1560,7 +1577,7 @@ and in git, not a silent edit.
         instantiates it. A plain-data type the audit misses flips to move
         semantics at the flip. The result is E0901 at call sites the sweep
         never touched, an error rather than corruption, and the diagnostic
-        names `derive(T, Copy)`. The sweep PR therefore lists its
+        names `derive(T, Copy, Clone)`. The sweep PR therefore lists its
         uncovered files.
       - **What "today" means.** Count after the V3b flip. By then a plain
         parameter of an implicitly copyable type is a by-value copy, and
@@ -1570,25 +1587,26 @@ and in git, not a silent edit.
       - **Generation A:**
         - the prelude `Copy` trait and its impls;
         - the impl check;
-        - the compiler-supplied `clone()`;
+        - the `Copy: Clone` supertrait check and its error;
         - the `derive` rule.
 
         The seed sees `Copy` as an ordinary marker trait, so `std/` and
         `src/` may add their impls at once.
       - **Generation B:**
-        - the `yo fix` sweep, which adds `Copy` to every named type that is
-          copied implicitly today;
+        - the `yo fix` sweep, which adds `Copy`, plus `Clone` where it is
+          missing, to every named type that is copied implicitly today;
         - the flip: a named type without `Copy` is no longer implicitly
           copyable;
         - deleting `MoveOnly`.
     - **Tests:**
-      - a `derive(Point, Copy)` copy;
+      - a `derive(Point, Copy, Clone)` copy;
+      - `derive(Point, Copy)` without `Clone` is the error naming
+        `derive(Point, Copy, Clone)`;
       - a plain struct without `Copy` moves, and a later use is E0901;
       - `impl(T, Copy())` over a `String` field is an error;
       - `Copy` plus `Dispose` is an error;
       - a hand-written `Clone` on a concrete `Copy` type is an error naming
         `derive(T, Clone)`;
-      - `derive(Point, Copy, Clone)` is accepted;
       - `Pair(T)` with `derive(Clone)` and a conditional `Copy` works at
         both `i32` (implicit copy) and `String` (explicit `.clone()`);
       - the prelude `Option(i32)` stays `Copy` with its generic `Clone`;
