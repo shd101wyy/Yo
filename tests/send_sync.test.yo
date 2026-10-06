@@ -13,6 +13,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Mutex } :: import("std/sync/mutex");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
 
 // ============================================================================
 // The derivation, by reflection
@@ -54,12 +55,13 @@ test("atomic cells are Send and Sync", {
 });
 // Raw pointers exist only under pragma(Pragma.AllowUnsafe), so their rules are
 // pinned in tests/send_sync_raw_pointer.test.yo.
-test("Io and JoinHandle declare negative markers", {
-  comptime_assert(!Type.impls(Io, Send), "Io is not Send");
-  comptime_assert(!Type.impls(Io, Sync), "Io is not Sync");
-  comptime_assert(!Type.impls(JoinHandle(i32), Send), "JoinHandle is not Send");
-  comptime_assert(!Type.impls(JoinHandle(i32), Sync), "JoinHandle is not Sync");
-});
+// Io and JoinHandle declare negative markers. At module level: naming
+// `JoinHandle` inside a sync test body fails at the C compiler
+// (issues/naming-joinhandle-inside-a-sync-test-body-emits-a-call-to-an-undeclared-runtime-function.md).
+comptime_assert(!Type.impls(Io, Send), "Io is not Send");
+comptime_assert(!Type.impls(Io, Sync), "Io is not Sync");
+comptime_assert(!Type.impls(JoinHandle(i32), Send), "JoinHandle is not Send");
+comptime_assert(!Type.impls(JoinHandle(i32), Sync), "JoinHandle is not Sync");
 test("a Dyn is Send or Sync only through an explicit bound", {
   comptime_assert(!Type.impls(Dyn(SsSpeak), Send), "Dyn(Trait) is not Send");
   comptime_assert(!Type.impls(Dyn(SsSpeak), Sync), "Dyn(Trait) is not Sync");

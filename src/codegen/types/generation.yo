@@ -1775,6 +1775,33 @@ generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, cont
 iso_child_is_object :: (fn(iso_type : TypeValue) -> bool)(
   match(iso_type, .IsoT(c) => (is_reference_struct_type(c) || is_reference_enum_type(c)), _ => true)
 );
+/// The Iso wrapper struct bodies, emitted after every other type declaration
+/// (see `generate_iso_type_declarations`'s first pass).
+generate_iso_struct_bodies :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  kb := context.iso_types.keys();
+  (gb : bool) = true;
+  while(gb, {
+    match(
+      kb.next(),
+      .Some(iso_name) => match(
+        context.iso_types.get(iso_name.clone()),
+        .Some(info) => if(info.struct_generated && !info.body_generated, {
+          info.body_generated = true;
+          em.emit_declaration_string_line(`struct ${iso_name.clone()}_struct {`);
+          em.emit_declaration_string_line(String.from("  __yo_ref_header_t header; // Atomic RC header"));
+          em.emit_declaration_string_line(String.from("  _Atomic bool extracted; // Extraction flag"));
+          em.emit_declaration_string_line(`  ${info.child_type_c_name.clone()} value; // Inner value`);
+          em.emit_declaration_string_line(String.from("};"));
+        }),
+        .None => ()
+      ),
+      .None => {
+        gb = false;
+      }
+    );
+  });
+});
 generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
   em := context.emitter;
   // Pass 1: Iso struct type + constructor declaration.
@@ -1787,11 +1814,11 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         context.iso_types.get(iso_name.clone()),
         .Some(info) => if(!info.struct_generated, {
           child := info.child_type_c_name.clone();
-          em.emit_declaration_string_line(String.from("typedef struct { // Iso wrapper struct"));
-          em.emit_declaration_string_line(String.from("  __yo_ref_header_t header; // Atomic RC header"));
-          em.emit_declaration_string_line(String.from("  _Atomic bool extracted; // Extraction flag"));
-          em.emit_declaration_string_line(`  ${child.clone()} value; // Inner value`);
-          em.emit_declaration_string_line(`} ${iso_name.clone()}_struct;`);
+          // Only the handle typedef here: a type declared below may hold an
+          // `Iso` (a spawn closure's capture struct does). The body follows
+          // every type declaration (`generate_iso_struct_bodies`), because a
+          // VALUE child is embedded by value and must be complete first.
+          em.emit_declaration_string_line(`typedef struct ${iso_name.clone()}_struct ${iso_name.clone()}_struct; // Iso wrapper struct`);
           em.emit_declaration_string_line(`typedef ${iso_name.clone()}_struct* ${iso_name.clone()};`);
           em.emit_declaration_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value);`);
           info.struct_generated = true;
@@ -2447,6 +2474,9 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       }
     );
   });
+  // The Iso wrapper bodies embed their child by value, so they follow every
+  // type they may hold.
+  generate_iso_struct_bodies(context);
   // Every declaration pass has run: an on-demand Future interface from here
   // on gets its body at once (see CodeGenContext.type_declaration_passes_done).
   context.type_declaration_passes_done = true;
