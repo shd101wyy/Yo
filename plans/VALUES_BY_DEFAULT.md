@@ -2308,7 +2308,11 @@ and in git, not a silent edit.
     holding one opts in under the pragma with `impl(T, Send())` /
     `impl(T, Sync())`, which the manual-impl gate now requires for `Sync`
     too. std opts in `Channel`, `Mutex` (`Sync` for `T <: Send`), `Waker`,
-    `ImmString`, `imm.Vec`, `MapBranch` and `MapCollision`. The atomic-object
+    `ImmString`, `imm.Vec`, `MapBranch`, `MapCollision` and `thread`'s
+    `_BlockingOwner` (the blocking-bracket loop pointer `spawn_blocking`'s
+    worker carries,
+    `issues/fixed/spawn-blockings-worker-closure-captures-a-raw-loop-pointer-and-is-never-send.md`).
+    The atomic-object
     field check is skipped in a pragma'd file, because the opt-in registers
     after the type; skipping it makes nothing `Sync`.
   - **`Io` and `JoinHandle`** add `!(Sync())` beside `!(Send())`.

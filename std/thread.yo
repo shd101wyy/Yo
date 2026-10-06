@@ -404,8 +404,10 @@ spawn_blocking :: (
   chan := Channel(T).new(usize(1));
   sink := chan;
   // The loop to un-bracket. `blocking_end` runs on the WORKER thread, where
-  // "this loop" is a different loop entirely.
-  owner := unsafe(__yo_async_loop_self_ptr());
+  // "this loop" is a different loop entirely. The pointer travels inside
+  // `_BlockingOwner` — a raw pointer is never `Send` on its own (decision
+  // 38 E), and the worker closure crosses `Thread.spawn`.
+  owner := _BlockingOwner(owner : unsafe(__yo_async_loop_self_ptr()));
   unsafe(__yo_async_blocking_begin());
   worker := Thread(unit).spawn((tio : Io) => {
     _ := sink.send(cb());
@@ -414,7 +416,7 @@ spawn_blocking :: (
     // the loop sees no runnable task, no I/O and no inbox entry, and is
     // entitled to conclude it has nothing left to do.
     w.wake();
-    unsafe(__yo_async_blocking_end(owner));
+    unsafe(__yo_async_blocking_end(owner.owner));
     ()
   });
   // Not joined: by the time the awaiting task resumes the worker has already
@@ -426,6 +428,14 @@ spawn_blocking :: (
     _take_blocking_result(chan)
   })
 });
+/// SAFETY: the blocking-bracket's loop pointer. `__yo_async_blocking_end`
+/// only posts to that loop's inbox — the same cross-thread wake a `Waker`
+/// uses (rule D7), which never touches the loop's own state from the worker
+/// thread — so the raw pointer may cross into the worker
+/// (plans/VALUES_BY_DEFAULT.md decision 38 E: a type holding one opts in
+/// under this file's pragma, like `Waker` beside it).
+_BlockingOwner :: struct(owner : *u8);
+impl(_BlockingOwner, Send());
 /// Get the number of hardware threads (CPU cores) available.
 get_hardware_threads :: (fn() -> usize)(__yo_thread_get_hardware_threads());
 /// Get the current OS thread ID.

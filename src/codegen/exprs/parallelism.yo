@@ -184,7 +184,7 @@ _emit_capture_dispose_lines :: (
         nt_fields := get_runtime_struct_fields(concrete);
         match(
           nt_fields.get(usize(0)),
-          .Some(nt_f) => _emit_capture_dispose_lines(ref_code.clone(), nt_f.ty, context, (depth + u32(1))),
+          .Some(nt_f) => _emit_capture_dispose_lines(ref_code.clone(), nt_f.ty, context, depth + u32(1)),
           .None => ()
         );
       }, {
@@ -198,7 +198,7 @@ _emit_capture_dispose_lines :: (
               ds_ref.push_string(ref_code.clone());
               ds_ref.push_str(").");
               ds_ref.push_string(sanitize_for_c_identifier(ds_f.label.clone(), false));
-              _emit_capture_dispose_lines(ds_ref, ds_f.ty, context, (depth + u32(1)));
+              _emit_capture_dispose_lines(ds_ref, ds_f.ty, context, depth + u32(1));
             },
             .None => ()
           );
@@ -216,7 +216,7 @@ _emit_capture_dispose_lines :: (
             dt_ref.push_string(ref_code.clone());
             dt_ref.push_str(")._");
             dt_ref.push_string(dt_i.to_string());
-            _emit_capture_dispose_lines(dt_ref, dt_ft, context, (depth + u32(1)));
+            _emit_capture_dispose_lines(dt_ref, dt_ft, context, depth + u32(1));
           },
           .None => ()
         );
@@ -241,7 +241,7 @@ _emit_capture_dispose_lines :: (
         ds_eref.push_str(").data[");
         ds_eref.push_string(ds_loop.clone());
         ds_eref.push_str("]");
-        _emit_capture_dispose_lines(ds_eref, ds_elem, context, (depth + u32(1)));
+        _emit_capture_dispose_lines(ds_eref, ds_elem, context, depth + u32(1));
         em.emit_string_line(String.from("}"));
       });
     },
@@ -254,7 +254,7 @@ _emit_capture_dispose_lines :: (
         can_optimize_as_nullable_pointer(concrete),
         .Some(nb_inner) => {
           em.emit_string_line(`if ((${ref_code.clone()}) != NULL) {`);
-          _emit_capture_dispose_lines(ref_code.clone(), nb_inner, context, (depth + u32(1)));
+          _emit_capture_dispose_lines(ref_code.clone(), nb_inner, context, depth + u32(1));
           em.emit_string_line(String.from("}"));
         },
         .None => {
@@ -292,7 +292,7 @@ _emit_capture_dispose_lines :: (
                     dv_access.push_string(c_variant_member_name(dv_name.clone()));
                     dv_access.push_str(".");
                     dv_access.push_string(dv_fname);
-                    _emit_capture_dispose_lines(dv_access, dv_ft, context, (depth + u32(1)));
+                    _emit_capture_dispose_lines(dv_access, dv_ft, context, depth + u32(1));
                   }),
                   .None => ()
                 );

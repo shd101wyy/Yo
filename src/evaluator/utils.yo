@@ -583,12 +583,9 @@ _owning_param_binding_for_capture_move :: (fn(env : Environment, name : String) 
     i = (i - usize(1));
     match(
       vars.get(i),
-      .Some(cv) => if(
-        cv.is_parameter && cv.is_owning_the_rc_value && (!cv.is_ref && !cv.is_module_level) && cv.consumed_at_token.is_none(),
-        {
-          return(Option(Variable).Some(cv));
-        }
-      ),
+      .Some(cv) => if(cv.is_parameter && cv.is_owning_the_rc_value && (!cv.is_ref && !cv.is_module_level) && cv.consumed_at_token.is_none(), {
+        return(Option(Variable).Some(cv));
+      }),
       .None => ()
     );
   });
