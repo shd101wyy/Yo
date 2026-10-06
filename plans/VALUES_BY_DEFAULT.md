@@ -20,9 +20,9 @@ Progress:
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
+  - decision 32 Generation A, `Rc.clone(w)` (#1241);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
-  - decision 32 Generation A, `Rc.clone(w)` (#1241);
   - the Generation A wave: decision 35's capture lists with decision 38's
     rules, then decision 37's `FnOnce`; decision 36's `Copy`; the
     `Send`/`Sync` split with decision 38 E; local borrows (`imm(y) :=`,
@@ -1564,19 +1564,31 @@ and in git, not a silent edit.
         `bool`, `rune`, `unit`, raw pointers, `fn` pointers and `str` views;
         `Option(T)` and `Result(T, E)` with `where(T <: Copy)` (and
         `E <: Copy`).
-      - **Raw pointers and `clone`.** `*(T)`'s `Clone` copies the pointer.
-        Today `p.clone()` on a raw pointer auto-dereferences to the
-        pointee's `clone`, so the new impl would silently change that call.
-        Decision 32's rule settles it: a member both the pointer and its
-        pointee have is an error at `p.m`. The error names
-        - `p.*.clone()` for the pointee's clone;
-        - the implicit copy `q := p` for the pointer (`Copy`).
-
-        Raw pointers join `Box`/`Rc`/`Arc` in decision 32's clash rule. The
-        call sites that rely on today's auto-deref are counted, and they
-        migrate in decision 36's Generation B. Generation A adds the
-        pointer `Clone` impl only together with the clash error, so no call
-        changes meaning silently.
+      - **Raw pointers and `clone`** (corrected 2026-10-06; the first text
+        said `p.clone()` auto-dereferenced to the pointee today, which is
+        false).
+        - **Today:** a method call through a raw pointer does not
+          auto-dereference. `q.clone()` on a `*(Point)` is E0610, because
+          receiver resolution skips pointer receivers
+          (`src/evaluator/calls/function.yo`, the `!is_pointer_type` guard).
+          A field read (`q.x`) and a call of a function-typed pointee field
+          (`q.getv()`) do auto-dereference.
+        - **So `*(T)`'s new `Clone`, a pointer copy, changes no working
+          program's meaning,** except one corner: a pointee field of
+          function type named `clone` (or another `Clone`/`Copy` member
+          name), called through a pointer.
+        - **That corner gets decision 32's clash rule:** a member both the
+          pointer and its pointee have is an error at `p.m`, naming
+          `p.*.m()` for the pointee and the implicit copy `q := p` for the
+          pointer.
+        - **Timing.** The pointer `Copy`/`Clone` impls and this pointer clash
+          error land together in decision 36's Generation A. Neither needs
+          the seed: the suggestions are `p.*.m()` and `q := p`, not
+          decision 32's unapplied-constructor call. So `where(T <: Copy)`
+          accepts raw pointers from Generation A on.
+        - The count of affected call sites (pointer-through calls of a
+          pointee fn-field with a clashing name) is expected to be about
+          zero. It is measured and reported in the Generation A PR.
       - **Structural for anonymous composites.** Tuples, `Array(T, N)`,
         anonymous records `_(...)` and closures (their capture records)
         have no declaration to annotate. Each is `Copy`, and `Clone`, when
