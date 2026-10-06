@@ -721,9 +721,7 @@ evaluate_match :: (
       // general lowering (the `case TAG:` block cannot fall through to the
       // later arms on a literal miss), and the expansion must already hang
       // off the `=>` node here, with the arm's own frame env in the info.
-      if(
-        (!(classic)) || (scrutinee_is_enum && _variant_pattern_has_literal_sub(pat)),
-        {
+      if((!(classic)) || (scrutinee_is_enum && _variant_pattern_has_literal_sub(pat)), {
         tests := ArrayList(AstExpr).new();
         pattern_test_exprs(pat, tests);
         if(tests.len() > usize(0), {
@@ -1041,30 +1039,27 @@ evaluate_match :: (
         ai3 = (ai3 + usize(1));
       });
       if((grows.len() > usize(0)) && !(has_unguarded_group_arm), {
-        if(
-          !(variant_group_covers(grows, vname, target_idx, varity, vptr, vety, position_type)),
-          {
-            // Uncovered: the switch shape would drop the miss. Flip the
-            // group's arms onto the general lowering (their `=>` nodes
-            // already carry the test expansions recorded in the arm loop).
-            (fi3 : usize) = usize(0);
-            while(fi3 < arms.len(), {
-              match(
-                arms.get(fi3),
-                .Some(fa) => match(
-                  fa.pattern,
-                  .Variant(_, fidx, _, _, _, _, _) => if(fidx == target_idx, {
-                    fa.classic = false;
-                  }),
-                  _ => ()
-                ),
-                .None => ()
-              );
-              fi3 = (fi3 + usize(1));
-            });
-            all_classic = false;
-          }
-        );
+        if(!(variant_group_covers(grows, vname, target_idx, varity, vptr, vety, position_type)), {
+          // Uncovered: the switch shape would drop the miss. Flip the
+          // group's arms onto the general lowering (their `=>` nodes
+          // already carry the test expansions recorded in the arm loop).
+          (fi3 : usize) = usize(0);
+          while(fi3 < arms.len(), {
+            match(
+              arms.get(fi3),
+              .Some(fa) => match(
+                fa.pattern,
+                .Variant(_, fidx, _, _, _, _, _) => if(fidx == target_idx, {
+                  fa.classic = false;
+                }),
+                _ => ()
+              ),
+              .None => ()
+            );
+            fi3 = (fi3 + usize(1));
+          });
+          all_classic = false;
+        });
       });
       gi3 = (gi3 + usize(1));
     });

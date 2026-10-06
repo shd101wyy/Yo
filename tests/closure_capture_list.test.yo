@@ -29,7 +29,7 @@ _cl_with_mut :: (fn(f : Impl(Fn() -> i32), mut(z) : i32) -> i32)({
   z = (z + i32(1));
   f()
 });
-_cl_reentry :: (fn(a : Impl(Fn() -> i32), b : Impl(Fn() -> i32)) -> i32)((a() + b()));
+_cl_reentry :: (fn(a : Impl(Fn() -> i32), b : Impl(Fn() -> i32)) -> i32)(a() + b());
 _ClAcc :: struct(total : i32, other : i32);
 impl(_ClAcc, run : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)(f()));
 // ---------------------------------------------------------------------------
@@ -304,7 +304,7 @@ test("a function literal rejects an Impl(Fn(...)) parameter", {
   // site, so the parameter would lower to `void*` while each call passes the
   // argument closure's capture struct.
   comptime_expect_error(
-    ((f : Impl(Fn(k : Impl(Fn() -> i32)) -> i32)) = ((k : Impl(Fn() -> i32)) => (k() + n))),
+    (f : Impl(Fn(k : Impl(Fn() -> i32)) -> i32)) = ((k : Impl(Fn() -> i32)) => (k() + n)),
     "function literal has one body"
   );
   // The boxed spelling remains a literal's way to take a closure argument.
