@@ -5847,7 +5847,9 @@ supply_copy_clone_impl :: (fn(ty_in : TypeValue, env : Environment, ctx : EvalCo
       _added := add_variable_to_env(frame_env, var.clone(), t_type(), Option(EvalValue).Some(EvalValue.TypeVal(ty)), true, false, false, false, synthetic_token(var.clone(), env.module_path));
       (ok : bool) = false;
       set_supplying_copy_clone(true);
-      _eval_supplied_clone_impl(`impl(${var}, Clone(clone : ((self) -> self)))`, frame_env, ctx, ok);
+      // `__yo_return_self` is the prelude primitives' clone: an inline copy
+      // of the receiver, no call.
+      _eval_supplied_clone_impl(`impl(${var}, Clone(clone : ((self) -> __yo_return_self(self))))`, frame_env, ctx, ok);
       set_supplying_copy_clone(false);
       ok
     },

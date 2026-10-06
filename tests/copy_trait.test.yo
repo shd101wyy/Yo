@@ -1,0 +1,207 @@
+// The `Copy` trait (plans/VALUES_BY_DEFAULT.md decision 36, Generation A).
+//
+// `Copy` is a prelude marker. A named type opts in with `derive(T, Copy)` or
+// `impl(T, Copy())`; the impl is checked (every part `Copy`, no `Dispose`, no
+// `MoveOnly`, never a reference type); the compiler supplies `clone()` for a
+// `Copy` type, so a manual `Clone` on one is an error; and a tuple, an array,
+// a closure, an anonymous record and a `fn` pointer are `Copy` exactly when
+// all their parts are. Generation A does not flip the copy rule: a named
+// plain-data type without `Copy` still copies implicitly here.
+// Raw pointers appear in the prelude-impl test.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+_CtPoint :: struct(x : i32, y : i32);
+derive(_CtPoint, Copy, Eq(_CtPoint));
+_CtCell :: struct(v : i32);
+impl(_CtCell, Copy());
+_CtDir :: enum(North, South);
+derive(_CtDir, Copy);
+_CtShape :: enum(Dot(at : _CtPoint), Empty);
+derive(_CtShape, Copy);
+_CtPair :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(a : T, b : T)
+);
+derive(generic(T : Type), where(T <: Copy), _CtPair(T), Copy);
+// A generic operator impl over a `Copy` bound: the by-value operand shape
+// decision 34 allows for a `Copy` type.
+impl(
+  generic(T : Type),
+  where(T <: Copy, T <: Eq(T)),
+  _CtPair(T),
+  Eq(_CtPair(T))(
+    (==) : ((lhs, rhs) -> ((lhs.a == rhs.a) && (lhs.b == rhs.b))),
+    (!=) : ((lhs, rhs) -> !(lhs == rhs))
+  )
+);
+// The `Copy` impl of a struct may come before its fields' own impls
+// (plans/reference/LAZY_TOPLEVEL_BINDINGS.md): the field check forces them.
+_CtSeg :: struct(from : _CtEnd, to : _CtEnd);
+impl(_CtSeg, Copy());
+_CtEnd :: struct(v : i32);
+impl(_CtEnd, Copy());
+// Plain data without `Copy`: still implicitly copied in Generation A.
+_CtPlain :: struct(n : i32);
+// Rejected impls, each checked in a test below.
+_CtLabel :: struct(id : i32, name : String);
+_CtFd :: struct(fd : i32);
+impl(
+  _CtFd,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(())
+  )
+);
+_CtToken :: struct(id : i32);
+impl(_CtToken, MoveOnly());
+_CtRef :: ref(struct(n : i32));
+_CtCopied :: struct(n : i32);
+impl(_CtCopied, Copy());
+_CtCloned :: struct(n : i32);
+derive(_CtCloned, Clone);
+_CtHandle :: struct(n : i32);
+impl(
+  _CtHandle,
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)(Self(n : self.n))
+  )
+);
+_CtOpen :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(item : T)
+);
+_ct_clone_any :: (fn(generic(T : Type), x : T, where(T <: Clone)) -> T)(x.clone());
+_CtUser :: struct(at : _CtPoint);
+impl(
+  _CtUser,
+  moved : (fn(self : Self) -> _CtPoint)(self.at.clone())
+);
+// ---------------------------------------------------------------------------
+// The trait and the prelude's impls
+// ---------------------------------------------------------------------------
+test("Copy: the prelude's scalars, str, unit, raw pointers, Option and Result implement it", {
+  comptime_assert(Type.impls(i8, Copy) && Type.impls(i16, Copy) && Type.impls(i32, Copy) && Type.impls(i64, Copy), "signed integers");
+  comptime_assert(Type.impls(u8, Copy) && Type.impls(u16, Copy) && Type.impls(u32, Copy) && Type.impls(u64, Copy), "unsigned integers");
+  comptime_assert(Type.impls(usize, Copy) && Type.impls(isize, Copy), "pointer-sized integers");
+  comptime_assert(Type.impls(f32, Copy) && Type.impls(f64, Copy), "floats");
+  comptime_assert(Type.impls(bool, Copy) && Type.impls(char, Copy) && Type.impls(int, Copy), "bool, char and the C integers");
+  comptime_assert(Type.impls(unit, Copy) && Type.impls(str, Copy), "unit and str views");
+  comptime_assert(Type.impls(*(i32), Copy) && Type.impls(*(String), Copy), "a raw pointer, whatever it points at");
+  comptime_assert(Type.impls(Option(i32), Copy), "Option of a Copy payload");
+  comptime_assert(Type.impls(Result(i32, bool), Copy), "Result of Copy payloads");
+  comptime_assert(!Type.impls(Option(String), Copy), "Option of a String is not");
+  comptime_assert(!Type.impls(Result(i32, String), Copy), "Result with a String error is not");
+  comptime_assert(!Type.impls(String, Copy), "String owns a buffer");
+  comptime_assert(!Type.impls(ArrayList(i32), Copy), "a collection is never Copy");
+  comptime_assert(!Type.impls(Box(i32), Copy), "Box is never Copy");
+  comptime_assert(!Type.impls(Dyn(Clone), Copy), "Dyn is never Copy");
+});
+// ---------------------------------------------------------------------------
+// Opting in
+// ---------------------------------------------------------------------------
+test("Copy: derive(T, Copy) and impl(T, Copy()) opt a struct, an enum and a generic type in", {
+  comptime_assert(Type.impls(_CtPoint, Copy), "derive(_CtPoint, Copy)");
+  comptime_assert(Type.impls(_CtCell, Copy), "impl(_CtCell, Copy())");
+  comptime_assert(Type.impls(_CtDir, Copy), "a payload-free enum");
+  comptime_assert(Type.impls(_CtShape, Copy), "an enum whose payloads are Copy");
+  comptime_assert(Type.impls(_CtPair(i32), Copy), "a generic type over a Copy argument");
+  comptime_assert(!Type.impls(_CtPair(String), Copy), "a generic type over a String argument is not");
+  comptime_assert(Type.impls(_CtSeg, Copy) && Type.impls(_CtEnd, Copy), "a Copy impl before its fields' impls");
+  comptime_assert(Type.impls(Option(_CtPoint), Copy), "Option of a derived Copy type");
+});
+test("Copy: a derive(T, Copy) value copies, and the copy is independent", {
+  p := _CtPoint(x : i32(1), y : i32(2));
+  q := p;
+  q.x = i32(10);
+  assert((p.x == i32(1)) && (q.x == i32(10)), "q is a copy of p");
+  assert((p.y + q.y) == i32(4), "both stay usable");
+  s := _CtShape.Dot(at : p);
+  t := s;
+  match(
+    t,
+    .Dot(at) => assert(at.x == i32(1), "the payload was copied"),
+    .Empty => assert(false, "t is a Dot")
+  );
+});
+test("Copy: a plain struct without Copy is still copied implicitly in Generation A", {
+  comptime_assert(!Type.impls(_CtPlain, Copy), "no Copy without an impl or a derive");
+  a := _CtPlain(n : i32(3));
+  b := a;
+  assert((a.n + b.n) == i32(6), "the flip that moves it is Generation B");
+});
+// ---------------------------------------------------------------------------
+// Structural Copy
+// ---------------------------------------------------------------------------
+test("Copy: a tuple, an array, a fn pointer and an anonymous record are Copy when all their parts are", {
+  comptime_assert(Type.impls(Tuple(i32, bool), Copy), "a tuple of Copy parts");
+  comptime_assert(Type.impls(Tuple(_CtPoint, Option(i32)), Copy), "a tuple of derived Copy parts");
+  comptime_assert(!Type.impls(Tuple(i32, String), Copy), "a tuple holding a String is not");
+  comptime_assert(!Type.impls(Tuple(i32, _CtPlain), Copy), "a tuple holding a type without Copy is not");
+  comptime_assert(Type.impls(Array(i32, 4), Copy), "an array of Copy elements");
+  comptime_assert(!Type.impls(Array(String, 2), Copy), "an array of Strings is not");
+  comptime_assert(Type.impls((fn(x : i32) -> i32), Copy), "a fn pointer is a code address");
+  t := (i32(1), true);
+  u := t;
+  assert((t.0 + u.0) == i32(2), "a tuple of Copy parts copies implicitly");
+  r := _(a : i32(1), b : i32(2));
+  comptime_assert(Type.impls(type_of(r), Copy), "an anonymous record of Copy fields");
+});
+test("Copy: a closure is Copy when all its captures are", {
+  n := i32(2);
+  (add_n : Impl(Fn(x : i32) -> i32)) = ((x) => (x + n));
+  comptime_assert(Type.impls(type_of(add_n), Copy), "captures only an i32");
+  g := add_n;
+  assert((g(i32(1)) + add_n(i32(1))) == i32(6), "both copies call");
+  label := String.from("k");
+  (with_label : Impl(Fn() -> usize)) = (() => label.len());
+  comptime_assert(!Type.impls(type_of(with_label), Copy), "a String capture is not Copy");
+  assert(with_label() == usize(1), "the closure still runs");
+});
+// ---------------------------------------------------------------------------
+// The impl check
+// ---------------------------------------------------------------------------
+test("Copy: an impl over a part that is not Copy names that part", {
+  comptime_expect_error(impl(_CtLabel, Copy()), "its field `name` has type `String`");
+  comptime_expect_error(impl(_CtPlainHolder, Copy()), "its field `inner` has type `_CtPlain`");
+  comptime_expect_error(impl(generic(T : Type), _CtOpen(T), Copy()), "its field `item` has type `T`");
+});
+_CtPlainHolder :: struct(inner : _CtPlain);
+test("Copy: Copy and Dispose (or MoveOnly) exclude each other, in either order", {
+  comptime_expect_error(impl(_CtFd, Copy()), "implements Dispose");
+  comptime_expect_error(impl(_CtToken, Copy()), "declares MoveOnly");
+  comptime_expect_error(impl(_CtCopied, Dispose(dispose : (fn(self : Self) -> unit)(()))), "it implements Copy");
+  comptime_expect_error(impl(_CtCopied, MoveOnly()), "it implements Copy");
+});
+test("Copy: a reference type, a tuple and a blanket type parameter cannot declare Copy", {
+  comptime_expect_error(impl(_CtRef, Copy()), "it is a reference type");
+  comptime_expect_error(impl(generic(T : Type), T, Copy()), "only a value type");
+});
+// ---------------------------------------------------------------------------
+// The compiler-supplied clone()
+// ---------------------------------------------------------------------------
+test("Copy: a Copy type gets clone() from the compiler", {
+  comptime_assert(Type.impls(_CtPoint, Clone), "Copy implies Clone");
+  comptime_assert(Type.impls(_CtPair(i32), Clone), "for a generic Copy instance too");
+  comptime_assert(!Type.impls(_CtPlain, Clone), "a type with neither has no clone()");
+  p := _CtPoint(x : i32(4), y : i32(5));
+  q := p.clone();
+  assert(q == p, "the supplied clone is the bitwise copy");
+  c := _CtCell(v : i32(7)).clone();
+  assert(c.v == i32(7), "an impl(T, Copy()) type");
+  pr := _CtPair(i32)(a : i32(1), b : i32(2));
+  assert(pr.clone() == pr, "a generic Copy instance, through the where(T <: Copy) Eq impl");
+  xs := ArrayList(_CtPoint).new();
+  xs.push(p);
+  ys := xs.clone();
+  assert(match(ys.get(usize(0)), .Some(e) => (e == p), .None => false), "ArrayList.clone over a Copy element");
+  assert(_ct_clone_any(p) == p, "a where(T <: Clone) function accepts a Copy type");
+  b := box(p);
+  assert(b.clone().* == p, "Box.clone reaches the payload's supplied clone");
+  u := _CtUser(at : p);
+  assert(u.moved() == p, "clone() inside another type's method");
+});
+test("Copy: a manual Clone on a Copy type is an error, in either order", {
+  comptime_expect_error(impl(_CtPoint, Clone(clone : (fn(inout(self) : Self) -> Self)(self))), "a manual Clone impl is not allowed");
+  comptime_expect_error(impl(_CtCloned, Copy()), "a manual Clone impl is not allowed");
+  comptime_expect_error(impl(_CtHandle, Copy()), "a manual Clone impl is not allowed");
+  comptime_expect_error(derive(_CtCloned, Copy), "a manual Clone impl is not allowed");
+});

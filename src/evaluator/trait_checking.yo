@@ -599,11 +599,11 @@ _check_associated_type_constraints :: (
 // ---------------------------------------------------------------------------
 // Copy (plans/VALUES_BY_DEFAULT.md decision 36)
 // ---------------------------------------------------------------------------
-/// True for the prelude `Copy` trait. The id test is cheap (`Copy` declares
-/// `id := "Copy"`), so the identity lookup runs only for a trait that could
-/// be it.
+/// True for the prelude `Copy` trait. The name test is cheap (a `::`-bound
+/// trait is stamped with its binding name), so the identity lookup runs only
+/// for a trait that could be it.
 is_copy_trait :: (fn(trait_type : TypeValue, env : Environment) -> bool)(
-  (_trait_type_id(trait_type) == "Copy") && _is_prelude_trait_named(trait_type, "Copy", env)
+  match(trait_type, .TraitT({ name : ct_name }) => (ct_name == "Copy"), _ => false) && _is_prelude_trait_named(trait_type, "Copy", env)
 );
 /// An anonymous record: a value struct with no name, no binding, no
 /// constructor and no namespace role (`_(a : i32(1))`, or an inline
@@ -613,7 +613,9 @@ _is_anonymous_record_type :: (fn(ty : TypeValue) -> bool)(
   match(
     ty,
     .Struct({ id : ar_id, name : ar_name, is_reference_semantics : ar_ref, is_newtype : ar_new, constructor_func_id : ar_cfid, is_source_namespace : ar_sns }) => (
-      (((!ar_ref && !ar_new) && (!ar_sns && ar_name.is_empty())) && ar_cfid.is_empty()) && type_binding_name(ar_id).is_none()
+      // A type rebuilt from a value carries no id at all, and is not
+      // known to be anonymous.
+      ((((!ar_ref && !ar_new) && (!ar_sns && ar_name.is_empty())) && ar_cfid.is_empty()) && !ar_id.is_empty()) && type_binding_name(ar_id).is_none()
     ),
     _ => false
   )
@@ -656,8 +658,9 @@ copy_structural_parts :: (fn(ty_in : TypeValue) -> Option(ArrayList(TypeValue)))
 /// pointer copy must not shadow.
 _clone_supplied_by_copy :: (fn(target : TypeValue, trait_type : TypeValue, env : Environment) -> bool)(
   cond(
-    // A cheap name test first: this runs after every trait query that missed.
-    !match(trait_type, .TraitT({ name : cs_tn }) => (cs_tn.is_empty() || (cs_tn == "Clone")), _ => false) => false,
+    // A cheap name test first: this runs after every trait query that
+    // missed (a `::`-bound trait is stamped with its binding name).
+    !match(trait_type, .TraitT({ name : cs_tn }) => (cs_tn == "Clone"), _ => false) => false,
     is_pointer_type(target) => false,
     !_is_prelude_trait_named(trait_type, "Clone", env) => false,
     true => match(

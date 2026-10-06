@@ -1161,6 +1161,29 @@ p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
 
 No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. `std/arena`'s `Arena` panics at `deinit` while a block is still live. The safety rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators-and-arenas); the full guide is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
 
+#### Copy
+
+`Copy` is the prelude marker for a value whose copy is a bitwise copy. The integers, floats, `bool`, `char`, `unit`, `str` views and raw pointers implement it, and so do `Option(T)` and `Result(T, E)` when their payloads do. A named type opts in with `derive(T, Copy)` or `impl(T, Copy())`, and a generic one with a `where` bound:
+
+```rust
+Point :: struct(x : i32, y : i32);
+derive(Point, Copy);
+
+Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+derive(generic(T : Type), where(T <: Copy), Pair(T), Copy);
+
+main :: (fn() -> unit)({
+  p := Point(x : i32(1), y : i32(2));
+  q := p;           // a copy: `p` stays usable
+  r := p.clone();   // the compiler supplies clone() for a Copy type
+});
+export(main);
+```
+
+The impl is checked. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` or declares `MoveOnly` cannot be `Copy`, in either order, and neither can a reference type. A `Copy` type's `clone()` is the bitwise copy, and the compiler supplies it, so a manual `Clone` impl (or `derive(T, Clone)`) on a `Copy` type is an error. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy` exactly when all its parts are. `Box`, `Arc`, `String`, the collections and `Dyn` never are.
+
+Today `Copy` is checked but not yet required: a plain-data type without it is still copied implicitly. The next step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 36) makes it the rule, after which `q := p` moves a `Point` that is not `Copy`, and a later use of `p` is E0901.
+
 #### Move-only values
 
 A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is **move-only**, and so is every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Box`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.
