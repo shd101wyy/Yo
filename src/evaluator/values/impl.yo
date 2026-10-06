@@ -4992,17 +4992,21 @@ evaluate_module_value :: (
             .None => ()
           );
         });
-        // Phase A (THREAD_SAFETY): a manual `impl(T, Send())` / `impl(T, Acyclic())`
-        // requires `pragma(Pragma.AllowUnsafe)`.
+        // Phase A (THREAD_SAFETY): a manual `impl(T, Send())` / `impl(T, Sync())`
+        // / `impl(T, Acyclic())` requires `pragma(Pragma.AllowUnsafe)`.
         if(!is_negative_field && (ast_expr_is_fn_call(field_expr) && !ast_expr_is_fn_call_of(field_expr, BK_COLON, .Some(usize(2)))), {
           pos_trait_name := match(
             field_expr,
             .FnCall(_, pfb, _, _, _) => ast_expr_token(pfb).value,
             .Atom(_, _) => String.new()
           );
-          if((pos_trait_name == "Send") || (pos_trait_name == "Acyclic"), {
+          if((pos_trait_name == "Send") || (pos_trait_name == "Sync") || (pos_trait_name == "Acyclic"), {
             if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(field_expr).module_path.clone())), {
-              suffix := if(pos_trait_name == "Send", String.from("send across threads"), String.from("declare Acyclic"));
+              suffix := cond(
+                (pos_trait_name == "Send") => String.from("send across threads"),
+                (pos_trait_name == "Sync") => String.from("share across threads"),
+                true => String.from("declare Acyclic")
+              );
               exn.throw(
                 dyn(
                   format_error_message(

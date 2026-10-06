@@ -2251,12 +2251,12 @@ Result type: ${type_to_string(decl_result_ty)}`
     // Rules D4 + D9: the captured state's marker verdicts, per captured
     // variable with its value as the witness, for a later judgement of this
     // closure's TYPE (`arc(k)`, `where(T <: Send)`).
-    record_closure_capture_verdicts(func_id.clone(), cvwv, closure_capture_type, env, ctx);
-    // The wrapper's non-Fn trait requirements (`Send`) hold for each capture
-    // and for the capture struct.
+    record_closure_capture_verdicts(func_id.clone(), cvwv, closure_capture_type, env, ctx, borrows_captures : closure_borrows_captures);
+    // The wrapper's non-Fn trait requirements (`Send`, `Sync`) hold for each
+    // capture and for the capture struct.
     match(
       closure_capture_type,
-      .Some(vct) => validate_capture_trait_requirements(expected_ty.clone(), vct, cvwv, env, ctx, tok, exn),
+      .Some(vct) => validate_capture_trait_requirements(expected_ty.clone(), vct, cvwv, env, ctx, tok, exn, borrows_captures : closure_borrows_captures),
       .None => ()
     );
     // Rule D1: the def-time evaluated body (a deferred generic body has none

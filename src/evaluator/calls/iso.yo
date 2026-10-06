@@ -323,7 +323,7 @@ evaluate_iso_type_call :: (
             ast_expr_token(expr),
             cond(
               !child_is_object => `Iso(${type_to_string(child_type)}) is not allowed: Iso isolates a reference-counted OBJECT (a ref struct or ref enum — ArrayList, HashMap, Box, a user ref(struct)) so it can move to one other thread, and ${type_to_string(child_type)} is not one. A value type is copied on send — pass it directly, or put it in a Box.`,
-              true => `Iso(${type_to_string(child_type)}) is not allowed: an atomic object is already shared safely across threads (it is Send) — send it directly.`
+              true => `Iso(${type_to_string(child_type)}) is not allowed: an atomic object is already shared safely across threads (it is Sync) — send it directly.`
             )
           )
         )

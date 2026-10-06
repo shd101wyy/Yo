@@ -29,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, generate_some_type_id, t_dyn } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
 { type_contains_some_type_deep } :: import("../../types/utils.yo");
-{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
+{ get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_trait_bool } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -114,8 +114,10 @@ _create_box_type_via :: (fn(ctor : String, inner_type : TypeValue, env : Environ
     }
   )
 });
-/// Does a `dyn(...)` build a `Dyn(..., Send)`? From the expected Dyn type, or
-/// from the value's own `Impl(..., Send)` wrapper when nothing is expected.
+/// Does a `dyn(...)` build a `Dyn(..., Send)` or a `Dyn(..., Sync)`? From the
+/// expected Dyn type, or from the value's own `Impl(..., Send)` wrapper when
+/// nothing is expected. Either one crosses threads, so its payload is boxed
+/// atomically.
 _dyn_target_requires_send :: (fn(expected : Option(ExpectedTypeCtx), value_type : TypeValue) -> bool)({
   from_expected := match(
     expected,
@@ -128,15 +130,29 @@ _dyn_target_requires_send :: (fn(expected : Option(ExpectedTypeCtx), value_type 
     .None => match(value_type, .SomeT({ required_trait_types : vrt }) => _traits_name_send(vrt), _ => false)
   )
 });
-_traits_name_send :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+_traits_name_send :: (fn(tys : ArrayList(TypeValue)) -> bool)(!_thread_marker_named_in(tys).is_empty());
+/// The thread marker a trait list names: "Send" when it lists `Send`, else
+/// "Sync" when it lists `Sync`, else "". A `Dyn(Trait)` is `Send`/`Sync`
+/// only through such an explicit bound (plans/VALUES_BY_DEFAULT.md decision
+/// 38 E).
+_thread_marker_named_in :: (fn(tys : ArrayList(TypeValue)) -> String)({
+  (found : String) = String.new();
   (tsi : usize) = usize(0);
   while(tsi < tys.len(), {
-    if(match(tys.get(tsi), .Some(t) => match(t, .TraitT(name : tn) => (tn == "Send"), _ => false), .None => false), {
-      return(true);
-    });
+    match(
+      tys.get(tsi),
+      .Some(t) => match(
+        t,
+        .TraitT(name : tn) => if((tn == "Send") || ((tn == "Sync") && found.is_empty()), {
+          found = tn.clone();
+        }),
+        _ => ()
+      ),
+      .None => ()
+    );
     tsi = (tsi + usize(1));
   });
-  false
+  found
 });
 _unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
   (result : TypeValue) = t;
@@ -325,9 +341,32 @@ _require_dyn_traits_implemented :: (
         });
         i = (i + usize(1));
       });
+      // Until V2b makes a `Dyn` uniquely owned (decision 7), every copy of a
+      // `Dyn(..., Send)` shares its one payload, so a copy kept on the sending
+      // thread reads it concurrently with the receiver: the payload must be
+      // `Sync` as well (plans/VALUES_BY_DEFAULT.md §3.8).
+      match(
+        get_trait_type_from_env(env, String.from("Sync")),
+        .Some(sync_tt) => if((_thread_marker_named_in(rtt) == "Send") && !_traits_name(rtt, "Sync") && !_name_in(fv_judged_names, String.from("Send")) && !type_implements_trait_bool(check_ty.clone(), sync_tt, env), {
+          sync_msg := `Type ${type_to_string(check_ty.clone())} does not implement Sync, which ${type_to_string(dyn_type.clone())} requires of its payload: every copy of a Dyn shares that payload until Dyn becomes uniquely owned (plans/VALUES_BY_DEFAULT.md decision 7).`;
+          raise_flow_violation(format_error_message(token, sync_msg), ctx, exn);
+        }),
+        .None => ()
+      );
     },
     _ => ()
   );
+});
+/// True when the trait list names the trait `name`.
+_traits_name :: (fn(tys : ArrayList(TypeValue), name : str) -> bool)({
+  (ti : usize) = usize(0);
+  while(ti < tys.len(), {
+    if(match(tys.get(ti), .Some(t) => match(t, .TraitT(name : tn) => (tn == name), _ => false), .None => false), {
+      return(true);
+    });
+    ti = (ti + usize(1));
+  });
+  false
 });
 /// Rule D1 (plans/reference/PARALLELISM_RULES.md) for trait objects: a
 /// `Dyn(..., Send)` value may be called from another thread, but a call
@@ -348,26 +387,9 @@ _require_send_dyn_methods_reach_no_global :: (
   if(is_implicitly_unsafe_capable_file(Option(String).Some(token.module_path.clone())), {
     return(());
   });
-  wants_send := match(
-    dyn_type,
-    .DynT(required_trait_types : rtt) => {
-      (found : bool) = false;
-      (i : usize) = usize(0);
-      while(i < rtt.len(), {
-        match(
-          rtt.get(i),
-          .Some(t) => if(match(t, .TraitT(name : tn) => (tn == "Send"), _ => false), {
-            found = true;
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      found
-    },
-    _ => false
-  );
-  if(!wants_send, {
+  // D1 covers a `Sync` trait object as well as a `Send` one (decision 38 E).
+  thread_marker := match(dyn_type, .DynT(required_trait_types : rtt) => _thread_marker_named_in(rtt), _ => String.new());
+  if(thread_marker.is_empty(), {
     return(());
   });
   (ti : usize) = usize(0);
@@ -395,7 +417,7 @@ _require_send_dyn_methods_reach_no_global :: (
                     if(reach.is_some(), reach, written)
                   }, .Some(reason) => {
                     mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
-                    msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is Send), but its method '${mname}' ${reason}.`;
+                    msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is ${thread_marker}), but its method '${mname}' ${reason}.`;
                     raise_flow_violation(format_error_message(token, msg), ctx, exn);
                   }, .None => ()),
                   _ => ()
