@@ -4,7 +4,7 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 37 in §4 are confirmed. No design question is open;
+- **Decisions:** all 38 in §4 are confirmed. No design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 
@@ -783,7 +783,7 @@ machinery.
 
 ## 4. Decisions
 
-All 37 are confirmed by the maintainer. A change is a dated amendment here
+All 38 are confirmed by the maintainer. A change is a dated amendment here
 and in git, not a silent edit.
 
 **V0, 2026-10-03:**
@@ -1559,12 +1559,31 @@ and in git, not a silent edit.
         tx.send(msg)`) implements only `FnOnce`. Calling it consumes it,
         and a second call is E0901, pointing at the first.
       - **`Fn` implies `FnOnce`.** A borrowing call also serves for one
-        call, so an API that calls its argument once takes
-        `Impl(FnOnce(...))` and accepts both kinds.
+        call, so an escaping API that calls its argument once takes
+        `Impl(FnOnce(...))` by value and accepts both kinds. A non-escaping
+        API cannot take `FnOnce`, because a consuming call cannot go
+        through `imm(f)` (decision 38, amended 2026-10-06).
       - **Which trait a closure gets follows from its body**, by decision
         22's structural rule: does the body move a capture out? There is
         no annotation. A mismatch (an `FnOnce`-only closure passed where
         `Fn` is required) is an error naming the line that moves.
+      - **The order is fixed** (decision 38, audit N5), because the trait
+        and the captures' modes inside the body would otherwise be defined
+        in terms of each other:
+        1. Scan the by-value, non-`Copy` captures for move positions:
+           - §0.2's move points (a by-value argument, a store, a binding, a
+             tail or `return`);
+           - a consuming receiver;
+           - a bare `match(x, …)` or `for(x, …)`;
+           - `dyn(x)`.
+        2. Any hit makes the closure `FnOnce`-only, and its body owns the
+           destructured captures. Captures it does not move drop when the
+           call ends.
+        3. Otherwise the body is typed with the captures as `imm` bindings.
+           A move out is then E0901, and a `match` is matched through the
+           borrow.
+
+        `match(&x, …)` keeps the closure `Fn`.
       - `Dyn(FnOnce(...))` is move-only, and its slot consumes the payload.
     - **Why `FnOnce` is needed.**
       - Moving out of a capture is about ownership, not mutation, and
@@ -1710,20 +1729,31 @@ and in git, not a silent edit.
       - **A stateful closure (if added) is passed with `&mut`:**
         `step(&mut counter)` to a `mut(f)` parameter. It cannot be called
         through an `imm` borrow, as `xs.push` cannot be called on `imm(xs)`.
-    - **std switches to `Impl(FnOnce(...))` where it calls once:**
+    - **std switches to `Impl(FnOnce(...))` only where the closure escapes**
+      (amended 2026-10-06 by the maintainer, after the closure audit,
+      decision 38):
+      - `Thread.spawn` and `ThreadPool.spawn` (`std/thread.yo`), as
+        `Impl(FnOnce(...), Send)` by value;
+      - the body passed to `io.async`, which runs once as a state machine.
+        This is the one stated exception: `io.async(body)` is a by-value
+        slot that accepts a second-class body. The future it returns is
+        then second-class and follows §3.13 A2. Otherwise the body escapes
+        and owns its captures.
+    - **Non-escaping call-once APIs keep `imm(f) : Impl(Fn(...))`:**
       - `Option`: `map`, `and_then`, `or_else`, `map_or_else`,
         `unwrap_or_else`, `ok_or_else`;
       - `Result`: `map`, `map_err`, `and_then`, `or_else`, `map_or_else`,
         `unwrap_or_else`;
-      - `Thread.spawn` and `ThreadPool.spawn` (`std/thread.yo`), as
-        `Impl(FnOnce(...), Send)`;
-      - the `with_lock`/`try_with_lock` bodies of the sync `Mutex`
-        (`std/sync/mutex.yo`) and the async `with_lock` body
-        (`std/async/mutex.yo`);
-      - the body passed to `io.async`, which runs once as a state machine.
+      - the `with_lock`/`try_with_lock` bodies (`std/sync/mutex.yo`,
+        `std/async/mutex.yo`).
 
-      Callbacks that run per element keep `Impl(Fn(...))`: `for_each`, the
-      iterator `map`/`filter`, comparators and hashers.
+      Their bodies may borrow captures, including `mut` captures, but
+      cannot move a capture out. A *non-escaping consuming* parameter mode
+      (by value, but not allowed to escape) is recorded as a possible
+      later addition. It is not adopted, because it would be a fourth
+      parameter mode beside `imm`, `mut` and by-value.
+    - Callbacks that run per element keep `Impl(Fn(...))` too: `for_each`,
+      the iterator `map`/`filter`, comparators and hashers.
     - **Phase.**
       - **Generation A:** the compiler. That means the prelude `FnOnce`
         trait, the "moves a capture out" rule that decides a closure's
@@ -1739,7 +1769,189 @@ and in git, not a silent edit.
         line;
       - an `Fn` closure is accepted by an `FnOnce` parameter;
       - `Dyn(FnOnce(...))` is called once;
-      - `unwrap_or_else` moves a captured value into its result.
+      - `Thread.spawn` moves a captured value out with no clone;
+      - `unwrap_or_else(imm(f))` with an `FnOnce`-only closure is the
+        error that names the moving line;
+      - one test for each N5 shape: a move out, a bare `match` on a
+        capture, a tail return of a capture, and `match(&x, …)`.
+
+38. **Closure soundness rules: the 2026-10-06 audit.** Confirmed
+    2026-10-06 by the maintainer. An adversarial audit of decisions 22, 23,
+    35 and 37 found that the closure design was not sound as written. It is
+    sound with five fixes, A to E, each of which extends a mechanism the
+    plan already has. The maintainer chose between alternatives in B, C and
+    D.
+
+    **A. Second-class is a structural property of types.**
+    - **Which types are second-class.** A closure is second-class when its
+      capture record holds a borrow (`imm`/`mut`), or holds a second-class
+      value, transitively. The same goes for a tuple, a record, an `Option`
+      payload and a generic instantiation: anything that contains a
+      second-class value is second-class.
+    - **`Copy` is never first-class.** A second-class closure with only
+      `imm` captures is `Copy` (decision 36). Its copies are second-class
+      too, and a copy carries the same borrows. So:
+      - "`Copy`" never implies "may be stored";
+      - decision 34's by-value operand exception needs a first-class
+        `Copy` type;
+      - the second-class check runs per instantiation even in
+        bound-checked generics.
+    - **Where it may not go.** A second-class value may not be:
+      - returned;
+      - stored in a field, element or `Dyn`;
+      - captured by an escaping closure, implicitly or by value;
+      - spawned;
+      - passed to a by-value parameter (except `io.async`, decision 37).
+    - **Results and assignments.** A block, arm or `cond` result, or an `=`
+      target, may not outlive any place its value borrows. Re-assigning a
+      second-class local follows decision 25's rule.
+    - **Type positions.** A second-class type may not appear as a field
+      type, an element type, or a generic argument of a type constructor.
+      `type_of(f)` names closure types, so `ArrayList(type_of(f))` is
+      checked too. The check runs at the declaration and at every
+      instantiation.
+    - **Transitive freezes.** A borrow, or any second-class value built
+      from one, keeps its source live, and so frozen (decision 18), until
+      its own last use. This applies transitively through captures, `Copy`
+      copies and re-borrows. If `g` captures `f` and `f` captures
+      `mut(z)`, then `z` stays frozen until `g`'s last use.
+    - **Borrow sets join.** The borrow set of a second-class local is the
+      union over all its reaching definitions, and a scope-end drop of a
+      borrowed place is an access.
+    - **Re-points.** A re-point of `cur` (decision 25) is an error while
+      any borrow derived from `cur`'s current target is live: a capture, a
+      local re-borrow, or a borrowing future.
+    - **Corrects decision 30's rationale.** Closure types are nameable
+      (`type_of`), so "a borrow type would leak" is answered by these
+      type-position rules, not by namelessness. Borrows themselves still
+      stay modes, never types.
+
+    **B. Exclusivity counts the receiver, and a value carrying a `mut`
+    borrow is lent exclusively.** The maintainer chose this over giving
+    `mut`-capturing closures a `mut(self)` call. That would break every
+    `xs.for_each({ mut(count) }(x) => …)` literal, because a temporary
+    cannot go to a `mut` parameter.
+    - **The receiver is an argument** for decision 28's overlap check and
+      for its `Rc`-path shared mark. That includes the callee of a closure
+      call (`f(x)`) and a method receiver (`xs.for_each(…)` versus a `mut`
+      capture of `xs`).
+    - **A value that carries a `mut` borrow counts as a `mut` argument,**
+      even when it is passed to an `imm(f)` parameter. Such values are a
+      `mut`-capturing closure and a borrowing future. The overlap set is the
+      transitive closure of the places it captures.
+      - So `f(false, &g)`, where `g` reaches `f`, is an overlap error.
+      - So is `select(s.next(io), s.next(io))` over two futures that hold
+        `mut` on one place.
+      - The `for_each` literal still works, because the literal overlaps
+        nothing else at the call.
+    - **This closes re-entry.** A closure holding a `mut` borrow cannot be
+      reached by anything it is called with. Swift has the same restriction
+      for non-escaping closures (SE-0176).
+    - **Module-level places** that a callee may write are in the overlap set
+      of a lend of a module-level root. They are approximated by Stage 1's
+      write summaries, until §3.10's module-level rule covers them.
+    - **Decision 37's claim is corrected.** Move-only plus non-`Sync`
+      prevents copies and threads, but `imm` lends could still overlap
+      before this fix. `imm(self)` stays the call's mode; the exclusivity
+      comes from the lend.
+    - **Stage 1 shortcut.** Stage 1 may not skip the shared mark for a
+      `Dyn(Fn)` callee, or for a closure whose body writes through an `Rc`
+      capture. A closure stored in an `Rc` that replaces itself mid-call
+      then trips the assert.
+
+    **C. Call-once APIs: `FnOnce` by value only where the closure escapes.**
+    This is recorded in decision 37's std list and its trait-inference
+    order. The maintainer chose this over adding a non-escaping consuming
+    parameter mode now.
+
+    **D. A borrow capture may not cross an `Rc`/`Arc` deref.** The
+    maintainer chose this over making such a closure non-`Copy` with a
+    synthesized release.
+    - **Why.** `{ imm(items) : &r.*.items }` cannot hold the cell's
+      run-time mark. The closure is `Copy`, its copies are untracked, and a
+      per-call mark leaves the pointer dangling between calls.
+    - **The error names the explicit spelling:** `{ imm(r) }() =>
+      r.*.items.len()`. This captures the handle, re-derives the place, and
+      takes the marks on every call. It mirrors A2's "no exclusive borrow
+      through an `Rc`".
+    - **No module-level places.** A module-level place cannot be a borrow
+      capture either (decision 18, rule 3).
+    - **The place must be writable.** A `mut` capture's place must be
+      writable: not through an `imm` binding, and not through an `Arc`
+      (D3).
+
+    **E. Threads.**
+    - **Borrows.** A borrow capture is never `Send`.
+    - **Closure `Sync`** is structural over the capture record. A `mut`
+      capture is never `Sync`, and an `imm` capture of `T` is `Sync` iff
+      `T <: Sync`.
+    - **Raw pointers** are neither `Send` nor `Sync` unless a type opts in
+      under `pragma(Pragma.AllowUnsafe)`. So `JoinHandle` (A3, a struct over
+      `*(void)`) and the RAII guards stay `!Send` by construction. `Io` and
+      `JoinHandle` also declare a negative marker.
+    - **`Dyn(Trait)`** is `Send`/`Sync` only through an explicit bound,
+      `Dyn(Trait, Send)`. `dyn(v)` into such a `Dyn` checks `v`.
+    - **Coverage.** D1's reach walk applies to every `Sync`-bounded closure
+      slot, as well as `Send` ones. This is a prerequisite of any scoped
+      parallel API.
+
+    **Related rules the audit requires before their phases land:**
+    - **Decision 27 (V2b).** Clone elision inside a closure body runs
+      under the closure's already-decided trait (C's order). It never
+      elides a clone of a capture in an `Fn` body, or of a place that is
+      transitively borrowed (A).
+    - **§3.12, the verifier (before its subset widens past
+      `vc.yo:6047`'s closure-callee bailout).** A call of a closure value,
+      or a call that receives a closure with `mut` captures (transitively),
+      havocs every place that closure `mut`-captures. Those places join the
+      loop havoc set.
+      - Decision 33's "the marker always tells the truth" is qualified: a
+        `mut` capture is spelled at the closure literal, not at the call.
+    - **The cycle collector (V3's `Dispose` work).** After the dispose
+      pass, it re-checks each white cell's count. A resurrected cell, and
+      everything reachable from it, is leaked and turned black instead of
+      freed (as in CPython's PEP 442). Verify this against the collector's
+      code.
+    - **Unwind and abort (decision 28's `Rc` arm).** Per-call shared marks
+      and the borrowed-`for` guard are released by the unwind cleanup, not
+      by code after the call. A by-value or `FnOnce` argument counts as
+      consumed at call entry.
+    - **`Dispose`** may not move out of `self` (decision 19). A scope guard
+      holds `Option(Dyn(FnOnce()))` and uses `take`.
+    - **Small rules:**
+      - A started state machine never moves (A1).
+      - A2's return rule reads: "returned only if every place it borrows is
+        rooted at the returning function's own `imm`/`mut` parameters".
+      - A write to a by-value capture gets its own error, distinct from
+        E0908.
+      - A borrow entry's place is rooted at a named binding and crosses no
+        temporary.
+      - A stateful (`mut(self)`) closure, if added, is never `Copy`.
+
+    **Sound as stated.** The audit also confirmed these:
+    - sibling `mut` captures;
+    - prefix overlap;
+    - `Copy` and `FnOnce`-only never coinciding;
+    - a captured `FnOnce` called inside a closure making it `FnOnce`;
+    - effect handlers, which capture nothing;
+    - read-only `Rc` re-entry;
+    - a consuming call through a borrow being an error;
+    - specialization catching an `Impl` that stores a borrowing literal.
+
+    **Tests.** Each fix lands with its negative tests:
+    - A: escape through a by-value capture, a block tail, `=`, `type_of`,
+      and a `Copy` copy;
+    - B: re-entry, `select`, and a receiver versus a `mut` capture;
+    - C: the order shapes;
+    - D: the `Rc` crossing error;
+    - E: `Thread.spawn` of a borrow capture, a raw-pointer struct, and a
+      `Dyn` without `Send`.
+
+    **Phase.** Each rule lands with the feature it constrains:
+    - A and B with V3b's closure work (decision 35);
+    - C with decision 37's Generation A;
+    - D with decision 35;
+    - E with the `Send`/`Sync` split (§3.8, V3).
 
 **Considered and kept implicit** (2026-10-05, the maintainer):
 - **Moves at a last use.** `f(s)` moves `s` with no marker, and a later use
@@ -2570,7 +2782,8 @@ stage-2 RSS):
 
 No design question is open. The latest were decided as decisions 31 (the
 child wrapper in patterns), 34 (operator operands), 35 (the closure capture
-list), 36 (the `Copy` trait) and 37 (`FnOnce`, and no `FnMut`). Decision 18 was also
+list), 36 (the `Copy` trait) and 37 (`FnOnce`, and no `FnMut`). Decision
+38 records the closure soundness rules from the 2026-10-06 audit. Decision 18 was also
 amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
