@@ -33,7 +33,7 @@
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
-{ use_of_moved_value_error } :: import("../utils.yo");
+{ use_of_moved_value_error, local_borrow_take_receiver, local_borrows_active, local_borrow_access, local_borrow_place_of_variable, LocalBorrowAccess } :: import("../utils.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 /// Evaluate an identifier or operator expression.
 ///
@@ -49,6 +49,9 @@ evaluate_identifier_and_operator :: (
   ) -> AstExpr
 )({
   token := ast_expr_token(expr);
+  // The receiver of an enclosing `.` place chain reports no access of its
+  // own: the chain reports the whole place (local borrows, decision 18).
+  lb_is_receiver := local_borrow_take_receiver(expr);
   // `str` view used for all literal comparisons; token.value (String) used for APIs.
   identifier := token.value.clone();
   // ------------------------------------------------------------------
@@ -450,6 +453,11 @@ evaluate_identifier_and_operator :: (
   // through the cell, not here, so `x := 1; x = 2;` stays "unread" and the
   // scope-end walk warns — the variable's value never influenced anything.
   variable.was_read = true;
+  // A read of the whole variable: E0909 while a `mut` borrow of a place
+  // overlapping it is live (plans/VALUES_BY_DEFAULT.md decision 18).
+  if(!lb_is_receiver && local_borrows_active(), {
+    local_borrow_access(local_borrow_place_of_variable(variable), LocalBorrowAccess.Read, token, ctx, exn);
+  });
   // Build ExprInfo
   info := new_expr_info(env, variable.ty);
   info.value = resolved_value;

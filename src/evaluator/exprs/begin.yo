@@ -101,7 +101,11 @@ pragma(Pragma.AllowUnsafe);
   ImplicitCopyPending,
   audit_implicit_copy_enabled,
   audit_take_implicit_copy_pending,
-  audit_print_implicit_copy
+  audit_print_implicit_copy,
+  local_borrows_mark,
+  local_borrows_truncate,
+  local_borrow_is_binding_stmt,
+  local_borrow_set_lookahead
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -2034,6 +2038,9 @@ evaluate_begin_expression :: (
   // re-reads them); CTFE bodies are never released (their caller adopts the
   // body env right after, and the executed clone is purged anyway). The depth
   // is restored, not decremented, so a throw past this frame cannot pin it.
+  // The local borrows a block declares are listed while it evaluates
+  // (plans/VALUES_BY_DEFAULT.md decision 18).
+  lb_mark := local_borrows_mark();
   if(scope_release_active() && is_evaluating_function_body_begin_block && (ctx.ctfe_depth == usize(0)), {
     sr_saved_depth := scope_release_depth();
     sr_mark := scope_release_mark();
@@ -2044,9 +2051,12 @@ evaluate_begin_expression :: (
     if(sr_saved_depth == usize(0), {
       scope_release_body(sr_mark, sr_entry);
     });
+    local_borrows_truncate(lb_mark);
     return(sr_r);
   });
-  _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn)
+  lb_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
+  local_borrows_truncate(lb_mark);
+  lb_r
 });
 _evaluate_begin_expression_impl :: (
   fn(
@@ -2535,6 +2545,11 @@ _evaluate_begin_expression_impl :: (
         // function's result type as a one-shot hint
         // (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §2.2).
         ctx.local_variant_hint = _variant_local_hint(expr_to_eval, begin_args, loop_i, is_evaluating_function_body_begin_block, env, ctx);
+        // A local borrow's live range ends at its last use in this block
+        // (decision 18): hand the binding the statements after it.
+        if(local_borrow_is_binding_stmt(expr_to_eval), {
+          local_borrow_set_lookahead(begin_args, loop_i, expr_to_eval);
+        });
         evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, exn);
         ctx.local_variant_hint = Option(ExpectedTypeCtx).None;
         ctx.expected_type = old_expected;

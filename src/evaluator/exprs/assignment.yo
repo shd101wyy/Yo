@@ -86,7 +86,15 @@ pragma(Pragma.AllowUnsafe);
   require_expr_not_consumed,
   throw_expr_is_implicit_variable_error,
   set_expr_as_needs_to_call_dup,
-  attach_temp_variable_to_expr
+  attach_temp_variable_to_expr,
+  LocalBorrowPlace,
+  LocalBorrowAccess,
+  local_borrows_active,
+  local_borrow_place_of,
+  local_borrow_place_of_variable,
+  local_borrow_require_writable,
+  local_borrow_access,
+  local_borrow_write_expr
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -422,6 +430,34 @@ require_no_inout_write_through_borrow :: (
     if(match(param_is_ref.get(i), .Some(b) => b, .None => false), {
       arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
       arg_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)), .Some(ai) => ai.ty, .None => t_unit());
+      // A local borrow may be watching the place: judged once the callee's
+      // mutation mask is known (`d3_check_pending`).
+      if(local_borrows_active(), {
+        match(
+          local_borrow_place_of(arg, env, ctx),
+          .Some(lbp) => {
+            lb_label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
+            lb_how := cond(
+              (lb_label == "self") => `call a method that writes its receiver on \`${_place_source_text(arg)}\``,
+              true => `pass \`${_place_source_text(arg)}\` to the \`mut\` parameter \`${lb_label}\`, which the callee writes`
+            );
+            pending.push(
+              D3PendingInout(
+                param_index : i,
+                place : arg,
+                how : lb_how,
+                noun : String.from("local borrow"),
+                root_text : lbp.root_name.clone(),
+                root_type : type_to_string(arg_ty),
+                global : Option(Variable).None,
+                borrow_error : Option(String).None,
+                lb_place : Option(LocalBorrowPlace).Some(lbp)
+              )
+            );
+          },
+          .None => ()
+        );
+      });
       // The audit also lists the writes the V2b flip changes: a collection
       // place, reached through collection steps too.
       (is_judged : bool) = (type_contains_rc_type(arg_ty) && _is_value_aggregate_type(arg_ty));
@@ -551,7 +587,21 @@ get_root_expr_of_place :: (fn(expr : AstExpr) -> AstExpr)(
 /// One `inout` place a call's callee may write. `borrow_error` is set for a
 /// place rooted in a borrowed value (E0908): it is reported only if the
 /// callee's mutation mask says that parameter may be written.
-D3PendingInout :: struct(param_index : usize, place : AstExpr, how : String, noun : String, root_text : String, root_type : String, global : Option(Variable), borrow_error : Option(String));
+/// `lb_place` is set for a place a local borrow may be watching
+/// (plans/VALUES_BY_DEFAULT.md decision 18): if the callee writes it, the
+/// write goes through `local_borrow_require_writable` (E0908 through an
+/// `imm` borrow) and `local_borrow_access` (E0909 against a live borrow).
+D3PendingInout :: struct(
+  param_index : usize,
+  place : AstExpr,
+  how : String,
+  noun : String,
+  root_text : String,
+  root_type : String,
+  global : Option(Variable),
+  borrow_error : Option(String),
+  (lb_place : Option(LocalBorrowPlace)) ?= Option(LocalBorrowPlace).None
+);
 /// The module-level (non-thread-local, runtime) global a place is rooted in,
 /// if any — the D1 write rule's counterpart of `get_atomic_object_root_type`.
 _module_global_root_var :: (
@@ -672,7 +722,7 @@ d3_check_pending :: (
   while(hb < pending.len(), {
     match(
       pending.get(hb),
-      .Some(pe) => if(pe.borrow_error.is_some(), {
+      .Some(pe) => if(pe.borrow_error.is_some() || pe.lb_place.is_some(), {
         has_borrow = true;
       }),
       .None => ()
@@ -717,6 +767,24 @@ d3_check_pending :: (
     );
     bi = (bi + usize(1));
   });
+  // Local borrows (decision 18): a place the callee writes is a write at the
+  // call. Not trusted by file either: std's mutators are the writes at stake.
+  (li : usize) = usize(0);
+  while(li < pending.len(), {
+    match(
+      pending.get(li),
+      .Some(entry) => match(
+        entry.lb_place,
+        .Some(lbp) => if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(bm, entry.param_index), .None => false), {
+          local_borrow_require_writable(lbp, entry.how.clone(), ast_expr_token(entry.place), ctx, exn);
+          local_borrow_access(lbp, LocalBorrowAccess.Write, ast_expr_token(entry.place), ctx, exn);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    li = (li + usize(1));
+  });
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(callee_body).module_path.clone())), {
     return(());
   });
@@ -725,7 +793,7 @@ d3_check_pending :: (
   while(i < pending.len(), {
     match(
       pending.get(i),
-      .Some(entry) => if(entry.borrow_error.is_none() && param_mutation_mask_hits(mask, entry.param_index), {
+      .Some(entry) => if(entry.borrow_error.is_none() && (entry.lb_place.is_none() && param_mutation_mask_hits(mask, entry.param_index)), {
         match(
           entry.global,
           .Some(gv) => _d1_record_write(gv, ast_expr_token(entry.place), entry.how.clone(), String.from(", which the callee may write through"), exn),
@@ -999,6 +1067,10 @@ evaluate_assignment :: (
     env.input_string = prop_rhs_info.env.input_string;
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(prop_rhs, env, ctx, exn);
+    // A write of the place: E0908 through an `imm` local borrow, E0909 while a
+    // borrow of an overlapping place is live (plans/VALUES_BY_DEFAULT.md
+    // decision 18).
+    local_borrow_write_expr(evaluated_lhs, `write \`${_place_source_text(lhs)}\``, ast_expr_token(lhs), env, ctx, exn);
     throw_expr_is_implicit_variable_error(prop_rhs, env, ctx, exn);
     set_expr_as_needs_to_call_dup(prop_rhs, ctx, exn, "field-store");
     // Re-read rhs info after potential mutations by the above helpers.
@@ -1693,6 +1765,14 @@ comptime(${variable_name}) : ${dgc_ty_str}
   };
   // Check if the RHS variable has been consumed (moved).
   require_expr_not_consumed(rhs_evaled, env, ctx, exn);
+  // A write of the whole variable (decision 18): through an `imm` local
+  // borrow it is E0908; against a live borrow of the variable, E0909. A
+  // `mut` borrow's own assignment writes its target, which it holds.
+  if(local_borrows_active() && !is_typed_binding_lhs, {
+    lb_target := local_borrow_place_of_variable(variable);
+    local_borrow_require_writable(lb_target, `assign to \`${variable_name}\``, ast_expr_token(lhs_resolved), ctx, exn);
+    local_borrow_access(lb_target, LocalBorrowAccess.Write, ast_expr_token(lhs_resolved), ctx, exn);
+  });
   // Under the new ownership model, all assignments transfer ownership, so we
   // always need to call dup on the RHS. Without this, codegen emits the
   // scope-end drop for the (owning) LHS binding but no matching dup — every

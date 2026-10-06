@@ -8,8 +8,8 @@
 //! compile-time variables are skipped (declared elsewhere / no runtime form).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_inout_mode_call, BF_DOT } :: import("../../expr.yo");
-{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, ast_expr_is_local_borrow_mode_call, BF_DOT } :: import("../../expr.yo");
+{ RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { Variable, Environment } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -17,7 +17,7 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ emit_deferred_dup_or_code, generate_dup_code_for_value } :: import("./drop_dup.yo");
+{ emit_deferred_dup_or_code, generate_dup_code_for_value, generate_drop_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { get_state_machine_field_name, sm_slot_of, sm_move_flag_of, sm_local_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
@@ -257,6 +257,18 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, bind_key : Ex
   // the place's root keeps its slot to the end of its scope, so the address
   // stays valid across every resume (plans/ASYNC_STATE_MACHINE_GENERATION.md
   // phase 6).
+  // The step pin of a borrow its block re-points (decision 25): declared
+  // empty here, filled by each re-point, released by its scope-end drop.
+  match(
+    lookup_local_borrow_step_pin(ast_expr_id(lhs)),
+    .Some(sp) => if(!is_unit_type(sp.ty), {
+      sp_decl := indent.clone();
+      sp_decl.push_string(match(_sm_local_slot(sp, context), .Some(slot) => slot, .None => get_variable_type_string(sp.ty, sp.name.clone(), context.base)));
+      sp_decl.push_str(" = NULL;");
+      em.emit_string_line(sp_decl);
+    }),
+    .None => ()
+  );
   // The pin, if any.
   match(
     context.base.get_expr_info(lhs),
@@ -347,6 +359,61 @@ _is_c_lvalue_chain :: (fn(code : String) -> bool)({
   });
   depth == i32(0)
 });
+/// `imm(cur) = place` / `mut(cur) = place` → `cur = &(place);`, after the
+/// step through a reference cell when there is one (plans/VALUES_BY_DEFAULT.md
+/// decision 25): `T* tmp = <dup(cell)>; <drop(step_pin)>; step_pin = tmp;`. The
+/// new cell is taken before the old one is released, since the old cell may
+/// be what keeps the new one alive. Evaluator twin:
+/// `evaluate_local_borrow_repoint` (evaluator/exprs/initialization_assignment.yo),
+/// which admits only places reached from `cur` that lower to a C lvalue chain.
+generate_local_borrow_repoint :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+  em := context.base.emitter;
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("re-point missing lhs"))));
+  rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("re-point missing rhs"))));
+  name_expr := match(lhs, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => n, .None => lhs), .Atom(_, _) => lhs);
+  // The step: take the new cell, release the previous one.
+  match(
+    context.base.get_expr_info(lhs),
+    .Some(lhs_ei) => match(
+      lhs_ei.source_variable,
+      .Some(sp) => match(
+        expr_info_macro_expansion(lhs_ei),
+        .Some(cell_expr) => {
+          sp_slot := match(_sm_local_slot(sp, context), .Some(slot) => slot, .None => sanitize_for_c_identifier(sp.name.clone(), false));
+          cell_code := _call_generate_expr(cell_expr, indent.clone(), context);
+          tmp := `${sanitize_for_c_identifier(sp.name.clone(), false)}_step`;
+          em.emit_string_line(`${indent}{`);
+          em.emit_string_line(`${indent}  ${get_variable_type_string(sp.ty, tmp.clone(), context.base)} = ${generate_dup_code_for_value(cell_code, sp.ty, context)};`);
+          em.emit_string_line(`${indent}  ${generate_drop_code_for_value(sp_slot.clone(), sp.ty, context)};`);
+          em.emit_string_line(`${indent}  ${sp_slot} = ${tmp};`);
+          em.emit_string_line(`${indent}}`);
+        },
+        .None => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
+  );
+  // The pointer: `cur`'s reads are `(*cur)`, so its C lvalue is inside.
+  name_code := _call_generate_expr(name_expr, indent.clone(), context);
+  if(!(name_code.starts_with("(*") && name_code.ends_with(")")), {
+    return(codegen_fatal_expr(`re-point of "${ast_expr_token(name_expr).value}": the borrow lowered to ${name_code}, not a pointer read`));
+  });
+  ptr := name_code.substring(usize(2), name_code.len() - usize(1));
+  place_code := _call_generate_expr(rhs, indent.clone(), context);
+  (addr : String) = String.new();
+  if(place_code.starts_with("(*") && place_code.ends_with(")"), {
+    addr = place_code.substring(usize(2), place_code.len() - usize(1));
+  }, {
+    if(!_is_c_lvalue_chain(place_code), {
+      return(codegen_fatal_expr(`re-point of "${ast_expr_token(name_expr).value}": place lowered to a non-lvalue C expression: ${place_code}`));
+    });
+    addr = `(&(${place_code}))`;
+  });
+  em.emit_string_line(`${indent}${ptr} = ${addr};`);
+  String.from("")
+});
 generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -356,7 +423,7 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
   if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
     return(Option(String).Some(String.from("")));
   });
-  if(ast_expr_is_inout_mode_call(lhs, Option(usize).Some(usize(1))), {
+  if(ast_expr_is_local_borrow_mode_call(lhs, Option(usize).Some(usize(1))), {
     // Keyed by the `inout(name)` name atom: its scope record holds the binding.
     inout_key := match(lhs, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => ast_expr_id(n), .None => ast_expr_id(expr)), .Atom(_, _) => ast_expr_id(expr));
     return(_generate_inout_local_binding(lhs, rhs, inout_key, Option(Environment).Some(ei.env), indent.clone(), context));
@@ -608,4 +675,4 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
   });
   Option(String).None
 });
-export(generate_initialization_assignment);
+export(generate_initialization_assignment, generate_local_borrow_repoint);

@@ -21,8 +21,8 @@
   BK_INIT_ASSIGN,
   BK_GIVEN,
   BK_COMPTIME,
-  BK_IMM,
   ast_expr_is_inout_mode_call,
+  ast_expr_is_local_borrow_mode_call,
   BK_THREAD_LOCAL,
   BF_DOT,
   ast_expr_is_atom_of
@@ -39,7 +39,8 @@
   register_module_level_global,
   register_thread_local,
   expr_info_set_is_compile_time_only_assignment,
-  expr_info_set_macro_expansion
+  expr_info_set_macro_expansion,
+  record_local_borrow_step_pin
 } :: import("../../expr_info.yo");
 {
   Environment,
@@ -77,7 +78,7 @@
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
-{ format_error_message, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
 { Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
@@ -92,6 +93,21 @@
 { synthesize_expr_and_type } :: import("../types/expr_synthesizer.yo");
 { clone_value } :: import("../values/clone_value.yo");
 { find_rc_value_owner_relationship, throw_expr_is_implicit_variable_error, require_expr_not_consumed, set_expr_as_needs_to_call_dup, doc_comment_lookup_key_from_token, audit_implicit_copy_enabled } :: import("../utils.yo");
+{
+  LocalBorrowPlace,
+  LocalBorrowAccess,
+  local_borrow_place_of,
+  local_borrow_access,
+  local_borrow_require_writable,
+  local_borrow_range_of,
+  local_borrow_register,
+  local_borrow_place_text,
+  local_borrow_info_of_variable,
+  local_borrow_pattern_source,
+  local_borrow_require_no_live_derived,
+  local_borrow_place_of_variable,
+  local_borrow_info_placeholder
+} :: import("../utils.yo");
 { generate_new_temp_variable_name } :: import("../../utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { Exception } :: import("std/error");
@@ -174,12 +190,16 @@ _evaluate_inout_local_binding :: (
   ) -> AstExpr
 )({
   lhs_tok := ast_expr_token(lhs);
+  // `imm(y) :=` binds a read-only borrow; `mut(y) :=` and its synonym
+  // `inout(y) :=` an exclusive one (plans/VALUES_BY_DEFAULT.md decision 18).
+  is_mut := ast_expr_is_inout_mode_call(lhs, .None);
+  mw := match(lhs, .FnCall(_, lf, _, _, _) => match(lf, .Atom(_, lft) => lft.value.clone(), .FnCall(_, _, _, _, _) => String.from("inout")), .Atom(_, _) => String.from("inout"));
   if(is_compile_time_only, {
     exn.throw(
       dyn(
         format_error_message(
           lhs_tok,
-          String.from("'inout(name) :: ...' is not allowed: an 'inout' binding aliases runtime storage. Use ':=' for the binding, or '::' for a compile-time value.")
+          `'${mw}(name) :: ...' is not allowed: a '${mw}' binding aliases runtime storage. Use ':=' for the binding, or '::' for a compile-time value.`
         )
       )
     );
@@ -194,7 +214,7 @@ _evaluate_inout_local_binding :: (
         dyn(
           format_error_message(
             lhs_tok,
-            String.from("'inout(name) := ...' bindings are local: declare the binding inside a function body.")
+            `'${mw}(name) := ...' bindings are local: declare the binding inside a function body.`
           )
         )
       );
@@ -208,7 +228,7 @@ _evaluate_inout_local_binding :: (
       dyn(
         format_error_message(
           lhs_tok,
-          `Expected one name in "inout(name) := ...", got ${lhs_args.len().to_string()} arguments.`
+          `Expected one name in "${mw}(name) := ...", got ${lhs_args.len().to_string()} arguments.`
         )
       )
     );
@@ -219,7 +239,7 @@ _evaluate_inout_local_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(name_expr),
-          `Expected an identifier in "inout(name) := ...", got ${ast_expr_to_string(name_expr)}.`
+          `Expected an identifier in "${mw}(name) := ...", got ${ast_expr_to_string(name_expr)}.`
         )
       )
     );
@@ -251,7 +271,7 @@ _evaluate_inout_local_binding :: (
   });
   // The RHS must be a PLACE: an atom, or a `.` chain rooted at one. Checked
   // on the AST before evaluation so the message names the shape, not a type.
-  place_recipe := String.from("An 'inout' binding needs a place: a variable, or a field path rooted at one ('x', 'h.n', 'a.b.c'). To borrow an ELEMENT of a collection, iterate it with 'for(coll, inout(x) => ...)'; to hold a computed value, bind it with ':='.");
+  place_recipe := `An '${mw}' binding needs a place: a variable, or a field path rooted at one ('x', 'h.n', 'a.b.c'). To borrow an ELEMENT of a collection, iterate it with 'for(coll, inout(x) => ...)'; to hold a computed value, bind it with ':='.`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(rhs, hops),
@@ -269,20 +289,26 @@ _evaluate_inout_local_binding :: (
   // local and guarded by the runtime borrow flag (§8 C2/C3). No pin is taken
   // for a deref place — the pointer has no owner the binding could hold.
   rhs_is_privileged := is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.clone()));
+  // A place through a pointer dereference (the borrowed `for`'s element) is
+  // not tracked for exclusivity: its root is the pointer, which the runtime
+  // borrow flag on the collection guards.
+  (place_has_deref : bool) = false;
   (hi : usize) = usize(0);
   while(hi < hops.len(), {
     match(
       hops.get(hi),
-      .Some(hop) => if(ast_expr_is_atom_of(hop.field, "*") && !rhs_is_privileged, {
+      .Some(hop) => if(ast_expr_is_atom_of(hop.field, "*") && rhs_is_privileged, {
+        place_has_deref = true;
+      }, if(ast_expr_is_atom_of(hop.field, "*") && !rhs_is_privileged, {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(hop.field),
-              String.from("An 'inout' binding cannot borrow through a pointer dereference ('p.*'): the storage has no owner the binding could keep alive. Iterate the collection with 'for(coll, inout(x) => ...)' to borrow an element, or copy the value out.")
+              `An '${mw}' binding cannot borrow through a pointer dereference ('p.*'): the storage has no owner the binding could keep alive. Iterate the collection with 'for(coll, inout(x) => ...)' to borrow an element, or copy the value out.`
             )
           )
         );
-      }),
+      })),
       .None => ()
     );
     hi = (hi + usize(1));
@@ -298,7 +324,7 @@ _evaluate_inout_local_binding :: (
       dyn(
         format_error_message(
           root_tok,
-          `Cannot bind 'inout' to "${root_tok.value}": it is a compile-time value with no runtime storage to alias.`
+          `Cannot bind '${mw}' to "${root_tok.value}": it is a compile-time value with no runtime storage to alias.`
         )
       )
     );
@@ -336,14 +362,14 @@ _evaluate_inout_local_binding :: (
   // A `unit` local has no C storage (its declaration emits nothing), so there
   // is no address to alias; reject instead of lowering `&()`.
   if(is_unit_type(place_type), {
-    exn.throw(dyn(format_error_message(ast_expr_token(rhs), String.from("Cannot bind 'inout' to a unit-typed place: it has no runtime storage to alias."))));
+    exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Cannot bind '${mw}' to a unit-typed place: it has no runtime storage to alias.`)));
   });
   if(type_requires_comptime_modifier(place_type), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(rhs),
-          `Cannot bind 'inout' to a value of compile-time-only type "${type_to_string(place_type)}": it has no runtime storage to alias.`
+          `Cannot bind '${mw}' to a value of compile-time-only type "${type_to_string(place_type)}": it has no runtime storage to alias.`
         )
       )
     );
@@ -378,6 +404,25 @@ _evaluate_inout_local_binding :: (
     });
     pk = (pk + usize(1));
   });
+  // Exclusivity (decision 18): the place, as the local-borrow model sees it.
+  // A `mut` binding is an exclusive access of it (E0909 against a live
+  // borrow of an overlapping place), and may not go through an `imm` borrow
+  // (E0908); an `imm` binding is a read, which evaluating the place above
+  // already checked.
+  (lb_place : Option(LocalBorrowPlace)) = cond(
+    place_has_deref => Option(LocalBorrowPlace).None,
+    true => local_borrow_place_of(evaluated_rhs, env, ctx)
+  );
+  if(is_mut, {
+    match(
+      lb_place,
+      .Some(lp) => {
+        local_borrow_require_writable(lp, `borrow \`${local_borrow_place_text(rhs)}\` with \`${mw}\``, ast_expr_token(rhs), ctx, exn);
+        local_borrow_access(lp, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), ctx, exn);
+      },
+      .None => ()
+    );
+  });
   // Register the pin as a hidden OWNING local: the existing named-local
   // machinery dups it at the binding (codegen) and drops it at scope end —
   // on `break`, `return` and effect `unwind` alike (§8 B4).
@@ -407,6 +452,25 @@ _evaluate_inout_local_binding :: (
     .None => ()
   );
   variable_mark_inout_borrow_root(root_var);
+  // The live range (decision 18: it ends at the last use, Hylo's rule) and,
+  // when a later statement re-points the borrow, the hidden owning local
+  // that holds the cell a re-point steps into (decision 25). Its type is the
+  // cell's, set by the first re-point that enters one; until then it is
+  // `unit`, which nothing declares or drops.
+  match(
+    lb_place,
+    .Some(lp) => {
+      range := local_borrow_range_of(expr, var_name.clone(), name_tok);
+      (step_pin : Option(Variable)) = Option(Variable).None;
+      if(range.has_repoint, {
+        sp_name := generate_new_temp_variable_name(env.module_path, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
+        step_pin = add_variable_to_env(env, sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, name_tok);
+        match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), spv), .None => ());
+      });
+      _info := local_borrow_register(var_name.clone(), name_tok, is_mut, lp, range, step_pin);
+    },
+    .None => ()
+  );
   // ExprInfos: the name atom (typed as the place), the `inout(name)` node
   // (the pin channel), and the `:=` node (unit).
   name_info := new_expr_info(env, place_type);
@@ -419,6 +483,258 @@ _evaluate_inout_local_binding :: (
     pin_var,
     .Some(pv) => {
       lhs_info.source_variable = Option(Variable).Some(pv);
+      expr_info_set_macro_expansion(lhs_info, pin_expr);
+    },
+    .None => ()
+  );
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);
+  expr_info := new_expr_info(env, t_unit());
+  expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_set_is_compile_time_only_assignment(expr_info, Option(bool).Some(false));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
+  expr
+});
+/// `imm(cur) = place` / `mut(cur) = place` (`inout(cur) = place` is the
+/// Generation A synonym of the `mut` form): re-point the local borrow `cur`
+/// to `place` (plans/VALUES_BY_DEFAULT.md decision 25, the cursor walk).
+///
+/// `place` must be reached from `cur`: a field chain rooted at `cur` itself,
+/// or one rooted at a `match` binding over `cur` that enters a reference
+/// cell (a `match` binding is a copy of the matched value until decision 26's
+/// place bindings, so only a cell it points to is shared with `cur`'s
+/// target). Anything else is rejected: a sibling root, a module-level place,
+/// a call or index (a projection could yield any place the callee reaches).
+/// The step through a cell pins it in the binding's step pin, releasing the
+/// cell the previous step pinned (decision 25, "Through an `Rc`"). The
+/// declared place stays frozen for `cur`'s whole live range, and a `match`
+/// binding the re-point went through is frozen while `cur` is live. A
+/// re-point is E0909 while a borrow derived from `cur`'s current target is
+/// live (decision 38 A).
+///
+/// Codegen channel (init_assignment.yo `generate_local_borrow_repoint`): the
+/// `mut(cur)` node's ExprInfo carries the step: `source_variable` = the step
+/// pin, `macro_expansion` = the cell expression it takes.
+evaluate_local_borrow_repoint :: (fn(expr : AstExpr, env_in : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  (env : Environment) = env_in;
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  rhs := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  lhs_tok := ast_expr_token(lhs);
+  is_mut := ast_expr_is_inout_mode_call(lhs, .None);
+  mw := match(lhs, .FnCall(_, lf, _, _, _) => match(lf, .Atom(_, lft) => lft.value.clone(), .FnCall(_, _, _, _, _) => String.from("mut")), .Atom(_, _) => String.from("mut"));
+  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(name_expr), {
+    exn.throw(dyn(format_error_message(lhs_tok, `Expected one name in "${mw}(name) = place", the local borrow to re-point.`)));
+  });
+  name_tok := ast_expr_token(name_expr);
+  name := name_tok.value.clone();
+  cur_var := match(
+    get_variables_from_env(env, name.clone()).last(),
+    .Some(v) => v,
+    .None => {
+      exn.throw(dyn(format_error_message(name_tok, `Variable "${name}" is not defined.`)));
+      make_err_variable(env)
+    }
+  );
+  info := match(
+    local_borrow_info_of_variable(cur_var),
+    .Some(i) => i,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message_with_help(
+            name_tok,
+            `\`${mw}(${name}) = place\` re-points a local borrow, and \`${name}\` is not one.`,
+            Option(String).Some(`declare it with \`${mw}(${name}) := place\` first; to write the value \`${name}\` holds, write \`${name} = value\``)
+          )
+        )
+      );
+      local_borrow_info_placeholder(name.clone(), name_tok)
+    }
+  );
+  if(info.is_mut != is_mut, {
+    decl_mode := cond(info.is_mut => "mut", true => "imm");
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          lhs_tok,
+          `\`${name}\` is a \`${decl_mode}\` borrow, so a re-point keeps that mode.`,
+          Option(String).Some(`write \`${decl_mode}(${name}) = place\``)
+        )
+      )
+    );
+  });
+  // The re-point uses the borrow: evaluate its name (codegen reads the
+  // pointer from it).
+  _evaluated_name := evaluate_expression_raw(name_expr, env, ctx, exn);
+  // The new target: a field chain rooted at a variable.
+  not_reached := `A re-point must name a place reached from \`${name}\`: a field of \`${name}\`'s target (\`${mw}(${name}) = ${name}.next\`), or a field of a \`match\` binding over \`${name}\` that enters a reference cell (\`match(${name}, .Some(n) => { ${mw}(${name}) = n.next; }, .None => ())\`).`;
+  hops := ArrayList(_InoutPlaceHop).new();
+  root_atom := match(
+    _inout_place_chain(rhs, hops),
+    .Some(r) => r,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(rhs),
+            `Cannot re-point \`${name}\` to \`${local_borrow_place_text(rhs)}\`: it is not a field path. A call or an index yields whatever place its callee reaches, so it is not known to be reached from \`${name}\`. ${not_reached}`
+          )
+        )
+      );
+      make_err_expr()
+    }
+  );
+  (hi : usize) = usize(0);
+  while(hi < hops.len(), {
+    match(
+      hops.get(hi),
+      .Some(hop) => if(ast_expr_is_atom_of(hop.field, "*"), {
+        exn.throw(dyn(format_error_message(ast_expr_token(hop.field), `Cannot re-point \`${name}\` through a pointer dereference ('p.*'). ${not_reached}`)));
+      }),
+      .None => ()
+    );
+    hi = (hi + usize(1));
+  });
+  old_expected_type := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  evaluated_rhs := evaluate_expression_raw(rhs, env, ctx, exn);
+  ctx.expected_type = old_expected_type;
+  rhs_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs)),
+    .Some(ri) => ri,
+    .None => {
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Failed to evaluate, got ${ast_expr_to_string(rhs)}`)));
+      new_expr_info(env, t_unit())
+    }
+  );
+  env.frames = rhs_info.env.frames;
+  env.module_path = rhs_info.env.module_path;
+  env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+  env.input_string = rhs_info.env.input_string;
+  if(!are_types_compatible(rhs_info.ty, cur_var.ty), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(rhs),
+          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(rhs)}\`: \`${name}\` borrows a place of type ${type_to_string(cur_var.ty)}, and this place has type ${type_to_string(rhs_info.ty)}.`
+        )
+      )
+    );
+  });
+  root_tok := ast_expr_token(root_atom);
+  root_var := match(
+    get_variables_from_env(env, root_tok.value.clone()).last(),
+    .Some(v) => v,
+    .None => {
+      exn.throw(dyn(format_error_message(root_tok, `Variable "${root_tok.value}" is not defined.`)));
+      make_err_variable(env)
+    }
+  );
+  place := match(
+    local_borrow_place_of(evaluated_rhs, env, ctx),
+    .Some(p) => p,
+    .None => {
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Cannot re-point \`${name}\` to \`${local_borrow_place_text(rhs)}\`. ${not_reached}`)));
+      local_borrow_place_of_variable(root_var)
+    }
+  );
+  is_self := ((root_var.name == info.name) && ((root_var.token.character == info.decl.character) && (root_var.token.module_path == info.decl.module_path)));
+  via_pattern := (!is_self && match(
+    local_borrow_pattern_source(root_var.name.clone(), root_var.token),
+    .Some(src) => ((src.name == info.name) && ((src.decl.character == info.decl.character) && (src.decl.module_path == info.decl.module_path))),
+    .None => false
+  ));
+  if(!is_self && !via_pattern, {
+    what := cond(
+      root_var.is_module_level => `\`${root_var.name}\` is a module-level binding`,
+      true => `\`${root_var.name}\` is a different variable, not a place reached from \`${name}\``
+    );
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(rhs),
+          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(rhs)}\`: ${what}. ${not_reached}`
+        )
+      )
+    );
+  });
+  if(via_pattern && !place.through_cell, {
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          ast_expr_token(rhs),
+          `Cannot re-point \`${name}\` to \`${local_borrow_place_text(rhs)}\`: \`${root_var.name}\` is a \`match\` binding over \`${name}\`, and a \`match\` binding holds a copy of the matched value, so this place would die with the arm. Only a reference cell the binding points to is shared with \`${name}\`'s target.`,
+          Option(String).Some(`re-point through a cell (\`${root_var.name}.next\` where \`${root_var.name}\` is a \`Box\`, \`Rc\` or \`ref\` object), or through \`${name}\` itself (\`${mw}(${name}) = ${name}.next\`). Binding the matched place itself comes with \`mut\` scrutinees (decision 26).`)
+        )
+      )
+    );
+  });
+  // Decision 38 A: no borrow derived from the current target may be live.
+  local_borrow_require_no_live_derived(info, lhs_tok, ctx, exn);
+  // The step's cell: the innermost reference cell on the chain.
+  (pin_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (pin_type : TypeValue) = t_unit();
+  (pk : usize) = usize(0);
+  while((pk < hops.len()) && pin_expr.is_none(), {
+    recv_expr := if(
+      (pk + usize(1)) < hops.len(),
+      match(hops.get(pk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()),
+      root_atom
+    );
+    recv_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv_expr)), .Some(ri) => ri.ty, .None => root_var.ty);
+    if(is_reference_struct_type(recv_type) || is_atomic_reference_struct_type(recv_type), {
+      pin_expr = Option(AstExpr).Some(recv_expr);
+      pin_type = recv_type;
+    });
+    pk = (pk + usize(1));
+  });
+  (step_pin : Option(Variable)) = Option(Variable).None;
+  match(
+    pin_expr,
+    .Some(_) => {
+      sp := match(
+        info.step_pin,
+        .Some(p) => p,
+        .None => {
+          exn.throw(dyn(format_error_message(lhs_tok, `Cannot re-point \`${name}\` here: a re-point must be in the block that declares \`${name}\`, or a block nested in it.`)));
+          make_err_variable(env)
+        }
+      );
+      if(is_unit_type(sp.ty), {
+        sp.ty = pin_type;
+      }, {
+        if(!are_types_compatible(pin_type, sp.ty), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(rhs),
+                `Cannot re-point \`${name}\` into a ${type_to_string(pin_type)} cell: an earlier re-point of \`${name}\` steps into ${type_to_string(sp.ty)} cells, and the one cell a step holds has one type.`
+              )
+            )
+          );
+        });
+      });
+      step_pin = Option(Variable).Some(sp);
+    },
+    .None => ()
+  );
+  // A `match` binding the re-point went through stays frozen while `cur` is
+  // live; a step through a cell is what rule 4 keys on.
+  if(via_pattern, {
+    info.places.push(place);
+  });
+  if(place.through_cell, {
+    info.crosses_cell = true;
+  });
+  variable_mark_inout_borrow_root(root_var);
+  lhs_info := new_expr_info(env, t_unit());
+  lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  match(
+    step_pin,
+    .Some(spv) => {
+      lhs_info.source_variable = Option(Variable).Some(spv);
       expr_info_set_macro_expansion(lhs_info, pin_expr);
     },
     .None => ()
@@ -491,7 +807,7 @@ evaluate_initialization_assignment :: (
   // the `:=` into a `::` silently.
   is_comptime_wrapped := ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .Some(usize(1)));
   if(is_init_assign && !(is_comptime_wrapped || ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None)) && in_compile_time_fn_body(ctx), {
-    if(ast_expr_is_inout_mode_call(lhs, .None), {
+    if(ast_expr_is_local_borrow_mode_call(lhs, .None), {
       exn.throw(
         dyn(
           with_code(
@@ -548,20 +864,9 @@ evaluate_initialization_assignment :: (
   // field places only; element borrows go through the `for` macro.
   // `mut(name) := place` is its exact synonym (plans/VALUES_BY_DEFAULT.md
   // V3b Generation A).
-  if(ast_expr_is_fn_call(lhs) && ast_expr_is_inout_mode_call(lhs, .None), {
+  // `imm(name) := place` is the read-only local borrow (decision 18).
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_local_borrow_mode_call(lhs, .None), {
     return(_evaluate_inout_local_binding(expr, lhs, rhs, is_compile_time_only, env, ctx, exn));
-  });
-  // `imm(name) := place`, the read-only local borrow (decision 18), needs
-  // last-use live ranges and lands after V3b Generation A.
-  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_IMM, .None), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(lhs),
-          String.from("`imm(name) := place` (a read-only local borrow) is not supported yet. Read the place directly, copy it with `name := place`, or bind it for writing with `mut(name) := place`.")
-        )
-      )
-    );
   });
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None), {
     n_given_args := match(
@@ -1323,4 +1628,4 @@ Use \`::\` for compile-time definitions inside impl.`
     expr
   })
 });
-export(evaluate_initialization_assignment);
+export(evaluate_initialization_assignment, evaluate_local_borrow_repoint);
