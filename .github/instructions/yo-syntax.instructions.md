@@ -507,6 +507,15 @@ Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 Use `recur(args)` only when calling the type constructor with **different** type arguments than the current instantiation (e.g., `recur(i32)` inside `Tree(T)` to get `Tree(i32)`).
 
+### Calling a method through its type: `T.m(x)` and `G.m(x)`
+
+`Point.norm(p)` calls `norm` with `p` as the receiver, the same call as `p.norm()`. A generic type works with its arguments written (`Rc(i32).clone(w)`) or left out (`Rc.clone(w)`, `Pair.first(p)`). Left out, they are inferred from the FIRST argument, which must itself be an instance of the constructor. It is plans/VALUES_BY_DEFAULT.md decision 32's spelling for a wrapper's own member (`Rc.clone(w)`).
+
+- A static method (no `self`) has no receiver to infer from: `Pair.make(a, b)` is E0613. Write `Pair(A, B).make(a, b)`.
+- A first argument of another type (`Rc.clone(b)` for `b : Box(i32)`; no payload search, so `Box.clone(w)` for `w : Rc(Box(i32))` too) is E0613, and the message names its type. A method the instance lacks is E0610, as with any receiver.
+- The match is by constructor identity. An alias (`IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))`) or a partial application (`Pair(i32, _)`) is a constructor of its own, so `IntPair.first(q)` for `q : Pair(i32, u8)` is E0613: write `Pair.first(q)` or `IntPair(u8).first(q)`. A labeled receiver (`Pair.first(self : p)`) and a module-qualified constructor (`m.Pair.first(p)`) work.
+- **Seed gate:** `src/` and `std/` keep the written form (`Rc(T).clone(w)` or `w.clone()`) until `SEED_VERSION` carries the feature, because the seed compiles them (`plans/backlog/SEED_VERSION_AUTOMATION.md`). Tests run on the tree-built compiler and may use it.
+
 ## Module imports
 
 Use destructured imports for files in the same directory:
