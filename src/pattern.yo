@@ -1709,6 +1709,66 @@ _row_of :: (fn(p : Pattern) -> ArrayList(Pattern))({
   r.push(p);
   r
 });
+/// Do the patterns of one variant tag GROUP — every arm naming variant `idx`
+/// of `enum_ty` — jointly match every value of that variant?
+///
+/// The classic switch emitter lowers a group to ONE `case TAG:` block whose
+/// literal-payload arms are guarded by `if`s and which ends in a bare
+/// `break`, so a value of the variant that NO arm of the group matches falls
+/// out of the switch and skips the later arms entirely — a trailing `_` is
+/// the `default:` block, unreachable from inside the case
+/// (issues/fixed/a-literal-sub-pattern-in-a-variant-arm-skips-the-wildcard-arm.md).
+/// The switch shape is sound only when the group covers its variant; this is
+/// `_useful` with the all-wildcard query `.V(_, _, …)` over the group's rows
+/// (`.None` = no witness = covered).
+variant_group_covers :: (
+  fn(
+    rows : ArrayList(Pattern),
+    name : String,
+    idx : usize,
+    arity : usize,
+    through_ptr : bool,
+    enum_ty : TypeValue,
+    scrutinee_ty : TypeValue
+  ) -> bool
+)({
+  qsubs := ArrayList(Pattern).new();
+  fidx := ArrayList(usize).new();
+  (i : usize) = usize(0);
+  while(i < arity, {
+    qsubs.push(Pattern.Wildcard);
+    fidx.push(i);
+    i = (i + usize(1));
+  });
+  q := Pattern.Variant(
+    name : name,
+    idx : idx,
+    field_idx : fidx,
+    subs : qsubs,
+    enum_ty : enum_ty,
+    through_ptr : through_ptr,
+    arity : arity
+  );
+  qrow := ArrayList(Pattern).new();
+  qrow.push(q);
+  matrix := ArrayList(ArrayList(Pattern)).new();
+  (j : usize) = usize(0);
+  while(j < rows.len(), {
+    match(
+      rows.get(j),
+      .Some(r) => {
+        one := ArrayList(Pattern).new();
+        one.push(r);
+        matrix.push(one);
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  tys := ArrayList(TypeValue).new();
+  tys.push(scrutinee_ty);
+  _useful(matrix, qrow, tys, true).is_none()
+});
 /// The rows that count toward COVERAGE: the arms before `upto`, unguarded
 /// ones only unless `count_guarded` (a guard can fail, so a guarded arm
 /// covers nothing for the arms below it).
@@ -1929,6 +1989,6 @@ pattern_test_exprs :: (fn(p : Pattern, inout(out) : ArrayList(AstExpr)) -> unit)
 });
 export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms, match_arms_entry_count);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
-export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs);
+export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs, variant_group_covers);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);
 export(box_inner_type, _struct_field_tys, _struct_field_labels, _tuple_elem_tys);

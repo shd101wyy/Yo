@@ -134,3 +134,31 @@ test("a match on an owned nullable-pointer Option releases its scrutinee", {
   };
   assert((g_tracked_disposed - before) == i32(2), "each element is disposed once the list is gone");
 });
+// A literal sub-pattern in a variant arm must fall through to the later arms
+// on a miss: the tagged-union switch guarded the arm inside its `case TAG:`
+// and ended the block in a bare `break`, so a value whose TAG matched but
+// whose literal did not skipped the trailing `_` and left the result temp
+// uninitialized (issues/fixed/a-literal-sub-pattern-in-a-variant-arm-skips-the-wildcard-arm.md).
+TagLit :: enum(Leaf(n : i32), Node(k : i32, flag : bool));
+test("a literal sub-pattern miss takes the wildcard arm", {
+  pick :: (fn(e : TagLit) -> i32)(match(e, .Node(k, true) => k, _ => i32(-1)));
+  picki :: (fn(e : TagLit) -> i32)(match(e, .Node(7, f) => i32(70), _ => i32(-1)));
+  assert(pick(TagLit.Node(i32(5), true)) == i32(5), "the guarded arm runs when its literal holds");
+  assert(pick(TagLit.Node(i32(6), false)) == i32(-1), "a bool literal miss reaches the wildcard");
+  assert(pick(TagLit.Leaf(i32(1))) == i32(-1), "another tag reaches the wildcard");
+  assert(picki(TagLit.Node(i32(7), false)) == i32(70), "the int-guarded arm ignores the other field");
+  assert(picki(TagLit.Node(i32(8), false)) == i32(-1), "an int literal miss reaches the wildcard");
+});
+test("literal arms that jointly cover their variant still split by payload", {
+  both :: (fn(e : TagLit) -> i32)(
+    match(
+      e,
+      .Node(k, true) => k,
+      .Node(k, false) => (i32(0) - k),
+      .Leaf(n) => n
+    )
+  );
+  assert(both(TagLit.Node(i32(5), true)) == i32(5), "the true arm");
+  assert(both(TagLit.Node(i32(5), false)) == i32(-5), "the false arm");
+  assert(both(TagLit.Leaf(i32(9))) == i32(9), "the other variant");
+});

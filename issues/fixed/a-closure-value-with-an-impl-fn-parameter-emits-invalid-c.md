@@ -2,6 +2,17 @@
 
 **Severity:** S2 — a valid program fails at the C compile: a closure bound to a local whose own parameter is `Impl(Fn(...))` lowers that parameter to `void*` and the call site passes the capture struct.
 
+Status: FIXED 2026-10-06 — a function literal now REJECTS an unresolved
+`Impl(Fn(...))` parameter at definition (`_is_unresolved_impl_fn_type` +
+the check after the annotation-driven substitution in
+`src/evaluator/values/anonymous_function.yo`): the message names
+`Dyn(Fn(...))` and the named-`fn` alternative. Per-call specialization of a
+literal's body remains future work; the rejection is the honest bound of
+what one lowered body can do. Tests: tests/closure_capture_list.test.yo
+("a function literal rejects an Impl(Fn(...)) parameter"); the exclusivity
+re-entry test was rewritten onto a named callee, which is the shape the
+rule was about anyway.
+
 Found 2026-10-06 while writing the capture-list re-entry test
 (`plans/VALUES_BY_DEFAULT.md` decision 38 B). Pre-existing: the v0.2.52 seed
 fails the same way, with no capture list involved.
@@ -33,6 +44,9 @@ its `Impl(Fn)` parameter has no concrete capture struct to lower to. Either
 the closure needs per-call specialization like a generic function, or such a
 parameter must be rejected with a diagnostic naming `Dyn(Fn(...))`.
 
-The capture-list test checks the re-entry rule with `check`-time
-(`comptime_expect_error`) only, and calls `f` with no closure argument at run
-time.
+The same defect breaks every value shape of the literal: a `->` literal bound
+to an `Impl(Fn(k : Impl(Fn(...)))` slot (`use of undeclared identifier` in the
+emitted C), and a closure inside a generic named function whose `Impl(Fn)`
+parameter mentions the generic (the same `void*` mismatch). `Dyn(Fn(...))`
+parameters (one boxed calling convention) and named functions (per-call
+rtparam specialization) both work.

@@ -29,6 +29,7 @@ _cl_with_mut :: (fn(f : Impl(Fn() -> i32), mut(z) : i32) -> i32)({
   z = (z + i32(1));
   f()
 });
+_cl_reentry :: (fn(a : Impl(Fn() -> i32), b : Impl(Fn() -> i32)) -> i32)((a() + b()));
 _ClAcc :: struct(total : i32, other : i32);
 impl(_ClAcc, run : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)(f()));
 // ---------------------------------------------------------------------------
@@ -283,16 +284,32 @@ test("exclusivity: a method receiver versus a `mut` capture of it", {
 test("exclusivity: re-entry through a closure that reaches the callee", {
   n := i32(0);
   {
-    (f : Impl(Fn(k : Impl(Fn() -> i32)) -> i32)) = ({ mut(n) }(k : Impl(Fn() -> i32)) => {
-      n = (n + k());
+    // A function literal cannot take an `Impl(Fn(...))` parameter (it has one
+    // body, so the parameter cannot be specialized per call;
+    // issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md),
+    // so the call that overlaps `f` and `g` goes through a NAMED function.
+    (f : Impl(Fn() -> i32)) = ({ mut(n) }() => {
+      n = (n + i32(1));
       n
     });
     (g : Impl(Fn() -> i32)) = ({ imm(f) }() => i32(1));
-    comptime_expect_error(f(g), "lent exclusively");
+    comptime_expect_error(_cl_reentry(f, g), "lent exclusively");
   };
-  // Calling `f` at run time with a closure argument is
-  // issues/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md.
   assert(n == i32(0), "nothing ran");
+});
+test("a function literal rejects an Impl(Fn(...)) parameter", {
+  n := i32(1);
+  // issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md:
+  // one lowered body cannot specialize an `Impl(Fn(...))` parameter per call
+  // site, so the parameter would lower to `void*` while each call passes the
+  // argument closure's capture struct.
+  comptime_expect_error(
+    ((f : Impl(Fn(k : Impl(Fn() -> i32)) -> i32)) = ((k : Impl(Fn() -> i32)) => (k() + n))),
+    "function literal has one body"
+  );
+  // The boxed spelling remains a literal's way to take a closure argument.
+  (d : Impl(Fn(k : Dyn(Fn() -> i32)) -> i32)) = ((k : Dyn(Fn() -> i32)) => (k() + n));
+  assert(d(dyn(() => i32(2))) == i32(3), "a Dyn(Fn(...)) parameter works");
 });
 // ---------------------------------------------------------------------------
 // Decision 38 D: what a borrow capture may name

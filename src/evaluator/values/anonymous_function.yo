@@ -128,7 +128,7 @@ pragma(Pragma.AllowUnsafe);
   FuncCapturedVarInfo,
   record_closure_capture_verdicts
 } :: import("../utils/closure.yo");
-{ extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{ extract_fn_trait_from_type, type_implements_fn } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
@@ -228,6 +228,24 @@ _synthesize_default_func_type :: (
   ret_ty := t_some_t(String.from("_ret"), frame_level);
   t_func_simple(names, param_types, ret_ty)
 });
+/// True when `ty` is an UNRESOLVED `Impl(Fn(...))` — a SomeT requiring the Fn
+/// trait with no resolved concrete. A function literal has ONE lowered body,
+/// so such a PARAMETER cannot be monomorphized per call site the way a named
+/// function's can (every call's argument closure is its own capture struct):
+/// the parameter lowers to `void*` and each call site passes the struct by
+/// value — invalid C
+/// (issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md).
+_is_unresolved_impl_fn_type :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .SomeT(_, _, _, _, _, _, _, _, _, res) => match(
+      res,
+      .Some(_) => false,
+      .None => type_implements_fn(ty)
+    ),
+    _ => false
+  )
+);
 /// Helper: get the operator string from an anonymous function expression.
 /// For `(x) -> body`, returns "->"; for `(x) => body`, returns "=>"; etc.
 _get_anon_op :: (fn(expr : AstExpr) -> String)(
@@ -1358,6 +1376,32 @@ evaluate_anonymous_function_implementation :: (
     if(ann_frame_pushed, {
       env.pop_frame();
     });
+  });
+  // -------------------------------------------------------------------------
+  // A function literal has ONE lowered body, so an `Impl(Fn(...))` PARAMETER
+  // — which a named function monomorphizes per call site into the argument
+  // closure's capture struct — would lower to `void*` while every call site
+  // passes the struct by value: invalid C. Reject the shape at definition,
+  // AFTER the annotation-driven substitution above has produced the final
+  // parameter types
+  // (issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md).
+  // -------------------------------------------------------------------------
+  (ifp_i : usize) = usize(0);
+  while(ifp_i < param_types.len(), {
+    ifp_ty := match(param_types.get(ifp_i), .Some(t) => t, .None => TypeValue.Unit);
+    if(_is_unresolved_impl_fn_type(ifp_ty), {
+      ifp_label := match(param_labels.get(ifp_i), .Some(l) => l.clone(), .None => String.from("_"));
+      exn.throw(
+        dyn(
+          format_error_message_with_help(
+            tok,
+            `A \`${op_str}\` function literal has one body, so its "${ifp_label}" parameter of type ${type_to_string(ifp_ty)} cannot be specialized per call: the parameter would lower to void* while each call passes the argument closure's own capture struct`,
+            Option(String).Some(String.from("take the parameter as Dyn(Fn(...)) (one boxed calling convention), or write a named fn: a named function specializes its Impl(Fn(...)) parameters per call site"))
+          )
+        )
+      );
+    });
+    ifp_i = (ifp_i + usize(1));
   });
   // -------------------------------------------------------------------------
   // Capture list (decision 35): evaluate the entries in the enclosing scope,

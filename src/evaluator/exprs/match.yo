@@ -95,7 +95,8 @@ pragma(Pragma.AllowUnsafe);
   pattern_test_exprs,
   pattern_to_string,
   gadt_branch_reachable,
-  gadt_resolve_tca_entry
+  gadt_resolve_tca_entry,
+  variant_group_covers
 } :: import("../../pattern.yo");
 {
   new_pattern_ctx,
@@ -222,6 +223,32 @@ _all_literal_vals :: (fn(vals : ArrayList(EvalValue)) -> bool)({
   });
   ok
 });
+/// True when `p` is a variant pattern with at least one literal (`Const`)
+/// payload sub-pattern — the arm shape the classic `case TAG:` emitter guards
+/// with an `if` inside the case block. Such a group of arms is only soundly
+/// switch-lowered when it jointly covers its variant (see the coverage pass
+/// before `register_match_arms` and `variant_group_covers` in pattern.yo).
+_variant_pattern_has_literal_sub :: (fn(p : Pattern) -> bool)(
+  match(
+    p,
+    .Variant(_, _, _, subs, _, _, _) => {
+      (hit : bool) = false;
+      (i : usize) = usize(0);
+      while((i < subs.len()) && !(hit), {
+        match(
+          subs.get(i),
+          .Some(s) => {
+            hit = match(s, .Const(_, _, _, _, _) => true, _ => false);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      hit
+    },
+    _ => false
+  )
+);
 /// Compute the GADT-refined expected type for a match branch. If the expected type is the
 /// SAME SomeT as one of the enum's type-constructor args, the branch
 /// refines it to the variant's `-> recur(...)` arg at that position
@@ -689,7 +716,14 @@ evaluate_match :: (
       // node IS the literal inside its own test, and codegen's
       // generate-the-expansion rule then recursed forever (SIGBUS, measured).
       // The `=>` node is never generated as an expression, only walked.
-      if(!(classic), {
+      // A classic ENUM arm with a literal payload sub-pattern ALSO needs the
+      // expansion: the coverage pass below may flip its group onto the
+      // general lowering (the `case TAG:` block cannot fall through to the
+      // later arms on a literal miss), and the expansion must already hang
+      // off the `=>` node here, with the arm's own frame env in the info.
+      if(
+        (!(classic)) || (scrutinee_is_enum && _variant_pattern_has_literal_sub(pat)),
+        {
         tests := ArrayList(AstExpr).new();
         pattern_test_exprs(pat, tests);
         if(tests.len() > usize(0), {
@@ -927,6 +961,114 @@ evaluate_match :: (
   });
   match(prev_arm_body, .Some(lab) => keep_last_arm_moves(env, lab, group_log_start), .None => ());
   truncate_branch_group_stack(bg_depth);
+  // ---------------------------------------------------------------------------
+  // Variant-tag group coverage (soundness of the classic `case TAG:` shape)
+  //
+  // The tagged-union emitter lowers every arm of one variant to a single
+  // `case TAG:` block, guarding each literal-payload arm with an `if` and
+  // ending the block in a bare `break`. A value of the variant that NO arm
+  // of the group matches must then run a LATER arm — a trailing `_`, which
+  // the switch holds in `default:`, unreachable from inside the case — so
+  // the guard miss skips every remaining arm and the result temp stays
+  // uninitialized (issues/fixed/a-literal-sub-pattern-in-a-variant-arm-skips-
+  // the-wildcard-arm.md). A group is sound only when its arms jointly match
+  // every value of the variant; a group that does not (and has no unguarded
+  // arm of its own variant, which would be its catch-all) forces the whole
+  // match onto the general test-chain lowering, where a miss continues with
+  // the next arm. Groups whose arms jointly cover (`.Some(true)` +
+  // `.Some(false)`) keep today's switch shape byte-identically.
+  // ---------------------------------------------------------------------------
+  if(all_classic && scrutinee_is_enum, {
+    g_idxs := ArrayList(usize).new();
+    (gci : usize) = usize(0);
+    while(gci < arms.len(), {
+      match(
+        arms.get(gci),
+        .Some(ga) => match(
+          ga.pattern,
+          .Variant(_, gvidx, _, _, _, _, _) => {
+            (known : bool) = false;
+            (si : usize) = usize(0);
+            while((si < g_idxs.len()) && !(known), {
+              match(
+                g_idxs.get(si),
+                .Some(k) => {
+                  known = (k == gvidx);
+                },
+                .None => ()
+              );
+              si = (si + usize(1));
+            });
+            if(!(known), {
+              g_idxs.push(gvidx);
+            });
+          },
+          _ => ()
+        ),
+        .None => ()
+      );
+      gci = (gci + usize(1));
+    });
+    (gi3 : usize) = usize(0);
+    while(gi3 < g_idxs.len(), {
+      target_idx := match(g_idxs.get(gi3), .Some(k) => k, .None => usize(0));
+      (vname : String) = String.new();
+      (varity : usize) = usize(0);
+      (vptr : bool) = false;
+      (vety : TypeValue) = TypeValue.Unit;
+      grows := ArrayList(Pattern).new();
+      (has_unguarded_group_arm : bool) = false;
+      (ai3 : usize) = usize(0);
+      while(ai3 < arms.len(), {
+        match(
+          arms.get(ai3),
+          .Some(aa) => match(
+            aa.pattern,
+            .Variant(an, aidx, _, _, aety, aptr, aar) => if(aidx == target_idx, {
+              vname = an;
+              varity = aar;
+              vptr = aptr;
+              vety = aety;
+              grows.push(aa.pattern);
+              if(!(_variant_pattern_has_literal_sub(aa.pattern)), {
+                has_unguarded_group_arm = true;
+              });
+            }),
+            _ => ()
+          ),
+          .None => ()
+        );
+        ai3 = (ai3 + usize(1));
+      });
+      if((grows.len() > usize(0)) && !(has_unguarded_group_arm), {
+        if(
+          !(variant_group_covers(grows, vname, target_idx, varity, vptr, vety, position_type)),
+          {
+            // Uncovered: the switch shape would drop the miss. Flip the
+            // group's arms onto the general lowering (their `=>` nodes
+            // already carry the test expansions recorded in the arm loop).
+            (fi3 : usize) = usize(0);
+            while(fi3 < arms.len(), {
+              match(
+                arms.get(fi3),
+                .Some(fa) => match(
+                  fa.pattern,
+                  .Variant(_, fidx, _, _, _, _, _) => if(fidx == target_idx, {
+                    fa.classic = false;
+                  }),
+                  _ => ()
+                ),
+                .None => ()
+              );
+              fi3 = (fi3 + usize(1));
+            });
+            all_classic = false;
+          }
+        );
+      });
+      gi3 = (gi3 + usize(1));
+    });
+  });
   register_match_arms(ast_expr_id(expr), arms);
   // ---------------------------------------------------------------------------
   // Exhaustiveness and unreachability (usefulness over the compiled arms)
