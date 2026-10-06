@@ -322,6 +322,10 @@ Explicit sharing must not mean writing `.*` everywhere.
   a raw pointer it stays the pointer dereference. In V5 this becomes the
   only reading, and `is_box_type` and the `*`-label tests move to the
   `Deref` check.
+  - Through a raw pointer, field reads and calls of function-typed
+    pointee fields auto-dereference, and method calls do not (E0610). A
+    member name the pointer and its pointee both have is decision 32's
+    clash error, which covers raw pointers (decision 36).
 - **Resolution.** A member is looked up on the wrapper and on its
   payload, recursively through nested wrappers (`Rc(Box(T))` reaches `T`).
   - A name only one of them has resolves to that one.
@@ -1205,6 +1209,14 @@ and in git, not a silent edit.
       - `w.*.clone()` for the payload's.
 
       A name only one of them has forwards (§3.3).
+    - **Raw pointers are covered too** (amended 2026-10-06, decision 36).
+      If `p : *(T)` and both the pointer and `T` have a member `m`, then
+      `p.m` is an error naming `p.*.m()` for the pointee's member and the
+      implicit copy `q := p` for the pointer. In practice the only shared
+      names are `Clone`/`Copy` members against a function-typed pointee
+      field, because method calls through a pointer do not auto-dereference
+      today. This part needs no seed and lands in decision 36's Generation A
+      (see its "Raw pointers and `clone`" bullet).
     - **This is Rust's convention, made a rule.** Rust's `w.clone()` on an
       `Rc` compiles and means the handle copy. The Rust book recommends
       `Rc::clone(&w)`, and clippy's `clone_on_ref_ptr` lint enforces it, so
