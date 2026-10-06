@@ -611,6 +611,19 @@ register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
 // mismatch. Expected usize, but got Type" — the array-family hollow).
 // Single-threaded evaluator; cleared at each try_match entry.
 (g_last_match_binding_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+/// Set while `generic_pattern_implements_trait` asks whether a generic impl
+/// covers an OPEN receiver pattern (decision 36's `Copy: Clone` check at a
+/// generic `Copy` impl). A forall bound to a different-id SomeT is then a
+/// binding, as inside a definition-time body trial: the question is about
+/// the pattern's own type parameters, which stay abstract. The query only
+/// reads the impl registries; the durable assoc-type registration at a
+/// match's end is skipped under it, as in a trial.
+///
+/// A runtime binding, so it must be declared above `_pre_where_or_resolve`
+/// below: that fn's def-time trial reaches `_abstract_bindings_ok` (through
+/// `_resolve_one_forall_binding_from`), whose body reads this — at ITS
+/// position the binding would not have executed yet (E0906).
+(g_open_pattern_query : bool) = false;
 /// The forall `fa_some`'s binding: the one the receiver pattern gave it before
 /// the where pass (`pre_where`, index-aligned with `forall_somes`),
 /// else the scoped lookup in `env`.
@@ -645,14 +658,6 @@ _pre_where_or_resolve :: (
   });
   _resolve_one_forall_binding_from(env, fa_some, fa_name, min_frame)
 });
-/// Set while `generic_pattern_implements_trait` asks whether a generic impl
-/// covers an OPEN receiver pattern (decision 36's `Copy: Clone` check at a
-/// generic `Copy` impl). A forall bound to a different-id SomeT is then a
-/// binding, as inside a definition-time body trial: the question is about
-/// the pattern's own type parameters, which stay abstract. The query only
-/// reads the impl registries; the durable assoc-type registration at a
-/// match's end is skipped under it, as in a trial.
-(g_open_pattern_query : bool) = false;
 /// May a forall bind to a different-id SomeT (see `g_open_pattern_query`)?
 _abstract_bindings_ok :: (fn() -> bool)(in_def_time_trial() || g_open_pattern_query);
 _resolve_one_forall_binding :: (
@@ -5696,6 +5701,14 @@ _implements_via_hook :: (fn(ty : TypeValue, trait_ty : TypeValue, env : Environm
     .None => false
   )
 );
+/// `_implements_via_hook`, plus the open-pattern coverage query
+/// (`generic_pattern_implements_trait`) for a type over SomeTs: decision
+/// 36's hand-written-`Clone` checks ask whether a receiver PATTERN is
+/// `Copy`, and the ordinary predicate rejects a match that binds a forall
+/// to another impl's SomeT.
+_pattern_implements_via_hook :: (fn(ty : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
+  _implements_via_hook(ty, trait_ty, env) || ((get_all_some_types(ty).len() > usize(0)) && generic_pattern_implements_trait(ty, trait_ty, env))
+);
 /// The prelude traits `Clone` and `Copy`.
 _CloneCopyTraits :: struct(clone_tt : TypeValue, copy_tt : TypeValue);
 /// Both prelude traits, when both are in scope.
@@ -5787,7 +5800,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, trait_tok :
       clone_key := get_base_trait_key(cc.clone_tt);
       if((entry.trait_key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
         g_hand_written_clone_sites.insert(entry.site.clone(), true);
-        if(_implements_via_hook(entry.receiver_type_pattern, cc.copy_tt, env), {
+        if(_pattern_implements_via_hook(entry.receiver_type_pattern, cc.copy_tt, env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).None))));
         });
       });
@@ -5797,7 +5810,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, trait_tok :
         while(bi < bucket.len(), {
           match(
             bucket.get(bi),
-            .Some(ce) => if((g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(ce.receiver_type_pattern, entry.receiver_type_pattern)) && _implements_via_hook(ce.receiver_type_pattern, cc.copy_tt, ce.definition_env), {
+            .Some(ce) => if((g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(ce.receiver_type_pattern, entry.receiver_type_pattern)) && _pattern_implements_via_hook(ce.receiver_type_pattern, cc.copy_tt, ce.definition_env), {
               exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
             .None => ()
@@ -5844,14 +5857,22 @@ export(type_has_impl_shape_for);
 /// The ordinary predicate (`type_implements_trait`) answers for concrete
 /// types: it rejects a match that leaves a forall bound to another impl's
 /// SomeT. Here that binding is the point, so the match runs under
-/// `g_open_pattern_query`. A candidate covers the pattern when its receiver
-/// pattern matches and every one of its where-bounds, with the match's
-/// bindings substituted, holds of the pattern's parameters: a bound on a
-/// parameter holds when that parameter's own bounds give it (with their
-/// supertraits, so `T <: Copy` gives `T <: Clone`), and a bound on a
-/// constructed type holds when that type is covered in turn. A concrete
-/// impl covers one instantiation only, so it never covers an open pattern.
-generic_pattern_implements_trait :: (fn(pattern : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)({
+/// `g_open_pattern_query` (and with `enforce_all_where` false: the bounds
+/// are judged below, against the PATTERN's own bounds, not the candidate's).
+/// A candidate covers the pattern when its receiver pattern matches and
+/// every one of its where-bounds, with the match's bindings substituted,
+/// holds of the pattern's parameters: a bound on a parameter holds when that
+/// parameter's own bounds give it (with their supertraits, so `T <: Copy`
+/// gives `T <: Clone`), and a bound on a constructed type holds when that
+/// type is covered in turn. A concrete impl covers one instantiation only,
+/// so it never covers an open pattern.
+generic_pattern_implements_trait :: (fn(pattern : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
+  _generic_pattern_covered(pattern, trait_ty, env, u32(0))
+);
+_generic_pattern_covered :: (fn(pattern : TypeValue, trait_ty : TypeValue, env : Environment, depth : u32) -> bool)({
+  if(depth > u32(8), {
+    return(false);
+  });
   saved := g_open_pattern_query;
   g_open_pattern_query = true;
   bucket := _generic_impl_bucket(get_base_trait_key(trait_ty));
@@ -5861,7 +5882,7 @@ generic_pattern_implements_trait :: (fn(pattern : TypeValue, trait_ty : TypeValu
     match(
       bucket.get(bi),
       .Some(e) => match(
-        try_match_generic_impl(pattern, e, env, true),
+        try_match_generic_impl(pattern, e, env, false),
         .Some(bindings) => {
           s := subst_new();
           (fi : usize) = usize(0);
@@ -5880,7 +5901,7 @@ generic_pattern_implements_trait :: (fn(pattern : TypeValue, trait_ty : TypeValu
             w_trait := match(e.where_constraint_traits.get(wi), .Some(t) => t, .None => t_unit());
             all_hold = cond(
               is_some_type(w_subject) => _implements_via_hook(w_subject, w_trait, env),
-              (get_all_some_types(w_subject).len() > usize(0)) => recur(w_subject, w_trait, env),
+              (get_all_some_types(w_subject).len() > usize(0)) => recur(w_subject, w_trait, env, depth + u32(1)),
               true => _implements_via_hook(w_subject, w_trait, env)
             );
             wi = (wi + usize(1));

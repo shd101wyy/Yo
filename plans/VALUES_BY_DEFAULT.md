@@ -2760,8 +2760,19 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - **a `Clone` impl must cover the type** (`_copy_without_clone_msg`): for
     a generic receiver pattern, `Pair(T)` under the `Copy` impl's own
     `where(T <: Copy)` must be `Clone`, which `T <: Copy` giving
-    `T <: Clone` decides. A `Clone` impl pending later in the module is
-    forced first. The error names `derive(T, Copy, Clone)` and
+    `T <: Clone` decides. The ordinary predicate cannot answer that — it
+    rejects a match that binds a forall to another impl's `SomeT` — so an
+    open pattern (a type over `SomeT`s) is asked through
+    `generic_pattern_implements_trait` (`src/evaluator/values/impl.yo`):
+    the candidate match runs with abstract bindings allowed, and each of
+    the candidate's `where` bounds, substituted by the match, must hold of
+    the pattern through the pattern's OWN bounds and their supertraits
+    (the prelude's `impl(generic(T : Type), *(T), Copy())` is covered by
+    the blanket `*(T)` `Clone`; `Option(T)` under `where(T <: Copy)` by the
+    `where(T <: Clone)` `Clone` impl). A `Clone` impl pending later in the
+    module is forced first (by the pattern's head name; an unnamed pattern
+    — `*(T)`, a tuple — has none, so its `Clone` impl must precede it, as
+    the prelude writes). The error names `derive(T, Copy, Clone)` and
     `derive(T, Clone)` beside `impl(T, Copy())`; the compiler never writes
     the impl. The prelude's own scalar, `str` and pointer impls take the
     same check;
@@ -2793,27 +2804,40 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - A generic hand-written `Clone` that also serves non-`Copy`
     instantiations (`where(T <: Clone)`, the prelude `Option(T)`'s) is
     allowed.
-- **The raw-pointer clash** (#1247): `p.m(...)` through a raw pointer, where
-  the pointee has a field named a `Clone`/`Copy` member (`clone`) and
-  `*(T)` has that method, is an error naming `p.*.m(...)` for the pointee's
-  field and `q := p` for the pointer (`src/evaluator/exprs/property_access.yo`,
-  `get_pointer_own_methods_by_name_from_env`). Before this, the field won
-  silently. **Measured count of affected call sites: 0** (`check ./src`,
-  `check ./std`, the language suite and `tests/internal`, all green with
-  the error in place). The pointer's other own methods (`add`, `sub`,
-  `offset_from`) are outside decision 36 and keep today's resolution.
-- **The audit** (below) and **`tests/copy_trait.test.yo`**: the prelude
+- **The raw-pointer clash** (#1247, its rule completed by #1248): a member
+  name the pointer and its pointee both have is an error, whatever the
+  name — `p.m(...)` through a raw pointer, where the pointee has a FIELD
+  `m` (field reads and calls of function-typed fields auto-dereference)
+  and the pointer has a METHOD `m` (`clone` from the `Clone` impl `Copy`
+  requires, or `add`/`sub`/`offset_from`), is an error naming `p.*.m(...)`
+  for the pointee's field and, for the pointer's `clone`, the copy
+  `q := p` (`src/evaluator/exprs/property_access.yo`,
+  `get_pointer_own_methods_by_name_from_env`; no trait names are
+  hard-coded — the check asks which members the pointer itself has). A
+  pointee METHOD named like a pointer method has no second reading to
+  clash with: method calls through a pointer do not reach the pointee's
+  methods (E0610). Before this, the field won silently. **Measured count
+  of affected call sites: 0 in `check ./src` and `check ./std`** with the
+  tree-built binary (both green; run 2026-10-06 on this branch). The
+  language suite and `tests/internal` did not run on this branch — the PR
+  battery owns them.
+- **The audit** (`YO_AUDIT_COPY_TRAIT=1`, `src/evaluator/utils.yo`; the
+  sizing this decision's `First measurement` bullet in §4 asks for) and
+  **`tests/copy_trait.test.yo`**: the prelude
   impls and their `Clone`s, a `derive(Point, Copy, Clone)` copy,
   `derive(T, Clone, Copy)` in the other order, `derive(T, Copy)` alone and
   `impl(T, Copy())` without `Clone` (concrete and generic) rejected,
   `impl(T, Copy())` over a `String` field, `Copy` plus `Dispose` and plus
-  `MoveOnly` in both orders, `Pair(T)` with `derive(Clone)` and a
-  conditional `Copy` at `i32` (implicit copy) and `String` (explicit
-  `.clone()`), `Option(i32)` staying `Copy` with its generic `Clone`, a
-  hand-written `Clone` on a concrete `Copy` type (both orders) and under an
-  unbounded generic `Copy` impl, a `where(T <: Copy)` body calling
-  `x.clone()` at a struct, a scalar and a tuple, tuple `.clone()` at
-  arities 1 and 2, `str` and raw-pointer `.clone()`, and the pointer clash.
+  `MoveOnly` in both orders, `Pair(T)` with
+  `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the
+  derive's clone calls `.clone()` on its fields, so the bound is part of
+  the spelling — and a conditional `Copy` at `i32` (implicit copy) and
+  `String` (explicit `.clone()`), `Option(i32)` staying `Copy` with its
+  generic `Clone`, a hand-written `Clone` on a concrete `Copy` type (both
+  orders) and under an unbounded generic `Copy` impl, a `where(T <: Copy)`
+  body calling `x.clone()` at a struct, a scalar and a tuple, tuple
+  `.clone()` at arities 1 and 2, `str` and raw-pointer `.clone()`, and the
+  pointer clash at `clone` and at `add` (any shared member name).
 
 **Generation B** (once `SEED_VERSION` carries Generation A;
 `plans/backlog/SEED_VERSION_AUTOMATION.md`):

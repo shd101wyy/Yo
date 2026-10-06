@@ -950,8 +950,10 @@ export(Clone);
 /// same instantiations, and makes `where(T <: Copy)` give `T <: Clone` in a
 /// generic body. The compiler never writes the `Clone` impl. A named type
 /// opts in with `derive(T, Copy, Clone)`, and a generic one with
-/// `derive(generic(T : Type), Pair(T), Clone)` beside `impl(generic(T :
-/// Type), where(T <: Copy), Pair(T), Copy())`. The impl is checked: every
+/// `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` beside
+/// `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())` — the
+/// derive's clone calls `.clone()` on its fields, so it needs the bound.
+/// The impl is checked: every
 /// field, variant payload and element must be `Copy`, and the type must not
 /// implement `Dispose` (a copy would dispose twice) or declare `MoveOnly`.
 /// A hand-written `Clone` is an error only on a type that is `Copy` for

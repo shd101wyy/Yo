@@ -77,7 +77,8 @@ pragma(Pragma.AllowUnsafe);
   has_negative_impl,
   get_trait_key,
   find_associated_type_from_generic_impls,
-  type_has_impl_shape_for
+  type_has_impl_shape_for,
+  generic_pattern_implements_trait
 }
 :: import("./values/impl.yo");
 {
@@ -790,6 +791,19 @@ _copy_without_clone_msg :: (fn(target_type : TypeValue, env : Environment) -> Op
       cond(
         has_clone => Option(String).None,
         true => {
+          // An OPEN receiver pattern (decision 36's generic `Copy` impl: the
+          // prelude's `*(T)`, `Option(T)`, a user `Pair(T)`): the question is
+          // whether a generic `Clone` impl covers EVERY instantiation of the
+          // pattern. The ordinary predicate above cannot answer it — it
+          // rejects a match that binds a forall to another impl's SomeT — so
+          // `generic_pattern_implements_trait` runs the match with abstract
+          // bindings allowed and checks each candidate's `where` bounds
+          // against the pattern's own bounds (`T <: Copy` gives `T <: Clone`).
+          // A `Clone` impl pending later in the module was already forced
+          // above when the pattern has a head name.
+          if((get_all_some_types(target_type).len() > usize(0)) && generic_pattern_implements_trait(target_type, clone_tt, env), {
+            return(Option(String).None);
+          });
           shown := type_to_string(target_type);
           Option(String).Some(`Type "${shown}" cannot implement "Copy" without "Clone": Copy requires Clone, as Rust's Copy: Clone (plans/VALUES_BY_DEFAULT.md decision 36), and the compiler never writes the Clone impl. Write derive(${shown}, Copy, Clone), or derive(${shown}, Clone) beside impl(${shown}, Copy()).`)
         }
