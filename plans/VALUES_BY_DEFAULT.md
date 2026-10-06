@@ -1506,11 +1506,35 @@ and in git, not a silent edit.
         `Copy`, and the type must not implement `Dispose`, which is Rust's
         `Copy`/`Drop` exclusion. A failing impl is an error naming the
         first non-`Copy` part.
-      - **`Copy` provides `clone()`.** A `Copy` type's clone can only be the
-        bitwise copy, so the compiler supplies `Clone`. A hand-written
-        `Clone` impl and `derive(T, Clone)` on a `Copy` type are both
-        errors, each naming `derive(T, Copy)` alone. Rust asks for both
-        impls and requires that they agree.
+      - **`Copy` and `Clone`** (amended 2026-10-06 by the maintainer; the
+        first text rejected `derive(T, Clone)` on a `Copy` type, which made a
+        conditionally `Copy` generic type impossible to write):
+        - **No `Clone` written:** the compiler supplies `clone()`, the bitwise
+          copy.
+        - **`derive(T, Clone)` is allowed.** A derived clone is field-wise,
+          and for `Copy` fields that is exactly the bitwise copy, so it
+          cannot diverge. It is the spelling for a type that is `Copy` only
+          under a bound:
+          ```rust
+          Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+          derive(Pair(T), Clone);                                      // Pair(String) needs it
+          impl(generic(T : Type), where(T <: Copy), Pair(T), Copy());  // Pair(i32) is also Copy
+          ```
+        - **A hand-written `Clone` is an error only on a type that is `Copy`
+          for every instantiation:** a concrete `Copy` type such as
+          `Point`, or a generic type whose `Copy` impl has no bound. There
+          the impl can only be redundant or divergent (`log("cloning")`),
+          and a divergent one would break the rule that cloning a `Copy`
+          value is the copy. Decision 27's elision and generic code calling
+          `x.clone()` on a `Copy` `T` rely on that rule. The error names
+          `derive(T, Clone)`, or no `Clone` at all.
+        - **A generic hand-written `Clone` that also serves non-`Copy`
+          instantiations is allowed.** The prelude `Option(T)`'s
+          `.Some(v) => .Some(v.clone())` is one: at a `Copy` `T` its
+          structural clone reduces to the copy.
+        - Rust requires `Copy: Clone` and accepts any `Clone`, leaving
+          divergence to a Clippy lint. Yo rejects the one case it can check
+          without breaking generics.
       - **Prelude impls:** the integers, floats, `bool`, `rune`, `unit`, raw
         pointers, `fn` pointers and `str` views; `Option(T)` and
         `Result(T, E)` with `where(T <: Copy)` (and `E <: Copy`).
@@ -1562,7 +1586,12 @@ and in git, not a silent edit.
       - a plain struct without `Copy` moves, and a later use is E0901;
       - `impl(T, Copy())` over a `String` field is an error;
       - `Copy` plus `Dispose` is an error;
-      - a manual `Clone`, or `derive(T, Clone)`, on a `Copy` type is an error;
+      - a hand-written `Clone` on a concrete `Copy` type is an error naming
+        `derive(T, Clone)`;
+      - `derive(Point, Copy, Clone)` is accepted;
+      - `Pair(T)` with `derive(Clone)` and a conditional `Copy` works at
+        both `i32` (implicit copy) and `String` (explicit `.clone()`);
+      - the prelude `Option(i32)` stays `Copy` with its generic `Clone`;
       - a generic `where(T <: Copy)` operator impl;
       - a tuple of `Copy` parts copies implicitly;
       - a closure whose captures are all `Copy` copies implicitly.
