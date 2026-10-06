@@ -133,7 +133,7 @@ test("Copy: the prelude's scalars, str, unit, raw pointers, Option and Result im
   comptime_assert(Type.impls(f32, Copy) && Type.impls(f64, Copy), "floats");
   comptime_assert(Type.impls(bool, Copy) && Type.impls(char, Copy) && Type.impls(int, Copy), "bool, char and the C integers");
   comptime_assert(Type.impls(unit, Copy) && Type.impls(str, Copy), "unit and str views");
-  comptime_assert(Type.impls(*(i32), Copy) && Type.impls(*(String), Copy), "a raw pointer, whatever it points at");
+  comptime_assert(Type.impls(*i32, Copy) && Type.impls(*String, Copy), "a raw pointer, whatever it points at");
   comptime_assert(Type.impls(Option(i32), Copy), "Option of a Copy payload");
   comptime_assert(Type.impls(Result(i32, bool), Copy), "Result of Copy payloads");
   comptime_assert(!Type.impls(Option(String), Copy), "Option of a String is not");
@@ -144,7 +144,7 @@ test("Copy: the prelude's scalars, str, unit, raw pointers, Option and Result im
   comptime_assert(!Type.impls(Dyn(Clone), Copy), "Dyn is never Copy");
   comptime_assert(Type.impls(i8, Clone) && Type.impls(u64, Clone) && Type.impls(usize, Clone) && Type.impls(f64, Clone), "the integers and floats are Clone");
   comptime_assert(Type.impls(bool, Clone) && Type.impls(char, Clone) && Type.impls(longdouble, Clone) && Type.impls(unit, Clone), "bool, char, the C numbers and unit are Clone");
-  comptime_assert(Type.impls(str, Clone) && Type.impls(*(String), Clone), "str and a raw pointer are Clone");
+  comptime_assert(Type.impls(str, Clone) && Type.impls(*String, Clone), "str and a raw pointer are Clone");
   comptime_assert(Type.impls(Option(i32), Clone) && Type.impls(Result(i32, bool), Clone), "Option and Result of Copy payloads are Clone");
 });
 // ---------------------------------------------------------------------------
@@ -211,7 +211,7 @@ test("Copy: a tuple, an array, a fn pointer and an anonymous record are Copy and
 });
 test("Copy: a closure is Copy when all its captures are", {
   n := i32(2);
-  (add_n : Impl(Fn(x : i32) -> i32)) = ((x) => (x + n));
+  (add_n : Impl(Fn(x : i32) -> i32)) = (x => (x + n));
   comptime_assert(Type.impls(type_of(add_n), Copy), "captures only an i32");
   g := add_n;
   assert((g(i32(1)) + add_n(i32(1))) == i32(6), "both copies call");
@@ -276,7 +276,7 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   assert(s.clone() == "abc", "a str view clones as itself");
   n := i32(9);
   np := addr_of(n);
-  (npc : *(i32)) = np.clone();
+  (npc : *i32) = np.clone();
   assert(npc == np, "a raw pointer clones the address, not the pointee");
 });
 test("Copy: a pointee field named like a pointer method clashes at p.m(...)", {

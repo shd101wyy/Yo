@@ -5810,7 +5810,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, trait_tok :
         while(bi < bucket.len(), {
           match(
             bucket.get(bi),
-            .Some(ce) => if((g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(ce.receiver_type_pattern, entry.receiver_type_pattern)) && _pattern_implements_via_hook(ce.receiver_type_pattern, cc.copy_tt, ce.definition_env), {
+            .Some(ce) => if(g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(ce.receiver_type_pattern, entry.receiver_type_pattern) && _pattern_implements_via_hook(ce.receiver_type_pattern, cc.copy_tt, ce.definition_env), {
               exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
             .None => ()

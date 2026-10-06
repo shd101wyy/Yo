@@ -1606,7 +1606,23 @@ and in git, not a silent edit.
     - **First measurement.** Count the named plain-data types in `src/`,
       `std/` and `tests/` that are copied implicitly today, which are the
       types that need `Copy`. Do it with an audit flag like §6's before
-      the sweep PR is opened.
+      the sweep PR is opened. The flag is decision 36's Generation A
+      `YO_AUDIT_COPY_TRAIT=1` (one stderr line per copy site,
+      `needs=<types>` naming the types that must implement `Copy`).
+      - **Measured 2026-10-06** (branch `feat/vbd-copy-trait`, tree-built
+        binary, `YO_AUDIT_COPY_TRAIT=1 yo check <tree> --std-path ./std`):
+        `src/` 2,039 copy sites over 71 named types; `std/` 640 sites over
+        41 types; `tests/` (excluding `tests/internal` and
+        `tests/cli-cases`) 3,106 sites over 97 types. The largest counts
+        in `src/`: `TokenKind` 578, `Io` 373, `MemoryOrder` 252, `IoExn`
+        200, `Exception` 131, `rune` 73, `VcOp` 51, `TypeTag` 27 — mostly
+        enum tag copies. This is the PRE-flip count (the bullet below:
+        "today" means after the V3b flip, whose by-value plain-parameter
+        copies the audit's `argument` site already counts); the sweep PR
+        re-runs it. `tests/` numbers come from the 570 of 640 files that
+        plain `check` evaluates — the other 70 are negative fixtures
+        (ghost/law verifier cases, duplicate-method bootstrap cases) that
+        no plain `check` was ever green on, and they report nothing.
       - **Its blind spots are §6's.** Files that fail `check` report
         nothing, and a generic body counts only where something
         instantiates it. A plain-data type the audit misses flips to move

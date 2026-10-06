@@ -617,7 +617,7 @@ _is_anonymous_record_type :: (fn(ty : TypeValue) -> bool)(
     .Struct({ id : ar_id, name : ar_name, is_reference_semantics : ar_ref, is_newtype : ar_new, constructor_func_id : ar_cfid, is_source_namespace : ar_sns }) => (
       // A type rebuilt from a value carries no id at all, and is not
       // known to be anonymous.
-      ((((!ar_ref && !ar_new) && (!ar_sns && ar_name.is_empty())) && ar_cfid.is_empty()) && !ar_id.is_empty()) && type_binding_name(ar_id).is_none()
+      !ar_ref && !ar_new && (!ar_sns && ar_name.is_empty()) && ar_cfid.is_empty() && !ar_id.is_empty() && type_binding_name(ar_id).is_none()
     ),
     _ => false
   )
