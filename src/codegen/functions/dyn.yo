@@ -534,7 +534,11 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                                 .Func({ param_types, result, meta : __fm1 }) => {
                                   param_is_ref := __fm1.*.param_is_ref;
                                   impl_cname := entry.c_name;
-                                  wrapper := `__yo_wrap_${impl_key}_${label}`;
+                                  // The label is sanitized like the slot's field
+                                  // name: an operator member (`LogicalNot`'s `!`)
+                                  // spelled raw is not a C identifier
+                                  // (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
+                                  wrapper := `__yo_wrap_${impl_key}_${sanitize_for_c_identifier(label.clone(), false)}`;
                                   return_str := get_type_string(result, context.base);
                                   // Defined with the SLOT's signature (the vtable
                                   // initializer below takes it uncast); the impl's
@@ -733,7 +737,7 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                         // Uncast, like `.call` above: the wrapper is defined
                         // with this member's own signature (the TRAIT's), and
                         // casts to the impl's types inside.
-                        em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = __yo_wrap_${impl_key}_${label},`);
+                        em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = __yo_wrap_${impl_key}_${sanitize_for_c_identifier(label.clone(), false)},`);
                       });
                     });
                     fi = (fi + usize(1));

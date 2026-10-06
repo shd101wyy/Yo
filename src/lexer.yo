@@ -245,7 +245,20 @@ tokenize_span :: (
             );
             break;
           });
-          tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(op_str.slice_copy(k .. (k + tok_len))), row : u32(line), column : u32(col + k), character : u32(char_idx + k), byte_offset : u32(byte_idx + k), module_path : module_path, input : input));
+          // `&mut` is ONE prefix token (plans/VALUES_BY_DEFAULT.md decision
+          // 33): a lone `&` that ends the run and is directly followed by
+          // the word `mut` (not an identifier such as `mutex`). `&&` stays
+          // logical and, so `a &&mut` is `&&` then `mut`.
+          is_borrow_mut := (
+            (tok_len == usize(1)) && ((k + usize(1)) == run_len) && (op_str.byte_at(k) == u8(38)) &&
+              (chars.get(j).unwrap_or(null_rune).char == u32(109)) && (chars.get(j + usize(1)).unwrap_or(null_rune).char == u32(117)) && (chars.get(j + usize(2)).unwrap_or(null_rune).char == u32(116)) &&
+                !is_identifier_continue(chars.get(j + usize(3)).unwrap_or(null_rune))
+          );
+          tok_text := if(is_borrow_mut, String.from("&mut"), op_str.slice_copy(k .. (k + tok_len)));
+          tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(tok_text), row : u32(line), column : u32(col + k), character : u32(char_idx + k), byte_offset : u32(byte_idx + k), module_path : module_path, input : input));
+          if(is_borrow_mut, {
+            j = (j + usize(3));
+          });
           k = (k + tok_len);
         });
         i = j;

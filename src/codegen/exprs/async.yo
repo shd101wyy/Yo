@@ -39,7 +39,7 @@
   AwaitAnalysisResult
 } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
-{ TypeField, get_struct_fields } :: import("../../evaluator/types/field.yo");
+{ TypeField, get_struct_fields, is_capture_field_binding, capture_struct_has_decl_sites } :: import("../../evaluator/types/field.yo");
 {
   is_io_async_call,
   is_io_await_call,
@@ -649,7 +649,7 @@ emit_async_block_struct_definition :: (
         local_variables.get(li),
         .Some(variable) => {
           var_type_c_name := get_type_string(variable.base.ty, context.base);
-          field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
+          field_name := get_state_machine_field_name(variable.base.id.to_string(), Option(HashMap(String, String)).None);
           em.emit_declaration_string_line(`  ${var_type_c_name} ${field_name};  // ${variable.base.name.clone()}`);
           // A named local's move flag (`note_sm_move_flag_field`): set by a
           // move out of the slot, which keeps the value readable.
@@ -1198,7 +1198,7 @@ generate_async_block_state_dispose_function :: (
         // A member of a shared slot is dropped through the slot, below.
         is_shared := overlapping_slot_aliases.contains_key(v.base.id.to_string());
         if(is_local && cross_boundary_ids.contains(v.base.id.to_string()) && !await_future_temp_var_aliases.contains_key(v.base.id.to_string()) && !is_owning && !is_binding && !is_shared, {
-          field_name := get_state_machine_field_name(v.base.id.to_string(), Option(String).Some(String.from("local")), Option(HashMap(String, String)).None);
+          field_name := get_state_machine_field_name(v.base.id.to_string(), Option(HashMap(String, String)).None);
           field_ref := `sm->${field_name}`;
           match(
             _rc_field_drop_line(field_ref.clone(), v.base.ty, String.from("    "), context),
@@ -1322,8 +1322,8 @@ generate_async_block_constructor :: (
   if(context.base.needs_cycle_gc, {
     em.emit_string_line(`  sm->header.dispose_fn = ${dispose_function_name.clone()};`);
   }, {
-    type_id := context.base.dispose_type_id_for(dispose_function_name.clone());
-    em.emit_string_line(`  sm->header.type_id = ${type_id.to_string()};`);
+    tid := context.base.dispose_type_id_for(dispose_function_name.clone());
+    em.emit_string_line(`  sm->header.type_id = ${tid.to_string()};`);
   });
   if(context.base.needs_cycle_gc, {
     em.emit_line("  sm->header.traverse_fn = NULL;  // TODO: Add traverse for cycle detection if needed");
@@ -2502,11 +2502,23 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
   // Re-kind captured variables that live in the capture struct as OUTER:
   // they are accessed as `sm->__capture.<name>`, not
   // materialized as `var_<id>` SM fields (which nothing would initialize).
+  // An entry is a capture when it IS the binding a capture field holds, by
+  // declaration site: a body binding may share a capture's name (a `match`
+  // pattern binding may shadow), and matching by name re-kinded it, so it
+  // got no slot and was a C local across its await
+  // (issues/fixed/the-io-async-capture-re-kind-pass-matches-captures-by-name.md).
   (analysis_kinded : AwaitAnalysisResult) = analysis;
   match(
     fsm_capture_type,
     .Some(ct) => {
+      (cap_id : String) = match(ct, .Struct({ id : sid }) => sid, _ => String.from(""));
       cap_labels := match(ct, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+      if((cap_labels.len() > usize(0)) && !capture_struct_has_decl_sites(cap_id.clone()), {
+        codegen_fatal(`the capture struct ${cap_id} of an io.async block recorded no declaration sites, so its captures cannot be told from body bindings`);
+      });
+      is_capture := (fn(v : CapturedVariable, cap_id : String) -> bool)(
+        is_capture_field_binding(cap_id, v.base.name.clone(), v.base.decl_site.clone())
+      );
       remapped_cvs := ArrayList(CapturedVariable).new();
       src_kcvs := analysis_kinded.captured_variables;
       // The analysis records the OWNER of every local that shares an owner's
@@ -2524,7 +2536,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
           src_kcvs.get(oi),
           .Some(v) => match(
             v.is_owning_the_same_rc_value_as,
-            .Some(ob) => if(cap_labels.contains(v.base.name.clone()) && !cap_labels.contains(ob.*.base.name.clone()), {
+            .Some(ob) => if(is_capture(v, cap_id.clone()) && !is_capture(ob.*, cap_id.clone()), {
               outside_owner_ids.insert(ob.*.base.id.clone());
             }),
             .None => ()
@@ -2536,30 +2548,15 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
       while(ki < src_kcvs.len(), {
         match(
           src_kcvs.get(ki),
-          .Some(v) => {
-            (in_capture : bool) = false;
-            (li : usize) = usize(0);
-            while(li < cap_labels.len(), {
-              match(
-                cap_labels.get(li),
-                .Some(lbl) => if(lbl == v.base.name, {
-                  in_capture = true;
-                  li = cap_labels.len();
-                }),
-                .None => ()
-              );
-              li = (li + usize(1));
-            });
-            cond(
-              in_capture => {
-                remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
-              },
-              outside_owner_ids.contains(v.base.id.clone()) => (),
-              true => {
-                remapped_cvs.push(v);
-              }
-            );
-          },
+          .Some(v) => cond(
+            is_capture(v, cap_id.clone()) => {
+              remapped_cvs.push(CapturedVariable(base : v.base, kind : CapturedVariableKind.Outer, is_owning_the_same_rc_value_as : v.is_owning_the_same_rc_value_as));
+            },
+            outside_owner_ids.contains(v.base.id.clone()) => (),
+            true => {
+              remapped_cvs.push(v);
+            }
+          ),
           .None => ()
         );
         ki = (ki + usize(1));
@@ -3721,8 +3718,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   if(context.base.needs_cycle_gc, {
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.dispose_fn = ${dispose_function_name.clone()};`);
   }, {
-    type_id := context.base.dispose_type_id_for(dispose_function_name.clone());
-    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${type_id.to_string()};`);
+    tid := context.base.dispose_type_id_for(dispose_function_name.clone());
+    em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.type_id = ${tid.to_string()};`);
   });
   if(context.base.needs_cycle_gc, {
     em.emit_string_line(`${indent.clone()}${result_var.clone()}->header.traverse_fn = NULL;`);

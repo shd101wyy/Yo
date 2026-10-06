@@ -535,8 +535,11 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
 /// count), emit `__yo_borrow_assert_unborrowed((void*)<param>);`. A collection
 /// held by a borrowed `for` (or an interior `inout` argument) then panics
 /// deterministically on ANY invalidating method, whoever wrote the collection
-/// — no annotation exists or is needed (Yo has no `mut`: the body is the
-/// signature). Read-only methods (`len`, `get`, `iter`, `clone`, `to_string`)
+/// — no annotation is needed: the body decides, because today a plainly
+/// passed reference-semantics handle can be written by its callee (V3b
+/// Generation B's by-value plain parameters move writes into a
+/// signature-spelled `mut(x)`, plans/VALUES_BY_DEFAULT.md decision 30).
+/// Read-only methods (`len`, `get`, `iter`, `clone`, `to_string`)
 /// carry no assert and cost nothing. Async functions (state machines) and
 /// closures are skipped: their C prototypes do not carry the parameters.
 _maybe_emit_method_entry_borrow_assert :: (fn(function_type : TypeValue, func_id : String, body : AstExpr, em : Emitter, context : FunctionGenerationContext) -> unit)({

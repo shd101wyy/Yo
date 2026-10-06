@@ -9,8 +9,7 @@ pragma(Pragma.AllowUnsafe);
   AstExpr,
   ast_expr_token,
   ast_expr_id,
-  ast_expr_is_fn_call_of,
-  BF_SIZEOF
+  ast_expr_is_size_of_call
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -36,7 +35,7 @@ evaluate_size_of :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!ast_expr_is_fn_call_of(expr, BF_SIZEOF, .Some(usize(1))), {
+  if(!ast_expr_is_size_of_call(expr, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(

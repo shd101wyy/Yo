@@ -1,0 +1,71 @@
+//! Tests for the state-machine slot lookup (`sm_slot_of_variable`,
+//! src/codegen/async/state_machine_naming.yo).
+//!
+//! An outer (captured) variable lives in the capture struct, so its slot is
+//! `sm-><capture slot>.<name>`. The lookup returned `sm->var_<id>` for it, a
+//! field no state machine declares. No caller passes an outer entry today
+//! (every one resolves a temp or a binding declared in the body), so this
+//! tests the function directly
+//! (issues/fixed/an-async-state-machine-slot-lookup-ignores-the-capture-struct-for-outer-variables.md).
+{ String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
+{ assert } :: import("std/assert");
+{ t_usize } :: import("../../src/types/creators.yo");
+{ Variable, make_capture_variable } :: import("../../src/env.yo");
+{ EvalValue } :: import("../../src/value.yo");
+{ SuspensionCapturedVariable } :: import("../../src/evaluator/shared/suspension_analysis_types.yo");
+{ CapturedVariableKind, CapturedVariable } :: import("../../src/evaluator/async/await_analysis_types.yo");
+{ sm_slot_of_variable } :: import("../../src/codegen/async/state_machine_naming.yo");
+
+mk_variable :: (fn(name : str) -> Variable)(
+  make_capture_variable(String.from(name), t_usize(), Option(EvalValue).None, String.from("sm_naming_test"))
+);
+mk_entry :: (fn(v : Variable, kind : CapturedVariableKind) -> CapturedVariable)(
+  CapturedVariable(
+    base : SuspensionCapturedVariable(
+      id : v.id.to_string(),
+      name : v.name.clone(),
+      ty : t_usize(),
+      is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+      decl_site : String.from("sm_naming_test:1:1")
+    ),
+    kind : kind,
+    is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
+  )
+);
+slot_of :: (fn(v : Variable, kind : CapturedVariableKind, aliases : Option(HashMap(String, String)), capture_slot : str) -> String)({
+  smv := HashMap(String, CapturedVariable).new();
+  smv.insert(v.id.to_string(), mk_entry(v, kind));
+  match(
+    sm_slot_of_variable(v, smv, Option(HashMap(String, String)).None, aliases, String.from(capture_slot)),
+    .Some(s) => s,
+    .None => String.from("<none>")
+  )
+});
+
+test("an outer variable's slot is its capture-struct field", {
+  got := slot_of(mk_variable("count"), CapturedVariableKind.Outer, Option(HashMap(String, String)).None, "__capture");
+  assert(got == "sm->__capture.__yo_v_count", `got ${got}`);
+});
+test("an outer variable's slot follows the context's capture slot (a fused await site)", {
+  got := slot_of(mk_variable("count"), CapturedVariableKind.Outer, Option(HashMap(String, String)).None, "__yo_fuse_3_capture");
+  assert(got == "sm->__yo_fuse_3_capture.__yo_v_count", `got ${got}`);
+});
+test("an outer variable ignores a field alias keyed by its id", {
+  v := mk_variable("count");
+  aliases := HashMap(String, String).new();
+  aliases.insert(v.id.to_string(), String.from("slot_0"));
+  got := slot_of(v, CapturedVariableKind.Outer, Option(HashMap(String, String)).Some(aliases), "__capture");
+  assert(got == "sm->__capture.__yo_v_count", `got ${got}`);
+});
+test("controls: a local's slot is its own field or its alias, a variable not in the map has none", {
+  v := mk_variable("count");
+  local := slot_of(v, CapturedVariableKind.Local, Option(HashMap(String, String)).None, "__capture");
+  assert(local == `sm->var_${v.id.to_string()}`, `local: got ${local}`);
+  aliases := HashMap(String, String).new();
+  aliases.insert(v.id.to_string(), String.from("slot_0"));
+  aliased := slot_of(v, CapturedVariableKind.Local, Option(HashMap(String, String)).Some(aliases), "__capture");
+  assert(aliased == "sm->slot_0", `aliased: got ${aliased}`);
+  absent := sm_slot_of_variable(v, HashMap(String, CapturedVariable).new(), Option(HashMap(String, String)).None, Option(HashMap(String, String)).None, String.from("__capture"));
+  assert(absent.is_none(), "a variable not in the map has no slot");
+});
