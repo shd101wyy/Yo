@@ -18,7 +18,6 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 // The derivation, by reflection
 // ============================================================================
 SsPoint :: struct(x : i32, y : i32);
-SsRawHolder :: struct(p : ?*i32);
 SsCell :: ref(struct(v : i32));
 SsSpeak :: trait(speak : (fn(self : Self) -> i32));
 SsDog :: struct(n : i32);
@@ -53,14 +52,8 @@ test("atomic cells are Send and Sync", {
   comptime_assert(Type.impls(Channel(i32), Send), "Channel(i32) is Send");
   comptime_assert(Type.impls(Channel(i32), Sync), "Channel(i32) is Sync");
 });
-test("a raw pointer is neither Send nor Sync, and neither is a struct holding one", {
-  comptime_assert(!Type.impls(*i32, Send), "a raw pointer is not Send");
-  comptime_assert(!Type.impls(*i32, Sync), "a raw pointer is not Sync");
-  comptime_assert(!Type.impls(?*i32, Send), "a nullable raw pointer is not Send");
-  comptime_assert(!Type.impls(SsRawHolder, Send), "a raw-pointer struct is not Send");
-  comptime_assert(!Type.impls(SsRawHolder, Sync), "a raw-pointer struct is not Sync");
-  comptime_assert(Type.impls(*i32, Acyclic), "a raw pointer stays Acyclic");
-});
+// Raw pointers exist only under pragma(Pragma.AllowUnsafe), so their rules are
+// pinned in tests/send_sync_raw_pointer.test.yo.
 test("Io and JoinHandle declare negative markers", {
   comptime_assert(!Type.impls(Io, Send), "Io is not Send");
   comptime_assert(!Type.impls(Io, Sync), "Io is not Sync");
@@ -84,21 +77,6 @@ comptime_expect_error({
   });
   _rc_channel();
 }, "Send");
-// A struct holding a raw pointer cannot cross Thread.spawn.
-comptime_expect_error({
-  _spawn_raw_holder :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
-    xs.push(i32(1));
-    // `ptr()` is safe: it hands out the buffer's raw pointer.
-    h := SsRawHolder(p : xs.ptr());
-    t := Thread(unit).spawn(io => {
-      _q := h.p;
-      ()
-    });
-    t.join();
-  });
-  _spawn_raw_holder();
-}, "does not implement Send");
 // A Dyn without Send cannot cross Thread.spawn.
 comptime_expect_error({
   _spawn_plain_dyn :: (fn() -> unit)({
@@ -127,12 +105,12 @@ test("a Dyn(Trait, Send) crosses Thread.spawn", {
 });
 // A manual Sync impl needs pragma(Pragma.AllowUnsafe), as a manual Send does.
 comptime_expect_error({
-  _SsClaimsSync :: struct(p : *i32);
+  _SsClaimsSync :: struct(n : i32);
   impl(_SsClaimsSync, Sync());
 }, "requires pragma(Pragma.AllowUnsafe)");
 // An atomic object is shared by every copy, so each field must be Sync.
 comptime_expect_error({
-  _SsAtomicRaw :: atomic(ref(struct(p : *i32)));
+  _SsAtomicRc :: atomic(ref(struct(r : Rc(i32))));
 }, "atomic object must implement Sync");
 
 // ============================================================================
