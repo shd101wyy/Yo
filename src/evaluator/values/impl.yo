@@ -645,6 +645,16 @@ _pre_where_or_resolve :: (
   });
   _resolve_one_forall_binding_from(env, fa_some, fa_name, min_frame)
 });
+/// Set while `generic_pattern_implements_trait` asks whether a generic impl
+/// covers an OPEN receiver pattern (decision 36's `Copy: Clone` check at a
+/// generic `Copy` impl). A forall bound to a different-id SomeT is then a
+/// binding, as inside a definition-time body trial: the question is about
+/// the pattern's own type parameters, which stay abstract. The query only
+/// reads the impl registries; the durable assoc-type registration at a
+/// match's end is skipped under it, as in a trial.
+(g_open_pattern_query : bool) = false;
+/// May a forall bind to a different-id SomeT (see `g_open_pattern_query`)?
+_abstract_bindings_ok :: (fn() -> bool)(in_def_time_trial() || g_open_pattern_query);
 _resolve_one_forall_binding :: (
   fn(expected_env : Environment, fa_some : TypeValue, fa_name : String) -> Option(TypeValue)
 )({
@@ -676,7 +686,7 @@ _resolve_one_forall_binding :: (
   // undeclared function', measured; std/string module eval broke under the
   // unscoped name channel too).
   bt_id := match(bound_type, .SomeT({ id : __bti }) => __bti, _ => String.from(""));
-  if(in_def_time_trial() && (bt_id.len() > usize(0)) && (bt_id != fa_some_id), {
+  if(_abstract_bindings_ok() && (bt_id.len() > usize(0)) && (bt_id != fa_some_id), {
     return(Option(TypeValue).Some(bound_type));
   });
   if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
@@ -711,7 +721,7 @@ _resolve_one_forall_binding :: (
         true => {
           nb_id := match(b, .SomeT({ id : __nbi }) => __nbi, _ => String.from(""));
           cond(
-            (in_def_time_trial() && (nb_id.len() > usize(0)) && (nb_id != fa_some_id)) => Option(TypeValue).Some(b),
+            (_abstract_bindings_ok() && (nb_id.len() > usize(0)) && (nb_id != fa_some_id)) => Option(TypeValue).Some(b),
             true => Option(TypeValue).None
           )
         }
@@ -783,7 +793,7 @@ _resolve_one_forall_binding_from :: (
                           return(Option(TypeValue).Some(resolve_cell_chain(b)));
                         });
                         nb_id2 := match(b, .SomeT({ id : __nbi2 }) => __nbi2, _ => String.from(""));
-                        if(in_def_time_trial() && (nb_id2.len() > usize(0)) && (nb_id2 != fa_some_id), {
+                        if(_abstract_bindings_ok() && (nb_id2.len() > usize(0)) && (nb_id2 != fa_some_id), {
                           return(Option(TypeValue).Some(b));
                         });
                       },
@@ -998,7 +1008,7 @@ _bind_forall_from_type_args :: (
           {
             ct_abs_id := match(ct, .SomeT({ id : __cai }) => __cai, _ => String.from(""));
             fa_abs_id := match(fa_some, .SomeT({ id : __fai }) => __fai, _ => String.from(""));
-            if(in_def_time_trial() && (ct_abs_id.len() > usize(0)) && (ct_abs_id != fa_abs_id), {
+            if(_abstract_bindings_ok() && (ct_abs_id.len() > usize(0)) && (ct_abs_id != fa_abs_id), {
               return(Option(TypeValue).Some(ct));
             });
           };
@@ -1627,7 +1637,7 @@ try_match_generic_impl :: (
   // tests/collections/btree_map.test.yo's main lost the `for(m.iter())`
   // closure arg's ExprInfo (repair 1 of
   // issues/fixed/def-eval-swallow-remaining-roots.md).
-  if(all_bound && !in_def_time_trial(), {
+  if(all_bound && !_abstract_bindings_ok(), {
     // Keyed by the exact instantiation (`assoc_type_registry_key`), not the
     // bare id two instantiations can share.
     dar_tid := assoc_type_registry_key(resolved_concrete);
@@ -5825,6 +5835,68 @@ type_has_impl_shape_for :: (fn(ty : TypeValue, trait_ty : TypeValue) -> bool)({
   false
 });
 export(type_has_impl_shape_for);
+/// Does a generic impl of `trait_ty` cover EVERY instantiation of the open
+/// receiver pattern `pattern` (a type over the SomeTs of another impl's
+/// `generic(...)`, whose `where(...)` bounds are stamped on those SomeTs)?
+/// Decision 36's `Copy: Clone` check at a generic `Copy` impl asks it about
+/// `Clone`, and the hand-written-`Clone` check asks it about `Copy`.
+///
+/// The ordinary predicate (`type_implements_trait`) answers for concrete
+/// types: it rejects a match that leaves a forall bound to another impl's
+/// SomeT. Here that binding is the point, so the match runs under
+/// `g_open_pattern_query`. A candidate covers the pattern when its receiver
+/// pattern matches and every one of its where-bounds, with the match's
+/// bindings substituted, holds of the pattern's parameters: a bound on a
+/// parameter holds when that parameter's own bounds give it (with their
+/// supertraits, so `T <: Copy` gives `T <: Clone`), and a bound on a
+/// constructed type holds when that type is covered in turn. A concrete
+/// impl covers one instantiation only, so it never covers an open pattern.
+generic_pattern_implements_trait :: (fn(pattern : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)({
+  saved := g_open_pattern_query;
+  g_open_pattern_query = true;
+  bucket := _generic_impl_bucket(get_base_trait_key(trait_ty));
+  (covered : bool) = false;
+  (bi : usize) = usize(0);
+  while((bi < bucket.len()) && !covered, {
+    match(
+      bucket.get(bi),
+      .Some(e) => match(
+        try_match_generic_impl(pattern, e, env, true),
+        .Some(bindings) => {
+          s := subst_new();
+          (fi : usize) = usize(0);
+          while((fi < e.forall_some_types.len()) && (fi < bindings.len()), {
+            match(
+              e.forall_some_types.get(fi),
+              .Some(.SomeT({ name : f_name, frame_level : f_level })) => subst_add(s, f_name, f_level, match(bindings.get(fi), .Some(b) => b, .None => t_unit())),
+              _ => ()
+            );
+            fi = (fi + usize(1));
+          });
+          (all_hold : bool) = true;
+          (wi : usize) = usize(0);
+          while((wi < e.where_constraint_traits.len()) && all_hold, {
+            w_subject := substitute(s, match(e.where_constraint_some_types.get(wi), .Some(t) => t, .None => t_unit()));
+            w_trait := match(e.where_constraint_traits.get(wi), .Some(t) => t, .None => t_unit());
+            all_hold = cond(
+              is_some_type(w_subject) => _implements_via_hook(w_subject, w_trait, env),
+              (get_all_some_types(w_subject).len() > usize(0)) => recur(w_subject, w_trait, env),
+              true => _implements_via_hook(w_subject, w_trait, env)
+            );
+            wi = (wi + usize(1));
+          });
+          covered = all_hold;
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  g_open_pattern_query = saved;
+  covered
+});
+export(generic_pattern_implements_trait);
 export(GenericImplEntry, MethodCandidate);
 /// Entries in the injection memo (the B2 plateau test's probe).
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());
