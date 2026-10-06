@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 173 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 174 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -32,12 +32,12 @@ Three things are worth knowing before trusting any row.
 | Async / effects | 5 | 0 |
 | Codegen / emitted C | 16 | 3 |
 | Evaluator / types | 20 | 2 |
-| Std library | 46 | 10 |
+| Std library | 47 | 10 |
 | Tooling (fmt/doc/lsp) | 8 | 0 |
 | Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
 | Other | 53 | 5 |
-| **Total** | **173** | **23** |
+| **Total** | **174** | **23** |
 
 ## Counts by severity
 
@@ -47,7 +47,7 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | --- | ---: |
 | S1 | 25 |
 | S2 | 83 |
-| S3 | 65 |
+| S3 | 66 |
 
 ## Design questions (issues/questions/)
 
@@ -226,11 +226,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (46)
+### Std library (47)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`cli-case-goldens-cannot-be-recorded-from-a-windows-host.md`](./cli-case-goldens-cannot-be-recorded-from-a-windows-host.md) | S3 | OPEN | — |
+| [`cli-case-sandboxes-do-not-isolate-the-yo-cache-on-windows.md`](./cli-case-sandboxes-do-not-isolate-the-yo-cache-on-windows.md) | S3 | OPEN | — |
 | [`cli-option-declared-with-an-empty-default-never-materializes.md`](./cli-option-declared-with-an-empty-default-never-materializes.md) | S2 | OPEN | — |
 | [`cli-parse-returns-err-for-help-so-the-documented-example-aborts.md`](./cli-parse-returns-err-for-help-so-the-documented-example-aborts.md) | S2 | OPEN | — |
 | [`cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md`](./cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md) | S2 | OPEN | — |
