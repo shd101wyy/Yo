@@ -30,11 +30,16 @@ on:
   #
   # This line has to stay for that to hold: EVERY workflow providing a
   # REQUIRED status check must trigger on `merge_group`, or the queue waits
-  # forever on checks that never run, and all 20 required contexts (ruleset
-  # 13548862, counted 2026-09-29) come from this file. Until then the ruleset keeps `strict` (branches must be up to
-  # date), which is the right trade: two individually-green PRs can be broken
-  # together — #147 was green alone and broke every macOS/Windows seed leg
-  # once combined with develop.
+  # forever on checks that never run, and the required context (since
+  # 2026-10-06 exactly one: the `merge-gate` job at the bottom of this file;
+  # ruleset 13548862) comes from this file. `strict` (require branches up to
+  # date) is deliberately OFF — maintainer's decision, 2026-10-06: a PR green
+  # on its own head may merge while develop moved under it, and the
+  # combination is scored by develop's own battery AFTER the merge. #147 is
+  # the recorded counterexample of that risk (green alone, broke every
+  # macOS/Windows seed leg once combined with develop). If a merge storm
+  # lands a red tip, that is the mechanism; the protections are the
+  # pre-release battery-head diff (AGENTS.md) and fixing develop directly.
   merge_group:
 
 # A superseded PR run is wasted CI and is cancelled. A `develop` run is NOT:
@@ -2918,3 +2923,72 @@ jobs:
             /tmp/hsweep/results.txt
             /tmp/hsweep/*.log
           if-no-files-found: ignore
+
+  # ── The single required check ──────────────────────────────────────────────
+  #
+  # WHY THIS JOB EXISTS (added 2026-10-06): the ruleset's required-checks list
+  # had to be emptied to unblock docs-only PRs — a job concluded `skipped` by
+  # the docs-only fast path does not satisfy a required check, so #1249 sat
+  # BLOCKED with a green battery and nothing could merge without weakening the
+  # ruleset. But an empty list means NOTHING is required: a PR at 41/42 with
+  # one job still running was mergeable the moment it was pushed (measured
+  # 2026-10-06 on #1200). This job fixes both at once: it ALWAYS runs —
+  # `skipped` dependencies satisfy it (that is the fast path saying "not needed
+  # here"), `failure`/`cancelled` ones fail it — so it can be the ONE required
+  # context for every path. While it is pending, GitHub refuses the merge;
+  # that closes the 41/42 hole.
+  #
+  # Ruleset 13548862 after this lands: required contexts =
+  # {"Merge gate (all checks)"} and nothing else, with `strict` OFF
+  # (maintainer's decision, 2026-10-06 — the merge_group comment records what
+  # that trades and the #147 counterexample). Adding a new CI job now means
+  # adding its id to `needs` below — an in-file, reviewable edit instead of a
+  # ruleset surgery.
+  merge-gate:
+    name: Merge gate (all checks)
+    needs:
+      - changes
+      - vscode-extension
+      - docs-site
+      - verify
+      - guard-elision
+      - verify-src
+      - test
+      - suite-candidate
+      - chunked-gate
+      - suite-cross-emit
+      - test-native
+      - stage1
+      - io-budgets
+      - epoll-corpus
+      - docker-seccomp-epoll
+      - bootstrap-fixpoint
+      - bootstrap-fixpoint-stage3
+      - memory-ratchet
+      - build-memory-8gb
+      - bootstrap-self-test
+      - compiler-internal-tests-selfhosted
+      - build-linux-musl-static
+      - test-tsan
+      - test-wasm32_emscripten
+      - test-wasm32_wasi
+      - hollow-sweep
+    # Runs when dependencies succeeded OR failed (so it can report the
+    # failure), but not when the run itself is cancelled/superseded: a
+    # cancelled battery reports no verdict and the merge must stay blocked —
+    # "cancelled means unknown", see AGENTS.md.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every depended-on job must be success or skipped
+        run: |
+          set -euo pipefail
+          # needs.*.result is a JSON array like ["success","skipped",...].
+          results="${{ toJSON(needs.*.result) }}"
+          printf '%s' "$results" | tr -d '[]" ' | tr ',' '\n' | sed '/^$/d' | sort | uniq -c
+          bad="$(printf '%s' "$results" | tr -d '[]" ' | tr ',' '\n' | sed '/^$/d' | grep -Ev '^(success|skipped)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::jobs not in (success, skipped): $(printf '%s' "$bad" | tr '\n' ' ')"
+            exit 1
+          fi

@@ -250,7 +250,7 @@ Three views of one rule: the only question is "does the battery I am about to tr
   ```
 
   Empty ⇒ the battery gates the tip. Non-empty ⇒ wait for a battery on the new tip.
-- A `cancelled` PR run with no newer run on that branch means the PR has no verdict: `gh run rerun <id>`. A PR with `mergeable=CONFLICTING` gets no runs at all: rebase and force-push. Branch protection's required-check list is manual: add every new CI job by hand.
+- A `cancelled` PR run with no newer run on that branch means the PR has no verdict: `gh run rerun <id>`. A PR with `mergeable=CONFLICTING` gets no runs at all: rebase and force-push. The ruleset's ONE required check is the `merge-gate` job (`Merge gate (all checks)`, since 2026-10-06): it always runs — skipped dependencies satisfy it (the docs-only fast path), failed or cancelled ones fail it — so nothing merges while any check is pending. Strict ("require branches up to date") is OFF by the maintainer's decision (2026-10-06): a PR green on its own head may merge while behind develop, and the combination is scored by develop's own battery after the merge — the pre-release battery-head diff below is the guard that matters. Add every new CI job to merge-gate's `needs:` list in `test.yml` (an in-file, reviewable edit), not to the ruleset.
 
 ### Release notes: one curation pass per release, right after it publishes
 
