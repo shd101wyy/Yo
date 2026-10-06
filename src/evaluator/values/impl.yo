@@ -116,11 +116,7 @@ pragma(Pragma.AllowUnsafe);
   truncate_forcing_depths,
   call_evaluate_fn_body,
   force_pending_move_only_impls,
-  type_head_name_for_impl_forcing,
-  set_supplying_copy_clone,
-  is_supplying_copy_clone,
-  note_copy_supplied_clone_site,
-  is_copy_supplied_clone_site
+  type_head_name_for_impl_forcing
 } :: import("../context.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -4700,7 +4696,7 @@ evaluate_module_value :: (
         _check_generic_impl_coherence(g_entry, forall_env, ast_expr_token(expr), exn);
         register_generic_impl(g_entry);
         note_generic_move_only_impl(g_entry);
-        _check_generic_copy_clone_exclusion(g_entry, ast_expr_token(receiver_type_expr2), ctx, ast_expr_token(mf_expr), exn);
+        _check_generic_copy_clone_exclusion(g_entry, ast_expr_token(mf_expr), ctx, exn);
       });
     });
     // Restore self_type so the impl's parent scope sees its prior value.
@@ -5081,7 +5077,7 @@ evaluate_module_value :: (
               // first hit, so the second was dead code that looked live
               // (issues/fixed/yo-self-missing-duplicate-impl-checks.md).
               coh_tok := ast_expr_token(field_expr);
-              _check_copy_clone_exclusion(receiver_ty, receiver_type_id.clone(), ctt, _impl_site_string(coh_tok), rcv_tok, local_env, ctx, coh_tok, exn);
+              _check_copy_clone_exclusion(receiver_ty, receiver_type_id.clone(), ctt, _impl_site_string(coh_tok), coh_tok, local_env, ctx, exn);
               match(
                 note_trait_impl_site(receiver_type_id.clone(), get_trait_key(ctt), _impl_site_string(coh_tok)),
                 .Some(coh_prev) => {
@@ -5698,48 +5694,60 @@ _clone_and_copy_traits :: (fn(env : Environment) -> Option(_CloneCopyTraits))(
     .None => Option(_CloneCopyTraits).None
   )
 );
-/// The manual-`Clone` error (decision 36): a `Copy` type's `clone()` is the
-/// bitwise copy, and the compiler supplies it.
-_manual_clone_on_copy_msg :: (fn(receiver_ty : TypeValue, other_site : Option(String)) -> String)({
-  where_it := match(other_site, .Some(s) => ` (Clone impl at ${s})`, .None => String.new());
-  `Trait "Clone" is already implemented for type "${type_to_string(receiver_ty)}" by its Copy impl${where_it}: a Copy type's clone() is the bitwise copy, which the compiler supplies, so a manual Clone impl is not allowed (plans/VALUES_BY_DEFAULT.md decision 36). Remove the Clone impl (or its derive), or drop Copy if the type needs a clone() of its own.`
+/// The sites of the hand-written `Clone` impls seen so far (decision 36): an
+/// impl whose `Clone(...)` was written in a user or std module, not spliced
+/// from the prelude (`derive(T, Clone)`'s template, and in Generation A the
+/// prelude primitives' own impls) or synthesized by the compiler
+/// (`supply_copy_clone_impl`). Keyed by the site the impl registries store
+/// (`trait_impl_site_of` for a concrete impl, `GenericImplEntry.site` for a
+/// generic one), so the reverse check at a later `Copy` impl can tell a
+/// hand-written `Clone` from a derived one.
+(g_hand_written_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
+/// The hand-written-`Clone` error (decision 36): on a type that is `Copy` for
+/// every instantiation its `Clone` impl serves, `clone()` is the bitwise
+/// copy, so a hand-written impl can only repeat it or contradict it.
+_hand_written_clone_on_copy_msg :: (fn(receiver_ty : TypeValue, other_site : Option(String)) -> String)({
+  where_it := match(other_site, .Some(s) => ` (the hand-written Clone impl is at ${s})`, .None => String.new());
+  shown := type_to_string(receiver_ty);
+  `Trait "Clone" is already implemented for type "${shown}" by its Copy impl${where_it}: a Copy type's clone() is the bitwise copy, so a hand-written Clone impl can only repeat it or contradict it (plans/VALUES_BY_DEFAULT.md decision 36). Remove the impl and write no Clone at all (the compiler supplies clone()), or write derive(${shown}, Clone).`
 });
-/// The two directions of "a manual `Clone` on a `Copy` type is an error"
-/// (decision 36) at a CONCRETE impl of `trait_ty` for `receiver_ty`,
-/// whichever of the two impls registers second:
+/// Is the trait constructor at `trait_tok` hand-written: outside the prelude
+/// (whose derive templates and, in Generation A, primitive impls are exempt)
+/// and outside compiler-synthesized code?
+_is_hand_written_impl :: (fn(trait_tok : Token, ctx : EvalContext) -> bool)(
+  !is_prelude_or_generated_file(Option(String).Some(trait_tok.module_path.clone()), ctx.std_path.clone())
+);
+/// The two directions of "a hand-written `Clone` on a `Copy` type is an
+/// error" (decision 36) at a CONCRETE impl of `trait_ty` for `receiver_ty`
+/// (a concrete type is `Copy` for its one instantiation), whichever of the
+/// two impls registers second:
 ///
-/// - a `Clone` impl on a type that implements `Copy`;
-/// - a `Copy` impl on a type that already has a `Clone` impl.
+/// - a hand-written `Clone` impl on a type that implements `Copy`;
+/// - a `Copy` impl on a type whose `Clone` impl is hand-written.
 ///
-/// The compiler's own supplied impl (`supply_copy_clone_impl`) is recorded
-/// here instead. Exempt in Generation A: the prelude, whose primitives keep
-/// the `Clone` impls the seed needs (Generation B deletes them), and
-/// compiler-synthesized receivers.
+/// `derive(T, Clone)` is allowed: its clone is field-wise, which for `Copy`
+/// fields is the bitwise copy. `trait_tok` is the `Clone(...)`/`Copy()`
+/// constructor's token, which tells a derive's (spliced from the prelude)
+/// from a hand-written one.
 _check_copy_clone_exclusion :: (
-  fn(receiver_ty : TypeValue, receiver_type_id : String, trait_ty : TypeValue, site : String, rcv_tok : Token, env : Environment, ctx : EvalContext, tok : Token, exn : Exception) -> unit
+  fn(receiver_ty : TypeValue, receiver_type_id : String, trait_ty : TypeValue, site : String, trait_tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit
 )({
   match(
     _clone_and_copy_traits(env),
     .Some(cc) => {
       clone_key := get_trait_key(cc.clone_tt);
       key := get_trait_key(trait_ty);
-      if(key == clone_key, {
-        if(is_supplying_copy_clone(), {
-          note_copy_supplied_clone_site(site);
-          return(());
-        });
-        if(is_prelude_or_generated_file(Option(String).Some(rcv_tok.module_path.clone()), ctx.std_path.clone()), {
-          return(());
-        });
+      if((key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
+        g_hand_written_clone_sites.insert(site, true);
         if(_implements_via_hook(receiver_ty, cc.copy_tt, env), {
-          exn.throw(dyn(format_error_message(tok, _manual_clone_on_copy_msg(receiver_ty, Option(String).None))));
+          exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None))));
         });
       });
-      if((key == get_trait_key(cc.copy_tt)) && !is_prelude_or_generated_file(Option(String).Some(rcv_tok.module_path.clone()), ctx.std_path.clone()), {
+      if(key == get_trait_key(cc.copy_tt), {
         match(
           trait_impl_site_of(receiver_type_id, clone_key),
-          .Some(clone_site) => if(!is_copy_supplied_clone_site(clone_site.clone()), {
-            exn.throw(dyn(format_error_message(tok, _manual_clone_on_copy_msg(receiver_ty, Option(String).Some(clone_site)))));
+          .Some(clone_site) => if(g_hand_written_clone_sites.contains_key(clone_site.clone()), {
+            exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).Some(clone_site)))));
           }),
           .None => ()
         );
@@ -5749,29 +5757,31 @@ _check_copy_clone_exclusion :: (
   );
 });
 /// The generic-impl twin of `_check_copy_clone_exclusion`, for
-/// `impl(generic(...), where(...), Pattern, Trait)`:
+/// `impl(generic(...), where(...), Pattern, Trait)`. A generic hand-written
+/// `Clone` is an error only when every instantiation it serves is `Copy`:
+/// its receiver pattern, under the `Clone` impl's own bounds, is `Copy`.
+/// That is a type whose `Copy` impl has no bound, or a `Clone` restricted to
+/// `where(T <: Copy)`.
 ///
-/// - a generic `Clone` impl whose receiver pattern is `Copy` under the impl's
-///   own bounds (`impl(generic(T), where(T <: Copy), Pair(T), Clone(...))`
-///   beside `Pair(T)`'s Copy impl) covers only `Copy` types;
-/// - a generic `Copy` impl makes every registered generic `Clone` impl over
-///   the same receiver shape that is now `Copy` such a manual `Clone`.
+/// - At a hand-written generic `Clone` impl, the pattern is tested against
+///   the `Copy` impls registered so far.
+/// - At a generic `Copy` impl, every hand-written generic `Clone` impl over
+///   the same receiver shape is tested again, since the new `Copy` impl may
+///   make it serve only `Copy` instantiations.
 ///
-/// A conditional `Clone` (`where(T <: Clone)`, the shape of the prelude's
-/// `Option(T)`) also covers types that are not `Copy`, so it stays legal and
-/// serves the `Copy` instances too, as in Rust.
-_check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, rcv_tok : Token, ctx : EvalContext, tok : Token, exn : Exception) -> unit)({
-  if(is_supplying_copy_clone() || is_prelude_or_generated_file(Option(String).Some(rcv_tok.module_path.clone()), ctx.std_path.clone()), {
-    return(());
-  });
+/// A conditional `Clone` that also serves types that are not `Copy`
+/// (`where(T <: Clone)`, the prelude `Option(T)`'s shape) is allowed: at a
+/// `Copy` instantiation its structural clone reduces to the copy.
+_check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, trait_tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
   env := entry.definition_env;
   match(
     _clone_and_copy_traits(env),
     .Some(cc) => {
       clone_key := get_base_trait_key(cc.clone_tt);
-      if(entry.trait_key == clone_key, {
+      if((entry.trait_key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
+        g_hand_written_clone_sites.insert(entry.site.clone(), true);
         if(_implements_via_hook(entry.receiver_type_pattern, cc.copy_tt, env), {
-          exn.throw(dyn(format_error_message(tok, _manual_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).None))));
+          exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).None))));
         });
       });
       if(entry.trait_key == get_base_trait_key(cc.copy_tt), {
@@ -5780,8 +5790,8 @@ _check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, rcv_tok : T
         while(bi < bucket.len(), {
           match(
             bucket.get(bi),
-            .Some(ce) => if(_root_shapes_could_match(ce.receiver_type_pattern, entry.receiver_type_pattern) && _implements_via_hook(ce.receiver_type_pattern, cc.copy_tt, ce.definition_env), {
-              exn.throw(dyn(format_error_message(tok, _manual_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
+            .Some(ce) => if((g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(ce.receiver_type_pattern, entry.receiver_type_pattern)) && _implements_via_hook(ce.receiver_type_pattern, cc.copy_tt, ce.definition_env), {
+              exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
             .None => ()
           );
@@ -5846,11 +5856,9 @@ supply_copy_clone_impl :: (fn(ty_in : TypeValue, env : Environment, ctx : EvalCo
       var := `__yo_copy_T_${generate_variable_id(env.module_path, String.from("cpy"))}`;
       _added := add_variable_to_env(frame_env, var.clone(), t_type(), Option(EvalValue).Some(EvalValue.TypeVal(ty)), true, false, false, false, synthetic_token(var.clone(), env.module_path));
       (ok : bool) = false;
-      set_supplying_copy_clone(true);
       // `__yo_return_self` is the prelude primitives' clone: an inline copy
       // of the receiver, no call.
       _eval_supplied_clone_impl(`impl(${var}, Clone(clone : ((self) -> __yo_return_self(self))))`, frame_env, ctx, ok);
-      set_supplying_copy_clone(false);
       ok
     },
     .None => false

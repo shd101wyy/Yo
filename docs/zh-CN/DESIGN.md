@@ -1149,7 +1149,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-这个 impl 会被检查。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 或声明了 `MoveOnly` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`Copy` 类型的 `clone()` 就是按位复制，由编译器提供，所以在 `Copy` 类型上手写 `Clone` impl（或 `derive(T, Clone)`）是错误。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy` 时才是 `Copy`。`Box`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。
+这个 impl 会被检查。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 或声明了 `MoveOnly` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`Copy` 类型的 `clone()` 就是按位复制；没有写 `Clone` 时由编译器提供。`derive(T, Clone)` 可以与 `Copy` 并存（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在其他实例化上获得 `clone()` 的写法：`derive(generic(T : Type), Pair(T), Clone)` 加上 `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy` 时才是 `Copy`。`Box`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。
 
 目前 `Copy` 会被检查，但还不是必需的：没有它的纯数据类型仍然会被隐式复制。[值默认计划](../../plans/VALUES_BY_DEFAULT.md)（决定 36）的下一步会把它变成规则：之后 `q := p` 会移动一个不是 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901。
 

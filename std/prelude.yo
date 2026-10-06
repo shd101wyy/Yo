@@ -949,9 +949,10 @@ export(Clone);
 /// generic one with `impl(generic(T : Type), where(T <: Copy), Pair(T),
 /// Copy())`. The impl is checked: every field, variant payload and element
 /// must be `Copy`, and the type must not implement `Dispose` (a copy would
-/// dispose twice) or declare `MoveOnly`. A `Copy` type gets its `clone()`
-/// from the compiler, the bitwise copy, so a manual `Clone` impl on one is
-/// an error.
+/// dispose twice) or declare `MoveOnly`. With no `Clone` written, a `Copy`
+/// type gets its `clone()`, the bitwise copy, from the compiler.
+/// `derive(T, Clone)` is allowed beside `Copy`; a hand-written `Clone` is an
+/// error only on a type that is `Copy` for every instantiation it serves.
 ///
 /// The integers, floats, `bool`, `char` and the C number types, `unit`,
 /// `str` views and raw pointers implement it here, and `Option(T)` and

@@ -1850,22 +1850,6 @@ note_borrowing_argument :: (fn(arg : AstExpr) -> unit)({
 /// True when the closure literal `e` is the direct argument of a borrowing
 /// parameter (`note_borrowing_argument`).
 closure_literal_is_borrowed :: (fn(e : AstExpr) -> bool)(g_borrowing_closure_args.contains_key(ast_expr_id(e)));
-/// The `Clone` impls the compiler supplies for `Copy` types
-/// (plans/VALUES_BY_DEFAULT.md decision 36), by impl site. Such an impl is
-/// the one `Clone` a `Copy` type may have, so the manual-`Clone` check skips
-/// it; a site never matches a hand-written impl, so a stale entry is inert.
-(g_copy_supplied_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
-/// Set while a supplied impl is evaluated: its own registration must not
-/// read as a manual `Clone` on a `Copy` type.
-(g_supplying_copy_clone : bool) = false;
-set_supplying_copy_clone :: (fn(on : bool) -> unit)({
-  g_supplying_copy_clone = on;
-});
-is_supplying_copy_clone :: (fn() -> bool)(g_supplying_copy_clone);
-note_copy_supplied_clone_site :: (fn(site : String) -> unit)({
-  g_copy_supplied_clone_sites.insert(site, true);
-});
-is_copy_supplied_clone_site :: (fn(site : String) -> bool)(g_copy_supplied_clone_sites.contains_key(site));
 /// `YO_AUDIT_COPY_TRAIT`'s question, answered by trait_checking.yo (installed
 /// at init, which this module cannot import): the named types `ty` is not
 /// `Copy` through, the types decision 36's sweep must give `Copy` before a
@@ -3560,10 +3544,6 @@ export(
   force_pending_move_only_impls,
   note_borrowing_argument,
   closure_literal_is_borrowed,
-  set_supplying_copy_clone,
-  is_supplying_copy_clone,
-  note_copy_supplied_clone_site,
-  is_copy_supplied_clone_site,
   CopyTraitBlockersFn,
   set_copy_trait_blockers_fn,
   copy_trait_blockers_via_hook,

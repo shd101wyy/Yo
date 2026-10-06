@@ -2773,21 +2773,33 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     registry entry to hold the impl, so `t.clone()` on a `Copy` tuple
     still has no method. Generation B gives the structural kinds a
     builtin `clone`.
-- **A manual `Clone` on a `Copy` type is E0612**, in either order
-  (`_check_copy_clone_exclusion`, `_check_generic_copy_clone_exclusion`):
-  a `Clone` impl or `derive(T, Clone)` on a type that is `Copy`, and a `Copy`
-  impl on a type that already has a `Clone` impl. A generic `Clone` impl
-  whose receiver pattern is `Copy` under its own bounds is the same error. A
-  conditional generic `Clone` (`where(T <: Clone)`, the prelude `Option`'s
-  shape) covers types that are not `Copy`, so it stays legal and serves the
-  `Copy` instances too, as in Rust.
-  - **Staged:** the prelude is exempt in Generation A. Its primitives keep
-    their written-out `Clone` impls (`__yo_return_self`), because the seed
-    does not supply `clone()`.
+- **`Copy` and `Clone`** (the 2026-10-06 amendment, #1244):
+  - `derive(T, Clone)` beside `Copy` is accepted, in either order. A
+    derive is told from a hand-written impl by its `Clone(...)` token: a
+    derive's comes from the prelude template.
+  - **A hand-written `Clone` is E0612 only where every instantiation it
+    serves is `Copy`** (`_check_copy_clone_exclusion`,
+    `_check_generic_copy_clone_exclusion`, `src/evaluator/values/impl.yo`):
+    a concrete `Copy` type, or a generic `Clone` impl whose receiver
+    pattern is `Copy` under the `Clone` impl's own bounds (an unbounded
+    `Copy` impl, or a `Clone` restricted to `where(T <: Copy)`). Either
+    order is caught: a later `Copy` impl re-tests the hand-written `Clone`
+    impls recorded so far. The error names `derive(T, Clone)` and "no
+    `Clone` at all".
+  - A generic hand-written `Clone` that also serves non-`Copy`
+    instantiations (`where(T <: Clone)`, the prelude `Option(T)`'s) is
+    allowed.
+  - **Staged:** the prelude counts as derive-like in Generation A. Its
+    primitives keep their written-out `Clone` impls (`__yo_return_self`),
+    because the seed does not supply `clone()`.
 - **The audit** (below) and **`tests/copy_trait.test.yo`**: the prelude
   impls, a `derive(Point, Copy)` copy, `impl(T, Copy())` over a `String`
-  field, `Copy` plus `Dispose` and plus `MoveOnly` in both orders, a manual
-  `Clone` on a `Copy` type in both orders (impl and derive), a generic
+  field, `Copy` plus `Dispose` and plus `MoveOnly` in both orders,
+  `derive(Point, Copy, Clone)` accepted, `Pair(T)` with `derive(Clone)` and
+  a conditional `Copy` at `i32` (implicit copy) and `String` (explicit
+  `.clone()`), `Option(i32)` staying `Copy` with its generic `Clone`, a
+  hand-written `Clone` on a concrete `Copy` type (both orders) and on an
+  unbounded generic `Copy` type, a generic
   `where(T <: Copy)` operator impl, a tuple and a closure of `Copy` parts
   copying implicitly, the supplied `clone()` through `ArrayList.clone`,
   `Box.clone`, a `where(T <: Clone)` function and another type's method.
