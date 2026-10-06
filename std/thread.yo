@@ -51,13 +51,20 @@ extern(
 extern(
   "Yo",
   __yo_thread_t : Type,
-  __yo_thread_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
+  // `own(cb)`: the closure's capture struct is MOVED in. A plain (borrowing)
+  // parameter makes a relay literal that captures a not-implicitly-copyable
+  // `cb` borrow it, and a borrow capture is never `Send`
+  // (plans/VALUES_BY_DEFAULT.md decision 38 E) — so a move-only value could
+  // never cross into the thread
+  // (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
+  __yo_thread_spawn : (fn(own(cb) : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit),
   __yo_thread_detach : (fn(t : __yo_thread_t) -> unit)
 );
 extern(
   "Yo",
-  __yo_worker_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> unit),
+  // `own(cb)` for the same reason as `__yo_thread_spawn` above.
+  __yo_worker_spawn : (fn(own(cb) : Impl(Fn(io : Io) -> unit, Send)) -> unit),
   __yo_worker_get_num_threads : (fn() -> usize),
   __yo_worker_set_num_threads : (fn(num : usize) -> unit)
 );
@@ -293,7 +300,11 @@ _unlock_after_submission :: (fn(pool : ThreadPool, took : bool) -> unit)({
     true => ()
   );
 });
-spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
+/// `own(cb)`: the task closure is MOVED in. A plain `cb` borrowed a literal
+/// capturing a not-implicitly-copyable value, and a borrow capture is never
+/// `Send` (decision 38 E), so such a task could never be submitted
+/// (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
+spawn :: (fn(pool : ThreadPool, own(cb) : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
   // `_closed` is read and the task counted in UNDER the submission lock, so
   // `shutdown` (which sets `_closed` under the same lock, then drains) cannot
   // race a submission that already passed the check. The lock is held across
