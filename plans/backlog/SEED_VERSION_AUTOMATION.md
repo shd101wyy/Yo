@@ -179,8 +179,8 @@ miss `Sync`).
   `Mutex`/`Channel`; `RwLock(T)` needs `T <: (Send, Sync)`.
 - `Thread(T)`/`Thread.spawn`/`spawn_blocking`/`spawn(pool, …)` keep
   `Impl(Fn, Send)`; their result `T` keeps `Send`. Moving a move-only capture
-  into them needs owning extern parameters and a moving lowering
-  (`issues/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
+  into them is DONE - the externs take `own(cb)` and the lowering moves
+  (`issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
 - The `std/imm` element bounds become `Sync` (their nodes are shared).
 - `docs/en-US/PARALLELISM.md` signatures, both languages.
 

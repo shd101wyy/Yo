@@ -55,13 +55,16 @@ test("atomic cells are Send and Sync", {
 });
 // Raw pointers exist only under pragma(Pragma.AllowUnsafe), so their rules are
 // pinned in tests/send_sync_raw_pointer.test.yo.
-// Io and JoinHandle declare negative markers. At module level: naming
-// `JoinHandle` inside a sync test body fails at the C compiler
-// (issues/naming-joinhandle-inside-a-sync-test-body-emits-a-call-to-an-undeclared-runtime-function.md).
-comptime_assert(!Type.impls(Io, Send), "Io is not Send");
-comptime_assert(!Type.impls(Io, Sync), "Io is not Sync");
-comptime_assert(!Type.impls(JoinHandle(i32), Send), "JoinHandle is not Send");
-comptime_assert(!Type.impls(JoinHandle(i32), Sync), "JoinHandle is not Sync");
+// Naming `JoinHandle(T)` inside a sync test body instantiates the type and
+// emits its Dispose body, whose `__yo_join_handle_release_raw` call must pull
+// in the async runtime
+// (issues/fixed/naming-joinhandle-inside-a-sync-test-body-emits-a-call-to-an-undeclared-runtime-function.md).
+test("Io and JoinHandle declare negative markers", {
+  comptime_assert(!Type.impls(Io, Send), "Io is not Send");
+  comptime_assert(!Type.impls(Io, Sync), "Io is not Sync");
+  comptime_assert(!Type.impls(JoinHandle(i32), Send), "JoinHandle is not Send");
+  comptime_assert(!Type.impls(JoinHandle(i32), Sync), "JoinHandle is not Sync");
+});
 test("a Dyn is Send or Sync only through an explicit bound", {
   comptime_assert(!Type.impls(Dyn(SsSpeak), Send), "Dyn(Trait) is not Send");
   comptime_assert(!Type.impls(Dyn(SsSpeak), Sync), "Dyn(Trait) is not Sync");
@@ -140,28 +143,58 @@ comptime_expect_error({
   _sync_reaches_global :: (fn() -> i32)(_run_sync(() => i32(g_ss_names.len())));
   _sync_reaches_global();
 }, "module-level global 'g_ss_names'");
-// A borrow capture is never Send. A closure literal passed to a borrowing
-// parameter borrows a capture that is not implicitly copyable (a move-only
-// one), so it stays in the caller's frame; `spawn(pool, cb)` takes `cb` by
-// borrow today, so such a literal may not go there.
+// A borrow capture is never Send (decision 38 E). A closure literal passed
+// to a BORROWING parameter borrows a capture that is not implicitly
+// copyable (a move-only one), so it stays in the caller's frame and may not
+// cross into a Send slot. The spawn boundaries take the closure `own`, so
+// they MOVE such a capture in instead — the two tests after this one.
+_ss_dispose_count := AtomicI32.new(i32(0));
 _SsFd :: struct(fd : i32);
 impl(
   _SsFd,
   Dispose(
-    dispose : (self -> ())
+    dispose : (fn(self : Self) -> unit)({
+      _n := _ss_dispose_count.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ()
+    })
   )
 );
+_ss_run_send :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(f());
 comptime_expect_error({
-  _pool_spawn_borrowed :: (fn() -> unit)({
+  _borrowed_capture_never_send :: (fn() -> unit)({
     f := _SsFd(fd : i32(3));
-    pool := ThreadPool.new(usize(1));
-    spawn(pool, io => {
+    _ss_run_send(() => {
       _n := f.fd;
       ()
     });
   });
-  _pool_spawn_borrowed();
+  _borrowed_capture_never_send();
 }, "a borrow capture is never Send");
+test("a move-only capture crosses Thread.spawn and disposes once", {
+  _ss_dispose_count.store(i32(0), MemoryOrder.Release);
+  {
+    f := _SsFd(fd : i32(3));
+    t := Thread(unit).spawn(io => {
+      assert(f.fd == i32(3), "the thread saw the moved value");
+      ()
+    });
+    t.join();
+  };
+  assert(_ss_dispose_count.load(MemoryOrder.Acquire) == i32(1), "the moved capture disposed exactly once");
+});
+test("a move-only capture crosses spawn(pool, …) and disposes once", {
+  _ss_dispose_count.store(i32(0), MemoryOrder.Release);
+  {
+    pool := ThreadPool.new(usize(1));
+    f := _SsFd(fd : i32(4));
+    spawn(pool, io => {
+      assert(f.fd == i32(4), "the worker saw the moved value");
+      ()
+    });
+    pool.join_all();
+  };
+  assert(_ss_dispose_count.load(MemoryOrder.Acquire) == i32(1), "the moved capture disposed exactly once");
+});
 
 // ============================================================================
 // Moves through a channel, at run time (TSan: tests/send_sync.test.yo is in

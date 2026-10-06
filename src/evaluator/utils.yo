@@ -569,6 +569,31 @@ _place_text :: (fn(e : AstExpr) -> String)({
 /// makes. The owner of a value that is not implicitly copyable gives it up
 /// here; a second move or a later read is E0901, a borrowed binding cannot
 /// give it up (E0901 too).
+/// The innermost OWNING parameter binding named `name` in `env`, if one is
+/// visible. A specialized function's CLOSURE parameter is re-bound as a
+/// non-owning callable shadow (calls/helper.yo's re-bind loop — an owning
+/// re-bind was measured as a second, double release), so the owning
+/// `own(cb)` binding the caller's transfer handed the reference to sits in
+/// an OUTER frame of the same env. A capture that moves `cb` takes THAT
+/// binding's reference; this finds it.
+_owning_param_binding_for_capture_move :: (fn(env : Environment, name : String) -> Option(Variable))({
+  vars := get_variables_from_env(env, name.clone());
+  (i : usize) = vars.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      vars.get(i),
+      .Some(cv) => if(
+        cv.is_parameter && cv.is_owning_the_rc_value && (!cv.is_ref && !cv.is_module_level) && cv.consumed_at_token.is_none(),
+        {
+          return(Option(Variable).Some(cv));
+        }
+      ),
+      .None => ()
+    );
+  });
+  Option(Variable).None
+});
 move_captured_explicit_copy_variable :: (fn(v : Variable, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
   match(
     v.consumed_at_token,
@@ -579,12 +604,31 @@ move_captured_explicit_copy_variable :: (fn(v : Variable, tok : Token, env : Env
       });
     },
     .None => {
-      if(!v.is_owning_the_rc_value || (v.is_ref || v.is_module_level), {
+      // `v` may be the non-owning re-bind that shadows an
+      // `own(cb) : Impl(Fn(…))` parameter inside a SPECIALIZED function body
+      // (`_owning_param_binding_for_capture_move` above): the move then
+      // consumes the OWNING binding — its scope-end release is skipped and
+      // the capture struct owns the reference — which is how a move-only
+      // value crosses `Thread.spawn`'s relaying closure
+      // (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
+      owner := if(!v.is_owning_the_rc_value && v.is_parameter, _owning_param_binding_for_capture_move(env, v.name.clone()), Option(Variable).None);
+      if((!v.is_owning_the_rc_value && owner.is_none()) || (v.is_ref || v.is_module_level), {
         msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` ${_explicit_copy_kind(v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, an \`inout\` binding or a module-level binding). Take it \`sink(...)\` to own it.`;
         raise_flow_violation(with_code(format_error_message_with_help(tok, msg, move_only_help(v.name.clone(), v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
-      _log_user_move(v, tok, env);
-      v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      moved := match(
+        owner,
+        .Some(o) => o,
+        .None => v
+      );
+      _log_user_move(moved, tok, env);
+      moved.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      // Mark the shadow too, so a re-evaluation of the same site against the
+      // same bindings takes the `same_site` branch instead of finding every
+      // owning binding consumed and raising E0901.
+      if(owner.is_some(), {
+        v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      });
     }
   );
 });

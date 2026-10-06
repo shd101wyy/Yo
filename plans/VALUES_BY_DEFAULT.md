@@ -2323,10 +2323,17 @@ and in git, not a silent edit.
     `Send`. That closed an S1 bug: a `Dispose` capture sent through
     `Thread.spawn` or `spawn(pool, …)` was disposed twice
     (`issues/fixed/a-move-only-capture-sent-to-another-thread-is-disposed-twice.md`).
-    Moving such a value into a thread is still rejected
-    (`issues/a-move-only-value-cannot-be-moved-into-thread-spawn.md`). `mut`
-    captures arrive with decision 35's capture list; that work must make a
-    `mut` capture never `Sync`, and an `imm` capture `Sync` iff its type is.
+    A move-only value now MOVES into the thread: the spawn externs take the
+    closure `own(cb)` (so each relaying literal escapes and moves its `cb`
+    capture in — an `own` closure parameter shadowed by a specialized body's
+    non-owning re-bind gives its reference up to the capture,
+    `move_captured_explicit_copy_variable`), and the parallelism lowering's
+    heap copy INHERITS the call-site struct's references — no dup — with the
+    spawn wrapper the single releaser, disposing the move-only content it
+    owns (`issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
+    `mut` captures arrive with decision 35's capture list; that work must
+    make a `mut` capture never `Sync`, and an `imm` capture `Sync` iff its
+    type is.
   - **D1 covers `Sync` slots.** The reach walk runs for an
     `Impl(Fn, Sync)` slot and a `Dyn(Trait, Sync)` too, and D1's global must
     be `Sync` (`_GrCtx`, `mutation_summary.yo`).
