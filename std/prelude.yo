@@ -942,6 +942,58 @@ Clone :: trait(
     )
 );
 export(Clone);
+/// Copy trait - a value whose copy is a bitwise copy
+/// (plans/VALUES_BY_DEFAULT.md decision 36).
+///
+/// A named type opts in with `derive(T, Copy)` or `impl(T, Copy())`, and a
+/// generic one with `impl(generic(T : Type), where(T <: Copy), Pair(T),
+/// Copy())`. The impl is checked: every field, variant payload and element
+/// must be `Copy`, and the type must not implement `Dispose` (a copy would
+/// dispose twice) or declare `MoveOnly`. A `Copy` type gets its `clone()`
+/// from the compiler, the bitwise copy, so a manual `Clone` impl on one is
+/// an error.
+///
+/// The integers, floats, `bool`, `char` and the C number types, `unit`,
+/// `str` views and raw pointers implement it here, and `Option(T)` and
+/// `Result(T, E)` do when their payloads do. A tuple, an `Array(T, N)`, an
+/// anonymous record, a closure and a `fn` pointer have no declaration to
+/// annotate, so each is `Copy` when all its parts are. `Box`, `Rc`, `Arc`,
+/// `String`, the collections and `Dyn` never are.
+///
+/// Today every value type without an owned buffer is still copied
+/// implicitly, `Copy` or not. Generation B of decision 36 makes `Copy` the
+/// rule: a named type without it is then moved at its last use, and a later
+/// use is E0901.
+Copy :: trait(
+  id := "Copy"
+);
+export(Copy);
+impl(i8, Copy());
+impl(i16, Copy());
+impl(i32, Copy());
+impl(i64, Copy());
+impl(u8, Copy());
+impl(u16, Copy());
+impl(u32, Copy());
+impl(u64, Copy());
+impl(isize, Copy());
+impl(usize, Copy());
+impl(f32, Copy());
+impl(f64, Copy());
+impl(bool, Copy());
+impl(char, Copy());
+impl(short, Copy());
+impl(ushort, Copy());
+impl(int, Copy());
+impl(uint, Copy());
+impl(long, Copy());
+impl(ulong, Copy());
+impl(longlong, Copy());
+impl(ulonglong, Copy());
+impl(longdouble, Copy());
+impl(unit, Copy());
+impl(str, Copy());
+impl(generic(T : Type), *(T), Copy());
 /// Default trait — the type's default value (Rust's `Default`).
 /// Call explicitly via `(T <: Default).default()` in generic code, or
 /// `MyType.default()` on a concrete type. Unblocks
@@ -8538,6 +8590,15 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
   )
 });
 derive_rule(Clone, __derive_clone);
+// --- derive_rule for Copy ---
+// `derive(T, Copy)` is `impl(T, Copy())` (with the derive's `generic`/`where`
+// for a generic type). The impl itself checks that every part is `Copy`, and
+// the compiler supplies `clone()`, so the rule generates nothing else
+// (plans/VALUES_BY_DEFAULT.md decision 36).
+__derive_copy :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
+  ctx.make_impl(quote(Copy()))
+);
+derive_rule(Copy, __derive_copy);
 // --- derive_rule for Hash ---
 // Struct: feed every field, in declaration order. Enum: the variant index
 // (as u64) then that variant's fields. Both are prefix-free because every
@@ -9167,6 +9228,8 @@ impl(
     )
   )
 );
+/// `Option(T)` is `Copy` when its payload is (decision 36).
+impl(generic(T : Type), where(T <: Copy), Option(T), Copy());
 /// Clone for `Option(T)` — clones the inner value when `Some`.
 impl(
   generic(T : Type),
@@ -9279,6 +9342,8 @@ impl(
     })
   )
 );
+/// `Result(T, E)` is `Copy` when both payloads are (decision 36).
+impl(generic(T : Type, E : Type), where(T <: Copy, E <: Copy), Result(T, E), Copy());
 /// Clone for `Result(T, E)` — clones the inner value or error.
 impl(
   generic(T : Type, E : Type),
