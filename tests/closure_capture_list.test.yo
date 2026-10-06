@@ -37,7 +37,7 @@ impl(_ClAcc, run : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)(f()));
 test("capture list: a by-value pun and a renamed by-value entry copy the value", {
   k := i32(3);
   s := String.from("hey");
-  (f : Impl(Fn(m : i32) -> i32)) = ({ k, n : s.len() }(m : i32) => ((m + k) + i32(n)));
+  (f : Impl(Fn(m : i32) -> i32)) = ({ k, n : s.len() }(m : i32) => (m + k + i32(n)));
   assert(f(i32(1)) == i32(7), "1 + 3 + 3");
   assert(f(i32(2)) == i32(8), "the closure is callable again");
   assert(s.len() == usize(3), "the source string is untouched");
@@ -118,7 +118,10 @@ test("capture list: a borrow entry outside a capture list is an error", {
 });
 test("capture list: a match arm cannot be a capture-list closure", {
   x := i32(1);
-  comptime_expect_error(match(x, { v }(u : i32) => u, _ => i32(0)), "capture list");
+  comptime_expect_error(
+    match(x, { v }(u : i32) => u, _ => i32(0)),
+    "capture list"
+  );
   p := _ClAcc(total : i32(3), other : i32(4));
   sum := match(p, { total, other } => (total + other));
   assert(sum == i32(7), "a record pattern arm still works");
@@ -129,7 +132,7 @@ test("capture list: a match arm cannot be a capture-list closure", {
 test("second-class: a borrowing closure cannot escape", {
   w := i32(1);
   comptime_expect_error(_cl_keep({ imm(w) }() => w), "moved into a by-value (`sink`) parameter");
-  comptime_expect_error(_cl_dyn(dyn({ imm(w) }() => w)), "made a `Dyn`");
+  comptime_expect_error(_cl_dyn(dyn({ imm(w) }() => w)), "so it is second-class");
   comptime_expect_error(
     (fn(x : i32) -> Impl(Fn() -> i32))({ imm(x) }() => x),
     "returned"
@@ -146,20 +149,17 @@ test("second-class: a block tail may not outlive what it borrows", {
   comptime_expect_error(
     _cl_call0({
       w := i32(1);
-      ({ imm(w) }() => w)
+      { imm(w) }() => w
     }),
     "declared inside the block"
   );
 });
 test("second-class: `=` may not make a closure outlive what it borrows", {
   (f : Impl(Fn() -> i32)) = ({}() => i32(0));
-  comptime_expect_error(
-    {
-      w := i32(1);
-      f = ({ imm(w) }() => w);
-    },
-    "would outlive"
-  );
+  comptime_expect_error({
+    w := i32(1);
+    f = ({ imm(w) }() => w);
+  }, "would outlive");
 });
 test("second-class: a second-class type is not a type argument", {
   w := i32(1);
@@ -174,7 +174,9 @@ test("second-class: a copy of an `imm`-capturing closure is second-class too", {
     assert(f2() == i32(1), "the copy calls");
     assert(f() == i32(1), "the original is still usable: imm captures copy");
     comptime_expect_error(_cl_keep(f2), "second-class");
-    comptime_expect_error({ w = i32(2); }, "borrows `w`");
+    comptime_expect_error({
+      w = i32(2);
+    }, "borrows `w`");
   };
   w = i32(2);
   assert(w == i32(2), "the freeze ends with the closures' scope");
@@ -203,9 +205,13 @@ test("second-class: a borrowed place is frozen while the closure lives", {
     (g : Impl(Fn() -> i32)) = ({ imm(y) }() => y);
     assert(f() == i32(1), "call");
     comptime_expect_error(z, "the closure `f` borrows `z`");
-    comptime_expect_error({ z = i32(3); }, "the closure `f` borrows `z`");
+    comptime_expect_error({
+      z = i32(3);
+    }, "the closure `f` borrows `z`");
     assert(y == i32(5), "an imm borrow lets y be read");
-    comptime_expect_error({ y = i32(6); }, "the closure `g` borrows `y`");
+    comptime_expect_error({
+      y = i32(6);
+    }, "the closure `g` borrows `y`");
     assert(g() == i32(5), "g reads y");
   };
   assert(z == i32(1), "after the scope, z is free again");
@@ -255,7 +261,7 @@ test("exclusivity: `g(&f, &mut z)` with a named closure", {
   z := i32(0);
   {
     (f : Impl(Fn() -> i32)) = ({ imm(z) }() => z);
-    comptime_expect_error(_cl_with_mut(f, &mut z), "borrows `z`");
+    comptime_expect_error(_cl_with_mut(f, &mut z), "lent exclusively");
   };
 });
 test("exclusivity: a method receiver versus a `mut` capture of it", {

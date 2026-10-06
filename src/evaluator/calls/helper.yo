@@ -7777,7 +7777,9 @@ try_to_call_function_with_arguments :: (
         exn
       );
       require_valid_ref_argument_places(vrf_param_is_ref, adjusted_args, caller_env_m, ctx, exn);
-      require_capture_borrow_exclusivity(vrf_param_is_ref, adjusted_args, Option(AstExpr).None, caller_env_m, ctx, exn);
+      // A closure value's call lends the closure itself (its receiver,
+      // decision 38 B): it joins the overlap test.
+      require_capture_borrow_exclusivity(vrf_param_is_ref, adjusted_args, match(func_type, .Func({ result : _ }) => Option(AstExpr).None, _ => Option(AstExpr).Some(callee_expr)), caller_env_m, ctx, exn);
       vrf_returns_place := match(func_type, .Func({ result : vrf_res }) => is_pointer_type(vrf_res), _ => false);
       require_no_inout_write_through_borrow(d3_pending, vrf_param_labels, vrf_param_is_ref, adjusted_args, vrf_returns_place, caller_env_m, ctx);
       // Restore the io.async arg-eval context flag (set before Step 7).

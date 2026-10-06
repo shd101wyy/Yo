@@ -1172,30 +1172,34 @@ evaluate_anonymous_function_implementation :: (
   // Parse the parameter declaration into a flat list.
   // `param_decl` is either a tuple(...) with multiple params or a single expr.
   // -------------------------------------------------------------------------
-  raw_param_exprs := if(cap_list_raw.is_some(), cap_list_params.clone(), match(
-    param_decl,
-    .FnCall(_, fb2, decl_args, _, _) => match(
-      fb2,
-      .Atom(_, ptok) => cond(
-        (ptok.value == BK_TUPLE) => decl_args,
-        true => {
-          single_list := ArrayList(AstExpr).new();
-          single_list.push(param_decl);
-          single_list
+  raw_param_exprs := if(
+    cap_list_raw.is_some(),
+    cap_list_params.clone(),
+    match(
+      param_decl,
+      .FnCall(_, fb2, decl_args, _, _) => match(
+        fb2,
+        .Atom(_, ptok) => cond(
+          (ptok.value == BK_TUPLE) => decl_args,
+          true => {
+            single_list := ArrayList(AstExpr).new();
+            single_list.push(param_decl);
+            single_list
+          }
+        ),
+        .FnCall(_, _, _, _, _) => {
+          single_list2 := ArrayList(AstExpr).new();
+          single_list2.push(param_decl);
+          single_list2
         }
       ),
-      .FnCall(_, _, _, _, _) => {
-        single_list2 := ArrayList(AstExpr).new();
-        single_list2.push(param_decl);
-        single_list2
+      .Atom(_, _) => {
+        single_list3 := ArrayList(AstExpr).new();
+        single_list3.push(param_decl);
+        single_list3
       }
-    ),
-    .Atom(_, _) => {
-      single_list3 := ArrayList(AstExpr).new();
-      single_list3.push(param_decl);
-      single_list3
-    }
-  ));
+    )
+  );
   // -------------------------------------------------------------------------
   // Separate generic / using / regular parameter expressions.
   // -------------------------------------------------------------------------
@@ -1385,9 +1389,15 @@ evaluate_anonymous_function_implementation :: (
           // written through (`is_ref`); an `imm` borrow is the one `is_ref`
           // binding that is not reassignable, which the write checks read as
           // "read-only borrow".
-          ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, (ce.is_borrow && ce.is_mut), false, false, ce.label_tok.clone());
+          ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, ce.is_borrow && ce.is_mut, false, false, ce.label_tok.clone());
           if(ce.is_borrow, {
-            match(ce_v, .Some(cv) => { cv.is_ref = true; }, .None => ());
+            match(
+              ce_v,
+              .Some(cv) => {
+                cv.is_ref = true;
+              },
+              .None => ()
+            );
           });
         },
         .None => ()
