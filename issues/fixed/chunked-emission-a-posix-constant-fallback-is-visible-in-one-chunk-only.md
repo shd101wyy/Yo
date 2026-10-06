@@ -51,8 +51,13 @@ functions adjacent in the same block) stay in the code buffer.
 
 ## Verification
 
-- `yo compile src/main.yo --std-path ./std --emit-chunks auto --jobs 8` on this tree on
-  Windows failed before (the error above, `tmp` build log in the branch agent's run) and
-  links after.
+- The failing build was `yo compile src/main.yo --std-path ./std --emit-chunks auto --jobs 8`
+  on this tree on Windows (the error above). The fix changes where THIS tree's compiler puts
+  the defines, so the direct re-check is the same `--emit-chunks` compile driven by a
+  TREE-built binary (`yo-out/…/bin/yo.exe compile src/main.yo --emit-chunks auto`), which
+  places the fallback constants in the shared header and links. A SEED-driven chunked build
+  of the tree keeps the old layout by construction — the v0.2.52 seed emits from its own
+  sources — and stays luck-of-the-hashing until the next seed; that is the Generation A/B
+  split, not a defect of this fix.
 - The single-file build (`yo build --std-path ./std`) passes both before and after — the
   emitted program text is unchanged, only the buffer placement of the define block moved.
