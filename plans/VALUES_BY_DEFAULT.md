@@ -2810,7 +2810,7 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - `derive(T, Clone)` is always accepted. A derive is told from a
     hand-written impl by its `Clone(...)` token: a derive's comes from the
     prelude template, and the prelude's own impls are exempt.
-  - **A hand-written `Clone` is E0612 only where every instantiation it
+  - **A hand-written `Clone` is an error only where every instantiation it
     serves is `Copy`** (`_check_copy_clone_exclusion`,
     `_check_generic_copy_clone_exclusion`, `src/evaluator/values/impl.yo`):
     a concrete `Copy` type, or a generic `Clone` impl whose receiver
