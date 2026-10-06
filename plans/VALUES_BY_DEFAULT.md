@@ -2031,8 +2031,8 @@ and in git, not a silent edit.
       pass, it re-checks each white cell's count. A resurrected cell, and
       everything reachable from it, is leaked and turned black instead of
       freed (as in CPython's PEP 442). **Confirmed in today's collector**
-      and tracked as
-      `issues/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`
+      and fixed as
+      `issues/fixed/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`
       (S1, a reproducer is in `issues/repros/`). It is fixed on its own,
       not deferred to V3's std half.
     - **Unwind and abort (decision 28's `Rc` arm).** Per-call shared marks

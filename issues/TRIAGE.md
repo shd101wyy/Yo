@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 10 | 1 |
 | Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 53 | 6 |
-| **Total** | **176** | **25** |
+| Other | 53 | 5 |
+| **Total** | **176** | **24** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 25 |
+| S1 | 24 |
 | S2 | 83 |
-| S3 | 68 |
+| S3 | 69 |
 
 ## Design questions (issues/questions/)
 
@@ -323,7 +323,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md`](./a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md) | S3 | — | — |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
-| [`a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`](./a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md) | S1 | OPEN (filed 2026-10-06, found by the VALUES_B | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
@@ -344,6 +343,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
 | [`check-summarizes-every-function-body-eagerly-at-module-end.md`](./check-summarizes-every-function-body-eagerly-at-module-end.md) | S3 | — | — |
+| [`dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md`](./dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md) | S3 | OPEN (filed 2026-10-06, surfaced while fixing | — |
 | [`enum-type-arguments-made-check-about-4-percent-slower.md`](./enum-type-arguments-made-check-about-4-percent-slower.md) | S3 | — | — |
 | [`explain-registry-e13xx-e15xx-bands-unallocated.md`](./explain-registry-e13xx-e15xx-bands-unallocated.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
