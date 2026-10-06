@@ -2811,7 +2811,9 @@ LocalBorrowPlace :: struct(
   /// A step entered a reference cell: the place is that cell, whole.
   through_cell : bool,
   /// The root is a module-level binding (decision 18, rule 3).
-  module_root : bool
+  module_root : bool,
+  /// The place as written, for messages (the steps may be cut short).
+  text : String
 );
 /// One local borrow in scope: `imm(y) := place` or `mut(y) := place`
 /// (`inout(y) :=` is `mut`'s Generation A synonym).
@@ -3012,7 +3014,8 @@ local_borrow_place_of :: (fn(e0 : AstExpr, env : Environment, ctx : EvalContext)
       root_decl : root.token,
       steps : out,
       through_cell : through_cell,
-      module_root : root.is_module_level
+      module_root : root.is_module_level,
+      text : _place_text(ast_expr_strip_borrow_marker(e0))
     )
   )
 });
@@ -3026,7 +3029,8 @@ local_borrow_place_of_variable :: (fn(v : Variable) -> LocalBorrowPlace)(
     steps : ArrayList(String).new(),
     // The variable's own slot: no step enters a cell.
     through_cell : false,
-    module_root : v.is_module_level
+    module_root : v.is_module_level,
+    text : v.name.clone()
   )
 );
 _lb_same_decl :: (fn(a_name : String, a : Token, b_name : String, b : Token) -> bool)(
@@ -3053,16 +3057,7 @@ _lb_places_overlap :: (fn(p : LocalBorrowPlace, q : LocalBorrowPlace) -> bool)({
 _lb_live_at :: (fn(info : LocalBorrowInfo, tok : Token) -> bool)(
   (tok.module_path == info.decl.module_path) && ((tok.character > info.decl.character) && (tok.character <= info.end.character))
 );
-_lb_place_text :: (fn(p : LocalBorrowPlace) -> String)({
-  out := p.root_name.clone();
-  (i : usize) = usize(0);
-  while(i < p.steps.len(), {
-    out.push_str(".");
-    out.push_string(match(p.steps.get(i), .Some(s) => s, .None => String.new()));
-    i = (i + usize(1));
-  });
-  out
-});
+_lb_place_text :: (fn(p : LocalBorrowPlace) -> String)(p.text.clone());
 _lb_mode :: (fn(info : LocalBorrowInfo) -> str)(cond(info.is_mut => "mut", true => "imm"));
 _lb_verb :: (fn(kind : LocalBorrowAccess) -> str)(
   match(

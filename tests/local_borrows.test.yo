@@ -19,7 +19,7 @@ g_list := List(head : .None);
 bump :: (fn(mut(n) : i32) -> unit)({
   n = (n + i32(1));
 });
-consume :: (fn(sink(s) : String) -> usize)(s.len());
+take_string :: (fn(sink(s) : String) -> usize)(s.len());
 noop :: (fn() -> unit)(());
 
 // --- imm: read-only, and the place stays readable ---------------------------
@@ -257,7 +257,7 @@ comptime_expect_error(
   move_under_imm_rejected :: (fn() -> unit)({
     s := String.from("a");
     imm(y) := s;
-    _m := consume(s);
+    _m := take_string(s);
     _n := y.len();
   }),
   "Cannot move `s` here"
@@ -296,6 +296,16 @@ comptime_expect_error(
     mut(b) := x;
     b = i32(2);
     a = i32(3);
+  }),
+  "Cannot read `x` here"
+);
+comptime_expect_error(
+  mut_borrow_under_a_live_imm_borrow_rejected :: (fn() -> unit)({
+    x := i32(1);
+    imm(a) := x;
+    mut(b) := x;
+    b = i32(2);
+    _v := a;
   }),
   "Cannot borrow with `mut` `x` here"
 );

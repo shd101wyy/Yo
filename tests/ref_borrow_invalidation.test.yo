@@ -14,14 +14,16 @@ import("std/fmt");
 // The historical UAF shape — borrow, then grow — cannot dangle any more:
 // `inout(r) := xs` names xs's SLOT (the handle), not an element inside its
 // buffer, so 64 pushes (the realloc trigger of the original repro) leave `r`
-// pointing at the same, still-valid list handle.
+// pointing at the same, still-valid list handle. Since decision 18
+// (plans/VALUES_BY_DEFAULT.md) the borrow is exclusive until its last use, so
+// the growth goes through the binding and `xs` is read after `r`'s last use.
 test("inout binding to the container variable survives container growth", {
   xs := ArrayList(String).new();
   xs.push(String.from("element-zero"));
   inout(r) := xs;
   i := usize(0);
   while(i < usize(64), {
-    xs.push(String.from("filler"));
+    r.push(String.from("filler"));
     i = (i + usize(1));
   });
   assert(r.len() == usize(65), "the binding sees every push");
@@ -29,6 +31,17 @@ test("inout binding to the container variable survives container growth", {
   r = ArrayList(String).new();
   assert(xs.len() == usize(0), "assigning through the binding replaced the container");
 });
+// Growing the container BY NAME while the binding is still used is the
+// exclusivity error (E0909), not a run-time hazard.
+comptime_expect_error(
+  grow_by_name_under_a_live_binding :: (fn() -> unit)({
+    xs := ArrayList(String).new();
+    inout(r) := xs;
+    xs.push(String.from("filler"));
+    _n := r.len();
+  }),
+  "`r` borrows `xs` with `mut` and is still live"
+);
 
 // `get` returns a HANDLE to the element object — it points at the
 // String itself, not into the list's buffer, so container growth

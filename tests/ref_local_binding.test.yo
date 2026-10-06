@@ -8,6 +8,12 @@
 /// scope). Reads go through, writes write back, copies copy the pointee.
 /// Element borrows (`xs(i)`, `p.*`) are rejected here: the borrowed `for`
 /// is the one place they exist.
+///
+/// Since plans/VALUES_BY_DEFAULT.md decision 18 a binding is EXCLUSIVE until
+/// its last use (`inout` is `mut`'s synonym): the root is read or written
+/// only after the binding's last use, never interleaved with it. The
+/// interleaved forms this file used to accept are E0909 now (below, and in
+/// tests/local_borrows.test.yo).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 Holder :: ref(struct(s : String, n : i32));
@@ -22,24 +28,24 @@ test("inout binding to a scalar local: write-through and read-through", {
   x := i32(1);
   inout(y) := x;
   y = i32(2);
-  assert(x == i32(2), "write through y lands in x");
-  x = i32(5);
-  assert(y == i32(5), "y observes a later write to x (slot semantics)");
+  assert(y == i32(2), "read through y");
   copy := y;
   copy = i32(9);
-  assert((x == i32(5)) && (y == i32(5)), "`copy := y` copies the pointee");
+  assert((y == i32(2)) && (copy == i32(9)), "`copy := y` copies the pointee");
+  assert(x == i32(2), "the write through y landed in x (read after y's last use)");
 });
 test("inout binding to an RC local: mutate in place, reassign either side, counts balance", {
   s := String.from("a");
   inout(r) := s;
   r.push_str("b");
-  assert(s == "ab", "method call through the binding mutates the shared object");
-  assert(ref_count(s) == 1, "the binding holds no count of its own");
-  s = String.from("z");
-  assert(r == "z", "reassigning the root: the binding names the slot, so it sees the new value");
+  assert(r == "ab", "method call through the binding mutates the object");
+  assert(ref_count(r) == 1, "the binding holds no count of its own");
   r = String.from("q");
-  assert(s == "q", "assigning through the binding replaces the root's value");
-  assert(ref_count(s) == 1, "old values dropped, new value owned once");
+  assert(s == "q", "assigning through the binding replaced the root's value");
+  assert(ref_count(s) == 1, "old value dropped, new value owned once");
+  s = String.from("z");
+  inout(r2) := s;
+  assert(r2 == "z", "a fresh binding after the root's reassignment names the new value");
 });
 test("inout binding to a module-level variable", {
   inout(c) := g_count;
@@ -56,11 +62,11 @@ test("inout binding chains: to an inout local and to an inout parameter", {
   inout(y) := x;
   inout(z) := y;
   z = (z + i32(1));
-  assert(x == i32(11), "z aliases y aliases x");
+  assert(y == i32(11), "z aliases y");
   bump_via_alias(y);
   assert(x == i32(12), "a binding passed to an inout parameter hands over the same pointer");
   bump_via_alias(x);
-  assert((x == i32(13)) && (z == i32(13)), "the callee's own binding of its inout param writes back");
+  assert(x == i32(13), "the callee's own binding of its inout param writes back");
 });
 test("inout binding created per loop iteration", {
   xs := ArrayList(i32).new();
@@ -83,9 +89,9 @@ test("inout binding to a field of a value-struct local", {
   p := Point(x : i32(1), y : i32(2));
   inout(px) := p.x;
   px = i32(10);
-  assert(p.x == i32(10), "write through the field binding");
-  p = Point(x : i32(7), y : i32(8));
-  assert(px == i32(7), "overwriting the struct: the binding still names p.x");
+  assert(p.y == i32(2), "a sibling field stays readable");
+  assert(px == i32(10), "read through the field binding");
+  assert(p.x == i32(10), "the write landed in p.x");
   sh := Shape(origin : Point(x : i32(0), y : i32(0)), name : String.from("sq"));
   inout(oy) := sh.origin.y;
   oy = i32(3);
@@ -101,30 +107,47 @@ test("inout binding to an object field: write-through, and the pin outlives a ha
     inout(n) := h.n;
     assert(ref_count(h2) == 3, "h, h2 and the binding's pin");
     n = (n + i32(1));
-    assert(h2.n == i32(2), "write through the field binding");
-    h = Holder(s : String.from("other"), n : i32(100));
-    assert(ref_count(h2) == 3, "h now names the new object; its old count is released at this block's end (deferred), so h2 + pin + the pending release");
+    assert(h2.n == i32(2), "write through the field binding, read through an alias the static check cannot see");
     n = i32(42);
-    assert(h2.n == i32(42), "the binding still names the OLD object's field");
-    assert(h.n == i32(100), "the new object is untouched");
   };
-  assert(ref_count(h2) == 1, "the pin is released at the binding's scope end");
+  assert(ref_count(h2) == 2, "the pin is released at the binding's scope end");
+  h = Holder(s : String.from("other"), n : i32(100));
+  assert(h.n == i32(100), "h names the new object after the binding ended");
   assert(h2.n == i32(42), "final value");
 });
+// Reassigning the borrowed handle while the binding is live is E0909: the
+// object is a reference cell, and below a cell the cell is the unit.
+comptime_expect_error(
+  reassign_the_borrowed_handle :: (fn() -> unit)({
+    h := Holder(s : String.from("one"), n : i32(1));
+    inout(n) := h.n;
+    h = Holder(s : String.from("other"), n : i32(100));
+    n = i32(42);
+  }),
+  "Cannot write `h` here"
+);
 test("inout binding through an intermediate object hop pins the innermost object", {
   o := Outer(inner : Holder(s : String.from("in"), n : i32(5)), tag : i32(0));
   keep := o.inner;
   {
     inout(n) := o.inner.n;
     assert(ref_count(keep) == 3, "o.inner, keep, pin");
-    o.inner = Holder(s : String.from("replaced"), n : i32(0));
-    assert(ref_count(keep) == 3, "the slot was overwritten; the old field value's release is deferred to this block's end, the pin keeps the object alive");
     n = i32(77);
   };
   assert(keep.n == i32(77), "the write landed in the pinned object");
-  assert(ref_count(keep) == 1, "pin released");
+  assert(ref_count(keep) == 2, "pin released");
+  o.inner = Holder(s : String.from("replaced"), n : i32(0));
   assert(o.inner.n == i32(0), "the replacement object untouched");
 });
+comptime_expect_error(
+  overwrite_the_borrowed_slot :: (fn() -> unit)({
+    o := Outer(inner : Holder(s : String.from("in"), n : i32(5)), tag : i32(0));
+    inout(n) := o.inner.n;
+    o.inner = Holder(s : String.from("replaced"), n : i32(0));
+    n = i32(77);
+  }),
+  "Cannot write `o.inner` here"
+);
 test("inout binding to a field of a module-level object", {
   inout(n) := g_holder.n;
   n = (n + i32(3));
@@ -135,9 +158,9 @@ test("RC-typed object field through a binding: dup/drop balance", {
   h := Holder(s : String.from("s0"), n : i32(0));
   inout(fs) := h.s;
   fs.push_str("!");
-  assert(h.s == "s0!", "mutate the field's object in place");
+  assert(fs == "s0!", "mutate the field's object in place");
   fs = String.from("new");
-  assert(h.s == "new", "replace the field's value through the binding");
+  assert(h.s == "new", "replaced the field's value through the binding");
   assert(ref_count(h.s) == 1, "the field owns its value exactly once");
 });
 test("pin is released on break and on early return", {
@@ -214,16 +237,26 @@ test("moving the root after the binding's scope ended is fine", {
   n := sink(s);
   assert(n == usize(3), "moved after the borrow ended");
 });
-test("a struct literal reading a borrowed root copies instead of moving", {
+test("a struct literal reading a borrowed root after the binding's last use copies", {
   s := String.from("a");
   inout(r) := s;
-  h := Holder(s : s, n : i32(1));
   r = String.from("b");
-  assert(h.s == "a", "the literal took a COPY of the handle, not the slot's count");
-  assert(s == "b", "the write through r replaced the root's value");
+  h := Holder(s : s, n : i32(1));
+  s = String.from("c");
+  assert(h.s == "b", "the literal took a COPY of the handle, not the slot's count");
   assert(ref_count(h.s) == 1, "the literal's field owns its value once");
   assert(ref_count(s) == 1, "the root owns its new value once");
 });
+// Reading the root into a literal while the binding is still used is E0909.
+comptime_expect_error(
+  literal_reads_a_live_borrowed_root :: (fn() -> unit)({
+    s := String.from("a");
+    inout(r) := s;
+    _h := Holder(s : s, n : i32(1));
+    r = String.from("b");
+  }),
+  "Cannot read `s` here"
+);
 
 // --- Rejected shapes ------------------------------------------------------
 comptime_expect_error(

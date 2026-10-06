@@ -94,7 +94,9 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_place_of_variable,
   local_borrow_require_writable,
   local_borrow_access,
-  local_borrow_write_expr
+  local_borrow_write_expr,
+  local_borrow_mark_receiver,
+  local_borrow_clear_receiver
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1000,7 +1002,10 @@ evaluate_assignment :: (
     saved_is_lhs := ctx.is_lhs_of_assignment;
     ctx.expected_type = Option(ExpectedTypeCtx).None;
     ctx.is_lhs_of_assignment = true;
+    // The target's place is judged as a write below, not as a read.
+    local_borrow_mark_receiver(lhs);
     evaluated_lhs := evaluate_expression_raw(lhs, env, ctx, exn);
+    local_borrow_clear_receiver();
     ctx.expected_type = saved_expected;
     ctx.is_lhs_of_assignment = saved_is_lhs;
     lhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_lhs));
