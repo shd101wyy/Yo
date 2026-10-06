@@ -14,6 +14,7 @@ fs_walker :: import("std/fs/walker");
 fs_metadata :: import("std/fs/metadata");
 { temp_dir, path_join } :: import("../helper");
 { platform, Platform } :: import("std/process");
+{ Command } :: import("std/process/command");
 // Probe wrappers: the expected-throw tests await through a SEPARATE handler,
 // and a top-level await's IoExn arm needs a fn boundary for unwind to land in.
 read_link_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
@@ -28,6 +29,39 @@ try_exists_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     ()
   })
 );
+// Windows link tests use JUNCTIONS: creating a symlink needs
+// SeCreateSymbolicLinkPrivilege there, but `cmd /c mklink /J` creates a
+// mount-point reparse point with no privilege at all. mklink parses a
+// forward slash as a switch, so paths are converted to backslashes first;
+// read_link returns exactly the path mklink stored (issues/fixed/
+// s3-fs-wrappers-windows-semantics-audit.md).
+_winpath :: (fn(p : Path) -> String)(
+  p.to_string().replace(String.from("/"), String.from("\\"))
+);
+_make_junction :: (fn(link : Path, target : Path, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `cmd spawn failed: ${err}`);
+        unwind(false);
+      }
+    )
+  );
+  cmd := Command.new(`cmd`);
+  cmd.arg(`/c`);
+  cmd.arg(`mklink`);
+  cmd.arg(`/J`);
+  cmd.arg(_winpath(link));
+  cmd.arg(_winpath(target));
+  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  st.success()
+});
+// Best-effort stale removal, so a failed previous run's leftovers (a
+// junction, its target dir) cannot fail the NEXT one at create_dir/mklink.
+_remove_stale_dir :: (fn(p : Path, io : Io) -> unit)({
+  quiet := Exception(throw : (_err -> unwind(())));
+  io.await(fs_dir.remove_dir(p, io), IoExn(io : io, exn : quiet));
+});
 // ============================================================================
 // is_file tests
 // ============================================================================
@@ -182,18 +216,17 @@ test("canonical throws for nonexistent path", {
 
 // ============================================================================
 // S3 P0 wrappers: copy / remove_dir_all / read_link / set_permissions /
-// try_exists (plans/archive/STD_API_AUDIT.md §7 P0 item 4)
+// try_exists (plans/archive/STD_API_AUDIT.md §7 P0 item 4). Per-platform:
+// contents/count/link-target/EINVAL/present/absent run everywhere; mode-bit
+// round-trips, symlink-as-link removal and denied-parent throws are
+// POSIX-only semantics (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
 // ============================================================================
 test("copy copies contents, permission bits and returns the byte count", {
-  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
-  // trees): skipped on Windows, where these semantics do not exist — and
-  // where this section currently hard-crashes the test child
-  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
-  // Windows story for copy/set_permissions/read_link).
-  if(platform == Platform.Windows, {
-    unsafe(printf("  skipped on windows\n"));
-    return(());
-  });
+  // Contents and byte count are asserted on EVERY platform (the 2026-08-27
+  // Windows child crash in this path went away with the async-runtime race
+  // fixes since). The permission-bit round-trip is POSIX-only: Windows'
+  // _wchmod keeps just the read-only bit, so a copied mode reads back 0o666,
+  // never 0o600 (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
   exn := Exception(
     throw : (
       err -> {
@@ -212,21 +245,20 @@ test("copy copies contents, permission bits and returns the byte count", {
   assert(n == u64(21), "byte count (multibyte é = 2 bytes)");
   got := io.await(fs_file.read_to_string(dst_p, io), e);
   assert(got == `copy me, préserve me`, "contents copied");
-  md := io.await(fs_metadata.metadata(dst_p, io), e);
-  assert((md.mode() & u32(4095)) == u32(384), "0o600 permission bits copied");
+  if(platform != Platform.Windows, {
+    md := io.await(fs_metadata.metadata(dst_p, io), e);
+    assert((md.mode() & u32(4095)) == u32(384), "0o600 permission bits copied");
+  });
   io.await(fs_dir.remove_file(src_p, io), e);
   io.await(fs_dir.remove_file(dst_p, io), e);
 });
 test("remove_dir_all removes a nested tree (files, subdirs, symlink as link)", {
-  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
-  // trees): skipped on Windows, where these semantics do not exist — and
-  // where this section currently hard-crashes the test child
-  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
-  // Windows story for copy/set_permissions/read_link).
-  if(platform == Platform.Windows, {
-    unsafe(printf("  skipped on windows\n"));
-    return(());
-  });
+  // The plain nested tree is removed on EVERY platform. The symlink-as-link
+  // half is POSIX-only: creating a symlink needs SeCreateSymbolicLinkPrivilege
+  // on Windows (fs_dir.symlink throws EPERM without it), and a junction there
+  // is a directory the walker would follow into the target, so the
+  // link-not-target contract is not expressible
+  // (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
   exn := Exception(
     throw : (
       err -> {
@@ -242,25 +274,54 @@ test("remove_dir_all removes a nested tree (files, subdirs, symlink as link)", {
   io.await(fs_dir.create_dir_all(sub, io), e);
   io.await(fs_file.write_string(Path.new(path_join(base.clone(), `s3_rda_root/a.txt`.to_string())), `a`.to_string(), io), e);
   io.await(fs_file.write_string(Path.new(path_join(base.clone(), `s3_rda_root/sub/deeper/b.txt`.to_string())), `b`.to_string(), io), e);
-  // A symlink to a file OUTSIDE the tree: it must be removed as a LINK.
-  outside := Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string()));
-  io.await(fs_file.write_string(outside, `survives`.to_string(), io), e);
-  io.await(fs_dir.symlink(outside, Path.new(path_join(base.clone(), `s3_rda_root/sub/link`.to_string())), io), e);
+  if(platform != Platform.Windows, {
+    // A symlink to a file OUTSIDE the tree: it must be removed as a LINK.
+    outside := Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string()));
+    io.await(fs_file.write_string(outside, `survives`.to_string(), io), e);
+    io.await(fs_dir.symlink(outside, Path.new(path_join(base.clone(), `s3_rda_root/sub/link`.to_string())), io), e);
+  });
   io.await(fs_walker.remove_dir_all(root, io), e);
   gone := io.await(fs_file.exists(root, io), io);
   assert(gone == false, "tree fully removed");
-  still := io.await(fs_file.exists(outside, io), io);
-  assert(still, "symlink TARGET untouched");
-  io.await(fs_dir.remove_file(outside, io), e);
+  if(platform != Platform.Windows, {
+    still := io.await(fs_file.exists(Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string())), io), io);
+    assert(still, "symlink TARGET untouched");
+    io.await(fs_dir.remove_file(Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string())), io), e);
+  });
 });
-test("read_link returns the symlink target; a non-link throws", {
-  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
-  // trees): skipped on Windows, where these semantics do not exist — and
-  // where this section currently hard-crashes the test child
-  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
-  // Windows story for copy/set_permissions/read_link).
+test("read_link returns the link target", {
+  // POSIX: a symlink via fs_dir.symlink. Windows: a junction via
+  // `cmd /c mklink /J` (a mount-point reparse point — the unprivileged link
+  // form); read_link must answer the TARGET the link stores, not the link's
+  // own path (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
   if(platform == Platform.Windows, {
-    unsafe(printf("  skipped on windows\n"));
+    exn := Exception(
+      throw : (
+        err -> {
+          assert(false, "unexpected exception");
+          unwind(());
+        }
+      )
+    );
+    e := IoExn(io : io, exn : exn);
+    base := temp_dir();
+    target := Path.new(path_join(base.clone(), `s3_rl_target_dir`.to_string()));
+    link := Path.new(path_join(base.clone(), `s3_rl_junction`.to_string()));
+    _remove_stale_dir(link, io);
+    _remove_stale_dir(target, io);
+    io.await(fs_dir.create_dir(target, io), e);
+    ok := _make_junction(link, target, io);
+    assert(ok, "mklink /J created the junction");
+    got := io.await(fs_dir.read_link(link, io), e);
+    // Path.to_string renders `/`-separated on every platform, and mklink
+    // stored the backslash spelling of the SAME target, so the plain
+    // comparison (like the POSIX arm below) is the right one.
+    assert(got.to_string() == target.to_string(), "junction target read back");
+    io.await(fs_dir.remove_dir(link, io), e);
+    // Removing a junction removes the LINK, never the target.
+    still := io.await(fs_file.exists(target, io), io);
+    assert(still, "junction target untouched by remove_dir");
+    io.await(fs_dir.remove_dir(target, io), e);
     return(());
   });
   exn := Exception(
@@ -283,15 +344,11 @@ test("read_link returns the symlink target; a non-link throws", {
   io.await(fs_dir.remove_file(target, io), e);
 });
 test("read_link on a non-link throws", {
-  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
-  // trees): skipped on Windows, where these semantics do not exist — and
-  // where this section currently hard-crashes the test child
-  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
-  // Windows story for copy/set_permissions/read_link).
-  if(platform == Platform.Windows, {
-    unsafe(printf("  skipped on windows\n"));
-    return(());
-  });
+  // Runs on EVERY platform: a regular file is not a reparse point, so
+  // FSCTL_GET_REPARSE_POINT reports ERROR_NOT_A_REPARSE_POINT -> EINVAL
+  // (Windows), readlink answers EINVAL (POSIX). Before the Windows fix the
+  // shim answered the file's own \\?\-prefixed path instead of throwing
+  // (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
   exn := Exception(
     throw : (
       err -> {
@@ -315,15 +372,10 @@ test("read_link on a non-link throws", {
   assert(false, "read_link on a regular file must throw");
 });
 test("try_exists: true, false for absent, THROWS for a denied parent", {
-  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
-  // trees): skipped on Windows, where these semantics do not exist — and
-  // where this section currently hard-crashes the test child
-  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
-  // Windows story for copy/set_permissions/read_link).
-  if(platform == Platform.Windows, {
-    unsafe(printf("  skipped on windows\n"));
-    return(());
-  });
+  // Present/absent run on EVERY platform. The denied-parent arm is inside
+  // the POSIX-only block below: a chmod-0 directory does not deny traversal
+  // under Windows ACLs, so the contract is not expressible there
+  // (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
   exn := Exception(
     throw : (
       err -> {
@@ -342,11 +394,10 @@ test("try_exists: true, false for absent, THROWS for a denied parent", {
   io.await(fs_dir.remove_file(here, io), e);
 });
 test("try_exists THROWS for a denied parent instead of answering false", {
-  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
-  // trees): skipped on Windows, where these semantics do not exist — and
-  // where this section currently hard-crashes the test child
-  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
-  // Windows story for copy/set_permissions/read_link).
+  // POSIX-only: the contract is built on a chmod-0 directory, which Windows
+  // ACLs do not express (a mode-0 dir there still allows enumeration, so
+  // try_exists correctly answers false rather than throwing)
+  // (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
   if(platform == Platform.Windows, {
     unsafe(printf("  skipped on windows\n"));
     return(());
@@ -381,11 +432,8 @@ test("try_exists THROWS for a denied parent instead of answering false", {
   assert(false, "denied parent must throw");
 });
 test("try_exists denied-dir cleanup", {
-  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
-  // trees): skipped on Windows, where these semantics do not exist — and
-  // where this section currently hard-crashes the test child
-  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
-  // Windows story for copy/set_permissions/read_link).
+  // POSIX-only companion of the test above (the denied dir only exists
+  // there) (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
   if(platform == Platform.Windows, {
     unsafe(printf("  skipped on windows\n"));
     return(());

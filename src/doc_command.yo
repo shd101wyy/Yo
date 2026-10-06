@@ -32,7 +32,7 @@
 { render_doc_json_string } :: import("./doc/render_json.yo");
 { render_doc_site } :: import("./doc/render_html.yo");
 { DocModel, DocModule } :: import("./doc/model.yo");
-{ ModuleLoadOutcome, mm_load_file, resolve_std_path } :: import("./module_manager.yo");
+{ ModuleLoadOutcome, mm_load_file, resolve_std_path, prefer_entry_std_root } :: import("./module_manager.yo");
 { MANIFEST_FILENAME, file_exists_sync, load_manifest } :: import("./manifest.yo");
 /// Options for `run_doc`; options that may be absent are "" here.
 DocCommandOptions :: struct(
@@ -491,6 +491,11 @@ run_doc :: (
   plural := if(files.len() == usize(1), String.new(), `s`);
   println(`Found ${files.len()} file${plural}`);
   project_name := if(options.title.len() > usize(0), options.title.clone(), _infer_project_name(base_path.clone(), io, exn));
+  // Same rule as `check`: documenting a std tree (`yo doc ./std`) must
+  // evaluate it against its own root, not the bundled std an installed
+  // binary finds beside itself
+  // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   println(`Generating documentation...`);
   modules := ArrayList(DocModule).new();

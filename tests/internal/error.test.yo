@@ -16,6 +16,8 @@ import("std/fmt");
 { TokenKind, Token } :: import("../../src/token.yo");
 json :: import("std/encoding/json");
 { assert, panic } :: import("std/assert");
+{ Exception } :: import("std/error");
+{ codegen_fatal, raise_codegen_error, clear_codegen_error } :: import("../../src/codegen/constants.yo");
 {
   TokenAndError,
   TokenAndWarning,
@@ -31,7 +33,9 @@ json :: import("std/encoding/json");
   format_error_message_with_help,
   format_error_message_with_repair,
   reanchor_primary_at,
-  with_code
+  with_code,
+  format_coded_error,
+  primary_diagnostic_code
 } :: import("../../src/error.yo");
 {
   Severity,
@@ -47,7 +51,8 @@ json :: import("std/encoding/json");
   take_warnings,
   take_user_warnings,
   set_color_enabled,
-  suggest_name
+  suggest_name,
+  E_DEP_FETCH_FAILED
 } :: import("../../src/diagnostics.yo");
 // Build a dummy token for testing.
 make_token :: (fn(module_path : String, input : String, row : usize, column : usize, value : String) -> Token)(
@@ -136,6 +141,66 @@ test("format_raw_error anchors the path without a snippet", {
   s := render_diagnostics_human(format_raw_error(`e.yo`, `unexpected end of input`).diagnostics);
   expected := `error: unexpected end of input\n  --> e.yo:1:1`;
   assert(s == expected, `raw diagnostic, got:\n${s}`);
+});
+// ─── format_coded_error: the span-less coded raise (E13xx/E15xx bands) ───────
+// The dependency toolchain's failures and the ICE wrapper have no source
+// span; their code is named by the raise site, and the rendered block is the
+// header plus the explain tail — no `-->` anchor
+// (issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md).
+test("format_coded_error carries the raise site's code with no span block", {
+  err := format_coded_error(
+    E_DEP_FETCH_FAILED,
+    `--offline: "m" needs the tags of https://example.com/mirror, and the cache has no tag list for it`
+  );
+  match(
+    primary_diagnostic_code(dyn(err)),
+    .Some(c) => assert(c == "E1501", "the code the raise site named"),
+    .None => assert(false, "the coded error must carry a code")
+  );
+  s := render_diagnostics_human(err.diagnostics);
+  expected := `error[E1501]: --offline: "m" needs the tags of https://example.com/mirror, and the cache has no tag list for it\nhelp: run \`yo explain E1501\` for more information`;
+  assert(s == expected, `cli error render, got:\n${s}`);
+  assert(
+    render_diagnostics_json(err.diagnostics).contains(String.from("\"code\":\"E1501\"")),
+    "--error-format json carries the code"
+  );
+});
+// ─── the ICE wrapper is coded E1301 (the E13xx band) ──────────────────────────
+// codegen_fatal wraps an emitter precondition failure; since the E13xx
+// allocation it is a coded diagnostic, so an agent's error router can tell a
+// compiler bug from a user error without string-matching the prefix.
+test("codegen_fatal records an E1301-coded diagnostic", {
+  clear_codegen_error();
+  codegen_fatal(`emitter reached a builtin with the wrong arity`);
+  exn := Exception(
+    throw : (
+      err -> {
+        clear_codegen_error();
+        match(
+          downcast(err, YoError),
+          .Some(ye) => match(
+            ye.diagnostics.get(usize(0)),
+            .Some(d) => {
+              match(
+                d.code,
+                .Some(c) => assert(c == "E1301", `the ICE is E1301, got ${c}`),
+                .None => assert(false, "the ICE carries no code")
+              );
+              assert(
+                d.message.contains(String.from("internal compiler error")),
+                "the ICE prefix is kept"
+              );
+            },
+            .None => assert(false, "a diagnostic group must have an entry")
+          ),
+          .None => assert(false, `the ICE must be a coded YoError, got: ${err}`)
+        );
+        unwind(());
+      }
+    )
+  );
+  raise_codegen_error(exn);
+  assert(false, "raise_codegen_error must throw once an error is recorded");
 });
 // ─── the code field renders as [EXXXX] (filled by P2) ────────────────────────
 test("a coded diagnostic renders error[E0308] in both renderers", {

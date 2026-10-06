@@ -63,7 +63,7 @@ with `yo verify` — the report is designed for machine consumption:
 
 ## High-signal rules
 
-- `yo init` scaffolds `yo.toml` (the package manifest), `build.yo`, `src/`, and `tests/`.
+- `yo init` scaffolds `yo.toml` (the package manifest), `build.yo`, `src/`, `tests/`, and `spec/` (the claims wall README plus a seed law, so `yo verify ./spec --strict` is green from the first commit).
 - `build.yo` is Yo code that imports `std/build`; build functions register compile-time steps.
 - `yo build run` and `yo build test` are the standard project entry points.
 - `yo test ./tests/some.test.yo --parallel 1` is the focused single-file test pattern.

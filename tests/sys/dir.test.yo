@@ -2,6 +2,7 @@ pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not availabl
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { printf, rename } :: import("std/libc/stdio");
+{ memcmp } :: import("std/libc/string");
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
 import("std/string");
@@ -97,9 +98,14 @@ test("async symlink and readlink", {
   readlink_buf := (*u8)(malloc(usize(256)).unwrap());
   rl_result := dir.readlink(AT_FDCWD, link_path, readlink_buf, usize(256));
   unsafe(printf("  readlink = %d\n", rl_result));
-  assert(!sym_ok || (rl_result > i32(0)));
-  first_byte := (readlink_buf.add(usize(0))).*;
-  assert(!sym_ok || ((first_byte == u8(47)) || (first_byte == u8(92))));
+  // readlink answers the target exactly as the link stores it — here the
+  // absolute target path, byte for byte, on every platform. (This used to
+  // assert only a leading '/' or '\': the old Windows shim answered the
+  // link's resolved, `\\?\`-prefixed path; the reparse-point readlink strips
+  // that prefix, so a drive path starts with its letter —
+  // issues/fixed/s3-fs-wrappers-windows-semantics-audit.md.)
+  assert(!sym_ok || (rl_result == i32(target_str.len())), `readlink length: got ${rl_result}, want ${target_str.len()}`);
+  assert(!sym_ok || (unsafe(memcmp((*void)(readlink_buf), (*void)(target), target_str.len())) == int(0)), "readlink must answer the stored target");
   fd2 := io.await(openat(AT_FDCWD, link_path, O_RDONLY, i32(0)), io);
   unsafe(printf("  open via link = %d\n", fd2));
   assert(!sym_ok || (fd2 >= i32(0)));

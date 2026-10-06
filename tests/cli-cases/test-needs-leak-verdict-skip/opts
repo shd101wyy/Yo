@@ -1,0 +1,15 @@
+# REGRESSION GATE for
+# issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md.
+#
+# `YO_TEST_LEAK_VERDICT=0` is exactly what every CI job sets — the staging
+# ratchet for the self-hosted-emit leak debt. Under it, a test whose only
+# failure mode is the LeakSanitizer verdict runs green no matter what it
+# leaks. The fix: a test file declares `pragma(Pragma.NeedsLeakVerdict);` and
+# the runner SKIPS that file with a line that says why, while files without
+# the pragma keep running — so `N passed` stops overstating coverage.
+#
+# The golden keeps only the verdict lines: batch compiles emit clang warnings
+# and an ASan-availability note whose text moves with the host.
+env=YO_TEST_LEAK_VERDICT=0
+stdout_keep=^(\$ yo |rc=|Skipping [0-9]+ test file|.*[0-9]+ passed)
+timeout=600

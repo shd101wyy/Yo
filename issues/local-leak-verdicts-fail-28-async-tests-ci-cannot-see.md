@@ -5,7 +5,7 @@ re-measure below found the whole family.)
 
 **Severity:** S2 — every `Stream ... .for_each(...)` use leaks a 32-byte object plus a 16-byte inner allocation; a long-running consumer loop grows without bound
 
-**Found**: 2026-10-01, running the local fast suite for the safe-mode audit PR — `yo test ./tests --exclude tests/internal --exclude tests/cli-cases` with leak verdicts ON (their default outside CI) fails `tests/async/combinators.test.yo`. **Status**: OPEN. Reproduces with the installed v0.2.48 seed binary, so it predates 2026-10-01's async merges; CI has never seen it because every CI job sets `YO_TEST_LEAK_VERDICT=0` (`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md` — the hollow-gate issue).
+**Found**: 2026-10-01, running the local fast suite for the safe-mode audit PR — `yo test ./tests --exclude tests/internal --exclude tests/cli-cases` with leak verdicts ON (their default outside CI) fails `tests/async/combinators.test.yo`. **Status**: OPEN. Reproduces with the installed v0.2.48 seed binary, so it predates 2026-10-01's async merges; CI has never seen it because every CI job sets `YO_TEST_LEAK_VERDICT=0` (`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md` — the hollow-gate issue).
 
 ## Symptom
 

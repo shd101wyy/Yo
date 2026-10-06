@@ -1735,6 +1735,30 @@ _write_stamp :: (fn(path : String, stamp : String, io : Io) -> Impl(Future(unit,
     )
   })
 );
+/// The `--optimize <level>` value a registered artifact's level maps to; ""
+/// (debug, the default) adds no flag, so the child compiles at its -O0
+/// default. The three release levels map to three DISTINCT cc levels:
+/// release-small is `s` — `-Os`, size-oriented, present in clang, gcc,
+/// zig cc and emcc alike (gcc alone lacks `-Oz`, so `z` is not offered).
+/// Until 2026-10-03 release-small mapped to "2" as well, making its build
+/// byte-identical to release-safe's
+/// (issues/fixed/build-release-small-is-identical-to-release-safe.md).
+optimize_level_for :: (fn(level : String) -> String)(
+  cond(
+    (level == "release-safe") => String.from("2"),
+    (level == "release-fast") => String.from("3"),
+    (level == "release-small") => String.from("s"),
+    true => String.new()
+  )
+);
+export(optimize_level_for);
+/// Whether the child compile gets `--debug-symbols` (`-g`) for this level.
+/// Debug's contract is `-O0 -g` — "No optimizations, full debug info" — and
+/// a build file has no other flag that reaches the child compile's -g, so
+/// Debug forwards it here. The release levels document no debug info and
+/// stay lean.
+level_wants_debug_symbols :: (fn(level : String) -> bool)(level == "debug");
+export(level_wants_debug_symbols);
 compile_artifact :: (
   fn(
     artifact : BuildArtifact,
@@ -1956,21 +1980,24 @@ compile_artifact :: (
       i = (i + usize(1));
     });
     // Forward the artifact's compile options — the §9 debt in
-    // plans/archive/P1_CLI_PARITY.md. The option mapping: `release` is true
-    // for every level except debug/release-safe, optimize sends
-    // release-safe/-small to -O2 and release-fast to -O3, allocator is passed
-    // unconditionally, sanitize only when not "none".
+    // plans/archive/P1_CLI_PARITY.md. The option mapping: optimize sends
+    // release-safe to -O2, release-fast to -O3 and release-small to -Os
+    // (optimize_level_for above — three DISTINCT levels), allocator is
+    // passed unconditionally, sanitize only when not "none".
     // Only `--optimize <level>` is emitted: `yo compile` has no `--release`
     // flag any more (it was a pure alias of `--optimize 2`, removed 2026-08-28).
-    optimize_num := cond(
-      (artifact.optimize == "release-safe") => String.from("2"),
-      (artifact.optimize == "release-fast") => String.from("3"),
-      (artifact.optimize == "release-small") => String.from("2"),
-      true => String.new()
-    );
-    if(optimize_num.len() > usize(0), {
+    optimize_val := optimize_level_for(artifact.optimize.clone());
+    if(optimize_val.len() > usize(0), {
       cmd.arg(String.from("--optimize"));
-      cmd.arg(optimize_num);
+      cmd.arg(optimize_val);
+    });
+    // Debug's documented build is `-O0 -g` ("full debug info"), and a build
+    // file has no other flag that reaches the child compile's -g — so the
+    // Debug level forwards --debug-symbols here. The release levels stay
+    // lean; `strip: true` remains available for a Debug artifact that wants
+    // the symbols gone again.
+    if(level_wants_debug_symbols(artifact.optimize.clone()), {
+      cmd.arg(String.from("--debug-symbols"));
     });
     cmd.arg(String.from("--allocator"));
     cmd.arg(artifact.allocator.clone());
@@ -2004,7 +2031,7 @@ compile_artifact :: (
       // libraries (run_compile rejects the combination), `emit_c_to` (one C
       // file is the contract), and wasm (chunked wasm is out of scope).
       // YO_JOBS=1 is the opt-out: it caps auto at one chunk.
-      if(!is_lib && (optimize_num.len() == usize(0)) && (artifact.emit_c_to.len() == usize(0))
+      if(!is_lib && (optimize_val.len() == usize(0)) && (artifact.emit_c_to.len() == usize(0))
       && !effective_target.starts_with(String.from("wasm")), {
         cmd.arg(String.from("--emit-chunks"));
         cmd.arg(String.from("auto"));
