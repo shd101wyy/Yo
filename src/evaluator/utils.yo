@@ -3531,9 +3531,13 @@ _lb_has_repoint :: (fn(e : AstExpr, name : String) -> bool)(
       });
       (i : usize) = usize(0);
       while(i < args.len(), {
-        match(args.get(i), .Some(a) => if(_lb_has_repoint(a, name.clone()), {
-          return(true);
-        }), .None => ());
+        match(
+          args.get(i),
+          .Some(a) => if(_lb_has_repoint(a, name.clone()), {
+            return(true);
+          }),
+          .None => ()
+        );
         i = (i + usize(1));
       });
       false

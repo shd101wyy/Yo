@@ -2119,11 +2119,13 @@ _evaluate_begin_expression_impl :: (
         ctx.local_borrow_result_chain_tail,
         .Some(chain_id) => {
           ctx.local_borrow_result_chain_tail = Option(ExprId).None;
-          is_result_chain_block = ((ast_expr_id(expr) == chain_id) && match(
-            ctx.is_evaluating_function_body_or_async_block,
-            .Some(chain_fb2) => match(chain_fb2.kind, .TestBlock => false, _ => true),
-            .None => false
-          ));
+          is_result_chain_block = (
+            (ast_expr_id(expr) == chain_id) && match(
+              ctx.is_evaluating_function_body_or_async_block,
+              .Some(chain_fb2) => match(chain_fb2.kind, .TestBlock => false, _ => true),
+              .None => false
+            )
+          );
         },
         .None => ()
       );

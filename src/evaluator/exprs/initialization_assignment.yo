@@ -641,11 +641,13 @@ evaluate_local_borrow_repoint :: (fn(expr : AstExpr, env_in : Environment, ctx :
     }
   );
   is_self := ((root_var.name == info.name) && ((root_var.token.character == info.decl.character) && (root_var.token.module_path == info.decl.module_path)));
-  via_pattern := (!is_self && match(
-    local_borrow_pattern_source(root_var.name.clone(), root_var.token),
-    .Some(src) => ((src.name == info.name) && ((src.decl.character == info.decl.character) && (src.decl.module_path == info.decl.module_path))),
-    .None => false
-  ));
+  via_pattern := (
+    !is_self && match(
+      local_borrow_pattern_source(root_var.name.clone(), root_var.token),
+      .Some(src) => ((src.name == info.name) && ((src.decl.character == info.decl.character) && (src.decl.module_path == info.decl.module_path))),
+      .None => false
+    )
+  );
   if(!is_self && !via_pattern, {
     what := cond(
       root_var.is_module_level => `\`${root_var.name}\` is a module-level binding`,

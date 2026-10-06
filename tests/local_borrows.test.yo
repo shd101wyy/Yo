@@ -85,11 +85,14 @@ test("a borrow's last use in one arm leaves the other arm free", {
   x := i32(1);
   c := runtime(true);
   mut(y) := x;
-  cond(c => {
-    y = i32(2);
-  }, true => {
-    x = i32(3);
-  });
+  cond(
+    c => {
+      y = i32(2);
+    },
+    true => {
+      x = i32(3);
+    }
+  );
   assert(x == i32(2), "the first arm wrote through y");
 });
 test("a borrow declared in a loop body is fresh each iteration", {
@@ -137,9 +140,13 @@ test("an object field borrow pins the object; the cell is the unit", {
 append :: (fn(mut(list) : List, v : i32) -> unit)({
   mut(cur) := list.head;
   while(cur.is_some(), {
-    match(cur, .Some(n) => {
-      mut(cur) = n.next;
-    }, .None => ());
+    match(
+      cur,
+      .Some(n) => {
+        mut(cur) = n.next;
+      },
+      .None => ()
+    );
   });
   cur = .Some(box(Node(value : v, next : .None)));
 });
@@ -147,22 +154,30 @@ sum_list :: (fn(imm(list) : List) -> i32)({
   (total : i32) = i32(0);
   imm(cur) := list.head;
   while(cur.is_some(), {
-    match(cur, .Some(n) => {
-      total = (total + n.value);
-      imm(cur) = n.next;
-    }, .None => ());
+    match(
+      cur,
+      .Some(n) => {
+        total = (total + n.value);
+        imm(cur) = n.next;
+      },
+      .None => ()
+    );
   });
   total
 });
 first_over :: (fn(imm(list) : List, k : i32) -> i32)({
   imm(cur) := list.head;
   while(cur.is_some(), {
-    match(cur, .Some(n) => {
-      if(n.value > k, {
-        return(n.value);
-      });
-      imm(cur) = n.next;
-    }, .None => ());
+    match(
+      cur,
+      .Some(n) => {
+        if(n.value > k, {
+          return(n.value);
+        });
+        imm(cur) = n.next;
+      },
+      .None => ()
+    );
   });
   i32(-1)
 });
@@ -387,9 +402,13 @@ comptime_expect_error(
   repoint_keeps_the_mode :: (fn() -> unit)({
     l1 := List(head : .None);
     imm(cur) := l1.head;
-    match(cur, .Some(n) => {
-      mut(cur) = n.next;
-    }, .None => ());
+    match(
+      cur,
+      .Some(n) => {
+        mut(cur) = n.next;
+      },
+      .None => ()
+    );
   }),
   "so a re-point keeps that mode"
 );
@@ -405,11 +424,15 @@ comptime_expect_error(
   repoint_while_a_derived_borrow_is_live_rejected :: (fn() -> unit)({
     l1 := List(head : .None);
     mut(cur) := l1.head;
-    match(cur, .Some(n) => {
-      imm(d) := cur;
-      mut(cur) = n.next;
-      _b := d.is_some();
-    }, .None => ());
+    match(
+      cur,
+      .Some(n) => {
+        imm(d) := cur;
+        mut(cur) = n.next;
+        _b := d.is_some();
+      },
+      .None => ()
+    );
   }),
   "Cannot re-point `cur` here"
 );
@@ -418,9 +441,13 @@ comptime_expect_error(
     l1 := List(head : .None);
     mut(cur) := l1.head;
     while(cur.is_some(), {
-      match(cur, .Some(n) => {
-        mut(cur) = n.next;
-      }, .None => ());
+      match(
+        cur,
+        .Some(n) => {
+          mut(cur) = n.next;
+        },
+        .None => ()
+      );
       l1.head = .None;
     });
     cur = .None;
@@ -506,7 +533,7 @@ ret_scalar :: (fn() -> i32)({
 ret_through_op :: (fn() -> i32)({
   x := i32(1);
   imm(y) := x;
-  (y + i32(0))
+  y + i32(0)
 });
 test("copying a borrow out before returning the copy is the way out", {
   assert(ret_scalar() == i32(1), "`v := y` reads through the borrow and v owns the copy");
