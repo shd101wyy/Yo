@@ -103,6 +103,9 @@ _CtBare :: struct(n : i32);
 _CtBareOf :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(item : T)
 );
+// A pointee field named like the pointer's own `clone`: the clash test.
+_CtCloneField :: struct(clone : (fn() -> i32));
+_ct_five :: (fn() -> i32)(i32(5));
 _ct_clone_any :: (fn(generic(T : Type), x : T, where(T <: Clone)) -> T)(x.clone());
 // `where(T <: Copy)` gives `T <: Clone` in the body (Copy's supertrait).
 _ct_clone_copy :: (fn(generic(T : Type), x : T, where(T <: Copy)) -> T)(x.clone());
@@ -266,6 +269,14 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   np := addr_of(n);
   (npc : *(i32)) = np.clone();
   assert(npc == np, "a raw pointer clones the address, not the pointee");
+});
+test("Copy: a raw pointer's clone and a pointee field named clone clash at p.clone()", {
+  h := _CtCloneField(clone : _ct_five);
+  hp := addr_of(h);
+  comptime_expect_error(hp.clone(), "is both a field of _CtCloneField and a method of the raw pointer");
+  assert(hp.*.clone() == i32(5), "p.*.clone() calls the pointee's field");
+  hq := hp;
+  assert(hq == hp, "q := p copies the pointer");
 });
 test("Copy: derive(T, Clone) is accepted beside Copy, in either order", {
   comptime_assert(Type.impls(_CtBoth, Copy) && Type.impls(_CtBoth, Clone), "derive(_CtBoth, Clone, Copy)");

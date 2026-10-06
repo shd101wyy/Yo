@@ -2716,31 +2716,55 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
 
 ### Decision 36: the `Copy` trait
 
-**Generation A (PR #COPY_PR, branch `feat/vbd-copy-trait`):**
-- **The trait.** `Copy :: trait(id := "Copy")` in `std/prelude.yo`, with
-  impls for `i8`…`u64`, `isize`, `usize`, `f32`, `f64`, `bool`, `char`, the
-  C number types (`short`…`ulonglong`, `longdouble`), `unit`, `str` and
-  `impl(generic(T : Type), *(T), Copy())`, plus `Option(T)` under
-  `where(T <: Copy)` and `Result(T, E)` under `where(T <: Copy, E <: Copy)`.
-  The v0.2.52 seed accepts all of them as an ordinary marker trait
-  (measured: `yo compile` of a `derive(Point, Copy)` program against the
-  tree's std).
+**Generation A (PR #COPY_PR, branch `feat/vbd-copy-trait`), with
+`Copy: Clone` (#1245, #1246) and the raw-pointer clash (#1247):**
+- **The trait.** `Copy :: trait(id := "Copy", where(Self <: Clone))` in
+  `std/prelude.yo`: `Clone` is its supertrait in the ordinary
+  `where(Self <: …)` form, which the v0.2.52 seed compiles (measured: a
+  `yo compile` against the tree's std of a `where(T <: Copy)` function
+  calling `x.clone()`). So the bound expansion needs no compiler code: a
+  type parameter's required traits already contribute their
+  `self_constraints` (`type_implements_trait`, the required-trait walk), and
+  the concrete impl path already checks them.
+- **Prelude impls, each directly after its `Clone` impl:** `i8`…`u64`,
+  `isize`, `usize`, `f32`, `f64`, `bool`, `char`, the C number types
+  (`short`…`ulonglong`, `longdouble`), `unit`; `str` and
+  `impl(generic(T : Type), *(T), …)`, whose `Clone` impls are new
+  (`__yo_return_self`, a copy of the view or the address); `Option(T)` under
+  `where(T <: Copy)` and `Result(T, E)` under `where(T <: Copy, E <: Copy)`,
+  after their `where(T <: Clone)` `Clone` impls.
   - **`fn` pointers** are structural, like tuples: no prelude impl can range
     over every signature, so `type_implements_trait` answers a `.Func` type
-    `Copy` directly.
+    `Copy` and `Clone` directly.
   - **`rune`** has no type of its own in Yo; `char` is the byte type, and
     gets the impl.
+- **Tuple `Clone`.** The prelude writes element-wise
+  `impl(generic(A…), where(A <: Clone, …), Tuple(A, …), Clone(...))` for
+  arities 1 to 12, as Rust does, so `t.clone()` dispatches.
 - **The derive rule.** `derive_rule(Copy, __derive_copy)` generates
   `impl(T, Copy())`, with the derive's `generic`/`where` for a generic type.
-- **Structural `Copy`** (`copy_structural_parts`,
+  `evaluate_derive` processes a `Copy` argument after the others, so
+  `derive(T, Copy, Clone)` registers the `Clone` impl first, in either
+  order.
+- **Structural `Copy` and `Clone`** (`copy_structural_parts`,
   `src/evaluator/trait_checking.yo`): a tuple, an `Array(T, N)`, a closure's
-  capture record, an anonymous record and a `fn` pointer are `Copy` exactly
-  when every part is. A closure is judged on its capture record, which in
-  Generation A holds values only; decision 38 A's rule for `imm`/`mut`
-  captures (an `imm`-only closure is `Copy` and second-class, a `mut` one is
-  never `Copy`) lands with decision 35's capture list.
+  capture record, an anonymous record and a `fn` pointer are `Copy`
+  (`Clone`) exactly when every part is. A closure is judged on its capture
+  record, which in Generation A holds values only; decision 38 A's rule for
+  `imm`/`mut` captures lands with decision 35's capture list.
+  - **Dispatch gap:** `.clone()` on an anonymous record, a closure or a
+    `fn` pointer has no method yet, although `Type.impls(_, Clone)` holds
+    (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
 - **The impl check** (`_copy_impl_violation_msg`, on both the concrete and
   the generic impl paths through the receiver-kind gate):
+  - **a `Clone` impl must cover the type** (`_copy_without_clone_msg`): for
+    a generic receiver pattern, `Pair(T)` under the `Copy` impl's own
+    `where(T <: Copy)` must be `Clone`, which `T <: Copy` giving
+    `T <: Clone` decides. A `Clone` impl pending later in the module is
+    forced first. The error names `derive(T, Copy, Clone)` and
+    `derive(T, Clone)` beside `impl(T, Copy())`; the compiler never writes
+    the impl. The prelude's own scalar, `str` and pointer impls take the
+    same check;
   - every field and variant payload must be `Copy`; the error names the
     first that is not ("its field `name` has type `String`, which does not
     implement required trait "Copy"", E0602). A part whose own `Copy` impl
@@ -2751,66 +2775,53 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - a reference type cannot be `Copy`; a tuple, array, closure, anonymous
     record or `fn` pointer cannot declare it; anything else that is not a
     value nominal type (a blanket `T`, `Dyn`, a C opaque type) cannot
-    either. The builtin scalars, `str`, `unit` and raw pointers pass (only
-    the prelude can implement them; elsewhere coherence rejects a second
-    impl).
-  - `derive(T, Copy)` is an ordered statement, so it sees the `Copy` impls
-    registered above it; `impl(T, Copy())` is order-independent.
-- **The compiler-supplied `clone()`.**
-  - `type_implements_trait(T, Clone)` holds for every `Copy` `T` (and for a
-    type parameter bounded by `Copy`), except a raw pointer, whose
-    `p.clone()` reaches the pointee through auto-dereference.
-  - The first `clone` lookup that misses on a `Copy` type registers
-    `impl(T, Clone(clone : ((self) -> __yo_return_self(self))))` for that
-    concrete type (`supply_copy_clone_impl`, `src/evaluator/values/impl.yo`,
-    called from `_try_find_receiver_method`). It is on demand and per type:
-    a generic `Copy` impl's instances (`Pair(i32)`) each get one when first
-    cloned, and the generic impl registers no `Clone` of its own, because
-    method dispatch does not enforce a constructed pattern's `where`
-    clause (a generic `(self) -> self` would also have served
-    `Pair(String)`).
-  - A type with no nominal id (a tuple, an array, a closure) has no
-    registry entry to hold the impl, so `t.clone()` on a `Copy` tuple
-    still has no method. Generation B gives the structural kinds a
-    builtin `clone`.
-- **`Copy` and `Clone`** (the 2026-10-06 amendment, #1244):
-  - `derive(T, Clone)` beside `Copy` is accepted, in either order. A
-    derive is told from a hand-written impl by its `Clone(...)` token: a
-    derive's comes from the prelude template.
+    either.
+  - A `derive` is an ordered statement, so `derive(T, Clone)` must come
+    before an `impl(T, Copy())` that needs it; `impl(T, Copy())` is
+    order-independent for its fields' `Copy` impls.
+- **The hand-written-`Clone` rule** (#1244, kept by #1245):
+  - `derive(T, Clone)` is always accepted. A derive is told from a
+    hand-written impl by its `Clone(...)` token: a derive's comes from the
+    prelude template, and the prelude's own impls are exempt.
   - **A hand-written `Clone` is E0612 only where every instantiation it
     serves is `Copy`** (`_check_copy_clone_exclusion`,
     `_check_generic_copy_clone_exclusion`, `src/evaluator/values/impl.yo`):
     a concrete `Copy` type, or a generic `Clone` impl whose receiver
-    pattern is `Copy` under the `Clone` impl's own bounds (an unbounded
-    `Copy` impl, or a `Clone` restricted to `where(T <: Copy)`). Either
-    order is caught: a later `Copy` impl re-tests the hand-written `Clone`
-    impls recorded so far. The error names `derive(T, Clone)` and "no
-    `Clone` at all".
+    pattern is `Copy` under the `Clone` impl's own bounds. Either order is
+    caught: a later `Copy` impl re-tests the hand-written `Clone` impls
+    recorded so far. The error names `derive(T, Clone)`.
   - A generic hand-written `Clone` that also serves non-`Copy`
     instantiations (`where(T <: Clone)`, the prelude `Option(T)`'s) is
     allowed.
-  - **Staged:** the prelude counts as derive-like in Generation A. Its
-    primitives keep their written-out `Clone` impls (`__yo_return_self`),
-    because the seed does not supply `clone()`.
+- **The raw-pointer clash** (#1247): `p.m(...)` through a raw pointer, where
+  the pointee has a field named a `Clone`/`Copy` member (`clone`) and
+  `*(T)` has that method, is an error naming `p.*.m(...)` for the pointee's
+  field and `q := p` for the pointer (`src/evaluator/exprs/property_access.yo`,
+  `get_pointer_own_methods_by_name_from_env`). Before this, the field won
+  silently. **Measured count of affected call sites: 0** (`check ./src`,
+  `check ./std`, the language suite and `tests/internal`, all green with
+  the error in place). The pointer's other own methods (`add`, `sub`,
+  `offset_from`) are outside decision 36 and keep today's resolution.
 - **The audit** (below) and **`tests/copy_trait.test.yo`**: the prelude
-  impls, a `derive(Point, Copy)` copy, `impl(T, Copy())` over a `String`
-  field, `Copy` plus `Dispose` and plus `MoveOnly` in both orders,
-  `derive(Point, Copy, Clone)` accepted, `Pair(T)` with `derive(Clone)` and
-  a conditional `Copy` at `i32` (implicit copy) and `String` (explicit
+  impls and their `Clone`s, a `derive(Point, Copy, Clone)` copy,
+  `derive(T, Clone, Copy)` in the other order, `derive(T, Copy)` alone and
+  `impl(T, Copy())` without `Clone` (concrete and generic) rejected,
+  `impl(T, Copy())` over a `String` field, `Copy` plus `Dispose` and plus
+  `MoveOnly` in both orders, `Pair(T)` with `derive(Clone)` and a
+  conditional `Copy` at `i32` (implicit copy) and `String` (explicit
   `.clone()`), `Option(i32)` staying `Copy` with its generic `Clone`, a
-  hand-written `Clone` on a concrete `Copy` type (both orders) and on an
-  unbounded generic `Copy` type, a generic
-  `where(T <: Copy)` operator impl, a tuple and a closure of `Copy` parts
-  copying implicitly, the supplied `clone()` through `ArrayList.clone`,
-  `Box.clone`, a `where(T <: Clone)` function and another type's method.
+  hand-written `Clone` on a concrete `Copy` type (both orders) and under an
+  unbounded generic `Copy` impl, a `where(T <: Copy)` body calling
+  `x.clone()` at a struct, a scalar and a tuple, tuple `.clone()` at
+  arities 1 and 2, `str` and raw-pointer `.clone()`, and the pointer clash.
 
 **Generation B** (once `SEED_VERSION` carries Generation A;
 `plans/backlog/SEED_VERSION_AUTOMATION.md`):
-1. **The sweep:** `yo fix` adds `derive(T, Copy)` to every named type the
-   audit lists (`needs=`), in `src/`, `std/`, `tests/`, docs and skills.
-2. **Delete the prelude's primitive `Clone` impls** and the prelude
-   exemption: the supplied `clone()` covers them. Give the structural
-   kinds a builtin `clone`.
+1. **The sweep:** `yo fix` adds `derive(T, Copy, Clone)` (or `Copy` beside
+   an existing `Clone`) to every named type the audit lists (`needs=`), in
+   `src/`, `std/`, `tests/`, docs and skills.
+2. **Structural `clone()` dispatch** for anonymous records, closures and
+   `fn` pointers (the issue above), if it has not landed earlier.
 3. **The flip:** `type_requires_explicit_copy(T)` becomes `!(T <: Copy)`
    for named types; compile-time-only types stay outside the predicate.
    - **Ordering with V3b's flip:** V3b's sweep keeps a plain parameter
@@ -2821,8 +2832,8 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
    plain declaration with no `Clone`.
 5. **Tests that need the flip:** a plain struct without `Copy` moves at
    `q := p`, and a later use of `p` is E0901 with a note naming
-   `derive(T, Copy)` and `p.clone()`; a by-value argument of one is a move;
-   an `imm`-only closure is `Copy` and second-class (decision 38 A).
+   `derive(T, Copy, Clone)` and `p.clone()`; a by-value argument of one is
+   a move; an `imm`-only closure is `Copy` and second-class (decision 38 A).
 
 ### V2: the collections become values
 
