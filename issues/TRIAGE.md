@@ -46,8 +46,8 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 24 |
-| S2 | 86 |
-| S3 | 58 |
+| S2 | 84 |
+| S3 | 60 |
 
 ## Design questions (issues/questions/)
 
@@ -315,6 +315,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
+| [`a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md`](./a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md) | S3 | — | — |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
 | [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
@@ -326,9 +327,9 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`](./a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md) | S1 | — | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
-| [`an-async-state-machine-slot-lookup-ignores-the-capture-struct-for-outer-variables.md`](./an-async-state-machine-slot-lookup-ignores-the-capture-struct-for-outer-variables.md) | S2 | — | — |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
+| [`an-io-async-state-machine-declares-dead-fields-for-a-nested-closure-parameter.md`](./an-io-async-state-machine-declares-dead-fields-for-a-nested-closure-parameter.md) | S3 | — | — |
 | [`an-io-await-with-the-wrong-effect-bundle-passes-check.md`](./an-io-await-with-the-wrong-effect-bundle-passes-check.md) | S3 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
 | [`arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md`](./arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md) | S3 | — | yes |
@@ -352,7 +353,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`](./parser-internal-tests-report-a-40-byte-lsan-leak-locally.md) | S3 | — | — |
 | [`prelude-methods-have-no-visibility-owner.md`](./prelude-methods-have-no-visibility-owner.md) | S3 | OPEN | — |
 | [`runtime-str-plus-str-passes-check-and-fails-compile.md`](./runtime-str-plus-str-passes-check-and-fails-compile.md) | S2 | — | — |
-| [`the-io-async-capture-re-kind-pass-matches-captures-by-name.md`](./the-io-async-capture-re-kind-pass-matches-captures-by-name.md) | S2 | — | — |
 | [`verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md`](./verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md) | S3 | — | — |
 | [`verify-prints-z3-error-lines-under-an-unproven-obligation.md`](./verify-prints-z3-error-lines-under-an-unproven-obligation.md) | S3 | — | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
