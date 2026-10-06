@@ -15,6 +15,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
+  ast_expr_is_capture_mode_entry,
   BK_ANON_STRUCT
 } :: import("../../expr.yo");
 {
@@ -112,6 +113,19 @@ evaluate_anonymous_struct_value :: (
   (i : usize) = usize(0);
   while(i < n, {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    // `imm(y)` / `mut(z)` (or `imm(y) : &p`) is a capture-list borrow entry
+    // (decision 35): it means something only before a closure's parameters.
+    entry_label := match(arg, .FnCall(_, _, ea, true, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), _ => arg);
+    if(ast_expr_is_capture_mode_entry(arg) || ast_expr_is_capture_mode_entry(entry_label), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg),
+            `\`${ast_expr_to_string(arg)}\` is a borrow entry of a closure's capture list, which is written before the closure's parameters: \`{ imm(y) }(x : i32) => ...\`. A record literal's field is \`name : value\`.`
+          )
+        )
+      );
+    });
     // Check if arg is a labeled pair `field: val` (infix `:` with 2 args)
     is_labeled := (
       ast_expr_is_fn_call(arg) &&

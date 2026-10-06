@@ -453,6 +453,21 @@ _is_captured_here :: (fn(key : ExprId, name : String, env_opt : Option(Environme
     .None => false
   )
 );
+/// The binding `name` resolves to at node `key` is a by-ref borrow (an
+/// `inout`/`mut` parameter or local, or a capture-list borrow).
+_scope_var_is_ref :: (fn(key : ExprId, name : String, env_opt : Option(Environment)) -> bool)(
+  match(
+    env_opt,
+    .Some(e) => {
+      vs := scope_variables(key, e, name);
+      cond(
+        (vs.len() == usize(0)) => false,
+        true => match(vs.last(), .Some(v) => v.is_ref, .None => false)
+      )
+    },
+    .None => false
+  )
+);
 /// Resolve a plain identifier read to its C code: the variable's C name, wrapped
 /// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
 /// the C level `name` is `T*`, so a read dereferences). The deref here means a by-ref RECEIVER passed/used as a value
@@ -703,21 +718,26 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       cap_name := tv.clone();
       is_captured := _is_captured_here(ast_expr_id(expr), cap_name.clone(), env_opt, context);
       cond(
-        is_captured => match(
-          context.current_closure_capture_type_c_name,
-          .Some(cap_ty) => {
-            out := String.from("((");
-            out.push_string(cap_ty);
-            out.push_str("*)closure_context)->");
-            out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), env_opt));
-            out
-          },
-          .None => {
-            out := String.from("closure_context->");
-            out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), env_opt));
-            out
-          }
-        ),
+        is_captured => {
+          field_read := match(
+            context.current_closure_capture_type_c_name,
+            .Some(cap_ty) => {
+              out := String.from("((");
+              out.push_string(cap_ty);
+              out.push_str("*)closure_context)->");
+              out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), env_opt));
+              out
+            },
+            .None => {
+              out := String.from("closure_context->");
+              out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), env_opt));
+              out
+            }
+          );
+          // A capture-list borrow (`imm(y)`, `mut(z)`, decision 35) is a
+          // pointer field: a read or a write goes through it.
+          if(_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), env_opt), `(*${field_read})`, field_read)
+        },
         // Non-variable atom with a comptime value → inline it. Use the
         // coerced runtime type when present (e.g. a comptime_str arg coerced
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).

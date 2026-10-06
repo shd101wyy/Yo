@@ -6,7 +6,7 @@
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, some_resolution, scope_variables } :: import("../../expr_info.yo");
+{ expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr_info.yo");
 { declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
@@ -185,6 +185,26 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
       data.push_string(sanitize_for_c_identifier(label.clone(), false));
       data.push_str(" = ");
       (field_code : Option(String)) = Option(String).None;
+      // A capture list's field (decision 35): its initializer was evaluated
+      // at the literal. A borrow entry stores the address of its place.
+      match(
+        expr_info_capture_field_inits(ei),
+        .Some(inits) => {
+          (ci : usize) = usize(0);
+          while((ci < inits.len()) && field_code.is_none(), {
+            match(
+              inits.get(ci),
+              .Some(cfi) => if(cfi.label == label, {
+                init_code := _call_generate_expr(cfi.init, indent.clone(), context);
+                field_code = Option(String).Some(if(cfi.is_borrow, `(&(${init_code}))`, init_code));
+              }),
+              .None => ()
+            );
+            ci = (ci + usize(1));
+          });
+        },
+        .None => ()
+      );
       match(
         expr_info_deferred_dup_expressions(ei),
         .Some(dups) => {

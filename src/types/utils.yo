@@ -432,6 +432,182 @@ set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
 note_move_only_possible :: (fn() -> unit)({
   g_move_only_possible = true;
 });
+/// A borrow entry of a closure's capture list, `imm(y) : &p` or
+/// `mut(z) : &mut p` (plans/VALUES_BY_DEFAULT.md decision 35), recorded per
+/// capture-struct id by `register_capture_borrows`. Borrows stay modes, never
+/// types (decision 38 A): the capture struct's field is a pointer, and this
+/// table is what makes the struct second-class and, for a `mut` entry,
+/// move-only.
+CaptureBorrow :: struct(
+  /// The capture's name inside the body (`y`, or the renamed `name`).
+  label : String,
+  is_mut : bool,
+  /// The borrowed place: its root binding (`Variable.id`), the root's name
+  /// and the field hops from the root outward (`s.items` is `["items"]`).
+  root_id : usize,
+  root_name : String,
+  path : ArrayList(String),
+  /// `module:row:col` of the entry, for diagnostics.
+  site : String
+);
+(g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
+/// Record the borrow entries of the capture struct `struct_id`. A `mut` entry
+/// makes the struct move-only, so the move-only fast path is armed.
+register_capture_borrows :: (fn(struct_id : String, borrows : ArrayList(CaptureBorrow)) -> unit)({
+  if(borrows.len() == usize(0), {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < borrows.len(), {
+    if(match(borrows.get(i), .Some(b) => b.is_mut, .None => false), {
+      g_move_only_possible = true;
+    });
+    i = (i + usize(1));
+  });
+  g_capture_borrows.insert(struct_id, borrows);
+});
+/// The borrow entries recorded for the capture struct `struct_id`.
+capture_struct_borrows :: (fn(struct_id : String) -> Option(ArrayList(CaptureBorrow)))(
+  cond(
+    (g_capture_borrows.len() == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
+    true => g_capture_borrows.get(struct_id)
+  )
+);
+/// The place a borrow entry names, as written: `s.items`.
+capture_borrow_place_string :: (fn(b : CaptureBorrow) -> String)({
+  out := b.root_name.clone();
+  (i : usize) = usize(0);
+  while(i < b.path.len(), {
+    out.push_str(".");
+    out.push_string(match(b.path.get(i), .Some(f) => f, .None => String.new()));
+    i = (i + usize(1));
+  });
+  out
+});
+/// Append every capture-list borrow `ty` carries, transitively: through
+/// struct and record fields, tuple and array elements, enum payloads, the
+/// captures of a closure that captures a borrowing closure, and a resolved
+/// type variable (decision 38 A: second-class is structural). A reference
+/// type stops the walk: a cell's payload cannot hold a borrow, because a
+/// second-class type may not be a generic argument of a type constructor.
+collect_type_borrows :: (fn(ty : TypeValue, inout(out) : ArrayList(CaptureBorrow)) -> unit)(
+  cond(
+    (g_capture_borrows.len() == usize(0)) => (),
+    true => _collect_type_borrows_inner(ty, out, u32(0))
+  )
+);
+_collect_type_borrows_inner :: (fn(ty_in : TypeValue, inout(out) : ArrayList(CaptureBorrow), depth : u32) -> unit)({
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  if((depth > u32(12)) || is_rc_type(ty), {
+    return(());
+  });
+  match(
+    ty,
+    .Array(element : elem, length : _) => recur(elem, out, depth + u32(1)),
+    .Tuple({ field_types : fields }) => {
+      (i : usize) = usize(0);
+      while(i < fields.len(), {
+        recur(match(fields.get(i), .Some(f) => f, .None => TypeValue.Unit), out, depth + u32(1));
+        i = (i + usize(1));
+      });
+    },
+    .Struct({ id : sid, field_types : fields }) => {
+      match(
+        g_capture_borrows.get(sid),
+        .Some(bs) => {
+          (bi : usize) = usize(0);
+          while(bi < bs.len(), {
+            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            bi = (bi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      (i : usize) = usize(0);
+      while(i < fields.len(), {
+        recur(match(fields.get(i), .Some(f) => f, .None => TypeValue.Unit), out, depth + u32(1));
+        i = (i + usize(1));
+      });
+    },
+    .EnumT({ variant_fields : all_fields }) => {
+      (vi : usize) = usize(0);
+      while(vi < all_fields.len(), {
+        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        (fi : usize) = usize(0);
+        while(fi < vf.len(), {
+          recur(match(vf.get(fi), .Some(f) => f, .None => TypeValue.Unit), out, depth + u32(1));
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+    },
+    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(concrete, out, depth + u32(1)), .None => ()),
+    _ => ()
+  );
+});
+/// True if a value of `ty` is second-class (decision 38 A): it holds a
+/// capture-list borrow, directly or through any component. Such a value may
+/// be bound to a local, lent and called, but never returned, stored, made a
+/// `Dyn`, captured by an escaping closure, spawned or moved into a by-value
+/// (`sink`) parameter, and its type may not be a field type or a type
+/// constructor's argument.
+type_is_second_class :: (fn(ty : TypeValue) -> bool)(
+  cond(
+    (g_capture_borrows.len() == usize(0)) => false,
+    true => {
+      bs := ArrayList(CaptureBorrow).new();
+      _collect_type_borrows_inner(ty, bs, u32(0));
+      bs.len() > usize(0)
+    }
+  )
+);
+/// The first `mut` capture-list borrow `ty` carries (decision 38 B: such a
+/// value is lent exclusively, and it is move-only), if any.
+type_first_mut_borrow :: (fn(ty : TypeValue) -> Option(CaptureBorrow))({
+  if(g_capture_borrows.len() == usize(0), {
+    return(Option(CaptureBorrow).None);
+  });
+  bs := ArrayList(CaptureBorrow).new();
+  _collect_type_borrows_inner(ty, bs, u32(0));
+  (i : usize) = usize(0);
+  while(i < bs.len(), {
+    match(
+      bs.get(i),
+      .Some(b) => if(b.is_mut, {
+        return(Option(CaptureBorrow).Some(b));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(CaptureBorrow).None
+});
+/// The capture struct `ty` (resolved through type variables) declares a
+/// `mut` capture itself.
+_capture_struct_declares_mut :: (fn(ty : TypeValue) -> bool)(
+  cond(
+    (g_capture_borrows.len() == usize(0)) => false,
+    true => match(
+      ty,
+      .Struct({ id : sid }) => match(
+        g_capture_borrows.get(sid),
+        .Some(bs) => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while(i < bs.len(), {
+            if(match(bs.get(i), .Some(b) => b.is_mut, .None => false), {
+              found = true;
+            });
+            i = (i + usize(1));
+          });
+          found
+        },
+        .None => false
+      ),
+      _ => false
+    )
+  )
+);
 /// True once a value type may be move-only (`note_move_only_possible`).
 move_only_declarations_exist :: (fn() -> bool)(g_move_only_possible);
 /// A value nominal type: a `struct`/`enum`/`newtype` without reference
@@ -470,6 +646,9 @@ _type_is_move_only_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
     (depth > u32(8)) => false,
     is_rc_type(ty) => false,
     _nominal_declares_move_only(ty) => true,
+    // A closure with a `mut` capture (decision 35): two copies of one
+    // exclusive borrow would alias.
+    _capture_struct_declares_mut(ty) => true,
     true => match(
       ty,
       .Array(element : elem, length : _) => recur(elem, depth + u32(1)),
@@ -554,6 +733,9 @@ _move_only_reason_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(String)
   });
   if(tn == "MoveOnly", {
     return(Option(String).Some(`\`${type_to_string(ty)}\` declares MoveOnly`));
+  });
+  if(_capture_struct_declares_mut(ty), {
+    return(Option(String).Some(String.from("the closure has a `mut` capture, and two copies of one exclusive borrow would alias")));
   });
   // The first move-only component, as `<label> : <type>` and its own reason.
   labels := ArrayList(String).new();
@@ -2519,6 +2701,7 @@ type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
   _type_provides_slice_source(ty, usize(1024))
 });
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
+export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow);
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);
