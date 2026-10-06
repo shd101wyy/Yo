@@ -347,7 +347,7 @@ _captures_offense :: (
 /// (plans/VALUES_BY_DEFAULT.md decision 38 E: a borrow capture is never
 /// `Send`). Such a closure is the literal argument of a borrowing parameter,
 /// so its captures stay in the caller's frame.
-_borrowed_captures_offense :: "it borrows its captures (it is the literal argument of a borrowing parameter, so they stay in the caller's frame), and a borrow capture is never Send";
+_borrowed_captures_offense :: "it borrows its captures (it is the literal argument of a borrowing parameter and captures a value that is not implicitly copyable, so that value stays in the caller's frame), and a borrow capture is never Send";
 /// Record closure `fid`'s capture verdicts (`Send`, `Sync`, `Acyclic`) at its
 /// creation. `borrows_captures`: the closure borrows its captures instead of
 /// owning them (`closure_literal_is_borrowed`), so it is never `Send`; it is
@@ -714,7 +714,7 @@ validate_capture_trait_requirements :: (
               ctx,
               exn,
               error_token,
-              `This closure does not implement Send: ${_borrowed_captures_offense}. Pass it to an owning (sink) parameter, which moves its captures in.`
+              `This closure does not implement Send: ${_borrowed_captures_offense}. A closure that crosses threads must own its captures: pass it to an owning (sink) parameter, which moves them in (issues/a-move-only-value-cannot-be-moved-into-thread-spawn.md).`
             );
           });
           // Per-variable first: each offending capture gets its own error at
