@@ -294,6 +294,14 @@ RegisterTraitValueFn :: (fn(type_id : String, trait_ty : TypeValue) -> unit);
 set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
   g_register_trait_value_fn = Option(RegisterTraitValueFn).Some(f);
 });
+/// The sites of the hand-written `Clone` impls seen so far (decision 36): an
+/// impl whose `Clone(...)` was written in a user or std module, not spliced
+/// from the prelude (`derive(T, Clone)`'s template, and the prelude's own
+/// impls for its primitives). Keyed by the site the impl registries store
+/// (`trait_impl_site_of` for a concrete impl, `GenericImplEntry.site` for a
+/// generic one), so the reverse check at a later `Copy` impl can tell a
+/// hand-written `Clone` from a derived one.
+(g_hand_written_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Type of `check_self_constraints_violation_msg` from trait_checking.yo:
 /// `.Some(error message)` when `target_type` may not implement `trait_ty` (a
 /// `Trace` impl on a value type, a `Dispose` on a primitive, a `MoveOnly` on a
@@ -5692,14 +5700,6 @@ _clone_and_copy_traits :: (fn(env : Environment) -> Option(_CloneCopyTraits))(
     .None => Option(_CloneCopyTraits).None
   )
 );
-/// The sites of the hand-written `Clone` impls seen so far (decision 36): an
-/// impl whose `Clone(...)` was written in a user or std module, not spliced
-/// from the prelude (`derive(T, Clone)`'s template, and the prelude's own
-/// impls for its primitives). Keyed by the site the impl registries store
-/// (`trait_impl_site_of` for a concrete impl, `GenericImplEntry.site` for a
-/// generic one), so the reverse check at a later `Copy` impl can tell a
-/// hand-written `Clone` from a derived one.
-(g_hand_written_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
 /// The hand-written-`Clone` error (decision 36): on a type that is `Copy` for
 /// every instantiation its `Clone` impl serves, `clone()` is the bitwise
 /// copy, so a hand-written impl can only repeat it or contradict it.
