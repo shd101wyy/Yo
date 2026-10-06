@@ -1,0 +1,68 @@
+pragma(Pragma.SkipWasm32Emscripten); // WASM does not support x86/ARM inline assembly
+pragma(Pragma.SkipWasm32Wasi); // WASM does not support x86/ARM inline assembly
+//! The V3b Generation A words `imm` and `mut` (plans/VALUES_BY_DEFAULT.md
+//! decision 30) next to the existing uses of the same names: a module value
+//! bound as `imm` (the `std/imm` package) in type position, inline asm's
+//! `imm` register class, and asm's `inout` operand kind. None of them is a
+//! parameter label, so none changes meaning.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ arch, Arch } :: import("std/process");
+imm :: import("std/imm/map");
+
+_pmc_size :: (fn(imm(m) : imm.Map(i32, i32)) -> usize)(m.len());
+_pmc_grow :: (fn(mut(m) : imm.Map(i32, i32), k : i32) -> unit)({
+  m = m.insert(k, k * i32(10));
+});
+
+test("an imm parameter whose type is a module value named imm", {
+  m := imm.Map(i32, i32).new().insert(i32(1), i32(10));
+  assert(_pmc_size(m) == usize(1), "imm(m) : imm.Map(i32, i32)");
+  _pmc_grow(&mut m, i32(2));
+  assert(_pmc_size(&m) == usize(2), "mut(m) : imm.Map(i32, i32) wrote the caller's map");
+});
+
+test("asm's imm register class", {
+  cond(
+    (arch == Arch.Aarch64) => {
+      result := asm(
+        "mov {0}, {1}",
+        out(reg, i64),
+        in(imm, i64(42))
+      );
+      assert(result == i64(42), "in(imm, i64(42))");
+    },
+    (arch == Arch.X86_64) => {
+      result := asm(
+        "mov {0}, {1}",
+        out(reg, i64),
+        in(imm, i64(42)),
+        asm_options(intel_syntax)
+      );
+      assert(result == i64(42), "in(imm, i64(42))");
+    },
+    true => ()
+  );
+});
+
+_pmc_asm_bump :: (fn(mut(n) : i64) -> unit)({
+  cond(
+    (arch == Arch.Aarch64) => {
+      (v : i64) = n;
+      n = asm("add {0}, {0}, #1", inout(reg, v));
+    },
+    (arch == Arch.X86_64) => {
+      (v : i64) = n;
+      n = asm("add {0}, 1", inout(reg, v), asm_options(intel_syntax));
+    },
+    true => {
+      n = (n + i64(1));
+    }
+  );
+});
+
+test("asm's inout operand kind beside a mut parameter", {
+  (n : i64) = i64(41);
+  _pmc_asm_bump(&mut n);
+  assert(n == i64(42), "asm's inout(reg, v) operand inside a function with a mut parameter");
+});

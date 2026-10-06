@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_fn_call_of, BK_INOUT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_fn_call_of, ast_expr_is_inout_mode_call } :: import("../../expr.yo");
 { ExprInfo, lookup_macro_expansion, is_module_level_global, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
@@ -517,7 +517,7 @@ walk_expr_ :: (
             // owning local that pins the place's object when there is one
             // (the `inout(name)` node's `source_variable`). No atom of the
             // body names the pin, so it is captured here or not at all.
-            .FnCall(_, _, inout_args, _, _) => if(ast_expr_is_fn_call_of(lhs_e.clone(), BK_INOUT, Option(usize).Some(usize(1))), {
+            .FnCall(_, _, inout_args, _, _) => if(ast_expr_is_inout_mode_call(lhs_e.clone(), Option(usize).Some(usize(1))), {
               match(
                 get_info(expr_cloned.clone()),
                 .Some(binfo) => {

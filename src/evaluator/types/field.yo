@@ -44,6 +44,7 @@ import("std/fmt");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { ArrayList } :: import("std/collections/array_list");
 { type_implements_fn } :: import("../trait_checking.yo");
 // ---------------------------------------------------------------------------
@@ -91,6 +92,28 @@ register_struct_fields :: (fn(id : String, fields : ArrayList(TypeField)) -> uni
 });
 get_struct_fields :: (fn(id : String) -> Option(ArrayList(TypeField)))(
   g_struct_field_registry.get(id)
+);
+/// The bindings a closure capture struct's fields hold, by declaration site:
+/// `<struct id>|<label>|<decl site>` per field, and every struct id with a
+/// record. A capture struct is name-keyed, so its labels alone cannot tell the
+/// captured binding from a body binding that shares its name (a `match`
+/// pattern binding may shadow). A struct id is shared by re-evaluations of one
+/// closure, so a label accumulates every site they resolved it to; each is a
+/// binding declared outside the closure.
+(g_capture_field_decl_sites : HashSet(String)) = HashSet(String).new();
+(g_capture_structs_with_sites : HashSet(String)) = HashSet(String).new();
+register_capture_field_decl_site :: (fn(struct_id : String, label : String, decl_site : String) -> unit)({
+  g_capture_field_decl_sites.insert(`${struct_id}|${label}|${decl_site}`);
+  g_capture_structs_with_sites.insert(struct_id);
+});
+/// Whether field `label` of capture struct `struct_id` holds the binding
+/// declared at `decl_site`.
+is_capture_field_binding :: (fn(struct_id : String, label : String, decl_site : String) -> bool)(
+  g_capture_field_decl_sites.contains(`${struct_id}|${label}|${decl_site}`)
+);
+/// Whether capture struct `struct_id` recorded its fields' declaration sites.
+capture_struct_has_decl_sites :: (fn(struct_id : String) -> bool)(
+  g_capture_structs_with_sites.contains(struct_id)
 );
 // ---------------------------------------------------------------------------
 // evaluate_type_field
@@ -619,5 +642,6 @@ evaluate_type_field :: (
 });
 export(TypeField, EvalTypeFieldResult);
 export(register_struct_fields, get_struct_fields);
+export(register_capture_field_decl_site, is_capture_field_binding, capture_struct_has_decl_sites);
 export(type_implements_fn);
 export(evaluate_type_field);

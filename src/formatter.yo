@@ -164,7 +164,7 @@ prefix_operator_needs_leading_space :: (
       (p.kind == TokenKind.Comma) => true,
       ((p.kind == TokenKind.Operator) && (p.value != ".")) => {
         prev_is_prefix_capable := (
-          (p.value == "-") || (p.value == "!") || (p.value == "~") || (p.value == "&") || (p.value == "*") || (p.value == "?") || (p.value == "^")
+          (p.value == "-") || (p.value == "!") || (p.value == "~") || (p.value == "&") || (p.value == "*") || (p.value == "?") || (p.value == "^") || (p.value == "&mut")
         );
         // `prev` is a postfix deref (`.` then `*`/`&`) when prev_prev is a
         // Dot — that ends an rvalue, never starts a chain.
@@ -906,7 +906,7 @@ is_prefix_capable_operator :: (fn(t : Token) -> bool)(
       (t.value == "-") ||
         (t.value == "!") ||
           (t.value == "~") ||
-            (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "^")
+            (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "^") || (t.value == "&mut")
     )
 );
 /// The elision-relevant shape of a paren group's content

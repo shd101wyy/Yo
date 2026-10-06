@@ -1,0 +1,92 @@
+//! Regression: the `io.async` re-kind pass matched captures to the capture
+//! struct's labels by NAME, so a body binding that merely shares a captured
+//! variable's name was treated as the capture. A `match` pattern binding may
+//! shadow (`.Some(x)` inside a body that captures `x`); it then got no task
+//! slot, stayed a C local across the await, and read garbage after resuming.
+//! The pass now matches by declaration site.
+//! See issues/fixed/the-io-async-capture-re-kind-pass-matches-captures-by-name.md.
+{ assert, panic } :: import("std/assert");
+{ String } :: import("std/string");
+{ IoExn, Exception } :: import("std/error");
+{ sleep } :: import("std/sys/timer");
+
+// The failing shapes: a pattern binding named like a capture, read after an
+// await that really suspends (`sleep`; a future that completes inline keeps
+// the C local alive and hides the bug).
+string_binding_named_like_capture :: (fn(o : Option(String), io : Io) -> Impl(Future(usize, IoExn)))({
+  x := String.from("seven");
+  io.async(e => {
+    a := x.len();
+    r := match(
+      o,
+      .Some(x) => {
+        e.io.await(sleep(u64(1)), e.io);
+        x.len()
+      },
+      .None => usize(0)
+    );
+    return((a * usize(100)) + r);
+  })
+});
+test("a String pattern binding named like a capture keeps its value across an await", {
+  exn := Exception(throw : (err -> panic("unexpected io error")));
+  e := IoExn(io : io, exn : exn);
+  n := io.await(string_binding_named_like_capture(.Some(String.from("abcdefghijkl")), io), e);
+  assert(n == usize(512), `got ${n.to_string()}`);
+});
+scalar_binding_named_like_capture :: (fn(o : Option(usize), io : Io) -> Impl(Future(usize, IoExn)))({
+  n := usize(7);
+  io.async(e => {
+    before := n;
+    r := match(
+      o,
+      .Some(n) => {
+        e.io.await(sleep(u64(1)), e.io);
+        n * usize(10)
+      },
+      .None => usize(0)
+    );
+    e.io.await(sleep(u64(1)), e.io);
+    return(before + r + n);
+  })
+});
+test("a scalar pattern binding named like a capture, and the capture itself, after awaits", {
+  exn := Exception(throw : (err -> panic("unexpected io error")));
+  e := IoExn(io : io, exn : exn);
+  got := io.await(scalar_binding_named_like_capture(.Some(usize(100)), io), e);
+  assert(got == usize(1014), `got ${got.to_string()}`);
+});
+
+// Canaries: other bindings that share a capture's name.
+// A nested closure's parameter named like the capture.
+nested_closure_param_named_like_capture :: (fn(io : Io) -> Impl(Future(usize, IoExn)))({
+  x := usize(7);
+  io.async(e => {
+    a := x;
+    e.io.await(sleep(u64(1)), e.io);
+    (f : Impl(Fn(x : usize) -> usize)) = (x => (x + usize(100)));
+    return(a + f(usize(1)));
+  })
+});
+// An alias reassigned inside a block from a block-scoped local, with a later
+// local of that name captured beside it.
+alias_reassigned_from_block_local :: (fn(io : Io) -> Impl(Future(usize, IoExn)))({
+  (sb : String) = String.from("x");
+  {
+    s := String.from("ab");
+    sb = s;
+  };
+  s := String.from("cdefgh");
+  io.async(e => {
+    e.io.await(sleep(u64(1)), e.io);
+    return((sb.len() * usize(10)) + s.len());
+  })
+});
+test("canaries: a nested closure parameter and a block-scoped owner named like a capture", {
+  exn := Exception(throw : (err -> panic("unexpected io error")));
+  e := IoExn(io : io, exn : exn);
+  a := io.await(nested_closure_param_named_like_capture(io), e);
+  assert(a == usize(108), `nested closure param: got ${a.to_string()}`);
+  b := io.await(alias_reassigned_from_block_local(io), e);
+  assert(b == usize(26), `block-scoped owner: got ${b.to_string()}`);
+});

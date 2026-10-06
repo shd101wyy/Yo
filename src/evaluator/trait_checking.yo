@@ -814,9 +814,9 @@ type_implements_trait :: (
   // 4. Direct registry match — the auto-derive registry stores the type's
   // derived trait VALUES; match `trait_type` against them by trait identity
   // (`is_type_registered_as_trait`). No name lookup (trait values are nameless).
-  type_id := _type_id_for_trait_check(target);
-  if(!type_id.is_empty(), {
-    if(is_type_registered_as_trait(type_id, trait_type, env), {
+  tid := _type_id_for_trait_check(target);
+  if(!tid.is_empty(), {
+    if(is_type_registered_as_trait(tid, trait_type, env), {
       // Associated-type constraints (`Iterator(Item := A)`) must hold and
       // their bindings propagate. On failure,
       // fall through to the later steps rather than rejecting outright.
@@ -853,9 +853,9 @@ type_implements_trait :: (
   // comptime-only and `a := wrap(wrap(n))` demanded `::`
   // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
   ondemand_key := cond(
-    type_id.is_empty() => `${type_to_string(target)}:${_trait_type_id(trait_type)}`,
+    tid.is_empty() => `${type_to_string(target)}:${_trait_type_id(trait_type)}`,
     is_enum_type(target) => `${enum_instance_node_id(target)}:${_trait_type_id(trait_type)}`,
-    true => `${type_id}:${_trait_type_id(trait_type)}`
+    true => `${tid}:${_trait_type_id(trait_type)}`
   );
   if(!marker_name.is_empty() && !_ondemand_guard_contains(ondemand_key), {
     tn := marker_name.clone();

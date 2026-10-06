@@ -25,7 +25,8 @@ import("std/fmt");
   BK_WHERE,
   BK_COMPTIME,
   BK_QUOTE,
-  BK_INOUT,
+  BK_IMM,
+  ast_expr_is_inout_mode_call,
   BK_COLON,
   BK_FN,
   BK_UNSAFE_FN,
@@ -1467,9 +1468,45 @@ evaluate_function_parameter :: (
         });
         lhs_mut = match(o_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
+      // `imm(x)` (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation A):
+      // a read-only borrow, which is exactly what a plain parameter means
+      // today, so the wrapper is stripped and sets no flag. `fn(imm(x) : T)`
+      // and `fn(x : T)` are therefore one function type, and types print
+      // `x : T` until Generation B makes a plain parameter by value.
+      if(ast_expr_is_fn_call_of(lhs_mut, BK_IMM, Option(usize).None), {
+        m_args := _fn_call_args(lhs_mut);
+        if(!(m_args.len() == usize(1)), {
+          exn.throw(
+            dyn(format_error_message(ast_expr_token(lhs_mut), `Expected one argument for "imm", got ${m_args.len()}`))
+          );
+        });
+        if(is_owning_rc_value, {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(lhs_mut),
+                `Cannot combine 'sink' and 'imm' on the same parameter — 'sink' takes ownership and 'imm' borrows.`
+              )
+            )
+          );
+        });
+        lhs_mut = match(m_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        if(ast_expr_is_inout_mode_call(lhs_mut, Option(usize).None), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(lhs_mut),
+                `Cannot combine 'imm' and 'mut' on the same parameter — a parameter is a read-only borrow or an exclusive one, not both.`
+              )
+            )
+          );
+        });
+      });
       // ref modifier — strip the wrapper and record the `ref` flag (consumed
       // into the Func type's `param_is_ref` for the flow-soundness check).
-      if(ast_expr_is_fn_call_of(lhs_mut, BK_INOUT, Option(usize).None), {
+      // `mut(x)` is its exact synonym (V3b Generation A; Generation B deletes
+      // `inout`).
+      if(ast_expr_is_inout_mode_call(lhs_mut, Option(usize).None), {
         r_args := _fn_call_args(lhs_mut);
         if(!(r_args.len() == usize(1)), {
           exn.throw(
@@ -3895,8 +3932,8 @@ evaluate_function_type :: (
     // `(inout(name) : T)` / `(name : inout(T))` — ref-return forms are
     // BANNED: refs are second-class and may appear only in parameter
     // position and local lvalue borrows.
-    if(ast_expr_is_fn_call_of(rl_expr, BK_INOUT, Option(usize).None) ||
-      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None)), {
+    if(ast_expr_is_inout_mode_call(rl_expr, Option(usize).None) ||
+      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_inout_mode_call(return_type_expr, Option(usize).None)), {
       exn.throw(
         dyn(
           format_error_message(
@@ -3969,7 +4006,7 @@ evaluate_function_type :: (
     // use `-> (inout(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
     // `-> inout(T)` / `-> comptime(T)`). The `(inout(name) : inout(T))` double-ref
     // case is caught above with a more specific message.
-    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_inout_mode_call(return_type_expr, Option(usize).None), {
       exn.throw(
         dyn(
           format_error_message(
@@ -4004,7 +4041,7 @@ evaluate_function_type :: (
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
     // `-> inout(T)` is BANNED: refs are second-class and may appear only
     // in parameter position and local lvalue borrows.
-    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
+    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_inout_mode_call(return_type_expr, Option(usize).None), {
       exn.throw(
         dyn(
           format_error_message(
@@ -4072,7 +4109,7 @@ evaluate_function_type :: (
   });
   // `-> inout(T)` in the return slot is BANNED: refs are second-class and
   // may appear only in parameter position and local lvalue borrows.
-  if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_fn_call_of(return_type_expr, BK_INOUT, Option(usize).None), {
+  if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_inout_mode_call(return_type_expr, Option(usize).None), {
     exn.throw(
       dyn(
         format_error_message(

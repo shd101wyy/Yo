@@ -21,7 +21,8 @@
   BK_INIT_ASSIGN,
   BK_GIVEN,
   BK_COMPTIME,
-  BK_INOUT,
+  BK_IMM,
+  ast_expr_is_inout_mode_call,
   BK_THREAD_LOCAL,
   BF_DOT,
   ast_expr_is_atom_of
@@ -491,7 +492,7 @@ evaluate_initialization_assignment :: (
   // the `:=` into a `::` silently.
   is_comptime_wrapped := ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .Some(usize(1)));
   if(is_init_assign && !(is_comptime_wrapped || ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None)) && in_compile_time_fn_body(ctx), {
-    if(ast_expr_is_fn_call_of(lhs, BK_INOUT, .None), {
+    if(ast_expr_is_inout_mode_call(lhs, .None), {
       exn.throw(
         dyn(
           with_code(
@@ -546,8 +547,22 @@ evaluate_initialization_assignment :: (
   // `inout(name) := place` — a LOCAL second-class reference binding
   // (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
   // field places only; element borrows go through the `for` macro.
-  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_INOUT, .None), {
+  // `mut(name) := place` is its exact synonym (plans/VALUES_BY_DEFAULT.md
+  // V3b Generation A).
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_inout_mode_call(lhs, .None), {
     return(_evaluate_inout_local_binding(expr, lhs, rhs, is_compile_time_only, env, ctx, exn));
+  });
+  // `imm(name) := place`, the read-only local borrow (decision 18), needs
+  // last-use live ranges and lands after V3b Generation A.
+  if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_IMM, .None), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(lhs),
+          String.from("`imm(name) := place` (a read-only local borrow) is not supported yet. Read the place directly, copy it with `name := place`, or bind it for writing with `mut(name) := place`.")
+        )
+      )
+    );
   });
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None), {
     n_given_args := match(

@@ -130,7 +130,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, audit_borrow_marker_site, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
@@ -6578,6 +6578,9 @@ Fix: wrap the call:
           ),
           .None => ArrayList(bool).new()
         );
+        // Call-site borrow markers (`&x`, `&mut x`, decision 33): peeled once,
+        // before any rule reads the arguments (helper.yo's shared rule).
+        fv_args = apply_call_site_borrow_markers(fv_args, fv_param_types, fv_param_is_ref, fv_param_is_owning, fv_param_labels, false, exn);
         // Per-param `comptime(...)` flags (side table by fid) — the generic
         // inference must NOT lower comptime_int/float args matched against a
         // COMPTIME param.
@@ -7140,6 +7143,7 @@ Fix: wrap the call:
             // above): it is not a caller expression, so no caller variable is
             // moved or projected by it.
             if(!du_frame_pushed, {
+              audit_borrow_marker_site(arg_expr_eff, arg_info.ty, fv_p_is_ref, fv_p_owning, fv_p_is_ct, ctx);
               match(
                 consume_argument_for_parameter(
                   evaled_arg,

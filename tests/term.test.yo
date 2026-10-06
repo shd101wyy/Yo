@@ -2,14 +2,14 @@ pragma(Pragma.SkipWasm32Emscripten); // no terminals under the wasm test harness
 pragma(Pragma.SkipWasm32Wasi); // no terminals under the wasm test harness
 { assert } :: import("std/assert");
 import("std/string");
-{ Stream, TermSize, is_terminal, size_of, size, supports_color } :: import("std/term");
+{ Stream, TermSize, is_terminal, term_size, size, supports_color } :: import("std/term");
 { env } :: import("std/env");
 // `yo test` runs every test child through Command.output, so all three
 // standard streams are PIPES here — the facade must report that faithfully.
 test("test children run with pipes, not terminals", {
   assert(!is_terminal(Stream.Stdout), "stdout is a pipe under the runner");
   assert(!is_terminal(Stream.Stderr), "stderr is a pipe under the runner");
-  assert(match(size_of(Stream.Stdout), .None => true, .Some(_) => false), "no size for a pipe");
+  assert(match(term_size(Stream.Stdout), .None => true, .Some(_) => false), "no size for a pipe");
   assert(match(size(), .None => true, .Some(_) => false), "size() is stdout's");
 });
 test("supports_color is false on a non-terminal regardless of env", {
