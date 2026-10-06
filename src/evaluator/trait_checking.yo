@@ -47,6 +47,7 @@ pragma(Pragma.AllowUnsafe);
   type_contains_some_type,
   type_implements_runtime_builtin,
   get_all_some_types,
+  type_mentions_some_type,
   enum_phantom_type_arg_somes,
   is_bound_closure_identity,
   resolve_cell_chain,
@@ -800,12 +801,22 @@ _copy_without_clone_msg :: (fn(target_type : TypeValue, env : Environment) -> Op
           // bindings allowed and checks each candidate's `where` bounds
           // against the pattern's own bounds (`T <: Copy` gives `T <: Clone`).
           // A `Clone` impl pending later in the module was already forced
-          // above when the pattern has a head name.
-          if((get_all_some_types(target_type).len() > usize(0)) && generic_pattern_implements_trait(target_type, clone_tt, env), {
+          // above when the pattern has a head name. `type_mentions_some_type`
+          // (not `get_all_some_types`): a parameter no field mentions
+          // (`Tag(T)` = `struct(id : i32)`) is carried by the instantiation's
+          // type arguments alone.
+          if(type_mentions_some_type(target_type) && generic_pattern_implements_trait(target_type, clone_tt, env), {
             return(Option(String).None);
           });
           shown := type_to_string(target_type);
-          Option(String).Some(`Type "${shown}" cannot implement "Copy" without "Clone": Copy requires Clone, as Rust's Copy: Clone (plans/VALUES_BY_DEFAULT.md decision 36), and the compiler never writes the Clone impl. Write derive(${shown}, Copy, Clone), or derive(${shown}, Clone) beside impl(${shown}, Copy()).`)
+          // A generic receiver pattern names the generic spellings: the derive
+          // carries the impl's own `generic(...)`/`where(...)` (a derived clone
+          // calls `.clone()` on its fields, so it needs `where(T <: Clone)`).
+          remedy := cond(
+            type_mentions_some_type(target_type) => `Write a Clone impl that covers the same instantiations: derive(generic(T : Type), where(T <: Clone), <type constructor>(T), Clone) beside this impl, or bound this impl (where(T <: Copy)) so the existing Clone impl covers it.`,
+            true => `Write derive(${shown}, Copy, Clone), or derive(${shown}, Clone) beside impl(${shown}, Copy()).`
+          );
+          Option(String).Some(`Type "${shown}" cannot implement "Copy" without "Clone": Copy requires Clone, as Rust's Copy: Clone (plans/VALUES_BY_DEFAULT.md decision 36), and the compiler never writes the Clone impl. ${remedy}`)
         }
       )
     },

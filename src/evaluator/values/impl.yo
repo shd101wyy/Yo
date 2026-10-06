@@ -87,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
-{ get_all_some_types, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible } :: import("../../types/utils.yo");
+{ get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -5707,7 +5707,7 @@ _implements_via_hook :: (fn(ty : TypeValue, trait_ty : TypeValue, env : Environm
 /// `Copy`, and the ordinary predicate rejects a match that binds a forall
 /// to another impl's SomeT.
 _pattern_implements_via_hook :: (fn(ty : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
-  _implements_via_hook(ty, trait_ty, env) || ((get_all_some_types(ty).len() > usize(0)) && generic_pattern_implements_trait(ty, trait_ty, env))
+  _implements_via_hook(ty, trait_ty, env) || (type_mentions_some_type(ty) && generic_pattern_implements_trait(ty, trait_ty, env))
 );
 /// The prelude traits `Clone` and `Copy`.
 _CloneCopyTraits :: struct(clone_tt : TypeValue, copy_tt : TypeValue);
@@ -5901,7 +5901,7 @@ _generic_pattern_covered :: (fn(pattern : TypeValue, trait_ty : TypeValue, env :
             w_trait := match(e.where_constraint_traits.get(wi), .Some(t) => t, .None => t_unit());
             all_hold = cond(
               is_some_type(w_subject) => _implements_via_hook(w_subject, w_trait, env),
-              (get_all_some_types(w_subject).len() > usize(0)) => recur(w_subject, w_trait, env, depth + u32(1)),
+              type_mentions_some_type(w_subject) => recur(w_subject, w_trait, env, depth + u32(1)),
               true => _implements_via_hook(w_subject, w_trait, env)
             );
             wi = (wi + usize(1));

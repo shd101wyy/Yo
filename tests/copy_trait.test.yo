@@ -98,8 +98,12 @@ impl(
     clone : (fn(inout(self) : Self) -> Self)(Self(id : self.id))
   )
 );
-// No Clone: Copy is rejected on each, checked in a test below.
+// No Clone: Copy is rejected on each, checked in a test below. The derive's
+// rejection is pinned at module level: a derive inside a function body is
+// skipped by the def-time trial (its registrations are module-level
+// statements), so `comptime_expect_error` in a body would see no error.
 _CtBare :: struct(n : i32);
+comptime_expect_error(derive(_CtBare, Copy), "derive(_CtBare, Copy, Clone)");
 _CtBareOf :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(item : T)
 );
@@ -221,10 +225,9 @@ test("Copy: a closure is Copy when all its captures are", {
 // The impl check
 // ---------------------------------------------------------------------------
 test("Copy: Copy requires Clone, and derive(T, Copy) alone names derive(T, Copy, Clone)", {
-  comptime_expect_error(derive(_CtBare, Copy), "derive(_CtBare, Copy, Clone)");
   comptime_expect_error(impl(_CtBare, Copy()), "cannot implement \"Copy\" without \"Clone\"");
   comptime_expect_error(impl(generic(T : Type), where(T <: Copy), _CtBareOf(T), Copy()), "cannot implement \"Copy\" without \"Clone\"");
-  comptime_assert(!Type.impls(_CtBare, Copy), "the rejected impls registered nothing");
+  comptime_assert(!Type.impls(_CtBare, Copy), "the rejected impls registered nothing (the derive's rejection is pinned at module level)");
 });
 test("Copy: an impl over a part that is not Copy names that part", {
   comptime_expect_error(impl(_CtLabel, Copy()), "its field `name` has type `String`");
@@ -264,7 +267,8 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   assert(_ct_clone_copy(p) == p, "a where(T <: Copy) body calls clone()");
   assert(_ct_clone_copy(i32(3)) == i32(3), "at a prelude Copy type");
   assert(_ct_clone_copy((i32(1), true)).0 == i32(1), "at a tuple, Copy structurally and Clone by the prelude's tuple impl");
-  b := box(p);
+  // `box` takes its argument `own`, so it moves: box a clone, not `p`.
+  b := box(p.clone());
   assert(b.clone().* == p, "Box.clone reaches the payload's clone");
   u := _CtUser(at : p);
   assert(u.moved() == p, "clone() inside another type's method");
