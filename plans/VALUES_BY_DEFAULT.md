@@ -1498,7 +1498,13 @@ and in git, not a silent edit.
         instantiation.
       - "Explicit whenever we can" (the maintainer).
     - **The rule.**
-      - `Copy :: trait()` is a prelude marker.
+      - `Copy :: trait(where(Self <: Clone))` is a prelude marker with
+        `Clone` as its supertrait, the same `where(Self <: …)` declaration
+        form other traits use (docs/en-US/DESIGN.md). So **`where(T <: Copy)`
+        implies `T <: Clone` in a generic body**, as `T: Copy` does in Rust:
+        `x.clone()` needs no second bound. If the seed cannot compile the
+        supertrait form in `std/prelude.yo`, Generation A expands the bound
+        in the compiler, and the declaration follows in Generation B.
       - A struct, enum or newtype opts in with `derive(T, Copy, Clone)`, or
         with `impl(T, Copy())` beside a `Clone` impl. A generic type uses
         `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())`.
@@ -1539,8 +1545,9 @@ and in git, not a silent edit.
           `Point`, or a generic type whose `Copy` impl has no bound. There
           the impl can only be redundant or divergent (`log("cloning")`),
           and a divergent one would break the rule that cloning a `Copy`
-          value is the copy. Decision 27's elision and generic code calling
-          `x.clone()` on a `Copy` `T` rely on that rule. The error names
+          value is the copy. Generic code calling `x.clone()` on a `Copy`
+          `T` relies on that rule. Decision 27's elision does not, because
+          it only elides compiler-known clones. The error names
           `derive(T, Clone)`.
         - **A generic hand-written `Clone` that also serves non-`Copy`
           instantiations is allowed.** The prelude `Option(T)`'s
@@ -1554,6 +1561,19 @@ and in git, not a silent edit.
         `bool`, `rune`, `unit`, raw pointers, `fn` pointers and `str` views;
         `Option(T)` and `Result(T, E)` with `where(T <: Copy)` (and
         `E <: Copy`).
+      - **Raw pointers and `clone`.** `*(T)`'s `Clone` copies the pointer.
+        Today `p.clone()` on a raw pointer auto-dereferences to the
+        pointee's `clone`, so the new impl would silently change that call.
+        Decision 32's rule settles it: a member both the pointer and its
+        pointee have is an error at `p.m`. The error names
+        - `p.*.clone()` for the pointee's clone;
+        - the implicit copy `q := p` for the pointer (`Copy`).
+
+        Raw pointers join `Box`/`Rc`/`Arc` in decision 32's clash rule. The
+        call sites that rely on today's auto-deref are counted, and they
+        migrate in decision 36's Generation B. Generation A adds the
+        pointer `Clone` impl only together with the clash error, so no call
+        changes meaning silently.
       - **Structural for anonymous composites.** Tuples, `Array(T, N)`,
         anonymous records `_(...)` and closures (their capture records)
         have no declaration to annotate. Each is `Copy`, and `Clone`, when
