@@ -8,36 +8,17 @@ import("std/string");
 { Emitter } :: import("../../emitter.yo");
 /// Emit Windows platform-specific SYNC helpers.
 generate_platform_sys_runtime_windows :: (fn(emitter : Emitter) -> unit)({
-  emitter.emit_string_line(
+  // The guarded POSIX-constant fallbacks go to the DECLARATIONS buffer,
+  // which chunked emission makes the shared header every translation unit
+  // compiles against: std code spells these constants (AT_FDCWD,
+  // O_DIRECTORY, DT_UNKNOWN, FD_CLOEXEC, ...) and its functions hash into
+  // any chunk, while this code block lands in exactly one. In the code
+  // buffer, every other chunk failed with
+  // "use of undeclared identifier 'FD_CLOEXEC'" on Windows, whose <fcntl.h>
+  // defines none of them
+  // (issues/fixed/chunked-emission-a-posix-constant-fallback-is-visible-in-one-chunk-only.md).
+  emitter.emit_declaration_string_line(
     `
-// ============================================================================
-// Platform-specific sync helpers (Windows)
-// ============================================================================
-// ============================================================================
-// Async I/O Runtime (Windows - IOCP)
-// ============================================================================
-
-#define WIN32_LEAN_AND_MEAN
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#include <mswsock.h>
-#ifndef _WINSOCKAPI_
-#define _WINSOCKAPI_
-#endif
-#include <windows.h>
-#include <io.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <direct.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <signal.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <string.h>
-
-
 #ifndef DT_UNKNOWN
 #define DT_UNKNOWN 0
 #endif
@@ -120,6 +101,38 @@ generate_platform_sys_runtime_windows :: (fn(emitter : Emitter) -> unit)({
 #ifndef UNIX_PATH_MAX
 #define UNIX_PATH_MAX 108
 #endif
+  `
+  );
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// Platform-specific sync helpers (Windows)
+// ============================================================================
+// ============================================================================
+// Async I/O Runtime (Windows - IOCP)
+// ============================================================================
+
+#define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <mswsock.h>
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
+#endif
+#include <windows.h>
+#include <io.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <direct.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+
+
 typedef struct __yo_sockaddr_un {
   ADDRESS_FAMILY sun_family;
   char sun_path[UNIX_PATH_MAX];
