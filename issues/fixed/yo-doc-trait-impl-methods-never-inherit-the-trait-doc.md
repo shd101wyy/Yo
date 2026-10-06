@@ -24,7 +24,7 @@ renders as a bare signature.
 
 Measured on `develop` (7915c0f37) with `--std-path ./std`, so this is not the
 token-only fallback of
-`issues/yo-doc-without-std-path-silently-emits-token-only-docs.md`.
+`issues/fixed/yo-doc-without-std-path-silently-emits-token-only-docs.md`.
 
 ## Scale
 

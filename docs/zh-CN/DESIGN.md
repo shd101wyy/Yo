@@ -3253,6 +3253,8 @@ perform :: (
 
 使用 `Dyn` 定义动态分发类型，该类型可以持有任何实现了指定 trait 的对象。使用 `dyn()` 函数从对象创建 `Dyn` 实例。
 
+`dyn(v)` 所在的位置必须能指明要构造哪一个 `Dyn(...)` —— `Dyn(...)` 类型的参数、带标注的绑定 `(x : Dyn(Trait)) = dyn(v)`、声明的返回类型、结构体字段或集合元素槽位。在没有这类期望类型的位置直接写裸 `dyn(v)`（例如 `downcast(dyn(v), T)` 的第一个参数 —— 它接受任意 `Dyn`）是编译错误：`cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`。
+
 Yo 中的 `Dyn` 类型是引用计数的，与其他引用语义类型一样，它们通过 trait 对象实现动态分发。闭包同样如此：`Dyn(Fn(...))` 闭包会被装箱到堆上并进行引用计数，而 `Impl(Fn(...))` 形式则被单态化、按值传递，自身不带引用计数。
 
 **主要特性：**

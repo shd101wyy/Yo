@@ -88,7 +88,7 @@ env_mod :: import("std/env");
   file_exists_sync
 } :: import("./manifest.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot, mark_owner_always_visible } :: import("./evaluator/module_loader.yo");
-{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by, take_owned_func_ids, take_owned_expr_ids, purge_trait_defaults_owned_by, type_trait_method_values_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
+{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by, take_owned_func_ids, take_owned_expr_ids, purge_trait_defaults_owned_by, type_trait_method_values_owned_by, registration_owner, set_registration_owner } :: import("./evaluator/values/type_trait_methods.yo");
 { summarize_function_bodies, purge_mutation_summaries } :: import("./evaluator/effects/mutation_summary.yo");
 { purge_function_side_tables } :: import("./evaluator/types/function.yo");
 { purge_function_value_tables } :: import("./function_value.yo");
@@ -2551,6 +2551,23 @@ mm_load_prelude_file :: (
     .None => ()
   );
   register_evaluate_expression();
+  // MEMBER VISIBILITY: the prelude evaluates OUTSIDE the module loader, so
+  // `_registration_owner` would stay "" for its whole evaluation and every
+  // method its impls register would be unowned — which made a `_`-prefixed
+  // prelude method public everywhere (`private_member_blocked` never blocks an
+  // ownerless entry; issues/fixed/prelude-methods-have-no-visibility-owner.md).
+  // Stamp the prelude's own key for the evaluation window — the loading-stack
+  // discipline of register_loading/unregister_loading, done by hand because
+  // the prelude is not a loader module — and mark it always-visible so its
+  // impls resolve from every module without an import edge. The key is the
+  // `${std_path}/prelude.yo` spelling, NOT a `file://` loading key, so the
+  // per-document registry purges (which use loading keys) can never drop it:
+  // the cached prelude is never re-evaluated, so purging it would strand every
+  // later analysis.
+  prelude_owner := `${std_path}/prelude.yo`;
+  mark_owner_always_visible(prelude_owner.clone());
+  prev_owner := registration_owner();
+  set_registration_owner(prelude_owner.clone());
   // Phase 0: the prelude's evaluation window (its read+parse belongs to the
   // caller that owns the parse step). Exclusive like every other module row.
   prof_t0 := Instant.now();
@@ -2568,14 +2585,15 @@ mm_load_prelude_file :: (
     true,
     local_exn
   );
+  set_registration_owner(prev_owner);
   // check: the prelude's table goes with this frame like any module's, and
   // every module calls into it (its operators, its loop machinery).
   if(prelude_per_module_table, {
-    // Its impl members are registered outside any module load (owner "");
-    // its definitions are its walk's.
+    // Its impl members are registered under the prelude owner key stamped
+    // above; its definitions are its walk's.
     prelude_minted := specialization_recording_take(prelude_mint_mark);
     prelude_values := ArrayList(EvalValue).new();
-    _push_non_generic_fn_values(type_trait_method_values_owned_by(String.new()), prelude_values);
+    _push_non_generic_fn_values(type_trait_method_values_owned_by(prelude_owner.clone()), prelude_values);
     match(
       finished_walk_for(input_path.clone()),
       .Some(pw) => _push_non_generic_fn_values(_walk_def_values(pw.defs), prelude_values),
@@ -2991,9 +3009,10 @@ mm_preload_prelude :: (
 )({
   (ok : bool) = true;
   if(g_cached_prelude_env.is_none(), {
-    // The prelude's impls are visible from every module without an import edge
-    // (`owner_visible_from_current`, type_trait_methods.yo).
-    mark_owner_always_visible(`${std_path}/prelude.yo`);
+    // The always-visible mark for the prelude's registrations is applied
+    // inside mm_load_prelude_file, together with the registration-owner stamp,
+    // so EVERY path that evaluates the prelude — this one and the single-file
+    // self-bootstrap in mm_load_file — gets both.
     pre_outcome := mm_load_file(`${std_path}/prelude.yo`, std_path.clone(), verbose, io, exn);
     // Print its diagnostic here, once, at this edge (the P1 single-print rule;
     // the loader's handlers only stash).

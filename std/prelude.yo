@@ -216,16 +216,16 @@ extern(
     (fn(generic(T : Type), ptr1 : T, ptr2 : T) -> bool),
   // str (builtin static string view) intrinsics
   __yo_str_from_raw_parts :
-    (fn(ptr : *(u8), length : usize) -> str),
+    (fn(ptr : *u8, length : usize) -> str),
   __yo_str_len :
     (fn(s : str) -> usize),
   __yo_str_ptr :
-    (fn(s : str) -> *(u8)),
+    (fn(s : str) -> *u8),
   __yo_str_byte :
     (fn(s : str, idx : usize) -> u8),
   // array indexing builtin (used by Index trait impls)
   __yo_array_index :
-    (fn(generic(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T)),
+    (fn(generic(T : Type, N : usize), self : *Array(T, N), idx : usize) -> *T),
   // Process related functions
   __yo_process_platform : (fn() -> comptime(comptime_str)),
   __yo_process_arch : (fn() -> comptime(comptime_str))
@@ -299,12 +299,12 @@ export(Dispose);
 /// raw pointer). A `Trace` impl calls `tracer.visit(slot)` once per outgoing edge,
 /// passing a POINTER to where the child lives (a struct field or a container buffer
 /// element). The raw callback is never touched directly.
-GcTracer :: newtype(_callback : *(u8));
+GcTracer :: newtype(_callback : *u8);
 export(GcTracer);
 extern(
   "Yo",
   /// Per-slot edge tracer (compiler intrinsic). Internal — call `tracer.visit`.
-  __yo_gc_trace_child : (fn(generic(T : Type), tracer : GcTracer, slot : *(T)) -> unit)
+  __yo_gc_trace_child : (fn(generic(T : Type), tracer : GcTracer, slot : *T) -> unit)
 );
 impl(
   GcTracer,
@@ -314,7 +314,7 @@ impl(
   /// Passing the slot pointer (not the element by value) keeps tracing RC-neutral: a
   /// by-value managed handle would be dup'd then dropped, freeing a live element
   /// mid-collection.
-  visit : (fn(generic(T : Type), self : Self, slot : *(T)) -> unit)(
+  visit : (fn(generic(T : Type), self : Self, slot : *T) -> unit)(
     __yo_gc_trace_child(self, slot)
   )
 );
@@ -373,7 +373,7 @@ export(AllocatorVTable, Allocator);
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
+    index : (fn(inout(self) : Self, idx : Idx) -> *Self.Output)
   )
 );
 export(Index);
@@ -386,14 +386,14 @@ export(Index);
 /// behavior.
 IndexUnchecked :: trait(
   Output : Type,
-  index_unchecked : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))
+  index_unchecked : (fn(inout(self) : Self, idx : usize) -> *Self.Output)
 );
 export(IndexUnchecked);
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*(Self.Output))),
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -424,19 +424,19 @@ export(RangeInclusiveOp);
 extern(
   "Yo",
   __yo_comptime_array_index :
-    (fn(generic(T : Type, N : usize), comptime(self) : *(Array(T, N)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
+    (fn(generic(T : Type, N : usize), comptime(self) : *Array(T, N), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*T)),
   __yo_comptime_string_index :
-    (fn(comptime(self) : comptime_str, comptime(idx) : comptime_int) -> comptime(*(comptime_str))),
+    (fn(comptime(self) : comptime_str, comptime(idx) : comptime_int) -> comptime(*comptime_str)),
   __yo_comptime_string_index_range :
-    (fn(comptime(self) : comptime_str, comptime(idx) : Range(comptime_int)) -> comptime(*(comptime_str))),
+    (fn(comptime(self) : comptime_str, comptime(idx) : Range(comptime_int)) -> comptime(*comptime_str)),
   __yo_comptime_string_index_range_inclusive :
-    (fn(comptime(self) : comptime_str, comptime(idx) : RangeInclusive(comptime_int)) -> comptime(*(comptime_str))),
+    (fn(comptime(self) : comptime_str, comptime(idx) : RangeInclusive(comptime_int)) -> comptime(*comptime_str)),
   __yo_comptime_list_index :
-    (fn(generic(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*(T))),
+    (fn(generic(T : Type), comptime(self) : *ComptimeList(T), comptime(idx) : usize, where(T <: Comptime)) -> comptime(*T)),
   __yo_comptime_list_index_range :
-    (fn(generic(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : Range(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T)))),
+    (fn(generic(T : Type), comptime(self) : *ComptimeList(T), comptime(idx) : Range(usize), where(T <: Comptime)) -> comptime(*ComptimeList(T))),
   __yo_comptime_list_index_range_inclusive :
-    (fn(generic(T : Type), comptime(self) : *(ComptimeList(T)), comptime(idx) : RangeInclusive(usize), where(T <: Comptime)) -> comptime(*(ComptimeList(T))))
+    (fn(generic(T : Type), comptime(self) : *ComptimeList(T), comptime(idx) : RangeInclusive(usize), where(T <: Comptime)) -> comptime(*ComptimeList(T)))
 );
 ComptimeRangeOp :: trait(
   (..) : (fn(comptime(start) : Self, comptime(end) : Self) -> comptime(Range(Self))),
@@ -569,12 +569,12 @@ export(ComptimeBitRightShift);
 /// Negate trait — enables unary `-value` operator.
 Negate :: trait(
   Output : Type,
-  (neg) : (fn(self : Self) -> Self.Output)
+  neg : (fn(self : Self) -> Self.Output)
 );
 export(Negate);
 ComptimeNegate :: trait(
   Output : Type,
-  (neg) : (fn(comptime(self) : Self) -> comptime(Self.Output)),
+  neg : (fn(comptime(self) : Self) -> comptime(Self.Output)),
   where(Self <: Comptime, Self.Output <: Comptime)
 );
 export(ComptimeNegate);
@@ -647,14 +647,14 @@ ComptimeBitXor :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(
 );
 export(ComptimeBitXor);
 (!) :: impl({
-  (not) :: (
+  not :: (
     fn(
       generic(_Self : Type),
       self : _Self,
       where(_Self <: LogicalNot)
     ) -> bool
   )(self.(!)());
-  (comptime_not) :: (
+  comptime_not :: (
     fn(
       generic(_Self : Type),
       comptime(self) : _Self,
@@ -664,17 +664,17 @@ export(ComptimeBitXor);
   Call :: (not, comptime_not);
   export(Call);
 });
-(not) :: (!);
+not :: (!);
 export(not, !);
 (~) :: impl({
-  (bit_not) :: (
+  bit_not :: (
     fn(
       generic(_Self : Type),
       self : _Self,
       where(_Self <: BitNot)
     ) -> _Self
   )(self.(~)());
-  (comptime_bit_not) :: (
+  comptime_bit_not :: (
     fn(
       generic(_Self : Type),
       comptime(self) : _Self,
@@ -686,7 +686,7 @@ export(not, !);
 });
 export(~);
 (-) :: impl({
-  (neg) :: (
+  neg :: (
     fn(
       generic(_Self : Type),
       self : _Self,
@@ -695,7 +695,7 @@ export(~);
   )({
     return(self.neg());
   });
-  (comptime_neg) :: (
+  comptime_neg :: (
     fn(
       generic(_Self : Type),
       comptime(self) : _Self,
@@ -718,7 +718,7 @@ impl(
   bool,
   LogicalNot(
     (!) : (
-      (self) ->
+      self ->
         __yo_op_not(self)
     )
   )
@@ -881,35 +881,35 @@ export(ComptimeOrd);
 */
 Hasher :: trait(
   /// Feed `size` bytes starting at `buf`.
-  write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit),
+  write : (fn(inout(self) : Self, buf : *u8, size : usize) -> unit),
   /// The hash of everything written so far.
   finish : (fn(inout(self) : Self) -> u64),
   (write_u8 : (fn(inout(self) : Self, v : u8) -> unit)) ?=
     (
       (self, v) -> {
         b := v;
-        self.write(&(b), usize(1));
+        self.write(&b, usize(1));
       }
     ),
   (write_u16 : (fn(inout(self) : Self, v : u16) -> unit)) ?=
     (
       (self, v) -> {
         b := v;
-        self.write(unsafe.cast(&(b), *(u8)), usize(2));
+        self.write(unsafe.cast(&b, *u8), usize(2));
       }
     ),
   (write_u32 : (fn(inout(self) : Self, v : u32) -> unit)) ?=
     (
       (self, v) -> {
         b := v;
-        self.write(unsafe.cast(&(b), *(u8)), usize(4));
+        self.write(unsafe.cast(&b, *u8), usize(4));
       }
     ),
   (write_u64 : (fn(inout(self) : Self, v : u64) -> unit)) ?=
     (
       (self, v) -> {
         b := v;
-        self.write(unsafe.cast(&(b), *(u8)), usize(8));
+        self.write(unsafe.cast(&b, *u8), usize(8));
       }
     ),
   (write_usize : (fn(inout(self) : Self, v : usize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
@@ -1088,7 +1088,7 @@ impl(
   comptime_int,
   ComptimeNegate(
     Output : comptime_int,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_int_neg(self)
     )
@@ -1131,7 +1131,7 @@ impl(
 impl(
   comptime_int,
   ComptimeToString(
-    (to_comptime_string) : (
+    to_comptime_string : (
       self ->
         __yo_comptime_int_to_comptime_string(self)
     )
@@ -1198,7 +1198,7 @@ impl(
   comptime_float,
   ComptimeNegate(
     Output : comptime_float,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_float_neg(self)
     )
@@ -1300,10 +1300,10 @@ impl(
   len : (fn(comptime(self) : comptime_str) -> comptime(comptime_int))(
     __yo_comptime_string_length(self)
   ),
-  (to_upper) : (fn(comptime(self) : comptime_str) -> comptime(comptime_str))(
+  to_upper : (fn(comptime(self) : comptime_str) -> comptime(comptime_str))(
     __yo_comptime_string_to_upper(self)
   ),
-  (to_lower) : (fn(comptime(self) : comptime_str) -> comptime(comptime_str))(
+  to_lower : (fn(comptime(self) : comptime_str) -> comptime(comptime_str))(
     __yo_comptime_string_to_lower(self)
   ),
   /// Slice by BYTE offsets `[start, end)`, matching the runtime `substring`.
@@ -1337,7 +1337,7 @@ impl(
   bool,
   Clone(
     clone : (
-      (self) ->
+      self ->
         __yo_return_self(self)
     )
   )
@@ -1372,7 +1372,7 @@ export(bool : _boolean);
 /// i8
 impl(
   i8,
-  MIN : i8(-(128)),
+  MIN : i8(-128),
   MAX : i8(127),
   /// The width in bits — Rust's `i8::BITS`. An associated constant, so a
   /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
@@ -1422,7 +1422,7 @@ impl(
   i8,
   Negate(
     Output : i8,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
@@ -1442,14 +1442,14 @@ impl(
 impl(
   i8,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   i8,
   BitNot(
     Output : i8,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -1498,7 +1498,7 @@ impl(
 impl(
   i8,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -1555,7 +1555,7 @@ impl(
   i8,
   ComptimeNegate(
     Output : i8,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_i8_neg(self)
     )
@@ -1666,7 +1666,7 @@ export(i8 : _i8);
 /// i16
 impl(
   i16,
-  MIN : i16(-(32768)),
+  MIN : i16(-32768),
   MAX : i16(32767),
   /// The width in bits — Rust's `i16::BITS`. An associated constant, so a
   /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
@@ -1716,7 +1716,7 @@ impl(
   i16,
   Negate(
     Output : i16,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
@@ -1736,14 +1736,14 @@ impl(
 impl(
   i16,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   i16,
   BitNot(
     Output : i16,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -1792,7 +1792,7 @@ impl(
 impl(
   i16,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -1849,7 +1849,7 @@ impl(
   i16,
   ComptimeNegate(
     Output : i16,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_i16_neg(self)
     )
@@ -1960,7 +1960,7 @@ export(i16 : _i16);
 /// i32
 impl(
   i32,
-  MIN : i32(-(2147483648)),
+  MIN : i32(-2147483648),
   MAX : i32(2147483647),
   /// The width in bits — Rust's `i32::BITS`. An associated constant, so a
   /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
@@ -2010,7 +2010,7 @@ impl(
   i32,
   Negate(
     Output : i32,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
@@ -2030,14 +2030,14 @@ impl(
 impl(
   i32,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   i32,
   BitNot(
     Output : i32,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -2147,7 +2147,7 @@ impl(
   i32,
   Clone(
     clone : (
-      (self) ->
+      self ->
         __yo_return_self(self)
     )
   )
@@ -2206,7 +2206,7 @@ impl(
   i32,
   ComptimeNegate(
     Output : i32,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_i32_neg(self)
     )
@@ -2257,7 +2257,7 @@ export(i32 : _i32);
 /// i64
 impl(
   i64,
-  MIN : i64(-(9223372036854775808)),
+  MIN : i64(-9223372036854775808),
   MAX : i64(9223372036854775807),
   /// The width in bits — Rust's `i64::BITS`. An associated constant, so a
   /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
@@ -2307,7 +2307,7 @@ impl(
   i64,
   Negate(
     Output : i64,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
@@ -2327,14 +2327,14 @@ impl(
 impl(
   i64,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   i64,
   BitNot(
     Output : i64,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -2383,7 +2383,7 @@ impl(
 impl(
   i64,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -2440,7 +2440,7 @@ impl(
   i64,
   ComptimeNegate(
     Output : i64,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_i64_neg(self)
     )
@@ -2614,14 +2614,14 @@ impl(
 impl(
   u8,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   u8,
   BitNot(
     Output : u8,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -2670,7 +2670,7 @@ impl(
 impl(
   u8,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -2891,14 +2891,14 @@ impl(
 impl(
   u16,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   u16,
   BitNot(
     Output : u16,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -2947,7 +2947,7 @@ impl(
 impl(
   u16,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -3168,14 +3168,14 @@ impl(
 impl(
   u32,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   u32,
   BitNot(
     Output : u32,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -3224,7 +3224,7 @@ impl(
 impl(
   u32,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -3445,14 +3445,14 @@ impl(
 impl(
   u64,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   u64,
   BitNot(
     Output : u64,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -3501,7 +3501,7 @@ impl(
 impl(
   u64,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -3699,13 +3699,13 @@ impl(
   f32,
   Negate(
     Output : f32,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   f32,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -3752,7 +3752,7 @@ impl(
 impl(
   f32,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -3799,7 +3799,7 @@ impl(
   f32,
   ComptimeNegate(
     Output : f32,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_f32_neg(self)
     )
@@ -3891,13 +3891,13 @@ impl(
   f64,
   Negate(
     Output : f64,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   f64,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -3936,7 +3936,7 @@ impl(
 impl(
   f64,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -3983,7 +3983,7 @@ impl(
   f64,
   ComptimeNegate(
     Output : f64,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_f64_neg(self)
     )
@@ -4035,8 +4035,8 @@ export(f64 : _f64);
 impl(
   isize,
   MIN : cond(
-    (__yo_pointer_size_bits() == 32) => isize(-(2147483648)),
-    true => isize(-(9223372036854775808))
+    (__yo_pointer_size_bits() == 32) => isize(-2147483648),
+    true => isize(-9223372036854775808)
   ),
   MAX : cond(
     (__yo_pointer_size_bits() == 32) => isize(2147483647),
@@ -4086,7 +4086,7 @@ impl(
   isize,
   Negate(
     Output : isize,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
@@ -4106,14 +4106,14 @@ impl(
 impl(
   isize,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   isize,
   BitNot(
     Output : isize,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -4162,7 +4162,7 @@ impl(
 impl(
   isize,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -4219,7 +4219,7 @@ impl(
   isize,
   ComptimeNegate(
     Output : isize,
-    (neg) : (
+    neg : (
       self ->
         __yo_comptime_isize_neg(self)
     )
@@ -4392,14 +4392,14 @@ impl(
 impl(
   usize,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   usize,
   BitNot(
     Output : usize,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -4448,7 +4448,7 @@ impl(
 impl(
   usize,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 impl(
@@ -4807,7 +4807,7 @@ impl(
     cond(
       ((rhs > T(0)) && (self > (T.MAX - rhs))) => Option(T).None,
       ((rhs < T(0)) && (self < (T.MIN - rhs))) => Option(T).None,
-      true => Option(T).Some((self + rhs))
+      true => Option(T).Some(self + rhs)
     )
   ),
   /// `self - rhs`, or `.None` if it would overflow.
@@ -4815,7 +4815,7 @@ impl(
     cond(
       ((rhs < T(0)) && (self > (T.MAX + rhs))) => Option(T).None,
       ((rhs > T(0)) && (self < (T.MIN + rhs))) => Option(T).None,
-      true => Option(T).Some((self - rhs))
+      true => Option(T).Some(self - rhs)
     )
   ),
   /// `self * rhs`, or `.None` if it would overflow.
@@ -4823,13 +4823,13 @@ impl(
     cond(
       ((self == T(0)) || (rhs == T(0))) => Option(T).Some(T(0)),
       ((self > T(0)) && (rhs > T(0))) =>
-        cond((self > (T.MAX / rhs)) => Option(T).None, true => Option(T).Some((self * rhs))),
+        cond((self > (T.MAX / rhs)) => Option(T).None, true => Option(T).Some(self * rhs)),
       ((self > T(0)) && (rhs < T(0))) =>
-        cond((rhs < (T.MIN / self)) => Option(T).None, true => Option(T).Some((self * rhs))),
+        cond((rhs < (T.MIN / self)) => Option(T).None, true => Option(T).Some(self * rhs)),
       ((self < T(0)) && (rhs > T(0))) =>
-        cond((self < (T.MIN / rhs)) => Option(T).None, true => Option(T).Some((self * rhs))),
+        cond((self < (T.MIN / rhs)) => Option(T).None, true => Option(T).Some(self * rhs)),
       true =>
-        cond((self < (T.MAX / rhs)) => Option(T).None, true => Option(T).Some((self * rhs)))
+        cond((self < (T.MAX / rhs)) => Option(T).None, true => Option(T).Some(self * rhs))
     )
   ),
   /// `self / rhs`, or `.None` on divide-by-zero and on `MIN / -1`.
@@ -4841,7 +4841,7 @@ impl(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
-      true => Option(T).Some((self / rhs))
+      true => Option(T).Some(self / rhs)
     )
   ),
   /// `self % rhs`, or `.None` on divide-by-zero and on `MIN % -1`.
@@ -4849,7 +4849,7 @@ impl(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
-      true => Option(T).Some((self % rhs))
+      true => Option(T).Some(self % rhs)
     )
   ),
   /// `self + rhs`, clamped to the type's bounds instead of overflowing.
@@ -4882,7 +4882,7 @@ impl(
   checked_abs : (fn(self : T) -> Option(T))(
     cond(
       ((self == T.MIN) && (T.MIN < T(0))) => Option(T).None,
-      (self < T(0)) => Option(T).Some((T(0) - self)),
+      (self < T(0)) => Option(T).Some(T(0) - self),
       true => Option(T).Some(self)
     )
   ),
@@ -4895,7 +4895,7 @@ impl(
     (acc : T) = T(1);
     (i : u32) = u32(0);
     (overflowed : bool) = false;
-    while(runtime((i < exp) && !(overflowed)), {
+    while(runtime((i < exp) && !overflowed), {
       match(
         acc.checked_mul(self),
         .Some(v) => {
@@ -4932,7 +4932,7 @@ impl(
       (self == T(0)) => Option(T).Some(T(0)),
       (T.MIN == T(0)) => Option(T).None,
       (self == T.MIN) => Option(T).None,
-      true => Option(T).Some((T(0) - self))
+      true => Option(T).Some(T(0) - self)
     )
   ),
   /// `(wrapped product, did it overflow)` — Rust's `overflowing_mul`.
@@ -4995,7 +4995,7 @@ impl(
   /// the average. `>>` on a signed type is arithmetic in Yo, so the rounding
   /// is toward NEGATIVE infinity — `i64.MIN.midpoint(i64.MAX)` is `-1`.
   midpoint : (fn(self : T, rhs : T) -> T)(
-    ((self & rhs) + ((self ^ rhs) >> T(1)))
+    (self & rhs) + ((self ^ rhs) >> T(1))
   ),
   /// The integer square root — the greatest `r` with `r * r <= self`. PANICS
   /// for a negative receiver, which has no real square root.
@@ -5033,7 +5033,7 @@ impl(
     (acc : T) = T(1);
     (base : T) = self;
     (e : u32) = exp;
-    while((e > u32(0)), {
+    while(e > u32(0), {
       cond(
         ((e & u32(1)) == u32(1)) => {
           acc = acc.wrapping_mul(base);
@@ -5131,7 +5131,7 @@ impl(
       true => {
         (v : T) = self;
         (n : u32) = u32(0);
-        while((v > T(1)), {
+        while(v > T(1), {
           v = (v / T(2));
           n = (n + u32(1));
         });
@@ -5146,7 +5146,7 @@ impl(
       true => {
         (v : T) = self;
         (n : u32) = u32(0);
-        while((v > T(9)), {
+        while(v > T(9), {
           v = (v / T(10));
           n = (n + u32(1));
         });
@@ -5164,7 +5164,7 @@ impl(
       true => {
         (v : T) = self;
         (n : u32) = u32(0);
-        while((v >= base), {
+        while(v >= base, {
           v = (v / base);
           n = (n + u32(1));
         });
@@ -5181,7 +5181,7 @@ impl(
   checked_shl : (fn(self : T, n : u32) -> Option(T))(
     cond(
       (n >= T.BITS) => Option(T).None,
-      true => Option(T).Some((self << T(n)))
+      true => Option(T).Some(self << T(n))
     )
   ),
   /// `self >> n`, or `.None` when `n` is at or above the type's width.
@@ -5190,27 +5190,27 @@ impl(
   checked_shr : (fn(self : T, n : u32) -> Option(T))(
     cond(
       (n >= T.BITS) => Option(T).None,
-      true => Option(T).Some((self >> T(n)))
+      true => Option(T).Some(self >> T(n))
     )
   ),
   /// `self << (n % BITS)` — Rust's `wrapping_shl`. The shift COUNT wraps, not
   /// the value; bits shifted out are still discarded.
   wrapping_shl : (fn(self : T, n : u32) -> T)(
-    (self << T((n % T.BITS)))
+    self << T(n % T.BITS)
   ),
   /// `self >> (n % BITS)` — Rust's `wrapping_shr`.
   wrapping_shr : (fn(self : T, n : u32) -> T)(
-    (self >> T((n % T.BITS)))
+    self >> T(n % T.BITS)
   ),
   /// `(self.wrapping_shl(n), n >= BITS)` — Rust's `overflowing_shl`. The flag
   /// reports that the COUNT was reduced, not that any bit was lost: a shift
   /// that discards set bits is not an overflow here, exactly as in Rust.
   overflowing_shl : (fn(self : T, n : u32) -> Tuple(T, bool))(
-    (self.wrapping_shl(n), (n >= T.BITS))
+    (self.wrapping_shl(n), n >= T.BITS)
   ),
   /// `(self.wrapping_shr(n), n >= BITS)` — Rust's `overflowing_shr`.
   overflowing_shr : (fn(self : T, n : u32) -> Tuple(T, bool))(
-    (self.wrapping_shr(n), (n >= T.BITS))
+    (self.wrapping_shr(n), n >= T.BITS)
   )
 );
 /// Marks the SIGNED integers. `abs` and `signum` exist only for them — Rust
@@ -5317,7 +5317,7 @@ _popcount_u64 :: (fn(x : u64) -> u32)({
   v = ((v + (v >> u64(4))) & u64(1085102592571150095));
   // The multiply IS the byte-summation: it overflows by design (only the
   // top byte of the product is read), so it goes through wrapping_mul.
-  u32((v.wrapping_mul(u64(72340172838076673)) >> u64(56)))
+  u32(v.wrapping_mul(u64(72340172838076673)) >> u64(56))
 });
 /// Number of leading zero bits in a 64-bit word (`64` for zero).
 _leading_zeros_u64 :: (fn(x : u64) -> u32)({
@@ -5330,7 +5330,7 @@ _leading_zeros_u64 :: (fn(x : u64) -> u32)({
   v = (v | (v >> u64(8)));
   v = (v | (v >> u64(16)));
   v = (v | (v >> u64(32)));
-  (u32(64) - _popcount_u64(v))
+  u32(64) - _popcount_u64(v)
 });
 /// Number of trailing zero bits in a 64-bit word (`64` for zero).
 _trailing_zeros_u64 :: (fn(x : u64) -> u32)(
@@ -5349,14 +5349,14 @@ _reverse_bits_u64 :: (fn(x : u64) -> u64)({
   v = (((v >> u64(4)) & u64(1085102592571150095)) | ((v & u64(1085102592571150095)) << u64(4)));
   v = (((v >> u64(8)) & u64(71777214294589695)) | ((v & u64(71777214294589695)) << u64(8)));
   v = (((v >> u64(16)) & u64(281470681808895)) | ((v & u64(281470681808895)) << u64(16)));
-  ((v >> u64(32)) | (v << u64(32)))
+  (v >> u64(32)) | (v << u64(32))
 });
 /// Reverse the byte order of a 64-bit word.
 _swap_bytes_u64 :: (fn(x : u64) -> u64)({
   (v : u64) = x;
   v = (((v >> u64(8)) & u64(71777214294589695)) | ((v & u64(71777214294589695)) << u64(8)));
   v = (((v >> u64(16)) & u64(281470681808895)) | ((v & u64(281470681808895)) << u64(16)));
-  ((v >> u64(32)) | (v << u64(32)))
+  (v >> u64(32)) | (v << u64(32))
 });
 /// Mask of the low `bits` bits. `bits == 64` would make `1 << 64` undefined,
 /// so the full width is spelled out instead of computed.
@@ -5372,12 +5372,12 @@ _rotate_left_u64 :: (fn(x : u64, n : u32, bits : u32) -> u64)({
   k := (n % bits);
   cond(
     (k == u32(0)) => (x & m),
-    true => (((x << u64(k)) | ((x & m) >> u64((bits - k)))) & m)
+    true => (((x << u64(k)) | ((x & m) >> u64(bits - k))) & m)
   )
 });
 /// `x` rotated right by `n` within a `bits`-wide field.
 _rotate_right_u64 :: (fn(x : u64, n : u32, bits : u32) -> u64)(
-  _rotate_left_u64(x, ((bits - (n % bits)) % bits), bits)
+  _rotate_left_u64(x, (bits - (n % bits)) % bits, bits)
 );
 // ---------------------------------------------------------------------------
 // `usize` / `isize`'s width is TARGET-dependent — 32 on wasm32, 64 on every
@@ -5448,11 +5448,11 @@ impl(
   /// `64`.
   count_ones : (fn(self : T) -> u32)(_popcount_u64(u64(T.Unsigned(self)))),
   /// The number of zero bits.
-  count_zeros : (fn(self : T) -> u32)((T.BITS - _popcount_u64(u64(T.Unsigned(self))))),
+  count_zeros : (fn(self : T) -> u32)(T.BITS - _popcount_u64(u64(T.Unsigned(self)))),
   /// The number of leading zero bits, the full width for zero — and always
   /// `0` for a negative receiver, whose sign bit is set.
   leading_zeros : (fn(self : T) -> u32)(
-    (_leading_zeros_u64(u64(T.Unsigned(self))) - (u32(64) - T.BITS))
+    _leading_zeros_u64(u64(T.Unsigned(self))) - (u32(64) - T.BITS)
   ),
   /// The number of trailing zero bits, the full width for zero.
   trailing_zeros : (fn(self : T) -> u32)(
@@ -5460,11 +5460,11 @@ impl(
   ),
   /// The number of leading one bits.
   leading_ones : (fn(self : T) -> u32)(
-    (_leading_zeros_u64(u64(T.Unsigned((~self)))) - (u32(64) - T.BITS))
+    _leading_zeros_u64(u64(T.Unsigned(~self))) - (u32(64) - T.BITS)
   ),
   /// The number of trailing one bits.
   trailing_ones : (fn(self : T) -> u32)({
-    c := u64(T.Unsigned((~self)));
+    c := u64(T.Unsigned(~self));
     cond((c == u64(0)) => T.BITS, true => _trailing_zeros_u64(c))
   }),
   /// `self` rotated left by `n` bits, wrapping the bits that fall off the top
@@ -5481,7 +5481,7 @@ impl(
   reverse_bits : (fn(self : T) -> T)(
     T(
       T.Unsigned(
-        (_reverse_bits_u64(u64(T.Unsigned(self))) >> (u64(64) - u64(T.BITS)))
+        _reverse_bits_u64(u64(T.Unsigned(self))) >> (u64(64) - u64(T.BITS))
       )
     )
   ),
@@ -5489,7 +5489,7 @@ impl(
   swap_bytes : (fn(self : T) -> T)(
     T(
       T.Unsigned(
-        (_swap_bytes_u64(u64(T.Unsigned(self))) >> (u64(64) - u64(T.BITS)))
+        _swap_bytes_u64(u64(T.Unsigned(self))) >> (u64(64) - u64(T.BITS))
       )
     )
   )
@@ -5515,8 +5515,8 @@ impl(
     u := T.Unsigned(self);
     (i : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
-      sh := (((T.BYTES - usize(1)) - i) * usize(8));
-      out(i) = u8(((u >> T.Unsigned(sh)) & T.Unsigned(255)));
+      sh := ((T.BYTES - usize(1) - i) * usize(8));
+      out(i) = u8((u >> T.Unsigned(sh)) & T.Unsigned(255));
     });
     out
   }),
@@ -5527,7 +5527,7 @@ impl(
     (i : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
       sh := (i * usize(8));
-      out(i) = u8(((u >> T.Unsigned(sh)) & T.Unsigned(255)));
+      out(i) = u8((u >> T.Unsigned(sh)) & T.Unsigned(255));
     });
     out
   }),
@@ -5556,7 +5556,7 @@ impl(
     (acc : T.Unsigned) = T.Unsigned(0);
     (i : usize) = usize(0);
     while(i < T.BYTES, i = (i + usize(1)), {
-      j := ((T.BYTES - usize(1)) - i);
+      j := (T.BYTES - usize(1) - i);
       cond(
         (i == usize(0)) => {
           acc = T.Unsigned(bs(j));
@@ -5578,7 +5578,7 @@ impl(
   T,
   /// True when exactly one bit is set. `0` is NOT a power of two.
   is_power_of_two : (fn(self : T) -> bool)(
-    ((self != T(0)) && ((self & (self - T(1))) == T(0)))
+    (self != T(0)) && ((self & (self - T(1))) == T(0))
   ),
   /// The smallest power of two at or above `self`, or `.None` when that does
   /// not fit. `0` and `1` both give `1`.
@@ -5588,7 +5588,7 @@ impl(
       (self > ((T.MAX >> T(1)) + T(1))) => Option(T).None,
       true =>
         Option(T).Some(
-          T(T.Unsigned((u64(1) << u64((T.BITS - (self - T(1)).leading_zeros())))))
+          T(T.Unsigned(u64(1) << u64(T.BITS - (self - T(1)).leading_zeros())))
         )
     )
   ),
@@ -5793,20 +5793,20 @@ impl(
   char,
   Negate(
     Output : char,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   char,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   char,
   BitNot(
     Output : char,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -5855,7 +5855,7 @@ impl(
 impl(
   char,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _char :: char;
@@ -5903,20 +5903,20 @@ impl(
   int,
   Negate(
     Output : int,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   int,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   int,
   BitNot(
     Output : int,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -5965,7 +5965,7 @@ impl(
 impl(
   int,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _int :: int;
@@ -6013,20 +6013,20 @@ impl(
   uint,
   Negate(
     Output : uint,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   uint,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   uint,
   BitNot(
     Output : uint,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -6075,7 +6075,7 @@ impl(
 impl(
   uint,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _uint :: uint;
@@ -6123,20 +6123,20 @@ impl(
   short,
   Negate(
     Output : short,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   short,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   short,
   BitNot(
     Output : short,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -6185,7 +6185,7 @@ impl(
 impl(
   short,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _short :: short;
@@ -6233,20 +6233,20 @@ impl(
   ushort,
   Negate(
     Output : ushort,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   ushort,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   ushort,
   BitNot(
     Output : ushort,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -6295,7 +6295,7 @@ impl(
 impl(
   ushort,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _ushort :: ushort;
@@ -6343,20 +6343,20 @@ impl(
   long,
   Negate(
     Output : long,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   long,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   long,
   BitNot(
     Output : long,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -6405,7 +6405,7 @@ impl(
 impl(
   long,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _long :: long;
@@ -6453,20 +6453,20 @@ impl(
   ulong,
   Negate(
     Output : ulong,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   ulong,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   ulong,
   BitNot(
     Output : ulong,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -6515,7 +6515,7 @@ impl(
 impl(
   ulong,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _ulong :: ulong;
@@ -6563,20 +6563,20 @@ impl(
   longlong,
   Negate(
     Output : longlong,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   longlong,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   longlong,
   BitNot(
     Output : longlong,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -6625,7 +6625,7 @@ impl(
 impl(
   longlong,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _longlong :: longlong;
@@ -6673,20 +6673,20 @@ impl(
   ulonglong,
   Negate(
     Output : ulonglong,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   ulonglong,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   ulonglong,
   BitNot(
     Output : ulonglong,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -6735,7 +6735,7 @@ impl(
 impl(
   ulonglong,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _ulonglong :: ulonglong;
@@ -6783,20 +6783,20 @@ impl(
   longdouble,
   Negate(
     Output : longdouble,
-    (neg) : ((self) -> __yo_op_neg(self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   longdouble,
   LogicalNot(
-    (!) : ((self) -> __yo_op_not(self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   longdouble,
   BitNot(
     Output : longdouble,
-    (~) : ((self) -> __yo_op_bit_complement(self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
@@ -6845,7 +6845,7 @@ impl(
 impl(
   longdouble,
   Clone(
-    clone : ((self) -> __yo_return_self(self))
+    clone : (self -> __yo_return_self(self))
   )
 );
 _longdouble :: longdouble;
@@ -6856,10 +6856,10 @@ export(longdouble : _longdouble);
 // that any T reachable through it is safe to access from another thread.
 // *(T) is unconditionally Acyclic because raw pointers do not participate
 // in Yo's ARC reference-counting cycle analysis.
-impl(generic(T : Type), where(T <: Send), *(T), Send());
-impl(generic(T : Type), *(T), Acyclic());
-impl(generic(T : Type), where(T <: Comptime), *(T), Comptime());
-impl(generic(T : Type), where(T <: Runtime), *(T), Runtime());
+impl(generic(T : Type), where(T <: Send), *T, Send());
+impl(generic(T : Type), *T, Acyclic());
+impl(generic(T : Type), where(T <: Comptime), *T, Comptime());
+impl(generic(T : Type), where(T <: Runtime), *T, Runtime());
 /*
 // NOTE: Below should give error, as C disallows pointer arithmetic on void pointers.
 impl(*(void), Add(usize)(
@@ -6893,7 +6893,7 @@ impl(*(void), Ord(*(void))(
 // operator family (`&==`, `&+`, `&/`, …) is retired.
 impl(
   generic(T : Type),
-  *(T),
+  *T,
   /// Offset forward by `count` elements (formerly `p &+ count`).
   add : (fn(self : Self, count : usize) -> Self)(
     __yo_ptr_add(self, count)
@@ -6910,30 +6910,30 @@ impl(
 );
 impl(
   generic(T : Type),
-  *(T),
-  Eq(*(T))(
-    (==) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+  *T,
+  Eq(*T)(
+    (==) : (fn(lhs : Self, rhs : *T) -> bool)(
       __yo_ptr_eq(lhs, rhs)
     ),
-    (!=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+    (!=) : (fn(lhs : Self, rhs : *T) -> bool)(
       __yo_ptr_neq(lhs, rhs)
     )
   )
 );
 impl(
   generic(T : Type),
-  *(T),
-  Ord(*(T))(
-    (<) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+  *T,
+  Ord(*T)(
+    (<) : (fn(lhs : Self, rhs : *T) -> bool)(
       __yo_ptr_lt(lhs, rhs)
     ),
-    (<=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+    (<=) : (fn(lhs : Self, rhs : *T) -> bool)(
       __yo_ptr_lte(lhs, rhs)
     ),
-    (>) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+    (>) : (fn(lhs : Self, rhs : *T) -> bool)(
       __yo_ptr_gt(lhs, rhs)
     ),
-    (>=) : (fn(lhs : Self, rhs : *(T)) -> bool)(
+    (>=) : (fn(lhs : Self, rhs : *T) -> bool)(
       __yo_ptr_gte(lhs, rhs)
     )
   )
@@ -7071,8 +7071,8 @@ impl(
   Array(T, N),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
-      __yo_array_index(&(self), idx)
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
+      __yo_array_index(&self, idx)
     )
   )
 );
@@ -7208,7 +7208,7 @@ impl(
 /// Replaces the builtin Slice(T) for internal plumbing
 /// (plans/archive/SLICE_REWORK.md step 4).
 RawSlice :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(ptr : *(T), len : usize)
+  struct(ptr : *T, len : usize)
 );
 export(RawSlice);
 // array. Sending a slice across threads copies the header; both threads
@@ -7222,7 +7222,7 @@ impl(
   Array(T, N),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       __yo_comptime_array_index(self, idx)
     )
   )
@@ -7270,14 +7270,14 @@ impl(
   /// Construct a `str` from a raw pointer and length.
   /// SAFETY: callers must guarantee the bytes outlive every use of the
   /// view — the safe surface only ever does this with static storage.
-  from_raw_parts : (fn(ptr : *(u8), length : usize) -> Self)(
+  from_raw_parts : (fn(ptr : *u8, length : usize) -> Self)(
     __yo_str_from_raw_parts(ptr, length)
   ),
   /// Return the length in bytes.
   len : (fn(self : Self) -> usize)(
     __yo_str_len(self)
   ),
-  ptr : (fn(self : Self) -> *(u8))(
+  ptr : (fn(self : Self) -> *u8)(
     __yo_str_ptr(self)
   ),
   /// Return the byte at `idx`. Panics with an index-out-of-bounds diagnostic
@@ -7325,7 +7325,7 @@ impl(
       true
     }),
     (!=) : (fn(lhs : Self, rhs : Self) -> bool)({
-      return(!(Self.(==)(lhs, rhs)));
+      return(!Self.(==)(lhs, rhs));
     })
   )
 );
@@ -7396,7 +7396,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       __yo_comptime_list_index(self, idx)
     )
   )
@@ -7407,7 +7407,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(Range(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*Self.Output))(
       __yo_comptime_list_index_range(self, idx)
     )
   )
@@ -7418,7 +7418,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*Self.Output))(
       __yo_comptime_list_index_range_inclusive(self, idx)
     )
   )
@@ -7583,7 +7583,7 @@ impl(
     return(__yo_are_types_equal(a, b));
   }),
   neq : (fn(comptime(a) : Type, comptime(b) : Type) -> comptime(bool))({
-    return(!(__yo_are_types_equal(a, b)));
+    return(!__yo_are_types_equal(a, b));
   }),
   /// Render this type for DISPLAY — diagnostics, comptime_assert messages,
   /// generated comments.
@@ -8326,15 +8326,15 @@ __yo_comptime_fold_range :: (
 __s2 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str) -> comptime(comptime_str))(a + b);
 // Helper: concat 3 strings
 __s3 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str) -> comptime(comptime_str))(
-  (a + b) + c
+  a + b + c
 );
 // Helper: concat 4 strings
 __s4 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str, comptime(d) : comptime_str) -> comptime(comptime_str))(
-  ((a + b) + c) + d
+  a + b + c + d
 );
 // Helper: concat 5 strings
 __s5 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str, comptime(d) : comptime_str, comptime(e) : comptime_str) -> comptime(comptime_str))(
-  (((a + b) + c) + d) + e
+  a + b + c + d + e
 );
 // --- derive_rule for Eq ---
 __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
@@ -8474,7 +8474,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       ctx.make_impl(
         quote(
           Clone(
-            clone : ((self) -> #(clone_body.to_expr()))
+            clone : (self -> #(clone_body.to_expr()))
           )
         )
       )
@@ -8531,7 +8531,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       ctx.make_impl(
         quote(
           Clone(
-            clone : ((self) -> #(match_body.to_expr()))
+            clone : (self -> #(match_body.to_expr()))
           )
         )
       )
@@ -8540,7 +8540,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       ctx.make_impl(
         quote(
           Clone(
-            clone : ((self) -> self)
+            clone : (self -> self)
           )
         )
       )
@@ -9183,7 +9183,7 @@ impl(
   Option(T),
   Clone(
     clone : (
-      (self) ->
+      self ->
         match(
           self,
           .None => Option(T).None,
@@ -9295,7 +9295,7 @@ impl(
   Result(T, E),
   Clone(
     clone : (
-      (self) ->
+      self ->
         match(
           self,
           .Ok(v) => Result(T, E).Ok(v.clone()),
@@ -9475,7 +9475,7 @@ impl(
   generic(T : Type),
   Box(T),
   Isolation(
-    can_isolate : ((self) -> (ref_count(self) == 1))
+    can_isolate : (self -> (ref_count(self) == 1))
   )
 );
 impl(
@@ -9502,7 +9502,7 @@ impl(
   where(T <: Clone),
   Box(T),
   Clone(
-    clone : ((self) -> box(self.*.clone()))
+    clone : (self -> box(self.*.clone()))
   )
 );
 /// `Default` — a box holding `T`'s default, matching Rust's
@@ -9560,7 +9560,7 @@ impl(
   generic(T : Type),
   Rc(T),
   Isolation(
-    can_isolate : ((self) -> (ref_count(self) == 1))
+    can_isolate : (self -> (ref_count(self) == 1))
   )
 );
 impl(
@@ -9589,7 +9589,7 @@ impl(
   where(T <: Clone),
   Rc(T),
   Clone(
-    clone : ((self) -> rc(self.*.clone()))
+    clone : (self -> rc(self.*.clone()))
   )
 );
 /// `Default` — a cell holding `T`'s default.
@@ -9655,13 +9655,13 @@ impl(
             comptime_assert(false, "Cannot isolate value of type containing Rc type that can form cycles");
             Option(Iso(unquote(temp_type))).None
           },
-          !(Var.is_owning_the_rc_value(unquote(temp))) => {
+          !Var.is_owning_the_rc_value(unquote(temp)) => {
             // compile-time check
             consume(unquote(temp));
             comptime_assert(false, "Cannot isolate value of type that is not owned");
             Option(Iso(unquote(temp_type))).None
           },
-          (Var.has_other_aliases(unquote(temp))) => {
+          Var.has_other_aliases(unquote(temp)) => {
             // compile-time check
             consume(unquote(temp));
             comptime_assert(false, "Cannot isolate value of type that has other aliases");
@@ -9749,13 +9749,13 @@ extern(
   __yo_maybe_uninit_new :
     (fn(comptime(_Self) : Type) -> _Self),
   __yo_maybe_uninit_as_ptr :
-    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : *(_Self)) -> *(BaseType)),
+    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : *_Self) -> *BaseType),
   /// The `witness` parameter is the safe-mode privilege token
   /// (`MaybeUninit.assume_init` passes its `written` argument through); the
   /// inline alias that lowers this builtin ignores it, and no runtime symbol
   /// exists — the call is always inlined.
   __yo_maybe_uninit_assume_init :
-    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : _Self, witness : *(BaseType)) -> BaseType)
+    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : _Self, witness : *BaseType) -> BaseType)
 );
 /// MaybeUninit — a wrapper that allows holding an uninitialized value.
 ///
@@ -9789,16 +9789,23 @@ impl(
   /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
   /// Get a mutable pointer to the underlying value.
-  as_ptr : (fn(inout(self) : Self) -> *(BaseType))(
-    __yo_maybe_uninit_as_ptr(Self, BaseType, &(self))
+  as_ptr : (fn(inout(self) : Self) -> *BaseType)(
+    __yo_maybe_uninit_as_ptr(Self, BaseType, &self)
   ),
   /// Assume the value is initialized and extract it. **Undefined behavior if
   /// not initialized.** The `written` witness is the `as_ptr()` result you
   /// initialized through: a raw pointer only unsafe-capable code can hold, so
   /// safe code cannot reach the uninitialized read. It is not inspected.
-  assume_init : (fn(own(self) : Self, written : *(BaseType)) -> BaseType)(
+  assume_init : (fn(own(self) : Self, written : *BaseType) -> BaseType)(
     __yo_maybe_uninit_assume_init(Self, BaseType, self, written)
-  )
+  ),
+  /// Test-support probe for the member-visibility rule (E0405): a `_`-prefixed
+  /// method declared in the PRELUDE is private to this module exactly like one
+  /// declared in any other module
+  /// (issues/fixed/prelude-methods-have-no-visibility-owner.md). It has no
+  /// caller inside std/ — it exists so `tests/member_visibility.test.yo` can
+  /// assert from a foreign directory that the compiler rejects the call.
+  _probe : (fn(self : Self) -> i32)(i32(7))
 );
 export(MaybeUninit);
 /// Iterator trait — lazy, pull-based sequence traversal.
@@ -10091,7 +10098,7 @@ for :: (
   // Check if `handle` is a function call of `=>`
   return(
     cond(
-      (handle.is_fn_call()) => {
+      handle.is_fn_call() => {
         callee :: handle.get_callee();
         cond(
           (callee.is_atom() && (callee == quote(=>))) => {
@@ -10233,7 +10240,7 @@ for :: (
                             cond(
                               b_first.is_fn_call() => {
                                 bf_callee :: b_first.get_callee();
-                                (bf_callee.is_atom() && (bf_callee == quote(invariant)))
+                                bf_callee.is_atom() && (bf_callee == quote(invariant))
                               },
                               true => false
                             )
@@ -10537,7 +10544,7 @@ impl(
     next : (fn(inout(self) : Self) -> Option(A))({
       (result : Option(A)) = .None;
       cond(
-        !(self._first_done) => {
+        !self._first_done => {
           match(
             self._first.next(),
             .Some(item) => {
@@ -11909,7 +11916,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            !(pred(item)) => {
+            !pred(item) => {
               result = false;
               break;
             },
@@ -12245,9 +12252,9 @@ FutureState :: enum(
   /// an I/O operation in flight.
   Running = 1,
   /// The future completed successfully.
-  Completed = -(1),
+  Completed = -1,
   /// The future was aborted (e.g., via `unwind`).
-  Aborted = -(2)
+  Aborted = -2
 );
 // SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
 // Aborted) with no heap allocations. It is trivially Send and Acyclic.
@@ -12277,14 +12284,14 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
     struct(
       /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
-      __future : *(T)
+      __future : *T
     )
   )
 );
 // Phase L (THREAD_SAFETY): JoinHandle is NOT Send — the inner future state
 // machine lives on the spawner's event-loop thread. Cross-thread result
 // delivery uses Channel(T).
-impl(generic(T : Type), JoinHandle(T), !(Send()));
+impl(generic(T : Type), JoinHandle(T), !Send());
 export(JoinHandle);
 /// Io module — the async runtime effect.
 ///
@@ -12303,7 +12310,7 @@ Io :: struct(
 // Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
 // is per-thread (per AGENTS.md). Sending Io across a thread boundary would
 // reference a scheduler on the wrong thread.
-impl(Io, !(Send()));
+impl(Io, !Send());
 export(Io);
 extern(
   "Yo",
@@ -12337,9 +12344,9 @@ impl(
 /// `io.state`: any positive step index reads as Running.
 extern(
   "Yo",
-  __yo_join_handle_state_raw : (fn(fut : *(void)) -> FutureState),
-  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit),
-  __yo_join_handle_release_raw : (fn(fut : *(void)) -> unit)
+  __yo_join_handle_state_raw : (fn(fut : *void) -> FutureState),
+  __yo_join_handle_abort_raw : (fn(fut : *void) -> unit),
+  __yo_join_handle_release_raw : (fn(fut : *void) -> unit)
 );
 impl(
   generic(T : Type),
@@ -12363,7 +12370,7 @@ impl(
   /// take a task (`std/async`'s join waits, `__yo_join_wait_add`). The
   /// handle keeps owning its reference; the pointer is valid while some copy
   /// of the handle is alive. Reading through it is unsafe.
-  as_ptr : (fn(self : JoinHandle(T)) -> *(void))((*void)(self.__future)),
+  as_ptr : (fn(self : JoinHandle(T)) -> *void)((*void)(self.__future)),
   /// True once the task is terminal — `Completed` or `Aborted`.
   is_finished : (fn(self : JoinHandle(T)) -> bool)({
     s := __yo_join_handle_state_raw((*void)(self.__future));

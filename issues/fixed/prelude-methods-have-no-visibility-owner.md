@@ -2,7 +2,7 @@
 
 **Severity:** S3 — the member-visibility guarantee is silently absent for the one module every file imports; no underscore method exists in the prelude today, so nothing is exploitable until one is added
 
-**Found**: 2026-10-01, during the safe-mode handover §3.2 audit (safe-code pointer-free API sweep): a `MaybeUninit._assume_init_plain` experiment compiled from a pragma-less user file although the same shape on `HashMap` (`_owned`), on a user module's struct, enum-generic, and newtype types — and on `std/string`'s `String` — is rejected with E0405. **Status**: OPEN.
+**Found**: 2026-10-01, during the safe-mode handover §3.2 audit (safe-code pointer-free API sweep): a `MaybeUninit._assume_init_plain` experiment compiled from a pragma-less user file although the same shape on `HashMap` (`_owned`), on a user module's struct, enum-generic, and newtype types — and on `std/string`'s `String` — is rejected with E0405. **Status**: FIXED 2026-10-04 — see "Fixed" below.
 
 ## Symptom
 
@@ -61,3 +61,44 @@ Dev-only (needs a prelude edit): the two steps above, or see the transcript of
 `issues/fixed/safe-code-reads-uninitialized-memory-through-maybeuninit-assume-init.md`
 where a `_assume_init_plain` backdoor was caught and removed during the audit
 precisely because this gap kept it reachable.
+
+## Fixed
+
+Root cause confirmed as triaged: `mm_load_prelude_file` evaluates the prelude
+outside the module loader, so `_registration_owner` stayed `""` for its whole
+evaluation and every `MethodEntry` its impls register was unowned — which
+`private_member_blocked`'s `.None` arm never blocks. Fixed by stamping the
+prelude's own key around its evaluation (the `register_loading`/
+`unregister_loading` discipline done by hand, in
+`src/module_manager.yo:mm_load_prelude_file`): `set_registration_owner("${std_path}/prelude.yo")`
+before the begin-expr evaluation, restored after, with
+`mark_owner_always_visible` of the same key applied alongside so prelude impls
+stay resolvable from every module without an import edge — the mark moved from
+`mm_preload_prelude` into `mm_load_prelude_file`, because the single-file
+self-bootstrap path in `mm_load_file` loads the prelude without going through
+`mm_preload_prelude` and a stamped-but-unmarked prelude would have made every
+prelude method invisible. The key is deliberately NOT a `file://` loading key,
+so `mm_invalidate_document`'s per-document registry purges (which compare
+loading keys) can never drop prelude registrations — the cached prelude is
+never re-evaluated, matching "editing std/prelude.yo still needs a server
+restart". The one owner-`""` consumer moved in lockstep: the prelude's
+minted-value collection (`type_trait_method_values_owned_by(String.new())` →
+the stamped key). Field visibility was never affected — it goes through
+`register_type_decl_module`, which is keyed on the declaration token's module
+path, not the registration owner.
+
+Test: `tests/member_visibility.test.yo`'s "a prelude-declared private method
+is not callable from another directory", backed by the test-support member
+`MaybeUninit._probe` added to `std/prelude.yo` (the prelude had no `_` impl
+method, so one had to exist for the rule to be gateable). Verified RED first —
+`comptime_expect_error(m._probe(), "is private")` raised its own "expected an
+error" complaint with the unfixed binary (the repro file also compiled, ran
+and printed `_probe() == 7`) — and GREEN after the fix.
+
+One follow-up filed while landing this: the STATIC spelling
+`MaybeUninit(i64)._probe(m)` still passes — but an A/B against a non-prelude
+module shows that is not a prelude defect: the static form of a generic impl's
+private method is not E0405-gated for ANY module (instance form is), see
+`issues/static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md`.
+
+Fixed 2026-10-04 on branch `s3/batch-2-fixes`.

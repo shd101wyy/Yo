@@ -2,7 +2,8 @@
 
 **Severity:** S3 — the identical pointer spelling gets opposite `fmt --check` verdicts per file — the CI gate fails copied code
 
-**Status:** OPEN. Observed 2026-09-07 while integrating the D-batch PRs
+**Status: FIXED** (2026-10-05, branch `s3/batch-2-fixes`). Observed 2026-09-07
+while integrating the D-batch PRs
 (`plans/archive/STD_API_STABILIZATION.md`). Not a blocker — the fix is to run `yo fmt`
 and take whatever it produces — but it makes `fmt --check` unpredictable when
 writing new code, and it cost a CI-visible failure on PR #461.
@@ -88,3 +89,37 @@ Find the branch in `src/formatter.yo` that decides whether to keep the
 parentheses around a parameterized pointee, and make it a single rule. Then
 pick ONE canonical spelling and sweep the tree, the way #459 did for the
 callee-position prefix cast `(*T)(x)`.
+
+## Fixed
+
+The pointer type was never the decider — the `(...)`-around-the-pointee
+elision (`*(MapEntry(K, V))` → `*MapEntry(K, V)`) was being silently
+disabled FILE-WIDE in any file that also carries a NON-prefix-capable
+operator's operand call. `is_redundant_grouping_paren`'s D1 rule ("an
+atom-like operand needs no parens after ANY operator") elided the CALL paren
+of `...` in hash_map.yo's trailing spread-rest macro
+(`fn(...(quote(entries)))` → `fn(...quote(entries))`, a parse error — E0008,
+`paren-less function and operator calls are not supported`), so the
+re-parse verify gate in `format_yo_source` failed and reformatted the whole
+file with `elide_parens=false`; ordered_map.yo, with no such macro, kept
+elision on. The same class covered `#(x)` unquotes and `...#(x)` splices.
+The fix adds `is_non_prefix_operator_call_paren` (src/formatter.yo): a `(`
+whose previous meaningful token is a non-prefix-capable operator in prefix
+position is that operator's call delimiter (`...`/`#`/`...#` have no bare
+prefix form, so the tight call is their only operand grammar) and is never
+elided; infix position is unaffected (`a + (y)` still flattens), judged via
+the same rvalue-end-before-the-operator test `prefix_call_paren_shape`
+uses. Five regression cases in tests/internal/formatter.test.yo (verified
+red first), including the two-file verdict-consistency case; the fixture
+`33_keeps_macro_splice_calls_tight.expected` and the gate-conservative
+splice-group test moved to the now-canonical output (their old expectations
+pinned the file-wide fallback, and the splice call parens themselves stay
+tight — the fixture's actual concern). `yo fmt` then swept the ten files
+the fix re-enabled elision in (std/collections/{hash_map,array_list,
+hash_set}.yo, std/encoding/json.yo, std/error.yo, std/fmt/to_string.yo,
+std/prelude.yo, tests/derive.test.yo, tests/variadic_comptime.test.yo, and
+the ftt-stub cli-case fixture, re-recorded); every hunk is a documented
+elision class. `yo fmt --check ./src ./std ./tests` green;
+`yo check ./std` 178/178; `yo check ./src` 278/278;
+tests/internal/formatter.test.yo 51/51. Fixed 2026-10-05 on branch
+`s3/batch-2-fixes`.

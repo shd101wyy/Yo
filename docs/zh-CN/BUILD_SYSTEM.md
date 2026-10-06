@@ -1307,7 +1307,15 @@ yo doc -o docs/api          # 自定义输出目录
 yo doc --name "My Library"  # 覆盖项目名称
 yo doc --document-private   # 包含非导出项
 yo doc --version v1.0.0     # 设置版本号（未指定时自动从 git 检测）
+yo doc --allow-token-only   # 对求值器无法加载的模块接受仅词法（token-only）文档
 ```
+
+求值器无法加载的模块——通常是因为本次运行解析到的 std 与源码所属的
+不一致，用 `--std-path <dir>` 指向正确的 std 即可修复——会使运行**失败**
+（`doc: N of M module(s) failed to evaluate ...`），而不是悄悄生成没有签名、
+成员无类型的页面。仅词法输出需要显式选择：加上 `--allow-token-only`
+后，降级模块照常渲染，文档注释挂在对应的条目上，每个模块按导出的
+顶层声明计数一次。
 
 ### 构建系统集成
 

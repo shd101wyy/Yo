@@ -319,7 +319,7 @@ test("derive_rule MyEq for 2-field struct", {
   p2 := DRPoint(i32(1), i32(2));
   p3 := DRPoint(i32(1), i32(3));
   assert(p1.my_eq(p2), "equal points should be equal");
-  assert(!(p1.my_eq(p3)), "different points should not be equal");
+  assert(!p1.my_eq(p3), "different points should not be equal");
 });
 // Test: derive_rule for 3-field struct
 DRVec3 :: struct(x : i32, y : i32, z : i32);
@@ -329,7 +329,7 @@ test("derive_rule MyEq for 3-field struct", {
   v2 := DRVec3(i32(1), i32(2), i32(3));
   v3 := DRVec3(i32(1), i32(2), i32(4));
   assert(v1.my_eq(v2), "equal vec3 should be equal");
-  assert(!(v1.my_eq(v3)), "different vec3 should not be equal");
+  assert(!v1.my_eq(v3), "different vec3 should not be equal");
 });
 // Test: derive_rule for empty struct
 DREmpty :: struct();
@@ -347,7 +347,7 @@ test("derive_rule MyEq for mixed-type struct", {
   r2 := DRRecord(i32(1), true);
   r3 := DRRecord(i32(1), false);
   assert(r1.my_eq(r2), "equal records should be equal");
-  assert(!(r1.my_eq(r3)), "different records should not be equal");
+  assert(!r1.my_eq(r3), "different records should not be equal");
 });
 // Test: derive_rule for fieldless enum
 DRColor :: enum(Red, Green, Blue);
@@ -357,8 +357,8 @@ test("derive_rule MyEq for fieldless enum", {
   g := DRColor.Green;
   r2 := DRColor.Red;
   assert(r.my_eq(r2), "Red should equal Red");
-  assert(!(r.my_eq(g)), "Red should not equal Green");
-  assert(!(g.my_eq(DRColor.Blue)), "Green should not equal Blue");
+  assert(!r.my_eq(g), "Red should not equal Green");
+  assert(!g.my_eq(DRColor.Blue), "Green should not equal Blue");
 });
 UsesEqPoint :: struct(x : i32, y : i32);
 derive(UsesEqPoint, Eq(UsesEqPoint), UsesEq);
@@ -367,7 +367,7 @@ test("multiple derives in one call share accumulated impl env", {
   p2 := UsesEqPoint(i32(1), i32(2));
   p3 := UsesEqPoint(i32(2), i32(3));
   assert(p1.uses_eq(p2), "UsesEq derive should see Eq derived earlier in the same call");
-  assert(!(p1.uses_eq(p3)), "UsesEq derive should use the derived Eq implementation");
+  assert(!p1.uses_eq(p3), "UsesEq derive should use the derived Eq implementation");
 });
 // ========== Test: generic derive_rule with generic/where ==========
 // Generic struct type constructor
@@ -381,14 +381,14 @@ test("derive_rule MyEq for generic struct with generic/where", {
   p2 := DRPair(i32, i32)(i32(1), i32(2));
   p3 := DRPair(i32, i32)(i32(1), i32(3));
   assert(p1.my_eq(p2), "equal pairs should be equal");
-  assert(!(p1.my_eq(p3)), "different pairs should not be equal");
+  assert(!p1.my_eq(p3), "different pairs should not be equal");
 });
 test("derive_rule MyEq for generic struct with mixed types", {
   m1 := DRPair(i32, bool)(i32(42), true);
   m2 := DRPair(i32, bool)(i32(42), true);
   m3 := DRPair(i32, bool)(i32(42), false);
   assert(m1.my_eq(m2), "equal mixed pairs should be equal");
-  assert(!(m1.my_eq(m3)), "different mixed pairs should not be equal");
+  assert(!m1.my_eq(m3), "different mixed pairs should not be equal");
 });
 // ========== Test: built-in derive with generic/where ==========
 DRGenericBox :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -769,7 +769,7 @@ __te_plain :: (
   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
 )({
   src :: "`TE_PLAIN`";
-  ctx.make_impl(quote(_TeLbl(te_lbl : ((self) -> #(src.to_expr())))))
+  ctx.make_impl(quote(_TeLbl(te_lbl : (self -> #(src.to_expr())))))
 });
 derive_rule(_TeLbl, __te_plain);
 _TePoint :: struct(x : i32);
@@ -779,7 +779,7 @@ __te_interp :: (
   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
 )({
   src :: "`P(${self.x.to_string()})`";
-  ctx.make_impl(quote(_TeIntLbl(te_int : ((self) -> #(src.to_expr())))))
+  ctx.make_impl(quote(_TeIntLbl(te_int : (self -> #(src.to_expr())))))
 });
 derive_rule(_TeIntLbl, __te_interp);
 derive(_TePoint, _TeIntLbl);

@@ -111,6 +111,13 @@ Fmt KEEPS these — the grammar needs them; do not remove by hand:
   binds exactly ONE postfix expression
   (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1); the call parens are
   the operand boundary.
+- **The operand call of a non-prefix-capable operator**: `...(entries)`,
+  `#(field)`, `...#(exprs)` — `...`, `#`, and `...#` have no bare prefix
+  form, so the tight call is their only operand spelling. Until 2026-10-05
+  the elider stripped these too; the re-parse gate then silently disabled
+  paren elision for the WHOLE file, so the same `Item : *(MapEntry(K, V))`
+  spelling passed `fmt --check` in one file and was rewritten in another
+  (`issues/fixed/fmt-pointer-type-paren-verdict-is-context-dependent.md`).
 - **Multi-arg operator calls** (`-(a, b)`) and operator atoms (`(!)`).
 
 ## `if` is sugar for `cond`

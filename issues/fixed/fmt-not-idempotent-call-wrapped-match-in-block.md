@@ -2,7 +2,8 @@
 
 **Severity:** S3 — one `yo fmt` pass produces output `fmt --check` rejects — the format-then-check workflow breaks
 
-**Status: OPEN.** Found 2026-08-25 while formatting a codegen edit for
+**Status: FIXED** (2026-10-05, branch `s3/batch-2-fixes`). Found 2026-08-25
+while formatting a codegen edit for
 issues/fixed/inline-builtin-alias-drops-body-arguments.md. Reproducer:
 `issues/repros/fmt-not-idempotent-call-wrapped-match-in-block.yo`.
 
@@ -89,3 +90,52 @@ re-decides correctly.
 The acceptance test for a fix is idempotency itself, not a golden: for every
 `.yo` in the tree, `fmt(fmt(x)) == fmt(x)` — worth adding as a gate, since it
 is checkable without agreeing on what the output should be.
+
+## Fixed
+
+**Root cause.** The main-loop comma handler
+(`_format_yo_source_impl` in `src/formatter.yo`) decided the break after
+every comma from the innermost open bracket/curly frame with NO depth
+guard: its `(cur_curly_inline && cur_curly_ml) => break` arm (and
+symmetrically `cur_bracket_ml => break`) fired for ANY comma lexically
+inside a multiline inline curly / multiline bracket — including commas
+nested inside a call paren (`match(...)`, `cond(...)`) below the frame.
+The break was emitted at `indent_level` before the paren's own multiline
+machinery had bumped the indent, so pass 1 under-indented the
+continuation to the enclosing block's level and only pass 2 — now seeing
+the paren span rows, taking the multiline-paren path — reached the fixed
+point. The frame-depth comparison was the discipline
+`find_inline_curly_indices` already applied to semicolons; the comma
+handler was missing it. (Probing the pre-fix binary further showed the
+broader class: a bare `match`/`cond` statement in a block, single-row
+calls inside a multiline array, and four long-stable-but-inconsistent
+`if(x,\n{` splits in `src/evaluator/values/impl.yo` — a call's
+block-argument curly whose only content is a single nested call
+statement is inline-eligible because that statement's `;` sits inside
+the call's parens, so the spurious arm fired on the inner call's
+argument comma too.)
+
+**Fix.** The comma handler now records, per open bracket/curly frame,
+the paren/bracket/curly depth at which the frame opened (parallel
+stacks `bracket_stack_paren_depths`/`bracket_stack_curly_depths`,
+`curly_stack_paren_depths`/`curly_stack_bracket_depths`) and breaks at
+the frame only when the comma sits DIRECTLY at that frame's own level
+(`comma_in_bracket_frame` / `comma_in_curly_frame`). A comma nested
+below a multiline frame defers to the delimiter that owns it: break iff
+its own enclosing paren is multiline (same newline the old code
+emitted, now via the paren arm), else stay on the row. Commas directly
+at a multiline frame's own level (bracket elements, struct-literal
+fields) still break exactly as before.
+
+**Test.** Seven cases in `tests/internal/formatter.test.yo` under
+"fmt comma frames": the issue's reproducer, the bare-`match` and
+`cond` block variants, single-row calls in a multiline array (all
+one-pass fixed points now), plus the preserved break cases (multiline
+call in a multiline array, struct-literal field commas) and the joined
+call-block-arg comma. Verified with the rebuilt tree compiler:
+`suite 46/46 passed`; `fmt --check ./std ./tests ./src` green;
+`fmt f.yo && fmt --check f.yo` rc=0 on the reproducer in one pass.
+The fix also joins the four stale `if(x,\n{` spots in
+`src/evaluator/values/impl.yo` to the dominant `if(x, {` spelling.
+
+Fixed 2026-10-05 on branch `s3/batch-2-fixes`.

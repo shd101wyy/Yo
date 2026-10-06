@@ -2612,7 +2612,12 @@ execute_node :: (
                 format : doc_fmt,
                 version : doc_cfg.version.clone(),
                 logo : doc_cfg.logo.clone(),
-                favicon : doc_cfg.favicon.clone()
+                favicon : doc_cfg.favicon.clone(),
+                // No build-step opt-in this generation: `__yo_build_doc`'s
+                // ten-argument builtin signature is seed-frozen, and a doc
+                // step whose modules fail evaluation SHOULD fail the build —
+                // `yo doc --allow-token-only` is the escape hatch.
+                allow_token_only : false
               ),
               io
             );

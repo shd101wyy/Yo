@@ -53,3 +53,22 @@ test("the inferred local is usable before the return", {
   });
   assert(match(m(4), .Ok(v) => (v == i32(8)), .Err(_) => false));
 });
+test("an io.async local returned later infers the closure's variant from the function result", {
+  my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, E), Io)))({
+    task := io.async((io : Io) => {
+      zero := i32(0);
+      .Ok(i32(42) + zero)
+    });
+    return(task);
+  });
+  r := io.await(my_fn(io), io);
+  assert(match(r, .Ok(v) => (v == i32(42)), .Err(_) => false));
+});
+test("an io.async local as the body tail infers too", {
+  my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, E), Io)))({
+    task := io.async((io : Io) => .Err(.Bad));
+    task
+  });
+  r := io.await(my_fn(io), io);
+  assert(match(r, .Ok(_) => false, .Err(e) => match(e, .Bad => true, .Worse(_) => false)));
+});
