@@ -231,11 +231,32 @@ unsafe :: impl({
   export(cast);
 });
 export(unsafe);
-/// Send trait — indicates a type that can be safely transferred between threads.
+/// Send trait — a value of this type may be MOVED to another thread.
+///
+/// The compiler derives it (plans/VALUES_BY_DEFAULT.md §3.8): a value is
+/// `Send` iff it reaches no non-atomic reference cell (`Rc`, `Box`, a
+/// `ref(struct(...))`), every component is `Send`, and it holds no raw
+/// pointer and no borrow. An atomic object is `Send` iff it is `Sync`, because
+/// its copies share one payload. Raw pointers are neither `Send` nor `Sync`
+/// unless a type opts in, with `impl(T, Send())` under
+/// `pragma(Pragma.AllowUnsafe)`.
 Send :: trait(
   id := "Send"
 );
 export(Send);
+/// Sync trait — copies of a value of this type may be READ from several
+/// threads at once.
+///
+/// Derived like `Send`, over shared reads instead of a move: plain data,
+/// atomic cells (`Arc`, `Atomic*`, `Mutex`) and values composed of them are
+/// `Sync`; a non-atomic reference cell is not, and neither is a raw pointer
+/// unless a type opts in with `impl(T, Sync())` under
+/// `pragma(Pragma.AllowUnsafe)`. A closure is `Sync` iff its captured state
+/// is. `Dyn(Trait)` is `Sync` only as `Dyn(Trait, Sync)`.
+Sync :: trait(
+  id := "Sync"
+);
+export(Sync);
 /// Acyclic trait - indicates a type that cannot form reference cycles.
 /// Types that implement Acyclic don't need cycle collection tracking.
 /// Primitive types, value types without object fields, and objects that
@@ -357,6 +378,7 @@ Allocator :: struct(
 // global and every std implementor guards its `ctx`; a user implementor is
 // under `AllowUnsafe` and carries the same obligation.
 impl(Allocator, Send());
+impl(Allocator, Sync());
 export(AllocatorVTable, Allocator);
 /// Index trait — enables `container(idx)` subscript syntax at runtime.
 /// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`).
@@ -989,6 +1011,7 @@ impl(unit, Acyclic());
 impl(unit, Comptime());
 impl(unit, Runtime());
 impl(unit, Send());
+impl(unit, Sync());
 // `unit` is a zero-sized type with exactly one value, so — as Rust's `()` —
 // it implements the derivable traits trivially. Without these, `derive(Eq)`
 // (or Ord/Hash/Clone) over a struct with a `unit` field fails: the generated
@@ -1022,6 +1045,7 @@ impl(unit, Default(default : (fn() -> Self)(())));
 impl(void, Acyclic());
 impl(void, Runtime());
 impl(void, Send());
+impl(void, Sync());
 /// comptime_int
 impl(comptime_int, Acyclic());
 impl(comptime_int, Comptime());
@@ -1310,6 +1334,7 @@ _comptime_string :: comptime_str;
 export(comptime_str : _comptime_string);
 /// bool
 impl(bool, Send());
+impl(bool, Sync());
 impl(bool, Acyclic());
 impl(
   bool,
@@ -1371,6 +1396,7 @@ impl(
   BITS : u32(8)
 );
 impl(i8, Send());
+impl(i8, Sync());
 impl(i8, Acyclic());
 impl(i8, Comptime());
 impl(i8, Runtime());
@@ -1665,6 +1691,7 @@ impl(
   BITS : u32(16)
 );
 impl(i16, Send());
+impl(i16, Sync());
 impl(i16, Acyclic());
 impl(i16, Comptime());
 impl(i16, Runtime());
@@ -1959,6 +1986,7 @@ impl(
   BITS : u32(32)
 );
 impl(i32, Send());
+impl(i32, Sync());
 impl(i32, Acyclic());
 impl(i32, Comptime());
 impl(i32, Runtime());
@@ -2256,6 +2284,7 @@ impl(
   BITS : u32(64)
 );
 impl(i64, Send());
+impl(i64, Sync());
 impl(i64, Acyclic());
 impl(i64, Comptime());
 impl(i64, Runtime());
@@ -2550,6 +2579,7 @@ impl(
   BITS : u32(8)
 );
 impl(u8, Send());
+impl(u8, Sync());
 impl(u8, Acyclic());
 impl(u8, Comptime());
 impl(u8, Runtime());
@@ -2827,6 +2857,7 @@ impl(
   BITS : u32(16)
 );
 impl(u16, Send());
+impl(u16, Sync());
 impl(u16, Acyclic());
 impl(u16, Comptime());
 impl(u16, Runtime());
@@ -3104,6 +3135,7 @@ impl(
   BITS : u32(32)
 );
 impl(u32, Send());
+impl(u32, Sync());
 impl(u32, Acyclic());
 impl(u32, Comptime());
 impl(u32, Runtime());
@@ -3381,6 +3413,7 @@ impl(
   BITS : u32(64)
 );
 impl(u64, Send());
+impl(u64, Sync());
 impl(u64, Acyclic());
 impl(u64, Comptime());
 impl(u64, Runtime());
@@ -3648,6 +3681,7 @@ _u64 :: u64;
 export(u64 : _u64);
 /// f32
 impl(f32, Send());
+impl(f32, Sync());
 impl(f32, Acyclic());
 impl(f32, Comptime());
 impl(f32, Runtime());
@@ -3840,6 +3874,7 @@ _f32 :: f32;
 export(f32 : _f32);
 /// f64
 impl(f64, Send());
+impl(f64, Sync());
 impl(f64, Acyclic());
 impl(f64, Comptime());
 impl(f64, Runtime());
@@ -4035,6 +4070,7 @@ impl(
   )
 );
 impl(isize, Send());
+impl(isize, Sync());
 impl(isize, Acyclic());
 impl(isize, Comptime());
 impl(isize, Runtime());
@@ -4328,6 +4364,7 @@ impl(
   )
 );
 impl(usize, Send());
+impl(usize, Sync());
 impl(usize, Acyclic());
 impl(usize, Comptime());
 impl(usize, Runtime());
@@ -5743,6 +5780,7 @@ impl(
 );
 /// char
 impl(char, Send());
+impl(char, Sync());
 impl(char, Acyclic());
 impl(char, Runtime());
 impl(
@@ -5853,6 +5891,7 @@ _char :: char;
 export(char : _char);
 /// int
 impl(int, Send());
+impl(int, Sync());
 impl(int, Acyclic());
 impl(int, Runtime());
 impl(
@@ -5963,6 +6002,7 @@ _int :: int;
 export(int : _int);
 /// uint
 impl(uint, Send());
+impl(uint, Sync());
 impl(uint, Acyclic());
 impl(uint, Runtime());
 impl(
@@ -6073,6 +6113,7 @@ _uint :: uint;
 export(uint : _uint);
 /// short
 impl(short, Send());
+impl(short, Sync());
 impl(short, Acyclic());
 impl(short, Runtime());
 impl(
@@ -6183,6 +6224,7 @@ _short :: short;
 export(short : _short);
 /// ushort
 impl(ushort, Send());
+impl(ushort, Sync());
 impl(ushort, Acyclic());
 impl(ushort, Runtime());
 impl(
@@ -6293,6 +6335,7 @@ _ushort :: ushort;
 export(ushort : _ushort);
 /// long
 impl(long, Send());
+impl(long, Sync());
 impl(long, Acyclic());
 impl(long, Runtime());
 impl(
@@ -6403,6 +6446,7 @@ _long :: long;
 export(long : _long);
 /// ulong
 impl(ulong, Send());
+impl(ulong, Sync());
 impl(ulong, Acyclic());
 impl(ulong, Runtime());
 impl(
@@ -6513,6 +6557,7 @@ _ulong :: ulong;
 export(ulong : _ulong);
 /// longlong
 impl(longlong, Send());
+impl(longlong, Sync());
 impl(longlong, Acyclic());
 impl(longlong, Runtime());
 impl(
@@ -6623,6 +6668,7 @@ _longlong :: longlong;
 export(longlong : _longlong);
 /// ulonglong
 impl(ulonglong, Send());
+impl(ulonglong, Sync());
 impl(ulonglong, Acyclic());
 impl(ulonglong, Runtime());
 impl(
@@ -6733,6 +6779,7 @@ _ulonglong :: ulonglong;
 export(ulonglong : _ulonglong);
 /// longdouble
 impl(longdouble, Send());
+impl(longdouble, Sync());
 impl(longdouble, Acyclic());
 impl(longdouble, Runtime());
 impl(
@@ -6842,12 +6889,12 @@ impl(
 _longdouble :: longdouble;
 export(longdouble : _longdouble);
 /// Ptr
-// SAFETY: A raw pointer *(T) is Send only when the pointee T is Send —
-// the pointer itself is a plain value (an address), and Send implies
-// that any T reachable through it is safe to access from another thread.
+// A raw pointer *(T) is neither Send nor Sync (plans/VALUES_BY_DEFAULT.md
+// decision 38 E): nothing says who owns the pointee or who else reads it. A
+// type that holds one opts in with `impl(T, Send())` / `impl(T, Sync())`
+// under pragma(Pragma.AllowUnsafe), with a SAFETY comment.
 // *(T) is unconditionally Acyclic because raw pointers do not participate
 // in Yo's ARC reference-counting cycle analysis.
-impl(generic(T : Type), where(T <: Send), *(T), Send());
 impl(generic(T : Type), *(T), Acyclic());
 impl(generic(T : Type), where(T <: Comptime), *(T), Comptime());
 impl(generic(T : Type), where(T <: Runtime), *(T), Runtime());
@@ -6935,6 +6982,7 @@ impl(
 // gets an independent copy). It is unconditionally Acyclic because arrays
 // are value-typed — they do not participate in ARC reference counting.
 impl(generic(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
+impl(generic(T : Type, U : usize), where(T <: Sync), Array(T, U), Sync());
 impl(generic(T : Type, U : usize), Array(T, U), Acyclic());
 impl(generic(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime());
 impl(generic(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
@@ -12245,6 +12293,7 @@ FutureState :: enum(
 impl(FutureState, Acyclic());
 impl(FutureState, Runtime());
 impl(FutureState, Send());
+impl(FutureState, Sync());
 impl(
   FutureState,
   Eq(FutureState)(
@@ -12276,6 +12325,7 @@ JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
 // machine lives on the spawner's event-loop thread. Cross-thread result
 // delivery uses Channel(T).
 impl(generic(T : Type), JoinHandle(T), !(Send()));
+impl(generic(T : Type), JoinHandle(T), !(Sync()));
 export(JoinHandle);
 /// Io module — the async runtime effect.
 ///
@@ -12295,6 +12345,7 @@ Io :: struct(
 // is per-thread (per AGENTS.md). Sending Io across a thread boundary would
 // reference a scheduler on the wrong thread.
 impl(Io, !(Send()));
+impl(Io, !(Sync()));
 export(Io);
 extern(
   "Yo",
