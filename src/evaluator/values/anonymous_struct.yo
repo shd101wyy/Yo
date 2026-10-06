@@ -115,7 +115,7 @@ evaluate_anonymous_struct_value :: (
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     // `imm(y)` / `mut(z)` (or `imm(y) : &p`) is a capture-list borrow entry
     // (decision 35): it means something only before a closure's parameters.
-    entry_label := match(arg, .FnCall(_, _, ea, true, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), _ => arg);
+    entry_label := if(ast_expr_is_fn_call_of(arg, ":", Option(usize).Some(usize(2))), match(arg, .FnCall(_, _, ea, _, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), .Atom(_, _) => arg), arg);
     if(ast_expr_is_capture_mode_entry(arg) || ast_expr_is_capture_mode_entry(entry_label), {
       exn.throw(
         dyn(

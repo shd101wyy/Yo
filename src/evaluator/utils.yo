@@ -99,6 +99,8 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../parser.yo");
 { evaluate_expression_raw } :: import("./exprs/expr.yo");
 { panic, assert } :: import("std/assert");
+/// Live capture-list freezes by borrowed root id (`note_second_class_binding`).
+(g_capture_freezes : HashMap(usize, ArrayList(_CaptureFreeze))) = HashMap(usize, ArrayList(_CaptureFreeze)).new();
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `src/utils.yo`.
@@ -746,7 +748,6 @@ _find_var_by_id :: (fn(env : Environment, id : usize) -> Option(Tuple(Variable, 
 /// ends with the holder's scope, not at its last use (the last-use refinement
 /// lands with decision 18's live ranges).
 _CaptureFreeze :: struct(holder_id : usize, holder_name : String, borrow : CaptureBorrow);
-(g_capture_freezes : HashMap(usize, ArrayList(_CaptureFreeze))) = HashMap(usize, ArrayList(_CaptureFreeze)).new();
 /// `holder` was just bound (`:=`, `=`) to a value of type `ty`. If the value
 /// is second-class, check that every place it borrows outlives the holder
 /// (decision 38 A: a binding may not outlive any place its value borrows),

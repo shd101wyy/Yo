@@ -37,6 +37,8 @@ pragma(Pragma.AllowUnsafe);
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+/// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
+(g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
 { type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -450,7 +452,6 @@ CaptureBorrow :: struct(
   /// `module:row:col` of the entry, for diagnostics.
   site : String
 );
-(g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
 /// Record the borrow entries of the capture struct `struct_id`. A `mut` entry
 /// makes the struct move-only, so the move-only fast path is armed.
 register_capture_borrows :: (fn(struct_id : String, borrows : ArrayList(CaptureBorrow)) -> unit)({
@@ -547,6 +548,71 @@ _collect_type_borrows_inner :: (fn(ty_in : TypeValue, inout(out) : ArrayList(Cap
     .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(concrete, out, depth + u32(1)), .None => ()),
     _ => ()
   );
+});
+/// The second-class type a value of `ty` would hold behind a pointer, if any:
+/// a `*(T)` (directly, or inside an `Option`/enum payload, a tuple, an array
+/// or a value struct field) whose `T` is second-class. A pointer's target
+/// outlives any one borrow (a collection's buffer is `?(*(T))`), so decision
+/// 38 A's type-position rule rejects it.
+type_pointee_second_class :: (fn(ty : TypeValue) -> Option(TypeValue))(
+  cond(
+    (g_capture_borrows.len() == usize(0)) => Option(TypeValue).None,
+    true => _pointee_second_class_inner(ty, u32(0))
+  )
+);
+_pointee_second_class_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(TypeValue))({
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  if((depth > u32(8)) || is_rc_type(ty), {
+    return(Option(TypeValue).None);
+  });
+  comps := ArrayList(TypeValue).new();
+  match(
+    ty,
+    .Pointer(inner) => {
+      return(if(type_is_second_class(inner), Option(TypeValue).Some(inner), Option(TypeValue).None));
+    },
+    .Array(element : elem, length : _) => comps.push(elem),
+    .Tuple({ field_types : fields }) => {
+      (i : usize) = usize(0);
+      while(i < fields.len(), {
+        comps.push(match(fields.get(i), .Some(f) => f, .None => TypeValue.Unit));
+        i = (i + usize(1));
+      });
+    },
+    .Struct({ field_types : fields }) => {
+      (i : usize) = usize(0);
+      while(i < fields.len(), {
+        comps.push(match(fields.get(i), .Some(f) => f, .None => TypeValue.Unit));
+        i = (i + usize(1));
+      });
+    },
+    .EnumT({ variant_fields : all_fields }) => {
+      (vi : usize) = usize(0);
+      while(vi < all_fields.len(), {
+        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        (fi : usize) = usize(0);
+        while(fi < vf.len(), {
+          comps.push(match(vf.get(fi), .Some(f) => f, .None => TypeValue.Unit));
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+    },
+    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => comps.push(concrete), .None => ()),
+    _ => ()
+  );
+  (ci : usize) = usize(0);
+  while(ci < comps.len(), {
+    match(
+      recur(match(comps.get(ci), .Some(c) => c, .None => TypeValue.Unit), depth + u32(1)),
+      .Some(found) => {
+        return(Option(TypeValue).Some(found));
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  Option(TypeValue).None
 });
 /// True if a value of `ty` is second-class (decision 38 A): it holds a
 /// capture-list borrow, directly or through any component. Such a value may
@@ -826,6 +892,8 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
     // A move-only value (§3.4) has a drop to run (its `dispose`) and an
     // owner to track, exactly like an RC value; its fields are walked below.
     _nominal_declares_move_only(ty) => true,
+    // A closure with a `mut` capture is move-only too (decision 35).
+    _capture_struct_declares_mut(ty) => true,
     true => match(
       ty,
       // Array — recurse on element type
@@ -2704,7 +2772,7 @@ type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
   _type_provides_slice_source(ty, usize(1024))
 });
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
-export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow);
+export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);

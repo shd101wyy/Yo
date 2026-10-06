@@ -349,6 +349,36 @@ test("Parse single-field shorthand anonymous struct { x }", {
   e := only_expr(prog);
   assert_str_eq(ast_expr_to_string(e), `_(x : x)`, "single-field anon struct shorthand form");
 });
+// ─── Closure capture lists (plans/VALUES_BY_DEFAULT.md decision 35) ─────────
+test("Parse a capture list: `{ x, imm(y), mut(z) : &mut w }(m) => body`", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected parse error");
+        unwind(());
+      }
+    )
+  );
+  prog := parse(`{ x, imm(y), mut(z) : &mut w }(m) => m`, `test.yo`, exn);
+  e := only_expr(prog);
+  assert_str_eq(ast_expr_to_string(e), `((_(x : x, imm(y), (mut(z) : &mut(w))))(m) => m)`, "the record literal is the arrow's callee; borrow puns stay unexpanded");
+});
+test("Parse a record pattern arm `{ x, y } => body` next to a capture-list closure", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected parse error");
+        unwind(());
+      }
+    )
+  );
+  prog := parse(`match(p, { x, y } => x)`, `test.yo`, exn);
+  e := only_expr(prog);
+  assert_str_eq(ast_expr_to_string(e), `match(p, (_(x : x, y : y) => x))`, "a record pattern arm keeps the record shape");
+  prog2 := parse(`match(p, { x }(y) => y)`, `test.yo`, exn);
+  e2 := only_expr(prog2);
+  assert_str_eq(ast_expr_to_string(e2), `match(p, ((_(x : x))(y) => y))`, "the capture-list shape parses; the evaluator rejects it as an arm pattern");
+});
 // ─── Array and bracket expressions ───────────────────────────────────────────
 test("Parse array value [1, 2, 3]", {
   exn := Exception(

@@ -135,7 +135,6 @@ pragma(Pragma.AllowUnsafe);
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
-{ borrowed_value_root_of_place } :: import("../exprs/assignment.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -617,7 +616,10 @@ _check_anon_fn_captures :: (
     func_id : String,
     tok : Token,
     ctx : EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// The capture-list frame (decision 35): its borrow entries are `is_ref`
+    /// by construction and second-class, so the `inout` rule skips them.
+    (cap_frame_idx : Option(usize)) ?= Option(usize).None
   ) -> unit
 )({
   if(!is_closure, {
@@ -680,6 +682,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
           .Some(ci) => {
             // Only true outer captures are checked:
             // `frame_level < outer_frames_len`.
+            in_cap_frame := match(cap_frame_idx, .Some(cfi) => (ci.frame_level == cfi), .None => false);
             if(ci.frame_level < outer_frames_len, {
               match(
                 env.frames.get(ci.frame_level),
@@ -690,7 +693,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                     match(
                       frame.variables.get(vi),
                       .Some(v) => if(v.name == k, {
-                        if(v.is_ref, {
+                        if(v.is_ref && !in_cap_frame, {
                           _raise_capture_rejection(
                             ctx,
                             exn,
@@ -925,11 +928,11 @@ _evaluate_capture_list :: (
       });
       if(is_mut, {
         // Decision 38 D: a `mut` capture's place must be writable.
-        writable := cond(
-          (fields.len() == usize(0)) => (root_var.is_reassignable || root_var.is_ref),
-          true => borrowed_value_root_of_place(ev_place, env, ctx).is_none()
-        );
-        if(!writable || (root_var.is_ref && !root_var.is_reassignable), {
+        // A place is writable through its root binding: a `:=` local, a
+        // `mut`/`inout` parameter or local, or a `mut` capture are
+        // reassignable; a by-value parameter, a `match`/`for` binding and an
+        // `imm` capture are not. (A cell is never crossed, checked above.)
+        if(!root_var.is_reassignable, {
           _cap_list_error(ctx, exn, ast_expr_token(place_e), `A \`mut\` capture needs a writable place, and \`${ast_expr_to_string(place_e)}\` is not: \`${root_tok.value}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or an \`imm\` borrow). Borrow it with \`imm(${label})\`, or take the parameter \`mut(${root_tok.value})\`.`);
         });
       });
@@ -2038,6 +2041,17 @@ Result type: ${type_to_string(decl_result_ty)}`
     // THREW (empty `out`) and propagate mode is on, re-raise so the
     // expected error reaches the comptime_expect_error catch.
     if(propagate_def_time_errors() && (anon_body_out.len() == usize(0)), {
+      // The body's own error, when the trial kept it, so the observer can
+      // match its text (a capture-list rule raised inside the body).
+      if(_anon_swallow_pending(), {
+        c2_msg := _anon_swallow_message();
+        c2_diags := g_anon_swallow_diags.clone();
+        _clear_anon_swallow();
+        if(c2_diags.len() > usize(0), {
+          exn.throw(dyn(yo_error_from_diagnostics(c2_diags)));
+        });
+        exn.throw(dyn(c2_msg));
+      });
       exn.throw(
         dyn(
           format_error_message(
@@ -2367,7 +2381,7 @@ Result type: ${type_to_string(decl_result_ty)}`
     match(
       body_eval_ctx.captured_variables,
       .Some(anon_caps) => if(anon_caps.len() > usize(0), {
-        _check_anon_fn_captures(anon_caps, env, is_creating_closure, n_cap_fr, func_id.clone(), tok, ctx, exn);
+        _check_anon_fn_captures(anon_caps, env, is_creating_closure, n_cap_fr, func_id.clone(), tok, ctx, exn, cap_frame_idx);
       }),
       .None => ()
     );
