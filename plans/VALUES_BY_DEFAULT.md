@@ -16,14 +16,22 @@ rejected alternatives are in git history (this file at commit 7e0efc70f, and PRs
 Progress:
 - **Landed:**
   - V1 Generation A (#1186, #1188, #1191, #1207);
+  - V1 step 1 Generation A, the `Rc` names (#1232);
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
+  - V3b Generation A (#1240);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
-  - V1 step 1, Generation A: the compiler learns the `Rc` names (#1232);
-  - V3b Generation A;
-  - V3's remaining compiler work: async, `Iso`, `Send`/`Sync`, and
-    `imm(y) :=` (see V3).
+  - decision 32 Generation A, `Rc.clone(w)` (#1241);
+  - the Generation A wave: decision 35's capture lists with decision 38's
+    rules, then decision 37's `FnOnce`; decision 36's `Copy`; the
+    `Send`/`Sync` split with decision 38 E; local borrows (`imm(y) :=`,
+    decision 25);
+  - V3's remaining async work (§3.13).
+- **Next:** v0.2.53, then the Generation B sweeps (the Box→Rc rename,
+  decision 32's clash error, the V3b sweep and flip).
+- **Rule for this header:** the PR that lands a phase moves its line from
+  "In progress" to "Landed".
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md):
   S1, S2, S3a (#1190) and S4 (#1175) have landed, and S3b is dropped (§0 below).
@@ -1129,6 +1137,12 @@ and in git, not a silent edit.
         that cannot be stored" kind, checked at every instantiation and
         field. Hylo, Swift and Mojo keep conventions out of types for the
         same reason.
+        - *Amended 2026-10-06 by decision 38 A.* Decision 38 builds that
+          check for closure and future types, which are nameable through
+          `type_of`. So "it would need a new kind" no longer argues against
+          borrow types by itself. The decision stands on the other three
+          reasons: a C signature readable from the Yo signature, operators
+          that would consume their operands, and auto-ref probing.
       - **The C would stop being readable from the signature.** In
         `fn(x : T)` with `T := &String`, `x` is a pointer, which defeats
         this decision's reason.
@@ -1493,9 +1507,10 @@ and in git, not a silent edit.
         `Copy`/`Drop` exclusion. A failing impl is an error naming the
         first non-`Copy` part.
       - **`Copy` provides `clone()`.** A `Copy` type's clone can only be the
-        bitwise copy, so the compiler supplies `Clone` and a manual `Clone`
-        impl is an error. Rust asks for both impls and requires that they
-        agree.
+        bitwise copy, so the compiler supplies `Clone`. A hand-written
+        `Clone` impl and `derive(T, Clone)` on a `Copy` type are both
+        errors, each naming `derive(T, Copy)` alone. Rust asks for both
+        impls and requires that they agree.
       - **Prelude impls:** the integers, floats, `bool`, `rune`, `unit`, raw
         pointers, `fn` pointers and `str` views; `Option(T)` and
         `Result(T, E)` with `where(T <: Copy)` (and `E <: Copy`).
@@ -1516,6 +1531,16 @@ and in git, not a silent edit.
       `std/` and `tests/` that are copied implicitly today, which are the
       types that need `Copy`. Do it with an audit flag like §6's before
       the sweep PR is opened.
+      - **Its blind spots are §6's.** Files that fail `check` report
+        nothing, and a generic body counts only where something
+        instantiates it. A plain-data type the audit misses flips to move
+        semantics at the flip. The result is E0901 at call sites the sweep
+        never touched, an error rather than corruption, and the diagnostic
+        names `derive(T, Copy)`. The sweep PR therefore lists its
+        uncovered files.
+      - **What "today" means.** Count after the V3b flip. By then a plain
+        parameter of an implicitly copyable type is a by-value copy, and
+        those copies count.
     - **Phase.** Before V2b, which widens the same predicate to `String`
       and the collections.
       - **Generation A:**
@@ -1537,7 +1562,7 @@ and in git, not a silent edit.
       - a plain struct without `Copy` moves, and a later use is E0901;
       - `impl(T, Copy())` over a `String` field is an error;
       - `Copy` plus `Dispose` is an error;
-      - a manual `Clone` on a `Copy` type is an error;
+      - a manual `Clone`, or `derive(T, Clone)`, on a `Copy` type is an error;
       - a generic `where(T <: Copy)` operator impl;
       - a tuple of `Copy` parts copies implicitly;
       - a closure whose captures are all `Copy` copies implicitly.
@@ -1717,7 +1742,8 @@ and in git, not a silent edit.
         add := { k }(x : i32) => (x + k);
         add(1); add(2);                      // an Fn call: unmarked, add stays usable
         apply :: (fn(imm(f) : Impl(Fn(i32) -> i32), x : i32) -> i32)(f(x));
-        apply(&add, 5);                      // lending the closure: marked
+        apply(&add, 5);                      // lending the closure: marked (after V3b Generation B;
+                                             // until then &add to an Impl(...) parameter is the address-of)
         apply((x : i32) => (x * 2), 5);      // a literal is a temporary: exempt
         keep(add);                           // a by-value (escaping) parameter: moves add
 
@@ -1910,8 +1936,11 @@ and in git, not a silent edit.
     - **The cycle collector (V3's `Dispose` work).** After the dispose
       pass, it re-checks each white cell's count. A resurrected cell, and
       everything reachable from it, is leaked and turned black instead of
-      freed (as in CPython's PEP 442). Verify this against the collector's
-      code.
+      freed (as in CPython's PEP 442). **Confirmed in today's collector**
+      and tracked as
+      `issues/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`
+      (S1, a reproducer is in `issues/repros/`). It is fixed on its own,
+      not deferred to V3's std half.
     - **Unwind and abort (decision 28's `Rc` arm).** Per-call shared marks
       and the borrowed-`for` guard are released by the unwind cleanup, not
       by code after the call. A by-value or `FnOnce` argument counts as
