@@ -216,3 +216,50 @@ test("a value struct moves through a Channel between threads", {
   // (0+0) + (1+2) + (2+4) + (3+6) = 18
   assert(_move_points() == i32(18), "every point arrived");
 });
+
+// ============================================================================
+// Iso(T): T is any value that reaches a non-atomic cell (§3.6)
+// ============================================================================
+SsBag :: struct(n : i32, items : ArrayList(i32));
+_isolate_a_value_bag :: (fn() -> i32)({
+  bag := SsBag(n : i32(7), items : ArrayList(i32).new());
+  bag.items.push(i32(1));
+  bag.items.push(i32(2));
+  total := AtomicI32(i32(0));
+  match(
+    ^bag,
+    .Some(iso) => {
+      t := Thread(unit).spawn((io : Io) => {
+        got := iso.extract();
+        (s : i32) = got.n;
+        (i : usize) = usize(0);
+        while(i < got.items.len(), {
+          s = (s + match(got.items.get(i), .Some(v) => v, .None => i32(0)));
+          i = (i + usize(1));
+        });
+        total.fetch_add(s, MemoryOrder.AcqRel);
+        ()
+      });
+      t.join();
+    },
+    .None => ()
+  );
+  total.load(MemoryOrder.Acquire)
+});
+test("^ isolates a value struct holding a list and moves it to another thread", {
+  assert(_isolate_a_value_bag() == i32(10), "7 + 1 + 2 arrived on the other thread");
+});
+test("^ refuses a value whose cell is aliased", {
+  bag := SsBag(n : i32(1), items : ArrayList(i32).new());
+  alias := bag.items;
+  match(
+    ^bag,
+    .Some(_) => assert(false, "an aliased interior list is not isolated"),
+    .None => ()
+  );
+  assert(alias.len() == usize(0), "the alias is still usable");
+});
+// A value that reaches no cell is moved as it is.
+comptime_expect_error({
+  _SsIsoPoint :: Iso(SsPoint);
+}, "reaches none");

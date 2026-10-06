@@ -11,7 +11,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 { some_resolution } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1764,9 +1764,17 @@ generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, cont
 /// Iso struct type declarations + create/extract/dispose helper decls and
 /// impls. `iso_types` is populated during collect_required_types
 /// (collection.yo get_type_string side-effect), so it is filled by the time
-/// this runs at the end of the declaration phase. The inner-value drop is
-/// `__yo_decr_rc` — every Iso child is a reference-counted value, so decrementing
-/// its RC (which disposes at 0) is the correct release for all children.
+/// this runs at the end of the declaration phase. For a reference-object child
+/// the inner-value drop is `__yo_decr_rc` (which disposes at 0). A VALUE child
+/// (a struct or enum that reaches a non-atomic cell, plans/VALUES_BY_DEFAULT.md
+/// §3.6) is dropped field by field, which needs a function context:
+/// `generate_iso_uniqueness_functions` (functions/constructors.yo) defines its
+/// dispose instead.
+/// Is the child of the Iso type `iso_type` a reference object (held by its
+/// handle), rather than a value held inline?
+iso_child_is_object :: (fn(iso_type : TypeValue) -> bool)(
+  match(iso_type, .IsoT(c) => (is_reference_struct_type(c) || is_reference_enum_type(c)), _ => true)
+);
 generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
   em := context.emitter;
   // Pass 1: Iso struct type + constructor declaration.
@@ -1822,7 +1830,11 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       .Some(iso_name) => match(
         context.iso_types.get(iso_name.clone()),
         .Some(info) => if(info.struct_generated, {
-          em.emit_declaration_string_line(`void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso);`);
+          // A value child's dispose lives in the constructor block, which chunked
+          // emission copies into every unit, so it is `static` like the rest of
+          // that block.
+          dispose_linkage := if(iso_child_is_object(info.iso_type), String.new(), String.from("static "));
+          em.emit_declaration_string_line(`${dispose_linkage}void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso);`);
           em.emit_declaration_string_line(`static void __yo_dispose_iso_${iso_name.clone()}(void* ptr);`);
         }),
         .None => ()
@@ -1876,7 +1888,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       k5.next(),
       .Some(iso_name) => match(
         context.iso_types.get(iso_name.clone()),
-        .Some(info) => if(info.create_generated && !info.dispose_generated, {
+        .Some(info) => if(info.create_generated && !info.dispose_generated && iso_child_is_object(info.iso_type), {
           em.emit_string_line(`void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso) {`);
           em.emit_string_line(String.from("  if (!atomic_load(&iso->extracted)) {"));
           em.emit_string_line(String.from("    __yo_decr_rc((void*)iso->value);"));

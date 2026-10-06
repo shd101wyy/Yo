@@ -782,6 +782,74 @@ type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
 type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0))
 );
+/// Does a value of `ty` reach a NON-ATOMIC cell — a `ref(struct)`/`ref(enum)`
+/// that is not atomic (`Rc`, today's `Box`, `ArrayList`'s buffer cell, a user
+/// `ref(struct)`), or a `Dyn`'s shared box? The walk goes through value
+/// aggregates inline and stops at atomic cells and `Iso`s, which are shared
+/// safely already. Unlike `type_contains_rc_type` it ignores move-only values
+/// that hold no cell.
+///
+/// This is `Iso(T)`'s bound (plans/VALUES_BY_DEFAULT.md §3.6): `T` is any
+/// value that reaches at least one non-atomic cell, the graph `^v` proves
+/// unique. It is also what `Send` refuses: a value is `Send` only if it
+/// reaches none (§3.8), which the marker derivation states field by field.
+type_reaches_non_atomic_cell :: (fn(ty : TypeValue) -> bool)(_reaches_non_atomic_cell_inner(ty, u32(0)));
+_any_reaches_non_atomic_cell :: (fn(fields : ArrayList(TypeValue), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < fields.len(), {
+    match(
+      fields.get(i),
+      .Some(ft) => if(_reaches_non_atomic_cell_inner(ft, depth), {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
+_reaches_non_atomic_cell_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  if(depth > u32(8), {
+    return(false);
+  });
+  match(
+    ty,
+    .Struct({ field_types : fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => cond(
+      (is_ref && !is_atomic) => true,
+      is_ref => false,
+      true => _any_reaches_non_atomic_cell(fields, depth + u32(1))
+    ),
+    .EnumT({ variant_fields : all_fields, is_reference_semantics : e_is_ref, is_atomic_rc : e_is_atomic }) => cond(
+      (e_is_ref && !e_is_atomic) => true,
+      e_is_ref => false,
+      true => {
+        (vi : usize) = usize(0);
+        while(vi < all_fields.len(), {
+          match(
+            all_fields.get(vi),
+            .Some(v_fields) => if(_any_reaches_non_atomic_cell(v_fields, depth + u32(1)), {
+              return(true);
+            }),
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        false
+      }
+    ),
+    .Tuple(field_labels : _, field_types : fields) => _any_reaches_non_atomic_cell(fields, depth + u32(1)),
+    .Union(name : _, field_labels : _, field_types : fields) => _any_reaches_non_atomic_cell(fields, depth + u32(1)),
+    .Array(element : elem, length : _) => _reaches_non_atomic_cell_inner(elem, depth + u32(1)),
+    .DynT(required_trait_types : _) => true,
+    .SomeT({ resolution : resolved }) => match(
+      resolved,
+      .Some(concrete) => _reaches_non_atomic_cell_inner(concrete, depth + u32(1)),
+      .None => false
+    ),
+    _ => false
+  )
+});
 /// Depth-limited inner walk for `type_is_control_bound`. A depth cap (not an
 /// object-identity visited set, which the value-semantic `TypeValue` can't do
 /// cheaply) guards self-referential types — same approach as
@@ -2534,7 +2602,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
+export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);
