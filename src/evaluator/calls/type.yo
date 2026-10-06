@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, ExpectedTypeCtx, TypeCallResult, in_def_time_trial } :: import("../context.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 { TypeField } :: import("../types/field.yo");
-{ set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_INCOMPATIBLE_TYPES, E_ARGUMENT_COUNT_MISMATCH } :: import("../../diagnostics.yo");
@@ -259,6 +259,7 @@ try_to_call_type_with_arguments :: (
       );
     });
     arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, member_element.ty));
+    reject_second_class_escape(arg_info.ty, String.from("stored in a field of a named type"), ast_expr_token(actual_arg_expr), ctx, exn);
     set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn, "field-store");
     env.frames = arg_info.env.frames;
     env.module_path = arg_info.env.module_path;

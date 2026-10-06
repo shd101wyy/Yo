@@ -33,7 +33,7 @@
 { suggest_name, lookup_std_exporters, Span, E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 { debug_knob, is_temp_variable_name } :: import("../../utils.yo");
-{ use_of_moved_value_error } :: import("../utils.yo");
+{ use_of_moved_value_error, check_capture_freeze_access } :: import("../utils.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 /// Evaluate an identifier or operator expression.
 ///
@@ -441,6 +441,12 @@ evaluate_identifier_and_operator :: (
     },
     .None => ()
   );
+  // A place a live capture-list closure borrows `mut` is frozen for every
+  // access (decision 18 rule 2); synthesized drops and dups are not accesses
+  // of the source.
+  if(!variable.is_compile_time_only && !token.module_path.starts_with(String.from("auto-generated://")), {
+    check_capture_freeze_access(variable, ctx.is_lhs_of_assignment, token, env, ctx, exn);
+  });
   // c_include constants (e.g. O_RDONLY from <fcntl.h>) have UnknownValue.
   // NOTE: `is_extern` is not consulted here; skip the runtime-value
   // special-case and always use the variable's compile-time value.

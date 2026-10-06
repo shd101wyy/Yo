@@ -22,6 +22,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
+  ast_expr_is_capture_list_params,
   make_err_expr,
   alloc_global_expr_id,
   BK_MATCH,
@@ -501,6 +502,19 @@ evaluate_match :: (
       .FnCall(_, _, pargs, _, _) => match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
       .Atom(_, _) => make_err_expr()
     );
+    // `{ x, y } => …` is a record pattern; `{ … }(params) => …` is a closure
+    // with a capture list, which only a closure position accepts (decision
+    // 35's parsing rule).
+    if(ast_expr_is_capture_list_params(pattern_ast), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(pattern_ast),
+            `A match arm's pattern cannot be \`${ast_expr_to_string(pattern_ast)}\`: \`{ … }(params) => body\` is a closure with a capture list, accepted only where a closure is expected. A record pattern is \`{ x, y } => body\`; to match on a closure's result, call it in the scrutinee.`
+          )
+        )
+      );
+    });
     // `(p && (g)) => body`: a guard.
     (guard_ast : Option(AstExpr)) = Option(AstExpr).None;
     if(ast_expr_is_fn_call_of(pattern_ast, "&&", .Some(usize(2))), {

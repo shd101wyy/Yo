@@ -50,7 +50,7 @@ import("std/fmt");
   clear_provisional_trait_methods,
   type_id_or_empty
 } :: import("../values/type_trait_methods.yo");
-{ set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
 { evaluate_expression_raw, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_FIELD_NOT_FOUND } :: import("../../diagnostics.yo");
@@ -440,6 +440,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           );
         });
         arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(caller_env, field_type));
+        reject_second_class_escape(arg_info.ty, String.from("stored in a trait implementation"), ast_expr_token(value_sub), ctx, exn);
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn, "field-store");
         caller_env = expr_info_adopt_env(arg_info);
         arg_type := arg_info.ty;

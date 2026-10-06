@@ -59,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, require_capture_borrow_exclusivity } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -7508,6 +7508,7 @@ Fix: wrap the call:
           exn
         );
         require_valid_ref_argument_places(fv_param_is_ref, fv_args, env, ctx, exn);
+        require_capture_borrow_exclusivity(fv_param_is_ref, fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
         fv_returns_place := match(callee_info_opt, .Some(rpi) => match(rpi.ty, .Func({ result : fv_res }) => is_pointer_type(fv_res), _ => false), .None => false);
         require_no_inout_write_through_borrow(fv_d3_pending, fv_param_labels, fv_param_is_ref, fv_args, fv_returns_place, env, ctx);
         // Bind regular params. Params at index >= n_supplied_reg were

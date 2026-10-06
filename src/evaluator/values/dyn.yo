@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 { E_TYPE_MISMATCH } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
 { find_methods_from_generic_impls, MethodCandidate } :: import("./impl.yo");
 { Exception } :: import("std/error");
@@ -906,6 +906,7 @@ evaluate_dyn_value :: (
     // every `exn.throw(dyn(format_error_message(...)))` (the startup heap
     // corruption; see
     // issues/fixed/yo-self-dyn-throw-double-drop.md; repro /tmp/dd.yo).
+    match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ne_final_expr)), .Some(sc_ne) => reject_second_class_escape(sc_ne.ty, String.from("made a `Dyn`"), ast_expr_token(ne_final_expr), ctx, exn), .None => ());
     set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn, "dyn");
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
@@ -994,6 +995,7 @@ evaluate_dyn_value :: (
     );
   });
   // Same ownership-transfer consumption as the non-executing path above.
+  match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(final_value_expr_ex)), .Some(sc_fv) => reject_second_class_escape(sc_fv.ty, String.from("made a `Dyn`"), ast_expr_token(final_value_expr_ex), ctx, exn), .None => ());
   set_expr_as_needs_to_call_dup(final_value_expr_ex, ctx, exn, "dyn");
   // Determine the expected DynType:
   //   1. From context.expected_type when it is already a DynT.

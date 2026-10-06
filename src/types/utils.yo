@@ -473,6 +473,9 @@ capture_struct_borrows :: (fn(struct_id : String) -> Option(ArrayList(CaptureBor
     true => g_capture_borrows.get(struct_id)
   )
 );
+/// Some capture list has recorded a borrow: the fast path of every check that
+/// looks for one.
+capture_borrows_exist :: (fn() -> bool)(g_capture_borrows.len() > usize(0));
 /// The place a borrow entry names, as written: `s.items`.
 capture_borrow_place_string :: (fn(b : CaptureBorrow) -> String)({
   out := b.root_name.clone();
@@ -2701,7 +2704,7 @@ type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
   _type_provides_slice_source(ty, usize(1024))
 });
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
-export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow);
+export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow);
 export(set_target_pointer_size);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);

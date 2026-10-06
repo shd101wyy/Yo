@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -91,7 +91,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason } :: import("../types/utils.yo");
+{ type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -681,6 +681,365 @@ _log_user_move :: (fn(v : Variable, tok : Token, env : Environment) -> unit)({
 ///      at this expression and at the prior consumption point.
 ///   5. Otherwise mutate the variable's `consumed_at_token` to this
 ///      expression's token.
+// ---------------------------------------------------------------------------
+// Second-class values and capture-list freezes
+// (plans/VALUES_BY_DEFAULT.md decisions 18, 35 and 38 A/B)
+// ---------------------------------------------------------------------------
+/// How a capture-list borrow reads in a message: "`s.items` (its capture
+/// `imm(items)` at m.yo:3:5)".
+_capture_borrow_note :: (fn(b : CaptureBorrow) -> String)({
+  mode := if(b.is_mut, String.from("mut"), String.from("imm"));
+  `\`${capture_borrow_place_string(b)}\` (the capture \`${mode}(${b.label})\` at ${b.site})`
+});
+/// Decision 38 A: a second-class value (one holding a capture-list borrow,
+/// transitively) may not be `how` — returned, stored in a field or a `Dyn`,
+/// moved into a `sink` parameter, spawned, or named as a type argument. A
+/// no-op for any other type.
+reject_second_class_escape :: (fn(ty : TypeValue, how : String, tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
+  if(!type_is_second_class(ty), {
+    return(());
+  });
+  bs := ArrayList(CaptureBorrow).new();
+  collect_type_borrows(ty, bs);
+  b := match(bs.get(usize(0)), .Some(x) => x, .None => return(()));
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        tok,
+        `This value borrows ${_capture_borrow_note(b)}, so it is second-class and cannot be ${how}: a borrow never outlives the scope that lends it.`,
+        Option(String).Some(`capture a value instead (\`{ ${b.label} : ${capture_borrow_place_string(b)}.clone() }\`), or keep the closure local to the scope that owns \`${b.root_name}\` and call it there`)
+      ),
+      E_BORROW_ESCAPES
+    ),
+    ctx,
+    exn
+  );
+});
+/// The binding with id `id` in `env`, and its (frame, position).
+_find_var_by_id :: (fn(env : Environment, id : usize) -> Option(Tuple(Variable, usize, usize)))({
+  (fi : usize) = env.frames.len();
+  while(fi > usize(0), {
+    fi = (fi - usize(1));
+    match(
+      env.frames.get(fi),
+      .Some(frame) => {
+        (vi : usize) = usize(0);
+        while(vi < frame.variables.len(), {
+          match(
+            frame.variables.get(vi),
+            .Some(v) => if(v.id == id, {
+              return(Option(Tuple(Variable, usize, usize)).Some((v, fi, vi)));
+            }),
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(Tuple(Variable, usize, usize)).None
+});
+/// A live capture-list freeze: while `holder` is in scope and not moved, the
+/// borrowed root is frozen (decision 18 rule 2, applied to the places a
+/// closure captures, transitively, decision 38 A). Scope-based: the freeze
+/// ends with the holder's scope, not at its last use (the last-use refinement
+/// lands with decision 18's live ranges).
+_CaptureFreeze :: struct(holder_id : usize, holder_name : String, borrow : CaptureBorrow);
+(g_capture_freezes : HashMap(usize, ArrayList(_CaptureFreeze))) = HashMap(usize, ArrayList(_CaptureFreeze)).new();
+/// `holder` was just bound (`:=`, `=`) to a value of type `ty`. If the value
+/// is second-class, check that every place it borrows outlives the holder
+/// (decision 38 A: a binding may not outlive any place its value borrows),
+/// and freeze those places for the holder's scope.
+note_second_class_binding :: (fn(holder : Variable, ty : TypeValue, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  if(!type_is_second_class(ty), {
+    return(());
+  });
+  bs := ArrayList(CaptureBorrow).new();
+  collect_type_borrows(ty, bs);
+  holder_at := _find_var_by_id(env, holder.id);
+  (bi : usize) = usize(0);
+  while(bi < bs.len(), {
+    b := match(bs.get(bi), .Some(x) => x, .None => return(()));
+    outlives := match(
+      _find_var_by_id(env, b.root_id),
+      .Some(root_at) => match(
+        holder_at,
+        .Some(h_at) => ((root_at.1 > h_at.1) || ((root_at.1 == h_at.1) && (root_at.2 > h_at.2))),
+        .None => false
+      ),
+      // The borrowed binding is no longer in scope where the value lands:
+      // a block or arm result carried it out of the scope that owns it.
+      .None => true
+    );
+    if(outlives, {
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `\`${holder.name}\` would outlive ${_capture_borrow_note(b)}: \`${b.root_name}\` is dropped first, and the closure would point at freed storage.`,
+            Option(String).Some(`declare \`${holder.name}\` after \`${b.root_name}\` and in the same or an inner scope, or capture a value instead (\`{ ${b.label} : ${capture_borrow_place_string(b)}.clone() }\`)`)
+          ),
+          E_BORROW_ESCAPES
+        ),
+        ctx,
+        exn
+      );
+    });
+    fz := _CaptureFreeze(holder_id : holder.id, holder_name : holder.name.clone(), borrow : b);
+    match(
+      g_capture_freezes.get(b.root_id),
+      .Some(list) => {
+        list.push(fz);
+      },
+      .None => {
+        fresh := ArrayList(_CaptureFreeze).new();
+        fresh.push(fz);
+        g_capture_freezes.insert(b.root_id, fresh);
+      }
+    );
+    bi = (bi + usize(1));
+  });
+});
+/// Decision 38 A, "results": a block, arm or `cond` result of type `ty` may
+/// not carry a borrow of a binding declared at or inside frame `scope_frame`
+/// of `env` (the scope the result is leaving).
+reject_second_class_result_outliving :: (fn(ty : TypeValue, scope_frame : usize, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  if(!type_is_second_class(ty), {
+    return(());
+  });
+  bs := ArrayList(CaptureBorrow).new();
+  collect_type_borrows(ty, bs);
+  (bi : usize) = usize(0);
+  while(bi < bs.len(), {
+    b := match(bs.get(bi), .Some(x) => x, .None => return(()));
+    match(
+      _find_var_by_id(env, b.root_id),
+      .Some(root_at) => if(root_at.1 >= scope_frame, {
+        raise_flow_violation(
+          with_code(
+            format_error_message_with_help(
+              tok,
+              `This result borrows ${_capture_borrow_note(b)}, but \`${b.root_name}\` is declared inside the block or arm the result leaves, so the borrow would outlive it.`,
+              Option(String).Some(`declare \`${b.root_name}\` outside the block, or capture a value instead (\`{ ${b.label} : ${capture_borrow_place_string(b)}.clone() }\`)`)
+            ),
+            E_BORROW_ESCAPES
+          ),
+          ctx,
+          exn
+        );
+      }),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+});
+/// An access to the binding `v` (a read, or with `is_write` a write or a
+/// move) while a live closure borrows it: a `mut` capture freezes every
+/// access, an `imm` capture freezes writes and moves (decision 18 rule 2).
+/// A field of `v` is the same root. A no-op unless some capture-list closure
+/// borrows `v`.
+check_capture_freeze_access :: (fn(v : Variable, is_write : bool, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  if(g_capture_freezes.len() == usize(0), {
+    return(());
+  });
+  match(
+    g_capture_freezes.get(v.id),
+    .Some(list) => {
+      (fi : usize) = usize(0);
+      while(fi < list.len(), {
+        fz := match(list.get(fi), .Some(x) => x, .None => return(()));
+        if(fz.borrow.is_mut || is_write, {
+          live := match(
+            _find_var_by_id(env, fz.holder_id),
+            .Some(h_at) => h_at.0.consumed_at_token.is_none(),
+            .None => false
+          );
+          if(live, {
+            what := if(is_write, String.from("written or moved"), String.from("used"));
+            raise_flow_violation(
+              with_code(
+                format_error_message_with_help(
+                  tok,
+                  `\`${v.name}\` cannot be ${what} here: the closure \`${fz.holder_name}\` borrows ${_capture_borrow_note(fz.borrow)}, and the borrow lasts until \`${fz.holder_name}\`'s scope ends.`,
+                  Option(String).Some(`end \`${fz.holder_name}\`'s scope first (put the closure and its calls in a block), or reach \`${v.name}\` through the closure`)
+                ),
+                E_BORROW_CONFLICT
+              ),
+              ctx,
+              exn
+            );
+          });
+        });
+        fi = (fi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
+/// One place an argument reaches, for decision 28's overlap test: its root
+/// binding and its field path, and how a message names it.
+_ArgPlace :: struct(root_id : usize, path : ArrayList(String), text : String);
+/// The places argument `arg` (evaluated) reaches: the place it names, when it
+/// is a field chain rooted at a runtime binding (`z`, `s.items`), and every
+/// place a capture-list closure it holds borrows, transitively (decision 38 B).
+_arg_places :: (fn(arg : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(_ArgPlace)) -> unit)({
+  fields_rev := ArrayList(String).new();
+  (cur : AstExpr) = arg;
+  (walking : bool) = true;
+  (is_place : bool) = true;
+  while(walking, {
+    if(ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2))), {
+      match(
+        cur,
+        .FnCall(_, _, d_args, _, _) => {
+          fld := match(d_args.get(usize(1)), .Some(f) => f, .None => make_err_expr());
+          if(ast_expr_is_atom(fld), {
+            fields_rev.push(ast_expr_token(fld).value.clone());
+          }, {
+            is_place = false;
+          });
+          cur = match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr());
+        },
+        .Atom(_, _) => {
+          walking = false;
+        }
+      );
+    }, {
+      walking = false;
+    });
+  });
+  if(is_place && ast_expr_is_atom(cur), {
+    match(
+      get_variables_from_env(env, ast_expr_token(cur).value.clone()).last(),
+      .Some(rv) => if(!rv.is_compile_time_only, {
+        path := ArrayList(String).new();
+        (ri : usize) = fields_rev.len();
+        while(ri > usize(0), {
+          ri = (ri - usize(1));
+          path.push(match(fields_rev.get(ri), .Some(f) => f, .None => String.new()));
+        });
+        text := String.from("`");
+        text.push_string(ast_expr_to_string(arg));
+        text.push_str("`");
+        out.push(_ArgPlace(root_id : rv.id, path : path, text : text));
+      }),
+      .None => ()
+    );
+  });
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)),
+    .Some(ai) => {
+      bs := ArrayList(CaptureBorrow).new();
+      collect_type_borrows(ai.ty, bs);
+      (bi : usize) = usize(0);
+      while(bi < bs.len(), {
+        match(bs.get(bi), .Some(b) => out.push(_ArgPlace(root_id : b.root_id, path : b.path, text : _capture_borrow_note(b))), .None => ());
+        bi = (bi + usize(1));
+      });
+    },
+    .None => ()
+  );
+});
+/// Two places overlap when they share a root and one path is a prefix of the
+/// other (decision 28): `s` and `s.items` do, `s.left` and `s.right` do not.
+_places_overlap :: (fn(a : _ArgPlace, b : _ArgPlace) -> bool)({
+  if(a.root_id != b.root_id, {
+    return(false);
+  });
+  n := if(a.path.len() < b.path.len(), a.path.len(), b.path.len());
+  (i : usize) = usize(0);
+  while(i < n, {
+    if(match(a.path.get(i), .Some(x) => x, .None => String.new()) != match(b.path.get(i), .Some(y) => y, .None => String.new()), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+/// Decision 28's argument exclusivity for capture-list borrows (decision 38
+/// B): within one call (the receiver and a called closure count as
+/// arguments), an exclusive argument — a `mut`/`inout` one, or a value that
+/// carries a `mut` capture, which is lent exclusively even to an `imm(f)`
+/// parameter — may not overlap anything another argument reaches. So
+/// `g(&f, &mut z)` (where `f` captures `z`), `f(&g)` (where `g` reaches the
+/// `mut`-capturing `f`) and `xs.for_each({ mut(n) : &mut xs.n }(…) => …)` are
+/// errors, and a `for_each` literal that borrows a fresh local is not.
+/// `extra` is the called closure value, when the callee is one.
+require_capture_borrow_exclusivity :: (
+  fn(param_is_ref : ArrayList(bool), args : ArrayList(AstExpr), extra : Option(AstExpr), env : Environment, ctx : EvalContext, exn : Exception) -> unit
+)({
+  if(!capture_borrows_exist(), {
+    return(());
+  });
+  all_args := ArrayList(AstExpr).new();
+  excl := ArrayList(bool).new();
+  (ai : usize) = usize(0);
+  while(ai < args.len(), {
+    a := match(args.get(ai), .Some(x) => x, .None => make_err_expr());
+    all_args.push(a);
+    is_ref_param := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
+    carries_mut := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)), .Some(inf) => type_first_mut_borrow(inf.ty).is_some(), .None => false);
+    excl.push(is_ref_param || carries_mut);
+    ai = (ai + usize(1));
+  });
+  match(
+    extra,
+    .Some(callee) => {
+      all_args.push(callee);
+      excl.push(match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(callee)), .Some(inf) => type_first_mut_borrow(inf.ty).is_some(), .None => false));
+    },
+    .None => ()
+  );
+  places := ArrayList(ArrayList(_ArgPlace)).new();
+  (pi : usize) = usize(0);
+  while(pi < all_args.len(), {
+    ps := ArrayList(_ArgPlace).new();
+    _arg_places(match(all_args.get(pi), .Some(x) => x, .None => make_err_expr()), env, ctx, ps);
+    places.push(ps);
+    pi = (pi + usize(1));
+  });
+  (i : usize) = usize(0);
+  while(i < all_args.len(), {
+    if(match(excl.get(i), .Some(e) => e, .None => false), {
+      pis := match(places.get(i), .Some(x) => x, .None => ArrayList(_ArgPlace).new());
+      (j : usize) = usize(0);
+      while(j < all_args.len(), {
+        if(j != i, {
+          pjs := match(places.get(j), .Some(x) => x, .None => ArrayList(_ArgPlace).new());
+          (x : usize) = usize(0);
+          while(x < pis.len(), {
+            pa := match(pis.get(x), .Some(v) => v, .None => return(()));
+            (y : usize) = usize(0);
+            while(y < pjs.len(), {
+              pb := match(pjs.get(y), .Some(v) => v, .None => return(()));
+              if(_places_overlap(pa, pb), {
+                arg_i := match(all_args.get(i), .Some(v) => v, .None => make_err_expr());
+                arg_j := match(all_args.get(j), .Some(v) => v, .None => make_err_expr());
+                raise_flow_violation(
+                  with_code(
+                    format_error_message_with_help(
+                      ast_expr_token(arg_i),
+                      `\`${ast_expr_to_string(arg_i)}\` is lent exclusively to this call (it is a \`mut\` argument, or it holds a \`mut\` capture), and it reaches ${pa.text}, which \`${ast_expr_to_string(arg_j)}\` in the same call also reaches (${pb.text}): the callee could reach one place through both.`,
+                      Option(String).Some(String.from("split the call, or pass the place through the closure alone (call arguments are exclusive, decisions 28 and 38 B)"))
+                    ),
+                    E_BORROW_CONFLICT
+                  ),
+                  ctx,
+                  exn
+                );
+              });
+              y = (y + usize(1));
+            });
+            x = (x + usize(1));
+          });
+        });
+        j = (j + usize(1));
+      });
+    });
+    i = (i + usize(1));
+  });
+});
 set_expr_as_consumed :: (
   fn(
     expr : AstExpr,
@@ -730,6 +1089,11 @@ set_expr_as_consumed :: (
           // captured state moves with it.
           if(v.is_compile_time_only && match(info.value, .Some(cfv) => is_func_val(cfv), .None => false), {
             return(());
+          });
+          // A place a live capture-list closure borrows cannot be moved
+          // (decision 18 rule 2).
+          if(!ast_expr_token(expr).module_path.starts_with(String.from("auto-generated://")), {
+            check_capture_freeze_access(v, true, ast_expr_token(expr), env, ctx, exn);
           });
           // `inout` local bindings (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 B2):
           // a live binding aliases this variable's SLOT; moving the slot's
@@ -2728,6 +3092,7 @@ export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed
 export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
+export(reject_second_class_escape, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
 export(are_values_equal);

@@ -83,7 +83,7 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name, in_compile_time_fn_body } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding } :: import("../utils.yo");
 { throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
@@ -1256,6 +1256,12 @@ Use \`::\` for compile-time definitions inside impl.`
           register_thread_local(actual_lhs_tok.module_path.clone(), var_name.clone());
         });
         variable_set_doc_comment(new_var, doc_comment_opt);
+        // A second-class value (it holds a capture-list borrow) may be bound
+        // to a local that does not outlive what it borrows, and freezes those
+        // places while the local lives (decision 38 A).
+        if(!is_module_level && !effective_is_compile_time_only, {
+          note_second_class_binding(new_var, final_lhs_type, actual_lhs_tok, env, ctx, exn);
+        });
         // Set is_owning_the_same_rc_value_as when applicable.
         match(
           is_owning_same_rc_value_as,

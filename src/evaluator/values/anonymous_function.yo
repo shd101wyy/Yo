@@ -134,7 +134,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
 { borrowed_value_root_of_place } :: import("../exprs/assignment.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
@@ -830,11 +830,13 @@ _evaluate_capture_list :: (
     // Normalize to (label expression, initializer expression).
     (label_e : AstExpr) = raw;
     (init_e : AstExpr) = raw;
+    (is_pun : bool) = false;
     cond(
       ast_expr_is_capture_mode_entry(raw) => {
         // Pun: `imm(y)` is `imm(y) : &y`, `mut(z)` is `mut(z) : &mut z`.
         label_e = raw;
         init_e = _only_arg(raw);
+        is_pun = true;
       },
       ast_expr_is_fn_call_of(raw, ":", Option(usize).Some(usize(2))) => {
         label_e = match(raw, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => raw);
@@ -865,10 +867,10 @@ _evaluate_capture_list :: (
     // argument.
     cond(
       is_borrow => {
-        if(!_is_borrow_sigil(init_e, is_mut), {
-          want := if(is_mut, String.from("&mut"), String.from("&"));
+        if(!is_pun && !_is_borrow_sigil(init_e, is_mut), {
+          want := if(is_mut, String.from("&mut "), String.from("&"));
           mode := if(is_mut, String.from("mut"), String.from("imm"));
-          _cap_list_error(ctx, exn, ast_expr_token(init_e), `\`${mode}(${label})\` borrows a place, so its initializer is \`${want} place\` (\`${mode}(${label}) : ${want} ${label}\`, or the pun \`${mode}(${label})\`); got \`${ast_expr_to_string(init_e)}\`.`);
+          _cap_list_error(ctx, exn, ast_expr_token(init_e), `\`${mode}(${label})\` borrows a place, so its initializer is \`${want}place\` (\`${mode}(${label}) : ${want}${label}\`, or the pun \`${mode}(${label})\`); got \`${ast_expr_to_string(init_e)}\`.`);
         });
       },
       (_is_borrow_sigil(init_e, false) || _is_borrow_sigil(init_e, true)) => {
@@ -878,7 +880,7 @@ _evaluate_capture_list :: (
       true => ()
     );
     if(is_borrow, {
-      place_e := _only_arg(init_e);
+      place_e := if(is_pun, init_e, _only_arg(init_e));
       fields := ArrayList(String).new();
       root_atom := match(
         _cap_place_root(place_e, fields),
@@ -2084,6 +2086,10 @@ Result type: ${type_to_string(decl_result_ty)}`
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
           .Some(cr_info) => {
             cr_body_ty := cr_info.ty;
+            // Decision 38 A: a second-class value is never returned.
+            if(!has_any_control_flow(cr_info.control_flow), {
+              reject_second_class_escape(cr_body_ty, String.from("returned"), ast_expr_token(anon_eb), ctx, exn);
+            });
             cr_ret_ty := match(function_type, .Func({ result : cr_r }) => cr_r, _ => t_unit());
             cr_skip := (has_any_control_flow(cr_info.control_flow) || is_void_type(cr_ret_ty) || is_type_hierarchy_type(cr_ret_ty) || (get_all_some_types(cr_ret_ty).len() > usize(0)) || (get_all_some_types(cr_body_ty).len() > usize(0)));
             if(!cr_skip && !are_types_compatible(cr_body_ty, cr_ret_ty), {
@@ -2636,6 +2642,11 @@ Result type: ${type_to_string(decl_result_ty)}`
     });
     cap_res := create_capture_type_and_value(Option(TypeValue).None, cvwv, env, tok);
     closure_capture_type = cap_res.capture_type;
+    // An `io.async` body escapes into its future, and a borrowing future
+    // (§3.13 A2) has not landed: it may not capture a second-class value.
+    if(ctx.is_inside_io_async_call, {
+      match(closure_capture_type, .Some(ia_ct) => reject_second_class_escape(ia_ct, String.from("captured by an `io.async` body (a borrowing future, plans/VALUES_BY_DEFAULT.md §3.13 A2, has not landed)"), tok, ctx, exn), .None => ());
+    });
     // The borrow entries make the capture struct second-class (and, for a
     // `mut` entry, move-only): decision 38 A.
     match(
