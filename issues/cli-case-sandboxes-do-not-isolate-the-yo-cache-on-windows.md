@@ -40,7 +40,14 @@ binary).
    `cache/projects` index records four `Temp/tmp.*/run/proj` sandbox projects
    alongside the real checkouts; a single sandboxed `cache-gc` case run
    rewrote `cache/projects`, `cache/git/` and `cache/index/` (mtimes =
-   the case's run time).
+   the case's run time). The `cache-path` case's corpus run makes the same
+   thing visible in its own scoring diff — the golden expects an isolated
+   cache and the sandboxed `yo cache gc` answered about the REAL one:
+   `< Kept 1 tree(s) referenced by 1 project(s); removed 0 tree(s), 0
+   mirror(s), 0 tag list(s)…` vs `> Kept 1 tree(s) referenced by 10
+   project(s); removed 0 tree(s), 10 mirror(s), 11 tag list(s)…` — the run
+   REMOVED ten mirrors and eleven tag lists belonging to the developer's real
+   cache.
 3. **The checkout's store tree vanished during the corpus window.** The
    `cache/store/sha256/` directory mtime moved inside the corpus run (17:38),
    and the `markdown_yo` tree was absent when GATE 4 next ran (18:1x);
