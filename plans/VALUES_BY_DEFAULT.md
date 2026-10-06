@@ -1213,9 +1213,12 @@ and in git, not a silent edit.
     - **The spelling needs one small feature:** calling a method through an
       unapplied generic type constructor, with its arguments inferred from
       the receiver (`Rc.clone(w)`, as Rust infers `Rc::clone`'s `T`).
-      Today `Rc(T).clone(w)` works and `Rc.clone(w)` is E0610.
-    - **Phase.** V1 Generation A; the call sites migrate with V1 step 1's
-      rename.
+      Landed as V1 Generation A (§6 V1); before it, `Rc(T).clone(w)`
+      worked and `Rc.clone(w)` was E0610.
+    - **Phase.** The unapplied-constructor call is V1 Generation A. The
+      clash error and the call-site sweep are Generation B, after a
+      `SEED_VERSION` carries Generation A, since the sweep writes
+      `Box.clone(w)` into `src/` and `std/`.
 
 33. **A borrow is marked at the call site too: `&x` lends to an `imm`
     parameter, `&mut x` to a `mut` one, and a bare `x` passes by value.**
@@ -2204,19 +2207,44 @@ and in git, not a silent edit.
   reference types at the impl site until V3 (#1188);
 - the `build.AllocatorKind` rename (#1188);
 - `Deref` and auto-dereference (#1191);
-- `Allocator` in the prelude (#1188, #1207).
+- `Allocator` in the prelude (#1188, #1207);
+- decision 32, Generation A: a method called through an unapplied generic
+  type constructor (`Box.clone(b)`, `Pair.first(p)`), its arguments inferred
+  from the receiver (#1241).
+  - **The rule.** `G.m(x, ...)`, where `G` evaluates to a comptime function
+    returning a `Type`, is `G(A, ...).m(x, ...)` when the type of `x`, the
+    first argument, is an instantiation `G(A, ...)`. The match is by
+    constructor identity (a struct's `constructor_func_id`, an enum's
+    registered cfid), so it is never ambiguous: an `Rc(Box(T))` argument is
+    an `Rc` instance, not a `Box` one. Generic and trait impls are found as
+    for the written form, because the call then proceeds as that form.
+    The AST is not rewritten: the receiver node's ExprInfo is overwritten
+    with the inferred `G(A, ...)`, so a generic body infers again per
+    specialization. A first rewrite of the receiver into a fresh atom
+    broke a module-qualified constructor (`m.Pair.first(p)`) in a generic
+    body, because the definition-time trial left an atom named `.` behind.
+  - **Aliases and partial applications** are constructors of their own
+    (identity, not inversion of a comptime function): `IntPair.first(q)`
+    for `q : Pair(i32, u8)` is E0613 telling the user that another
+    constructor built the argument; `Pair.first(q)` and
+    `IntPair(u8).first(q)` work. A labeled receiver
+    (`Pair.first(self : p)`) is the first argument too, since labels are
+    positional.
+  - **Static methods.** A method with no `self` has nothing to infer from,
+    so `Pair.make(a, b)` is E0613; the type arguments are written,
+    `Pair(A, B).make(a, b)`. The type a binding expects of the result does
+    not supply them either: "whenever we could be explicit, do explicit".
+    A first argument of another type (`Box.clone(a)` for an `Arc`) is
+    E0613 naming its type; a missing method stays E0610, which now names
+    the instance (`No method "m" on Box(i32)`, not `on Type`).
+  - **`Arc.clone(a)`** is the same E0610 as `Arc(i32).clone(a)` until V2c
+    gives `Arc` a `clone` (decision 17). `Rc.clone(w)` is tested on #1232's
+    prelude `Rc`.
+  - Hook: `_infer_unapplied_ctor_receiver`
+    (`src/evaluator/calls/function.yo`), before `_try_find_receiver_method`.
+  - Test: `tests/unapplied_constructor_method.test.yo`.
 
 **Remaining, Generation A:**
-- **Decision 32.**
-  - The wrapper/payload name clash becomes an error, in
-    `evaluate_property_access` and `_try_find_receiver_method`.
-  - A method can be called through an unapplied generic type constructor
-    (`Rc.clone(w)`), with the arguments inferred from the receiver.
-  - Tests: the clash error with both suggested spellings; `Rc.clone(w)`,
-    `Box.clone(b)` and `Arc.clone(a)` inferring `T`; and forwarding of
-    unclashed names unchanged.
-  - Measured 2026-10-05: `Box(i32).clone(b)` and `String.len(s)` compile
-    today, and `Box.clone(b)` is E0610.
 - **The exclusivity assert moves to the write-through-`Rc` site** (§3.10).
   Tests: a closure and an async fn that mutate a captured
   `Rc(ArrayList(T))` while a `for` borrows it panic deterministically.
@@ -2224,6 +2252,41 @@ and in git, not a silent edit.
 - **Diagnostics:** E0406/E0610 learn "`w` is a `Box(P)`; its payload `P`
   has no field `x` either" when auto-deref also misses.
 - **`arc` gains the `alloc` parameter.**
+
+**Decision 32, Generation B: the wrapper/payload name clash is an error,**
+in `evaluate_property_access` and `_try_find_receiver_method`. It waits for
+a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
+`std/` and tests to `Box.clone(w)`, which the seed compiles
+(`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+- Tests: the clash error with both suggested spellings, and forwarding of
+  unclashed names unchanged.
+- **Sites, measured 2026-10-05:** two source sites.
+  - Measured with a temporary probe in `_try_find_receiver_method`
+    (`YO_AUDIT_D32`, not committed): an instance call whose receiver
+    (pointer-stripped) has the method AND whose `deref_target_type`
+    payload has it too, printed per call and deduplicated on
+    `module:row:col`. Run with the tree-built compiler over
+    `check ./src` (278/278 files), `check ./std` (178/178) and
+    `check ./tests --exclude tests/internal --exclude tests/cli-cases`
+    (563/633 files pass `check` standalone; the rest are negative
+    fixtures). It sees only bodies `check` evaluates: a generic body only
+    at the instantiations something reaches.
+  - **`clone`:** `src/` 0, `std/` 0, tests 2:
+    `tests/deref_auto.test.yo:63` (the test that pins "the wrapper's own
+    members win") and `tests/rc_cell.test.yo:129`. The probe ran on the
+    tree just before #1232 landed; #1232's diff adds that one `.clone()`
+    on a wrapper (read from the diff, not probed). Six more evaluations
+    are `derive(Clone)` bodies cloning a `Box` field
+    (`auto-generated://`): the derive rule, not a call site, has to spell
+    `Box.clone(self.f)`.
+  - **Other names:** `id` at `tests/impl.test.yo:19` (`value.id()` with
+    `T := Box(i32)`) and `hash` at `std/collections/hash_map.yo:233`
+    (`key.hash(h)` with `K := Box(i32)`, reached from a test). Both are
+    trait-bound calls on a type parameter: the error must fire only where
+    the receiver's type is written as a wrapper, never at an instantiation
+    of a `T <: Trait` call.
+  - Box handles copy implicitly until V2c, so `.clone()` on one is rare
+    today; V2c's `Rc.clone(w)` sites (decision 17) are the sweep's bulk.
 
 **Step 1: rename every `Box(` to `Rc(` and `box(` to `rc(`** in `src/`,
 `std/`, `tests/`, docs and skills.
