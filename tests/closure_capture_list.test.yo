@@ -32,6 +32,16 @@ _cl_with_mut :: (fn(f : Impl(Fn() -> i32), mut(z) : i32) -> i32)({
 _cl_reentry :: (fn(a : Impl(Fn() -> i32), b : Impl(Fn() -> i32)) -> i32)(a() + b());
 _ClAcc :: struct(total : i32, other : i32);
 impl(_ClAcc, run : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)(f()));
+(g_cl_rc_disposed : i32) = i32(0);
+_ClRc :: ref(struct(v : i32));
+impl(
+  _ClRc,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_cl_rc_disposed = (g_cl_rc_disposed + i32(1));
+    })
+  )
+);
 // ---------------------------------------------------------------------------
 // Entry kinds and puns
 // ---------------------------------------------------------------------------
@@ -42,6 +52,22 @@ test("capture list: a by-value pun and a renamed by-value entry copy the value",
   assert(f(i32(1)) == i32(7), "1 + 3 + 3");
   assert(f(i32(2)) == i32(8), "the closure is callable again");
   assert(s.len() == usize(3), "the source string is untouched");
+});
+test("capture list: a by-value capture of an RC value retains it", {
+  // issues/fixed/a-by-value-capture-of-an-rc-value-never-retains-it.md: the
+  // capture field must hold its own reference, or the closure's scope-end
+  // drop releases the cell under the still-live source binding.
+  t := _ClRc(v : i32(7));
+  s := String.from("abcd");
+  {
+    (f : Impl(Fn() -> i32)) = ({ t }() => t.v);
+    (g : Impl(Fn() -> usize)) = ({ n : s }() => n.len());
+    assert(f() == i32(7), "the handle is read through the capture");
+    assert(g() == usize(4), "a renamed by-value String capture");
+    assert(g_cl_rc_disposed == i32(0), "nothing is disposed while the owners live");
+  };
+  assert(t.v == i32(7), "the source handle is still alive after the closure's scope");
+  assert(s.len() == usize(4), "the source string is still alive");
 });
 test("capture list: `imm(y)` and `imm(y) : &p` borrow the place read-only", {
   w := i32(10);
