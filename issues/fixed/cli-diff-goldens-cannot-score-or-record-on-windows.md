@@ -74,3 +74,46 @@ in a row. Remaining known Windows blocker, unchanged by this fix:
 store lives under `%LOCALAPPDATA%` outside the sandbox HOME (documented in the
 explain-registry fix, commit `0ec4163ab`) — the case stays recordable only
 from POSIX hosts.
+
+## Fixed (round 2): every `lsp-*` golden GOLDEN-DIFFs on Windows (sed text mode eats the header CRs; the error trailer carries a CRLF)
+
+**2026-10-06, branch `s3/batch-0-fixes`** (found re-scoring the corpus against
+the develop@`8d6ae6437` merge). Two more Windows-only walls, same family:
+
+```
+$ ... cli-diff-test.sh lsp-member-definition
+── GOLDEN-DIFF  lsp-member-definition  (rc=0; stdout)   # × all 17 lsp-* cases
+```
+
+1. **Cygwin/MSYS `sed` runs in text mode and strips the `\r` out of every CRLF
+   pair.** The first `normalize_stream` stage is a sed, so the LSP base
+   protocol's `Content-Length: N\r\n\r\n` headers lost both CRs before the
+   refit ever saw them; every lsp golden (POSIX-recorded, headers intact) then
+   differed on framing bytes alone — `tr -d '\r'` on the golden made it
+   byte-identical to the normalized run, proving no behavioral difference.
+   `LC_ALL=C` does not help; GNU sed's `--binary` flag does (it exists only on
+   builds with a text/binary distinction, so the harness probes it once and
+   falls back to plain sed — already byte-exact — on POSIX).
+2. **The child's own error trailer ends in CRLF on Windows.** `yo: error: …`
+   goes through the C runtime's text mode (measured with `od -c` on stderr:
+   `…lists them)\r\n` from both the v0.2.52 seed and a tree build), so
+   `lsp-exit-without-shutdown` — whose stream ends with that trailer inside
+   the last frame — both diffed the trailer line and inflated the refitted
+   `Content-Length` by one byte.
+
+Both converge in `scripts/cli-diff-test.sh`: every sed in the captured-stream
+path runs as `"${SED[@]}"` (`sed --binary` where available), and a new
+`converge_crlf_line_noise` stage — run FIRST, before any line-anchored rewrite
+(in binary mode a Windows child's lines still end in `\r`, which defeated the
+`<PRELUDE_EXPRS>` rewrite's `$` anchor until the convergence moved ahead of
+it) — parks only the `Content-Length: <digits>\r\n\r\n` headers behind a
+sentinel (an ordinary blank line between two CRLF lines is the same four bytes
+with nothing to tell it apart — `explain-list`'s paragraph break), drops every
+remaining CR that immediately precedes an LF, and restores the headers. No-op
+on POSIX. Verified on Windows with the tree-built binary, no golden re-recorded
+and none needed: all 17 `lsp-*` cases went GOLDEN-DIFF → PASS against their
+existing POSIX-recorded goldens, and the 12 re-scored branch cases
+(`init-*`, `skills-*`, `explain-list`, `help-compile`, the build-stamp and
+check-std-tree pairs, `lock-locked-no-lock`) stay PASS — 29 PASS / 0
+GOLDEN-DIFF / 1 NO-GOLDEN(the `install-offline-empty-cache` blocker above,
+unchanged).
