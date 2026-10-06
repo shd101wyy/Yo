@@ -33,6 +33,9 @@ my-project/
 ├── tests/
 │   ├── main.test.yo      ← Test file for the executable
 │   └── lib.test.yo       ← Test file for the library
+├── spec/
+│   ├── README.md         ← The claims wall: laws live here, proofs in the code
+│   └── example.yo        ← A seed law; `yo verify ./spec --strict` proves it green
 ├── .gitignore
 ├── AGENTS.md             ← Guidance for AI coding agents (lists the skills)
 ├── .agents/skills/       ← Bundled agent skill files (see yo skills install)
@@ -154,9 +157,9 @@ Shared libraries compile with `-shared -fPIC` and produce `lib<name>.so` (Linux)
 | Value                   | Compiler Flags | Description                    |
 | ----------------------- | -------------- | ------------------------------ |
 | `Optimize.Debug`        | `-O0 -g`       | No optimization, debug symbols |
-| `Optimize.ReleaseSafe`  | `-O2 -g`       | Optimized with debug symbols   |
+| `Optimize.ReleaseSafe`  | `-O2`          | Optimized with safety checks   |
 | `Optimize.ReleaseFast`  | `-O3`          | Maximum performance            |
-| `Optimize.ReleaseSmall` | `-O2`          | Optimize for binary size       |
+| `Optimize.ReleaseSmall` | `-Os`          | Optimize for binary size       |
 
 ### Allocators
 
@@ -816,14 +819,16 @@ Creates the following files:
 - `src/main.yo` — Executable entry point
 - `src/lib.yo` — Library code
 - `tests/main.test.yo` — Test file
+- `spec/README.md`, `spec/example.yo` — the verification spec: the README states the claims/proofs wall (laws are claims written here by humans; proofs are the contracts and invariants in the code), and the seed law keeps `yo verify ./spec --strict` green on a fresh project
 - `.gitignore`, `README.md`
 
 Then, unless `--no-skills` is passed, it installs the bundled agent skill
 files into the project's agent config directories (`.agents/skills/` on a
 fresh project) and writes two entry points for AI coding agents:
 
-- `AGENTS.md` — lists the installed skills with their descriptions; created
-  only if absent
+- `AGENTS.md` — lists the installed skills with their descriptions and a
+  toolchain recipe that includes `yo verify ./spec --strict`; created only
+  if absent
 
 ## Multi-Target Builds
 

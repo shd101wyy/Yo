@@ -21,6 +21,14 @@ the tree explicitly:
 YO_STD=$PWD/std yo test ./tests/sync/channel.test.yo --parallel 1
 ```
 
+Since the entry-side fix
+(`issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md`),
+entries that live INSIDE a std tree (`yo test ./std`, `yo check ./std`,
+`yo compile std/...`) resolve THAT tree automatically — the command prints a
+`yo: every entry lives inside the std tree at ...` note on stderr — even
+under an installed binary. Files under `./tests/**` are NOT inside a std
+tree, so the explicit `YO_STD` above still applies to them.
+
 A tree-built stage-1 (`yo build` → `yo-out/<target>/bin/yo`) walks up to the
 repo root and finds `./std` naturally, so it needs no override — and it is
 what CI's suite legs run. Changes to `src/` codegen are only observable
@@ -154,6 +162,20 @@ language**, so the regression test works everywhere:
 Do **not** use `comptime_assert` for this — it is inert inside a function body,
 so a `comptime_assert` in a `test(...)` body verifies nothing
 (`issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`).
+
+If neither in-language oracle fits and the test's ONLY failure mode is the
+leak verdict, declare it: `pragma(Pragma.NeedsLeakVerdict);` at the top of the
+file makes the runner SKIP the file — printing `Skipping N test file(s) with
+pragma(Pragma.NeedsLeakVerdict): …` — whenever the run cannot apply a verdict
+(`YO_TEST_LEAK_VERDICT=0`, a wasm target, `--disable-sanitize`, a non-address
+`YO_TEST_SANITIZE`), instead of counting its tests as passed
+(`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`).
+Try the Dispose counter FIRST: a skipped test verifies nothing, a counter-based
+one verifies everywhere. The one CI leg that runs leak-sensitive files with the
+verdict ON is the weekly `leak-verdict.yml` (Linux/clang, an allowlist that
+must stay leak-clean, and a vacuity probe that must FAIL a deliberately
+leaking test before the allowlist runs); dispatch it on a branch with
+`gh workflow run leak-verdict.yml --ref <branch>` when touching leak plumbing.
 
 For the out-of-language measurement on macOS, `leaks` works even though ASan
 does not — extract the case to a standalone `.yo` with `main` + `export(main);`
@@ -1148,6 +1170,7 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 - Use `pragma(Pragma.SkipWasm32Emscripten);` to skip a test file on the Emscripten target.
 - Use `pragma(Pragma.SkipWasm32Wasi);` to skip a test file on the standalone WASI target.
 - Use `pragma(Pragma.SkipWasm);` to skip a test file on ALL WASM targets (generic catch-all).
+- Use `pragma(Pragma.NeedsLeakVerdict);` to declare that a test file's only failure mode is the leak verdict — the runner then SKIPS it (with a line that says why, never a silent pass) when `YO_TEST_LEAK_VERDICT=0` or the run builds no ASan test binary. See "Writing a test that observes a LEAK" above.
 - Place skip pragmas at the top of the file (within the first 50 lines). A file can have both target-specific pragmas, or the generic one. Pragmas are validated by the evaluator against the `Pragma` enum in `std/prelude.yo`, so typos surface as compile errors.
 - For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
 - See `plans/reference/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.

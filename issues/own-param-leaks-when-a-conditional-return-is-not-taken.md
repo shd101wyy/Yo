@@ -199,7 +199,7 @@ work, returning the same owned value". `imm.Vec.dedup` is one instance found by
 accident. Any `own` parameter of an RC type in a function with a guard clause
 is a candidate, so the blast radius is `std` plus user code, and nothing in CI
 can see it — leak detection is off everywhere
-(`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`),
+(`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`),
 so a leak is only observable as a MISSING disposal, which is what the repro
 counts.
 

@@ -44,7 +44,13 @@ import("std/fmt");
   E_COMPTIME_OVERFLOW,
   E_MATCH_NOT_EXHAUSTIVE,
   E_MATCH_UNREACHABLE_ARM,
-  E_INVALID_PATTERN
+  E_INVALID_PATTERN,
+  E_INTERNAL_COMPILER_ERROR,
+  E_DEP_FETCH_FAILED,
+  E_MANIFEST_NOT_FOUND,
+  E_LOCK_MISMATCH,
+  E_STORE_INTEGRITY_MISMATCH,
+  E_NO_MATCHING_VERSION
 } :: import("../../src/diagnostics.yo");
 _check_entry :: (fn(e : Explain, label : String) -> unit)({
   assert(e.title.len() > usize(0), `${label}: English title empty`);
@@ -89,6 +95,12 @@ test("every code the classifier emits has a registry entry", {
   codes.push(String.from(E_MATCH_NOT_EXHAUSTIVE));
   codes.push(String.from(E_MATCH_UNREACHABLE_ARM));
   codes.push(String.from(E_INVALID_PATTERN));
+  codes.push(String.from(E_INTERNAL_COMPILER_ERROR));
+  codes.push(String.from(E_DEP_FETCH_FAILED));
+  codes.push(String.from(E_MANIFEST_NOT_FOUND));
+  codes.push(String.from(E_LOCK_MISMATCH));
+  codes.push(String.from(E_STORE_INTEGRITY_MISMATCH));
+  codes.push(String.from(E_NO_MATCHING_VERSION));
   (i : usize) = usize(0);
   while(i < codes.len(), {
     c := match(
@@ -203,5 +215,48 @@ test("all_registry_codes matches registry_entries length", {
   assert(
     codes.len() == entries.len(),
     `codes ${codes.len()} == entries ${entries.len()}`
+  );
+});
+test("the reserved E13xx and E15xx bands are allocated with full entries", {
+  // plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §3.3 reserved E13xx for
+  // internal codegen and E15xx for CLI/build/deps;
+  // issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md asked for the
+  // allocation: the ICE wrapper and the install/fetch family's raises are
+  // coded, so `yo explain` has an entry behind every code the CLI can print.
+  band := ArrayList(String).new();
+  band.push(String.from(E_INTERNAL_COMPILER_ERROR));
+  band.push(String.from(E_DEP_FETCH_FAILED));
+  band.push(String.from(E_MANIFEST_NOT_FOUND));
+  band.push(String.from(E_LOCK_MISMATCH));
+  band.push(String.from(E_STORE_INTEGRITY_MISMATCH));
+  band.push(String.from(E_NO_MATCHING_VERSION));
+  (i : usize) = usize(0);
+  while(i < band.len(), {
+    c := match(
+      band.get(i),
+      .Some(x) => x,
+      .None => String.new()
+    );
+    match(
+      lookup_explain(c),
+      .Some(e) => {
+        assert(e.code == c, `${c} round-trips`);
+        _check_entry(e, c);
+      },
+      .None => assert(false, `${c} must have a registry entry`)
+    );
+    i = (i + usize(1));
+  });
+  // The bands are where the audit reserved them: E1301 for the ICE, E1501+ for
+  // the dependency toolchain (codes are never renumbered once published).
+  match(
+    lookup_explain(String.from(E_INTERNAL_COMPILER_ERROR)),
+    .Some(e) => assert(e.code == "E1301", `the ICE code is E1301, got ${e.code}`),
+    .None => ()
+  );
+  match(
+    lookup_explain(String.from(E_DEP_FETCH_FAILED)),
+    .Some(e) => assert(e.code == "E1501", `the fetch-failure code is E1501, got ${e.code}`),
+    .None => ()
   );
 });

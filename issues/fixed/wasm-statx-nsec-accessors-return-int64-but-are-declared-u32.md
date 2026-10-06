@@ -4,7 +4,7 @@
 
 **Found**: 2026-09-04, during the std-API audit re-measurement of the fs row,
 while inventorying `src/codegen/async/runtime_io_wasm.yo`'s statx block.
-**Status**: OPEN. **Severity**: papercut — it narrows silently today, but it is
+**Status**: FIXED (2026-10-03, branch s3/batch-0-fixes). **Severity**: papercut — it narrows silently today, but it is
 a declared-vs-defined mismatch on one target family, and it makes the wasm
 accessors wrong by construction the moment anyone widens the Yo declaration.
 
@@ -117,3 +117,7 @@ with the C type corresponding to the declared Yo return type.
 ## Breaking change
 
 No. The observable value is unchanged on every target.
+
+## Fixed
+
+**2026-10-03, branch `s3/batch-0-fixes`.** Root cause: the wasm statx block in `src/codegen/async/runtime_io_wasm.yo` was written as one pass with `int64_t` used uniformly for everything time-shaped, including the three `*_nsec` accessors whose Yo declarations (`std/sys/externs.yo:111`,`:113`,`:115`) are `u32` — linux, macos and windows all define them `uint32_t`, and since the emitter relies on the preamble `static` definition rather than a prototype, the call-site mismatch degraded to a silent `int64_t`-to-`uint32_t` narrowing on wasm alone. Fix: `__yo_statx_mtime_nsec`, `__yo_statx_atime_nsec` and `__yo_statx_ctime_nsec` are now `static uint32_t` with a `(uint32_t)` cast (harmless today because `tv_nsec` is < 10^9; it removes the wasm-only truncation/build break the moment the declaration widens or `-Wconversion` is enforced); the `*_sec` accessors stay `int64_t`, matching their `-> i64` declarations. Test: `tests/internal/uring_runtime.test.yo` "wasm sys runtime: the statx nanosecond accessors are uint32_t, matching std's u32 declarations" pins the emitted signatures through a direct `generate_platform_sys_runtime_wasm` call (red before the source change — `mtime_nsec is not uint32_t` — green after, 21/21 in the file). Verified on Windows with the batch binary: the emitted wasm C now defines all three as `uint32_t` and the Yo call site `uint32_t __yo_v_n = __yo_statx_mtime_nsec(__yo_v_buf);` is a plain same-type assignment; a `--target x86_64-unknown-linux-gnu` emission is unchanged. The sibling `wasm-runtime-missing-six-statx-accessors-that-std-declares.md` (the six accessors wasm does not define at all, and the runtime-inventory CI check that would also compare return types) remains open.

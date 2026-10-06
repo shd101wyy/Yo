@@ -4,7 +4,8 @@
 
 **Found**: 2026-09-05, verifying PR #409's fix
 (`issues/fixed/short-circuit-bare-fn-body-operand-temps-leak.md`).
-**Status**: OPEN. **Severity: hollow gate** — the same class as
+**Status**: FIXED (2026-10-03, branch `s3/batch-0-fixes`) — see
+["Fixed"](#fixed) below. **Severity: hollow gate** — the same class as
 `issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`: not a
 wrong answer, an ABSENT one, over the whole RC/leak surface.
 
@@ -109,3 +110,40 @@ Two independent things, both needed:
 
 Until then, treat every leak-shaped regression test in `tests/` as unverified
 and re-measure with `leaks --atExit` before trusting it.
+
+## Fixed
+
+Root cause: the flag was read at exactly one site (the runner's
+`leak_verdict`) and nothing let a test declare leak-verdict dependence, so a
+leak-shaped test reported `N passed` under `YO_TEST_LEAK_VERDICT=0` no matter
+what it leaked — re-confirmed 2026-10-03 with a test that leaks 64 KiB of raw
+heap via `__yo_malloc` and asserts only a value (`1 passed`, rc 0). Fix item 1
+had already landed for the named test (PR #426 rebuilt
+`tests/short_circuit_drops.test.yo` as Dispose-counter value assertions,
+verified red-first against yo 0.2.24); this change lands Fix item 2 in BOTH
+its forms. (a) The hollowness is visible: `pragma(Pragma.NeedsLeakVerdict);`
+(new `Pragma` variant in `std/prelude.yo` + the evaluator's variant map) marks
+a file whose only failure mode is the leak verdict, and the runner's new
+pre-scan (same shape as the `SkipWasm*`/`SkipWindows` scans, `src/main.yo`)
+SKIPS it with a `Skipping N test file(s) with pragma(Pragma.NeedsLeakVerdict): …`
+line whenever the run cannot apply a verdict — `YO_TEST_LEAK_VERDICT=0`, a
+wasm target, `--disable-sanitize`, or a non-address `YO_TEST_SANITIZE` — so
+`N passed` stops overstating coverage; gated by the cli-case
+`tests/cli-cases/test-needs-leak-verdict-skip` (red first: the pre-fix binary
+rejects the pragma and the case scores GOLDEN-DIFF rc 1; green after). (b) A
+real gate exists: `.github/workflows/leak-verdict.yml` (weekly Sunday 05:41
+UTC + `workflow_dispatch`, Linux/clang, deliberately NOT a required check —
+the ubsan.yml shape) runs an allowlist of leak-sensitive files
+(`tests/short_circuit_drops.test.yo`, `tests/rc.test.yo`, both in the passing
+set of the 2026-10-02 verdict-on run behind
+`issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`) with the
+verdict LEFT ON, behind a VACUITY PROBE — a deliberately leaking `.test.yo`
+that must FAIL with `Memory leak detected` before the allowlist step runs, so
+the leg can never pass hollow; the SEED_VERSION pin machinery was extended to
+the fifth pin (test.yml's consistency guard, release.yml's auto-bump). Known
+limitation: on a host where the batch child's own ASan probe fails (e.g.
+Windows/MSVC with a mismatched ASan runtime) the runner still computes
+`use_asan` optimistically, so there the skip fires for the flag/target reasons
+only; closing that needs the child's probe result reported back to the runner.
+The workflow leg itself was not executed in this session (no Linux/ASan host
+available); its first run is the next scheduled or dispatched firing.

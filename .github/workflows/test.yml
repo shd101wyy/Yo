@@ -93,12 +93,13 @@ env:
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
   #
-  # Keep this pin in lockstep with release.yml, fixpoint-arm64.yml AND ubsan.yml (the
+  # Keep this pin in lockstep with release.yml, fixpoint-arm64.yml, ubsan.yml
+  # AND leak-verdict.yml (the
   # deliberate-pin rationale — chain auditability, bad-release containment,
   # reproducible re-runs — is recorded in plans/archive/P2_5_RETIRE_EXECUTION.md
   # step 24). This one had silently drifted to v0.2.4 while release.yml
   # advanced to v0.2.7. Since 2026-08-21 the lockstep is AUTOMATED: the
-  # `changes` job above guards the four pins against divergence, and
+  # `changes` job above guards the five pins against divergence, and
   # release.yml's publish-release pushes the bump for every published
   # release (plans/backlog/SEED_VERSION_AUTOMATION.md). Manual edits remain
   # for ROLLING BACK a bad seed.
@@ -239,14 +240,15 @@ jobs:
             .github/workflows/test.yml \
             .github/workflows/release.yml \
             .github/workflows/fixpoint-arm64.yml \
-            .github/workflows/ubsan.yml | awk '{print $2}')
+            .github/workflows/ubsan.yml \
+            .github/workflows/leak-verdict.yml | awk '{print $2}')
           count=$(printf '%s\n' "$pins" | wc -l)
           uniq_count=$(printf '%s\n' "$pins" | sort -u | wc -l)
-          if [ "$count" -ne 4 ] || [ "$uniq_count" -ne 1 ]; then
-            echo "::error::SEED_VERSION pins diverge or are missing (found: $(printf '%s ' $pins)) — the four workflows must carry the SAME pin. See test.yml's SEED_VERSION comment and plans/backlog/SEED_VERSION_AUTOMATION.md."
+          if [ "$count" -ne 5 ] || [ "$uniq_count" -ne 1 ]; then
+            echo "::error::SEED_VERSION pins diverge or are missing (found: $(printf '%s ' $pins)) — the five workflows must carry the SAME pin. See test.yml's SEED_VERSION comment and plans/backlog/SEED_VERSION_AUTOMATION.md."
             exit 1
           fi
-          echo "SEED_VERSION consistent across the four workflows: $(printf '%s' "$pins" | head -1)"
+          echo "SEED_VERSION consistent across the five workflows: $(printf '%s' "$pins" | head -1)"
       - id: classify
         env:
           GH_TOKEN: ${{ github.token }}
@@ -848,8 +850,10 @@ jobs:
       # (issues/fixed/windows-native-selfhosted-build-fails.md).
       # P2.5 step 24b (user directive): `yo build` is the canonical yo-self
       # builder. VERIFIED equivalent to the raw `compile --optimize 2 --allocator
-      # mimalloc` it replaces — build.yo carries the same flags (ReleaseSmall +
-      # Mimalloc) and the two routes land 16 bytes apart on an 8.8 MB binary;
+      # mimalloc` it replaces — build.yo carries the same flags (ReleaseSafe +
+      # Mimalloc, the plain -O2 mapping it held via ReleaseSmall until
+      # release-small became the -Os size mode it always claimed to be) and the
+      # two routes land 16 bytes apart on an 8.8 MB binary;
       # the residual ~0.77% byte delta also appears between two SAME-route
       # builds to different output paths (the emitted .c is named after -o), so
       # it is path noise, not a route difference.
@@ -1101,19 +1105,16 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          # 2026-09-03: the windows-latest / windows-11-arm images' mingw64
-          # toolchain lost libasan ("cannot find -lasan" on every batch),
-          # so ASan is disabled on Windows until the images ship it again —
-          # macOS/Linux keep the sanitizer (issues/windows-images-lost-libasan.md).
-          case "$RUNNER_OS" in
-            Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
-            *) TEST_SAN_FLAG="" ;;
-          esac
-          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          # This job's matrix went Linux-only when the self-build moved off
+          # macOS/Windows (see the stage-1 note above), so the 2026-09-03
+          # Windows `--disable-sanitize` workaround
+          # (issues/fixed/windows-images-lost-libasan.md) has nothing left to
+          # gate here — ASan runs, as it always did on Linux.
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
           # Sibling and in-file tests under std/ — the private-member tests
           # (plans/reference/MEMBER_VISIBILITY.md): `yo test` collects
           # `std/**/*.test.yo` and any module with a top-level `test(...)`.
-          "$S1" test ./std --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+          "$S1" test ./std --bail --verbose --c-compiler clang
 
   # ---------------------------------------------------------------------
   # The four NON-LINUX release targets: full language suite per PR, under a
@@ -1408,7 +1409,17 @@ jobs:
     # below the cap; windows-latest is deliberately NOT sharded (it is a REQUIRED
     # status context and renaming it would remove a required check), so the cap
     # is the only thing protecting it.
-    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 120 || 240 }}
+    #
+    # MEASURED 2026-10-05: windows-latest runs the suite under AddressSanitizer
+    # again (armed through the choco LLVM clang,
+    # issues/fixed/windows-images-lost-libasan.md), and that more than doubled
+    # its cost: run 37292720878 needed 86 min to reach file 206 of 310, and
+    # run 37338817036 was cancelled at the 120 min cap at ~file 256 — about
+    # 145 min for the whole leg against the 54-58 min uninstrumented runs above.
+    # windows-latest therefore takes the 240 min budget the non-Windows legs
+    # have. A hang still fails in bounded time, which is all this cap is for.
+    # windows-11-arm keeps 120: it is sharded and still runs uninstrumented.
+    timeout-minutes: ${{ matrix.os == 'windows-11-arm' && 120 || 240 }}
     env:
       YO_MAIN_STACK_MB: "4096"
       # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
@@ -1532,10 +1543,19 @@ jobs:
         shell: bash
         run: |
           if [ -f yo-suite.exe ]; then YO=./yo-suite.exe; else YO=./yo-suite; fi
-          # 2026-09-03: windows images' mingw64 lost libasan — see the twin
-          # note in the `test` job (issues/windows-images-lost-libasan.md).
-          case "$RUNNER_OS" in
-            Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
+          # The 2026-09-03 mingw64-lost-libasan workaround
+          # (issues/fixed/windows-images-lost-libasan.md) is lifted on
+          # windows-x64: this job's driver is the choco LLVM clang the
+          # "Install LLVM/Clang" step puts first on PATH (MSVC target, the
+          # triple pinned by the compiler itself), whose ASan runtime ships
+          # inside the LLVM distribution — no `-lasan` anywhere — and whose
+          # runtime DLL the compiler discovers for both its ASan probe and
+          # the test children. windows-arm64 KEEPS the flag: choco installs
+          # the x86_64 LLVM build there, whose resource dir carries no
+          # clang_rt.asan-aarch64
+          # (issues/windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md).
+          case "${{ matrix.target }}" in
+            windows-arm64) TEST_SAN_FLAG="--disable-sanitize" ;;
             *) TEST_SAN_FLAG="" ;;
           esac
           # `--shard i/n` stripes the SORTED file list, so the shards partition

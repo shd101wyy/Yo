@@ -120,6 +120,7 @@ json :: import("std/encoding/json");
 {
   ModuleLoadOutcome,
   resolve_std_path,
+  prefer_entry_std_root,
   get_std_path_override,
   set_std_path_override,
   get_imports_file_override,
@@ -1121,6 +1122,10 @@ run_fix :: (
   if(files.len() == usize(0), {
     exn.throw(dyn(`fix: no .yo files found at ${target_path}`));
   });
+  // Same rule as `check`: a std tree is evaluated against its own root, not
+  // the std the resolver found beside the binary
+  // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
@@ -1368,6 +1373,12 @@ run_check :: (
   set_retain_walk_contexts(watch || watch_once);
   set_owner_logs_enabled(watch || watch_once);
   set_codegen_tables_enabled(false);
+  // A std tree must be checked against ITSELF: when every entry lives inside
+  // one std root while the resolver picked another (an installed binary
+  // finds its bundled std beside the exe before ./std), the run evaluates
+  // two copies of std and reports false failures — prefer the entry-side
+  // root (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   // Reset the per-module loader cache for this run. Keys are absolute
   // paths, so cache entries are valid for the whole run (a module
@@ -1656,6 +1667,10 @@ run_verify_cmd :: (
   // collected spelling (Token.module_path is the path EXACTLY as passed
   // to mm_load_file) and the normalized absolute form (what an imported
   // module's tokens carry).
+  // Same rule as `check`: verifying a std tree against a different std
+  // (the bundle an installed binary finds beside itself) evaluates two
+  // copies of it (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   abs_targets := ArrayList(String).new();
   (fi : usize) = usize(0);
@@ -2287,6 +2302,34 @@ _win_dirname :: (fn(p : String) -> String)({
   });
   p.substring(usize(0), usize(last_sep))
 });
+/// `dir` put at the front of the `;`-separated Windows search path `path`,
+/// unless an entry already names it (compared ignoring ASCII case and a
+/// trailing `\`, as Windows compares directories) — then `path` is returned
+/// unchanged. The test runner applies the ASan DLL directory once per batch,
+/// and a plain prepend grew PATH by one entry per batch: hundreds of files
+/// in, the variable outgrew what child processes can search and a late
+/// test's `cmd /C ping ...` reported "'ping' is not recognized"
+/// (issues/fixed/the-test-runner-prepends-the-asan-dll-dir-to-path-once-per-batch.md).
+windows_path_with_dir_first :: (fn(path : String, dir : String) -> String)({
+  want := dir.trim_end_matches("\\");
+  entries := path.split(";");
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    present := match(entries.get(i), .Some(e) => e.trim_end_matches("\\").eq_ignore_ascii_case(want.clone()), .None => false);
+    if(present, {
+      return(path);
+    });
+    i = (i + usize(1));
+  });
+  if(path.len() == usize(0), dir, `${dir};${path}`)
+});
+export(windows_path_with_dir_first);
+/// Put the ASan runtime DLL directory on this process's PATH (see
+/// `windows_path_with_dir_first`); children inherit it.
+_put_asan_dll_dir_on_path :: (fn(dll_dir : String) -> unit)({
+  cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
+  _sv_path := proc_env.set(String.from("PATH"), windows_path_with_dir_first(cur_path, dll_dir));
+});
 /// Windows: the directory holding clang's ASan runtime DLL, to prepend to
 /// PATH before running ASan-instrumented test binaries (the DLL lives at
 /// `<llvm-root>/lib/clang/<version>/lib/windows`). `.None` on any failure or
@@ -2322,7 +2365,12 @@ _find_clang_asan_dll_path :: (fn(compiler : String, io : Io) -> Option(String))(
     match(
       ve,
       .Some(vname) => {
-        win_lib := `${clang_lib}\\${vname}\\lib\\windows`;
+        // Concatenated, not one template: a backtick template does not
+        // interpolate `${...}` when a backslash precedes the `$`, so
+        // `${clang_lib}\\${vname}\\lib\\windows` built a LITERAL `${vname}`
+        // into the path and the probe silently found nothing
+        // (issues/backslash-then-interpolation-in-a-template-is-not-interpolated.md).
+        win_lib := (`${clang_lib}\\` + vname + String.from("\\lib\\windows"));
         win_found := io.await(exists(Path.new(win_lib.clone()), io), io);
         if(win_found, {
           return(Option(String).Some(win_lib));
@@ -2486,17 +2534,27 @@ _probe_openssl :: (fn(io : Io) -> bool)({
   )
 });
 /// AddressSanitizer functionality probe: compile a trivial C program
-/// with `-fsanitize=address` via the SYSTEM `cc` (probed
-/// regardless of --cc) and run it under a 3-second shell watchdog. A
+/// with `-fsanitize=address` via the compiler that will link the real
+/// binary (`cc` — the user's --cc/--c-compiler value, else the
+/// auto-discovered one) and run it under a 3-second shell watchdog. A
 /// healthy ASan binary exits 0 immediately; a clang/ASan-runtime mismatch
 /// (e.g. Nix clang 21 whose libclang_rt.asan deadlocks in its own dyld
 /// initializer BEFORE main on this macOS) never returns — the watchdog
 /// SIGKILLs it and the probe reports unusable, so the compile proceeds
 /// WITHOUT the sanitizer plus a warning, instead of
 /// emitting a binary that hangs at startup (issues/fixed/yo-self-asan-init-hang.md).
-/// Result is cached process-wide.
+/// Probing the CHOSEN compiler and not the hardcoded system `cc` is the
+/// point: on a machine whose `cc` is absent or ASan-broken while the
+/// --c-compiler toolchain arms ASan fine (every GitHub Windows runner — no
+/// `cc`, batches link through the LLVM clang), the old probe silently
+/// dropped the sanitizer for a healthy toolchain
+/// (issues/fixed/windows-images-lost-libasan.md). On Windows the probe's
+/// own run step also needs the ASan runtime DLL's directory on PATH (the
+/// LLVM resource dir is not on PATH by default); off Windows, or for a
+/// non-clang driver, that discovery folds to a no-op. Result is cached
+/// process-wide.
 (g_asan_usable : Option(bool)) = Option(bool).None;
-_asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
+_asan_runtime_is_usable :: (fn(base : String, cc : String, io : Io) -> bool)({
   match(
     g_asan_usable,
     .Some(u) => {
@@ -2515,7 +2573,7 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
   probe_src := `${base}.asan_probe.c`;
   probe_bin := `${base}.asan_probe`;
   io.await(write_string(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
-  cc_cmd := Command.new(String.from("cc"));
+  cc_cmd := Command.new(cc.clone());
   cc_cmd.arg(String.from("-x"));
   cc_cmd.arg(String.from("c"));
   cc_cmd.arg(String.from("-std=c11"));
@@ -2530,6 +2588,20 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
     // backgrounded killer turns an ASan init deadlock into SIGKILL (137,
     // not success). A healthy probe exits 0 long before the 3s fire.
     run_cmd := Command.new(String.from("sh"));
+    // Windows + a clang-family driver: the probe binary is linked against
+    // clang_rt.asan_dynamic-<arch>.dll, which lives in the LLVM resource
+    // dir rather than on PATH — the same discovery the test runner applies
+    // for its batch children, needed HERE because the child compile that
+    // owns this probe is spawned before that later PATH edit. The env is
+    // set PROCESS-WIDE (the runner's own proven shape) rather than on the
+    // one Command, so the child inherits it through the normal block.
+    // `.None` off Windows (or for a driver with no LLVM layout) leaves the
+    // run untouched.
+    match(
+      _find_clang_asan_dll_path(cc.clone(), io),
+      .Some(dll_dir) => _put_asan_dll_dir_on_path(dll_dir),
+      .None => ()
+    );
     run_cmd.arg(String.from("-c"));
     run_cmd.arg(String.from("ASAN_OPTIONS=detect_leaks=0 \"$0\" & p=$!; { sleep 3; kill -9 $p; } 2>/dev/null & wait $p"));
     // `"$0"` is a command word, so a slash-free path is looked up in PATH: a
@@ -3751,7 +3823,7 @@ run_compile :: (
   // resolves N from the core count (no point minting more chunks than the
   // driver will compile at once).
   (jobs : usize) = usize(0);
-  (optimize : String) = String.from(""); // "" = unset; "0".."3"
+  (optimize : String) = String.from(""); // "" = unset; "0".."3", or "s" (-Os)
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
   (emit_c : bool) = false;
@@ -4162,8 +4234,11 @@ run_compile :: (
   if(debug_heap && (allocator != "fixed"), {
     exn.throw(dyn(String.from("compile: --debug-heap requires --allocator fixed")));
   });
-  if((optimize != "") && (optimize != "0") && (optimize != "1") && (optimize != "2") && (optimize != "3"), {
-    exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
+  // "s" is -Os (optimize for size): clang, gcc, zig cc and emcc all accept
+  // it, so unlike a "z" level it needs no per-compiler gate (gcc has no -Oz).
+  // It is what the build system's release-small level forwards.
+  if((optimize != "") && (optimize != "0") && (optimize != "1") && (optimize != "2") && (optimize != "3") && (optimize != "s"), {
+    exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3, s`));
   });
   if((sanitize != "") && (sanitize != "address") && (sanitize != "leak") && (sanitize != "thread") && (sanitize != "undefined"), {
     exn.throw(dyn(`compile: invalid --sanitize "${sanitize}". Choices: address, leak, thread, undefined`));
@@ -4309,6 +4384,14 @@ run_compile :: (
   if((allocator == "mimalloc") && is_target_wasm(target), {
     allocator = String.from("system");
   });
+  // Same rule as `check`: compiling a module that lives inside a std tree
+  // must resolve std to THAT tree, not the bundle an installed binary finds
+  // beside itself (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  // This also covers the test runner's batch programs, which `run_test`
+  // writes next to the test files inside the very tree being tested.
+  compile_entries := ArrayList(String).new();
+  compile_entries.push(input_path.clone());
+  prefer_entry_std_root(compile_entries);
   std_path := resolve_std_path();
   // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
   // via g_shared_expr_info_table now (not after the prelude load). The prelude
@@ -4850,8 +4933,10 @@ run_compile :: (
     (sanitize == "address") => {
       // Functionality probe first: a clang/ASan
       // runtime mismatch produces binaries that deadlock in ASan's own
-      // init before main — skip the flags with a warning instead.
-      if(_asan_runtime_is_usable(output, io), {
+      // init before main — skip the flags with a warning instead. The
+      // probe runs through THIS cc (the driver about to link the real
+      // binary), not the system `cc`.
+      if(_asan_runtime_is_usable(output, cc.clone(), io), {
         cmd.arg(String.from("-fsanitize=address"));
         cmd.arg(String.from("-fno-omit-frame-pointer"));
       }, {
@@ -5180,6 +5265,10 @@ run_compile :: (
   plan.verbose = verbose;
   _finish_cc_plan(plan, profile_json.clone(), io, exn);
 });
+// Exported for tests/internal/compile.test.yo, which drives the compile
+// command in-process (the test runner's own child compiles are separate yo
+// processes, so the corpus has no other handle on this entry point).
+export(run_compile);
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
 /// for a file) — the check walker, filtered to `.test.yo`.
 /// Every member's test files, for `yo test --workspace` (§4.6). The workspace
@@ -6019,6 +6108,67 @@ run_test :: (
     });
     files = win_kept;
   });
+  // `Pragma.NeedsLeakVerdict` pre-scan: a test file whose ONLY failure mode is
+  // the LeakSanitizer verdict (it exercises a construct and asserts values
+  // that were never wrong) declares that dependence with the pragma. When
+  // THIS run cannot apply a leak verdict — `YO_TEST_LEAK_VERDICT=0` (the CI
+  // staging ratchet for the self-hosted-emit leak debt) or no ASan test
+  // binary (a wasm target, `--disable-sanitize`, a non-address
+  // `YO_TEST_SANITIZE`) — the file would pass vacuously, so it is SKIPPED
+  // with a line that says why and "N passed" stops overstating coverage.
+  // Same first-50-lines text scan as the wasm/Windows pre-scans above.
+  // issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md
+  nlv_leak_verdict := match(
+    proc_env.get(`YO_TEST_LEAK_VERDICT`),
+    .Some(lv) => (lv != "0"),
+    .None => true
+  );
+  nlv_san_choice := match(
+    proc_env.get(`YO_TEST_SANITIZE`),
+    .Some(sv) => sv,
+    .None => String.from("address")
+  );
+  // Same `run_is_wasi` correction as the batch site's `use_asan`: emcc/WASI
+  // legs link no ASan, so no leak verdict could ever fire there.
+  nlv_use_asan := (!no_sanitize && ((nlv_san_choice == "address") && ((test_cc != "emcc") && !run_is_wasi)));
+  if(!(nlv_leak_verdict && nlv_use_asan), {
+    nlv_reason := if(
+      !nlv_leak_verdict,
+      String.from("the leak verdict is off (YO_TEST_LEAK_VERDICT=0)"),
+      String.from("this run builds no AddressSanitizer test binary (wasm target, --disable-sanitize, or a non-address YO_TEST_SANITIZE)")
+    );
+    nlv_kept := ArrayList(String).new();
+    (nlv_skipped : usize) = usize(0);
+    (nfi : usize) = usize(0);
+    while(nfi < files.len(), {
+      nf := match(files.get(nfi), .Some(f) => f, .None => String.from(""));
+      nfi = (nfi + usize(1));
+      nf_bytes := io.await(read(Path.new(nf.clone()), io), IoExn(io : io, exn : exn));
+      nf_src := String.from_bytes(nf_bytes);
+      nf_lines := nf_src.split("\n");
+      (nlv_skip : bool) = false;
+      (nli : usize) = usize(0);
+      while((nli < nf_lines.len()) && ((nli < usize(50)) && !nlv_skip), {
+        nline := match(nf_lines.get(nli), .Some(l) => l, .None => String.from(""));
+        nli = (nli + usize(1));
+        nstripped := nline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
+        if(nstripped.contains("pragma(Pragma.NeedsLeakVerdict)"), {
+          nlv_skip = true;
+        });
+      });
+      if(nlv_skip, {
+        nlv_skipped = (nlv_skipped + usize(1));
+      }, {
+        nlv_kept.push(nf);
+      });
+    });
+    if(nlv_skipped > usize(0), {
+      if(human, {
+        println(`Skipping ${nlv_skipped.to_string()} test file(s) with pragma(Pragma.NeedsLeakVerdict): ${nlv_reason}, so these tests would pass vacuously`);
+      });
+    });
+    files = nlv_kept;
+  });
   if(files.len() == usize(0), {
     if(human, {
       println(String.from("No test files found."));
@@ -6028,6 +6178,14 @@ run_test :: (
     });
     return(());
   });
+  // Same rule as `check`: test files that live inside a std tree (std's own
+  // sibling *.test.yo files) must run against THAT tree, not the bundled std
+  // an installed binary finds beside itself
+  // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  // Installing the override here also forwards it to every batch-compile
+  // child below as an explicit `--std-path`, so the runner and its children
+  // cannot disagree.
+  prefer_entry_std_root(files);
   // §7 items 3+4: the counts START from the restart's forwarded totals when
   // the RSS valve resumed this process (see --resume-from).
   (passed : usize) = accum_passed;
@@ -6471,10 +6629,7 @@ run_test :: (
             dll_cc := if((test_cc == "") || (test_cc == "cc"), String.from("clang"), test_cc.clone());
             match(
               _find_clang_asan_dll_path(dll_cc, io),
-              .Some(dll_dir) => {
-                cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
-                _sv_path := proc_env.set(String.from("PATH"), `${dll_dir};${cur_path}`);
-              },
+              .Some(dll_dir) => _put_asan_dll_dir_on_path(dll_dir),
               .None => ()
             );
           });
@@ -6777,6 +6932,9 @@ run_effects :: (
   if(files.len() == usize(0), {
     exn.throw(dyn(`effects: no .yo files found at ${target_path}`));
   });
+  // Same rule as `check`: a std tree is evaluated against its own root
+  // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+  prefer_entry_std_root(files);
   std_path := resolve_std_path();
   if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
     exn.throw(dyn(`effects: could not load the prelude from ${std_path}`));
@@ -8526,10 +8684,10 @@ Compile a '.yo' source file to a native executable (via C11).
 
 Options:
   -o <path>                 Output binary path
-  --optimize <level>        C optimization level (0|1|2|3); default is -O0.
-                            Use 2 for real builds. Any level above 0 also
-                            enables the ThinLTO pairing that --emit-chunks
-                            requires.
+  --optimize <level>        C optimization level (0|1|2|3|s); default is -O0.
+                            Use 2 for real builds, s to optimize for size.
+                            Any level above 0 also enables the ThinLTO
+                            pairing that --emit-chunks requires.
   -g, --debug-symbols       Emit debug symbols
   -s, --strip               Strip the output binary
   --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
@@ -8584,9 +8742,9 @@ Examples:
 
 选项：
   -o <path>                 输出二进制路径
-  --optimize <level>        C 优化级别（0|1|2|3）；默认 -O0。
-                            真实构建请用 2。大于 0 的级别还会启用
-                            --emit-chunks 所依赖的 ThinLTO 配对。
+  --optimize <level>        C 优化级别（0|1|2|3|s）；默认 -O0。
+                            真实构建请用 2，s 为优化体积。大于 0 的级别
+                            还会启用 --emit-chunks 所依赖的 ThinLTO 配对。
   -g, --debug-symbols       生成调试符号
   -s, --strip               剥离输出二进制
   --cc, --c-compiler <cc>   使用的 C 编译器（clang|gcc|zig|emcc）

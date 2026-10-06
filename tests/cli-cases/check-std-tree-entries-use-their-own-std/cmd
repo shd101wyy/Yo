@@ -1,0 +1,11 @@
+# The trap (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md):
+# with no explicit std (YO_STD is cleared in opts), the binary resolves std by
+# walking up from ITS OWN location — an installed release finds the bundled
+# std beside the exe before ./std is ever consulted — while every entry lives
+# inside ./std-clone, a std tree of its own. Before the fix such a run
+# evaluated TWO copies of std (entries from ./std-clone, every
+# import("std/...") from the other root) and failed; the fix prefers the
+# entry-side root and says so on stderr.
+check ./std-clone
+# An explicit --std-path still wins: same tree, no preference, no note.
+check ./std-clone --std-path ./std-clone

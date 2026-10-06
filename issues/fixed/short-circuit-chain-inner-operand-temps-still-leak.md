@@ -116,7 +116,7 @@ Process: 2000 leaks for 64000 total leaked bytes
 
 (Do NOT try to measure this with `--sanitize address` — on macOS it produces a
 binary with zero `__asan` symbols, and CI has leak verdicts off everywhere:
-`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`.)
+`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`.)
 
 ## Where to look
 

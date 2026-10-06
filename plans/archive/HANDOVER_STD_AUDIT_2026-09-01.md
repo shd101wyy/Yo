@@ -91,7 +91,7 @@ revert the plumbing.
 **Queue after these**: ArrayList `remove`→`drain`/`remove(idx)->T` (own PR,
 compiler-as-oracle rename first); D7 `Thread.spawn` `join() -> T` (S4); C29;
 arity validation outside the def-eval swallow + async-SM C22 equivalent;
-Windows stdin pipe WRITES; `issues/s3-fs-wrappers-windows-semantics-audit.md`;
+Windows stdin pipe WRITES; `issues/fixed/s3-fs-wrappers-windows-semantics-audit.md`;
 polish rows (regex extras, cli typed values + std/term adoption, O5 Formatter
 routing).
 
@@ -282,7 +282,7 @@ async_await 188/188, battery FIXPOINT_HOLDS CLANG_RC=0.
    landed): C29 unification arc; arity-validation outside the swallow + the
    async-SM C22-gate equivalent; builtin-shadowing decision; Windows stdin
    pipe WRITES (overlapped named pipes; reads landed in #353);
-   `issues/s3-fs-wrappers-windows-semantics-audit.md`; module-level
+   `issues/fixed/s3-fs-wrappers-windows-semantics-audit.md`; module-level
    control-bound binding hole; polish rows (regex extras, cli typed values
    + std/term adoption, O5 Formatter routing, D5 Dyn(Reader)); the
    systematic registry arc (per-ExprInfo reads at await-future typing
