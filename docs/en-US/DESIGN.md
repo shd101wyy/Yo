@@ -1163,24 +1163,25 @@ No new keyword is involved: `Point(...)` is the same constructor call in both pl
 
 #### Copy
 
-`Copy` is the prelude marker for a value whose copy is a bitwise copy. The integers, floats, `bool`, `char`, `unit`, `str` views and raw pointers implement it, and so do `Option(T)` and `Result(T, E)` when their payloads do. A named type opts in with `derive(T, Copy)` or `impl(T, Copy())`, and a generic one with a `where` bound:
+`Copy` is the prelude marker for a value whose copy is a bitwise copy. It requires `Clone`, as Rust's `Copy: Clone` does: the trait is declared `Copy :: trait(where(Self <: Clone))`, so every `Copy` impl needs a `Clone` impl beside it, and `where(T <: Copy)` lets a generic body call `x.clone()`. The integers, floats, `bool`, `char`, `unit`, `str` views and raw pointers implement both, and so do `Option(T)` and `Result(T, E)` when their payloads do. A named type opts in with `derive(T, Copy, Clone)`, and a generic one with a `where` bound:
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Copy);
+derive(Point, Copy, Clone);
 
 Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+derive(generic(T : Type), Pair(T), Clone);
 derive(generic(T : Type), where(T <: Copy), Pair(T), Copy);
 
 main :: (fn() -> unit)({
   p := Point(x : i32(1), y : i32(2));
   q := p;           // a copy: `p` stays usable
-  r := p.clone();   // the compiler supplies clone() for a Copy type
+  r := p.clone();   // the derived clone, which for a Copy type is the copy
 });
 export(main);
 ```
 
-The impl is checked. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` or declares `MoveOnly` cannot be `Copy`, in either order, and neither can a reference type. A `Copy` type's `clone()` is the bitwise copy, and the compiler supplies it when no `Clone` is written. `derive(T, Clone)` is allowed beside `Copy` (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at its other instantiations: `derive(generic(T : Type), Pair(T), Clone)` with `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())` makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy` exactly when all its parts are. `Box`, `Arc`, `String`, the collections and `Dyn` never are.
+The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` or declares `MoveOnly` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), Pair(T), Clone)` with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)` makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. `Box`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field named `clone`, `p.clone(...)` is an error that names `p.*.clone(...)` and `q := p`.
 
 Today `Copy` is checked but not yet required: a plain-data type without it is still copied implicitly. The next step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 36) makes it the rule, after which `q := p` moves a `Point` that is not `Copy`, and a later use of `p` is E0901.
 

@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
   mark_node_preevaluated,
   unmark_node_preevaluated
 } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, get_receiver_methods_by_name_from_env, get_pointer_own_methods_by_name_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, record_module_member_read, sns_module_of, is_dot_callee } :: import("../context.yo");
 { get_struct_fields } :: import("../types/field.yo");
 {
@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module } :: import("../../types/guards.yo");
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
-{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
+{ get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
@@ -160,6 +160,26 @@ _reject_gadt_unreachable_variant :: (
       )
     );
   });
+});
+/// Is `name` a member of the prelude `Clone` or `Copy` trait (`clone`)? The
+/// members a raw pointer has from decision 36's `Clone`/`Copy` impls, which a
+/// pointee field of the same name must not shadow silently.
+_is_copy_or_clone_member :: (fn(name : String, env : Environment) -> bool)({
+  trait_names := ArrayList(String).new();
+  trait_names.push(String.from("Clone"));
+  trait_names.push(String.from("Copy"));
+  (i : usize) = usize(0);
+  while(i < trait_names.len(), {
+    match(
+      get_trait_type_from_env(env, match(trait_names.get(i), .Some(n) => n, .None => String.new())),
+      .Some(.TraitT({ field_labels : tm_labels })) => if(tm_labels.contains(name), {
+        return(true);
+      }),
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  false
 });
 find_last_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
   n := labels.len();
@@ -1837,6 +1857,26 @@ Raw pointer operations may dereference invalid memory.`
                   )
                 )
               );
+            });
+            // A pointer clash (plans/VALUES_BY_DEFAULT.md decision 36, under
+            // decision 32's rule): `p.clone(...)` through a raw pointer whose
+            // pointee has a field of that name, now that `*(T)` has its own
+            // `clone` (`Clone`, which `Copy` requires). The field used to win
+            // silently; either reading is a guess, so the call is an error
+            // naming both spellings.
+            if(pa_is_callee && is_pointer_type(original_obj_ty) && _is_copy_or_clone_member(label_str.clone(), env), {
+              if(get_pointer_own_methods_by_name_from_env(env, label_str.clone(), original_obj_ty).len() > usize(0), {
+                obj_shown := ast_expr_to_string(object_expr);
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(property_expr),
+                      `"${label_str}" is both a field of ${type_to_string(base_ty)} and a method of the raw pointer ${type_to_string(original_obj_ty)}, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 36). Write ${obj_shown}.*.${label_str}(...) to call the pointee's field, or copy the pointer itself with q := ${obj_shown} (a raw pointer is Copy).`
+                    )
+                  )
+                );
+                return(expr);
+              });
             });
             ft_lbl := match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit());
             field_origin_lbl := match(

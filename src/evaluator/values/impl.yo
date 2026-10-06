@@ -45,7 +45,6 @@ pragma(Pragma.AllowUnsafe);
   get_variables_from_env,
   snapshot_env,
   synthetic_token,
-  generate_variable_id,
   get_funcval_cap_vars,
   aligned_derived_capture_handles,
   fv_capture_count,
@@ -118,7 +117,6 @@ pragma(Pragma.AllowUnsafe);
   force_pending_move_only_impls,
   type_head_name_for_impl_forcing
 } :: import("../context.yo");
-{ generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
 { format_error_message, render_any_error, reanchor_primary_at, YoError } :: import("../../error.yo");
@@ -5696,9 +5694,8 @@ _clone_and_copy_traits :: (fn(env : Environment) -> Option(_CloneCopyTraits))(
 );
 /// The sites of the hand-written `Clone` impls seen so far (decision 36): an
 /// impl whose `Clone(...)` was written in a user or std module, not spliced
-/// from the prelude (`derive(T, Clone)`'s template, and in Generation A the
-/// prelude primitives' own impls) or synthesized by the compiler
-/// (`supply_copy_clone_impl`). Keyed by the site the impl registries store
+/// from the prelude (`derive(T, Clone)`'s template, and the prelude's own
+/// impls for its primitives). Keyed by the site the impl registries store
 /// (`trait_impl_site_of` for a concrete impl, `GenericImplEntry.site` for a
 /// generic one), so the reverse check at a later `Copy` impl can tell a
 /// hand-written `Clone` from a derived one.
@@ -5709,11 +5706,11 @@ _clone_and_copy_traits :: (fn(env : Environment) -> Option(_CloneCopyTraits))(
 _hand_written_clone_on_copy_msg :: (fn(receiver_ty : TypeValue, other_site : Option(String)) -> String)({
   where_it := match(other_site, .Some(s) => ` (the hand-written Clone impl is at ${s})`, .None => String.new());
   shown := type_to_string(receiver_ty);
-  `Trait "Clone" is already implemented for type "${shown}" by its Copy impl${where_it}: a Copy type's clone() is the bitwise copy, so a hand-written Clone impl can only repeat it or contradict it (plans/VALUES_BY_DEFAULT.md decision 36). Remove the impl and write no Clone at all (the compiler supplies clone()), or write derive(${shown}, Clone).`
+  `Type "${shown}" implements Copy, so its Clone may not be hand-written${where_it}: a Copy type's clone() is the bitwise copy, so a hand-written Clone impl can only repeat it or contradict it (plans/VALUES_BY_DEFAULT.md decision 36). Write derive(${shown}, Clone) instead: a derived clone is field-wise, which for Copy fields is the copy.`
 });
 /// Is the trait constructor at `trait_tok` hand-written: outside the prelude
-/// (whose derive templates and, in Generation A, primitive impls are exempt)
-/// and outside compiler-synthesized code?
+/// (whose derive templates and primitive impls are exempt) and outside
+/// generated code?
 _is_hand_written_impl :: (fn(trait_tok : Token, ctx : EvalContext) -> bool)(
   !is_prelude_or_generated_file(Option(String).Some(trait_tok.module_path.clone()), ctx.std_path.clone())
 );
@@ -5802,68 +5799,6 @@ _check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, trait_tok :
     .None => ()
   );
 });
-/// Evaluate a supplied `Clone` impl, swallowing a failure: on a throw the
-/// handler unwinds out of this function and `ok` stays false.
-_eval_supplied_clone_impl :: (fn(code : String, env : Environment, ctx : EvalContext, inout(ok) : bool) -> unit)({
-  inner_exn := Exception(
-    throw : (
-      _err -> {
-        unwind(());
-      }
-    )
-  );
-  e := generate_expr_from_code(code, inner_exn);
-  saved_expected := ctx.expected_type;
-  ctx.expected_type = .None;
-  _r := evaluate_expression_raw(e, env, ctx, inner_exn);
-  ctx.expected_type = saved_expected;
-  ok = true;
-});
-/// The compiler-supplied `clone()` of a `Copy` type (decision 36): on a
-/// `clone` lookup that missed (`_try_find_receiver_method`,
-/// calls/function.yo), register `impl(T, Clone(clone : ((self) -> self)))`
-/// for the receiver's type `T` when `T` implements `Copy` and has no `Clone`
-/// impl yet. A `Copy` value owns nothing, so returning `self` is the bitwise
-/// copy. True when the impl was registered; the caller looks up again.
-///
-/// - Supplied on demand, per concrete type: a generic `Copy` impl's
-///   instances (`Pair(i32)`) get one each, and a `Copy` type that is never
-///   cloned gets none.
-/// - Raw pointers are looked through, as method dispatch auto-dereferences
-///   them: `p.clone()` on a `*(Point)` clones the `Point`.
-/// - A type with no nominal id (a tuple, an array, a closure) has no impl
-///   registry entry to hold one, so it gets none in Generation A.
-supply_copy_clone_impl :: (fn(ty_in : TypeValue, env : Environment, ctx : EvalContext) -> bool)({
-  (ty : TypeValue) = ty_in;
-  while(match(ty, .Pointer(_) => true, _ => false), {
-    ty = match(ty, .Pointer(pointee) => pointee, _ => ty);
-  });
-  if(get_all_some_types(ty).len() > usize(0), {
-    return(false);
-  });
-  tid := type_id_or_empty(ty);
-  if(tid.is_empty(), {
-    return(false);
-  });
-  match(
-    _clone_and_copy_traits(env),
-    .Some(cc) => {
-      if(trait_impl_site_of(tid.clone(), get_trait_key(cc.clone_tt)).is_some() || !_implements_via_hook(ty, cc.copy_tt, env), {
-        return(false);
-      });
-      frame_env := snapshot_env(env);
-      frame_env.push_frame(false);
-      var := `__yo_copy_T_${generate_variable_id(env.module_path, String.from("cpy"))}`;
-      _added := add_variable_to_env(frame_env, var.clone(), t_type(), Option(EvalValue).Some(EvalValue.TypeVal(ty)), true, false, false, false, synthetic_token(var.clone(), env.module_path));
-      (ok : bool) = false;
-      // `__yo_return_self` is the prelude primitives' clone: an inline copy
-      // of the receiver, no call.
-      _eval_supplied_clone_impl(`impl(${var}, Clone(clone : ((self) -> __yo_return_self(self))))`, frame_env, ctx, ok);
-      ok
-    },
-    .None => false
-  )
-});
 /// Is an impl of `trait_ty` written for `ty`'s shape: a concrete impl of
 /// `ty` itself, or a generic impl whose receiver pattern matches `ty` with
 /// its where-clause not enforced (the prelude's `Option(T)` `Copy` impl, for
@@ -5889,7 +5824,7 @@ type_has_impl_shape_for :: (fn(ty : TypeValue, trait_ty : TypeValue) -> bool)({
   });
   false
 });
-export(supply_copy_clone_impl, type_has_impl_shape_for);
+export(type_has_impl_shape_for);
 export(GenericImplEntry, MethodCandidate);
 /// Entries in the injection memo (the B2 plateau test's probe).
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());

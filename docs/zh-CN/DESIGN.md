@@ -1132,24 +1132,25 @@ p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
 
 #### Copy
 
-`Copy` 是 prelude 中的标记 trait，表示一个值的复制就是按位复制。整数、浮点数、`bool`、`char`、`unit`、`str` 视图和裸指针实现了它；`Option(T)` 与 `Result(T, E)` 在载荷实现它时也实现它。具名类型通过 `derive(T, Copy)` 或 `impl(T, Copy())` 选择加入，泛型类型则加上 `where` 约束：
+`Copy` 是 prelude 中的标记 trait，表示一个值的复制就是按位复制。它要求 `Clone`，与 Rust 的 `Copy: Clone` 一样：这个 trait 声明为 `Copy :: trait(where(Self <: Clone))`，所以每个 `Copy` impl 旁边都需要一个 `Clone` impl，而 `where(T <: Copy)` 让泛型函数体可以调用 `x.clone()`。整数、浮点数、`bool`、`char`、`unit`、`str` 视图和裸指针两者都实现；`Option(T)` 与 `Result(T, E)` 在载荷实现它们时也实现。具名类型通过 `derive(T, Copy, Clone)` 选择加入，泛型类型则加上 `where` 约束：
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Copy);
+derive(Point, Copy, Clone);
 
 Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+derive(generic(T : Type), Pair(T), Clone);
 derive(generic(T : Type), where(T <: Copy), Pair(T), Copy);
 
 main :: (fn() -> unit)({
   p := Point(x : i32(1), y : i32(2));
   q := p;           // 复制：`p` 仍然可用
-  r := p.clone();   // 编译器为 Copy 类型提供 clone()
+  r := p.clone();   // 派生的 clone；对 Copy 类型来说就是复制
 });
 export(main);
 ```
 
-这个 impl 会被检查。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 或声明了 `MoveOnly` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`Copy` 类型的 `clone()` 就是按位复制；没有写 `Clone` 时由编译器提供。`derive(T, Clone)` 可以与 `Copy` 并存（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在其他实例化上获得 `clone()` 的写法：`derive(generic(T : Type), Pair(T), Clone)` 加上 `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy` 时才是 `Copy`。`Box`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。
+这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 或声明了 `MoveOnly` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), Pair(T), Clone)` 加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。`Box`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向的类型有一个名为 `clone` 的字段，`p.clone(...)` 是错误，错误信息会给出 `p.*.clone(...)` 和 `q := p` 两种写法。
 
 目前 `Copy` 会被检查，但还不是必需的：没有它的纯数据类型仍然会被隐式复制。[值默认计划](../../plans/VALUES_BY_DEFAULT.md)（决定 36）的下一步会把它变成规则：之后 `q := p` 会移动一个不是 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901。
 

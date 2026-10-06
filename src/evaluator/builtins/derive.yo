@@ -694,12 +694,26 @@ evaluate_derive :: (
       )
     );
   });
-  // Process each trait argument.
+  // Process each trait argument, in order, except `Copy`, which goes last:
+  // `Copy` requires `Clone` (plans/VALUES_BY_DEFAULT.md decision 36), and its
+  // impl checks that a `Clone` impl exists, so `derive(T, Copy, Clone)`
+  // registers the `Clone` impl first.
   (result_env : Environment) = env;
+  trait_args := ArrayList(AstExpr).new();
+  copy_args := ArrayList(AstExpr).new();
   while(arg_idx < n_args, {
     trait_arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
+    cond(
+      match(extract_derive_key(trait_arg), .Some(k) => (k == "Copy"), .None => false) => copy_args.push(trait_arg),
+      true => trait_args.push(trait_arg)
+    );
+    arg_idx = (arg_idx + usize(1));
+  });
+  trait_args.extend(copy_args);
+  (ta_i : usize) = usize(0);
+  while(ta_i < trait_args.len(), {
     result_env = process_trait_arg(
-      trait_arg,
+      match(trait_args.get(ta_i), .Some(a) => a, .None => make_err_expr()),
       target_type,
       target_type_expr,
       result_env,
@@ -708,7 +722,7 @@ evaluate_derive :: (
       ctx,
       exn
     );
-    arg_idx = (arg_idx + usize(1));
+    ta_i = (ta_i + usize(1));
   });
   out := new_expr_info(result_env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);

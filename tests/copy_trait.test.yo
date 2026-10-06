@@ -1,31 +1,34 @@
 // The `Copy` trait (plans/VALUES_BY_DEFAULT.md decision 36, Generation A).
 //
-// `Copy` is a prelude marker. A named type opts in with `derive(T, Copy)` or
-// `impl(T, Copy())`; the impl is checked (every part `Copy`, no `Dispose`, no
-// `MoveOnly`, never a reference type); the compiler supplies `clone()` for a
-// `Copy` type, `derive(T, Clone)` is allowed beside `Copy`, and a
-// hand-written `Clone` is an error only on a type that is `Copy` for every
-// instantiation the impl serves; and a tuple, an array,
-// a closure, an anonymous record and a `fn` pointer are `Copy` exactly when
-// all their parts are. Generation A does not flip the copy rule: a named
-// plain-data type without `Copy` still copies implicitly here.
-// Raw pointers appear in the prelude-impl test.
+// `Copy` is a prelude marker that requires `Clone`, as Rust's `Copy: Clone`.
+// A named type opts in with `derive(T, Copy, Clone)`, or `impl(T, Copy())`
+// beside a `Clone` impl; the impl is checked (a `Clone` impl covers it,
+// every part is `Copy`, no `Dispose`, no `MoveOnly`, never a reference
+// type). The compiler never writes a `Clone` impl. `derive(T, Clone)` is
+// always allowed, and a hand-written `Clone` is an error only on a type that
+// is `Copy` for every instantiation the impl serves. `where(T <: Copy)` gives
+// `T <: Clone` in a generic body. A tuple, an array, a closure, an anonymous
+// record and a `fn` pointer are `Copy`, and `Clone`, exactly when all their
+// parts are. Generation A does not flip the copy rule: a named plain-data
+// type without `Copy` still copies implicitly here. Raw pointers appear in
+// the prelude-impl test.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 _CtPoint :: struct(x : i32, y : i32);
-derive(_CtPoint, Copy, Eq(_CtPoint));
-// `derive(T, Copy, Clone)` is accepted: a derived clone is field-wise, which
-// for Copy fields is the bitwise copy.
+derive(_CtPoint, Copy, Clone, Eq(_CtPoint));
+// The derive registers `Clone` before `Copy`, whichever is written first: a
+// derived clone is field-wise, which for Copy fields is the bitwise copy.
 _CtBoth :: struct(n : i32);
-derive(_CtBoth, Copy, Clone);
+derive(_CtBoth, Clone, Copy);
 _CtCell :: struct(v : i32);
+derive(_CtCell, Clone);
 impl(_CtCell, Copy());
 _CtDir :: enum(North, South);
-derive(_CtDir, Copy);
+derive(_CtDir, Copy, Clone);
 _CtShape :: enum(Dot(at : _CtPoint), Empty);
-derive(_CtShape, Copy);
+derive(_CtShape, Copy, Clone);
 _CtPair :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(a : T, b : T)
 );
@@ -44,9 +47,12 @@ impl(
     (!=) : ((lhs, rhs) -> !(lhs == rhs))
   )
 );
-// The `Copy` impl of a struct may come before its fields' own impls
+// The `Copy` impl of a struct may come before its fields' own `Copy` impls
 // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md): the field check forces them.
+// A `derive` is an ordered statement, so the derived `Clone`s come first.
 _CtSeg :: struct(from : _CtEnd, to : _CtEnd);
+derive(_CtEnd, Clone);
+derive(_CtSeg, Clone);
 impl(_CtSeg, Copy());
 _CtEnd :: struct(v : i32);
 impl(_CtEnd, Copy());
@@ -65,6 +71,7 @@ _CtToken :: struct(id : i32);
 impl(_CtToken, MoveOnly());
 _CtRef :: ref(struct(n : i32));
 _CtCopied :: struct(n : i32);
+derive(_CtCopied, Clone);
 impl(_CtCopied, Copy());
 _CtCloned :: struct(n : i32);
 derive(_CtCloned, Clone);
@@ -79,13 +86,26 @@ impl(
 _CtOpen :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(item : T)
 );
-// Copy for every instantiation (an unbounded generic Copy impl): a generic
-// hand-written Clone on it is the error, checked in a test below.
+// A hand-written generic Clone for every instantiation: an unbounded generic
+// Copy impl over it is the error, checked in a test below.
 _CtTag :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(id : i32)
 );
-impl(generic(T : Type), _CtTag(T), Copy());
+impl(
+  generic(T : Type),
+  _CtTag(T),
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)(Self(id : self.id))
+  )
+);
+// No Clone: Copy is rejected on each, checked in a test below.
+_CtBare :: struct(n : i32);
+_CtBareOf :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(item : T)
+);
 _ct_clone_any :: (fn(generic(T : Type), x : T, where(T <: Clone)) -> T)(x.clone());
+// `where(T <: Copy)` gives `T <: Clone` in the body (Copy's supertrait).
+_ct_clone_copy :: (fn(generic(T : Type), x : T, where(T <: Copy)) -> T)(x.clone());
 _CtUser :: struct(at : _CtPoint);
 impl(
   _CtUser,
@@ -94,7 +114,7 @@ impl(
 // ---------------------------------------------------------------------------
 // The trait and the prelude's impls
 // ---------------------------------------------------------------------------
-test("Copy: the prelude's scalars, str, unit, raw pointers, Option and Result implement it", {
+test("Copy: the prelude's scalars, str, unit, raw pointers, Option and Result implement it, and Clone", {
   comptime_assert(Type.impls(i8, Copy) && Type.impls(i16, Copy) && Type.impls(i32, Copy) && Type.impls(i64, Copy), "signed integers");
   comptime_assert(Type.impls(u8, Copy) && Type.impls(u16, Copy) && Type.impls(u32, Copy) && Type.impls(u64, Copy), "unsigned integers");
   comptime_assert(Type.impls(usize, Copy) && Type.impls(isize, Copy), "pointer-sized integers");
@@ -110,12 +130,16 @@ test("Copy: the prelude's scalars, str, unit, raw pointers, Option and Result im
   comptime_assert(!Type.impls(ArrayList(i32), Copy), "a collection is never Copy");
   comptime_assert(!Type.impls(Box(i32), Copy), "Box is never Copy");
   comptime_assert(!Type.impls(Dyn(Clone), Copy), "Dyn is never Copy");
+  comptime_assert(Type.impls(i8, Clone) && Type.impls(u64, Clone) && Type.impls(usize, Clone) && Type.impls(f64, Clone), "the integers and floats are Clone");
+  comptime_assert(Type.impls(bool, Clone) && Type.impls(char, Clone) && Type.impls(longdouble, Clone) && Type.impls(unit, Clone), "bool, char, the C numbers and unit are Clone");
+  comptime_assert(Type.impls(str, Clone) && Type.impls(*(String), Clone), "str and a raw pointer are Clone");
+  comptime_assert(Type.impls(Option(i32), Clone) && Type.impls(Result(i32, bool), Clone), "Option and Result of Copy payloads are Clone");
 });
 // ---------------------------------------------------------------------------
 // Opting in
 // ---------------------------------------------------------------------------
-test("Copy: derive(T, Copy) and impl(T, Copy()) opt a struct, an enum and a generic type in", {
-  comptime_assert(Type.impls(_CtPoint, Copy), "derive(_CtPoint, Copy)");
+test("Copy: derive(T, Copy, Clone) and impl(T, Copy()) opt a struct, an enum and a generic type in", {
+  comptime_assert(Type.impls(_CtPoint, Copy), "derive(_CtPoint, Copy, Clone)");
   comptime_assert(Type.impls(_CtCell, Copy), "impl(_CtCell, Copy())");
   comptime_assert(Type.impls(_CtDir, Copy), "a payload-free enum");
   comptime_assert(Type.impls(_CtShape, Copy), "an enum whose payloads are Copy");
@@ -124,7 +148,7 @@ test("Copy: derive(T, Copy) and impl(T, Copy()) opt a struct, an enum and a gene
   comptime_assert(Type.impls(_CtSeg, Copy) && Type.impls(_CtEnd, Copy), "a Copy impl before its fields' impls");
   comptime_assert(Type.impls(Option(_CtPoint), Copy), "Option of a derived Copy type");
 });
-test("Copy: a derive(T, Copy) value copies, and the copy is independent", {
+test("Copy: a derive(T, Copy, Clone) value copies, and the copy is independent", {
   p := _CtPoint(x : i32(1), y : i32(2));
   q := p;
   q.x = i32(10);
@@ -147,7 +171,7 @@ test("Copy: a plain struct without Copy is still copied implicitly in Generation
 // ---------------------------------------------------------------------------
 // Structural Copy
 // ---------------------------------------------------------------------------
-test("Copy: a tuple, an array, a fn pointer and an anonymous record are Copy when all their parts are", {
+test("Copy: a tuple, an array, a fn pointer and an anonymous record are Copy and Clone when all their parts are", {
   comptime_assert(Type.impls(Tuple(i32, bool), Copy), "a tuple of Copy parts");
   comptime_assert(Type.impls(Tuple(_CtPoint, Option(i32)), Copy), "a tuple of derived Copy parts");
   comptime_assert(!Type.impls(Tuple(i32, String), Copy), "a tuple holding a String is not");
@@ -160,6 +184,18 @@ test("Copy: a tuple, an array, a fn pointer and an anonymous record are Copy whe
   assert((t.0 + u.0) == i32(2), "a tuple of Copy parts copies implicitly");
   r := _(a : i32(1), b : i32(2));
   comptime_assert(Type.impls(type_of(r), Copy), "an anonymous record of Copy fields");
+  comptime_assert(Type.impls(Tuple(i32, bool), Clone) && Type.impls(Tuple(i32, String), Clone), "a tuple of Clone parts is Clone");
+  comptime_assert(!Type.impls(Tuple(i32, _CtPlain), Clone), "a tuple holding a type without Clone is not");
+  comptime_assert(Type.impls(Array(String, 2), Clone) && Type.impls((fn(x : i32) -> i32), Clone), "an array of Clone elements, a fn pointer");
+  comptime_assert(Type.impls(type_of(r), Clone), "an anonymous record of Clone fields");
+  w := t.clone();
+  assert(w.0 == i32(1), "a tuple's clone, element-wise");
+  ts := (String.from("a"), i32(2));
+  tc := ts.clone();
+  tc.0.push_str("b");
+  assert((ts.0 == String.from("a")) && (tc.0 == String.from("ab")), "a tuple of a String clones its String");
+  one := (i32(7),);
+  assert(one.clone().0 == i32(7), "a one-element tuple");
 });
 test("Copy: a closure is Copy when all its captures are", {
   n := i32(2);
@@ -170,11 +206,18 @@ test("Copy: a closure is Copy when all its captures are", {
   label := String.from("k");
   (with_label : Impl(Fn() -> usize)) = (() => label.len());
   comptime_assert(!Type.impls(type_of(with_label), Copy), "a String capture is not Copy");
+  comptime_assert(Type.impls(type_of(add_n), Clone) && Type.impls(type_of(with_label), Clone), "both are Clone: their captures are");
   assert(with_label() == usize(1), "the closure still runs");
 });
 // ---------------------------------------------------------------------------
 // The impl check
 // ---------------------------------------------------------------------------
+test("Copy: Copy requires Clone, and derive(T, Copy) alone names derive(T, Copy, Clone)", {
+  comptime_expect_error(derive(_CtBare, Copy), "derive(_CtBare, Copy, Clone)");
+  comptime_expect_error(impl(_CtBare, Copy()), "cannot implement \"Copy\" without \"Clone\"");
+  comptime_expect_error(impl(generic(T : Type), where(T <: Copy), _CtBareOf(T), Copy()), "cannot implement \"Copy\" without \"Clone\"");
+  comptime_assert(!Type.impls(_CtBare, Copy), "the rejected impls registered nothing");
+});
 test("Copy: an impl over a part that is not Copy names that part", {
   comptime_expect_error(impl(_CtLabel, Copy()), "its field `name` has type `String`");
   comptime_expect_error(impl(_CtPlainHolder, Copy()), "its field `inner` has type `_CtPlain`");
@@ -192,17 +235,17 @@ test("Copy: a reference type, a tuple and a blanket type parameter cannot declar
   comptime_expect_error(impl(generic(T : Type), T, Copy()), "only a value type");
 });
 // ---------------------------------------------------------------------------
-// The compiler-supplied clone()
+// clone() on a Copy type is its Clone impl's
 // ---------------------------------------------------------------------------
-test("Copy: a Copy type gets clone() from the compiler", {
-  comptime_assert(Type.impls(_CtPoint, Clone), "Copy implies Clone");
-  comptime_assert(Type.impls(_CtPair(i32), Clone), "for a generic Copy instance too");
+test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) gives T <: Clone", {
+  comptime_assert(Type.impls(_CtPoint, Clone), "derive(_CtPoint, Copy, Clone)");
+  comptime_assert(Type.impls(_CtPair(i32), Clone), "a generic Copy instance's derived Clone");
   comptime_assert(!Type.impls(_CtPlain, Clone), "a type with neither has no clone()");
   p := _CtPoint(x : i32(4), y : i32(5));
   q := p.clone();
-  assert(q == p, "the supplied clone is the bitwise copy");
+  assert(q == p, "the derived clone is the copy");
   c := _CtCell(v : i32(7)).clone();
-  assert(c.v == i32(7), "an impl(T, Copy()) type");
+  assert(c.v == i32(7), "an impl(T, Copy()) type with derive(T, Clone)");
   pr := _CtPair(i32)(a : i32(1), b : i32(2));
   assert(pr.clone() == pr, "a generic Copy instance, through the where(T <: Copy) Eq impl");
   xs := ArrayList(_CtPoint).new();
@@ -210,13 +253,22 @@ test("Copy: a Copy type gets clone() from the compiler", {
   ys := xs.clone();
   assert(match(ys.get(usize(0)), .Some(e) => (e == p), .None => false), "ArrayList.clone over a Copy element");
   assert(_ct_clone_any(p) == p, "a where(T <: Clone) function accepts a Copy type");
+  assert(_ct_clone_copy(p) == p, "a where(T <: Copy) body calls clone()");
+  assert(_ct_clone_copy(i32(3)) == i32(3), "at a prelude Copy type");
+  assert(_ct_clone_copy((i32(1), true)).0 == i32(1), "at a tuple, Copy structurally and Clone by the prelude's tuple impl");
   b := box(p);
-  assert(b.clone().* == p, "Box.clone reaches the payload's supplied clone");
+  assert(b.clone().* == p, "Box.clone reaches the payload's clone");
   u := _CtUser(at : p);
   assert(u.moved() == p, "clone() inside another type's method");
+  s := "abc";
+  assert(s.clone() == "abc", "a str view clones as itself");
+  n := i32(9);
+  np := addr_of(n);
+  (npc : *(i32)) = np.clone();
+  assert(npc == np, "a raw pointer clones the address, not the pointee");
 });
 test("Copy: derive(T, Clone) is accepted beside Copy, in either order", {
-  comptime_assert(Type.impls(_CtBoth, Copy) && Type.impls(_CtBoth, Clone), "derive(_CtBoth, Copy, Clone)");
+  comptime_assert(Type.impls(_CtBoth, Copy) && Type.impls(_CtBoth, Clone), "derive(_CtBoth, Clone, Copy)");
   comptime_assert(Type.impls(_CtCloned, Copy) && Type.impls(_CtCloned, Clone), "derive(_CtCloned, Clone), then impl(_CtCloned, Copy())");
   b := _CtBoth(n : i32(3));
   c := b;
@@ -240,7 +292,7 @@ test("Copy: the prelude Option(i32) stays Copy with its generic Clone", {
   assert(match(o.clone(), .Some(v) => (v == i32(4)), .None => false) && p.is_some(), "Option(i32) copies and clones");
 });
 test("Copy: a hand-written Clone on a type Copy for every instantiation is an error, in either order", {
-  comptime_expect_error(impl(_CtPoint, Clone(clone : (fn(inout(self) : Self) -> Self)(self))), "write derive(_CtPoint, Clone)");
+  comptime_expect_error(impl(_CtPoint, Clone(clone : (fn(inout(self) : Self) -> Self)(self))), "Write derive(_CtPoint, Clone) instead");
   comptime_expect_error(impl(_CtHandle, Copy()), "a hand-written Clone impl can only repeat it or contradict it");
-  comptime_expect_error(impl(generic(T : Type), _CtTag(T), Clone(clone : (fn(inout(self) : Self) -> Self)(self))), "a hand-written Clone impl can only repeat it or contradict it");
+  comptime_expect_error(impl(generic(T : Type), _CtTag(T), Copy()), "a hand-written Clone impl can only repeat it or contradict it");
 });

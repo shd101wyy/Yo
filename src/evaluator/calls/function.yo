@@ -107,7 +107,6 @@ pragma(Pragma.AllowUnsafe);
   deref_target_type
 } :: import("../trait_checking.yo");
 { make_deref_expr } :: import("../exprs/property_access.yo");
-{ supply_copy_clone_impl } :: import("../values/impl.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
 { try_to_implement_module_with_arguments_by_module_type } :: import("./record_type.yo");
 {
@@ -633,17 +632,6 @@ _try_find_receiver_method :: (
       },
       .NoneForced => ()
     );
-  });
-  // A `Copy` type's `clone()` is supplied by the compiler
-  // (plans/VALUES_BY_DEFAULT.md decision 36): the first `clone` lookup that
-  // misses on one registers its impl, and the lookup runs again.
-  if((hits.len() == usize(0)) && (method_name == "clone"), {
-    if(supply_copy_clone_impl(lookup_ty, env, ctx), {
-      hits = cond(
-        is_static => get_type_trait_methods_by_name_from_env(env, method_name.clone(), lookup_ty),
-        true => get_receiver_methods_by_name_from_env(env, method_name.clone(), receiver_type, false)
-      );
-    });
   });
   if(hits.len() == usize(0), {
     // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` wrapper
