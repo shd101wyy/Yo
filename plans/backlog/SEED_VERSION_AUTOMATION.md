@@ -177,6 +177,27 @@ Generation A, #1188).
 - `docs/*/EXPLICIT_ALLOCATORS.md` says where the types live.
 
 
+## Seed-gated follow-up (2026-10-06): decision 36's `Copy` flip
+
+`plans/VALUES_BY_DEFAULT.md` decision 36 (its phase section, "Decision 36:
+the `Copy` trait"). The prelude `Copy` trait and its impls are plain std
+code to the v0.2.52 seed (an ordinary marker trait), so they landed in
+Generation A. What the seed cannot do is supply `clone()` for a `Copy`
+type, check a `Copy` impl, or treat a type without `Copy` as move-on-copy.
+
+**Generation A DONE 2026-10-06** (PR #COPY_PR): the trait, the prelude
+impls, `derive(T, Copy)`, the impl check, the compiler-supplied `clone()`,
+the hand-written-`Clone` rule, structural `Copy`, and the
+`YO_AUDIT_COPY_TRAIT` audit.
+
+**Generation B (once `SEED_VERSION` >= the release carrying Generation A):**
+- The `yo fix` sweep: `derive(T, Copy)` on every type the audit lists.
+  `std/` may only use the supplied `clone()` once the seed supplies it.
+- Delete the prelude primitives' written-out `Clone` impls and the
+  prelude exemption from the hand-written-`Clone` rule.
+- The flip: `type_requires_explicit_copy(T)` becomes `!(T <: Copy)`.
+- Delete `MoveOnly`.
+
 ## Seed-gated follow-up (2026-10-05): rename the shared cell `Box` to `Rc`
 
 `plans/VALUES_BY_DEFAULT.md` §6 V1 step 1. The rename is NOT plain std code
