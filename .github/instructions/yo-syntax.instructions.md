@@ -211,19 +211,19 @@ supplies the signature) is written with the right group, which fmt keeps:
 
 Enum variants are defined **without** the `.` prefix. The `.` prefix is only used when **constructing** or **pattern matching** enum values.
 
-**Use `Self` to refer to the enum type itself** inside the `enum(...)` definition — the type name is not yet available during the definition. This applies to recursive types using `Box(Self)`, `ArrayList(Self)`, etc.:
+**Use `Self` to refer to the enum type itself** inside the `enum(...)` definition — the type name is not yet available during the definition. This applies to recursive types using `Rc(Self)`, `ArrayList(Self)`, etc.:
 
 ```rust
 // CORRECT — use Self for recursive references:
 Expr :: enum(
   Atom(id : ExprId, token : Token),
-  FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), token : Token)
+  FnCall(id : ExprId, func : Rc(Self), args : ArrayList(Self), token : Token)
 );
 
 // WRONG — type name not available inside its own definition:
 Expr :: enum(
   Atom(id : ExprId, token : Token),
-  FnCall(id : ExprId, func : Box(Expr), args : ArrayList(Expr), token : Token)
+  FnCall(id : ExprId, func : Rc(Expr), args : ArrayList(Expr), token : Token)
 );
 
 // CORRECT — no dots in definition:
@@ -499,7 +499,7 @@ walk_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Leaf(value : T),
-    Node(left : Box(Self), right : Box(Self))
+    Node(left : Rc(Self), right : Rc(Self))
   )
 );
 
@@ -507,7 +507,7 @@ Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
 Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Leaf(value : T),
-    Node(left : Box(Tree(T)), right : Box(Tree(T)))
+    Node(left : Rc(Tree(T)), right : Rc(Tree(T)))
   )
 );
 ```
@@ -519,7 +519,7 @@ Use `recur(args)` only when calling the type constructor with **different** type
 `Point.norm(p)` calls `norm` with `p` as the receiver, the same call as `p.norm()`. A generic type works with its arguments written (`Rc(i32).clone(w)`) or left out (`Rc.clone(w)`, `Pair.first(p)`). Left out, they are inferred from the FIRST argument, which must itself be an instance of the constructor. It is plans/VALUES_BY_DEFAULT.md decision 32's spelling for a wrapper's own member (`Rc.clone(w)`).
 
 - A static method (no `self`) has no receiver to infer from: `Pair.make(a, b)` is E0613. Write `Pair(A, B).make(a, b)`.
-- A first argument of another type (`Rc.clone(b)` for `b : Box(i32)`; no payload search, so `Box.clone(w)` for `w : Rc(Box(i32))` too) is E0613, and the message names its type. A method the instance lacks is E0610, as with any receiver.
+- A first argument of another type (`Rc.clone(b)` for `b : Rc(i32)`; no payload search, so `Rc.clone(w)` for `w : Rc(Rc(i32))` too) is E0613, and the message names its type. A method the instance lacks is E0610, as with any receiver.
 - The match is by constructor identity. An alias (`IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))`) or a partial application (`Pair(i32, _)`) is a constructor of its own, so `IntPair.first(q)` for `q : Pair(i32, u8)` is E0613: write `Pair.first(q)` or `IntPair(u8).first(q)`. A labeled receiver (`Pair.first(self : p)`) and a module-qualified constructor (`m.Pair.first(p)`) work.
 - **Seed gate:** `src/` and `std/` keep the written form (`Rc(T).clone(w)` or `w.clone()`) until `SEED_VERSION` carries the feature, because the seed compiles them (`plans/backlog/SEED_VERSION_AUTOMATION.md`). Tests run on the tree-built compiler and may use it.
 
@@ -581,7 +581,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
-- **`Box`/`Arc` auto-dereference** (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3): `b.x`, `b.x = v`, `b.m()` and `b.items.push(v)` on a `Box(P)` mean `b.*.x`, `b.*.x = v`, `b.*.m()`, `b.*.items.push(v)`; nested wrappers recurse (`bb.x` on `Box(Box(P))`). The wrapper's own members win (`b.clone()` is the Box's clone). In a safe file a write through an `Arc` is still D3 (`a.n = v`, `a.bump()` with `inout(self)`). Callee position forwards too: `b.items(i)` indexes `b.*.items`, `b.f(x)` calls a function-typed payload field; order is wrapper field, wrapper method, payload field, payload method. `std/`/`src/` must keep the explicit `.*` until the seed knows auto-deref.
+- **`Box`/`Arc` auto-dereference** (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3): `b.x`, `b.x = v`, `b.m()` and `b.items.push(v)` on a `Rc(P)` mean `b.*.x`, `b.*.x = v`, `b.*.m()`, `b.*.items.push(v)`; nested wrappers recurse (`bb.x` on `Rc(Rc(P))`). The wrapper's own members win (`b.clone()` is the Box's clone). In a safe file a write through an `Arc` is still D3 (`a.n = v`, `a.bump()` with `inout(self)`). Callee position forwards too: `b.items(i)` indexes `b.*.items`, `b.f(x)` calls a function-typed payload field; order is wrapper field, wrapper method, payload field, payload method. `std/`/`src/` must keep the explicit `.*` until the seed knows auto-deref.
 - **A tuple TYPE is `Tuple(A, B)`**, e.g. `(fn(x : i32) -> Tuple(String, usize))`. `(A, B)` in a type position is a tuple VALUE holding two types and fails with `Cannot store a type value in tuple, please use module instead`. Tuple values are `(a, b)`.
 - **`(a, b) := expr` bindings are immutable**: a later `a = ...` is E0902 `Cannot reassign "a"`. Bind each name with an annotation (`(a : usize) = ...;`) when it must be reassigned.
 - **A bare `import("std/fmt");` binds no names.** It evaluates the module (its impls and derive rules register), but `eprintln` still needs `{ eprintln } :: import("std/fmt");` (E0401 `Variable "eprintln" not found` otherwise).
@@ -990,7 +990,7 @@ Rules that follow:
   including a cond condition (the old rejection,
   `issues/fixed/if-await-in-a-match-arm-is-rejected-as-a-later-cond-branch.md`,
   is fixed).
-- Struct/tuple scrutinees and patterns through `Box(...)` payloads are
+- Struct/tuple scrutinees and patterns through `Rc(...)` payloads are
   supported (P4 landed; `tests/match_{tuples,structs,nested}.test.yo`).
 
 ## Match destructuring forms
@@ -1045,7 +1045,7 @@ Curly destructuring rules:
   (`match(p, { x, y } => ...)`). Nested sub-patterns otherwise compose
   freely: `.Foo({ a : .Some(x) })` (variant in a curly slot),
   `.V((0, y))` (tuple), `.V(Point(x : 0, y))` (named struct).
-- A struct SCRUTINEE takes struct patterns directly: `match(p, Point(x : 0, y) => …, {x, y} => …)` — the anonymous `{…}` form works like the variant curly form (bare field names bind, unlisted fields match anything). A tuple scrutinee takes `(a, b)` patterns with exact arity. A `Box(T)` payload is looked through implicitly: `.Cons(h, .Cons(n, _))` matches through `tail : Box(Self)` (a binding at a Box position still binds the box; use `b.*` on it).
+- A struct SCRUTINEE takes struct patterns directly: `match(p, Point(x : 0, y) => …, {x, y} => …)` — the anonymous `{…}` form works like the variant curly form (bare field names bind, unlisted fields match anything). A tuple scrutinee takes `(a, b)` patterns with exact arity. A `Rc(T)` payload is looked through implicitly: `.Cons(h, .Cons(n, _))` matches through `tail : Rc(Self)` (a binding at a Box position still binds the box; use `b.*` on it).
 
 The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)` pairs at parse time, so internally curly form is just a labeled-destructuring pattern wrapped in `_(...)`. The match evaluator unwraps that wrapper.
 
@@ -1424,9 +1424,9 @@ count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
 count(m, i32(3), i32(6));
 
 // 2. Use a closure, which does capture — BY VALUE. A list two places
-//    write on purpose is an explicit shared handle, `Box(ArrayList(T))`, so a
+//    write on purpose is an explicit shared handle, `Rc(ArrayList(T))`, so a
 //    closure can be used as a recorder:
-calls := box(ArrayList(i32).new());
+calls := rc(ArrayList(i32).new());
 f := (() => { calls.*.push(i32(1)); i32(7) });
 ```
 

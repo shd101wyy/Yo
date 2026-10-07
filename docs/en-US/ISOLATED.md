@@ -143,7 +143,7 @@ main :: (fn() -> unit)({
 ## Example: rejected at construction
 
 ```rust
-x := box(i32(42));
+x := rc(i32(42));
 y := x;
 iso := ^x;                     // COMPILE ERROR: cannot isolate x, also owned by y
 ```

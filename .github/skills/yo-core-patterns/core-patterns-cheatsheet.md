@@ -197,22 +197,22 @@ Iterator :: trait(
 ## Boxes, pointers, and nullability
 
 ```rust
-counter := box(i32(0));
+counter := rc(i32(0));
 counter.* = (counter.* + i32(1));
 
 (ptr : Option(*(u8))) = .None;
 ```
 
-- Use `Box(T)` or `box(value)` for owned heap allocation
+- Use `Rc(T)` or `rc(value)` for owned heap allocation
 - Use `*(T)` for raw pointers
 - Model nullable pointers as `?*T` (= `?(*(T))`) or the explicit `Option(*T)`, not sentinel integers
-- Constructor syntax: `Box(T)(value)` — NOT `Box(T).new(value)`
+- Constructor syntax: `Rc(T)(value)` — NOT `Rc(T).new(value)`
 - Single-payload reference-semantics values may use `(*) : T`; access the payload with `value.*`.
   This is a value payload accessor for reference-semantics values, while pointer dereference
   still applies when the receiver has pointer type.
 - For self-referential `ref(struct(...))` / `ref(enum(...))` types, use a DIRECT `Self` field —
-  NO `Box(Self)` needed. A reference-semantics value is already a heap pointer, so the
-  recursion terminates at the handle. (`Box(Self)` is only for self-referential VALUE
+  NO `Rc(Self)` needed. A reference-semantics value is already a heap pointer, so the
+  recursion terminates at the handle. (`Rc(Self)` is only for self-referential VALUE
   `struct(...)` / `enum(...)` types, where it breaks the recursive cycle.)
 
 ```rust
@@ -287,7 +287,7 @@ impl(Point,
   })
 );
 
-impl(generic(T), where(T <: ToString), Box(T),
+impl(generic(T), where(T <: ToString), Rc(T),
   show : (fn(self : Self) -> unit)(
     println(self.*)
   )
@@ -472,7 +472,7 @@ transform :: (fn(inout(values) : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -
 - `(params) => expr` creates a closure
 - `Impl(Fn(params) -> ReturnType)` is the STATIC closure type — monomorphized, capture struct by value, direct call, no allocation or refcount on the closure itself
 - `Dyn(Fn(params) -> ReturnType)` is the TYPE-ERASED closure type — capture heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer; wrap the value with `dyn(...)`
-- Closures capture: value types by copy, reference-semantics types by reference (the captured value carries the refcount, not the `Impl` closure). A collection a closure writes on purpose is a `Box(ArrayList(T))` (`calls.*.push(x)`): the collections are becoming values, and a write to a captured bare list will land in the closure's copy
+- Closures capture: value types by copy, reference-semantics types by reference (the captured value carries the refcount, not the `Impl` closure). A collection a closure writes on purpose is a `Rc(ArrayList(T))` (`calls.*.push(x)`): the collections are becoming values, and a write to a captured bare list will land in the closure's copy
 - Collection mutators (`push`, `insert`, `remove`, `clear`, `sort`, `write_str`, …) take `inout(self)`: write a collection through a place (`xs(i).push(x)`, `for(xs, inout(x) => ...)`, an `inout` parameter), never through a `match` binding or a by-value parameter
 - Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures — use `Dyn(Fn(...))` for that, and for struct fields, where `Impl(Fn(...))` is rejected outright
 

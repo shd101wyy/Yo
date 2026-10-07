@@ -311,7 +311,7 @@ locally installed.
      install frame.
    - **Module-level binding type** — module scope outlives every call
      frame.
-   - **`Box(T)` / `Arc(T)` / any heap-allocating type constructor** —
+   - **`Rc(T)` / `Arc(T)` / any heap-allocating type constructor** —
      heap outlives every stack frame.
    - **Closure capture type** (covered by rule 4).
    - **Pointer pointee type** — `*(Raise)` is rejected so a handler
@@ -367,7 +367,7 @@ top_handler :: (raise : Raise) = ((msg) -> { unwind(i32(0)); });
 P :: *(Raise);  // rejected
 
 // ❌ Storing in a Box — heap outlives the install frame.
-b := box((msg) -> { unwind(i32(0)); });
+b := rc((msg) -> { unwind(i32(0)); });
 
 // ❌ Closure capturing a handler — closure escapes; handler with it.
 (r : Raise) = ((msg) -> { unwind(i32(0)); });

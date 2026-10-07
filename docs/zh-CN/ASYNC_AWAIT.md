@@ -66,7 +66,7 @@ Yo 的 async 使用**代数效应**和 `Io` 效应类型。异步任务是**惰�
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   // 惰性创建——两个任务都尚未启动
   task1 := io.async((io : Io) => {
@@ -1210,7 +1210,7 @@ r2 := handle2.await(io);
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   task1 := io.async((io : Io) => {
     counter.* = (counter.* + 1);
@@ -1242,7 +1242,7 @@ export(main);
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   task1 := io.async((io : Io) => {
     counter.* = (counter.* + 1);

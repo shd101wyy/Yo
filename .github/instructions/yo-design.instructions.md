@@ -32,15 +32,15 @@ Always use `Self` to refer to the type being defined inside `struct(...)`, `ref(
 // CORRECT — Self for recursive references:
 TypeValue :: enum(
   IntType(bits : u8),
-  PointerType(pointee : Box(Self)),
-  ArrayType(element : Box(Self), length : usize)
+  PointerType(pointee : Rc(Self)),
+  ArrayType(element : Rc(Self), length : usize)
 );
 
 // WRONG — TypeValue not available inside its own enum:
 TypeValue :: enum(
   IntType(bits : u8),
-  PointerType(pointee : Box(TypeValue)),
-  ArrayType(element : Box(TypeValue), length : usize)
+  PointerType(pointee : Rc(TypeValue)),
+  ArrayType(element : Rc(TypeValue), length : usize)
 );
 ```
 
@@ -95,8 +95,8 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))
     (*) : V
   ))
 ;
-box :: (fn(generic(V : Type), value : V) -> Box(V))
-  Box(V)(value)
+box :: (fn(generic(V : Type), value : V) -> Rc(V))
+  Rc(V)(value)
 ;
 ```
 
@@ -110,14 +110,14 @@ when the receiver itself has pointer type.
 `ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
 an atomic load for `Arc`/`atomic(ref(...))`/`Iso`); it is the only count builtin
 (`BF_REF_COUNT`). `rc` is an ordinary prelude function, the cell constructor
-(`rc(v)` returns an `Rc(T)`). **`Rc(T)` and `Box(T)` are two prelude types with
+(`rc(v)` returns an `Rc(T)`). **`Rc(T)` and `Rc(T)` are two prelude types with
 the same definition and impls** (VALUES_BY_DEFAULT §6 V1 step 1, Generation A):
 `Rc` is the shared cell's V1 name, and Generation B renames every `Box` site to it.
 The compiler recognises the shared cell BY NAME in a few places (the instance-name
 stamp in `comptime_fn.yo`, `is_box_type`/`is_boxed_type`, `dyn(<ctor>(<closure>))`);
 every such check reads the one list `shared_cell_names_at` (`src/types/guards.yo`),
 never a literal `"Box"`. `dyn(v)` on a non-object still synthesizes the canonical
-`box(v)` (`shared_cell_canonical_names`). As a prelude name it cannot be redefined: a module-level or local
+`rc(v)` (`shared_cell_canonical_names`). As a prelude name it cannot be redefined: a module-level or local
 binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
 named `rc` shadows it in its scope. `ref_count` is not in
 `is_reserved_builtin_binding_name`: the `markdown_yo` dependency binds a local

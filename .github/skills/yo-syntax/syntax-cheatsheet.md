@@ -304,9 +304,9 @@ text := match(value,
   parentheses. See "Pattern forms" below.
 - Tuple and struct scrutinees pattern directly: `match(t, (0, y) => …, _ => …)`
   on a tuple (exact arity) and `match(p, Point(x : 0, y) => …, {x, y} => …)`
-  on a struct (partial; a bare field name binds that field). A `Box(T)`
+  on a struct (partial; a bare field name binds that field). A `Rc(T)`
   payload is looked through implicitly: `.Cons(h, .Cons(n, _))` matches
-  through `tail : Box(Self)`; a BINDING at a Box position binds the box
+  through `tail : Rc(Self)`; a BINDING at a Box position binds the box
   (deref with `b.*`).
 
 Three destructuring shapes for arms (mix freely across arms):
@@ -1304,16 +1304,16 @@ result := `${parts}, `;
 result := `${parts}${item}`;
 ```
 
-### `box(val)` is a move — cannot box the same value twice
+### `rc(val)` is a move — cannot box the same value twice
 
 ```rust
-// ❌ Move error: target is moved by first box(target)
-p1 := PtrVal(box(target), usize(0));
-p2 := PtrVal(box(target), usize(0));  // ERROR: target already moved
+// ❌ Move error: target is moved by first rc(target)
+p1 := PtrVal(rc(target), usize(0));
+p2 := PtrVal(rc(target), usize(0));  // ERROR: target already moved
 
 // ✅ Create separate instances
-p1 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
-p2 := PtrVal(box(EvalValue.IntLit(String.from("42"))), usize(0));
+p1 := PtrVal(rc(EvalValue.IntLit(String.from("42"))), usize(0));
+p2 := PtrVal(rc(EvalValue.IntLit(String.from("42"))), usize(0));
 ```
 
 ### `rc` is a prelude constructor; the count is `ref_count(x)`

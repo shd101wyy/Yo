@@ -978,7 +978,7 @@ p.set_x(10); // No `&(p)` required — the compiler inserts it
 
 #### Calling a method through its type
 
-A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Box(i32).clone(b)`) or without them (`Box.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. This works for any generic struct or enum, not only the prelude's wrappers.
+A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Rc(i32).clone(b)`) or without them (`Rc.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. This works for any generic struct or enum, not only the prelude's wrappers.
 
 A static method (one with no `self`) has no receiver to infer from, so its type arguments are written out: `Pair(i32, bool).make(...)`. The type the call's result is expected to have does not supply them either. Leaving them out there, or passing a first argument that is not an instance of the constructor, is E0613, and the message names the argument's type.
 
@@ -1338,7 +1338,7 @@ pragma(Pragma.AllowUnsafe); // only so sizeof may name a pointer type
 
 sz_opt :: sizeof(Option(*i32)); // == sizeof(*i32) — the pointer itself
 sz_str :: sizeof(String);       // == sizeof(*u8)   — the handle itself
-Tree :: enum(Empty, Node(child : Box(Self)));
+Tree :: enum(Empty, Node(child : Rc(Self)));
 sz_tree :: sizeof(Tree);        // == sizeof(*u8)   — NULL is Empty
 ```
 
@@ -2454,7 +2454,7 @@ command :: (fn(s : String) -> i32)(
 
 A tuple scrutinee takes one sub-pattern per element; a struct scrutinee takes
 labeled sub-patterns (a bare field name binds that field; unlisted fields
-match anything). A `Box(T)` payload is looked through implicitly — the
+match anything). A `Rc(T)` payload is looked through implicitly — the
 sub-pattern matches `T`:
 
 ```rust
@@ -2476,7 +2476,7 @@ origin_only :: (fn(p : Point) -> bool)(
 );
 
 // A recursive enum through Box: the tail pattern matches the inner List.
-List :: ref(enum(Nil, Cons(head : i32, tail : Box(Self))));
+List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
 second :: (fn(l : List) -> i32)(
   match(
     l,
@@ -2716,7 +2716,7 @@ reaches the original. That changes when they become uniquely owned values
   back:** `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
   l.push(x); m.insert(k, l);`, or `self.f.take()` followed by
   `self.f = .Some(l)`.
-- **A list two owners hold on purpose is a `Box`:** `Box(ArrayList(T))`, written
+- **A list two owners hold on purpose is a `Box`:** `Rc(ArrayList(T))`, written
   through `b.*.push(x)`. A closure or an `io.async` body captures by value, so a
   closure that records into a list shares it this way (or returns the list).
 
@@ -3057,7 +3057,7 @@ test_capture :: (fn() -> unit)({
   counter := i32(0);
 
   // Reference-semantics type - captured by reference
-  data := Box(i32)(i32(42));
+  data := Rc(i32)(i32(42));
 
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
@@ -3253,12 +3253,12 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 ### Box Type
 
 > **⚠️ `Box` is Rust's `Rc`, not Rust's `Box`.** Rust's `Box<T>` is a unique
-> owner — passing it moves, cloning it deep-copies. Yo's `Box(T)` is a `ref`
+> owner — passing it moves, cloning it deep-copies. Yo's `Rc(T)` is a `ref`
 > type: copying the handle **shares one heap value and bumps a reference
 > count**, exactly like Rust's `Rc<T>`.
 >
 > ```rust
-> a := box(i32(42));
+> a := rc(i32(42));
 > b := a;                    // a second handle, NOT a copy of the value
 > consume(b.* = i32(7));
 > assert((a.* == i32(7)), "a and b name the SAME value");
@@ -3274,7 +3274,7 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 > broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
 > about uniqueness.
 
-`Box(T)` is a generic reference-semantics type that wraps any value type:
+`Rc(T)` is a generic reference-semantics type that wraps any value type:
 
 ```rust
 // Box is defined in std/prelude.yo
@@ -3287,12 +3287,12 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 
 // box function creates a Box
-box :: (fn(generic(V : Type), value : V) -> Box(V))(
-  Box(V)(value)
+box :: (fn(generic(V : Type), value : V) -> Rc(V))(
+  Rc(V)(value)
 );
 // rc is the same constructor under the name the counted cell will carry
 // once `Box` is renamed `Rc` (plans/VALUES_BY_DEFAULT.md)
-rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 `rc` is the constructor, not the count: the count is `ref_count(x)`.
@@ -3301,17 +3301,17 @@ rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 
 ```rust
 // Box a primitive value
-i := box(42); // i: Box(i32)
+i := rc(42); // i: Rc(i32)
 assert(i.* == 42); // Dereference with .*
 // Box a struct
 Point :: struct(x : i32, y : i32);
-p := box(Point(x : 3, y : 4)); // p: Box(Point)
+p := rc(Point(x : 3, y : 4)); // p: Rc(Point)
 assert(p.*.x == 3);
 
 // Box with explicit type
-b := Box(i32)(100); // Same as box(100)
+b := Rc(i32)(100); // Same as rc(100)
 // Modify boxed value
-m := box(10);
+m := rc(10);
 m.* = 20;
 assert(m.* == 20);
 ```
@@ -3326,11 +3326,11 @@ payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
-p := box(Point(x : 3, y : 4));
+p := rc(Point(x : 3, y : 4));
 assert(p.x == 3);          // p.*.x
 p.x = 5;                   // a place: writes p.*.x
 assert(p.norm1() == 9);    // p.*.norm1()
-pp := box(box(Point(x : 1, y : 2)));
+pp := rc(rc(Point(x : 1, y : 2)));
 assert(pp.y == 2);         // nested wrappers: pp.*.*.y
 ```
 
@@ -3345,7 +3345,7 @@ assert(pp.y == 2);         // nested wrappers: pp.*.*.y
   is a compile error: a user wrapper exposes its payload through its own
   fields and methods.
 - When neither the wrapper nor its payload has the name, the error says so:
-  ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
+  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
   field "z" either.`` (E0406; E0610 for a method).
 - **Callee position.** `p.items(i)` indexes the payload's `items`, and
   `p.f(x)` calls a payload field that holds a function. The wrapper's own
@@ -3356,8 +3356,8 @@ assert(pp.y == 2);         // nested wrappers: pp.*.*.y
 
 ```rust
 test("Box assignment behavior", {
-  x := box(1);
-  y := (x = box(2)); // y gets the old value
+  x := rc(1);
+  y := (x = rc(2)); // y gets the old value
   assert(x.* == 2); // x now points to new Box
   assert(y.* == 1); // y has the old Box
 });
@@ -3365,11 +3365,11 @@ test("Box assignment behavior", {
 
 ### Box and Reference Counting
 
-`Box(T)` is an reference-semantics type, so it uses automatic reference counting:
+`Rc(T)` is an reference-semantics type, so it uses automatic reference counting:
 
 ```rust
 test("Box reference counting", {
-  original := box(42);
+  original := rc(42);
   copy := original; // RC increment
   another := copy; // RC increment
   // All three point to the same Box
@@ -3397,7 +3397,7 @@ impl(i32, SomeTrait(...));
 use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
 
 // Box the i32 for use with Dyn
-use_dyn(dyn(box(i32(42))));
+use_dyn(dyn(rc(i32(42))));
 ```
 
 ## Impl Types

@@ -68,11 +68,11 @@ that enters a reference cell:
 
 ```rust
 append :: (fn(mut(list) : List, v : i32) -> unit)({
-  mut(cur) := list.head; // Option(Box(Node))
+  mut(cur) := list.head; // Option(Rc(Node))
   while(cur.is_some(), {
     match(cur, .Some(n) => { mut(cur) = n.next; }, .None => ());
   });
-  cur = .Some(box(Node(value : v, next : .None))); // writes the tail slot
+  cur = .Some(rc(Node(value : v, next : .None))); // writes the tail slot
 });
 ```
 

@@ -56,11 +56,11 @@ copy := n; // 拷贝被指向的值 —— 不存在可存储的"inout 类型"
 
 ```rust
 append :: (fn(mut(list) : List, v : i32) -> unit)({
-  mut(cur) := list.head; // Option(Box(Node))
+  mut(cur) := list.head; // Option(Rc(Node))
   while(cur.is_some(), {
     match(cur, .Some(n) => { mut(cur) = n.next; }, .None => ());
   });
-  cur = .Some(box(Node(value : v, next : .None))); // 写入尾部槽位
+  cur = .Some(rc(Node(value : v, next : .None))); // 写入尾部槽位
 });
 ```
 

@@ -949,7 +949,7 @@ p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
 
 #### 通过类型调用方法
 
-方法也可以在它的类型上调用，此时接收者作为第一个实参：`Point.distance_from_origin(p)` 就是 `p.distance_from_origin()`。泛型类型也可以这样调用，既可以写出类型实参（`Box(i32).clone(b)`），也可以省略（`Box.clone(b)`）。省略时，类型实参从第一个实参推断，而它本身必须是该类型构造器的一个实例，就像 Rust 推断 `Rc::clone(&w)` 的 `T` 一样。这对任何泛型 struct 或 enum 都适用，不限于 prelude 的包装类型。
+方法也可以在它的类型上调用，此时接收者作为第一个实参：`Point.distance_from_origin(p)` 就是 `p.distance_from_origin()`。泛型类型也可以这样调用，既可以写出类型实参（`Rc(i32).clone(b)`），也可以省略（`Rc.clone(b)`）。省略时，类型实参从第一个实参推断，而它本身必须是该类型构造器的一个实例，就像 Rust 推断 `Rc::clone(&w)` 的 `T` 一样。这对任何泛型 struct 或 enum 都适用，不限于 prelude 的包装类型。
 
 静态方法（没有 `self` 的方法）没有可供推断的接收者，所以必须写出类型实参：`Pair(i32, bool).make(...)`。调用结果被期望的类型也不会提供它们。在这种情况下省略类型实参，或者第一个实参不是该构造器的实例，都会报 E0613，错误信息会给出该实参的类型。
 
@@ -1304,7 +1304,7 @@ pragma(Pragma.AllowUnsafe); // 仅为让 sizeof 能写出指针类型
 
 sz_opt :: sizeof(Option(*i32)); // == sizeof(*i32) —— 就是指针本身
 sz_str :: sizeof(String);       // == sizeof(*u8)   —— 就是句柄本身
-Tree :: enum(Empty, Node(child : Box(Self)));
+Tree :: enum(Empty, Node(child : Rc(Self)));
 sz_tree :: sizeof(Tree);        // == sizeof(*u8)   —— NULL 即 Empty
 ```
 
@@ -2377,7 +2377,7 @@ command :: (fn(s : String) -> i32)(
 ```
 
 元组被匹配值按元素逐个接受子模式；结构体被匹配值接受带标签的子模式
-（裸字段名即绑定该字段；未列出的字段匹配任意值）。`Box(T)` 载荷会被隐式
+（裸字段名即绑定该字段；未列出的字段匹配任意值）。`Rc(T)` 载荷会被隐式
 穿透 —— 子模式匹配的是 `T`：
 
 ```rust
@@ -2399,7 +2399,7 @@ origin_only :: (fn(p : Point) -> bool)(
 );
 
 // 穿过 Box 的递归枚举：tail 处的子模式匹配内层的 List。
-List :: ref(enum(Nil, Cons(head : i32, tail : Box(Self))));
+List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
 second :: (fn(l : List) -> i32)(
   match(
     l,
@@ -2605,7 +2605,7 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 - **存放在映射或 `Option` 字段里的列表要先取出、修改、再存回：**
   `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
   l.push(x); m.insert(k, l);`，或者先 `self.f.take()`，再 `self.f = .Some(l)`。
-- **两个持有者有意共享的列表用 `Box`：** `Box(ArrayList(T))`，通过
+- **两个持有者有意共享的列表用 `Box`：** `Rc(ArrayList(T))`，通过
   `b.*.push(x)` 写入。闭包和 `io.async` 体按值捕获，所以往列表里记录内容的闭包
   要这样共享（或者返回这个列表）。
 
@@ -2943,7 +2943,7 @@ test_capture :: (fn() -> unit)({
   counter := i32(0);
 
   // 引用语义类型 — 按引用捕获
-  data := Box(i32)(i32(42));
+  data := Rc(i32)(i32(42));
 
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
@@ -3118,11 +3118,11 @@ Yo 提供了 `Box` 和 `box` 用于将值类型堆分配并自动进行引用计
 ### Box 类型
 
 > **⚠️ `Box` 对应 Rust 的 `Rc`，而不是 Rust 的 `Box`。** Rust 的 `Box<T>` 是唯一
-> 所有者——传递即移动，克隆即深拷贝。Yo 的 `Box(T)` 是 `ref` 类型：复制句柄会
+> 所有者——传递即移动，克隆即深拷贝。Yo 的 `Rc(T)` 是 `ref` 类型：复制句柄会
 > **共享同一个堆上的值并增加引用计数**，与 Rust 的 `Rc<T>` 完全一致。
 >
 > ```rust
-> a := box(i32(42));
+> a := rc(i32(42));
 > b := a;                    // 第二个句柄，而不是值的副本
 > consume(b.* = i32(7));
 > assert((a.* == i32(7)), "a 和 b 指向同一个值");
@@ -3136,7 +3136,7 @@ Yo 提供了 `Box` 和 `box` 用于将值类型堆分配并自动进行引用计
 > 实际影响：共享是隐式的；`Box` 形成的环若不打破就会泄漏（Rust 的 `Box` 根本无法
 > 形成环）；用 `ref_count(b)` / `Iso` 来询问唯一性。
 
-`Box(T)` 是一个泛型引用语义类型，可以包装任何值类型：
+`Rc(T)` 是一个泛型引用语义类型，可以包装任何值类型：
 
 ```rust
 // Box 定义在 std/prelude.yo 中
@@ -3149,12 +3149,12 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 
 // box 函数创建一个 Box
-box :: (fn(generic(V : Type), value : V) -> Box(V))(
-  Box(V)(value)
+box :: (fn(generic(V : Type), value : V) -> Rc(V))(
+  Rc(V)(value)
 );
 // rc 是同一个构造函数，名称是 `Box` 改名为 `Rc` 之后计数单元将使用的名称
 // （plans/VALUES_BY_DEFAULT.md）
-rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 `rc` 是构造函数，不是计数：计数是 `ref_count(x)`。
@@ -3163,17 +3163,17 @@ rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 
 ```rust
 // 装箱一个基本值
-i := box(42); // i: Box(i32)
+i := rc(42); // i: Rc(i32)
 assert(i.* == 42); // 使用 .* 解引用
 // 装箱一个结构体
 Point :: struct(x : i32, y : i32);
-p := box(Point(x : 3, y : 4)); // p: Box(Point)
+p := rc(Point(x : 3, y : 4)); // p: Rc(Point)
 assert(p.*.x == 3);
 
 // 使用显式类型的 Box
-b := Box(i32)(100); // 等同于 box(100)
+b := Rc(i32)(100); // 等同于 rc(100)
 // 修改装箱的值
-m := box(10);
+m := rc(10);
 m.* = 20;
 assert(m.* == 20);
 ```
@@ -3188,11 +3188,11 @@ assert(m.* == 20);
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
-p := box(Point(x : 3, y : 4));
+p := rc(Point(x : 3, y : 4));
 assert(p.x == 3);          // p.*.x
 p.x = 5;                   // 是一个位置：写入 p.*.x
 assert(p.norm1() == 9);    // p.*.norm1()
-pp := box(box(Point(x : 1, y : 2)));
+pp := rc(rc(Point(x : 1, y : 2)));
 assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
 ```
 
@@ -3205,7 +3205,7 @@ assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
 - **只有 `Box` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
   编译错误：用户自定义的包装器应通过自己的字段和方法暴露载荷。
 - 当包装器和载荷都没有这个名字时，错误信息会说明这一点：
-  ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
+  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
   field "z" either.``（E0406；方法则为 E0610）。
 - **被调用位置。** `p.items(i)` 对载荷的 `items` 进行索引，`p.f(x)` 调用载荷中
   保存函数的字段。包装器自身的方法仍然优先，因此查找顺序为：包装器字段、包装器
@@ -3215,8 +3215,8 @@ assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
 
 ```rust
 test("Box assignment behavior", {
-  x := box(1);
-  y := (x = box(2)); // y 获得旧值
+  x := rc(1);
+  y := (x = rc(2)); // y 获得旧值
   assert(x.* == 2); // x 现在指向新的 Box
   assert(y.* == 1); // y 持有旧的 Box
 });
@@ -3224,11 +3224,11 @@ test("Box assignment behavior", {
 
 ### Box 与引用计数
 
-`Box(T)` 是引用语义类型，因此使用自动引用计数：
+`Rc(T)` 是引用语义类型，因此使用自动引用计数：
 
 ```rust
 test("Box reference counting", {
-  original := box(42);
+  original := rc(42);
   copy := original; // 引用计数递增
   another := copy; // 引用计数递增
   // 三者都指向同一个 Box
@@ -3256,7 +3256,7 @@ impl(i32, SomeTrait(...));
 use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
 
 // 将 i32 装箱以用于 Dyn
-use_dyn(dyn(box(i32(42))));
+use_dyn(dyn(rc(i32(42))));
 ```
 
 ## Impl 类型
