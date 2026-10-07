@@ -1,6 +1,6 @@
 //! `Rc(T)` is the shared, counted cell under its plans/VALUES_BY_DEFAULT.md
-//! name (§6 V1 step 1, Generation A): everything today's `Rc(T)` does, `Rc(T)`
-//! does too — construction by `rc(...)`, auto-dereference, patterns through
+//! name (§6 V1 step 1): everything the legacy `Box(T)` did, `Rc(T)` does
+//! too — construction by `rc(...)`, auto-dereference, patterns through
 //! the payload, `dyn` over the cell, a type built by a comptime function,
 //! `ref_count`, and `Clone`/`Eq`/`Hash`/`Default`. The compiler recognises the
 //! cell by name (`shared_cell_names_at`, src/types/guards.yo), so each case
@@ -39,12 +39,12 @@ test("rc(v) builds an Rc(T) whose handles share one cell", {
   c := Rc(i32)(i32(3));
   assert(c.* == i32(3), "the type constructor builds the same cell");
 });
-test("Rc and Box are two types in Generation A", {
+test("Rc and the legacy Box are two types until Generation B part 2 deletes Box", {
   comptime_expect_error({
-    (b : Rc(i32)) = rc(i32(1));
+    (b : Box(i32)) = rc(i32(1));
   });
   comptime_expect_error({
-    (r : Rc(i32)) = rc(i32(1));
+    (r : Rc(i32)) = box(i32(1));
   });
 });
 test("ref_count reads an Rc's count", {
