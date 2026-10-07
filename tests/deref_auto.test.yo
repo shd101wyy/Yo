@@ -1,7 +1,8 @@
 // Auto-dereference through the `Deref` marker (plans/VALUES_BY_DEFAULT.md
 // §3.3, V1): on a `Rc`/`Arc` whose own members lack a name, `w.field` and
 // `w.method()` mean `w.*.field` and `w.*.method()`, recursively through nested
-// wrappers; the wrapper's own members win. The file is deliberately NOT
+// wrappers. A name the wrapper and its payload both have is E0616 (decision
+// 32): `Rc.m(w)` names the wrapper's, `w.*.m()` the payload's. The file is deliberately NOT
 // pragma'd: rule D3 (no write through an `Arc` root in safe code) must still
 // fire through the auto-dereference.
 { assert } :: import("std/assert");
@@ -56,14 +57,19 @@ test("auto-deref: nested Rc(Rc(T)) reaches the innermost payload", {
   bb.n = i32(9);
   assert(bb.*.*.n == i32(9), "write through two wrappers");
 });
-test("auto-deref: the wrapper's own members win", {
+test("auto-deref: a method the wrapper and its payload both have is E0616", {
   b := rc(_mk(i32(5)));
-  // `_P` derives Clone too; `b.clone()` is the Rc's clone, an `Rc(_P)`.
-  // The annotation is the check: a forwarded `_P.clone` would be a type error.
-  (c : Rc(_P)) = b.clone();
+  // `_P` derives Clone too, so `b.clone()` could be the Rc's clone or the
+  // payload's (decision 32): the error names both spellings.
+  comptime_expect_error(b.clone(), "is a method of Rc(_P) and of its payload _P");
+  comptime_expect_error(b.clone(), "Write Rc.clone(b) for the Rc's own clone, or b.*.clone(...) for the payload's");
+  // The annotations are the check: each spelling has its own type.
+  (c : Rc(_P)) = Rc.clone(b);
   c.n = i32(6);
   assert(b.n == i32(5), "the clone is a new cell");
   assert(c.n == i32(6), "and its payload is reachable");
+  (d : _P) = b.*.clone();
+  assert(d.n == i32(5), "the payload's clone is a _P");
   // `*` is the wrapper's own field: `b.*` is the payload, not forwarded.
   (pl : _P) = b.*;
   assert(pl.n == i32(5), "b.* names the payload");
@@ -132,4 +138,53 @@ test("auto-deref: a miss names the payload (E0406, E0610)", {
   comptime_expect_error(b.nope(), "has no field or method \"nope\" either");
   bb := rc(rc(_mk(i32(1))));
   comptime_expect_error(bb.nn, "has no field \"nn\" either");
+});
+// Decision 32 also covers a payload FIELD: a function-typed field is
+// callable, so `w.clone()` could call the payload's `clone` field.
+_seven :: (fn() -> i32)(i32(7));
+_HC :: struct(clone : (fn() -> i32));
+impl(_HC, Clone(clone : (fn(self : Self) -> Self)(_HC(clone : self.clone))));
+test("auto-deref: a wrapper method against a payload field is E0616", {
+  w := rc(_HC(clone : _seven));
+  comptime_expect_error(w.clone(), "is a method of Rc(_HC) and a field of its payload");
+  comptime_expect_error(w.clone(), "or w.*.clone(...) to call the payload's field");
+  (c : Rc(_HC)) = Rc.clone(w);
+  f := w.*.clone;
+  assert(f() == i32(7), "the payload's field");
+  assert(ref_count(c) == usize(1), "the Rc's own clone is a fresh cell");
+});
+// A name only the payload has still forwards; a name only the wrapper has
+// is the wrapper's. Only a name both have is the error.
+test("auto-deref: an unclashed name forwards unchanged", {
+  b := rc(_mk(i32(4)));
+  assert(b.get() == i32(4), "a payload-only method forwards");
+  assert(ref_count(b) == usize(1), "a wrapper-only free function is unaffected");
+});
+// A trait-bound call in a generic body is the bound's method, never the
+// clash, even when the type argument is a wrapper.
+_clone_any :: (fn(generic(T : Type), x : T, where(T <: Clone)) -> T)(x.clone());
+test("auto-deref: a trait-bound call at a wrapper instantiation is not the clash", {
+  b := rc(_mk(i32(3)));
+  c := _clone_any(b);
+  c.n = i32(8);
+  assert(b.n == i32(3), "T := Rc(_P): the Rc's own clone, a new cell");
+});
+// derive(Clone) spells a wrapper field's clone through its Clone impl, so a
+// struct holding an `Rc` derives Clone with no clash.
+_HoldsRc :: struct(r : Rc(i32), k : i32);
+derive(_HoldsRc, Clone);
+_EnumRc :: enum(A(r : Rc(i32)), B);
+derive(_EnumRc, Clone);
+test("auto-deref: derive(Clone) clones an Rc field through the Rc's Clone", {
+  x := _HoldsRc(r : rc(i32(1)), k : i32(2));
+  y := x.clone();
+  x.r.* = i32(5);
+  assert(y.r.* == i32(1), "the derived clone made a new cell, as the Rc's Clone does");
+  e := _EnumRc.A(r : rc(i32(6)));
+  f := e.clone();
+  match(
+    f,
+    .A(r) => assert(r.* == i32(6), "the enum variant's Rc field cloned"),
+    .B => assert(false, "variant kept")
+  );
 });
