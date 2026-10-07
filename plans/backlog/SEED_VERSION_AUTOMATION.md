@@ -132,7 +132,10 @@ the receiver. A seed without the feature reports it as E0610, so `src/` and
 - Tests use it (`tests/unapplied_constructor_method.test.yo`); `src/` and
   `std/` do not.
 
-**Generation B** (once `SEED_VERSION` carries Generation A):
+**Generation B DONE 2026-10-08** (`feat/vbd-d32-clash`; as built in the
+plan's decision 32). It needed only the v0.2.54 seed: `src/` and `std/` had no
+clashing site, and the derive rule's new spelling is one the seed already
+evaluates. As planned:
 - `w.m` where both the wrapper and its payload have `m` becomes an error
   naming `Box.clone(w)` and `w.*.clone()`, in `evaluate_property_access`
   and `_try_find_receiver_method`.

@@ -24,6 +24,8 @@ Progress:
   - V1 step 1 Generation B part 1, the `Box` → `Rc` rename with `Rc`
     canonical (#1267; part 2 deletes the legacy `Box` after the next
     seed);
+  - decision 32 Generation B, the wrapper/payload clash is E0616
+    (`feat/vbd-d32-clash`; one gap open, see the decision's "as built");
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -42,8 +44,8 @@ Progress:
   - decision 37's `FnOnce` with decision 38 C, Generation A (not started;
     the first item of `plans/handover/VBD_HANDOVER_2026-10-07.md`);
   - V3's remaining async work (§3.13).
-- **Next:** the v0.2.54 seed, then the Generation B sweeps (the Box→Rc
-  rename, decision 32's clash error, the V3b sweep and flip).
+- **Next:** the remaining Generation B sweeps (the V3b sweep and flip, the
+  wave-2 halves), and `Box` → `Rc` part 2 after the next seed.
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -2583,6 +2585,31 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     of a `T <: Trait` call.
   - Box handles copy implicitly until V2c, so `.clone()` on one is rare
     today; V2c's `Rc.clone(w)` sites (decision 17) are the sweep's bulk.
+- **Generation B as built (2026-10-08, `feat/vbd-d32-clash`).**
+  - **The code is E0616**, the existing "a method name has two readings"
+    code (two traits' `get`), widened in the registry. Its message names
+    both spellings, `Rc.clone(w)` and `w.*.clone(...)`.
+  - **`yo fix` applies `Rc.clone(w)`.** That is the meaning the call had
+    when the wrapper's member won, so the repair changes no behavior. It is
+    offered when the receiver is a plain identifier and the source reads
+    `w.m(` on one row; otherwise the message alone names both spellings.
+  - **Both hooks.** A method on both sides is caught in
+    `_reject_wrapper_payload_clash` (`calls/function.yo`), on the resolved
+    hit. A wrapper method against a payload FIELD is caught in callee
+    position in `evaluate_property_access`. The payload side searches its
+    own auto-dereference chain (`Rc(Arc(T))` reaches `T`).
+  - **Trait-bound calls are exempt.** The check is off while a generic
+    function or impl is specialized, the same gate as `match`'s GADT
+    exactness. **Gap:** this also exempts a generic body that writes
+    `w : Rc(T)`. The specialized body cannot tell a written wrapper from a
+    substituted one
+    (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`, S3).
+  - **`derive(Clone)`** spells a `Deref` field's clone
+    `(typeof(self.f) <: Clone).clone(self.f)` (struct fields and enum
+    variant fields), so the six derive-generated sites need no user edit.
+  - **Sites rewritten:** `tests/deref_auto.test.yo` (the "own members win"
+    test became the clash test) and `tests/rc_cell.test.yo`; `src/` and
+    `std/` had none.
 
 **Step 1: rename every `Box(` to `Rc(` and `box(` to `rc(`** in `src/`,
 `std/`, `tests/`, docs and skills.

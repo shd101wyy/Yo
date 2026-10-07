@@ -3333,8 +3333,13 @@ pp := rc(rc(Point(x : 1, y : 2)));
 assert(pp.y == 2);         // nested wrappers: pp.*.*.y
 ```
 
-- **The wrapper's own members come first.** `p.clone()` is `Rc`'s `clone`
-  (a new `Rc`), not the payload's; `p.*` is always the payload itself.
+- **A name both have is an error (E0616).** `Point` derives `Clone` and so
+  does `Rc`, so `p.clone()` could mean either. Write `Rc.clone(p)` for the
+  `Rc`'s own `clone` (a new `Rc`) or `p.*.clone()` for the payload's (a
+  `Point`); `yo fix` rewrites the call to `Rc.clone(p)`. A name only one of
+  them has needs no choice, and `p.*` is always the payload itself. A call
+  inside a generic body, `x.clone()` under `where(T <: Clone)`, is the
+  bound's method even when `T` is an `Rc`.
 - **Places.** A forwarded field is a place: `p.x = v` and an `inout(self)`
   call such as `p.items.push(v)` write the payload. In a file without
   `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is still rejected
@@ -3347,9 +3352,8 @@ assert(pp.y == 2);         // nested wrappers: pp.*.*.y
   ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
   field "z" either.`` (E0406; E0610 for a method).
 - **Callee position.** `p.items(i)` indexes the payload's `items`, and
-  `p.f(x)` calls a payload field that holds a function. The wrapper's own
-  methods still come first, so the order is wrapper field, wrapper method,
-  payload field, then payload method.
+  `p.f(x)` calls a payload field that holds a function. A wrapper method
+  and a payload field of the same name are the same E0616.
 
 ### Rc with Assignments
 
