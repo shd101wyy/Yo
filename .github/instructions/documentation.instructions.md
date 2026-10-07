@@ -67,15 +67,18 @@ yo doc ./std --std-path ./std    # Document THIS TREE's std (see below)
 
 **Pass `--std-path ./std` when documenting this tree's `std/`.** The installed
 `yo` otherwise evaluates against its own BUNDLED std, and any module the tree's
-version cannot evaluate against it silently degrades: `yo doc` prints
-`Warning: <module> evaluation failed, using token-only docs` and emits that
-module with every member as an untyped `(unknown)` constant and **no doc text at
-all** — `///` comments included. It still exits 0. Measured 2026-09-11 on
-`develop`: `yo doc ./std` degraded 90 of 173 modules that way (and inflated the
-"items documented" count doing it), while `yo doc ./std --std-path ./std`
-produced zero warnings. So a `///` coverage question must be answered from the
-SOURCE, never from a `doc.json` produced without the flag. Same reason as
-`yo check`/`yo build` — see the `--std-path` note in AGENTS.md's std section.
+version cannot evaluate against it degrades to token-only docs. Since the fix
+of `issues/fixed/yo-doc-without-std-path-silently-emits-token-only-docs.md`
+(2026-10-03) that degradation is LOUD: `yo doc` exits non-zero with
+`doc: N of M module(s) failed to evaluate ...` and writes nothing, unless
+`--allow-token-only` is passed (then the degraded modules render with doc
+comments attached to the right items, counted once per exported top-level
+declaration). Before the fix it printed `Warning: <module> evaluation failed,
+using token-only docs`, exited 0, and inflated the "items documented" count —
+measured 2026-09-11 on `develop`: 90 of 173 modules degraded that way. So a
+`///` coverage question must still be answered from the SOURCE, never from a
+`doc.json` produced by a degraded run. Same reason as `yo check`/`yo build` —
+see the `--std-path` note in AGENTS.md's std section.
 
 ### Both doc-comment forms are extracted
 

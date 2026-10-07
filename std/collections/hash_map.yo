@@ -105,10 +105,10 @@ HashMap :: (
       ///
       /// An implementation detail that is public by accident — see the
       /// module's `## Stability` note.
-      ctrl : ?(*(u8)),
+      ctrl : ?*u8,
       /// The bucket array itself, parallel to `ctrl`. An implementation
       /// detail that is public by accident.
-      data : ?(*(MapEntry(K, V))),
+      data : ?*MapEntry(K, V),
       /// Number of buckets — always a power of two, because bucket selection
       /// masks the hash. An implementation detail that is public by accident.
       capacity : usize,
@@ -170,9 +170,9 @@ impl(
       true => .None
     )
   ),
-  _owned : (fn(self : Self) -> bool)(((self._tombstones & _OWNED_TAG) != usize(0))),
+  _owned : (fn(self : Self) -> bool)((self._tombstones & _OWNED_TAG) != usize(0)),
   /// Slots holding a tombstone (`CTRL_DELETED`) — a read-only diagnostic.
-  tombstones : (fn(self : Self) -> usize)((self._tombstones & _COUNT_MASK)),
+  tombstones : (fn(self : Self) -> usize)(self._tombstones & _COUNT_MASK),
   // Store a tombstone count, keeping the allocator tag.
   _set_tombstones : (fn(inout(self) : Self, n : usize) -> unit)({
     self._tombstones = (n | (self._tombstones & _OWNED_TAG));
@@ -206,7 +206,7 @@ impl(
             .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
-            data_ptr := *(MapEntry(K, V))(data_void_ptr);
+            data_ptr := (*MapEntry(K, V))(data_void_ptr);
             i := usize(0);
             while(i < capacity, i = (i + usize(1)), {
               (ctrl_ptr.add(i)).* = CTRL_EMPTY;
@@ -333,7 +333,7 @@ impl(
     )
   ),
   /// Get ctrl pointer (unwrapped for internal use)
-  _ctrl_ptr : (fn(self : Self) -> *(u8))(
+  _ctrl_ptr : (fn(self : Self) -> *u8)(
     match(
       self.ctrl,
       .Some(ptr) => ptr,
@@ -341,7 +341,7 @@ impl(
     )
   ),
   /// Get data pointer (unwrapped for internal use)
-  _data_ptr : (fn(self : Self) -> *(MapEntry(K, V)))(
+  _data_ptr : (fn(self : Self) -> *MapEntry(K, V))(
     match(
       self.data,
       .Some(ptr) => ptr,
@@ -581,7 +581,7 @@ impl(
       },
       .None => {
         resize_check := cond(
-          (Self._needs_resize(self)) => {
+          Self._needs_resize(self) => {
             // Over the load threshold because of tombstones rather than live
             // entries: rehash at the SAME capacity, which clears every
             // tombstone; only a genuinely full table doubles.
@@ -625,7 +625,7 @@ impl(
   /// PANICS on allocation failure, like `insert` (D9).
   _insert_at : (fn(inout(self) : Self, index : usize, hash : u64, key : K, value : V) -> V)({
     slot := cond(
-      (Self._needs_resize(self)) => {
+      Self._needs_resize(self) => {
         new_capacity := self._grown_capacity();
         match(
           Self._resize(self, new_capacity),
@@ -679,7 +679,7 @@ impl(
   /// `iter()` hands out (D14) — so writing `p.*.value` updates the map in
   /// place, and any operation that REHASHES the table (an `insert` that grows
   /// it, `remove`, `clear`) invalidates it.
-  get_entry_ptr : (fn(inout(self) : Self, key : K) -> Option(*(MapEntry(K, V))))({
+  get_entry_ptr : (fn(inout(self) : Self, key : K) -> Option(*MapEntry(K, V)))({
     cond(
       (self.capacity == usize(0)) => return(.None),
       true => ()
@@ -1154,14 +1154,14 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMapIterPtr(K, V),
   Iterator(
-    Item : *(MapEntry(K, V)),
-    next : (fn(inout(self) : Self) -> Option(*(MapEntry(K, V))))(
+    Item : *MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(*MapEntry(K, V)))(
       cond(
         (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
-          result := Option(*(MapEntry(K, V))).None;
+          result := Option(*MapEntry(K, V)).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
@@ -1298,7 +1298,7 @@ impl(
   HashMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *Self.Output)({
       hash := self._hash(idx);
       bucket_opt := Self._find_bucket(self, idx, hash);
       match(

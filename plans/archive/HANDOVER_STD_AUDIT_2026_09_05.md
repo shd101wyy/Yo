@@ -47,7 +47,7 @@ Correct these before trusting any plan built on it.
 session diaries and the audit's own §4): the arity-validation-outside-the-swallow
 gate, the **systematic registry arc**
 (`issues/fixed/build-smoke-hangs-registry-perturbation.md`, OPEN), Windows stdin pipe
-*writes*, `issues/s3-fs-wrappers-windows-semantics-audit.md`,
+*writes*, `issues/fixed/s3-fs-wrappers-windows-semantics-audit.md`,
 `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P0 (the forward-reference diagnostic), the D8
 `env` module-merge, regex extras, O5 Formatter routing, `Dyn(Reader)` (unblocked
 since C17), and the builtin-shadowing decision.
@@ -160,7 +160,7 @@ written down.
 Worth calling out as a method, not just as bugs — each was invisible from the
 change itself and only appeared under independent measurement.
 
-1. **`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`.**
+1. **`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`.**
    The regression net added with #409 PASSES 3/3 under the compiler that still
    has the bug it was written for. It asserts only values; the leak verdict
    meant to fail it is disabled in every CI job (`YO_TEST_LEAK_VERDICT: "0"` ->

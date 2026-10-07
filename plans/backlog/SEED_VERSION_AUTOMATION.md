@@ -118,6 +118,29 @@ This turned out NOT to be seed-gated. `markdown_yo` v0.0.9 removed its
 token API. So the compiler bumped the dependency to `^0.0.9` and deleted
 `set_len` in the same change that added `spare_capacity` + `assume_init`.
 
+## Seed-gated follow-up (2026-10-05): `Box.clone(w)` and the wrapper/payload clash error
+
+`plans/VALUES_BY_DEFAULT.md` decision 32. The spelling of a wrapper's own
+member is `Box.clone(w)` (`Rc.clone(w)` after V1 step 1): a method called
+through an unapplied generic type constructor, its arguments inferred from
+the receiver. A seed without the feature reports it as E0610, so `src/` and
+`std/` may not use it until `SEED_VERSION` carries it.
+
+**Generation A DONE 2026-10-05** (#1241):
+- `_infer_unapplied_ctor_receiver` (`src/evaluator/calls/function.yo`)
+  infers `G(A, ...)` from the first argument's type.
+- Tests use it (`tests/unapplied_constructor_method.test.yo`); `src/` and
+  `std/` do not.
+
+**Generation B** (once `SEED_VERSION` carries Generation A):
+- `w.m` where both the wrapper and its payload have `m` becomes an error
+  naming `Box.clone(w)` and `w.*.clone()`, in `evaluate_property_access`
+  and `_try_find_receiver_method`.
+- The sweep rewrites the clashing sites in `src/`, `std/` and `tests/` to one
+  of the two spellings; the count is in the plan's V1 section.
+- **Verify the gate the usual way before merging**: `yo build --std-path ./std`
+  with the actual seed bundle.
+
 ## Seed-gated follow-up (2026-10-04): `Allocator`/`AllocatorVTable` move into the prelude
 
 `plans/VALUES_BY_DEFAULT.md` §3.11, V1 std Generation A first bullet. The move

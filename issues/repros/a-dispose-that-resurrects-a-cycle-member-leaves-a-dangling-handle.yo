@@ -1,0 +1,39 @@
+pragma(Pragma.AllowUnsafe);
+{ printf } :: import("std/libc/stdio.yo");
+Gc :: import("std/gc");
+N :: ref(struct(v : i32, next : Option(Self), keeper : Option(Self)));
+impl(
+  N,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      // A dispose that stores a handle to its (white) neighbour into a LIVE node.
+      match(
+        self.keeper,
+        .Some(k) => {
+          k.next = self.next;
+        },
+        .None => ()
+      );
+    })
+  )
+);
+build :: (fn(k : N) -> unit)({
+  a := N(v : i32(1), next : .None, keeper : .Some(k));
+  b := N(v : i32(2), next : .Some(a), keeper : .Some(k));
+  a.next = .Some(b); // a <-> b cycle; both unreachable after return
+});
+main :: (fn() -> unit)({
+  k := N(v : i32(0), next : .None, keeper : .None);
+  build(k);
+  Gc.collect();
+  match(
+    k.next,
+    .Some(n) => {
+      unsafe(printf("resurrected v=%d rc=%d tracked=%d\n", n.v, i32(ref_count(n)), i32(Gc.tracked_count())));
+    },
+    .None => {
+      unsafe(printf("nothing kept\n"));
+    }
+  );
+});
+export(main);

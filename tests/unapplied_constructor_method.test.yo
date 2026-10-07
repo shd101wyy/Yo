@@ -1,0 +1,193 @@
+// A method called through an UNAPPLIED generic type constructor, `G.m(x, ...)`
+// (plans/VALUES_BY_DEFAULT.md decision 32): `G`'s type arguments are inferred
+// from the receiver `x`, the call's first argument, as Rust infers
+// `Rc::clone`'s `T`. `Rc.clone(w)` is `Rc(i32).clone(w)` for `w : Rc(i32)`.
+// The receiver must itself be an instance of `G`; a static method has no
+// receiver to infer from, so its type arguments are written (E0613); the
+// type a binding expects of the call's result does not supply them either.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+mv :: import("./member_visibility/counter.yo");
+{ Cell } :: mv;
+_Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(a : A, b : B)
+);
+impl(
+  generic(A : Type, B : Type),
+  _Pair(A, B),
+  first : (fn(self : Self) -> A)(self.a),
+  second : (fn(self : Self) -> B)(self.b),
+  set_first : (fn(inout(self) : Self, a : A) -> unit)({
+    self.a = a;
+  }),
+  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b)),
+  first_type : (fn(comptime(self) : Self) -> comptime(Type))(A)
+);
+_Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    Some(value : T),
+    Empty
+  )
+);
+impl(
+  generic(T : Type),
+  _Tagged(T),
+  value_or : (fn(self : Self, d : T) -> T)(
+    match(
+      self,
+      .Some(v) => v,
+      .Empty => d
+    )
+  )
+);
+// `Arc` has no `Clone` in the prelude yet (decision 17 gives it the handle
+// copy in V2c), so the Arc case goes through a method of its own.
+impl(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  Arc(T),
+  _handle : (fn(self : Self) -> Self)(self)
+);
+/// One generic body, two specializations: `Box.clone(x)` infers `T` from each.
+_clone_box :: (fn(generic(T : Type), x : Box(T), where(T <: Clone)) -> Box(T))(Box.clone(x));
+/// A module-qualified constructor in a generic body. Before the fix the
+/// definition-time trial rewrote the receiver `mv.Cell` into an atom named
+/// `.`, so every specialization failed "Evaluating the expression (token: .)
+/// is not implemented".
+_cell_get :: (fn(generic(T : Type), c : Cell(T)) -> T)(mv.Cell.get(c));
+/// A receiver typed by a bare type parameter: `T` is inferred per instantiation.
+_clone_any :: (fn(generic(T : Type), x : T, where(T <: Clone)) -> T)(Box.clone(x));
+_Alias :: (fn(comptime(B) : Type) -> comptime(Type))(_Pair(i32, B));
+_Partial :: _Pair(i32, _);
+test("Box.clone(b) infers T from the receiver", {
+  b := box(i32(5));
+  c := Box.clone(b);
+  b.* = i32(7);
+  assert(c.* == i32(5), "today's Box clone is an independent cell");
+  assert(b.* == i32(7), "the original is unchanged by the clone");
+  assert(ref_count(c) == usize(1), "the clone is a fresh cell");
+});
+test("Box.clone(b) has the type Box(i32).clone(b) has", {
+  b := box(i32(3));
+  (c : Box(i32)) = Box.clone(b);
+  d := Box(i32).clone(b);
+  assert(c.* == d.*, "both spellings clone the payload");
+  comptime_assert(Type.eq(typeof(Box.clone(b)), Box(i32)), "the result is a Box(i32)");
+});
+test("Box.clone infers T inside a generic body", {
+  x := _clone_box(box(i32(9)));
+  y := _clone_box(box(true));
+  assert(x.* == i32(9), "T := i32");
+  assert(y.*, "T := bool");
+});
+test("Rc.clone(w) infers T from the receiver", {
+  w := rc(i32(5));
+  c := Rc.clone(w);
+  w.* = i32(7);
+  assert(c.* == i32(5), "today's Rc clone is a new cell (V2c makes it a handle)");
+  comptime_assert(Type.eq(typeof(Rc.clone(w)), Rc(i32)), "the result is an Rc(i32)");
+  comptime_assert(Type.eq(typeof(Rc.clone(rc(true))), Rc(bool)), "T := bool");
+  (d : Rc(i32)) = Rc(i32).clone(w);
+  assert(d.* == i32(7), "the applied spelling still works");
+});
+test("Rc.clone(w) on a nested wrapper names the outer constructor", {
+  w := rc(box(i32(2)));
+  c := Rc.clone(w);
+  comptime_assert(Type.eq(typeof(c), Rc(Box(i32))), "T := Box(i32), never a payload search");
+  comptime_expect_error(Box.clone(w), "which has type `Rc(Box(i32))`, not an instance of `Box`");
+});
+test("Arc.m(a) infers T from the receiver", {
+  a := arc(i32(3));
+  h := Arc._handle(a);
+  assert(h.* == i32(3), "the handle reads the payload");
+  assert(ref_count(a) == usize(2), "a second handle to one cell");
+});
+test("a user generic struct with two type parameters", {
+  p := _Pair(i32, bool)(a : i32(1), b : true);
+  assert(_Pair.first(p) == i32(1), "A := i32");
+  assert(_Pair.second(p), "B := bool");
+  _Pair.set_first(p, i32(8));
+  assert(p.a == i32(8), "an inout receiver");
+  assert(_Pair(i32, bool).first(p) == i32(8), "the applied spelling still works");
+});
+test("a user generic enum", {
+  t := _Tagged(i32).Some(i32(6));
+  e := _Tagged(i32).Empty;
+  assert(_Tagged.value_or(t, i32(0)) == i32(6), "T := i32");
+  assert(_Tagged.value_or(e, i32(2)) == i32(2), "the other variant");
+  o := Option(i32).Some(i32(4));
+  assert(Option.unwrap_or(o, i32(0)) == i32(4), "the prelude's Option too");
+});
+test("a static method has no receiver to infer from (E0613)", {
+  comptime_expect_error(_Pair.make(i32(1), true), "not an instance of `_Pair`");
+  comptime_expect_error(_Pair.make(i32(1), true), "_Pair(...).make(...)");
+  comptime_expect_error(Box.default(), "this call has none");
+  q := _Pair(i32, bool).make(i32(2), false);
+  assert(q.a == i32(2), "written type arguments call the static method");
+});
+test("a receiver of another type is E0613 naming both", {
+  a := arc(i32(1));
+  comptime_expect_error(Box.clone(a), "which has type `Arc(i32)`, not an instance of `Box`");
+  r := rc(i32(1));
+  comptime_expect_error(Box.clone(r), "which has type `Rc(i32)`, not an instance of `Box`");
+  comptime_expect_error(Rc.clone(box(i32(1))), "which has type `Box(i32)`, not an instance of `Rc`");
+  b := box(box(i32(1)));
+  comptime_expect_error(Arc._handle(b), "not an instance of `Arc`");
+  comptime_expect_error(Box.clone(i32(1)), "which has type `i32`");
+});
+test("a method the instance lacks is still E0610, naming the instance", {
+  b := box(i32(1));
+  comptime_expect_error(Box.nope(b), "No method \"nope\" on Box(i32)");
+  comptime_expect_error(Box(i32).nope(b), "No method \"nope\" on Box(i32)");
+  p := _Pair(i32, bool)(a : i32(1), b : true);
+  comptime_expect_error(_Pair.nope(p), "No method \"nope\" on _Pair(i32, bool)");
+});
+// Before this fix a static call's E0610 named the receiver's type `Type`, not
+// the type it was called on (issues/fixed/a-static-method-miss-names-type-not-the-type.md).
+test("a static call's E0610 names the type it was called on", {
+  s := String.from("abc");
+  comptime_expect_error(String.nope(s), "No method \"nope\" on String");
+});
+// `Arc` has no `clone` yet: decision 17 gives it the handle copy in V2c. Until
+// then `Arc.clone(a)` is the same E0610 as `Arc(i32).clone(a)`, so the
+// inference is not what fails.
+test("Arc.clone(a) is Arc(i32).clone(a)", {
+  a := arc(i32(2));
+  comptime_expect_error(Arc.clone(a), "No method \"clone\" on Arc(i32)");
+  comptime_expect_error(Arc(i32).clone(a), "No method \"clone\" on Arc(i32)");
+});
+test("a module-qualified constructor, in a generic body specialized twice", {
+  assert(_cell_get(Cell(i32).wrap(i32(7))) == i32(7), "T := i32");
+  assert(_cell_get(Cell(bool).wrap(true)), "T := bool");
+  assert(mv.Cell.get(Cell(i32).wrap(i32(8))) == i32(8), "outside a generic body");
+});
+test("a receiver whose type is a bare type parameter", {
+  c := _clone_any(box(i32(4)));
+  assert(c.* == i32(4), "T := Box(i32)");
+  comptime_expect_error(_clone_any(i32(5)), "which has type `i32`, not an instance of `Box`");
+});
+// Before the fix a labeled receiver was evaluated as a type annotation
+// ("Expected type for rhs, got p"). Labels are positional, so the receiver is
+// still the first argument, and argument matching validates the label.
+test("a labeled receiver", {
+  p := _Pair(i32, bool)(a : i32(5), b : false);
+  assert(_Pair.first(self : p) == i32(5), "self : p");
+  _Pair.set_first(self : p, a : i32(6));
+  assert(p.a == i32(6), "self : p, a : ...");
+  comptime_expect_error(_Pair.first(x : p), "does not match the parameter \"self\"");
+});
+test("a comptime(self) method through the unapplied constructor", {
+  comptime_assert(Type.eq(_Pair.first_type(_Pair(i32, bool)(a : i32(1), b : true)), i32), "Self := _Pair(i32, bool)");
+});
+// An alias or a partial application is a constructor of its own: matching is
+// by constructor identity, and an arbitrary comptime function is not inverted.
+test("an alias or partially applied constructor is its own constructor", {
+  q := _Pair(i32, u8)(a : i32(1), b : u8(2));
+  comptime_expect_error(_Alias.first(q), "another type constructor built it");
+  comptime_expect_error(_Alias.first(q), "call the method through the constructor that built");
+  assert(_Alias(u8).first(q) == i32(1), "the applied alias names the same type");
+  assert(_Pair.first(q) == i32(1), "the constructor that built it");
+  p := _Partial(bool)(a : i32(3), b : true);
+  comptime_expect_error(_Partial.first(p), "another type constructor built it");
+  assert(_Partial(bool).first(p) == i32(3), "the applied partial application");
+});

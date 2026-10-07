@@ -6,9 +6,15 @@
   _url_to_dep_name,
   parse_package_specifier,
   dependency_value_text,
+  load_project_manifest,
   ParsedPackage
 } :: import("../../src/install_command.yo");
 { DependencySource, GitRequirement } :: import("../../src/manifest.yo");
+{ YoError } :: import("../../src/error.yo");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ env, temp_dir } :: import("std/env");
+{ AnyError, Exception, IoExn } :: import("std/error");
 // ---------------------------------------------------------------------------
 // is_local_path
 // ---------------------------------------------------------------------------
@@ -169,4 +175,47 @@ test("dependency_value_text: every source shape", {
     dependency_value_text(DependencySource.Git(String.from("https://x/y"), GitRequirement.Rev(String.from("abc123")), String.new())) == "{ git = \"https://x/y\", rev = \"abc123\" }",
     "rev"
   );
+});
+// ---------------------------------------------------------------------------
+// The dependency toolchain's failures carry codes (E15xx)
+// (issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md): the install
+// family's front door — no yo.toml at or above the cwd — is E1502, a coded
+// YoError, not bare prose. The handler asserts with literals only: an effect
+// handler is capture-free by design, and YO_ORIGINAL_CWD is left pointing at
+// the fixture — nothing else in this batch process reads it.
+// ---------------------------------------------------------------------------
+test("load_project_manifest outside a project fails as error[E1502]", {
+  root := Path.new(temp_dir()).join(Path.new(String.from("yo_e1502_nomanifest")));
+  mk := Exception(
+    throw : (
+      err -> {
+        assert(false, `fixture io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : mk);
+  io.await(create_dir_all(root.clone(), io), ioexn);
+  _ := env.set(String.from("YO_ORIGINAL_CWD"), root.to_string());
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => match(
+            ye.diagnostics.get(usize(0)),
+            .Some(d) => match(
+              d.code,
+              .Some(c) => assert(c == "E1502", `no manifest is E1502, got ${c}`),
+              .None => assert(false, "the primary diagnostic carries no code")
+            ),
+            .None => assert(false, "a diagnostic group must have an entry")
+          ),
+          .None => assert(false, `the no-manifest failure must be a coded YoError, got: ${err}`)
+        );
+        unwind(());
+      }
+    )
+  );
+  load_project_manifest(exn);
+  assert(false, "load_project_manifest must throw outside a project");
 });

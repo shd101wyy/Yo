@@ -1,0 +1,126 @@
+//! Pins the thread-exit release of tasks still pending or queued when their
+//! thread's program body returned
+//! (issues/fixed/tasks-still-pending-or-queued-at-thread-exit-are-never-released.md).
+//!
+//! A task parked on a timer or I/O operation, or whose resume was still on
+//! the ready queue, used to survive the thread-exit hook: the hook freed the
+//! pools but never aborted the tasks, so the task, its await slot's future
+//! and its captures leaked (a leak checker was the only witness — the release
+//! runs after main returned). The fix is two pieces, both pinned here by
+//! calling the runtime emitters directly and asserting on the emitted C (the
+//! technique of tests/internal/uring_runtime.test.yo):
+//!
+//! 1. `__yo_io_teardown_abort_waiters` (runtime core): each backend's
+//!    teardown aborts the tasks still parked on its pending operations
+//!    through the ordinary abort path, while the cancel hooks can still
+//!    deregister the operation.
+//! 2. `__yo_async_thread_exit_release` (runtime core): the thread-exit hook
+//!    itself — clean the backend (running 1), then abort and drain the ready
+//!    queue by running each resume, whose aborted-entry guard releases the
+//!    task WITHOUT resuming its body, so no user code runs after main.
+{ String } :: import("std/string");
+{ Emitter } :: import("../../src/emitter.yo");
+{ generate_async_runtime_core } :: import("../../src/codegen/async/runtime_core.yo");
+{ generate_async_runtime_io_linux } :: import("../../src/codegen/async/runtime_io_linux.yo");
+{ generate_async_runtime_io_macos } :: import("../../src/codegen/async/runtime_io_macos.yo");
+{ generate_async_runtime_io_windows } :: import("../../src/codegen/async/runtime_io_windows.yo");
+{ generate_async_runtime_io_wasm } :: import("../../src/codegen/async/runtime_io_wasm.yo");
+{ host_target } :: import("../../src/target.yo");
+{ assert } :: import("std/assert");
+/// The scheduler core for the host target (platform-independent regions only
+/// are pinned).
+emit_core :: (fn() -> String)({
+  em := Emitter.new();
+  generate_async_runtime_core(em, host_target());
+  em.print()
+});
+emit_linux :: (fn() -> String)({
+  em := Emitter.new();
+  generate_async_runtime_io_linux(em);
+  em.print()
+});
+emit_macos :: (fn() -> String)({
+  em := Emitter.new();
+  generate_async_runtime_io_macos(em);
+  em.print()
+});
+emit_windows :: (fn() -> String)({
+  em := Emitter.new();
+  generate_async_runtime_io_windows(em);
+  em.print()
+});
+emit_wasm :: (fn() -> String)({
+  em := Emitter.new();
+  generate_async_runtime_io_wasm(em, host_target());
+  em.print()
+});
+test("core: the teardown waiter-abort helper is emitted", {
+  c := emit_core();
+  assert(
+    c.contains(String.from("static void __yo_io_teardown_abort_waiters(__yo_io_future_t* f) {")),
+    String.from("the teardown waiter-abort helper is missing")
+  );
+  // It must hold its own reference across the abort (the abort can drop the
+  // backend's and the waiter's slot references) and leave a still-pending
+  // future terminal with its waiters taken.
+  assert(
+    c.contains(String.from("__yo_incr_rc((void*)f);")),
+    String.from("the helper does not pin the future across the abort")
+  );
+});
+test("core: the thread-exit hook aborts and drains the ready queue", {
+  c := emit_core();
+  assert(
+    c.contains(String.from("static void __yo_async_thread_exit_release(void) {")),
+    String.from("the thread-exit release function is missing")
+  );
+  // The hook must install the release, not the bare pool free.
+  assert(
+    c.contains(String.from("__yo_async_thread_exit_hook = __yo_async_thread_exit_release;")),
+    String.from("the thread-exit hook does not install the release")
+  );
+  assert(
+    !c.contains(String.from("__yo_async_thread_exit_hook = __yo_async_free_cont_pool;")),
+    String.from("the thread-exit hook still installs the bare pool free")
+  );
+  // The drain aborts each queued task and runs its resume so the
+  // aborted-entry guard releases it — never the body.
+  assert(
+    c.contains(String.from("__yo_future_abort(cont->state_machine);")),
+    String.from("the ready-queue drain does not abort the queued tasks")
+  );
+  assert(
+    c.contains(String.from("__yo_waiters_dispatch(cont->state_machine);")),
+    String.from("the ready-queue drain does not re-queue waiter lists")
+  );
+  // The backend goes first: its teardown aborts the tasks parked on pending
+  // operations, which is what puts them on the queue this drain empties.
+  first_cleanup := c.index_of(String.from("__yo_io_cleanup();")).unwrap_or(usize(0));
+  first_drain := c.index_of(String.from("__yo_future_abort(cont->state_machine);")).unwrap_or(usize(0));
+  assert(
+    (first_cleanup != usize(0)) && (first_drain != usize(0)) && (first_cleanup < first_drain),
+    String.from("the release must clean the backend before draining the queue")
+  );
+});
+test("linux: every teardown that strands a pending future aborts its waiters", {
+  c := emit_linux();
+  // The timer heap, the deferred-SQE drain, the ring's in-flight fd buckets
+  // and the epoll teardown each strand futures; each must call the helper.
+  first := c.index_of(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
+  assert(first != usize(0), String.from("the linux teardown does not abort parked waiters"));
+});
+test("macos: the kqueue pending ops and the timer heap abort their waiters", {
+  c := emit_macos();
+  first := c.index_of(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
+  assert(first != usize(0), String.from("the macos teardown does not abort parked waiters"));
+});
+test("windows: the timer list teardown aborts its waiters", {
+  c := emit_windows();
+  first := c.index_of(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
+  assert(first != usize(0), String.from("the windows teardown does not abort parked waiters"));
+});
+test("wasm: the timer list teardown aborts its waiters", {
+  c := emit_wasm();
+  first := c.index_of(String.from("__yo_io_teardown_abort_waiters(")).unwrap_or(usize(0));
+  assert(first != usize(0), String.from("the wasm teardown does not abort parked waiters"));
+});

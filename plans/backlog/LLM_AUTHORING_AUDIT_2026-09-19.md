@@ -293,6 +293,15 @@ open issues: E0002 (`issues/parser-accepts-an-unclosed-call-paren.md`), E0903
 the E13xx/E15xx bands (the ICE wrapper and the install/fetch family stay
 uncoded prose) — no consumer asked for them yet.
 
+**Status 2026-10-04: the bands are allocated.** E1301 names the ICE wrapper
+(`codegen_fatal`, `src/codegen/constants.yo`) and E1501–E1505 the dependency
+toolchain (fetch, missing manifest, lock mismatch, store integrity, version
+resolution), raised through `format_coded_error` (`src/error.yo`) — a
+span-less coded diagnostic, so `yo install` prints `error[EXXXX]` and
+`--error-format json` carries the code. The band's examples are command and
+manifest transcripts, not Yo programs, so the examples harness exempts both
+halves for it (`issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md`).
+
 ### 3.4 `yo test` for a machine reader
 
 **Landed 2026-09-20 (PR A of the toolchain series).** `--list` prints
