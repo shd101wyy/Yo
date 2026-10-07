@@ -365,16 +365,10 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   if(!_drop_target_is_state_machine_field(latest_var, var_name.clone(), context) && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
     return(false);
   });
-  // A binding with no initialization point is live from the function's
-  // entry when it is a PARAMETER (an owned `sink` parameter's release must
-  // reach every early `return`, not only the fall-through end) or an
-  // `FnOnce` closure's owned capture (decision 37); anything else without
-  // one was never initialized here
-  // (issues/fixed/an-early-return-skips-the-drop-of-an-owned-parameter.md).
   match(
     latest_var.initialized_at_token,
     .Some(it) => !_variable_initialized_after_cleanup_point(it, expr),
-    .None => (latest_var.is_parameter || is_fnonce_capture_drop(ast_expr_id(drop_expr)))
+    .None => false
   )
 });
 /// Generate pending deferred drops from enclosing scopes before an early

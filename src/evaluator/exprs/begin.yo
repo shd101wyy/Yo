@@ -3185,6 +3185,28 @@ _evaluate_begin_expression_impl :: (
             },
             .None => ()
           );
+          // The CONSUMED captures (a move on some paths) still need a drop on
+          // an exit that precedes the move: an early `return` or an effect
+          // escape — the parameters' treatment below, for the frame the body
+          // owns the same way.
+          (cci : usize) = usize(0);
+          while(cci < cap_fr.variables.len(), {
+            match(
+              cap_fr.variables.get(cci),
+              .Some(cv) => if(cv.consumed_at_token.is_some() && cv.is_owning_the_rc_value && _variable_can_need_drop_ignoring_consumed(cv), {
+                c_drop := evaluate_expression_raw(generate_expr_from_code(`___drop(${cv.name})`, exn), env, ctx, exn);
+                mark_fnonce_capture_drop(ast_expr_id(c_drop));
+                consumed_escape_drops.push(c_drop);
+                (cdai : usize) = usize(0);
+                while(cdai < begin_args.len(), {
+                  match(begin_args.get(cdai), .Some(carg) => _attach_early_return_only_drop_to_returns(carg, cv, c_drop, ctx), .None => ());
+                  cdai = (cdai + usize(1));
+                });
+              }),
+              .None => ()
+            );
+            cci = (cci + usize(1));
+          });
         }),
         .None => ()
       );
@@ -3255,6 +3277,16 @@ _evaluate_begin_expression_impl :: (
                 p_drop_expr := generate_expr_from_code(p_drop_code, exn);
                 p_evaluated := evaluate_expression_raw(p_drop_expr, env, ctx, exn);
                 consumed_escape_drops.push(p_evaluated);
+                // An early `return` that precedes the parameter's move must
+                // release it too, as the M3 driver above does for locals: the
+                // scope-end list skips a consumed parameter, so nothing else
+                // drops it on that path
+                // (issues/fixed/an-early-return-skips-the-drop-of-an-owned-parameter.md).
+                (pdai : usize) = usize(0);
+                while(pdai < begin_args.len(), {
+                  match(begin_args.get(pdai), .Some(parg) => _attach_early_return_only_drop_to_returns(parg, pev, p_evaluated, ctx), .None => ());
+                  pdai = (pdai + usize(1));
+                });
               });
             },
             .None => ()

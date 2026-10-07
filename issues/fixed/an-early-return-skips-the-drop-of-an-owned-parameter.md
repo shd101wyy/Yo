@@ -21,20 +21,21 @@ two :: (fn(sink(t) : Tok, sink(u) : Tok, go : bool) -> i32)({
 
 ## Root cause
 
-An explicit `return` flushes the pending function-scope drops through
-`_keep_pending_drop` (`src/codegen/exprs/return.yo`). Its last gate keeps a drop
-only when the target's `initialized_at_token` comes before the return. A
-parameter has NO initialization token, because it is live from the function's
-entry. The `.None` arm answered `false`, so every owned parameter's drop was
-filtered out of every explicit early return. The effect-escape path skips that
-gate, which is why its `if (__yo_effect_escaped)` block did release `u`. The
-fall-through end uses the scope-end flush, so it was correct.
+`u` is consumed at the body's tail (`take(u)`), so the function-body drop pass
+(`_schedule_scope_end_drops`, `src/evaluator/exprs/begin.yo`) skips it: a
+consumed binding gets no scope-end drop. For a consumed LOCAL, the M3 driver
+covers the paths that run before the move: it attaches an early-return-only
+`___drop` to every `return` that precedes the consumption, and it adds an
+effect-escape drop. The parameters-frame pass mirrored only the second half.
+It pushed consumed parameters onto `consumed_escape_drops`, which is why the
+`if (__yo_effect_escaped)` block released `u`, but it never attached them to
+the `return`s. An early return before the parameter's move therefore leaked it.
 
 ## Fix
 
-A binding with no initialization token is kept when it is a parameter, or an
-`FnOnce` closure's owned capture (the same function-scope kind of drop,
-tagged `is_fnonce_capture_drop`).
+The parameters-frame pass also calls `_attach_early_return_only_drop_to_returns`
+for each consumed owned parameter, as the M3 driver does for locals. The new
+`FnOnce` capture-frame pass does the same for consumed captures (decision 37).
 
 ## Verification
 
