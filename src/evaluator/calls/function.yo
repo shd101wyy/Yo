@@ -157,8 +157,8 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), env.module_path);
   create_runtime_unknown_val_with_name(ty, nm)
 });
-{ format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
-{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
+{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -395,6 +395,165 @@ _reject_dyn_uncallable_method_call :: (
     },
     _ => ()
   );
+});
+/// Decision 32 (plans/VALUES_BY_DEFAULT.md): `w.m(...)` where the `Deref`
+/// wrapper `w` has a method `m` AND its payload (through its own
+/// auto-dereference chain) has one too has two readings, the wrapper's
+/// `m` and `w.*.m(...)`. That is E0616 naming both spellings: the
+/// unapplied-constructor call `Rc.m(w, ...)` (decision 32 Generation A) for
+/// the wrapper's own member, `w.*.m(...)` for the payload's. The wrapper's
+/// member used to win silently, so `yo fix` applies the spelling that keeps
+/// that meaning.
+///
+/// Only where the receiver's type is written as the wrapper: a call inside a
+/// specialized generic body (`x.clone()` with `T := Rc(i32)` under
+/// `where(T <: Clone)`) is the bound's method, never ambiguous, so the check
+/// is off while a generic function or impl is specialized (the same gate as
+/// `match`'s GADT exactness).
+_reject_wrapper_payload_clash :: (
+  fn(
+    method_info_opt : Option(ReceiverMethodResult),
+    callee : AstExpr,
+    arg_count : usize,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  mi := match(
+    method_info_opt,
+    .Some(m) => m,
+    .None => {
+      return(());
+    }
+  );
+  if(mi.is_static || ctx.currently_specializing_function.is_some() || ctx.is_evaluating_generic_impl_specialization, {
+    return(());
+  });
+  recv_ty := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(mi.receiver_expr)),
+    .Some(ri) => ri.ty,
+    .None => {
+      return(());
+    }
+  );
+  if(is_pointer_type(recv_ty), {
+    return(());
+  });
+  payload_ty := match(
+    deref_target_type(resolve_struct_shell(recv_ty), env),
+    .Some(p) => p,
+    .None => {
+      return(());
+    }
+  );
+  name_tok := match(
+    callee,
+    .FnCall(_, _, pargs, _, _) => match(
+      pargs.get(usize(1)),
+      .Some(a) => ast_expr_token(a),
+      .None => {
+        return(());
+      }
+    ),
+    _ => {
+      return(());
+    }
+  );
+  name := name_tok.value.clone();
+  // The payload's reading: its own method, or one its own wrappers forward.
+  (payload_has : bool) = false;
+  (cur : TypeValue) = payload_ty;
+  (searching : bool) = true;
+  while(searching, {
+    if(is_pointer_type(cur), {
+      searching = false;
+    }, {
+      if(get_receiver_methods_by_name_from_env(env, name.clone(), cur, false).len() > usize(0), {
+        payload_has = true;
+        searching = false;
+      }, {
+        match(
+          deref_target_type(resolve_struct_shell(cur), env),
+          .Some(next) => {
+            cur = next;
+          },
+          .None => {
+            searching = false;
+          }
+        );
+      });
+    });
+  });
+  if(!payload_has, {
+    return(());
+  });
+  wrapper_s := type_to_string(recv_ty);
+  ctor := match(
+    wrapper_s.index_of(`(`),
+    .Some(pidx) => wrapper_s.substring(usize(0), pidx),
+    .None => wrapper_s.clone()
+  );
+  recv_s := ast_expr_to_string(mi.receiver_expr);
+  sep := cond((arg_count > usize(0)) => `, ...`, true => ``);
+  msg := `"${name}" is a method of ${wrapper_s} and of its payload ${type_to_string(payload_ty)}, so ${recv_s}.${name}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32).\nWrite ${ctor}.${name}(${recv_s}${sep}) for the ${ctor}'s own ${name}, or ${recv_s}.*.${name}(...) for the payload's.`;
+  repair_opt := _wrapper_member_repair(mi.receiver_expr, name_tok, ctor.clone(), arg_count);
+  exn.throw(
+    dyn(
+      with_code(
+        match(
+          repair_opt,
+          .Some(rp) => format_error_message_with_repair_at(
+            name_tok,
+            msg,
+            Option(String).None,
+            rp.span,
+            rp.replacement,
+            rp.description
+          ),
+          .None => format_error_message(name_tok, msg)
+        ),
+        E_AMBIGUOUS_METHOD
+      )
+    )
+  );
+});
+/// The `yo fix` edit for a decision-32 clash: `w.m(` becomes `Rc.m(w, `
+/// (`Rc.m(w` when the call has no other argument), which keeps the meaning
+/// the call had before the clash was an error. Offered only when the
+/// receiver is a plain identifier and the source reads exactly `w.m(` on one
+/// row, so the edit is one contiguous span.
+_wrapper_member_repair :: (fn(receiver : AstExpr, name_tok : Token, ctor : String, arg_count : usize) -> Option(Repair))({
+  recv_tok := match(
+    receiver,
+    .Atom(_, t) => t,
+    _ => {
+      return(Option(Repair).None);
+    }
+  );
+  if((recv_tok.kind != TokenKind.Identifier) || (recv_tok.row != name_tok.row) || (recv_tok.module_path != name_tok.module_path), {
+    return(Option(Repair).None);
+  });
+  src := name_tok.input;
+  r_start := usize(recv_tok.byte_offset);
+  n_start := usize(name_tok.byte_offset);
+  n_end := (n_start + name_tok.value.len());
+  if((n_end >= src.len()) || (r_start >= n_start), {
+    return(Option(Repair).None);
+  });
+  written := `${recv_tok.value}.${name_tok.value}(`;
+  if(src.substring(r_start, n_end + usize(1)) != written, {
+    return(Option(Repair).None);
+  });
+  sep := cond((arg_count > usize(0)) => `, `, true => ``);
+  replacement := `${ctor}.${name_tok.value}(${recv_tok.value}${sep}`;
+  Option(Repair).Some(
+    Repair(
+      span : Span(path : recv_tok.module_path, row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
+      replacement : replacement,
+      description : `call the ${ctor}'s own ${name_tok.value}: ${ctor}.${name_tok.value}(${recv_tok.value}${cond((arg_count > usize(0)) => `, ...`, true => ``)})`
+    )
+  )
 });
 _reject_class1_panic_method_call :: (
   fn(
@@ -8864,6 +9023,7 @@ Fix: wrap the call:
       _reject_private_method_call(method_info_opt, evaluated_callee, ctx, exn);
       _reject_class1_panic_method_call(method_info_opt, evaluated_callee, ctx, exn);
       _reject_dyn_uncallable_method_call(method_info_opt, evaluated_callee, ctx, exn);
+      _reject_wrapper_payload_clash(method_info_opt, evaluated_callee, args.len(), callee_env, ctx, exn);
       match(
         method_info_opt,
         // Method found: build the arg list and call it. Instance methods
