@@ -9,7 +9,7 @@ The design is DECIDED — decision 39 in
 and this doc tracks the V2b implementation requirement plus the V3b sweep
 exemption that must land first.
 
-**Amended 2026-10-07 (second audit, finding 4, confirmed by the
+**Amended 2026-10-07 (second audit #1264, finding 4, confirmed by the
 maintainer):** the "handle + index" iterator the first text of decision 39
 described has no spelling under decision 38 A (a borrow cannot be a struct
 field, a second-class value cannot be returned, and only closures and

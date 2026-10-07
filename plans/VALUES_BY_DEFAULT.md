@@ -131,7 +131,7 @@ Unique ownership removes the question instead of answering it.
   | --- | --- | --- | --- |
   | **`Box(T)`** | uniquely owned heap cell, no count (Rust's `Box`); used for recursion and stable addresses | `b.clone()`, deep | as `T` |
   | **`Rc(T)`** | shared and mutable, one thread | `r.clone()`: a new handle to the same object | not `Send` |
-  | **`Arc(T)`** | shared across threads, atomically counted; mutation through `Mutex`/atomics (D3) | `a.clone()` | `Send` and `Sync` when `T <: (Send, Sync)` (amended 2026-10-07, second audit finding 2) |
+  | **`Arc(T)`** | shared across threads, atomically counted; mutation through `Mutex`/atomics (D3) | `a.clone()` | `Send` and `Sync` when `T <: (Send, Sync)` (amended 2026-10-07, second audit #1264 finding 2) |
 
 - **`Dyn(Trait)`** is a uniquely owned, type-erased cell (decision 7).
   - It is explicit-copy when the trait or the payload provides `Clone`
@@ -460,7 +460,7 @@ cannot be copied.
 - **`Acyclic`** keeps its meaning. A type that reaches no `Rc`/`Arc` is
   acyclic by construction.
 - **`Send` and `Sync`** (§3.8). `Rc` is neither. `Arc(T)` is both when `T`
-  is `Send` and `Sync` (amended 2026-10-07, second audit finding 2). A value
+  is `Send` and `Sync` (amended 2026-10-07, second audit #1264 finding 2). A value
   is `Send` iff every field is. A move-only value follows the same rules: a
   `File` is `Send`, and a `Mutex(T)` is `Sync` when `T` is `Send`.
 - **`Iso(T)` / `^v`.** `T` is any value that reaches at least one non-atomic
@@ -506,7 +506,7 @@ notions, as Rust does:
   iff it reaches no `Rc`, no raw pointer (unless its type opts in under
   `pragma(Pragma.AllowUnsafe)`, decision 38 E) and no type carrying a
   negative `!(Send())` marker (`Io`, `JoinHandle`) — stated in full
-  2026-10-07, second audit finding 5; "reaches no `Rc`" alone contradicted
+  2026-10-07, second audit #1264 finding 5; "reaches no `Rc`" alone contradicted
   38 E. Moving a `String` or a collection hands over its only owner, so
   `Channel(String)` and `Channel(ArrayList(T))` work, with no isolation
   walk and no copy.
@@ -576,7 +576,7 @@ Each kind of root gets its own check:
   - A write through the cell, or an exclusive acquire whose path crosses
     it, asserts that no conflicting mark is held
     (`__yo_borrow_assert_unborrowed`).
-  - On an `Arc` cell the marks are atomic (stated 2026-10-07, second audit
+  - On an `Arc` cell the marks are atomic (stated 2026-10-07, second audit #1264
     finding 9): `imm` lends through different handles run on different
     threads at once, and a non-atomic shared count would race.
   - That is `RefCell::borrow_mut`'s panic with no annotation, so a plain
@@ -694,7 +694,7 @@ instead.
     second-spawn bundle rule (`plans/ASYNC_IO_API_AUDIT.md`, A3). V3
     re-checks `__yo_started_child`.
   - A result that several tasks need is joined ONCE and shared as `Rc(T)`,
-    or sent through a channel (corrected 2026-10-07, second audit finding
+    or sent through a channel (corrected 2026-10-07, second audit #1264 finding
     3; the first text said `Rc(JoinHandle(T))`). That spelling cannot
     work: `join(self, io)` consumes its handle, and nothing is moved out
     through an `Rc` (decisions 19 and 26), so a handle behind an `Rc` could
@@ -714,7 +714,7 @@ instead.
       small rules). At the call site the result then borrows the argument
       places lent to those parameters, and decision 38 A's transitive
       freeze holds them until the future's last use (clarified 2026-10-07,
-      second audit finding 10; the caller-side mapping was unstated).
+      second audit #1264 finding 10; the caller-side mapping was unstated).
 
     It cannot be bound to a local, stored, captured or spawned.
   - **No exclusive borrow through an `Rc`/`Arc`.** A `mut` argument whose
@@ -1804,7 +1804,7 @@ and in git, not a silent edit.
         task spawns. The `Option`/`Result` combinators and `with_lock`'s
         body are also called once, but they do not escape and keep
         `imm(f) : Impl(Fn(...))` (decision 38 C), so a body passed to them
-        cannot move a capture out (corrected 2026-10-07, second audit
+        cannot move a capture out (corrected 2026-10-07, second audit #1264
         finding 6; the first text listed them as `FnOnce` motivations).
     - **Why no `FnMut`.** In Rust, an `FnMut` closure is a value whose own
       state changes on every call. Yo never needs one, because every use
@@ -2030,7 +2030,7 @@ and in git, not a silent edit.
       the tuple `(f, 1)`) is legal and is itself second-class by the
       structural rule above, so "an `Option` payload" there and "a generic
       argument" here do not contradict each other (clarified 2026-10-07,
-      second audit finding 8).
+      second audit #1264 finding 8).
     - **Transitive freezes.** A borrow, or any second-class value built
       from one, keeps its source live, and so frozen (decision 18), until
       its own last use. This applies transitively through captures, `Copy`
@@ -2232,7 +2232,7 @@ and in git, not a silent edit.
       hot loops that need the raw pointer keep using `ptr()` under the
       pragma. V2b's PR measures the iterator-heavy std tests before and
       after.
-    - **Amended 2026-10-07 by the maintainer (second audit, finding 4):
+    - **Amended 2026-10-07 by the maintainer (second audit #1264, finding 4):
       the iterator holds NO handle. "Index-based" means an index cursor,
       and the borrowed `for` is the ordinary walk.** The first text's
       "handle to the container plus an index" has no spelling in this
@@ -2283,7 +2283,7 @@ and in git, not a silent edit.
 40. **No `Pin`: live values never relocate, and borrows stay
     second-class.** Confirmed 2026-10-07 by the maintainer, from the
     design question "does mutable value semantics need Rust's `Pin`?"
-    - **The invariant** (corrected 2026-10-07, second audit finding 1; the
+    - **The invariant** (corrected 2026-10-07, second audit #1264 finding 1; the
       first text said a live non-`Copy` value never relocates and that
       codegen must never lower a move of an inline value as a byte copy,
       which §0.2's `T x` lowering, §3.11's "a plain struct allocates
@@ -3148,7 +3148,7 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     over every signature, so `type_implements_trait` answers a `.Func` type
     `Copy` and `Clone` directly.
   - **`rune`** is not a prelude type: it is the `newtype` in
-    `std/string/rune.yo` (corrected 2026-10-07, second audit finding 7; the
+    `std/string/rune.yo` (corrected 2026-10-07, second audit #1264 finding 7; the
     first text said no such type exists), so it opts in there with
     `derive(rune, Copy, Clone)` in decision 36's Generation B sweep, and
     the audit's `rune 73` line in §4 counts its copies. `char` is the byte
@@ -3323,7 +3323,7 @@ compiler; the std shapes are plain structs the seed lowers):
     (`receiver_kind_trait_violation_msg`, `src/evaluator/trait_checking.yo`:
     "only a reference type may implement it"), so the same PR widens it to
     admit the private buffer types, which their owner traverses inline
-    (stated 2026-10-07, second audit finding 12; §3.5 and this bullet
+    (stated 2026-10-07, second audit #1264 finding 12; §3.5 and this bullet
     assumed a value-type `Trace` the gate rejects).
   - `clone()` is deep and goes through the source's owner (§3.11).
   - Tests: a list built in an arena, cloned out under the global allocator,
@@ -3535,7 +3535,7 @@ captures on 2026-10-07 (audit #1251). Decision 39 (2026-10-07, same audit)
 makes post-V2b iterators index-based; it was amended the same day (second
 audit, finding 4) so that the iterator holds no handle: index cursors and
 the borrowed `for`. Decision 40 (2026-10-07) rules out
-`Pin`; its invariant was corrected the same day (second audit, finding 1).
+`Pin`; its invariant was corrected the same day (second audit #1264, finding 1).
 Decision 18 was also amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
