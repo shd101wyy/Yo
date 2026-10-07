@@ -87,7 +87,7 @@ contract instead: `len()` becomes 0, `capacity()` is unchanged.
 `StringBuilder` had `with_capacity` — capacity could be SET but never READ —
 so the contract this doc is about was **unobservable from outside the module**,
 and therefore untestable. A fix nothing can observe is the failure mode this
-whole corpus is full of (`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`
+whole corpus is full of (`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`
 is the same shape).
 
 So `capacity()` is added, mirroring Rust's `String::capacity`. It is a small

@@ -7,6 +7,10 @@
 - **Decisions:** all 38 in §4 are confirmed. No design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
+- **Handover:** the campaign was handed over on 2026-10-06. Start with
+  [`plans/VBD_HANDOVER_2026-10.md`](VBD_HANDOVER_2026-10.md), which has the
+  open PRs, the pushed wave-2 branches, the release step and the
+  Generation B queue.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of

@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 176 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 169 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -28,16 +28,16 @@ Three things are worth knowing before trusting any row.
 
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
-| CI/Release/Build | 12 | 1 |
-| Async / effects | 6 | 0 |
-| Codegen / emitted C | 16 | 3 |
-| Evaluator / types | 21 | 2 |
-| Std library | 45 | 10 |
-| Tooling (fmt/doc/lsp) | 10 | 1 |
+| CI/Release/Build | 9 | 1 |
+| Async / effects | 5 | 0 |
+| Codegen / emitted C | 15 | 3 |
+| Evaluator / types | 20 | 2 |
+| Std library | 46 | 10 |
+| Tooling (fmt/doc/lsp) | 8 | 0 |
 | Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 53 | 5 |
-| **Total** | **176** | **24** |
+| Other | 53 | 4 |
+| **Total** | **169** | **22** |
 
 ## Counts by severity
 
@@ -46,8 +46,8 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 24 |
-| S2 | 83 |
-| S3 | 69 |
+| S2 | 84 |
+| S3 | 61 |
 
 ## Design questions (issues/questions/)
 
@@ -139,9 +139,9 @@ stale reference there, and 'repairing' it reverts someone else's work.
 
 ### Largest docs (usually clusters, not single defects)
 
+- [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 20 KB
 - [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) — 19 KB
 - [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) — 17 KB
-- [`yo-self-compile-performance-rc-string-eq.md`](./yo-self-compile-performance-rc-string-eq.md) — 16 KB
 - [`yo-self-collections-batch-residuals.md`](./yo-self-collections-batch-residuals.md) — 16 KB
 - [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) — 12 KB
 - [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) — 12 KB
@@ -153,35 +153,31 @@ stale reference there, and 'repairing' it reverts someone else's work.
 ## By area
 
 
-### CI/Release/Build (12)
+### CI/Release/Build (9)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`build-option-value-cannot-feed-an-artifact-field.md`](./build-option-value-cannot-feed-an-artifact-field.md) | S2 | OPEN (found 2026-09-12) | — |
-| [`build-release-small-is-identical-to-release-safe.md`](./build-release-small-is-identical-to-release-safe.md) | S3 | OPEN | — |
 | [`ci-workflow-audit-open-findings.md`](./ci-workflow-audit-open-findings.md) | S2 | — | — |
 | [`d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`](./d6-schannel-hangs-the-windows-test-legs-for-four-hours.md) | S1 | — | — |
-| [`leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`](./leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md) | S3 | OPEN | — |
 | [`release-gate-accepts-a-docs-only-fast-path-success.md`](./release-gate-accepts-a-docs-only-fast-path-success.md) | S3 | open (found 2026-09-10 while cutting v0 | — |
 | [`seed-early-return-drops-later-local-through-shadowing-pattern-name.md`](./seed-early-return-drops-later-local-through-shadowing-pattern-name.md) | S2 | — | — |
 | [`seed-emitted-unknown-type-comment-breaks-the-musl-gcc-leg.md`](./seed-emitted-unknown-type-comment-breaks-the-musl-gcc-leg.md) | S3 | OPEN (blocked on a seed bump) | yes |
 | [`v0.2.23-seed-build-lottery-corrupts-shifted-trees.md`](./v0.2.23-seed-build-lottery-corrupts-shifted-trees.md) | S1 | — | — |
 | [`version-install-cross-device-link.md`](./version-install-cross-device-link.md) | S2 | — | — |
-| [`windows-images-lost-libasan.md`](./windows-images-lost-libasan.md) | S3 | OPEN (CI workaround landed with the module-gl | — |
 | [`yo-lock-records-the-annotated-tag-object-not-the-commit.md`](./yo-lock-records-the-annotated-tag-object-not-the-commit.md) | S3 | OPEN — found 2026-09-14 while re-pinning `mar | — |
 
-### Async / effects (6)
+### Async / effects (5)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-bodyless-http-response-is-not-read-until-the-deadline.md`](./a-bodyless-http-response-is-not-read-until-the-deadline.md) | S1 | OPEN — an inner | — |
 | [`a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`](./a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md) | S2 | OPEN | — |
-| [`io-async-variant-inference-passes-check-but-fails-compile.md`](./io-async-variant-inference-passes-check-but-fails-compile.md) | S3 | — | — |
 | [`windows-1ms-deadline-race-loses-since-cancellation-landing.md`](./windows-1ms-deadline-race-loses-since-cancellation-landing.md) | S2 | — | — |
 | [`windows-async-io-runtime-audit.md`](./windows-async-io-runtime-audit.md) | S3 | — | — |
 | [`yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`](./yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md) | S3 | OPEN — a PERFORMANCE observation, not a corre | — |
 
-### Codegen / emitted C (16)
+### Codegen / emitted C (15)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -200,9 +196,8 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`self-hosted-debug-emission-undeclared-temp.md`](./self-hosted-debug-emission-undeclared-temp.md) | S2 | — | — |
 | [`swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md`](./swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md) | S1 | — | — |
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | S2 | OPEN | — |
-| [`wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md`](./wasm-statx-nsec-accessors-return-int64-but-are-declared-u32.md) | S3 | OPEN | — |
 
-### Evaluator / types (21)
+### Evaluator / types (20)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -216,7 +211,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md`](./comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md) | S2 | — | — |
 | [`derive-body-field-name-collides-with-a-builtin-type.md`](./derive-body-field-name-collides-with-a-builtin-type.md) | S2 | open (found 2026-09-09 while adding `Encoding | yes |
 | [`derive-hash-over-a-field-without-hash-is-accepted-at-the-derive-line.md`](./derive-hash-over-a-field-without-hash-is-accepted-at-the-derive-line.md) | S3 | — | — |
-| [`dyn-as-a-direct-downcast-argument-reports-got-option.md`](./dyn-as-a-direct-downcast-argument-reports-got-option.md) | S3 | OPEN | — |
 | [`dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md`](./dyn-of-a-static-method-call-in-a-bare-tail-fn-body-loses-the-payload-type.md) | S2 | OPEN | — |
 | [`env-sharing-live-frame-membership-leak.md`](./env-sharing-live-frame-membership-leak.md) | S1 | OPEN — found during the env-sharing implement | — |
 | [`err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md`](./err-expr-id-0-aliases-the-prelude-in-compiles-shared-exprinfo-table.md) | S2 | OPEN | — |
@@ -228,10 +222,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-### Std library (45)
+### Std library (46)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
+| [`cli-case-goldens-cannot-be-recorded-from-a-windows-host.md`](./cli-case-goldens-cannot-be-recorded-from-a-windows-host.md) | S3 | OPEN | — |
+| [`cli-case-sandboxes-do-not-isolate-the-yo-cache-on-windows.md`](./cli-case-sandboxes-do-not-isolate-the-yo-cache-on-windows.md) | S3 | OPEN | — |
 | [`cli-option-declared-with-an-empty-default-never-materializes.md`](./cli-option-declared-with-an-empty-default-never-materializes.md) | S2 | OPEN | — |
 | [`cli-parse-returns-err-for-help-so-the-documented-example-aborts.md`](./cli-parse-returns-err-for-help-so-the-documented-example-aborts.md) | S2 | OPEN | — |
 | [`cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md`](./cli-rejects-double-dash-bare-dash-and-long-option-equals-value.md) | S2 | OPEN | — |
@@ -251,7 +247,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`read-dir-maps-dt-unknown-to-filetype-other-so-walks-go-flat.md`](./read-dir-maps-dt-unknown-to-filetype-other-so-walks-go-flat.md) | S2 | OPEN | — |
 | [`redirect-location-with-an-absolute-url-in-its-query-fails-to-resolve.md`](./redirect-location-with-an-absolute-url-in-its-query-fails-to-resolve.md) | S2 | — | — |
 | [`redirect-resolution-never-removes-dot-segments.md`](./redirect-resolution-never-removes-dot-segments.md) | S2 | — | — |
-| [`s3-fs-wrappers-windows-semantics-audit.md`](./s3-fs-wrappers-windows-semantics-audit.md) | S3 | OPEN | — |
 | [`std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md`](./std-net-per-op-io-async-wrappers-cost-a-microsecond-a-round-trip.md) | S3 | — | — |
 | [`std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md`](./std-path-exemptions-are-lexical-so-tmp-symlink-breaks-them.md) | S2 | OPEN | — |
 | [`std-sweep-fails-after-collections-annotations.md`](./std-sweep-fails-after-collections-annotations.md) | S3 | — | — |
@@ -278,19 +273,17 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | S3 | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | S3 | — | — |
 
-### Tooling (fmt/doc/lsp) (10)
+### Tooling (fmt/doc/lsp) (8)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`](./collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md) | S3 | OPEN | — |
-| [`fmt-not-idempotent-call-wrapped-match-in-block.md`](./fmt-not-idempotent-call-wrapped-match-in-block.md) | S3 | — | yes |
-| [`fmt-pointer-type-paren-verdict-is-context-dependent.md`](./fmt-pointer-type-paren-verdict-is-context-dependent.md) | S3 | OPEN | — |
 | [`nested-backtick-template-interpolates-the-injected-import.md`](./nested-backtick-template-interpolates-the-injected-import.md) | S2 | OPEN — valid source is rejected, and the diag | — |
 | [`template-string-backslash-before-interpolation-eats-both.md`](./template-string-backslash-before-interpolation-eats-both.md) | S1 | — | — |
 | [`test-runner-std-path-shadowed-by-binary-tree-std.md`](./test-runner-std-path-shadowed-by-binary-tree-std.md) | S2 | — | — |
+| [`yo-doc-document-private-is-a-no-op.md`](./yo-doc-document-private-is-a-no-op.md) | S3 | open | — |
 | [`yo-doc-name-flag-documented-but-the-cli-has-no-such-flag.md`](./yo-doc-name-flag-documented-but-the-cli-has-no-such-flag.md) | S3 | — | — |
 | [`yo-doc-type-function-entries-omit-variants-and-trait-methods.md`](./yo-doc-type-function-entries-omit-variants-and-trait-methods.md) | S3 | — | — |
-| [`yo-doc-without-std-path-silently-emits-token-only-docs.md`](./yo-doc-without-std-path-silently-emits-token-only-docs.md) | S3 | open | — |
 | [`yo-fmt-walks-gitignored-generated-files.md`](./yo-fmt-walks-gitignored-generated-files.md) | S3 | — | — |
 
 ### Self-hosting legacy (10)
@@ -322,7 +315,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | --- | --- | --- | --- |
 | [`a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md`](./a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md) | S3 | — | — |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
-| [`a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`](./a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md) | S3 | OPEN | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
@@ -334,20 +326,20 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`](./a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md) | S1 | — | — |
 | [`a-wrong-cli-golden-reached-develop-between-two-gates.md`](./a-wrong-cli-golden-reached-develop-between-two-gates.md) | S3 | OPEN | — |
 | [`an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`](./an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md) | S1 | — | — |
+| [`an-effect-handler-local-moved-out-after-a-conditional-unwind-leaks.md`](./an-effect-handler-local-moved-out-after-a-conditional-unwind-leaks.md) | S3 | — | — |
 | [`an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`](./an-inherent-associated-constant-does-not-resolve-as-an-array-length.md) | S2 | OPEN | — |
 | [`an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md`](./an-integer-literal-on-the-left-of-a-runtime-operand-is-rejected.md) | S2 | OPEN | yes |
 | [`an-io-async-state-machine-declares-dead-fields-for-a-nested-closure-parameter.md`](./an-io-async-state-machine-declares-dead-fields-for-a-nested-closure-parameter.md) | S3 | — | — |
 | [`an-io-await-with-the-wrong-effect-bundle-passes-check.md`](./an-io-await-with-the-wrong-effect-bundle-passes-check.md) | S3 | — | — |
 | [`an-owning-join-handle-costs-an-allocation-per-spawn.md`](./an-owning-join-handle-costs-an-allocation-per-spawn.md) | S3 | — | — |
 | [`arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md`](./arraylist-get-last-over-a-user-struct-element-mistypes-the-result.md) | S3 | — | yes |
+| [`backslash-then-interpolation-in-a-template-is-not-interpolated.md`](./backslash-then-interpolation-in-a-template-is-not-interpolated.md) | S3 | OPEN (one of the two affected sites was fixed | — |
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
-| [`check-std-in-a-checkout-evaluates-two-copies-of-std.md`](./check-std-in-a-checkout-evaluates-two-copies-of-std.md) | S3 | — | — |
+| [`canonicalize-throw-inside-io-async-corrupts-the-heap-on-windows.md`](./canonicalize-throw-inside-io-async-corrupts-the-heap-on-windows.md) | S2 | OPEN | — |
 | [`check-summarizes-every-function-body-eagerly-at-module-end.md`](./check-summarizes-every-function-body-eagerly-at-module-end.md) | S3 | — | — |
 | [`dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md`](./dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md) | S3 | OPEN (filed 2026-10-06, surfaced while fixing | — |
 | [`enum-type-arguments-made-check-about-4-percent-slower.md`](./enum-type-arguments-made-check-about-4-percent-slower.md) | S3 | — | — |
-| [`explain-registry-e13xx-e15xx-bands-unallocated.md`](./explain-registry-e13xx-e15xx-bands-unallocated.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
-| [`init-agentsmd-template-omits-the-verify-recipe.md`](./init-agentsmd-template-omits-the-verify-recipe.md) | S3 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
 | [`local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`](./local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md) | S2 | OPEN | — |
 | [`lsp-document-symbol-misses-runtime-and-thread-local-declarations.md`](./lsp-document-symbol-misses-runtime-and-thread-local-declarations.md) | S3 | — | — |
@@ -359,17 +351,18 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md`](./lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md) | S3 | — | — |
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
-| [`parser-internal-tests-report-a-40-byte-lsan-leak-locally.md`](./parser-internal-tests-report-a-40-byte-lsan-leak-locally.md) | S3 | — | — |
-| [`prelude-methods-have-no-visibility-owner.md`](./prelude-methods-have-no-visibility-owner.md) | S3 | OPEN | — |
 | [`runtime-str-plus-str-passes-check-and-fails-compile.md`](./runtime-str-plus-str-passes-check-and-fails-compile.md) | S2 | — | — |
-| [`tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`](./tasks-still-pending-or-queued-at-thread-exit-are-never-released.md) | S3 | — | — |
+| [`static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md`](./static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md) | S3 | OPEN | — |
 | [`verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md`](./verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md) | S3 | — | — |
 | [`verify-prints-z3-error-lines-under-an-unproven-obligation.md`](./verify-prints-z3-error-lines-under-an-unproven-obligation.md) | S3 | — | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |
+| [`while-with-an-operator-condition-as-tail-of-a-unit-fn-is-rejected.md`](./while-with-an-operator-condition-as-tail-of-a-unit-fn-is-rejected.md) | S3 | — | — |
+| [`windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md`](./windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md) | S3 | OPEN (split out of `issues/fixed/windows-imag | — |
 | [`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`](./windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md) | S1 | — | — |
 | [`windows-process-handle-list-is-an-unlocked-process-global.md`](./windows-process-handle-list-is-an-unlocked-process-global.md) | S1 | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | S1 | OPEN | — |
 | [`yo-context-describe-views-duplicate-byte-identical-rows.md`](./yo-context-describe-views-duplicate-byte-identical-rows.md) | S3 | — | — |
 | [`yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md`](./yo-names-with-a-leading-underscore-are-emitted-bare-and-can-hit-header-macros.md) | S3 | OPEN | — |
+| [`yo-test-asan-probe-leaves-its-probe-c-when-the-cc-spawn-fails.md`](./yo-test-asan-probe-leaves-its-probe-c-when-the-cc-spawn-fails.md) | S3 | OPEN | — |
 | [`yo-test-silently-drops-all-but-the-last-path.md`](./yo-test-silently-drops-all-but-the-last-path.md) | S2 | — | — |

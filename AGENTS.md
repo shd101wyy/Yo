@@ -105,7 +105,7 @@ The compiler is the `yo` binary on your PATH (install with `scripts/install.sh`;
 ```bash
 yo build --std-path ./std     # build the compiler → yo-out/<target>/bin/yo. --std-path is LOAD-BEARING: without it the seed compiles its own std, so a std change the seed cannot lower passes locally and breaks CI (#996)
 yo check ./src --std-path ./std   # type-check the whole compiler tree (evaluator-only) — run this FIRST. --std-path matters: an installed yo otherwise resolves `std` to its BUNDLED copy, so src using a std export newer than the seed fails (`No member "pid"`, measured 2026-10-04 with v0.2.50)
-yo check ./std --std-path ./std   # --std-path matters: without it an installed yo imports its BUNDLED std beside the checked ./std (22 false failures, issues/check-std-in-a-checkout-evaluates-two-copies-of-std.md). No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
+yo check ./std --std-path ./std   # the flag is optional for a compiler carrying the entry-side fix (a seed older than that fix still imports its BUNDLED std beside ./std; every entry inside one std tree makes check/test/compile/fix/verify/effects/doc resolve THAT tree, issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md); keeping it spelled out pins the root explicitly. No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
 yo compile src/main.yo --skip-c-compiler   # ~3 min; catches the one async rule `check` cannot see (a hollow `io.async` body, E0905, fires in codegen)
 
 # Incremental loop: keep ONE resident checker alive instead of re-running the ~105 s cold `check ./src`.
@@ -250,7 +250,7 @@ Three views of one rule: the only question is "does the battery I am about to tr
   ```
 
   Empty ⇒ the battery gates the tip. Non-empty ⇒ wait for a battery on the new tip.
-- A `cancelled` PR run with no newer run on that branch means the PR has no verdict: `gh run rerun <id>`. A PR with `mergeable=CONFLICTING` gets no runs at all: rebase and force-push. Branch protection's required-check list is manual: add every new CI job by hand.
+- A `cancelled` PR run with no newer run on that branch means the PR has no verdict: `gh run rerun <id>`. A PR with `mergeable=CONFLICTING` gets no runs at all: rebase and force-push. The ruleset's ONE required check is the `merge-gate` job (`Merge gate (all checks)`, since 2026-10-06): it always runs — skipped dependencies satisfy it (the docs-only fast path), failed or cancelled ones fail it — so nothing merges while any check is pending. Strict ("require branches up to date") is OFF by the maintainer's decision (2026-10-06): a PR green on its own head may merge while behind develop, and the combination is scored by develop's own battery after the merge — the pre-release battery-head diff below is the guard that matters. Add every new CI job to merge-gate's `needs:` list in `test.yml` (an in-file, reviewable edit), not to the ruleset.
 
 ### Release notes: one curation pass per release, right after it publishes
 

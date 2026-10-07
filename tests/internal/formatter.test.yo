@@ -46,6 +46,89 @@ test("format_yo_source: idempotent on nested calls and match", {
   assert(once == twice, "nested form idempotent");
 });
 // ---------------------------------------------------------------------------
+// Comma-break frame ownership (issues/fixed/fmt-not-idempotent-call-wrapped-
+// match-in-block.md): the main-loop comma handler used to break at the
+// enclosing multiline inline curly's / multiline bracket's indent for ANY
+// comma lexically inside it — including commas nested inside a call paren
+// that itself spans one row. That break is emitted before the paren's own
+// multiline machinery has bumped the indent, so pass 1 under-indents and
+// only pass 2 reaches the fixed point: `yo fmt f.yo && yo fmt --check f.yo`
+// failed. A comma nested below the frame's own paren/bracket/curly depth
+// must defer to the paren machinery (stay on the row when the paren is
+// single-row).
+// ---------------------------------------------------------------------------
+test("fmt comma frames: call-wrapped match in a block body is a one-pass fixed point", {
+  src := String.from(
+    "pick :: (fn(xs : ArrayList(i32)) -> i32)({\n  i32(match(xs.get(usize(0)), .Some(a) => a, .None => i32(0)))\n});\nexport(pick);\n"
+  );
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "one pass reaches the fixed point");
+  assert(
+    once.contains(String.from("  i32(match(xs.get(usize(0)), .Some(a) => a, .None => i32(0)))")),
+    "the single-row call stays on one row inside the block"
+  );
+});
+test("fmt comma frames: bare match statement in a block body is a one-pass fixed point", {
+  src := String.from(
+    "pick :: (fn(xs : ArrayList(i32)) -> i32)({\n  match(xs.get(usize(0)), .Some(a) => a, .None => i32(0))\n});\nexport(pick);\n"
+  );
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "one pass reaches the fixed point");
+});
+test("fmt comma frames: cond in a block body is a one-pass fixed point", {
+  src := String.from(
+    "flag :: (fn(xs : ArrayList(i32)) -> i32)({\n  cond((xs.len() == usize(0)) => i32(0), true => i32(1))\n});\nexport(flag);\n"
+  );
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "one pass reaches the fixed point");
+});
+test("fmt comma frames: single-row calls inside a multiline array stay whole", {
+  src := String.from(
+    "add :: (fn(a : i32, b : i32) -> i32)((a + b));\nmain :: (fn() -> unit)({\n  xs := [\n    add(i32(1), i32(2)),\n    add(i32(3), i32(4))\n  ];\n});\nexport(main);\n"
+  );
+  once := _fmt(src.clone());
+  twice := _fmt(once.clone());
+  assert(once == twice, "one pass reaches the fixed point");
+  assert(once.contains(String.from("    add(i32(1), i32(2)),")), "the single-row call is not exploded");
+});
+// The two load-bearing break cases the frame gate must PRESERVE: commas
+// directly at the multiline frame's own depth (bracket elements, struct
+// fields) still break, and a comma inside an ALREADY-multiline paren still
+// breaks (now via the paren arm) — both are already fixed points.
+test("fmt comma frames: multiline call inside a multiline array is unchanged", {
+  src := String.from(
+    "add :: (fn(a : i32, b : i32) -> i32)((a + b));\nmain :: (fn() -> unit)({\n  xs := [\n    add(\n      i32(1),\n      i32(2)\n    )\n  ];\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(out == src, "canonical exploded form is stable");
+});
+test("fmt comma frames: struct-literal field commas at the curly's own depth still break", {
+  src := String.from(
+    "P :: struct(x : i32, y : i32);\nmain :: (fn() -> unit)({\n  p := {\n    x : i32(1),\n    y : i32(2)\n  };\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(out == src, "per-field breaks at the curly's own depth are stable");
+});
+// A call's block-argument curly whose only content is a single nested call
+// statement is inline-eligible (the statement's `;` sits inside the call's
+// parens, so the curly has no top-level semicolon). The old comma handler
+// broke the INNER call's argument comma at that curly's level — a stable but
+// style-inconsistent `f(x,\n{` split that only appeared when the inner call
+// itself sat inside another call's block argument
+// (src/evaluator/values/impl.yo carried four such spots). The frame gate
+// joins them to the dominant `f(x, {` spelling.
+test("fmt comma frames: a call block-arg comma nested in another block arg joins", {
+  src := String.from(
+    "main :: (fn() -> unit)({\n  if(a(), {\n    if(b(),\n    {\n      x := 1;\n    });\n  });\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("if(b(), {")), "the inner block-arg comma joins like every statement-level one");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+// ---------------------------------------------------------------------------
 // Fixture corpus — the 46 (input → expected) pairs script-extracted VERBATIM
 // from src/tests/formatter.test.ts (P2.4). Each .input is deliberately
 // NON-canonical source (the suffix is not .yo so GATE 6's `fmt --check
@@ -286,14 +369,21 @@ test("fmt elision: parenthesized dot-deref sugar still canonicalizes", {
   assert(out.contains(String.from("a.* == 99")), "a.(*) canonicalizes to a.*");
   assert(out.contains(String.from("c.*.count")), "c.(*).count canonicalizes to c.*.count");
 });
-test("fmt elision: quote argument with macro splices keeps its group (gate-conservative)", {
+test("fmt elision: quote argument with macro splices unwraps, splices stay tight", {
+  // The group around the whole `==` argument of `quote(...)` is a plain
+  // redundant call argument (`f((a + b))` → `f(a + b)`, D1). It used to
+  // SURVIVE only because eliding the splice's own call paren (`#(field)` →
+  // `#field`) broke the re-parse gate and turned elision off file-wide —
+  // the fallback, not a decision about this group. With the splice call
+  // parens protected (is_non_prefix_operator_call_paren), the gate proves
+  // the unwrapped tree equal and the canonical form wins.
   src := String.from(
     "main :: (fn() -> unit)({\n  expr := quote((lhs.(#(field)) == rhs.(#(field))));\n});\nexport(main);\n"
   );
   out := _fmt(src.clone());
   assert(
-    out.contains(String.from("quote((lhs.(#(field)) == rhs.(#(field))))")),
-    "exprs_are_equal cannot prove splice trees equal — the group stays"
+    out.contains(String.from("quote(lhs.(#(field)) == rhs.(#(field)))")),
+    "the redundant argument group elides; the splice call parens stay tight"
   );
   assert(_fmt(out.clone()) == out, "and that is a fixed point");
 });
@@ -379,6 +469,87 @@ test("fmt D4: multi-arg and infix-operand funcs keep their call parens", {
   // via the pre-existing rules (same output the seed produced), and the
   // operator keeps its call paren.
   assert(out.contains(String.from("*(a + b)(y)")), "non-atom operand is not canonicalized by D4");
+});
+// ---------------------------------------------------------------------------
+// Non-prefix-capable operator CALL parens (issues/fixed/fmt-pointer-type-
+// paren-verdict-is-context-dependent.md): `...`, `#`, and `...#` have no
+// bare prefix form (PREFIX_OPERATOR_OPERAND_RULE.md Rule 1 lists only
+// `- ! ~ & * ? ^`), so their ONLY operand grammar is the tight call
+// `op(operand)`. D1's "an atom-like operand needs no parens after ANY
+// operator" used to elide that call paren (`...(quote(entries))` →
+// `...quote(entries)`), which does not re-parse (E0008) — the verify gate
+// then disabled paren elision FILE-WIDE, so the byte-identical
+// `Item : *(MapEntry(K, V))` spelling passed `fmt --check` in
+// hash_map.yo (whose trailing spread-rest macro tripped the gate) and was
+// rewritten in every file without one.
+// ---------------------------------------------------------------------------
+test("fmt elision: spread-rest call paren stays and does not disable file-wide elision", {
+  src := String.from("m :: (fn(...(quote(entries))) -> unquote(Expr))(());\nT :: ?(*(i32));\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("...(quote(entries))")),
+    "the spread operator's call paren is load-bearing — ...x does not parse"
+  );
+  assert(out.contains(String.from("T :: ?*i32;")), "elision still runs in the rest of the file");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision: unquote splice call paren stays and does not disable file-wide elision", {
+  src := String.from("m :: (fn(x : Expr) -> Expr)(quote((#(x))));\nprobe :: ((1 + 2) + 3);\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("#(x)")),
+    "the unquote operator's call paren is load-bearing — #x does not parse"
+  );
+  assert(
+    out.contains(String.from("probe :: (1 + 2 + 3);")),
+    "elision still runs in the rest of the file"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision: unquote-splicing call paren stays and does not disable file-wide elision", {
+  src := String.from("m :: (fn(rest : Expr) -> Expr)(quote((...#(rest))));\nprobe :: ((1 + 2) + 3);\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("...#(rest)")),
+    "the splice operator's call paren is load-bearing — ...#rest does not parse"
+  );
+  assert(
+    out.contains(String.from("probe :: (1 + 2 + 3);")),
+    "elision still runs in the rest of the file"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision: barrel export spread call paren stays", {
+  src := String.from("export(...(_command));\nprobe :: ((1 + 2) + 3);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("...(_command)")), "the barrel spread's call paren stays");
+  assert(
+    out.contains(String.from("probe :: (1 + 2 + 3);")),
+    "elision still runs in the rest of the file"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision: pointer-type paren verdict is context-independent", {
+  // The filed divergence: `Item : *(MapEntry(K, V))` canonicalizes in a
+  // plain file but survived verbatim in hash_map.yo, whose trailing
+  // `fn(...(quote(entries)))` macro used to trip the verify gate and turn
+  // elision off for the WHOLE file. Both spellings must now agree.
+  plain := String.from("Iter :: struct(Item : *(MapEntry(K, V)));\n");
+  with_macro := String.from(
+    "m :: (fn(...(quote(entries))) -> unquote(Expr))(());\nIter :: struct(Item : *(MapEntry(K, V)));\n"
+  );
+  out_plain := _fmt(plain.clone());
+  out_with_macro := _fmt(with_macro.clone());
+  assert(
+    out_plain.contains(String.from("Item : *MapEntry(K, V)")),
+    "standalone: the pointer-type paren elides"
+  );
+  assert(
+    out_with_macro.contains(String.from("Item : *MapEntry(K, V)")),
+    "with a spread-rest macro in the file: the same verdict"
+  );
+  assert(_fmt(out_plain.clone()) == out_plain, "idempotent");
+  assert(_fmt(out_with_macro.clone()) == out_with_macro, "idempotent");
 });
 test("format_yo_source: idempotent when a trailing nested match is forced multiline", {
   // issues/fixed/fmt-hugs-a-trailing-nested-match-then-expands-it-on-the-next-pass.md:

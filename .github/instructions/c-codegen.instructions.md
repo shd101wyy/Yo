@@ -135,6 +135,20 @@ fallback block is the one sanctioned place a literal may appear, and it is
 what lets BOTH the runtime's comparison and the Yo call site's macro reference
 resolve in one translation unit.
 
+**Windows reparse-point structs: spell them as the kernel writes them, not as
+the MSDN prose suggests.** `REPARSE_DATA_BUFFER` lives only in the driver-kit
+`<ntifs.h>`, so runtime code must define it: `DWORD ReparseTag; USHORT
+ReparseDataLength; USHORT Reserved;` then the name block at offset **8** —
+`ReparseDataLength` is a USHORT, and the commonly-quoted `DWORD` spelling
+shifts every name offset by 2 and makes the substitute name overrun the
+buffer (measured 2026-10-03 on a `mklink /J` junction AND a system junction:
+`ReparseDataLength == bytes - 8`). The symlink variant (`IO_REPARSE_TAG_SYMLINK`)
+carries a `ULONG Flags` between the four name ushorts and `PathBuffer`; the
+mount-point variant does not — compute `PathBuffer`'s base per tag. Winsock
+errors never reach `errno`: every socket-error site must translate
+(`__yo_wsa_to_errno` in `runtime_io_windows.yo`) or `IoError.from_errno`
+reports "unknown I/O error (os error 10048)"-style noise.
+
 ## Spelling a Yo name in C: `__yo_v_` (src/codegen/utils/index.yo)
 
 Every Yo-derived LOCAL, PARAMETER, FIELD and enum VARIANT payload member is
@@ -191,9 +205,22 @@ Each OS thread has its own **single-threaded event loop**. Within a single threa
 **Implications for runtime code:**
 
 - Do **not** add mutexes, atomics, or other synchronization to async runtime variables (e.g., `__yo_pending_io_count`, timer lists, future state). They are `_Thread_local` and only accessed from their owning thread's event loop.
-- All per-thread event loop state must be declared `_Thread_local` (or `__declspec(thread)` on Windows): `__yo_pending_io_count`, `__yo_active_watch_count`, `__yo_io_initialized`, `__yo_async_scheduler_initialized`, the I/O backend handle (`__yo_io_ring`, `__yo_io_kq`, `__yo_io_iocp`), and linked lists like `__yo_active_fs_events`, `__yo_active_polls`, `__yo_win_timer_head`.
+- All per-thread event loop state must be declared `_Thread_local` (or `__declspec(thread)` on Windows): `__yo_pending_io_count`, `__yo_active_watch_count`, `__yo_io_initialized`, `__yo_async_scheduler_initialized`, the I/O backend handle (`__yo_io_ring`, `__yo_kq`, `__yo_io_iocp`), and linked lists like `__yo_active_fs_events`, `__yo_active_polls`, `__yo_win_timer_head`.
 - Process-global state (signal handlers, WSA init, TTY/console settings, umask) stays `static` — it is shared across all threads.
 - The **parallelism** runtime (`src/codegen/parallelism/`) is a separate concern with actual multi-threading — do not confuse it with async/await.
+- **A task still pending or queued at thread exit is released by
+  `__yo_async_thread_exit_release`** (the hook `__yo_async_arm_thread_exit`
+  installs): every backend teardown first aborts the tasks parked on its
+  pending futures (`__yo_io_teardown_abort_waiters` — aborts the waiter
+  through its ordinary path, then fails a still-pending future so the aborted
+  task is enqueued), and the hook then drains the ready queue by running each
+  task's aborted-entry guard — never its body. A new backend teardown that
+  strands a pending future must call the helper first (walk a SNAPSHOT of the
+  futures: the abort can cancel and free registrations out from under the
+  walk). The full-GC runtime's `__yo_cleanup_thread_gc` calls the hook
+  BEFORE its dispose/free passes — releasing tasks after them would drop
+  captures the GC already freed — so keep that ordering if you touch either
+  (`issues/fixed/tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`).
 
 ## The single-pass async lowering (`io.async` state machines)
 
@@ -526,6 +553,8 @@ When you find a test that causes a C codegen bug, don't weaken the test. Create 
 ## Reference counting
 
 `src/evaluator/exprs/begin.yo` performs reference counting optimization that cancels out dup/drop pairs when possible.
+
+A VALUE literal with RC-typed fields that is passed straight to a call — a tuple `(i32(1), list)`, an array literal, a struct constructor — must carry an OWNING RESULT TEMP (`attach_temp_variable_to_expr` in its evaluator path): the callee stores its OWN dup of each RC field (std assignment semantics: `dst.* = src.*` dups) and never consumes the argument, so the CALLER's scope-end drop of the temp is the balancing release. A literal path that skips the attach (the tuple path's attach was a no-op stub until 2026-10-03) leaks one reference per RC field per call, visible only under LeakSanitizer or a fixed-heap loop (`issues/fixed/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`).
 
 For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`.
 

@@ -1178,13 +1178,19 @@ static size_t __yo_gc_tracked_count() {
   em.emit_string_line(
     `// Clean up thread-local GC state
 static void __yo_cleanup_thread_gc() {
+  // The async runtime's thread-exit release runs FIRST, while every value a
+  // task still queued or parked holds is alive: the dispose passes below free
+  // tracked objects regardless of reference count, so releasing those tasks
+  // after them would drop captures the GC already freed. A continuation a
+  // dispose below enqueues afterwards is left to leak its node (the
+  // pre-existing shape) rather than touch freed memory.
+  if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook();
   __yo_mutex_lock(&__yo_thread_list_mutex);
 
   __yo_thread_gc_state_t* my_gc_state = __yo_current_thread_gc;
 
   if (my_gc_state == NULL) {
     __yo_mutex_unlock(&__yo_thread_list_mutex);
-    if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook();
     return;
   }
 
@@ -1232,10 +1238,6 @@ static void __yo_cleanup_thread_gc() {
 
   __yo_free(my_gc_state);
   __yo_current_thread_gc = NULL;
-  // The async runtime's per-thread pools (the continuation free list) die with
-  // the thread. Last, because disposing a tracked future above can still
-  // enqueue a continuation.
-  if (__yo_async_thread_exit_hook) __yo_async_thread_exit_hook();
 }`
   );
   // Process cleanup (inner Windows/POSIX branch for the cleanup-key teardown).
