@@ -42,6 +42,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [Trait 方法消歧义](#trait-方法消歧义)
   - [使用 `_` 进行偏应用（Partial Application）](#使用-_-进行偏应用partial-application)
   - [类型方法](#类型方法)
+    - [通过类型调用方法](#通过类型调用方法)
     - [关联常量](#关联常量)
   - [私有成员](#私有成员)
   - [recur](#recur)
@@ -944,6 +945,31 @@ impl(
 
 p := Point(x : 3, y : 4);
 p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
+```
+
+#### 通过类型调用方法
+
+方法也可以在它的类型上调用，此时接收者作为第一个实参：`Point.distance_from_origin(p)` 就是 `p.distance_from_origin()`。泛型类型也可以这样调用，既可以写出类型实参（`Box(i32).clone(b)`），也可以省略（`Box.clone(b)`）。省略时，类型实参从第一个实参推断，而它本身必须是该类型构造器的一个实例，就像 Rust 推断 `Rc::clone(&w)` 的 `T` 一样。这对任何泛型 struct 或 enum 都适用，不限于 prelude 的包装类型。
+
+静态方法（没有 `self` 的方法）没有可供推断的接收者，所以必须写出类型实参：`Pair(i32, bool).make(...)`。调用结果被期望的类型也不会提供它们。在这种情况下省略类型实参，或者第一个实参不是该构造器的实例，都会报 E0613，错误信息会给出该实参的类型。
+
+接收者可以像其他实参一样带标签（`Pair.first(self : p)`），构造器也可以带模块限定（`m.Pair.first(p)`）。匹配依据的是构造器的身份，所以函数体应用了另一个构造器的构造器是一个独立的构造器：对于别名 `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` 或偏应用 `Pair(i32, _)`，以 `IntPair(u8)` 构造的值是 `Pair(i32, u8)`，`Pair.first(q)` 和 `IntPair(u8).first(q)` 都接受它，而 `IntPair.first(q)` 会报 E0613。
+
+```rust
+Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(a : A, b : B)
+);
+impl(
+  generic(A : Type, B : Type),
+  Pair(A, B),
+  first : (fn(self : Self) -> A)(self.a),
+  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b))
+);
+
+p := Pair(i32, bool).make(i32(1), true); // 静态方法：写出类型实参
+a := Pair.first(p);                      // 从 `p` 推断 A := i32、B := bool
+w := rc(i32(5));
+c := Rc.clone(w);                        // 即 Rc(i32).clone(w)
 ```
 
 #### 关联常量
@@ -3226,6 +3252,8 @@ perform :: (
 ### `Dyn` 和 `dyn`
 
 使用 `Dyn` 定义动态分发类型，该类型可以持有任何实现了指定 trait 的对象。使用 `dyn()` 函数从对象创建 `Dyn` 实例。
+
+`dyn(v)` 所在的位置必须能指明要构造哪一个 `Dyn(...)` —— `Dyn(...)` 类型的参数、带标注的绑定 `(x : Dyn(Trait)) = dyn(v)`、声明的返回类型、结构体字段或集合元素槽位。在没有这类期望类型的位置直接写裸 `dyn(v)`（例如 `downcast(dyn(v), T)` 的第一个参数 —— 它接受任意 `Dyn`）是编译错误：`cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`。
 
 Yo 中的 `Dyn` 类型是引用计数的，与其他引用语义类型一样，它们通过 trait 对象实现动态分发。闭包同样如此：`Dyn(Fn(...))` 闭包会被装箱到堆上并进行引用计数，而 `Impl(Fn(...))` 形式则被单态化、按值传递，自身不带引用计数。
 

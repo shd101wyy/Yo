@@ -1439,6 +1439,51 @@ is_callee_prefix_call_paren :: (
     }
   )
 );
+/// True iff the `(` at `left_index` is the CALL delimiter of a
+/// NON-prefix-capable operator in prefix position — `...(entries)`,
+/// `#(field)`, `...#(exprs)`. Those operators have no bare prefix form
+/// (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1 lists only
+/// `- ! ~ & * ? ^`), so the tight call is their ONLY operand grammar:
+/// eliding the paren yields `op operand`, which the parser rejects (E0008,
+/// `paren-less function and operator calls are not supported`). Until this
+/// predicate existed, D1's "an atom-like operand needs no parens after ANY
+/// operator" elided it, the re-parse verify gate failed, and paren elision
+/// was disabled FILE-WIDE — the byte-identical `Item : *(MapEntry(K, V))`
+/// spelling then passed `fmt --check` in hash_map.yo (whose trailing
+/// spread-rest macro tripped the gate) and was rewritten everywhere else
+/// (issues/fixed/fmt-pointer-type-paren-verdict-is-context-dependent.md).
+/// Prefix position is judged exactly like `prefix_call_paren_shape`: an
+/// rvalue-end before the operator makes it the infix spelling (`a + (y)` is
+/// a plain RHS group and D1 elision still applies there). Adjacency is not
+/// required — a spaced `op (x)` does not parse in the first place
+/// (`whitespace before '(' is not allowed`), so it never reaches elision.
+is_non_prefix_operator_call_paren :: (
+  fn(tokens : ArrayList(Token), left_index : usize) -> bool
+)(
+  match(
+    previous_meaningful_token_index(tokens, left_index),
+    .None => false,
+    .Some(oi) =>
+      match(
+        tokens.get(oi),
+        .None => false,
+        .Some(op) => cond(
+          ((op.kind != TokenKind.Operator) || is_prefix_capable_operator(op)) => false,
+          true => {
+            // Prefix position: an rvalue-end before the operator makes it
+            // the infix spelling (`a + (y)`), where the group is the
+            // operator's RHS operand, not its call.
+            before_op := match(
+              previous_meaningful_token_index(tokens, oi),
+              .Some(bi) => tokens.get(bi),
+              .None => Option(Token).None
+            );
+            !paren_is_call_delimiter(before_op)
+          }
+        )
+      )
+  )
+);
 /// True iff the paren range is a redundant grouping paren (e.g.
 /// `(x)` around a single sub-expression that doesn't need protection).
 is_redundant_grouping_paren :: (
@@ -1457,14 +1502,18 @@ is_redundant_grouping_paren :: (
         true => {
           shape := classify_group_content(tokens, left_index, right_index);
           // Operator predecessor: an atom-like group (`(x)`, `(-x)`,
-          // `(f(x))`) is a removable operand after ANY operator — all
-          // operators are plain and an atom-like operand needs no parens
-          // (plans/archive/FMT_PAREN_ELISION.md D1). A group holding an infix chain
-          // is load-bearing (R1/R2/R3) and stays. One exception: after a
-          // prefix-capable operator, a group around a non-atom-like group
-          // (`-((1 + 2))`) defers to the INNER elision so the `-(` call
-          // spelling survives rendering (adjacent or spaced alike — the
-          // spaced spelling stays conservative the same way).
+          // `(f(x))`) is a removable operand after ANY operator in INFIX
+          // position — all operators are plain and an atom-like operand
+          // needs no parens (plans/archive/FMT_PAREN_ELISION.md D1). A group
+          // holding an infix chain is load-bearing (R1/R2/R3) and stays.
+          // Two exceptions: after a prefix-capable operator, a group around
+          // a non-atom-like group (`-((1 + 2))`) defers to the INNER elision
+          // so the `-(` call spelling survives rendering (adjacent or spaced
+          // alike — the spaced spelling stays conservative the same way);
+          // and a NON-prefix-capable operator in prefix position (`...`,
+          // `#`, `...#`) takes its operand only as the tight call
+          // `op(operand)`, so its `(` is a call delimiter, never a removable
+          // group.
           prev_prefix_defers_to_inner := match(
             previous,
             .None => false,
@@ -1477,8 +1526,10 @@ is_redundant_grouping_paren :: (
             previous,
             .None => false,
             .Some(p) => (
-              ((p.kind == TokenKind.Operator) && !shape.atom_like) ||
-                prev_prefix_defers_to_inner
+              ((p.kind == TokenKind.Operator) && !shape.atom_like) || (
+                prev_prefix_defers_to_inner ||
+                  is_non_prefix_operator_call_paren(tokens, left_index)
+              )
             )
           );
           cond(
@@ -2332,6 +2383,18 @@ _format_yo_source_impl :: (
       continuation_paren := ArrayList(usize).new();
       continuation_bracket := ArrayList(usize).new();
       continuation_curly := ArrayList(usize).new();
+      // Frame depths, parallel to bracket_stack_multiline /
+      // curly_stack_inline + curly_stack_multiline: the paren/bracket/curly
+      // depth at which each open bracket/curly frame OPENED. The comma
+      // handler compares them against the live depths to decide whether a
+      // comma sits DIRECTLY at a multiline frame's own level (that frame
+      // owns the break) or is nested inside a deeper delimiter (the inner
+      // frame owns it) — the same discipline find_inline_curly_indices
+      // applies to semicolons.
+      bracket_stack_paren_depths := ArrayList(usize).new();
+      bracket_stack_curly_depths := ArrayList(usize).new();
+      curly_stack_paren_depths := ArrayList(usize).new();
+      curly_stack_bracket_depths := ArrayList(usize).new();
       // ---------------------------------------------------------------
       // Main loop.
       // ---------------------------------------------------------------
@@ -2518,6 +2581,8 @@ _format_yo_source_impl :: (
                         is_multiline := multiline_inline_curly_indices.contains(index);
                         curly_stack_inline.push(true);
                         curly_stack_multiline.push(is_multiline);
+                        curly_stack_paren_depths.push(paren_depth);
+                        curly_stack_bracket_depths.push(bracket_depth);
                         curly_depth = (curly_depth + usize(1));
                         inline_curly_depth = (inline_curly_depth + usize(1));
                         cond(
@@ -2563,6 +2628,8 @@ _format_yo_source_impl :: (
                       true => {
                         curly_stack_inline.push(false);
                         curly_stack_multiline.push(false);
+                        curly_stack_paren_depths.push(paren_depth);
+                        curly_stack_bracket_depths.push(bracket_depth);
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
@@ -2595,6 +2662,8 @@ _format_yo_source_impl :: (
                     if(curly_stack_inline.len() > usize(0), {
                       _p1 := curly_stack_inline.pop();
                       _p2 := curly_stack_multiline.pop();
+                      _p3 := curly_stack_paren_depths.pop();
+                      _p4 := curly_stack_bracket_depths.pop();
                     });
                     cond(
                       cur_inline => {
@@ -2698,6 +2767,8 @@ _format_yo_source_impl :: (
                   (token.kind == TokenKind.LBracket) => {
                     is_multiline := multiline_bracket_indices.contains(index);
                     bracket_stack_multiline.push(is_multiline);
+                    bracket_stack_paren_depths.push(paren_depth);
+                    bracket_stack_curly_depths.push(curly_depth);
                     bracket_depth = (bracket_depth + usize(1));
                     if(at_line_start, {
                       (sp : usize) = usize(0);
@@ -2818,6 +2889,8 @@ _format_yo_source_impl :: (
                     );
                     if(bracket_stack_multiline.len() > usize(0), {
                       _p := bracket_stack_multiline.pop();
+                      _p1 := bracket_stack_paren_depths.pop();
+                      _p2 := bracket_stack_curly_depths.pop();
                     });
                     if(bracket_depth > usize(0), {
                       bracket_depth = (bracket_depth - usize(1));
@@ -2925,19 +2998,88 @@ _format_yo_source_impl :: (
                         (paren_stack_multiline.len() > usize(0)) => match(paren_stack_multiline.last(), .Some(x) => x, .None => false),
                         true => false
                       );
+                      // Frame ownership: does the comma sit DIRECTLY at the
+                      // innermost multiline bracket's / inline-multiline
+                      // curly's own level (no deeper delimiter opened since
+                      // that frame opened)? A comma nested deeper belongs to
+                      // the INNER frame: breaking it here emits at the outer
+                      // frame's indent before the inner multiline machinery
+                      // has bumped it, so pass 1 under-indents and only
+                      // pass 2 reaches the fixed point
+                      // (issues/fixed/fmt-not-idempotent-call-wrapped-match-in-block.md).
+                      bracket_frame_paren := cond(
+                        (bracket_stack_paren_depths.len() > usize(0)) => match(
+                          bracket_stack_paren_depths.last(),
+                          .Some(x) => x,
+                          .None => usize(0)
+                        ),
+                        true => usize(0)
+                      );
+                      bracket_frame_curly := cond(
+                        (bracket_stack_curly_depths.len() > usize(0)) => match(
+                          bracket_stack_curly_depths.last(),
+                          .Some(x) => x,
+                          .None => usize(0)
+                        ),
+                        true => usize(0)
+                      );
+                      comma_in_bracket_frame := (
+                        cur_bracket_ml &&
+                          ((paren_depth == bracket_frame_paren) && (curly_depth == bracket_frame_curly))
+                      );
+                      curly_frame_paren := cond(
+                        (curly_stack_paren_depths.len() > usize(0)) => match(
+                          curly_stack_paren_depths.last(),
+                          .Some(x) => x,
+                          .None => usize(0)
+                        ),
+                        true => usize(0)
+                      );
+                      curly_frame_bracket := cond(
+                        (curly_stack_bracket_depths.len() > usize(0)) => match(
+                          curly_stack_bracket_depths.last(),
+                          .Some(x) => x,
+                          .None => usize(0)
+                        ),
+                        true => usize(0)
+                      );
+                      comma_in_curly_frame := (
+                        cur_curly_inline && cur_curly_ml &&
+                          ((paren_depth == curly_frame_paren) && (bracket_depth == curly_frame_bracket))
+                      );
+                      comma_nested_below_frame := (
+                        (cur_bracket_ml && !comma_in_bracket_frame) ||
+                          (cur_curly_inline && cur_curly_ml && !comma_in_curly_frame)
+                      );
                       cond(
-                        cur_bracket_ml => {
+                        comma_in_bracket_frame => {
                           if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
-                        (cur_curly_inline && cur_curly_ml) => {
+                        comma_in_curly_frame => {
                           if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
+                        comma_nested_below_frame => cond(
+                          // The inner frame owns the break: only break when
+                          // the comma's own enclosing paren is multiline
+                          // (its indent was bumped when it opened).
+                          cur_paren_ml => {
+                            if(!result.ends_with(String.from("\n")), {
+                              result.push_str("\n");
+                            });
+                            at_line_start = true;
+                          },
+                          true => {
+                            if(!at_line_start && !result.ends_with(String.from(" ")), {
+                              result.push_str(" ");
+                            });
+                          }
+                        ),
                         ((bracket_stack_multiline.len() > usize(0)) || (cur_curly_inline && !cur_curly_ml)) => {
                           if(!at_line_start && !result.ends_with(String.from(" ")), {
                             result.push_str(" ");
@@ -3476,6 +3618,7 @@ export(
   previous_meaningful_token_index,
   is_left_same_operator_flatten_group,
   prefix_call_paren_shape,
+  is_non_prefix_operator_call_paren,
   is_elidable_prefix_call_paren,
   is_callee_prefix_call_paren,
   canonicalize_callee_prefix_calls,

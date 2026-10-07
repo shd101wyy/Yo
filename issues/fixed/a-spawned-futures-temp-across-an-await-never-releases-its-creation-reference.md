@@ -24,4 +24,4 @@ The future temp `work(e)` is a C local. Its escape-path drop, its scope-end drop
 
 Only a future temp that an `io.await` consumes stays out of its slot, because its ownership moves to `__yo_await_slot`. `compute_cross_boundary_variables` records those temps (`note_await_consumed_temp`, `src/codegen/async/state_machine_naming.yo`), and the store skips only them. Every other future temp is an owner like any temp: its slot is non-zero from creation, and its drops release it.
 
-Test in `tests/async/sm_ownership.test.yo`: "a spawned future's temp that crosses an await is released". The two `race` tests in `tests/async/while_await_in_match_arm.test.yo` now abort their losing tasks, and are leak-clean. The losers still pending at thread exit are `issues/tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`.
+Test in `tests/async/sm_ownership.test.yo`: "a spawned future's temp that crosses an await is released". The two `race` tests in `tests/async/while_await_in_match_arm.test.yo` now abort their losing tasks, and are leak-clean. The losers still pending at thread exit are `issues/fixed/tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`.

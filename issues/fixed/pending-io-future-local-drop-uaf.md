@@ -105,3 +105,10 @@ delivered. It checks that the socket still works, on every platform. Windows
 CI runs without a sanitizer (`--disable-sanitize`), so there a regression
 shows as a crash or a corrupted later allocation rather than an ASan report.
 The Linux and macOS legs run the same tests under ASan.
+
+## wasm fix (2026-10-05)
+
+"Every backend" above missed wasm: `runtime_io_wasm.yo`'s timer list still
+stored a bare pointer, and the case surfaced as a crash once the thread-exit
+release started draining the ready queue. The list now holds the same
+reference: `issues/fixed/the-wasm-timer-list-keeps-a-bare-pointer-to-a-dropped-sleep-future.md`.

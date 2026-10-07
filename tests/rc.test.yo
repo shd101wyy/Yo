@@ -436,6 +436,78 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
   assert(b(usize(1)) == i32(3), "b(1) should be 3");
   assert(ref_count(b) == 1, "ref_count(b) should be 1");
 });
+// Regression canary for the M3 early-return-drop attachment
+// (issues/yo-self-compile-performance-rc-string-eq.md, "UNSOUND idea" +
+// "Negative result 2026-10-04" sections): any future optimization of that
+// walk — a hoist, or a shortcut pruning on `Expr.$.controlFlow` — must keep
+// attaching a consumed local's drop at returns HIDDEN inside an `if`/`match`
+// arm whose block tail is a plain statement: a begin's control flow is
+// tail-position only, so such a block carries NO return flag and only a
+// genuine subtree walk finds the cleanup point. A missed attachment leaks the
+// still-initialized local on the early path (the counter falls short); an
+// over-attachment double-drops it (the caller then reads a freed object).
+(g_m3_hidden_disposed : i32) = i32(0);
+M3HiddenRet :: ref(struct(tag : i32));
+impl(
+  M3HiddenRet,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_m3_hidden_disposed = (g_m3_hidden_disposed + i32(1));
+    })
+  )
+);
+m3_consume :: (fn(own(v) : M3HiddenRet) -> i32)(v.tag);
+m3_hidden_if :: (fn(early : bool) -> i32)({
+  s := M3HiddenRet(tag : i32(11));
+  if(early, {
+    return(i32(0));
+  });
+  r := m3_consume(s);
+  r + i32(1)
+});
+m3_hidden_match :: (fn(k : i32) -> i32)({
+  s := M3HiddenRet(tag : i32(22));
+  match(
+    k,
+    0 => {
+      return(i32(7));
+    },
+    _ => ()
+  );
+  {
+    r := m3_consume(s);
+    r
+  }
+});
+m3_two_locals :: (fn(early : bool) -> i32)({
+  a := M3HiddenRet(tag : i32(33));
+  b := M3HiddenRet(tag : i32(44));
+  if(early, {
+    return(i32(0));
+  });
+  ra := m3_consume(a);
+  rb := m3_consume(b);
+  ra + rb
+});
+test("a moved-out local is dropped on a return hidden in an if or match arm", {
+  before := g_m3_hidden_disposed;
+  // Early path: the return precedes the move, so the attachment must release
+  // the still-initialized local exactly once per call.
+  assert(m3_hidden_if(true) == i32(0), "hidden-if early path returns 0");
+  assert((g_m3_hidden_disposed - before) == i32(1), "hidden-if early path disposed the local exactly once");
+  assert(m3_hidden_if(false) == i32(12), "hidden-if fallthrough returns tag + 1");
+  assert((g_m3_hidden_disposed - before) == i32(2), "hidden-if fallthrough disposed via the own-arg transfer");
+  assert(m3_hidden_match(0) == i32(7), "hidden-match early path returns 7");
+  assert((g_m3_hidden_disposed - before) == i32(3), "hidden-match early path disposed the local exactly once");
+  assert(m3_hidden_match(1) == i32(22), "hidden-match fallthrough returns the tag");
+  assert((g_m3_hidden_disposed - before) == i32(4), "hidden-match fallthrough disposed via the own-arg transfer");
+  // Two consumed locals in one block: the hoist attaches EACH variable against
+  // the collected cleanup nodes.
+  assert(m3_two_locals(true) == i32(0), "two-locals early path returns 0");
+  assert((g_m3_hidden_disposed - before) == i32(6), "both moved-out locals disposed on the hidden early path");
+  assert(m3_two_locals(false) == i32(77), "two-locals fallthrough returns 33 + 44");
+  assert((g_m3_hidden_disposed - before) == i32(8), "both locals disposed via their own-arg transfers");
+});
 // --- Inline `ref(enum)` payload-free variant construction ---
 // Regression for issues/fixed/ref-enum-unit-variant-inline-construction-leak.md.
 //
@@ -1798,4 +1870,98 @@ test("a newtype over an Option, a newtype or a tuple retains a field payload", {
     assert((o2_tag + n2.v.b.tag + p2.p.0.tag) == i32(24), "every copy reads its box");
   };
   assert(g_nt_disposed == (before + i32(3)), `each box released exactly once, got ${(g_nt_disposed - before).to_string()}`);
+});
+// Regression (issues/fixed/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md):
+// a tuple literal passed straight to a call (never bound to a name) owned a +1
+// per RC-typed element that nothing ever released. The callee stores its OWN
+// dup of each element (std assignment semantics: `dst.* = src.*` dups RC
+// fields), so the balancing release is the CALLER's drop of the tuple value —
+// which a call-result temp and a named binding both get, but an anonymous
+// tuple literal never did (attach_temp_variable_to_expr was a no-op stub in
+// evaluate_tuple_value, unlike the array-literal path). One reference per
+// push leaked, so a container inside a tuple inside a container was never
+// freed (48 B / 2 allocations per instance under LSan). The tuple literal now
+// gets an owning temp, so its scope-end drop releases the fields.
+(g_tuple_elem_disposed : i32) = i32(0);
+TupleElemHandle :: ref(struct(tag : i32));
+impl(
+  TupleElemHandle,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_tuple_elem_disposed = (g_tuple_elem_disposed + i32(1));
+    })
+  )
+);
+test("a local moved into a tuple argument of a call is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    inner := TupleElemHandle(tag : i32(1));
+    ys.push((i32(0), inner));
+    // Over-drop canary: the read after the push must still see the object.
+    assert(ys(usize(0)).1.tag == i32(1), "the pushed handle is readable after the push");
+    assert(g_tuple_elem_disposed == before, "nothing disposed while the scope is live");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "the tuple argument's own reference is released at scope end, not leaked"
+  );
+});
+test("a fresh constructor inside a tuple argument is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    ys.push((i32(0), TupleElemHandle(tag : i32(2))));
+    assert(ys(usize(0)).1.tag == i32(2), "the fresh handle is stored");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "an element temp consumed by the tuple literal is released by the tuple's own drop"
+  );
+});
+test("one local pushed in two tuple arguments is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    shared := TupleElemHandle(tag : i32(3));
+    ys.push((i32(0), shared));
+    ys.push((i32(1), shared));
+    // Over-drop canary: both elements still read the live object.
+    assert((ys(usize(0)).1.tag == i32(3)) && (ys(usize(1)).1.tag == i32(3)), "both elements see the shared object");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "two tuple arguments sharing one local release their references without over-releasing"
+  );
+});
+test("a tuple argument nested inside another tuple argument is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(Tuple(i32, i32), TupleElemHandle)).new();
+    inner := TupleElemHandle(tag : i32(4));
+    ys.push(((i32(0), i32(1)), inner));
+    assert(ys(usize(0)).1.tag == i32(4), "the nested tuple's handle is stored");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "the inner tuple argument's reference is released through the outer tuple's drop"
+  );
+});
+// CONTROL, not the regression guard: a tuple bound to a NAME before the push
+// already disposed correctly (the binding's own scope-end drop descends into
+// the tuple's fields), before and after the fix. It guards the named-binding
+// path against the same change over-releasing.
+test("a named tuple binding pushed into a container is disposed exactly once", {
+  before := g_tuple_elem_disposed;
+  {
+    ys := ArrayList(Tuple(i32, TupleElemHandle)).new();
+    inner := TupleElemHandle(tag : i32(5));
+    p := (i32(0), inner);
+    ys.push(p);
+    assert(p.1.tag == i32(5), "the named tuple is readable after the push");
+  };
+  assert(
+    g_tuple_elem_disposed == (before + i32(1)),
+    "the named-binding path still releases exactly once"
+  );
 });

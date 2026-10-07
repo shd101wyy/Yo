@@ -45,6 +45,8 @@
   resolve_and_fetch
 } :: import("./resolver.yo");
 { set_entry, remove_entry, toml_string } :: import("./toml_edit.yo");
+{ format_coded_error } :: import("./error.yo");
+{ E_DEP_FETCH_FAILED, E_MANIFEST_NOT_FOUND } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // Package specifiers (`yo add <spec>`)
 // ---------------------------------------------------------------------------
@@ -170,7 +172,14 @@ load_project_manifest :: (fn(exn : Exception) -> Manifest)({
     find_manifest(start.clone()),
     .Some(p) => p,
     .None => {
-      exn.throw(dyn(`Error: no ${MANIFEST_FILENAME} found in ${start} or any directory above it. Run 'yo init' to create a project.`));
+      exn.throw(
+        dyn(
+          format_coded_error(
+            E_MANIFEST_NOT_FOUND,
+            `no ${MANIFEST_FILENAME} found in ${start} or any directory above it. Run 'yo init' to create a project.`
+          )
+        )
+      );
       String.new()
     }
   );
@@ -358,7 +367,7 @@ run_add :: (
       source = match(
         latest,
         .Err(msg) => {
-          e.exn.throw(dyn(`Error: ${msg}\nEnsure the repository exists and is accessible: ${git_url}`));
+          e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, `${msg}\nEnsure the repository exists and is accessible: ${git_url}`)));
           Option(DependencySource).None
         },
         .Ok(tag_opt) => match(
@@ -566,7 +575,7 @@ _bump_ranges_to_latest :: (
           listed,
           .Ok(t) => t,
           .Err(msg) => {
-            e.exn.throw(dyn(`Error: ${msg}`));
+            e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, msg)));
             String.new()
           }
         );

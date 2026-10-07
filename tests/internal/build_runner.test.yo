@@ -11,7 +11,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { assert, panic } :: import("std/assert");
-{ DAGNode, DAGNodeKind, build_dag, detect_cycle, artifact_input_stamp, set_compiler_identity } :: import("../../src/build_runner.yo");
+{ DAGNode, DAGNodeKind, build_dag, detect_cycle, artifact_input_stamp, set_compiler_identity, optimize_level_for, level_wants_debug_symbols } :: import("../../src/build_runner.yo");
 { IoExn } :: import("std/error");
 { Path } :: import("std/path");
 { create_dir_all } :: import("std/fs/dir");
@@ -113,6 +113,32 @@ test("register_executable carries the fixed-allocator heap size", {
   got := reg.artifacts(usize(0));
   assert(got.heap_size == usize(65536), "heap_size is copied on registration");
   assert(got.allocator == `fixed`, "allocator is copied on registration");
+});
+test("child compile flags: the four levels map to four distinct --optimize values", {
+  /// issues/fixed/build-release-small-is-identical-to-release-safe.md: release-small
+  /// used to map to "2" as well, so a ReleaseSmall build was byte-identical to
+  /// a ReleaseSafe one — same child argv, same emitted C, even a build-cache
+  /// HIT on the flip. It maps to `s` (-Os, which clang, gcc, zig cc and emcc
+  /// all accept), so the advertised size mode exists, and `yo compile
+  /// --optimize s` accepts the same level.
+  assert(optimize_level_for(String.from("release-small")) == `s`, "release-small is -Os");
+  assert(
+    !(optimize_level_for(String.from("release-small")) == optimize_level_for(String.from("release-safe"))),
+    "release-small must not repeat release-safe's level"
+  );
+  assert(optimize_level_for(String.from("release-safe")) == `2`, "release-safe is -O2");
+  assert(optimize_level_for(String.from("release-fast")) == `3`, "release-fast is -O3");
+  assert(optimize_level_for(String.from("debug")).len() == usize(0), "debug passes no --optimize (the -O0 default)");
+});
+test("child compile flags: Debug forwards --debug-symbols, the release levels do not", {
+  /// Debug's documented build is `-O0 -g` ("full debug info"), and a build
+  /// file has no other flag that reaches the child compile's -g, so Debug
+  /// forwards --debug-symbols here. The release levels document no -g and
+  /// stay lean.
+  assert(level_wants_debug_symbols(String.from("debug")), "Debug builds with debug info");
+  assert(!level_wants_debug_symbols(String.from("release-safe")), "release-safe stays lean");
+  assert(!level_wants_debug_symbols(String.from("release-fast")), "release-fast stays lean");
+  assert(!level_wants_debug_symbols(String.from("release-small")), "release-small stays lean");
 });
 test("build_dag: step with artifact dependencies", {
   exn := Exception(

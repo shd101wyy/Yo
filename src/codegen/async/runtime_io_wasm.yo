@@ -224,11 +224,11 @@ static size_t __yo_statx_buf_size(void) { return sizeof(struct stat); }
 static int64_t __yo_statx_size(void* buf) { return (int64_t)((struct stat*)buf)->st_size; }
 static uint32_t __yo_statx_mode(void* buf) { return (uint32_t)((struct stat*)buf)->st_mode; }
 static int64_t __yo_statx_mtime_sec(void* buf) { return (int64_t)((struct stat*)buf)->st_mtim.tv_sec; }
-static int64_t __yo_statx_mtime_nsec(void* buf) { return (int64_t)((struct stat*)buf)->st_mtim.tv_nsec; }
+static uint32_t __yo_statx_mtime_nsec(void* buf) { return (uint32_t)((struct stat*)buf)->st_mtim.tv_nsec; }
 static int64_t __yo_statx_atime_sec(void* buf) { return (int64_t)((struct stat*)buf)->st_atim.tv_sec; }
-static int64_t __yo_statx_atime_nsec(void* buf) { return (int64_t)((struct stat*)buf)->st_atim.tv_nsec; }
+static uint32_t __yo_statx_atime_nsec(void* buf) { return (uint32_t)((struct stat*)buf)->st_atim.tv_nsec; }
 static int64_t __yo_statx_ctime_sec(void* buf) { return (int64_t)((struct stat*)buf)->st_ctim.tv_sec; }
-static int64_t __yo_statx_ctime_nsec(void* buf) { return (int64_t)((struct stat*)buf)->st_ctim.tv_nsec; }
+static uint32_t __yo_statx_ctime_nsec(void* buf) { return (uint32_t)((struct stat*)buf)->st_ctim.tv_nsec; }
 static uint32_t __yo_statx_uid(void* buf) { return (uint32_t)((struct stat*)buf)->st_uid; }
 static uint32_t __yo_statx_gid(void* buf) { return (uint32_t)((struct stat*)buf)->st_gid; }
 static uint64_t __yo_statx_ino(void* buf) { return (uint64_t)((struct stat*)buf)->st_ino; }
@@ -410,6 +410,13 @@ static void __yo_wasm_timer_add(__yo_io_future_t* future, uint64_t milliseconds)
 
   uint64_t now_ms = __yo_wasm_now_ms();
   node->due_ms = now_ms + milliseconds;
+  // The list holds a reference until the timer fires, is cancelled or is torn
+  // down: a dropped sleep future must not be written after it is freed — the
+  // bare pointer this list used to keep fired 50 dropped sleeps into one
+  // reused allocation and left a garbage continuation for the exit drain
+  // (issues/fixed/the-wasm-timer-list-keeps-a-bare-pointer-to-a-dropped-sleep-future.md,
+  // the wasm half of issues/fixed/pending-io-future-local-drop-uaf.md).
+  future->header.ref_count++;
   node->future = future;
   node->next = NULL;
 
@@ -439,6 +446,7 @@ static bool __yo_wasm_timer_cancel(__yo_io_future_t* future) {
       *link = node->next;
       __yo_free(node);
       __yo_pending_io_count--;
+      __yo_decr_rc((void*)future);
       return true;
     }
     link = &(*link)->next;
@@ -454,6 +462,7 @@ static int __yo_wasm_timer_process_due(uint64_t now_ms) {
     __yo_wasm_timer_head = node->next;
     node->future->result = (int32_t)sizeof(uint64_t);  // Match timerfd convention
     __yo_io_wake_continuation(node->future);
+    __yo_decr_rc((void*)node->future);
     __yo_free(node);
     fired++;
   }
@@ -483,9 +492,39 @@ static void __yo_io_notify(__yo_loop_t* loop) {
 
 // Cleanup pending timers
 static void __yo_io_cleanup(void) {
+  // The task still parked on each timer is released first, through its
+  // ordinary abort path, while the future's cancel hook can still deregister
+  // the timer (__yo_io_teardown_abort_waiters). The abort can cancel and free
+  // nodes off this list, so walk a snapshot of the futures: each still holds
+  // the task await slot's reference until its own abort, and the helper holds
+  // its own across it.
+  {
+    size_t abortable = 0;
+    for (__yo_wasm_timer_entry_t* node = __yo_wasm_timer_head; node; node = node->next) {
+      abortable++;
+    }
+    if (abortable > 0) {
+      __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(abortable * sizeof(__yo_io_future_t*));
+      if (snapshot) {
+        size_t i = 0;
+        for (__yo_wasm_timer_entry_t* node = __yo_wasm_timer_head; node; node = node->next) {
+          snapshot[i++] = node->future;
+        }
+        for (i = 0; i < abortable; i++) {
+          __yo_io_teardown_abort_waiters(snapshot[i]);
+        }
+        __yo_free(snapshot);
+      }
+    }
+  }
   while (__yo_wasm_timer_head) {
     __yo_wasm_timer_entry_t* node = __yo_wasm_timer_head;
     __yo_wasm_timer_head = node->next;
+    // Nothing fires for it now: mark it done and release the list's
+    // reference.
+    node->future->cancel_fn = NULL;
+    { if (atomic_load(&node->future->state) != -2) atomic_store(&node->future->state, -1); }
+    __yo_decr_rc((void*)node->future);
     __yo_free(node);
   }
   __yo_io_initialized = false;

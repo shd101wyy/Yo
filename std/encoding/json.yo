@@ -425,7 +425,7 @@ impl(
   JsonValue,
   Index(String)(
     Output : JsonValue,
-    index : (fn(inout(self) : Self, key : String) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, key : String) -> *Self.Output)(
       match(
         self,
         .Object(keys, values) => {
@@ -436,7 +436,7 @@ impl(
               // Object variant invariant says `values.len() ==
               // keys.len()`, so `&(values(i))` (Index trait) yields a
               // valid pointer into the Rc-managed values list.
-              return(unsafe(&(values(i))));
+              return(unsafe(&values(i)));
             });
           });
           __yo_panic("JsonValue: key not found in Object")
@@ -452,7 +452,7 @@ impl(
   JsonValue,
   Index(usize)(
     Output : JsonValue,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       match(
         self,
         .Array(items) => {
@@ -461,7 +461,7 @@ impl(
           // Rc-managed Array list whose storage outlives this call
           // (inout(self) keeps `self` and therefore `items` alive);
           // `&(items(idx))` (Index trait) yields the element pointer.
-          return(unsafe(&(items(idx))));
+          return(unsafe(&items(idx)));
         },
         _ => __yo_panic("JsonValue: index by usize requires .Array variant")
       )
@@ -699,7 +699,7 @@ impl(
                         if((lo < u32(0xDC00)) || (lo > u32(0xDFFF)), {
                           return(.Err(.InvalidUnicode));
                         });
-                        cp = ((u32(0x10000) + ((cp - u32(0xD800)) * u32(1024))) + (lo - u32(0xDC00)));
+                        cp = (u32(0x10000) + ((cp - u32(0xD800)) * u32(1024)) + (lo - u32(0xDC00)));
                       });
                       if((cp >= u32(0xDC00)) && (cp <= u32(0xDFFF)), {
                         return(.Err(.InvalidUnicode));
@@ -1263,7 +1263,7 @@ _stringify_into :: (fn(value : JsonValue, inout(out) : ArrayList(u8)) -> unit)({
     },
     .Number(n) => {
       buf := Array(u8, usize(32)).fill(u8(0));
-      buf_ptr := &(buf(usize(0)));
+      buf_ptr := &buf(usize(0));
       unsafe(snprintf((*char)(buf_ptr), usize(32), "%g", n));
       s2 := String.from_cstr(buf_ptr).unwrap();
       bytes := s2;
@@ -1907,14 +1907,14 @@ __derive_to_json :: (
     "",
     (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
       fname :: fields.get(fi).name;
-      acc + (((("__djt_keys.push(String.from(\"" + fname) + "\")); __djt_values.push(self.") + fname) + ".to_json()); ")
+      acc + ("__djt_keys.push(String.from(\"" + fname + "\")); __djt_values.push(self." + fname + ".to_json()); ")
     })
   );
-  body :: (("({ __djt_keys := ArrayList(String).new(); __djt_values := ArrayList(JsonValue).new(); " + pushes) + "JsonValue.Object(keys : __djt_keys, values : __djt_values) })");
+  body :: ("({ __djt_keys := ArrayList(String).new(); __djt_values := ArrayList(JsonValue).new(); " + pushes + "JsonValue.Object(keys : __djt_keys, values : __djt_values) })");
   body_expr :: __yo_comptime_string_to_expr(body);
   ctx.make_impl(
     quote(
-      ToJson(to_json : ((self) -> #(body_expr)))
+      ToJson(to_json : (self -> #(body_expr)))
     )
   )
 });
@@ -1938,8 +1938,8 @@ __derive_from_json :: (
       // `<struct:…>` placeholder for an instantiated generic, so a struct with
       // an `Option(T)` / `ArrayList(T)` / any generic field could not derive
       // FromJson at all. Indexing needs no name and no import at the use site.
-      ftype :: (("(Type.get_struct_fields(Self).get(" + fi.to_comptime_string()) + ").field_type <: FromJson)");
-      acc + (((((((((("__djf_" + fname) + " := match(v.get(String.from(\"") + fname) + "\")), .Some(__djf_j) => match(") + ftype) + ".from_json(__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field ") + fname) + " in ") + type_name) + "\")))); }); ")
+      ftype :: ("(Type.get_struct_fields(Self).get(" + fi.to_comptime_string() + ").field_type <: FromJson)");
+      acc + ("__djf_" + fname + " := match(v.get(String.from(\"" + fname + "\")), .Some(__djf_j) => match(" + ftype + ".from_json(__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field " + fname + " in " + type_name + "\")))); }); ")
     })
   );
   ctor_args :: __yo_comptime_fold_range(
@@ -1947,17 +1947,17 @@ __derive_from_json :: (
     "",
     (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
       fname :: fields.get(fi).name;
-      part :: ((fname + " : __djf_") + fname);
+      part :: (fname + " : __djf_" + fname);
       cond(
         (acc == "") => part,
-        true => ((acc + ", ") + part)
+        true => (acc + ", " + part)
       )
     })
   );
-  body :: (((("({ " + extracts) + ".Ok(Self(") + ctor_args) + ")) })");
+  body :: ("({ " + extracts + ".Ok(Self(" + ctor_args + ")) })");
   ctx.make_impl(
     quote(
-      FromJson(from_json : ((v) -> #(body.to_expr())))
+      FromJson(from_json : (v -> #(body.to_expr())))
     )
   )
 });

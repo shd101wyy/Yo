@@ -124,6 +124,7 @@ generate_platform_sys_runtime_windows :: (fn(emitter : Emitter) -> unit)({
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <direct.h>
+#include <winioctl.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <signal.h>
@@ -158,8 +159,10 @@ static bool __yo_is_at_fdcwd(int32_t dirfd) {
 // raw code, so an IoFuture resolves to a negative errno on Windows as on every
 // other platform and IoError.from_errno classifies it the same way
 // (plans/ASYNC_IO_API_AUDIT.md F4: the Windows socket paths used to resolve to
-// negated WSA codes, which fell through to IoError.Other). A code with no
-// errno counterpart becomes EIO.
+// negated WSA codes, which fell through to IoError.Other — a second bind of
+// one AF_UNIX path read "unknown I/O error (os error 10048)", not
+// AddressInUse: issues/fixed/s3-fs-wrappers-windows-semantics-audit.md). A
+// code with no errno counterpart becomes EIO.
 static int __yo_wsa_to_errno(int wsa) {
   switch (wsa) {
     case WSAEINTR: return EINTR;
@@ -179,6 +182,7 @@ static int __yo_wsa_to_errno(int wsa) {
     case WSAEPROTONOSUPPORT: return EPROTONOSUPPORT;
     case WSAESOCKTNOSUPPORT: return EPROTONOSUPPORT;
     case WSAEOPNOTSUPP: return EOPNOTSUPP;
+    case WSAEPFNOSUPPORT: return EAFNOSUPPORT;
     case WSAEAFNOSUPPORT: return EAFNOSUPPORT;
     case WSAEADDRINUSE: return EADDRINUSE;
     case WSAEADDRNOTAVAIL: return EADDRNOTAVAIL;
@@ -196,6 +200,8 @@ static int __yo_wsa_to_errno(int wsa) {
     case WSAENAMETOOLONG: return ENAMETOOLONG;
     case WSAEHOSTUNREACH: return EHOSTUNREACH;
     case WSAEHOSTDOWN: return EHOSTUNREACH;
+    case WSAELOOP: return ELOOP;
+    case WSAENOTEMPTY: return ENOTEMPTY;
     case WSA_OPERATION_ABORTED: return ECANCELED;
     default: return EIO;
   }
@@ -239,6 +245,8 @@ static int __yo_win_last_error_to_errno(void) {
       return EMFILE;
     case ERROR_PRIVILEGE_NOT_HELD:
       return EPERM;
+    case ERROR_NOT_A_REPARSE_POINT:
+      return EINVAL;
     default:
       return (int)err;
   }
@@ -934,23 +942,115 @@ static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid,
   return -ENOSYS;
 }
 
+// readlinkat: Windows has no readlink(2). A link is a REPARSE POINT, so the
+// target is read with FSCTL_GET_REPARSE_POINT on the
+// FILE_FLAG_OPEN_REPARSE_POINT handle. REPARSE_DATA_BUFFER's full layout
+// lives in the driver-kit <ntifs.h>, which user mode never sees, so it is
+// spelled here exactly as the kernel writes it (verified against a
+// mklink-made junction AND a system junction: Tag(4) + DataLength USHORT(2)
+// + Reserved USHORT(2), the name block at offset 8 — and the symlink
+// variant carries a ULONG Flags between the name ushorts and PathBuffer;
+// Rust's std spells the same two shapes). A path that is not a reparse
+// point makes DeviceIoControl fail with ERROR_NOT_A_REPARSE_POINT, which
+// maps to EINVAL — the readlink(2) contract for a non-link that
+// fs_dir.read_link documents. (The pre-2026-10 implementation called
+// GetFinalPathNameByHandleW on the reparse-point handle, which answers the
+// LINK'S OWN path — a junction read back its own name, and a regular file
+// did not throw at all; issues/fixed/s3-fs-wrappers-windows-semantics-audit.md.)
+#define __YO_REPARSE_MAX_DATA 16384
+typedef struct {
+  USHORT SubstituteNameOffset;
+  USHORT SubstituteNameLength;
+  USHORT PrintNameOffset;
+  USHORT PrintNameLength;
+  WCHAR PathBuffer[1];
+} __yo_reparse_mount_point_buffer_t;
+typedef struct {
+  USHORT SubstituteNameOffset;
+  USHORT SubstituteNameLength;
+  USHORT PrintNameOffset;
+  USHORT PrintNameLength;
+  ULONG Flags;
+  WCHAR PathBuffer[1];
+} __yo_reparse_symlink_buffer_t;
+typedef struct {
+  DWORD ReparseTag;
+  USHORT ReparseDataLength;
+  USHORT Reserved;
+  union {
+    __yo_reparse_symlink_buffer_t SymbolicLinkReparseBuffer;
+    __yo_reparse_mount_point_buffer_t MountPointReparseBuffer;
+  } Data;
+} __yo_reparse_data_buffer_t;
 static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
   if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
   wchar_t* wpath = __yo_win_utf8_to_wide(path);
   if (!wpath) return -__yo_win_last_error_to_errno();
-  HANDLE handle = CreateFileW(wpath, 0,
+  HANDLE handle = CreateFileW(wpath, FILE_READ_ATTRIBUTES,
                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                               NULL, OPEN_EXISTING,
                               FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
                               NULL);
   __yo_free(wpath);
   if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
-  wchar_t wbuf[MAX_PATH];
-  DWORD len = GetFinalPathNameByHandleW(handle, wbuf, MAX_PATH, FILE_NAME_NORMALIZED);
+  BYTE rspace[__YO_REPARSE_MAX_DATA];
+  DWORD bytes = 0;
+  BOOL ok = DeviceIoControl(handle, FSCTL_GET_REPARSE_POINT, NULL, 0,
+                            rspace, sizeof(rspace), &bytes, NULL);
   CloseHandle(handle);
-  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
-  int written = __yo_win_wide_to_utf8(wbuf, buf, bufsize);
-  return (written < 0) ? written : written;
+  if (!ok) return -__yo_win_last_error_to_errno();
+  __yo_reparse_data_buffer_t* db = (__yo_reparse_data_buffer_t*)rspace;
+  if (db->ReparseTag != IO_REPARSE_TAG_SYMLINK &&
+      db->ReparseTag != IO_REPARSE_TAG_MOUNT_POINT) {
+    return -EINVAL;
+  }
+  // The four name ushorts sit at the same place in both variants, but
+  // PathBuffer is 4 bytes later for a symlink (its Flags ULONG).
+  const __yo_reparse_mount_point_buffer_t* names = &db->Data.MountPointReparseBuffer;
+  DWORD path_base = (db->ReparseTag == IO_REPARSE_TAG_SYMLINK)
+      ? (DWORD)(offsetof(__yo_reparse_data_buffer_t, Data) +
+                offsetof(__yo_reparse_symlink_buffer_t, PathBuffer))
+      : (DWORD)(offsetof(__yo_reparse_data_buffer_t, Data) +
+                offsetof(__yo_reparse_mount_point_buffer_t, PathBuffer));
+  // In-bounds guard first: the tag, the four name ushorts and the symlink
+  // Flags must all be inside what DeviceIoControl reported.
+  if (bytes < path_base) return -EINVAL;
+  if ((names->SubstituteNameLength % 2) != 0) return -EINVAL;
+  DWORD sub_off = path_base + (DWORD)names->SubstituteNameOffset;
+  DWORD sub_end = sub_off + (DWORD)names->SubstituteNameLength;
+  if (sub_end > bytes) return -EINVAL;
+  const wchar_t* sub = (const wchar_t*)(rspace + sub_off);
+  DWORD sub_chars = (DWORD)names->SubstituteNameLength / 2;
+  // The substitute name is stored in the object-manager namespace: a
+  // 4-char local prefix (92 '?' '?' 92 — the NT form — or 92 92 '?' 92 —
+  // the Win32 form; 92 is '\', written numerically so this C template
+  // keeps every backslash single) in front of a drive path, an 8-char UNC
+  // marker in front of a server path, or nothing for a relative symlink
+  // target. readlink answers the plain path: strip the local prefix,
+  // rewrite the UNC marker as two leading backslashes, pass a relative
+  // target through unchanged.
+  wchar_t name_buf[__YO_REPARSE_MAX_DATA / 2];
+  DWORD out_chars = sub_chars;
+  bool has_prefix = (sub_chars >= 4 && sub[0] == 92 && sub[3] == 92 &&
+                     ((sub[1] == L'?' && sub[2] == L'?') ||
+                      (sub[1] == 92 && sub[2] == L'?')));
+  if (has_prefix && sub_chars >= 8 &&
+      (sub[4] == L'U' || sub[4] == L'u') && (sub[5] == L'N' || sub[5] == L'n') &&
+      (sub[6] == L'C' || sub[6] == L'c') && sub[7] == 92) {
+    name_buf[0] = 92;
+    name_buf[1] = 92;
+    if (sub_chars > 8) memcpy(&name_buf[2], sub + 8, (size_t)(sub_chars - 8) * sizeof(wchar_t));
+    out_chars = sub_chars - 6;
+  } else if (has_prefix) {
+    memcpy(name_buf, sub + 4, (size_t)(sub_chars - 4) * sizeof(wchar_t));
+    out_chars = sub_chars - 4;
+  } else {
+    memcpy(name_buf, sub, (size_t)sub_chars * sizeof(wchar_t));
+  }
+  int written = WideCharToMultiByte(CP_UTF8, 0, name_buf, (int)out_chars,
+                                    buf, (int)bufsize, NULL, NULL);
+  if (written <= 0) return -__yo_win_last_error_to_errno();
+  return written;
 }
 
 
@@ -2529,6 +2629,31 @@ static void __yo_io_cleanup(void) {
     CloseHandle(__yo_io_iocp);
   }
   __yo_io_iocp = NULL;
+  // The task still parked on each timer is released first, through its
+  // ordinary abort path, while the future's cancel hook can still deregister
+  // the timer (__yo_io_teardown_abort_waiters). The abort can cancel and free
+  // nodes off this list, so walk a snapshot of the futures: each still holds
+  // the list's reference until its own abort, and the helper holds its own
+  // across it.
+  {
+    size_t abortable = 0;
+    for (__yo_win_timer_entry_t* node = __yo_win_timer_head; node; node = node->next) {
+      abortable++;
+    }
+    if (abortable > 0) {
+      __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(abortable * sizeof(__yo_io_future_t*));
+      if (snapshot) {
+        size_t i = 0;
+        for (__yo_win_timer_entry_t* node = __yo_win_timer_head; node; node = node->next) {
+          snapshot[i++] = node->future;
+        }
+        for (i = 0; i < abortable; i++) {
+          __yo_io_teardown_abort_waiters(snapshot[i]);
+        }
+        __yo_free(snapshot);
+      }
+    }
+  }
   while (__yo_win_timer_head) {
     __yo_win_timer_entry_t* node = __yo_win_timer_head;
     __yo_win_timer_head = node->next;

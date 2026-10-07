@@ -946,6 +946,14 @@ same result. A handle that is dropped without being awaited **detaches** the
 task. The task keeps running, and it frees itself when it finishes, so a
 fire-and-forget `io.spawn(task, io);` statement leaks nothing.
 
+**A task still pending when its thread's program body returns is aborted and
+released at thread exit.** Nothing will ever drive that thread's event loop
+again, so the runtime aborts every task still queued or parked on a timer or
+I/O operation, and releases the task, its pending await's future and
+everything it captured — the task's `Dispose` impls run there. No task body
+resumes after `main` returned: an aborted task's resume runs only its release
+guard.
+
 **Implementation Details:**
 
 The state machine struct includes a `__yo_ref_header_t` as its first field:

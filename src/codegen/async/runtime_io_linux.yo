@@ -1247,6 +1247,7 @@ static void __yo_ring_drop_fd(int32_t fd);
 static bool __yo_ring_untrack_fd(__yo_io_future_t* future, int32_t result);
 static void __yo_timer_teardown(void);
 static void __yo_ring_fd_teardown(void);
+static void __yo_ring_fd_abort_parked(void);
 static bool __yo_epoll_cancel(__yo_io_future_t* future);
 static void __yo_epoll_drive(bool block, int* count_out);
 static void __yo_epoll_teardown(void);
@@ -1414,9 +1415,44 @@ static void __yo_io_cleanup(void) {
     loop->notify_fd = -1;
     __yo_mutex_unlock(&loop->lock);
   }
-  // If async main returns while some SQEs are still only queued in userspace,
-  // cancel them here instead of silently dropping the event-loop ref we took in
-  // __yo_io_ring_submit.
+  // The tasks still parked on the ring's in-flight fd-bound operations are
+  // released first, through their ordinary abort path: the ring is about to
+  // be destroyed, so their completions will never be delivered and each is a
+  // task that can never resume. The abort's cancel hook queues a
+  // cancellation SQE into the deferred array, so this runs BEFORE the drain
+  // below, which consumes it.
+  if (__yo_backend == __YO_BACKEND_URING) {
+    __yo_ring_fd_abort_parked();
+  }
+  // The tasks still parked on the SQEs that are only queued in userspace are
+  // released the same way (a snapshot again: the abort's cancel hook queues
+  // cancellation SQEs behind these). Then, if async main returns while some
+  // SQEs are still only queued in userspace, cancel them here instead of
+  // silently dropping the event-loop ref we took in __yo_io_ring_submit.
+  if (__yo_sq_unsubmitted > 0) {
+    size_t abortable = 0;
+    for (size_t i = 0; i < __yo_sq_unsubmitted; i++) {
+      if (__yo_sq_deferred_futures[(__yo_sq_deferred_head + i) % __YO_IO_RING_ENTRIES]) {
+        abortable++;
+      }
+    }
+    if (abortable > 0) {
+      __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(abortable * sizeof(__yo_io_future_t*));
+      if (snapshot) {
+        size_t n = 0;
+        for (size_t i = 0; i < __yo_sq_unsubmitted; i++) {
+          __yo_io_future_t* future = __yo_sq_deferred_futures[(__yo_sq_deferred_head + i) % __YO_IO_RING_ENTRIES];
+          if (future) {
+            snapshot[n++] = future;
+          }
+        }
+        for (n = 0; n < abortable; n++) {
+          __yo_io_teardown_abort_waiters(snapshot[n]);
+        }
+        __yo_free(snapshot);
+      }
+    }
+  }
   while (__yo_sq_unsubmitted > 0) {
     __yo_io_future_t* future = __yo_sq_deferred_futures[__yo_sq_deferred_head];
     __yo_sq_deferred_head = (__yo_sq_deferred_head + 1) % __YO_IO_RING_ENTRIES;
@@ -1636,6 +1672,39 @@ static void __yo_ring_drop_fd(int32_t fd) {
     // be queued leaves the operation to finish on its own.
     (void)__yo_io_ring_submit_cancel(node->future);
   }
+}
+
+// Teardown pre-pass for __yo_io_cleanup (io_uring backend): release the tasks
+// still parked on the ring's in-flight fd-bound operations, through their
+// ordinary abort path (__yo_io_teardown_abort_waiters). The ring is about to
+// be destroyed, so their completions will never be delivered and each is a
+// task that can never resume; the abort's cancel hook queues a cancellation
+// SQE into the deferred array, so __yo_io_cleanup calls this BEFORE its
+// deferred drain, which consumes it. Walk a snapshot of the futures: the
+// helper holds its own reference across each abort, and the snapshot keeps
+// the walk independent of whatever bookkeeping an abort's cancel hook
+// performs. The futures themselves keep the ring's reference — their CQEs
+// die with the ring — so this releases the TASKS, not the operations.
+static void __yo_ring_fd_abort_parked(void) {
+  size_t abortable = 0;
+  for (size_t i = 0; i < __yo_ring_fd_cap; i++) {
+    for (__yo_ring_fd_node_t* node = __yo_ring_fd_slots[i].head; node; node = node->next) {
+      abortable++;
+    }
+  }
+  if (abortable == 0) return;
+  __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(abortable * sizeof(__yo_io_future_t*));
+  if (!snapshot) return;
+  size_t n = 0;
+  for (size_t i = 0; i < __yo_ring_fd_cap; i++) {
+    for (__yo_ring_fd_node_t* node = __yo_ring_fd_slots[i].head; node; node = node->next) {
+      snapshot[n++] = node->future;
+    }
+  }
+  for (n = 0; n < abortable; n++) {
+    __yo_io_teardown_abort_waiters(snapshot[n]);
+  }
+  __yo_free(snapshot);
 }
 
 // Teardown: the ring is gone, so no tracked operation can complete through
@@ -1893,8 +1962,25 @@ static void __yo_timer_arm(__yo_io_future_t* future, uint64_t milliseconds) {
 }
 
 // Teardown for __yo_io_cleanup (either backend): every armed timer ends
-// -ECANCELED and the heap's reference is released.
+// -ECANCELED and the heap's reference is released. The task still parked on
+// each timer is released first, through its ordinary abort path, while the
+// future's cancel hook can still deregister the timer
+// (__yo_io_teardown_abort_waiters); the abort cancels and REMOVES heap nodes,
+// so the pass walks a snapshot of the futures (each still holds the heap's
+// reference until its own abort, and the helper holds its own across it).
 static void __yo_timer_teardown(void) {
+  if (__yo_timer_count > 0) {
+    __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(__yo_timer_count * sizeof(__yo_io_future_t*));
+    if (snapshot) {
+      for (size_t i = 0; i < __yo_timer_count; i++) {
+        snapshot[i] = __yo_timers[i]->future;
+      }
+      for (size_t i = 0; i < __yo_timer_count; i++) {
+        __yo_io_teardown_abort_waiters(snapshot[i]);
+      }
+      __yo_free(snapshot);
+    }
+  }
   for (size_t i = 0; i < __yo_timer_count; i++) {
     __yo_timer_t* t = __yo_timers[i];
     t->future->cancel_fn = NULL;
@@ -2760,8 +2846,46 @@ static __yo_io_future_t* __yo_epoll_recvfrom_park(int32_t sockfd, void* buf, siz
 // release the epoll descriptor (the timers are __yo_timer_teardown's). The
 // pending count is zeroed so a re-init does not inherit a permanently-pending
 // number. The free lists stay: their nodes are rc-allocated and pooled like
-// every other runtime node.
+// every other runtime node. The task parked on each operation is released
+// first, through its ordinary abort path, while the future's cancel hook can
+// still deregister the operation (__yo_io_teardown_abort_waiters); the abort
+// unlinks and frees pendings (and can release their registrations), so the
+// pass walks a snapshot of the futures and the drain below re-reads every
+// slot.
 static void __yo_epoll_teardown(void) {
+  {
+    size_t abortable = 0;
+    for (size_t fd = 0; fd < __yo_epoll_slot_cap; fd++) {
+      __yo_epoll_slot_t* slot = &__yo_epoll_slots[fd];
+      for (int d = 0; d < 2; d++) {
+        __yo_epoll_reg_t* reg = slot->dir[d];
+        if (!reg) continue;
+        for (__yo_epoll_pending_t* pw = reg->waiters_head; pw; pw = pw->next_waiter) {
+          abortable++;
+        }
+      }
+    }
+    if (abortable > 0) {
+      __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(abortable * sizeof(__yo_io_future_t*));
+      if (snapshot) {
+        size_t n = 0;
+        for (size_t fd = 0; fd < __yo_epoll_slot_cap; fd++) {
+          __yo_epoll_slot_t* slot = &__yo_epoll_slots[fd];
+          for (int d = 0; d < 2; d++) {
+            __yo_epoll_reg_t* reg = slot->dir[d];
+            if (!reg) continue;
+            for (__yo_epoll_pending_t* pw = reg->waiters_head; pw; pw = pw->next_waiter) {
+              snapshot[n++] = pw->future;
+            }
+          }
+        }
+        for (n = 0; n < abortable; n++) {
+          __yo_io_teardown_abort_waiters(snapshot[n]);
+        }
+        __yo_free(snapshot);
+      }
+    }
+  }
   for (size_t fd = 0; fd < __yo_epoll_slot_cap; fd++) {
     __yo_epoll_slot_t* slot = &__yo_epoll_slots[fd];
     for (int d = 0; d < 2; d++) {
