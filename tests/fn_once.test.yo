@@ -311,3 +311,18 @@ test("an early return releases an owned parameter it did not move", {
   assert(_once_two(_OnceTok(n : i32(5)), _OnceTok(n : i32(6)), false) == i32(6), "fall-through");
   assert(g_once_disposed == (before + i32(4)), "u by _once_take, t at the end");
 });
+test("FnOnce: an early return that moves nothing drops every capture", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(5));
+    u := _OnceTok(n : i32(6));
+    (f : Impl(FnOnce(go : bool) -> i32)) = ({ t, u }(go : bool) => {
+      if(go, {
+        return(i32(1));
+      });
+      i32(2)
+    });
+    assert(f(true) == i32(1), "returned early");
+  };
+  assert(g_once_disposed == (before + i32(2)), "both captures dropped on the return path");
+});

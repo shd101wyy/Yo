@@ -362,7 +362,9 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // reference an out-of-scope identifier. A target absent from the stack holds
   // no C value here, so skipping its drop cannot double-free or leak.
   c_name := sanitize_for_c_identifier(var_name, false);
-  if(!_drop_target_is_state_machine_field(latest_var, var_name.clone(), context) && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
+  // An `FnOnce` closure's owned capture lives in the closure context, never
+  // a C local, so the stack cannot vouch for it (decision 37).
+  if(!is_fnonce_capture_drop(ast_expr_id(drop_expr)) && !_drop_target_is_state_machine_field(latest_var, var_name.clone(), context) && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
     return(false);
   });
   match(
