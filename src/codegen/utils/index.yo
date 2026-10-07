@@ -142,7 +142,7 @@ IsoTypeInfo :: ref(
 );
 /// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
 /// is the DynT; `concrete_type` is the user type; `data_type` is what is
-/// stored in Dyn.data (object/Box); `trait_values` are the TraitVal evidence
+/// stored in Dyn.data (object/Rc); `trait_values` are the TraitVal evidence
 /// values in trait order.
 DynImplEntry :: ref(
   struct(
@@ -1645,7 +1645,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // passed by opaque pointer; field/method access casts at use).
     .SomeT({ id : sid, name : snm }) => match(
       // Prefer the PER-OBJECT resolved concrete (survives clone/substitute/
-      // intern — the id-keyed global misses when ids re-mint, e.g. the Box
+      // intern — the id-keyed global misses when ids re-mint, e.g. the Rc
       // CTFE's cloned field SomeT in the Dyn(Fn) family). Global as fallback.
       // The cycle guard (g_gts_some_stack above) demotes a REVISITED SomeT
       // to the unresolved fallback instead of recursing forever.
@@ -1816,7 +1816,7 @@ get_variable_type_string :: (
   result
 });
 /// Record `c_name` as a C declaration of the current function
-/// (`declared_c_var_names`). The set is a `Box` because the emitter holds the
+/// (`declared_c_var_names`). The set is an `Rc` because the emitter holds the
 /// same set (`Emitter.declared_ref`) and writes it too.
 declare_c_var_name :: (fn(context : CodeGenContext, c_name : String) -> unit)({
   names := context.declared_c_var_names;

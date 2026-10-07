@@ -98,7 +98,7 @@ test("1500 sleeps started in one tick all complete (epoll fallback)", {
 // Timers complete in deadline order, and aborting one in the middle of the
 // set releases it without disturbing the rest — the epoll fallback's timer
 // heap removes it from the middle of the heap (a timerfd per sleep before).
-// A `Box`: the caller and the spawned task share the list on purpose, and a
+// An `Rc`: the caller and the spawned task share the list on purpose, and a
 // task captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
 _sleeper :: (fn(ms : i32, order : Rc(ArrayList(i32)), io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {

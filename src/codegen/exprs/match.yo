@@ -2043,7 +2043,7 @@ _emit_pattern_chain :: (
       recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
     },
     .ThroughBox(box_ty, inner_ty, sub) => {
-      // A Box value in C is a pointer to a reference-semantics struct whose
+      // An Rc value in C is a pointer to a reference-semantics struct whose
       // single field holds the inner value; look through it (the label is the
       // sanitized `*`, as `t.*` emits).
       fields := get_runtime_struct_fields(box_ty);
@@ -2307,7 +2307,7 @@ _generate_match_expression_body :: (fn(expr : AstExpr, indent : String, context 
       // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom
       // scrutinee returning a borrowed read — e.g. merge_and_check_envs'
       // `match(base_var.consumed_at_token, ...)`: the Option value's temp is
-      // dropped at scope end while the FIELD still holds the Box payload).
+      // dropped at scope end while the FIELD still holds the Rc payload).
       // Emit the dup here on the DECLARED subject temp —
       // drift-safe (never trust the recorded atom name; see
       // generate_case_body / cond.yo _emit_value_arm).

@@ -65,7 +65,7 @@ test("Test lazy async", {
     b.* = (b.* + 1);
     io.await(yield(io), io);
     unsafe(printf("Task completed %d\n", b.*));
-    assert(c.* == 10, "captured Box should still be 10");
+    assert(c.* == 10, "captured Rc should still be 10");
   });
   // With lazy execution, task hasn't started yet
   unsafe(printf("Running main... %d\n", b.*));
@@ -279,9 +279,9 @@ test("Test early return from non-await cond branch in async", {
   assert(result.* == i32(200), "early return from non-await branch should set result to 200");
 });
 // ---------------------------------------------------------------------------
-// 11. Captured Box variables across multiple await points
+// 11. Captured Rc variables across multiple await points
 // ---------------------------------------------------------------------------
-test("Test captured Box across multiple awaits", {
+test("Test captured Rc across multiple awaits", {
   a := Rc(i32)(1);
   b := Rc(i32)(2);
   c := Rc(i32)(3);
@@ -660,8 +660,8 @@ test("Test continue skips body after await", {
   assert(sum.* == i32(45), "sum should be 55-3-7 = 45");
 });
 // ---------------------------------------------------------------------------
-// 27. Break with local Box allocation (must be dropped, no leak)
-//     Allocate a Box each iteration; break at iteration 3.
+// 27. Break with local Rc allocation (must be dropped, no leak)
+//     Allocate an Rc each iteration; break at iteration 3.
 //     AddressSanitizer will catch leaks.
 // ---------------------------------------------------------------------------
 test("Test break drops local allocations in async while loop", {
@@ -683,8 +683,8 @@ test("Test break drops local allocations in async while loop", {
   assert(counter.* == i32(3), "counter should be 3 after break");
 });
 // ---------------------------------------------------------------------------
-// 28. Continue with local Box allocation (must be dropped, no leak)
-//     Allocate a Box each iteration; continue on even iterations.
+// 28. Continue with local Rc allocation (must be dropped, no leak)
+//     Allocate an Rc each iteration; continue on even iterations.
 // ---------------------------------------------------------------------------
 test("Test continue drops local allocations in async while loop", {
   counter := Rc(i32)(0);
@@ -2413,7 +2413,7 @@ test("SM opt: segment-local i32 vars are not in struct", {
   assert(r == i32(100), "segment-local optimization result should be 100");
 });
 test("SM opt: RC-typed segment-local variables", {
-  // Box values used in only one segment should be properly allocated and freed
+  // Rc values used in only one segment should be properly allocated and freed
   // even when they are C locals rather than struct fields.
   task := io.async((io : Io) => {
     a := Rc(i32)(1);
@@ -3442,7 +3442,7 @@ test("Test io.async closure capturing a local, re-created each iteration", {
     return(n.*);
   });
   r := io.await(task, io);
-  assert(r == i32(3), "the captured Box must survive every iteration");
+  assert(r == i32(3), "the captured Rc must survive every iteration");
 });
 test("Test two io.async closures capturing the same local", {
   // An inline `io.async(...)` produces two temps that can share a generated

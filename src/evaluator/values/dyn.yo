@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
 /// For a BOXED dyn payload (`Rc(Sq)`), return the box's underlying value type
 /// (`Sq`, its single `*` field) so trait methods resolve on the concrete type the
 /// impl is registered against; non-boxed passes through. The codegen wrapper's
-/// is_boxed branch then unboxes `Box* -> &box->*` at the call. Requires the box's
+/// is_boxed branch then unboxes `Rc* -> &rc->*` at the call. Requires the box's
 /// `Rc(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
 /// `<ctor>(inner_type)` for a prelude cell type constructor `ctor` — the
 /// shared cell (`Box`/`Rc`), or the atomic box `Arc(inner_type)` a
@@ -99,7 +99,7 @@ _create_box_type_via :: (fn(ctor : String, inner_type : TypeValue, env : Environ
         implicit_args : Option(ArrayList(ArgEntry)).None,
         variadic_args : ArrayList(VarArgEntry).new()
       );
-      // The callee expr must be a synthetic `Box` atom, not `.None`: the
+      // The callee expr must be a synthetic `Rc` atom, not `.None`: the
       // `Rc(arg)` display-name stamp in comptime_fn.yo reads the constructor
       // NAME off the callee expr token (FuncVals carry no funcName),
       // and `is_boxed_type` keys off that `Rc(`-prefixed name. With `.None`
@@ -250,7 +250,7 @@ _require_dyn_traits_implemented :: (
     exn : Exception
   ) -> unit
 )({
-  // Decide the bound on the UNDERLYING type when the payload is a Box: both
+  // Decide the bound on the UNDERLYING type when the payload is an Rc: both
   // `dyn(rc(i32(42)))` and the auto-box path arrive here as `Rc(i32)`, while
   // the impl is registered against `i32` (the same unwrap the trait-value
   // resolution does before its registry lookups).
@@ -960,10 +960,10 @@ evaluate_dyn_value :: (
             get_closure_capture_info(__nfvd.*.func_id.clone()),
             .Some(cci) => match(
               inner_expected,
-              // Box with V = the Impl(Fn) SOMET whose
+              // An Rc with V = the Impl(Fn) SOMET whose
               // resolved_concrete = the closure's CAPTURE STRUCT
               // (resolvedConcreteType carries the layout). The PER-OBJECT
-              // field survives the Box
+              // field survives the Rc
               // CTFE's clone/substitute/intern, so codegen's get_type_string
               // lays the box payload out as the capture struct — the id-keyed
               // global misses there (round-5 finding).

@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, exprs_are_equal } :: import("./expr.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("./types/compatibility.yo");
 /// Non-`Self`-referencing fields of `EvalValue.FuncVal`, factored out and stored
-/// behind a `Box` (P2 memory). These reference only `String`/`AstExpr`/`TypeValue`
+/// behind an `Rc` (P2 memory). These reference only `String`/`AstExpr`/`TypeValue`
 /// (NOT `Self`/`EvalValue`), so the struct is defined BEFORE `EvalValue` (no
 /// forward-reference dance). Only `cap_vals : ArrayList(Self)` stays inline.
 FuncValData :: struct(
@@ -150,7 +150,7 @@ EvalValue :: ref(
     /// `source` is a `Rc(EvalValue)` wrapping an `ArrayVal`.
     /// `start_idx` (inclusive) and `end_idx` (exclusive) delimit the view.
     ///
-    /// Note: the `Box` design preserves the backing-array reference concept
+    /// Note: the `Rc` design preserves the backing-array reference concept
     /// for pointer semantics but does not yet implement full mutable aliasing.
     ///
     /// A compile-time pointer to a value.

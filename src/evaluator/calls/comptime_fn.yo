@@ -1302,17 +1302,17 @@ evaluate_comptime_fn_call :: (
     tai = (tai + usize(1));
   });
   // Stamp the returned type's display name `Rc(arg)` for the prelude's
-  // shared cell only: `Box`, or its V1 name `Rc` (`is_shared_cell_type_name`,
+  // shared cell only: `Rc`, or its legacy name `Box` (`is_shared_cell_type_name`,
   // types/guards.yo, holds the list). Naming every instantiation is NOT possible: the
   // compatibility layer treats the struct NAME as nominal identity
   // (compatibility.yo:430), so broadly naming generic instantiations breaks
   // type unification (HashMap/ArrayList/nested generics — corpus 90→55). But
   // `is_boxed_type` (types/guards.yo) keys off a `Rc(`-prefixed name, and the
   // boxed-dyn vtable path (`dyn(rc(Sq))`) needs it to recognise the box and
-  // resolve trait methods on the UNDERLYING type. Box instantiations are
+  // resolve trait methods on the UNDERLYING type. Rc instantiations are
   // structurally unambiguous (single `*` field) and never unify with user
   // types, so naming ONLY them is safe. FuncVal carries no funcName, so
-  // read it from the callee expr (the `Box` atom).
+  // read it from the callee expr (the `Rc` atom).
   // `Arc` is the ATOMIC box, stamped for the same reason: a `Dyn(..., Send)`
   // boxes its payload with `arc`, and `is_boxed_type` must recognise that box
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md). It is
@@ -1335,7 +1335,7 @@ evaluate_comptime_fn_call :: (
   // Every OTHER constructor's result gets a DISPLAY name — `ArrayList(i32)`,
   // `Option(String)`, `HashMap(K, V)` — in the renderer's side table
   // (types/string.yo), never in the type's `name` (nominal identity, see the
-  // Box note above). `type_to_string` shows it wherever the type has no
+  // Rc note above). `type_to_string` shows it wherever the type has no
   // written name: hover, completion details, diagnostics
   // (issues/fixed/lsp-shows-internal-type-placeholders-to-users.md). The
   // constructor's name comes from the callee expression: a bare atom

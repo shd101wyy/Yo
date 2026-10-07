@@ -1,7 +1,7 @@
 //! Prelude — automatically imported into every Yo source file.
 //!
 //! Provides core language primitives: traits (`Comptime`, `Runtime`, `Clone`,
-//! `Eq`, `Ord`, `Hash`, …), fundamental types (`Option`, `Result`, `Box`,
+//! `Eq`, `Ord`, `Hash`, …), fundamental types (`Option`, `Result`, `Rc`,
 //! `Slice`, `Range`, `String`, …), operator traits (`Add`, `Sub`, …), type
 //! reflection (`TypeInfo`), conversion (`Into`, `From`), the async runtime
 //! (`Io`, `Future`, `JoinHandle`), and derive rules.
@@ -18,7 +18,7 @@
 //! call them that.
 //!
 //! Broadly stable: the core traits (`Clone`, `Eq`, `Ord`, `Hash`, `Dispose`,
-//! `Send`, the operator traits), `Option`, `Result`, `Box`, `Range`,
+//! `Send`, the operator traits), `Option`, `Result`, `Rc`, `Range`,
 //! the numeric types and their inherent methods, and the async vocabulary
 //! (`Io`, `Future`, `JoinHandle`). These have Rust's names and meanings and
 //! are not expected to move.
@@ -287,7 +287,7 @@ export(Acyclic);
 /// field or element, returning it and capturing it in a closure. A by-value
 /// parameter borrows it, so `use_file(f)` needs no move. Only a value type
 /// (`struct`, `enum`, `newtype`, and the tuples, arrays and closures built
-/// from them) can be move-only. A reference type (`ref(struct(...))`, `Box`,
+/// from them) can be move-only. A reference type (`ref(struct(...))`, `Rc`,
 /// `Arc`) is how a value is shared: its copies alias one cell, so it is never
 /// move-only, even around a move-only payload.
 MoveOnly :: trait(
@@ -9925,7 +9925,7 @@ export(Arc, arc);
 /// run time: `w.field` and `w.method()` on a `Deref` type whose own members
 /// lack that name mean `w.*.field` and `w.*.method()`, recursively through
 /// nested wrappers, and the wrapper's own members always win (`b.clone()` is
-/// the `Box`'s `clone`). `w.*` names the payload place.
+/// the `Rc`'s `clone`). `w.*` names the payload place.
 ///
 /// Implemented by `Box`, `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
 /// a compile error, so every auto-dereference goes through one of the

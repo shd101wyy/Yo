@@ -77,7 +77,7 @@ test("move-only: Dispose and MoveOnly make a value type move-only, and value agg
   comptime_assert(Type.impls(Array(_MoFd, 2), MoveOnly), "an array of them is move-only");
   comptime_assert(!Type.impls(i32, MoveOnly), "i32 is copyable");
   comptime_assert(!Type.impls(_MoRef, MoveOnly), "a reference type shares its payload: never move-only");
-  comptime_assert(!Type.impls(Rc(_MoFd), MoveOnly), "Box is a reference type on this tree: never move-only");
+  comptime_assert(!Type.impls(Rc(_MoFd), MoveOnly), "Rc is a reference type: never move-only");
   comptime_assert(Type.contains_rc_type(_MoFd), "a move-only value has a drop to run");
 });
 _MoPlain :: struct(n : i32);

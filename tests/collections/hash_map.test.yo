@@ -405,7 +405,7 @@ test("HashMap with bool keys", {
   assert(map(false) == i32(0));
 });
 // ===== Reference-Counted Type Tests =====
-test("HashMap with Box key and value - basic set and get", {
+test("HashMap with Rc key and value - basic set and get", {
   map := HashMap(Rc(i32), Rc(i32)).new();
   map.insert(Rc(i32)(1), Rc(i32)(10));
   map.insert(Rc(i32)(2), Rc(i32)(20));
@@ -415,7 +415,7 @@ test("HashMap with Box key and value - basic set and get", {
   assert(map(Rc(i32)(2)).* == i32(20));
   assert(map(Rc(i32)(3)).* == i32(30));
 });
-test("HashMap with Box values - update existing key cleans up old value", {
+test("HashMap with Rc values - update existing key cleans up old value", {
   map := HashMap(Rc(i32), Rc(i32)).new();
   map.insert(Rc(i32)(1), Rc(i32)(100));
   // Update with new value - old Rc(100) should be dropped
@@ -425,7 +425,7 @@ test("HashMap with Box values - update existing key cleans up old value", {
   assert(map(Rc(i32)(1)).* == i32(200));
   // The old Rc(100) value should be properly dropped
 });
-test("HashMap with Box key and value - remove cleans up both", {
+test("HashMap with Rc key and value - remove cleans up both", {
   map := HashMap(Rc(i32), Rc(i32)).new();
   map.insert(Rc(i32)(10), Rc(i32)(100));
   map.insert(Rc(i32)(20), Rc(i32)(200));
@@ -439,7 +439,7 @@ test("HashMap with Box key and value - remove cleans up both", {
   assert(map.contains_key(Rc(i32)(30)));
   // The removed key Rc(20) should be dropped, value Rc(200) returned
 });
-test("HashMap with Box key and value - clear cleans up all", {
+test("HashMap with Rc key and value - clear cleans up all", {
   map := HashMap(Rc(i32), Rc(i32)).new();
   map.insert(Rc(i32)(1), Rc(i32)(10));
   map.insert(Rc(i32)(2), Rc(i32)(20));
@@ -447,9 +447,9 @@ test("HashMap with Box key and value - clear cleans up all", {
   map.clear();
   assert(map.len() == usize(0));
   assert(map.is_empty());
-  // All Box keys and values should be properly dropped
+  // All Rc keys and values should be properly dropped
 });
-test("HashMap with Box key and value - stress test with resize", {
+test("HashMap with Rc key and value - stress test with resize", {
   map := HashMap(Rc(i32), Rc(i32)).new();
   // Add 100 elements to trigger multiple resizes
   i := 0;
@@ -469,9 +469,9 @@ test("HashMap with Box key and value - stress test with resize", {
   // Clear all
   map.clear();
   assert(map.len() == usize(0));
-  // All Box elements should be properly cleaned up including during resizes
+  // All Rc elements should be properly cleaned up including during resizes
 });
-test("HashMap with Box values only", {
+test("HashMap with Rc values only", {
   map := HashMap(i32, Rc(i32)).new();
   map.insert(i32(1), Rc(i32)(100));
   map.insert(i32(2), Rc(i32)(200));
@@ -481,7 +481,7 @@ test("HashMap with Box values only", {
   assert(map.len() == usize(2));
   // Old Rc(100) should be dropped when updated
 });
-test("HashMap with Box keys only", {
+test("HashMap with Rc keys only", {
   map := HashMap(Rc(i32), i32).new();
   map.insert(Rc(i32)(1), i32(100));
   map.insert(Rc(i32)(2), i32(200));
@@ -490,7 +490,7 @@ test("HashMap with Box keys only", {
   // Remove
   map.remove(Rc(i32)(1));
   assert(map.len() == usize(1));
-  // Box key should be dropped
+  // Rc key should be dropped
 });
 // ---- Iterator Tests ----
 test("HashMap into_iter - empty map", {

@@ -782,11 +782,11 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
 // Phase 2b: requires FunctionValue with `specializedFunctionCaches` field.
 is_function_specializable :: (fn(t : TypeValue) -> bool)(false);
 // ---------------------------------------------------------------------------
-// Box / effects-row guards
+// Rc / effects-row guards
 // ---------------------------------------------------------------------------
 //: a reference-semantics
 // struct with exactly one field labeled `*` whose typeName is a shared-cell
-// instance name (`Rc(T)`, `Rc(T)`: `shared_cell_names_at`), or an `Arc` of a
+// instance name (`Rc(T)`, `Box(T)`: `shared_cell_names_at`), or an `Arc` of a
 // non-object.
 is_boxed_type :: (fn(t : TypeValue) -> bool)(
   if(
@@ -991,6 +991,6 @@ export(
   get_adopted_extern_c_type,
   type_decl_id,
   is_function_specializable,
-  // Box guards
+  // Rc guards
   is_boxed_type
 );

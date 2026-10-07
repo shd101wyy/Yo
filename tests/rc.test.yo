@@ -1711,7 +1711,7 @@ test("a receiver projection outlives a method that replaces it", {
 });
 // `ref_count(x)` reads the count of the cell `x` holds, in every shape
 // (plans/VALUES_BY_DEFAULT.md V1 step 0): 1 for a value, the live count for a
-// `ref` struct, a `Box`, an `Arc` (read atomically) and a collection handle.
+// `ref` struct, an `Rc`, an `Arc` (read atomically) and a collection handle.
 RcNode :: ref(struct(v : i32));
 test("ref_count(x) reads the count of every cell shape", {
   // A value: 1, at compile time.
@@ -1729,7 +1729,7 @@ test("ref_count(x) reads the count of every cell shape", {
     };
   };
   assert(ref_count(n1) == usize(1), "ref_count(n1) == 1 after the copies died");
-  // Box
+  // Rc
   b1 := Rc(i32)(3);
   {
     b2 := b1;

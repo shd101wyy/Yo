@@ -382,7 +382,7 @@ analyze_await_points :: (
   ) -> AwaitAnalysisResult
 )({
   // Side-channel: stores async-specific fields for each await suspension point.
-  // A `Box`: the detector closure and this function hold the same map on
+  // An `Rc`: the detector closure and this function hold the same map on
   // purpose, and a closure captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
   await_extras := rc(HashMap(String, AwaitPointExtra).new());
   result := analyze_suspension_points(

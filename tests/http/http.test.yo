@@ -246,7 +246,7 @@ _read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn))
 );
 // Serve `responses` in order, one connection each, recording every request
 // line into `seen`. Runs as a spawned task.
-// A `Box`: the caller and the spawned task share the list on purpose, and a
+// An `Rc`: the caller and the spawned task share the list on purpose, and a
 // task captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
 _serve_scripted :: (
   fn(listener : TcpListener, responses : ArrayList(String), seen : Rc(ArrayList(String)), io : Io) ->

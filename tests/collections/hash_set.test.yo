@@ -474,7 +474,7 @@ test("HashSet maintains uniqueness", {
   assert(set.contains(i32(5)));
 });
 // ===== Reference-Counted Type Tests =====
-test("HashSet with Box elements - basic add and has", {
+test("HashSet with Rc elements - basic add and has", {
   set := HashSet(Rc(i32)).new();
   set.insert(Rc(i32)(10));
   set.insert(Rc(i32)(20));
@@ -484,7 +484,7 @@ test("HashSet with Box elements - basic add and has", {
   assert(set.contains(Rc(i32)(20)));
   assert(set.contains(Rc(i32)(30)));
 });
-test("HashSet with Box elements - duplicate rejected and cleaned up", {
+test("HashSet with Rc elements - duplicate rejected and cleaned up", {
   set := HashSet(Rc(i32)).new();
   result1 := set.insert(Rc(i32)(42));
   result2 := set.insert(Rc(i32)(42));
@@ -493,7 +493,7 @@ test("HashSet with Box elements - duplicate rejected and cleaned up", {
   assert(set.len() == usize(1));
   // The duplicate Rc(42) should be properly dropped
 });
-test("HashSet with Box elements - remove cleans up element", {
+test("HashSet with Rc elements - remove cleans up element", {
   set := HashSet(Rc(i32)).new();
   set.insert(Rc(i32)(10));
   set.insert(Rc(i32)(20));
@@ -506,7 +506,7 @@ test("HashSet with Box elements - remove cleans up element", {
   assert(set.contains(Rc(i32)(30)));
   // The removed Rc(20) should be properly dropped
 });
-test("HashSet with Box elements - clear cleans up all elements", {
+test("HashSet with Rc elements - clear cleans up all elements", {
   set := HashSet(Rc(i32)).new();
   set.insert(Rc(i32)(1));
   set.insert(Rc(i32)(2));
@@ -514,9 +514,9 @@ test("HashSet with Box elements - clear cleans up all elements", {
   set.clear();
   assert(set.len() == usize(0));
   assert(set.is_empty());
-  // All Box elements should be properly dropped
+  // All Rc elements should be properly dropped
 });
-test("HashSet with Box elements - stress test with resize", {
+test("HashSet with Rc elements - stress test with resize", {
   set := HashSet(Rc(i32)).new();
   // Add 100 elements to trigger multiple resizes
   i := 0;
@@ -530,9 +530,9 @@ test("HashSet with Box elements - stress test with resize", {
   // Clear all
   set.clear();
   assert(set.len() == usize(0));
-  // All Box elements should be properly cleaned up including during resizes
+  // All Rc elements should be properly cleaned up including during resizes
 });
-test("HashSet with Box elements - adding many duplicates", {
+test("HashSet with Rc elements - adding many duplicates", {
   set := HashSet(Rc(i32)).new();
   // Add same element many times - all duplicates should be dropped
   i := 0;
@@ -541,7 +541,7 @@ test("HashSet with Box elements - adding many duplicates", {
   });
   assert(set.len() == usize(1));
   assert(set.contains(Rc(i32)(42)));
-  // 49 duplicate Box elements should be properly dropped
+  // 49 duplicate Rc elements should be properly dropped
 });
 // ---- Iterator Tests ----
 test("HashSet into_iter - empty set", {

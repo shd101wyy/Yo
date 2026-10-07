@@ -541,7 +541,7 @@ test("ArrayList large number of elements", {
   });
 });
 // ===== Reference-Counted Type Tests =====
-test("ArrayList.pop with Box doesn't leak memory", {
+test("ArrayList.pop with Rc doesn't leak memory", {
   list := ArrayList(Rc(i32)).new();
   list.push(Rc(i32)(10));
   list.push(Rc(i32)(20));
@@ -549,7 +549,7 @@ test("ArrayList.pop with Box doesn't leak memory", {
   assert(popped.is_some());
   // Popped value should be properly ref-counted and cleaned up
 });
-test("ArrayList.pop all Box elements doesn't leak", {
+test("ArrayList.pop all Rc elements doesn't leak", {
   list := ArrayList(Rc(i32)).new();
   list.push(Rc(i32)(1));
   list.push(Rc(i32)(2));
@@ -569,16 +569,16 @@ test("ArrayList disposal after pop doesn't leak remaining elements", {
   // list now has 2 elements
   // When list goes out of scope, remaining elements should be cleaned up
 });
-test("ArrayList.clear with Box elements properly cleans up", {
+test("ArrayList.clear with Rc elements properly cleans up", {
   list := ArrayList(Rc(i32)).new();
   list.push(Rc(i32)(10));
   list.push(Rc(i32)(20));
   list.push(Rc(i32)(30));
   list.clear();
   assert(list.len() == usize(0));
-  // All Box elements should be properly disposed
+  // All Rc elements should be properly disposed
 });
-test("ArrayList.remove with Box elements properly cleans up", {
+test("ArrayList.remove with Rc elements properly cleans up", {
   list := ArrayList(Rc(i32)).new();
   list.push(Rc(i32)(1));
   list.push(Rc(i32)(2));
@@ -587,9 +587,9 @@ test("ArrayList.remove with Box elements properly cleans up", {
   drained := list.drain(usize(1) .. usize(3));
   assert(drained.len() == usize(2));
   assert(list.len() == usize(2));
-  // Removed Box elements should be properly disposed
+  // Removed Rc elements should be properly disposed
 });
-test("ArrayList index assignment with Box replaces and drops the old value", {
+test("ArrayList index assignment with Rc replaces and drops the old value", {
   list := ArrayList(Rc(i32)).new();
   list.push(Rc(i32)(10));
   list.push(Rc(i32)(20));
@@ -598,7 +598,7 @@ test("ArrayList index assignment with Box replaces and drops the old value", {
   // Old value (20) should be dropped, new value (99) should be in place
   assert(list(usize(1)).* == i32(99));
 });
-test("ArrayList mixed operations with Box elements", {
+test("ArrayList mixed operations with Rc elements", {
   list := ArrayList(Rc(i32)).new();
   // Push several elements
   list.push(Rc(i32)(1));
@@ -615,7 +615,7 @@ test("ArrayList mixed operations with Box elements", {
   assert(list(usize(1)).* == i32(3));
   // All operations should properly manage reference counts
 });
-test("ArrayList stress test with Box - push 100 and remove from front", {
+test("ArrayList stress test with Rc - push 100 and remove from front", {
   list := ArrayList(Rc(i32)).new();
   // Push 100 elements
   i := 0;
@@ -632,9 +632,9 @@ test("ArrayList stress test with Box - push 100 and remove from front", {
   // Clear the remaining elements
   list.clear();
   assert(list.len() == usize(0));
-  // All 100 Box elements should be properly disposed
+  // All 100 Rc elements should be properly disposed
 });
-test("ArrayList stress test with Box - remove multiple elements at once", {
+test("ArrayList stress test with Rc - remove multiple elements at once", {
   list := ArrayList(Rc(i32)).new();
   // Push 20 elements
   i := 0;

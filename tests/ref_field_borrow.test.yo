@@ -308,8 +308,8 @@ comptime_expect_error(
   })
 );
 
-// --- Box deref `b.*.field` as a ref place (audit probe P1) ---
-// `Box` is an ordinary object; `b.*` is a field access whose result is
+// --- Rc deref `b.*.field` as a ref place (audit probe P1) ---
+// `Rc` is an ordinary object; `b.*` is a field access whose result is
 // an object, i.e. an intermediate object hop. Reassigning `b.*` (needs a
 // handle to `b`) frees the boxed object, so passing `b` alongside is
 // rejected.
@@ -324,7 +324,7 @@ comptime_expect_error(
   })
 );
 
-// Positive: element-only Box deref — the box is NOT passed, so no callee
+// Positive: element-only Rc deref — the box is NOT passed, so no callee
 // can reassign it. (`owner_box.*.id.clone()`-style access.)
 test("box deref is allowed when the box is unreachable", {
   read_n :: (fn(inout(v) : i32) -> unit)({

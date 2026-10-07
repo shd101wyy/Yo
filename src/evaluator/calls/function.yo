@@ -635,11 +635,11 @@ _try_find_receiver_method :: (
   });
   if(hits.len() == usize(0), {
     // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` wrapper
-    // (`Box`, `Arc`) without the method forwards the call to its payload —
+    // (`Rc`, `Arc`) without the method forwards the call to its payload —
     // retry with the receiver `w.*`, recursively through nested wrappers.
     // Reached only after the wrapper's own lookup (and its lazy-impl force)
     // missed, so the wrapper's members always win (`b.clone()` stays the
-    // Box's). On a hit the callee's receiver argument is replaced IN PLACE by
+    // Rc's). On a hit the callee's receiver argument is replaced IN PLACE by
     // the `w.*` chain, so the call is the explicit `w.*.m(...)` to every later
     // reader (codegen, the inout/D3/E0908 root walks); on a miss the callee
     // is left as written for the E0610 message.
@@ -730,7 +730,7 @@ _instance_constructor_fid :: (fn(ty : TypeValue) -> String)(
 /// (resetting its ExprInfo to the constructor) and infers again, as the
 /// written `G(A, ...)` receiver is re-evaluated per specialization. The match
 /// is by constructor identity, never a search through payloads, so it is
-/// unambiguous: an `Rc(Rc(T))` argument is an `Rc` instance and not a `Box`
+/// unambiguous: an `Rc(Arc(T))` argument is an `Rc` instance and not an `Arc`
 /// one. A constructor whose body applies another (an alias
 /// `IntPair(B) := Pair(i32, B)`, a partial application `Pair(i32, _)`) is a
 /// constructor of its own: its instances are the other constructor's.

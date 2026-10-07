@@ -185,8 +185,8 @@ gadt_branch_reachable :: (fn(enum_id : String, variant_idx : usize) -> bool)({
 // ---------------------------------------------------------------------------
 /// The type a pattern at a position is compiled against: one pointer level
 /// and one `Rc(T)` wrapper looked through, a leaked recursive-enum
-/// self-shell resolved. A Box position is presented as its inner type to the
-/// constructor reasoning (the box wrapper is transparent for coverage).
+/// self-shell resolved. An Rc position is presented as its inner type to the
+/// constructor reasoning (the rc wrapper is transparent for coverage).
 norm_position_type :: (fn(t : TypeValue) -> TypeValue)({
   inner := match(t, .Pointer(p) => p, _ => t);
   inner2 := match(
@@ -196,7 +196,7 @@ norm_position_type :: (fn(t : TypeValue) -> TypeValue)({
   );
   resolve_enum_shell(inner2)
 });
-/// True when the struct's single field is labeled `*` (the Box shape).
+/// True when the struct's single field is labeled `*` (the Rc shape).
 _box_shaped :: (fn(fls : ArrayList(String), fts : ArrayList(TypeValue)) -> bool)(
   (fls.len() == usize(1)) && (fts.len() == usize(1)) && match(
     fls.get(usize(0)),

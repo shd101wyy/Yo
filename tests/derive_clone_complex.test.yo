@@ -58,7 +58,7 @@ test("derive Clone for struct with Option field (None)", {
 // ===== 5. Struct with Rc(T) field =====
 Boxed :: struct(inner : Rc(i32), label : String);
 derive(Boxed, Clone);
-test("derive Clone for struct with Box field", {
+test("derive Clone for struct with Rc field", {
   orig := Boxed(inner : rc(i32(55)), label : `boxed`);
   c := orig.clone();
   assert(c.inner.* == i32(55), "box content cloned");
@@ -88,7 +88,7 @@ test("derive Clone for enum with data variants (Nothing)", {
   c := orig.clone();
   match(c, .Nothing => (), .Just(_) => assert(false, "wrong variant"));
 });
-// ===== 8. Enum with Box/String/ArrayList variant fields =====
+// ===== 8. Enum with Rc/String/ArrayList variant fields =====
 RichVariant :: enum(
   Empty,
   WithString(s : String),
@@ -105,7 +105,7 @@ test("derive Clone for enum with String variant", {
     _ => assert(false, "wrong variant")
   );
 });
-test("derive Clone for enum with Box variant", {
+test("derive Clone for enum with Rc variant", {
   orig := RichVariant.WithBox(rc(i32(42)));
   c := orig.clone();
   match(
