@@ -203,8 +203,13 @@ aware grep (`grep -Pzo 'ref\(\s*(struct|enum)\('`) checked by hand:
   `Emitter`, the specialization and comptime-fn caches, `VcCtx`,
   `BuildRegistry`, …. The rest are result records, options and report rows
   that are never aliased.
-- **`Box(`** appears at 56 code sites in `src/` (plus 59 `box(`), 8 in
-  `std/`, and about 665 in tests.
+- **`Box(`** appears in 56 files in `src/` (plus 33 with `box(`), 8 in
+  `std/`, and about 665 occurrences in tests. These are FILE counts; §6
+  step 1 quotes the OCCURRENCE counts (about 215 + 16 + 633 `Box(` and
+  91 + 8 + 170 `box(` in `src/`/`std/`/`tests/`), which are the numbers
+  the rename sizing and decision 17's handle-copy counts read off
+  (corrected 2026-10-07, audit #1251 finding 6: the two sections used to
+  mix the metrics without saying so).
 
 `ref` does three jobs, and each gets its own replacement:
 
@@ -356,7 +361,13 @@ Explicit sharing must not mean writing `.*` everywhere.
   Codegen sees an ordinary chain.
 - **Places.** `rc.n = v` and `rc.items.push(x)` write the shared payload.
   D3 carries over: in a file without the pragma, no write goes through an
-  `Arc` root (`throw_if_write_through_atomic_root`).
+  `Arc` root (`throw_if_write_through_atomic_root`). "Write" here covers
+  every path that hands out an exclusive place, not just assignment: the
+  `inout`/`mut`-argument binding sites (which the evaluator already routes
+  through the same check), decision 20's `with`/`take`/`swap` lends, and —
+  once V2b adds them — `mut` projection yields. So
+  `Arc(ArrayList(T)).with(i, ...)` is D3-rejected, not silently admitted
+  (amended 2026-10-07, audit #1251 finding 4).
 - **Writes through a `Box`** are plain writes, because the owner is unique.
 
 ### 3.4 Identity and resources are move-only values
@@ -682,6 +693,14 @@ instead.
     - The fix the error names: own the value in the task, or use
       `Rc(Mutex(S))`.
     - A shared (`imm`) borrow of a move-only receiver stays allowed.
+    - **A shared (`imm`) borrow whose place crosses an `Rc`/`Arc` deref is
+      rejected too** (amended 2026-10-07, audit #1251 finding 1): decision
+      28's shared marks are call-scoped, so nothing holds the cell's mark
+      for the suspension, and a concurrent write through the other handle
+      would not trip §3.10's assert. The error names the same fix as
+      decision 38 D: capture the handle (`f(imm(r), io)` deriving
+      `r.*.items` at each use), or own the value in the task. This is 38
+      D's rule, extended from closure captures to future captures.
   - **Precedent.** This is the second-class rule `mut` already follows,
     extended to the future that carries the borrow. It is Swift's
     `mutating func next() async`.
@@ -747,7 +766,12 @@ instead.
   join-wait primitive (`__yo_join_wait_new`/`__yo_join_wait_add`), and
   `JoinHandle`/`Io` staying `!Send`.
   `spawn_blocking`'s result crosses through a `Channel(T)` by move.
-- **Captures.** An `io.async` body escapes, so it owns its captures.
+- **Captures.** An `io.async` body escapes, so it owns its captures —
+  unless it borrows: `io.async(body)` is decision 37's one stated
+  exception, a by-value slot that accepts a second-class body, and the
+  future it returns is then second-class and follows A2 above (corrected
+  2026-10-07, audit #1251 finding 5; the unconditional sentence
+  contradicted decision 37 and its own `_execute_batch` example).
   - `_execute_batch` (`src/build_runner.yo`) writes a captured `results`
     map. Its only caller awaits the future directly, so the fix is
     `mut(results)`.
@@ -912,6 +936,14 @@ and in git, not a silent edit.
     - **Live ranges end at the last use, not the scope end** (Hylo's rule).
       Today's `mut` locals are scope-based, and last-use ranges land with
       `imm(y) :=`.
+    - **Mark lifecycle for borrows through an `Rc`/`Arc` deref** (stated
+      2026-10-07, audit #1251 finding 3 — rule 3 above said where the flag
+      lives but never when it is taken or dropped): the shared mark (for
+      `imm`) or the exclusive acquire (for `mut`) happens at the binding,
+      and again at each re-point's entry per decision 25; it is released at
+      the borrow's last use, and on every unwind path through the live
+      range, by the same unwind cleanup that releases decision 28's
+      call-scoped marks. A panic must not leave the cell flagged.
     - `mut(e) := xs(i)` accepts element places once projections land (V2b).
     - `y := s.items` is a move (an error under decision 19) or an explicit
       clone. The borrow is `imm(items) := s.items`.
@@ -1665,7 +1697,12 @@ and in git, not a silent edit.
       - the prelude `Option(i32)` stays `Copy` with its generic `Clone`;
       - a generic `where(T <: Copy)` operator impl;
       - a tuple of `Copy` parts copies implicitly;
-      - a closure whose captures are all `Copy` copies implicitly.
+      - a closure whose captures are all `Copy` copies implicitly — read
+        through decision 38 A (cross-referenced 2026-10-07, audit #1251
+        finding 7): only closures with NO `mut` captures qualify. A
+        `mut`-capturing closure is second-class and move-only however
+        copyable its capture record's words are, so the anonymous-composite
+        rule must not derive `Copy` for it.
 
 37. **`FnOnce` is added; `FnMut` is not.** Confirmed 2026-10-05 by the
     maintainer. This amends decision 23.
@@ -2005,6 +2042,16 @@ and in git, not a silent edit.
     - **The place must be writable.** A `mut` capture's place must be
       writable: not through an `imm` binding, and not through an `Arc`
       (D3).
+    - **Amended 2026-10-07 (audit #1251 finding 1): the rule covers
+      borrowing future captures too.** A future's `imm` parameter whose
+      place crosses an `Rc`/`Arc` deref is rejected exactly like a closure
+      borrow capture: decision 28's marks are call-scoped, so no mark is
+      held for the suspension, and a concurrent write through the other
+      handle would miss §3.10's assert. The error names the same fix: pass
+      the handle (`f(imm(r), io)`, deriving `r.*.field` at each use) or
+      own the value in the task. §3.13 A2 carries the normative sentence.
+      The maintainer chose this over await-scoped marks, which would be
+      the model's only non-call mark scope.
 
     **E. Threads.**
     - **Borrows.** A borrow capture is never `Send`.
@@ -2095,6 +2142,74 @@ and in git, not a silent edit.
   the parameter the closure is passed to (`imm(f)` or a by-value `f`,
   decision 22), which the callee's signature spells. The explicit form is
   the capture list (decision 35).
+
+39. **Post-V2b iterators are index-based; pointer iterators are
+    unsafe-gated.** Confirmed 2026-10-07 by the maintainer, from audit
+    #1251 finding 2. This decides the shape V2b leaves `iter()` in, before
+    the V3b sweep can walk it into a broken spelling.
+    - **The gap.** Today `ArrayList.iter()` takes `self` by value, stores
+      the receiver in the iterator, and yields `*(T)` into the list's own
+      buffer (`std/collections/array_list.yo`); it is sound only because
+      the stored handle is an RC dup keeping the buffer alive, and growth
+      mid-walk is UB by discipline. After V2b the buffer is uniquely owned
+      and uncounted: a by-value `iter()` consumes the list at every
+      read-only walk, and an `imm(self)` spelling cannot exist — a
+      pointer-yielding iterator is a stored, returned, first-class value,
+      and borrows are second-class (decision 38 A). The old text said only
+      "V2b needs an `iter_mut(mut(self))` split", which addresses mutation
+      through the iterator, not the iterator's own validity.
+    - **The decision.** `iter()` — and every read-only iterator reachable
+      from safe code — becomes INDEX-BASED: the iterator holds a handle to
+      the container plus an index, re-derives `xs(i)` at each `next`, and
+      growth mid-walk is an out-of-bounds error, not UB. A consuming
+      `into_iter()` keeps yielding values. Pointer-yielding iterators
+      stay only beside `ptr()` inside `pragma(Pragma.AllowUnsafe)` std
+      files (the `HashMapIterPtr` shape); they are not part of the
+      ordinary iteration story and are not touched by the rename.
+    - **The V3b sweep is told:** iterator-returning methods are exempt
+      from the mechanical `imm(x)` conversion (§7's table carries the
+      row); their signatures are re-derived from this decision when V2b
+      lands.
+    - **Perf note.** Index re-derivation costs one bounds check per step;
+      hot loops that need the raw pointer keep using `ptr()` under the
+      pragma. V2b's PR measures the iterator-heavy std tests before and
+      after.
+
+40. **No `Pin`: live values never relocate, and borrows stay
+    second-class.** Confirmed 2026-10-07 by the maintainer, from the
+    design question "does mutable value semantics need Rust's `Pin`?"
+    - **The invariant.** The address of a live non-`Copy` value is stable
+      from construction to `drop`. A move transfers ownership of the
+      underlying storage; it never byte-copies a live object to a new
+      address. Structural `Copy` values — scalars and aggregates that
+      cannot contain interior references in safe code — may be copied
+      freely. Codegen must not lower a move of a non-`Copy` inline value
+      into a relocating byte copy under any optimization: the dup/drop
+      machinery transfers cells, and that is the visible contract.
+    - **Why not `Pin`.** `Pin` exists to police exactly one hazard:
+      bitwise-moving a value that contains pointers into itself. In safe
+      Yo that value is unexpressible — borrows are modes and places
+      (decisions 18, 24, 30, 35, 38 A), never storable fields, so no
+      value can reference itself or a sibling. Rust's one safe-language
+      forcing function, the self-referential async generator, does not
+      arise either: a suspended task is a stable heap state machine whose
+      capture slots are tied to declaration sites (decision 38 A; #1234
+      fixed the slot-identity bug this design was already avoiding), and
+      moving a future moves the cell, not the frame's bytes. With no
+      relocation there is nothing to pin — the same position Hylo takes.
+    - **The raw-pointer contract.** `addr_of(x)` and raw pointers may rely
+      on the invariant: a live non-`Copy` object's address is good until
+      its `drop`. This universal invariant replaces a per-type pinning
+      protocol; what such a pointer may still not do is cross a thread
+      (§3.8's `Send` rules) or outlive its object, as ever.
+    - **Revisit triggers.** Each of these would reintroduce the
+      relocation hazard by the back door and reopen the question — at
+      that point the choice is "extend the stability guarantee or add a
+      `Pin`-like marker":
+      - the decision-18-vs-24 item, binding a projection result as a
+        local borrow (§9), must preserve second-classness when decided;
+      - any V2b escape of a yielded place out of its owner's storage;
+      - any future first-class or storable reference type.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -2833,8 +2948,10 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - `StringBuilder.to_string` is one of them: it detaches the buffer.
   - `spare_capacity`, `assume_init`, `extend_from_ptr` and `get_entry_ptr`
     take `inout(self)`.
-  - `ptr()` and `iter()` stay read pointers; V2b needs an
-    `iter_mut(mut(self))` split.
+  - `ptr()` and `iter()` stay read pointers for now; V2b needs an
+    `iter_mut(mut(self))` split — and `iter()`'s own post-V2b shape is
+    decided by decision 39 (index-based; the pointer form moves under
+    `pragma(Pragma.AllowUnsafe)` beside `ptr()`).
   - `Dispose.dispose` receivers are exempt.
 - **The audit** (`YO_AUDIT_INOUT_BORROW=1`, `src/evaluator/exprs/assignment.yo`)
   lists collection writes through borrowed places, with
@@ -2998,6 +3115,7 @@ stage-2 RSS):
 | Today | After | Found by |
 | --- | --- | --- |
 | a plain parameter of an owning type that only reads | `imm(x) : T` | V3b `yo fix` sweep |
+| an iterator-returning method's `self` | NOT converted by the sweep — re-derived from decision 39 (index-based) when V2b lands | decision 39 exemption |
 | `inout(x) : T`, `inout(self)` | `mut(x) : T`, `mut(self)` | V3b sweep |
 | `own(x) : T` / `sink(x) : T` | `x : T` | V3b sweep |
 | `T :: ref(struct(...))` mutated through one handle only | `T :: struct(...)`, mutators `mut(self)` | E0908 audit |
@@ -3063,7 +3181,10 @@ stage-2 RSS):
 No design question is open. The latest were decided as decisions 31 (the
 child wrapper in patterns), 34 (operator operands), 35 (the closure capture
 list), 36 (the `Copy` trait) and 37 (`FnOnce`, and no `FnMut`). Decision
-38 records the closure soundness rules from the 2026-10-06 audit. Decision 18 was also
+38 records the closure soundness rules from the 2026-10-06 audit; its D
+rule was extended to borrowing future captures on 2026-10-07 (audit
+#1251). Decision 39 (2026-10-07, same audit) makes post-V2b iterators
+index-based. Decision 18 was also
 amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
