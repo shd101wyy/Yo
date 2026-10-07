@@ -394,8 +394,8 @@ test("Test break from cond after fn resume", {
 test("Test break drops local allocations after fn resume", {
   Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // Analogous to async_await test #27: Break drops local allocations.
-  // Allocate a Box each iteration; break at iteration 3.
-  // ASan will catch leaks of the Box or String fn args.
+  // Allocate an Rc each iteration; break at iteration 3.
+  // ASan will catch leaks of the Rc or String fn args.
   run_test :: (fn() -> unit)({
     counter := Rc(i32)(0);
     (raise : Raise) = (

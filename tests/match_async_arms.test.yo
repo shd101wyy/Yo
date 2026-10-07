@@ -169,7 +169,7 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
 // ---------------------------------------------------------------------------
 // The GENERAL pattern forms in awaiting arms (plans/reference/MATCH_PATTERN_MATCHING.md
 // §4.9): nested variants, or-patterns, guards, constants, ranges, catch-all
-// bindings, whole-value `:=`, tuple/struct scrutinees and Box payloads all
+// bindings, whole-value `:=`, tuple/struct scrutinees and Rc payloads all
 // dispatch through the compiled-arm test chain; the arm bodies keep the
 // ordinary cond_branch suspension machinery.
 // ---------------------------------------------------------------------------
@@ -347,7 +347,7 @@ test("a struct pattern with an await", {
   assert(result.* == i32(19), "Pt(1, 9) must take the general struct arm");
 });
 List2 :: ref(enum(Nil2, Cons2(head : i32, tail : Rc(Self))));
-test("a pattern through a Box payload with an await", {
+test("a pattern through an Rc payload with an await", {
   n := runtime_int();
   l := List2.Cons2(1, rc(List2.Cons2(i32(2) + n, rc(List2.Nil2))));
   result := Rc(i32)(0);
@@ -366,5 +366,5 @@ test("a pattern through a Box payload with an await", {
     );
   });
   io.await(task, io);
-  assert(result.* == i32(3), "the nested Box payload pattern must bind second=3");
+  assert(result.* == i32(3), "the nested Rc payload pattern must bind second=3");
 });

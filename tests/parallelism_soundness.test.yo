@@ -339,12 +339,12 @@ comptime_expect_error({
   _D2Scalar :: Iso(i32);
 });
 // Canary: `^` constructs an Iso in safe code.
-test("D2 canary: ^ isolates a uniquely owned Box in safe code", {
+test("D2 canary: ^ isolates a uniquely owned Rc in safe code", {
   b := rc(i32(7));
   match(
     ^b,
     .Some(i) => assert(i.extract().* == i32(7), "the value came through"),
-    .None => assert(false, "a fresh Box is uniquely owned")
+    .None => assert(false, "a fresh Rc is uniquely owned")
   );
 });
 // ============================================================================

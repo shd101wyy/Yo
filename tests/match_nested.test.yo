@@ -108,7 +108,7 @@ test("reference-semantics payloads bound through a nested pattern", {
   assert(total(Pair.Zero) == usize(0));
 });
 List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
-test("a nested variant pattern through a Box payload", {
+test("a nested variant pattern through an Rc payload", {
   f :: (fn(l : List) -> i32)(
     match(
       l,
@@ -121,7 +121,7 @@ test("a nested variant pattern through a Box payload", {
   assert(f(List.Cons(3, rc(List.Nil))) == i32(3));
   assert(f(List.Nil) == i32(0));
 });
-test("two levels through Box payloads", {
+test("two levels through Rc payloads", {
   sum_boxed :: (fn(b : Rc(List)) -> i32)(
     match(
       b,
@@ -141,7 +141,7 @@ test("two levels through Box payloads", {
   assert(g(List.Cons(9, rc(List.Cons(8, rc(List.Nil))))) == i32(8));
   assert(g(List.Nil) == i32(-1));
 });
-test("a literal sub-pattern through a Box payload", {
+test("a literal sub-pattern through an Rc payload", {
   Cell :: enum(Value(v : Rc(i32)), Empty);
   h :: (fn(c : Cell) -> i32)(
     match(
@@ -155,7 +155,7 @@ test("a literal sub-pattern through a Box payload", {
   assert(h(Cell.Value(rc(i32(7)))) == i32(2));
   assert(h(Cell.Empty) == i32(0));
 });
-test("an or-pattern through a Box payload", {
+test("an or-pattern through an Rc payload", {
   k :: (fn(l : List) -> i32)(
     match(
       l,
@@ -168,7 +168,7 @@ test("an or-pattern through a Box payload", {
   assert(k(List.Cons(0, rc(List.Nil))) == i32(0));
   assert(k(List.Cons(5, rc(List.Nil))) == i32(5));
 });
-test("whole-value binding of the Box position still binds the Box", {
+test("whole-value binding of the Rc position still binds the Rc", {
   inner_kind :: (fn(b : Rc(List)) -> i32)(
     match(
       b.*,
@@ -187,7 +187,7 @@ test("whole-value binding of the Box position still binds the Box", {
   assert(m(List.Cons(1, rc(List.Cons(9, rc(List.Nil))))) == i32(101));
   assert(m(List.Nil) == i32(0));
 });
-test("a Box scrutinee takes nested patterns directly", {
+test("an Rc scrutinee takes nested patterns directly", {
   n :: (fn(b : Rc(List)) -> i32)(
     match(
       b,

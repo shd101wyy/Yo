@@ -49,7 +49,7 @@ impl(
   _handle : (fn(self : Self) -> Self)(self)
 );
 /// One generic body, two specializations: `Rc.clone(x)` infers `T` from each.
-_clone_box :: (fn(generic(T : Type), x : Rc(T), where(T <: Clone)) -> Rc(T))(Rc.clone(x));
+_clone_rc :: (fn(generic(T : Type), x : Rc(T), where(T <: Clone)) -> Rc(T))(Rc.clone(x));
 /// A module-qualified constructor in a generic body. Before the fix the
 /// definition-time trial rewrote the receiver `mv.Cell` into an atom named
 /// `.`, so every specialization failed "Evaluating the expression (token: .)
@@ -63,7 +63,7 @@ test("Rc.clone(b) infers T from the receiver", {
   b := rc(i32(5));
   c := Rc.clone(b);
   b.* = i32(7);
-  assert(c.* == i32(5), "today's Box clone is an independent cell");
+  assert(c.* == i32(5), "today's Rc clone is an independent cell");
   assert(b.* == i32(7), "the original is unchanged by the clone");
   assert(ref_count(c) == usize(1), "the clone is a fresh cell");
 });
@@ -75,8 +75,8 @@ test("Rc.clone(b) has the type Rc(i32).clone(b) has", {
   comptime_assert(Type.eq(typeof(Rc.clone(b)), Rc(i32)), "the result is a Rc(i32)");
 });
 test("Rc.clone infers T inside a generic body", {
-  x := _clone_box(rc(i32(9)));
-  y := _clone_box(rc(true));
+  x := _clone_rc(rc(i32(9)));
+  y := _clone_rc(rc(true));
   assert(x.* == i32(9), "T := i32");
   assert(y.*, "T := bool");
 });
@@ -94,7 +94,8 @@ test("Rc.clone(w) on a nested wrapper names the outer constructor", {
   w := rc(rc(i32(2)));
   c := Rc.clone(w);
   comptime_assert(Type.eq(typeof(c), Rc(Rc(i32))), "T := Rc(i32), never a payload search");
-  comptime_expect_error(Rc.clone(w), "which has type `Rc(Rc(i32))`, not an instance of `Box`");
+  v := rc(arc(i32(2)));
+  comptime_expect_error(Arc._handle(v), "which has type `Rc(Arc(i32))`, not an instance of `Arc`");
 });
 test("Arc.m(a) infers T from the receiver", {
   a := arc(i32(3));
@@ -127,10 +128,9 @@ test("a static method has no receiver to infer from (E0613)", {
 });
 test("a receiver of another type is E0613 naming both", {
   a := arc(i32(1));
-  comptime_expect_error(Rc.clone(a), "which has type `Arc(i32)`, not an instance of `Box`");
+  comptime_expect_error(Rc.clone(a), "which has type `Arc(i32)`, not an instance of `Rc`");
   r := rc(i32(1));
-  comptime_expect_error(Rc.clone(r), "which has type `Rc(i32)`, not an instance of `Box`");
-  comptime_expect_error(Rc.clone(rc(i32(1))), "which has type `Rc(i32)`, not an instance of `Rc`");
+  comptime_expect_error(Arc._handle(r), "which has type `Rc(i32)`, not an instance of `Arc`");
   b := rc(rc(i32(1)));
   comptime_expect_error(Arc._handle(b), "not an instance of `Arc`");
   comptime_expect_error(Rc.clone(i32(1)), "which has type `i32`");
@@ -164,7 +164,7 @@ test("a module-qualified constructor, in a generic body specialized twice", {
 test("a receiver whose type is a bare type parameter", {
   c := _clone_any(rc(i32(4)));
   assert(c.* == i32(4), "T := Rc(i32)");
-  comptime_expect_error(_clone_any(i32(5)), "which has type `i32`, not an instance of `Box`");
+  comptime_expect_error(_clone_any(i32(5)), "which has type `i32`, not an instance of `Rc`");
 });
 // Before the fix a labeled receiver was evaluated as a type annotation
 // ("Expected type for rhs, got p"). Labels are positional, so the receiver is
