@@ -164,3 +164,136 @@ test("Dyn(Fn(...)) of a closure capturing a move-only value", {
   };
   assert(g_once_disposed == (before + i32(1)), "the dyn's drop disposed the capture");
 });
+
+// --- review round 1 (PR #1266): RC payloads and the call's ownership edges ------
+{ ArrayList } :: import("std/collections/array_list");
+_OnceRes :: struct(a : ArrayList(i64));
+impl(
+  _OnceRes,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_once_disposed = (g_once_disposed + i32(1));
+    })
+  )
+);
+_once_mk :: (fn(sink(t) : _OnceTok) -> Impl(FnOnce() -> i32))({ t }() => t.n);
+_OnceHolder :: (fn(comptime(F) : Type) -> comptime(Type))(struct(f : F));
+test("FnOnce: a one-expression body reads its RC capture before dropping it", {
+  before := g_once_disposed;
+  {
+    a := ArrayList(i64).new();
+    a.push(i64(42));
+    r := _OnceRes(a : a);
+    (f : Impl(FnOnce() -> i64)) = ({ r }() => r.a.get(usize(0)).unwrap_or(i64(-1)));
+    assert(f() == i64(42), "the capture is read, then dropped");
+  };
+  assert(g_once_disposed == (before + i32(1)), "disposed once");
+});
+test("FnOnce: an RC capture of a binding that stays live is a counted copy", {
+  a := ArrayList(i64).new();
+  a.push(i64(11));
+  a.push(i64(22));
+  (f : Impl(FnOnce() -> usize)) = ({ a }() => {
+    n := a.len();
+    n
+  });
+  assert(f() == usize(2), "the body reads its copy and releases it");
+  b := ArrayList(i64).new();
+  b.push(i64(99));
+  assert(a.len() == usize(2), "the source list is intact after the call released the capture");
+  assert(a.get(usize(0)).unwrap_or(i64(-1)) == i64(11), "its buffer was not reused");
+  assert(b.len() == usize(1), "an unrelated list is unaffected");
+});
+test("FnOnce: a temporary callee releases its captures once", {
+  before := g_once_disposed;
+  {
+    r := _once_mk(_OnceTok(n : i32(4)))();
+    assert(r == i32(4), "called once");
+  };
+  assert(g_once_disposed == (before + i32(1)), "temporary: disposed once");
+  {
+    f := _once_mk(_OnceTok(n : i32(4)));
+    assert(f() == i32(4), "called once");
+  };
+  assert(g_once_disposed == (before + i32(2)), "named: disposed once");
+  {
+    _f := _once_mk(_OnceTok(n : i32(4)));
+  };
+  assert(g_once_disposed == (before + i32(3)), "uncalled: disposed once, by its owner");
+});
+comptime_expect_error(
+  _dyn_fn_rejects_fnonce :: (fn() -> unit)({
+    k := i32(1);
+    (f : Impl(FnOnce() -> i32)) = ({ k }() => k);
+    (d : Dyn(Fn() -> i32)) = dyn(f);
+    _r := d();
+  }),
+  "Cannot box an `FnOnce(...)` closure as a `Dyn(Fn(...))`"
+);
+comptime_expect_error(
+  _fn_closure_calls_implicit_fnonce_rejected :: (fn() -> unit)({
+    s := String.from("abc");
+    (f : Impl(FnOnce() -> usize)) = ({ s }() => s.len());
+    (g : Impl(Fn() -> usize)) = (() => f());
+    _r := g();
+  }),
+  "it is captured implicitly by this closure"
+);
+comptime_expect_error(
+  _fnonce_field_call_rejected :: (fn() -> unit)({
+    t := _OnceTok(n : i32(5));
+    (f : Impl(FnOnce() -> i32)) = ({ t }() => t.n);
+    h := _OnceHolder(type_of(f))(f : f);
+    _r := h.f();
+  }),
+  "a closure stored in a field cannot be moved out of its holder"
+);
+comptime_expect_error(
+  _fnonce_match_binding_call_rejected :: (fn() -> unit)({
+    t := _OnceTok(n : i32(5));
+    (f : Impl(FnOnce() -> i32)) = ({ t }() => t.n);
+    o := Option(type_of(f)).Some(f);
+    match(o, .Some(g) => g(), .None => i32(0));
+  }),
+  "it is borrowed from the value that holds it"
+);
+comptime_expect_error(
+  _nested_borrowed_param_is_not_an_outer_sink_rejected :: (fn(sink(x) : _OnceTok) -> i32)({
+    inner :: (fn(comptime(T) : Type, x : T) -> i32)(_once_take(x));
+    y := _OnceTok(n : i32(2));
+    inner(_OnceTok, y)
+  }),
+  "it is borrowed"
+);
+test("FnOnce: an early return drops the captures the body did not move", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(5));
+    u := _OnceTok(n : i32(6));
+    (f : Impl(FnOnce(go : bool) -> i32)) = ({ t, u }(go : bool) => {
+      if(go, {
+        return(_once_take(t));
+      });
+      _once_take(u)
+    });
+    assert(f(true) == i32(5), "the early return moved t");
+  };
+  assert(g_once_disposed == (before + i32(2)), "t by _once_take, u by the return path");
+});
+test("FnOnce: an Fn closure boxed as Dyn(FnOnce(...)) drops its captures when called", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(5));
+    (c : Impl(Fn() -> i32)) = ({ t }() => t.n);
+    (d : Dyn(FnOnce() -> i32)) = dyn(c);
+    assert(d() == i32(5), "the Fn body borrows its capture");
+  };
+  assert(g_once_disposed == (before + i32(1)), "the call's release disposed the capture");
+});
+test("FnOnce: Dyn(FnOnce(...)) is move-only", {
+  k := i32(1);
+  (d : Dyn(FnOnce() -> i32)) = dyn({ k }() => k);
+  d2 := d;
+  comptime_expect_error(d(), "use of moved value");
+  assert(d2() == i32(1), "the moved-to handle calls once");
+});

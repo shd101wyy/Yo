@@ -5061,6 +5061,23 @@ _consume_fnonce_callee :: (fn(callee : AstExpr, callee_info : ExprInfo, env : En
   // A temporary callee (`make()()`) is consumed by its call: the body takes
   // its captures, so the temporary's own drop must not release them again.
   if(is_temp_variable_name(env.module_path, name.clone()), {
+    // A NON-owning temporary is a projection (`h.f`, an element): the call
+    // would move the closure out of the value that still owns it.
+    if(!v.is_owning_the_rc_value && holds_owned, {
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            ast_expr_token(callee),
+            `use of moved value: cannot call \`${ast_expr_to_string(callee)}\`: an \`FnOnce(...)\` call consumes the closure, and a closure stored in a field cannot be moved out of its holder (Yo has no partial moves).`,
+            Option(String).Some(String.from("move the closure into a local first (consume the holder), or store an `Option(Dyn(FnOnce(...)))` and take it out"))
+          ),
+          E_USE_OF_MOVED_VALUE
+        ),
+        ctx,
+        exn
+      );
+      return(());
+    });
     if(v.consumed_at_token.is_none(), {
       v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(callee)));
     });

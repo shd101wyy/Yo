@@ -29,6 +29,7 @@ import("std/fmt");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_fn_trait } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
+{ note_move_only_possible } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -73,6 +74,10 @@ evaluate_fn_trait_type :: (
   fn_call_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   return_type_expr := match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   is_once := ast_expr_is_fn_call_of(fn_call_expr, BK_FN_ONCE_TRAIT, Option(usize).None);
+  if(is_once, {
+    // `Dyn(FnOnce(...))` is move-only: arm the move-only checks.
+    note_move_only_possible();
+  });
   if(!ast_expr_is_fn_call(fn_call_expr) ||
     !(ast_expr_is_fn_call_of(fn_call_expr, BK_FN_TRAIT, Option(usize).None) || is_once), {
     exn.throw(
