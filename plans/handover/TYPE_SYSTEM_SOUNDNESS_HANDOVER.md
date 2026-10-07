@@ -1,6 +1,6 @@
 # Type-system soundness: handover
 
-**Status:** updated 2026-10-04, at the end of a stretch (yo-74/yo-e2). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md);
+**Status:** updated 2026-10-04, at the end of a stretch (yo-74/yo-e2). The plan is [`TYPE_SYSTEM_SOUNDNESS.md`](../TYPE_SYSTEM_SOUNDNESS.md);
 it stays authoritative for what each phase means. This doc says where the work stands and what
 to do next (§3.0 is the ordered list). Move it to `archive/` with a banner once §3 is empty.
 
