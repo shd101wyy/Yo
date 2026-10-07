@@ -3125,6 +3125,46 @@ count := i32(0);
   error, and `{ x }(y) => …` is not a `match` arm pattern (a record pattern is
   `{ x, y } => …`).
 
+### Call-once closures: `FnOnce`
+
+`FnOnce(...) -> R` is the closure trait whose call consumes the closure
+(`plans/VALUES_BY_DEFAULT.md` decision 37). A closure with a capture list,
+typed `FnOnce(...)`, owns its by-value captures, so its body may move one out:
+
+```rust
+take :: (fn(sink(t) : Token) -> i32)(t.n);
+t := Token(n : i32(5));
+(send : Impl(FnOnce() -> i32)) = ({ t }() => take(t));   // moves `t` out, no copy
+send();                                                  // consumes `send`
+// send();                                               // E0901: `send` was moved by the call above
+
+run_once :: (fn(sink(f) : Impl(FnOnce() -> i32)) -> i32)(f());
+k := i32(3);
+(add : Impl(Fn() -> i32)) = ({ k }() => k);
+run_once(add);                                           // an `Fn` serves for one call
+```
+
+- **The call consumes the closure.** A second call, or any later use, is
+  E0901 pointing at the first call. The body drops the captures it did not
+  move when the call ends. A closure that is never called drops its captures
+  with its owner.
+- **`Fn` implies `FnOnce`.** An `Fn(...)` closure is accepted wherever
+  `FnOnce(...)` is required. An `FnOnce` closure passed where `Fn(...)` is
+  required is E0913.
+- **Only an API the closure escapes into can call it once.** Take it by value,
+  `sink(f) : Impl(FnOnce(...))`; calling an `FnOnce` closure through a
+  borrowed parameter is E0901. A non-escaping callback keeps
+  `imm(f) : Impl(Fn(...))`. Like every move-only value, a `sink` closure that
+  is moved (called) on some paths must be moved on all of them (E0907).
+- **Moving a capture out needs `FnOnce` and a capture list.** Against
+  `Fn(...)`, whose call borrows the captures so the closure can run again, a
+  move out is E0913 at the moving line. In this release an implicit capture
+  cannot be moved out either (E0913 names the capture-list spelling).
+- `Dyn(FnOnce(...) -> R)` holds any call-once closure; its call consumes it too.
+- There is no `FnMut`. State that changes across calls lives where a `mut`
+  capture points, in an `Rc` cell the closure holds, or in a named struct with
+  a `mut(self)` method.
+
 ### Closure Type Restrictions
 
 Each closure has a unique type, even if they look identical:
