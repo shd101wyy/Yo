@@ -2666,6 +2666,26 @@ unmark_node_preevaluated :: (fn(id : usize) -> unit)({
   _u := g_preevaluated_node_ids.remove(id);
 });
 node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.contains(id));
+/// Dup nodes that store a value into the capture struct of a closure typed
+/// `FnOnce(...)` (plans/VALUES_BY_DEFAULT.md decision 37). That container dies
+/// at its call, which can come before the source local's last use, so
+/// `_optimize_dup_drop_pairs` must never cancel such a dup against the local's
+/// scope-end drop (the pair is a move only while the container outlives the
+/// local's uses — the AGENTS.md pitfall).
+(g_call_once_capture_dup_ids : HashSet(usize)) = HashSet(usize).new();
+mark_call_once_capture_dup :: (fn(id : usize) -> unit)({
+  _m := g_call_once_capture_dup_ids.insert(id);
+});
+is_call_once_capture_dup :: (fn(id : usize) -> bool)(g_call_once_capture_dup_ids.contains(id));
+/// The `___drop(name)` nodes the function-body drop pass schedules for an
+/// `FnOnce` closure's capture frame (decision 37): codegen skips every other
+/// drop of a capture name inside a closure body, because the closure owns its
+/// captures, but these the body owns.
+(g_fnonce_capture_drop_ids : HashSet(usize)) = HashSet(usize).new();
+mark_fnonce_capture_drop :: (fn(id : usize) -> unit)({
+  _m := g_fnonce_capture_drop_ids.insert(id);
+});
+is_fnonce_capture_drop :: (fn(id : usize) -> bool)(g_fnonce_capture_drop_ids.contains(id));
 // `YO_SPEC_REPORT=1` also counts evaluations per AST node id (the re-evaluation
 // multiplicity behind the exponential method-chain cost,
 // issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md). Read once at
@@ -2794,7 +2814,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
   });
 });
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
-export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated);
+export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated, mark_call_once_capture_dup, is_call_once_capture_dup, mark_fnonce_capture_drop, is_fnonce_capture_drop);
 export(record_macro_expansion, lookup_macro_expansion);
 export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);
 export(trial_body_site, record_generic_trial_error, clear_generic_trial_error, lookup_generic_trial_error);

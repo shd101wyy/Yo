@@ -756,7 +756,6 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       prev_caps := context.current_closure_captures;
       prev_cap_level := context.current_closure_capture_frame_level;
       prev_cap_cname := context.current_closure_capture_type_c_name;
-      prev_drop_skip := context.current_closure_drop_skip;
       (owned_capture_labels : ArrayList(String)) = ArrayList(String).new();
       if(is_closure_fn(func_id.clone()), {
         match(
@@ -764,10 +763,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           .Some(ci) => {
             cap_labels := match(ci.capture_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
             if(is_fnonce_closure_fn(func_id.clone()), {
-              context.current_closure_drop_skip = Option(ArrayList(String)).None;
               owned_capture_labels = cap_labels.clone();
-            }, {
-              context.current_closure_drop_skip = Option(ArrayList(String)).Some(cap_labels.clone());
             });
             context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels);
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
@@ -816,8 +812,9 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         _ => ()
       );
       // An FnOnce closure's captures are in scope from entry, like its
-      // parameters: the body drops the ones it did not move, and those drops
-      // pass the declared-name gate only if the names are seeded here.
+      // parameters: the body drops the ones it did not move (the drops the
+      // evaluator tagged, `is_fnonce_capture_drop`), and those pass the
+      // declared-name gate only if the names are seeded here.
       (oc_i : usize) = usize(0);
       while(oc_i < owned_capture_labels.len(), {
         match(
@@ -847,7 +844,6 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       context.current_closure_captures = prev_caps;
       context.current_closure_capture_frame_level = prev_cap_level;
       context.current_closure_capture_type_c_name = prev_cap_cname;
-      context.current_closure_drop_skip = prev_drop_skip;
       context.base.current_function_name = prev_name;
       context.current_function_type = prev_type;
       context.override_return_type_str = prev_override;

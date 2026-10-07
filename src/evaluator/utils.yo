@@ -660,11 +660,31 @@ consume_called_fnonce_closure :: (fn(callee : AstExpr, v : Variable, env : Envir
   if(same_site, {
     return(());
   });
-  owner := if(!v.is_owning_the_rc_value && v.is_parameter && !v.is_ref, _owning_param_binding_for_capture_move(env, v.name.clone()), Option(Variable).None);
+  if(_is_implicit_closure_capture(v, env, ctx), {
+    raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          tok,
+          `Cannot call \`${v.name}\` here: it is captured implicitly by this closure, and an \`FnOnce(...)\` call consumes the closure it calls, so it would be gone after this closure's first call.`,
+          Option(String).Some(`list it and type this closure \`FnOnce(...)\`: \`{ ${v.name} }(...) => ${v.name}()\``)
+        ),
+        E_CLOSURE_MOVES_CAPTURE
+      ),
+      ctx,
+      exn
+    );
+    return(());
+  });
+  owner := if(!v.is_owning_the_rc_value && v.is_parameter && !v.is_ref, _owning_param_binding_beside(env, v), Option(Variable).None);
+  // A closure whose captures hold nothing to release (plain data) is called
+  // through any binding harmlessly; one holding an RC or move-only value
+  // releases it in the call, so the binding must own the closure.
+  holds_owned := (type_contains_rc_type(v.ty) || type_requires_explicit_copy(v.ty));
   what := cond(
     v.is_module_level => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
     v.is_ref => Option(String).Some(String.from("it is an `inout` binding, which names storage the caller owns")),
     (v.is_parameter && !v.is_owning_the_rc_value && owner.is_none()) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value, `sink(f) : Impl(FnOnce(...))` (only an API the closure escapes into calls it once)")),
+    (!v.is_parameter && !v.is_owning_the_rc_value && holds_owned && !is_fn_capture_value_binding(v.id)) => Option(String).Some(String.from("it is borrowed from the value that holds it (a `match`/`for` binding): move the holder, or match a value you own")),
     true => Option(String).None
   );
   match(
@@ -706,6 +726,51 @@ consume_called_fnonce_closure :: (fn(callee : AstExpr, v : Variable, env : Envir
       true => set_expr_as_consumed(callee, env, false, ctx, exn)
     )
   );
+});
+/// The owning binding a specialized body's non-owning closure-parameter
+/// shadow `v` stands for: an owning, unconsumed parameter of the same name
+/// in the SAME frame as `v` (the re-bind and the caller's transfer bind into
+/// one callee frame). Restricted to that frame so a nested function's
+/// borrowed parameter never resolves to an unrelated outer `sink` parameter
+/// of the same name.
+_owning_param_binding_beside :: (fn(env : Environment, v : Variable) -> Option(Variable))({
+  (fi : usize) = env.frames.len();
+  while(fi > usize(0), {
+    fi = (fi - usize(1));
+    match(
+      env.frames.get(fi),
+      .Some(fr) => {
+        (has_v : bool) = false;
+        (vi : usize) = usize(0);
+        while(vi < fr.variables.len(), {
+          match(
+            fr.variables.get(vi),
+            .Some(fv) => if(fv.id == v.id, {
+              has_v = true;
+            }),
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        if(has_v, {
+          (oi : usize) = usize(0);
+          while(oi < fr.variables.len(), {
+            match(
+              fr.variables.get(oi),
+              .Some(ov) => if((ov.id != v.id) && (ov.name == v.name) && ov.is_parameter && ov.is_owning_the_rc_value && (!ov.is_ref && !ov.is_module_level) && ov.consumed_at_token.is_none(), {
+                return(Option(Variable).Some(ov));
+              }),
+              .None => ()
+            );
+            oi = (oi + usize(1));
+          });
+          return(Option(Variable).None);
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(Variable).None
 });
 move_captured_explicit_copy_variable :: (fn(v : Variable, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
   match(
@@ -847,7 +912,7 @@ _move_through_sink_shadow :: (fn(v : Variable, rhs : AstExpr, env : Environment)
     return(false);
   });
   match(
-    _owning_param_binding_for_capture_move(env, v.name.clone()),
+    _owning_param_binding_beside(env, v),
     .Some(o) => {
       tok := ast_expr_token(rhs);
       _log_user_move(o, tok, env);

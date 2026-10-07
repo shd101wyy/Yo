@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -158,7 +158,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
-{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER } :: import("../../diagnostics.yo");
+{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -5018,8 +5018,8 @@ _local_borrow_note_call_site :: (fn(call : AstExpr, call_tok : Token, ctx : Eval
 });
 /// Decision 37 (plans/VALUES_BY_DEFAULT.md): an `FnOnce(...)` call takes its
 /// closure as `self`, so the call CONSUMES the callee, as `h.join()` consumes
-/// `h` (`consume_called_fnonce_closure`). A temporary callee needs nothing:
-/// its value dies with the call. It runs in a checking phase too: the callee
+/// `h` (`consume_called_fnonce_closure`); a temporary callee is marked
+/// consumed. It runs in a checking phase too: the callee
 /// binding lives in the body's own env (a specialized body's parameter), and
 /// a body whose drop pass ran without the move scheduled a drop of the
 /// consumed closure.
@@ -5032,12 +5032,40 @@ _consume_fnonce_callee :: (fn(callee : AstExpr, callee_info : ExprInfo, env : En
   if(!is_once, {
     return(());
   });
-  name := match(callee_info.variable_name, .Some(n) => n, .None => return(()));
-  if(is_temp_variable_name(env.module_path, name.clone()), {
-    return(());
-  });
+  holds_owned := (type_contains_rc_type(callee_info.ty) || type_requires_explicit_copy(callee_info.ty));
+  name := match(
+    callee_info.variable_name,
+    .Some(n) => n,
+    .None => {
+      // A closure stored in a field (`h.f()`): the call would move it out of
+      // its holder, which then still owns it (Yo has no partial moves).
+      if(holds_owned && ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+        raise_flow_violation(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(callee),
+              `use of moved value: cannot call \`${ast_expr_to_string(callee)}\`: an \`FnOnce(...)\` call consumes the closure, and a closure stored in a field cannot be moved out of its holder (Yo has no partial moves).`,
+              Option(String).Some(String.from("move the closure into a local first (consume the holder), or store an `Option(Dyn(FnOnce(...)))` and take it out"))
+            ),
+            E_USE_OF_MOVED_VALUE
+          ),
+          ctx,
+          exn
+        );
+      });
+      return(());
+    }
+  );
   vars := get_variables_from_env(env, name.clone());
   v := match(vars.last(), .Some(x) => x, .None => return(()));
+  // A temporary callee (`make()()`) is consumed by its call: the body takes
+  // its captures, so the temporary's own drop must not release them again.
+  if(is_temp_variable_name(env.module_path, name.clone()), {
+    if(v.consumed_at_token.is_none(), {
+      v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(callee)));
+    });
+    return(());
+  });
   consume_called_fnonce_closure(callee, v, env, ctx, exn);
 });
 _evaluate_function_call_unanchored :: (

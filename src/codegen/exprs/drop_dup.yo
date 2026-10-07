@@ -871,7 +871,7 @@ has_pending_emittable_drop :: (fn(expr : AstExpr, context : FunctionGenerationCo
         while((i < drops.len()) && !found, {
           match(
             drops.get(i),
-            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(d)) && !is_deferred_drop_for_closure_capture(d, context.current_closure_drop_skip), {
+            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(d)) && !is_deferred_drop_for_closure_capture(d, context.current_closure_captures), {
               emittable := if(
                 _drop_target_is_parameter(d, context),
                 true,
@@ -941,7 +941,7 @@ generate_deferred_drop_expressions :: (
               if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
                 param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(drop_expr, context), false);
                 param_filtered := ((skip_param_drops && param_target) || (only_param_drops && !param_target));
-                skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_drop_skip));
+                skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures));
                 // Skip a drop whose target TEMP was never emitted as a C declaration
                 // (declaration elided while its deferred-drop survived) — emitting
                 // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error.

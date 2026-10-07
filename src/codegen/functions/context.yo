@@ -127,11 +127,6 @@ FunctionGenerationContext :: ref(
     current_closure_capture_frame_level : Option(usize),
     /// C name of the capture struct type (e.g. "__yo_struct_abc_capture").
     current_closure_capture_type_c_name : Option(String),
-    /// The captures whose scope-end drops the closure body SKIPS: every
-    /// capture of an `Fn` closure (the closure still owns them after the
-    /// call), none of an `FnOnce` closure, whose body owns its captures and
-    /// drops the ones it did not move (plans/VALUES_BY_DEFAULT.md decision 37).
-    current_closure_drop_skip : Option(ArrayList(String)),
     /// Set when generating an effect-record member function (e.g. an
     /// Exception.throw handler).
     is_effect_record_member_function : bool,
@@ -273,7 +268,6 @@ impl(
       current_closure_captures : Option(ArrayList(String)).None,
       current_closure_capture_frame_level : Option(usize).None,
       current_closure_capture_type_c_name : Option(String).None,
-      current_closure_drop_skip : Option(ArrayList(String)).None,
       is_effect_record_member_function : false,
       current_unwind_origin : Option(String).None,
       unwind_catches : Option(ArrayList(String)).None,

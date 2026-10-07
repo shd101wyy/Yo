@@ -53,6 +53,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_capture_type,
   expr_info_set_capture_type,
   expr_info_deferred_dup_expressions,
+  mark_call_once_capture_dup,
   expr_info_set_deferred_dup_expressions,
   CaptureFieldInit,
   expr_info_set_capture_field_inits,
@@ -846,7 +847,16 @@ _cap_place_crosses_cell :: (fn(ev : AstExpr, ctx : EvalContext) -> bool)({
 ///   the place `p`, which must be rooted at a named local binding (decision
 ///   38 D: not across a cell, not module-level; a `mut` place is writable).
 _evaluate_capture_list :: (
-  fn(raw_entries : ArrayList(AstExpr), env : Environment, ctx : EvalContext, exn : Exception) -> ArrayList(_CapListEntry)
+  fn(
+    raw_entries : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception,
+    /// The closure is typed `FnOnce(...)`: its capture struct dies at the
+    /// call, so every by-value entry's dup is marked uncancellable
+    /// (`mark_call_once_capture_dup`).
+    call_once : bool
+  ) -> ArrayList(_CapListEntry)
 )({
   out := ArrayList(_CapListEntry).new();
   (ei : usize) = usize(0);
@@ -1014,6 +1024,24 @@ _evaluate_capture_list :: (
           fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(init_e).value.clone()})`, exn);
           field_init = evaluate_expression_raw(fd_dup, env, ctx, exn);
           ctx.expected_type = saved_fdexp;
+        });
+        if(call_once, {
+          mark_call_once_capture_dup(ast_expr_id(field_init));
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev_val)),
+            .Some(co_ei) => match(
+              expr_info_deferred_dup_expressions(co_ei),
+              .Some(co_ds) => {
+                (co_i : usize) = usize(0);
+                while(co_i < co_ds.len(), {
+                  match(co_ds.get(co_i), .Some(co_d) => mark_call_once_capture_dup(ast_expr_id(co_d)), .None => ());
+                  co_i = (co_i + usize(1));
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
         });
       });
       out.push(
@@ -1469,7 +1497,7 @@ evaluate_anonymous_function_implementation :: (
       if(ctx.is_inside_io_async_call, {
         _cap_list_error(ctx, exn, tok, String.from("A capture list on an `io.async` body is not supported yet: its borrows would make the future second-class (plans/VALUES_BY_DEFAULT.md §3.13 A2), which has not landed. Capture implicitly, or bind the values to locals the body reads."));
       });
-      _evaluate_capture_list(cl_raw, env, ctx, exn)
+      _evaluate_capture_list(cl_raw, env, ctx, exn, closure_owns_captures)
     },
     .None => ArrayList(_CapListEntry).new()
   );

@@ -33,10 +33,10 @@ pragma(Pragma.AllowUnsafe);
 { type_contains_some_type_deep } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ type_implements_trait_bool } :: import("../trait_checking.yo");
+{ type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { format_error_message, with_code } :: import("../../error.yo");
-{ E_TYPE_MISMATCH } :: import("../../diagnostics.yo");
+{ E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
@@ -734,6 +734,31 @@ _dyn_type_from_payload_or_throw :: (
     }
   )
 );
+/// Decision 37: `Fn` implies `FnOnce`, never the reverse. A closure typed
+/// `FnOnce(...)` boxed as a `Dyn(Fn(...))` could be called again through the
+/// `Fn` slot, re-running a body that already gave its captures away (E0913).
+_reject_fnonce_into_dyn_fn :: (fn(target : Option(ExpectedTypeCtx), value_ty : TypeValue, tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
+  target_base := match(
+    target,
+    .Some(t) => match(
+      t.ty,
+      .DynT(_, _, _, _) => match(extract_fn_trait_from_type(t.ty), .Some(tf) => match(tf, .FnTraitT(base_name : tb) => tb.clone(), _ => String.from("")), .None => String.from("")),
+      _ => String.from("")
+    ),
+    .None => String.from("")
+  );
+  value_base := match(extract_fn_trait_from_type(value_ty), .Some(vf) => match(vf, .FnTraitT(base_name : vb) => vb.clone(), _ => String.from("")), .None => String.from(""));
+  if((target_base == "Fn") && (value_base == "FnOnce"), {
+    raise_flow_violation(
+      with_code(
+        format_error_message(tok, String.from("Cannot box an `FnOnce(...)` closure as a `Dyn(Fn(...))`: an `FnOnce` closure is called at most once (its call consumes it), and a `Dyn(Fn(...))` may be called again. Box it as `Dyn(FnOnce(...))`.")),
+        E_CLOSURE_MOVES_CAPTURE
+      ),
+      ctx,
+      exn
+    );
+  });
+});
 evaluate_dyn_value :: (
   fn(
     expr : AstExpr,
@@ -873,6 +898,7 @@ evaluate_dyn_value :: (
     // are evaluated in validating mode) has the vtable FuncVals. The
     // resolution is structural (registry lookup), not execution-dependent.
     ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)), .Some(ii) => ii.ty, .None => t_unit());
+    _reject_fnonce_into_dyn_fn(ctx.expected_type, ne_value_type, expr_tok, ctx, exn);
     // Whether the inner expression actually produced an ExprInfo. With none, the
     // `t_unit()` fallback above is a STAND-IN, not the payload's type — checking
     // the trait bound against it would report "unit does not implement …" on top
@@ -1051,6 +1077,7 @@ evaluate_dyn_value :: (
   );
   (value_type : TypeValue) = inner_info.ty;
   _reject_dyn_of_dyn(value_type.clone(), expr_tok, exn);
+  _reject_fnonce_into_dyn_fn(ctx.expected_type, value_type, expr_tok, ctx, exn);
   (cur_env : Environment) = expr_info_adopt_env(inner_info);
   (final_value_type : TypeValue) = value_type;
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType

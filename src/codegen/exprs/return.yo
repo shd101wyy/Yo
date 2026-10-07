@@ -253,7 +253,7 @@ _drop_target_is_state_machine_field :: (fn(v : Variable, var_name : String, cont
 });
 _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet(String), additional_skip : Option(HashSet(String)), use_env : bool, context : FunctionGenerationContext) -> bool)({
   var_name := match(get_deferred_drop_target_atom_name(drop_expr), .Some(vn) => vn, .None => return(false));
-  if(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_drop_skip), {
+  if(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures), {
     return(false);
   });
   // The enclosing assignment's save-old-value temp receives ownership only
@@ -704,7 +704,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
         while(i < early_drops.len(), {
           match(
             early_drops.get(i),
-            .Some(drop_expr) => if(!is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_drop_skip), {
+            .Some(drop_expr) => if(!is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures), {
               // Gate: the drop target's C declaration must have been emitted AND
               // its enclosing C block must still be open at this exact point
               // (block-scope stack — same authoritative C-emission-order signal
