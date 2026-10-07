@@ -2173,6 +2173,42 @@ and in git, not a silent edit.
       pragma. V2b's PR measures the iterator-heavy std tests before and
       after.
 
+40. **No `Pin`: live values never relocate, and borrows stay
+    second-class.** Confirmed 2026-10-07 by the maintainer, from the
+    design question "does mutable value semantics need Rust's `Pin`?"
+    - **The invariant.** The address of a live non-`Copy` value is stable
+      from construction to `drop`. A move transfers ownership of the
+      underlying storage; it never byte-copies a live object to a new
+      address. Structural `Copy` values — scalars and aggregates that
+      cannot contain interior references in safe code — may be copied
+      freely. Codegen must not lower a move of a non-`Copy` inline value
+      into a relocating byte copy under any optimization: the dup/drop
+      machinery transfers cells, and that is the visible contract.
+    - **Why not `Pin`.** `Pin` exists to police exactly one hazard:
+      bitwise-moving a value that contains pointers into itself. In safe
+      Yo that value is unexpressible — borrows are modes and places
+      (decisions 18, 24, 30, 35, 38 A), never storable fields, so no
+      value can reference itself or a sibling. Rust's one safe-language
+      forcing function, the self-referential async generator, does not
+      arise either: a suspended task is a stable heap state machine whose
+      capture slots are tied to declaration sites (decision 38 A; #1234
+      fixed the slot-identity bug this design was already avoiding), and
+      moving a future moves the cell, not the frame's bytes. With no
+      relocation there is nothing to pin — the same position Hylo takes.
+    - **The raw-pointer contract.** `addr_of(x)` and raw pointers may rely
+      on the invariant: a live non-`Copy` object's address is good until
+      its `drop`. This universal invariant replaces a per-type pinning
+      protocol; what such a pointer may still not do is cross a thread
+      (§3.8's `Send` rules) or outlive its object, as ever.
+    - **Revisit triggers.** Each of these would reintroduce the
+      relocation hazard by the back door and reopen the question — at
+      that point the choice is "extend the stability guarantee or add a
+      `Pin`-like marker":
+      - the decision-18-vs-24 item, binding a projection result as a
+        local borrow (§9), must preserve second-classness when decided;
+      - any V2b escape of a yielded place out of its owner's storage;
+      - any future first-class or storable reference type.
+
 ## 5. Prerequisites, gates and the seed
 
 - **`STRING_VALUE_SEMANTICS`.** S1 (E0908 on `mut` writes through a
