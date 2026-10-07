@@ -793,7 +793,12 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
       });
       latest := match(vars.last(), .Some(v) => v, .None => return(()));
       match(latest.initialized_at_token, .None => return(()), .Some(_) => ());
-      if(_m3_token_is_at_or_before(init_tok, cleanup_point) && _m3_token_is_before(cleanup_point, consumed_tok), {
+      // A parameter is initialized at the function's entry, before every
+      // statement of its body; its binding token is synthetic and spells the
+      // module path the other way (`file://…`), so it cannot be ordered
+      // against a body token (AGENTS.md: never compare the two spellings).
+      init_ok := (latest.is_parameter || _m3_token_is_at_or_before(init_tok, cleanup_point));
+      if(init_ok && _m3_token_is_before(cleanup_point, consumed_tok), {
         existing := match(expr_info_early_return_only_deferred_drop_expressions(ei), .Some(l) => l, .None => ArrayList(AstExpr).new());
         (found : bool) = false;
         (fi : usize) = usize(0);
