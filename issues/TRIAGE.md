@@ -36,8 +36,8 @@ Three things are worth knowing before trusting any row.
 | Tooling (fmt/doc/lsp) | 9 | 0 |
 | Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 54 | 5 |
-| **Total** | **171** | **23** |
+| Other | 54 | 4 |
+| **Total** | **171** | **22** |
 
 ## Counts by severity
 
@@ -45,9 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 26 |
+| S1 | 25 |
 | S2 | 85 |
-| S3 | 60 |
+| S3 | 61 |
 
 ## Design questions (issues/questions/)
 
@@ -317,7 +317,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md`](./a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md) | S3 | — | — |
 | [`a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md`](./a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md) | S1 | — | — |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
-| [`a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`](./a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md) | S1 | OPEN (filed 2026-10-06, found by the VALUES_B | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
@@ -340,6 +339,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`canonicalize-throw-inside-io-async-corrupts-the-heap-on-windows.md`](./canonicalize-throw-inside-io-async-corrupts-the-heap-on-windows.md) | S2 | OPEN | — |
 | [`check-summarizes-every-function-body-eagerly-at-module-end.md`](./check-summarizes-every-function-body-eagerly-at-module-end.md) | S3 | — | — |
+| [`dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md`](./dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md) | S3 | OPEN (filed 2026-10-06, surfaced while fixing | — |
 | [`enum-type-arguments-made-check-about-4-percent-slower.md`](./enum-type-arguments-made-check-about-4-percent-slower.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |

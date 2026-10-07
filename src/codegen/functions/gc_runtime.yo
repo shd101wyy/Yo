@@ -1049,7 +1049,24 @@ static void __yo_gc_collect_incremental() {
   for (size_t i = 0; i < nwhite; i++) {
     if (gc->gc_white[i]->dispose_fn) gc->gc_white[i]->dispose_fn(gc->gc_white[i]);
   }
+  // Resurrection check (PEP 442): the dispose pass above ran user code, and
+  // that code can have stored a handle to a white member into a LIVE object --
+  // the member's count rose above its trial-deleted 0. Never free a resurrected
+  // cell, or anything reachable from one: turn the subgraph black (ScanBlack
+  // restores the trial decrements over it); the free pass below skips whatever
+  // it blackened. A cell kept this way is only leaked from THIS collection -- a
+  // later one reclaims it once it is unreachable again. Tracked decrements are
+  // skipped while collecting, so a white count can only have RISEN since the
+  // gather; a cell stored into another WHITE cell (not a live one) is kept too,
+  // the conservative direction (a leak, never a dangling handle).
   for (size_t i = 0; i < nwhite; i++) {
+    __yo_ref_header_t* w = gc->gc_white[i];
+    if (w->gc_mark == __YO_GC_LIVE && (w->ref_count & __YO_RC_COUNT) > 0) {
+      __yo_gc_scan_black(w);
+    }
+  }
+  for (size_t i = 0; i < nwhite; i++) {
+    if (gc->gc_white[i]->gc_mark != __YO_GC_LIVE) continue; // resurrected: keep
     __yo_gc_unregister(gc->gc_white[i]);
     __yo_rc_free(gc->gc_white[i]);
   }
@@ -1118,6 +1135,20 @@ static void __yo_gc_collect() {
   }
   for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
     if (obj->gc_mark == __YO_GC_GARBAGE && obj->dispose_fn) obj->dispose_fn(obj);
+  }
+  // Resurrection check (PEP 442), as in the incremental collector above: a
+  // dispose can have stored a handle to a white member into a live object, so
+  // no garbage cell's count is trusted across the dispose pass. Re-check each
+  // one's trial-deleted count; a resurrected cell, and everything reachable
+  // from it, goes back to black (ScanBlack restores the trial decrements over
+  // it) so the free walk below leaves it tracked and allocated -- leaked from
+  // THIS collection, reclaimed by a later one once unreachable again. Objects
+  // the dispose pass allocated are pushed at the list head, AHEAD of the head
+  // captured above, and enter as UNMARKED: the walk never reaches them.
+  for (__yo_ref_header_t* obj = head; obj != NULL; obj = obj->gc_next) {
+    if (obj->gc_mark == __YO_GC_GARBAGE && (obj->ref_count & __YO_RC_COUNT) > 0) {
+      __yo_gc_scan_black(obj);
+    }
   }
   __yo_ref_header_t* current = head;
   __yo_ref_header_t* prev = NULL;
