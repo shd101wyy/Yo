@@ -23,7 +23,7 @@
 >
 > The historical report follows unchanged.
 
-**Status: OPEN.** Found 2026-08-26 while reviewing the STD_API_AUDIT §D7
+**Status: RETIRED.** (stale header read OPEN; the doc sits in retired/) Found 2026-08-26 while reviewing the STD_API_AUDIT §D7
 `RwLock`/`OnceCell` change, where it caused a whole test run to score the
 INSTALLED std instead of the working tree's.
 

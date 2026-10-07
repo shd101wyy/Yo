@@ -325,9 +325,51 @@ jobs:
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "classification: code=$CODE"
 
+  # Tree hygiene: cheap always-on checks that protect EVERY path — docs-only
+  # fast-path runs included. Added 2026-10-07 after #1231 shipped six
+  # unresolved `<<<<<<<` hunks inside issues/TRIAGE.md: the markers were
+  # committed on a branch by an earlier merge and flowed through every later
+  # merge as ordinary text, because git has no opinion about marker lines in
+  # a COMMITTED file. This job is that opinion. It is on merge-gate's needs
+  # list, so nothing merges past it. (TRIAGE.md itself is now UNTRACKED and
+  # gitignored — a locally generated index, never committed, so it can never
+  # conflict or ship stale; the freshness check that ran here became vacuous
+  # and was removed.)
+  tree-hygiene:
+    name: Tree hygiene (no conflict markers; issues/ discipline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: No unresolved conflict markers anywhere in the tree
+        run: |
+          set -euo pipefail
+          # `<<<<<<< ` (7 <, space, ref name) is unambiguous; the ======= and
+          # >>>>>>> middles only ever appear in its company, so one pattern
+          # suffices with zero false positives (a setext `====` heading rule
+          # is not 7 `=` followed by a space-prefixed label on its own line).
+          if git grep -nE '^<{7} ' -- .; then
+            echo "::error::unresolved conflict markers are committed. Resolve them by hand; there is no longer any generated file in the tree to regenerate instead."
+            exit 1
+          fi
+          echo "no conflict markers in $(git ls-files | wc -l) tracked files"
+
+      # The three issues/ discipline assertions from the repo's own gate:
+      # no doc duplicated across root/fixed/retired/questions; every cited
+      # issues/** path resolves; root docs carry a Severity verdict and
+      # questions/ docs a Recommendation. Pure bash+git — seconds on Linux
+      # (its hours-long runtime on Windows/MSYS is a stat-throughput artifact
+      # of local checkouts, not a property of the script).
+      - name: issues/ discipline (check-issue-refs)
+        run: |
+          set -euo pipefail
+          bash scripts/check-issue-refs.sh
+
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -396,7 +438,7 @@ jobs:
     # built by the seed) is that binary. A docs-only change skips `stage1`,
     # and then the seed is the right generator anyway: nothing under src/
     # differs from develop.
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: ${{ !cancelled() && needs.changes.outputs.full == 'true' && (needs.stage1.result == 'success' || needs.stage1.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -484,7 +526,7 @@ jobs:
   # is a solver-harness regression, not a language regression.
   verify:
     name: Formal verification (pinned Z3)
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # ~45 min nominal (five tests/internal files, each compiling the compiler); a
@@ -645,7 +687,7 @@ jobs:
   # NOTE: add to branch protection's required checks by hand (manual list).
   guard-elision:
     name: Verified guard elision oracle (pinned Z3)
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -709,7 +751,7 @@ jobs:
   # campaign's later milestones gate themselves.
   verify-src:
     name: Self-verification sweep (front end, ratcheted)
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -773,7 +815,7 @@ jobs:
           retention-days: 7
 
   test:
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
@@ -1143,7 +1185,7 @@ jobs:
   # reaches the native runners was emitted by the PR's OWN codegen.
   suite-candidate:
     name: Build the suite candidate (Linux, shared by the cross-emits)
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -1230,7 +1272,7 @@ jobs:
   # byte-identical C.
   chunked-gate:
     name: Chunked-emission behavioural fixpoint (chunked vs single)
-    needs: [changes, suite-candidate]
+    needs: [changes, tree-hygiene, suite-candidate]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -1286,7 +1328,7 @@ jobs:
 
   suite-cross-emit:
     name: Cross-emit suite compiler (${{ matrix.target }})
-    needs: [changes, suite-candidate]
+    needs: [changes, tree-hygiene, suite-candidate]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -1393,7 +1435,7 @@ jobs:
     # REQUIRED leg would rename its context and must land in ruleset
     # 13548862 in the same commit (see compiler-internal-tests' note).
     name: test (${{ matrix.os }})${{ matrix.shards && format(' shard {0}/{1}', matrix.shard, matrix.shards) || '' }}
-    needs: [changes, suite-cross-emit]
+    needs: [changes, tree-hygiene, suite-cross-emit]
     if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
     runs-on: ${{ matrix.os }}
     # A per-leg budget well under the 4-hour default turns a hang into a FAILED
@@ -1587,7 +1629,7 @@ jobs:
   # STAGE-2 binary (the candidate compiles the tree) for the cross-emit legs.
   stage1:
     name: Build stage 1 once (seed `yo build`, shared by the self-hosted jobs)
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -1643,7 +1685,7 @@ jobs:
     # accrues almost no kernel entries) under BOTH backends.
     # NOTE: add to branch protection's required checks by hand (manual list).
     name: I/O budgets (G3, both backends)
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -1690,7 +1732,7 @@ jobs:
     # silently measure the ring. `yo test a b` runs only b — one path per call.
     # NOTE: add to branch protection's required checks by hand (manual list).
     name: Forced-epoll async corpus
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1729,7 +1771,7 @@ jobs:
     # NOTE: this job is not in branch protection's required-check list until
     # someone adds it by hand (that list is manual).
     name: Docker default-seccomp epoll fallback
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -1803,7 +1845,7 @@ jobs:
   # byte-identical, first held at 65ebcdbb2.
   bootstrap-fixpoint:
     name: Bootstrap fixpoint (yo-self self-compile)
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -1944,7 +1986,7 @@ jobs:
   # NOW GATES PRs (continue-on-error dropped 2026-08-06).
   bootstrap-fixpoint-stage3:
     name: Bootstrap fixpoint stage-3 (byte-identity)
-    needs: [changes, bootstrap-fixpoint]
+    needs: [changes, tree-hygiene, bootstrap-fixpoint]
     if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
@@ -2022,7 +2064,7 @@ jobs:
   # that leak; this one would have.
   memory-ratchet:
     name: Evaluator memory ratchet
-    needs: [changes, bootstrap-fixpoint]
+    needs: [changes, tree-hygiene, bootstrap-fixpoint]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -2063,7 +2105,7 @@ jobs:
   # kill, and ±10% both ways against scripts/bootstrap/memory-ratchet.tsv.
   build-memory-8gb:
     name: Compiler build inside 8 GB
-    needs: [changes, bootstrap-fixpoint]
+    needs: [changes, tree-hygiene, bootstrap-fixpoint]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -2130,7 +2172,7 @@ jobs:
   # batch reporting passes while running nothing.
   bootstrap-self-test:
     name: Self-hosted `test` subcommand (yo-self tier-1 gates)
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -2261,7 +2303,7 @@ jobs:
   # src/main.yo) and takes ~22 min; the stage-1 comes from the shared `stage1` job.
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Sharded 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md,
@@ -2422,7 +2464,7 @@ jobs:
   # only does C->binary. That avoids gcompat entirely.
   build-linux-musl-static:
     name: Static musl Linux bundle (build + run, no publish)
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Also seed-driven, so the same v0.2.9 slowdown applies (see the TSan job).
@@ -2549,7 +2591,7 @@ jobs:
 
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # 60 was enough while this job's stage-1 fitted in RAM (16 min on the
@@ -2647,7 +2689,7 @@ jobs:
         run: bash scripts/tsan-thread-corpus.sh
 
   test-wasm32_emscripten:
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # MEASURED 2026-09-16: this leg now takes 86-87 min (develop runs
@@ -2753,7 +2795,7 @@ jobs:
             --parallel 2 --bail --verbose --c-compiler emcc --profile
 
   test-wasm32_wasi:
-    needs: changes
+    needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
@@ -2847,7 +2889,7 @@ jobs:
   # battery. They are allowlisted with that note.
   hollow-sweep:
     name: Full-corpus hollow sweep (all 188 language files, self-hosted)
-    needs: [changes, stage1]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -2972,6 +3014,7 @@ jobs:
       - test-tsan
       - test-wasm32_emscripten
       - test-wasm32_wasi
+      - tree-hygiene
       - hollow-sweep
     # Runs when dependencies succeeded OR failed (so it can report the
     # failure), but not when the run itself is cancelled/superseded: a

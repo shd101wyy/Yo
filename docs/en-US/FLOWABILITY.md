@@ -13,37 +13,90 @@ places: **parameter position** and **local binding position**.
 `inout(name) : T` receives a caller lvalue (write-back, and no copy for big
 structs); callback parameters that receive refs
 (`body : Impl(Fn(inout(v) : T) -> R)`, as in `Mutex.with_lock`) are the
-same thing one level down. `inout(name) := place;` binds `name`, for the
-rest of the enclosing block, to the storage `place` denotes:
+same thing one level down. A local borrow binds `name` to the storage
+`place` denotes: `mut(name) := place;` (`inout(name) :=` is its synonym)
+borrows it exclusively, `imm(name) := place;` read-only
+(`plans/VALUES_BY_DEFAULT.md` decision 18):
 
 ```rust
 x := i32(1);
-inout(y) := x; // y names x's slot
+mut(y) := x; // y names x's slot
 y = i32(2); // writes x
-x = i32(5); // y reads 5: the binding names the SLOT, not a value
-inout(n) := h.n; // a field of an RC object: h's object is pinned for the scope
-inout(px) := p.x; // a field of a value struct
-copy := y; // copies the pointee — there is no "inout type" to store
+z := x; // fine: y's last use is above, so x is free again
+imm(r) := p.x; // a read-only borrow of a value-struct field
+v := r; // reads through r; `r = v` would be E0908
+mut(n) := h.n; // a field of an RC object: h's object is pinned for the scope
+copy := n; // copies the pointee — there is no "inout type" to store
 ```
+
+**A borrow is live from its binding to its last use**, and for that range
+it freezes its place:
+
+- while an `imm` borrow is live, its place, the places inside it and the
+  places containing it are not written or moved;
+- while a `mut` borrow is live, they are not accessed at all except through
+  the borrow;
+- **sibling fields stay free**: `mut(a) := p.x; mut(b) := p.y;` is accepted;
+- below a reference cell (`Box`, `Rc`, `Arc`, a `ref` object) **the cell is
+  the unit**, because other handles reach it: `mut(a) := h.n; mut(b) := h.s;`
+  is rejected;
+- a loop that uses the borrow keeps it live for the whole loop (the next
+  iteration uses it again);
+- a borrow of a borrow keeps its source live as long as itself.
+
+A conflicting access is E0911, and a write through an `imm` borrow is E0908.
+Two more rules cover the places the compiler cannot see every alias of: a
+borrow of a **module-level** place may not be live across a call (a callee
+can reach the place by name), and a borrow whose place passes through a
+reference cell or a module-level place may not be live across an **`await`**.
 
 A local binding accepts the same **places** an argument does (below), with
 one addition: a field reached through an RC object (`h.n`, `a.b.n`) is
 allowed and **pins** the innermost object — a hidden owning local keeps it
 alive until the binding's scope ends, on `break`, `return` and effect
-`unwind` alike — so reassigning or dropping the visible handle cannot free
-the storage the binding names. Two things a binding forbids: **moving its
-root while it is live** (`sink(own(x))` with `inout(y) := x` in scope is a
-compile error — copy the value out, or end the binding's scope first), and
-**element places** (`xs(i)`, `p.*`): a pointer into a collection's storage
-has no owner a binding could pin. Bindings are local (not at module level)
-and take `:=` only. They work inside an `io.async` body too, across its
-awaits: the task keeps the binding, its pin and the place's root in its own
+`unwind` alike. **Element places** (`xs(i)`, `p.*`) are rejected: a pointer
+into a collection's storage has no owner a binding could pin. Bindings are
+local (not at module level) and take `:=` only. They work inside an
+`io.async` body too, across its awaits when the place stays in task-local
+values: the task keeps the binding, its pin and the place's root in its own
 memory.
+
+**Re-pointing a borrow** walks a linked structure (decision 25):
+`mut(cur) = place` / `imm(cur) = place` moves `cur` to a place reached from
+it — a field of `cur`'s target, or a field of a `match` binding over `cur`
+that enters a reference cell:
+
+```rust
+append :: (fn(mut(list) : List, v : i32) -> unit)({
+  mut(cur) := list.head; // Option(Box(Node))
+  while(cur.is_some(), {
+    match(cur, .Some(n) => { mut(cur) = n.next; }, .None => ());
+  });
+  cur = .Some(box(Node(value : v, next : .None))); // writes the tail slot
+});
+```
+
+A sibling root, a module-level place or a call result is rejected. The
+declared place (`list.head`) stays frozen for `cur`'s whole live range, and a
+re-point is E0911 while a borrow derived from `cur`'s current target is
+live. Each step into a cell pins it and releases the cell the previous step
+pinned, so the walk is memory-safe even when another handle drops a node.
 
 **Functions cannot return `inout`**, and refs cannot be stored in fields,
 captured by closures, or placed inside generic types. An `inout` is born
 at a call boundary or a binding and dies with the enclosing scope — it can
 never outlive the storage it points into.
+
+For the same reason a **local borrow never crosses the function boundary**:
+`return(y)` and a body whose result expression is the borrow (or a place
+reached from it, including a nested block the body's result ends in) are
+**E0912** (decision 18 rule 1). Even where reading through a borrow of an
+implicitly copyable type produces a copy today, the spelling names the
+borrow itself, not the value it reads through. Read the value out into an
+owned local first (`v := y;` … `v`); a call or an operation on the borrow
+(`y.len()`, `y + i32(0)`) already produces a value and is fine. An
+`inout`/`mut` **parameter** is a different mechanism: returning it still
+returns the pointee copy.
 
 The argument passed to an `inout` parameter is a simple lvalue **place**:
 

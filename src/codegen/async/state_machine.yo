@@ -10,12 +10,12 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ lookup_macro_expansion, expr_info_deferred_dup_expressions, some_resolution, scope_variables, scope_release_note_hard } :: import("../../expr_info.yo");
+{ lookup_macro_expansion, expr_info_deferred_dup_expressions, some_resolution, scope_variables, scope_release_note_hard, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { AwaitAnalysisResult, AwaitPoint, CapturedVariable, CapturedVariableKind } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { is_io_future_type, collect_branch_await_exprs, emit_future_store_into_slot } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_is_address_of_call, ast_expr_is_local_borrow_mode_call, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_step_expression } :: import("../exprs/while_loop.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
@@ -292,8 +292,25 @@ _lv_walk :: (fn(e : AstExpr, stmt_end : u64, block_end : u64, w : _LiveWalk, con
           // `inout(name) := place`: `name` points into the place's root, so the
           // root keeps its storage to the end of its scope, and so does the
           // hidden local that pins the place's object.
-          if(ast_expr_is_inout_mode_call(lhs.clone(), Option(usize).Some(usize(1))), {
+          if(ast_expr_is_local_borrow_mode_call(lhs.clone(), Option(usize).Some(usize(1))), {
             _lv_mark_scope(_lv_place_root(rhs.clone()), w, context);
+            // The step pin of a re-pointed borrow (decision 25) holds a cell
+            // to the end of the borrow's scope too.
+            match(
+              lookup_local_borrow_step_pin(ast_expr_id(lhs.clone())),
+              .Some(sp) => if(!is_unit_type(sp.ty), {
+                sp_id := _lv_id(sp, w);
+                _lv_declare(sp_id.clone(), sp.name.clone(), _lv_span_end(rhs.clone(), w), block_end, w);
+                match(
+                  w.vars.get(sp_id),
+                  .Some(slv) => {
+                    slv.to_scope_end = true;
+                  },
+                  .None => ()
+                );
+              }),
+              .None => ()
+            );
             match(
               context.base.get_expr_info(lhs),
               .Some(linfo) => match(

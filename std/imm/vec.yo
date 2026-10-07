@@ -117,6 +117,11 @@ Vec :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
 // O7: an Acyclic-element Vec cannot form a cycle — lets Vec nest as another
 // imm container's element.
 impl(generic(T : Type), where(T <: (Send, Acyclic)), Vec(T), Acyclic());
+// SAFETY: `_ptr` owns the node's elements, which no operation writes after
+// construction; every copy reads them, so the node is Send and Sync when its
+// elements are Sync (plans/VALUES_BY_DEFAULT.md decision 38 E).
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Vec(T), Send());
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Vec(T), Sync());
 impl(
   generic(T : Type),
   where(T <: (Send, Acyclic)),

@@ -1,0 +1,56 @@
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ assert } :: import("std/assert");
+// Raw pointers under the Send/Sync split (plans/VALUES_BY_DEFAULT.md decision
+// 38 E): a raw pointer is neither `Send` nor `Sync`, and neither is a type
+// holding one, unless the type opts in with `impl(T, Send())` /
+// `impl(T, Sync())`. Raw pointers exist only under the pragma, so this file has
+// it; the safe-code rules are in tests/send_sync.test.yo.
+{ Thread } :: import("std/thread");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+SrpHolder :: struct(p : *i32);
+SrpOptIn :: struct(p : *i32);
+// SAFETY: the test only reads through `p` while the pointee is alive and no
+// thread writes it.
+impl(SrpOptIn, Send());
+impl(SrpOptIn, Sync());
+test("a raw pointer is neither Send nor Sync, and neither is a struct holding one", {
+  comptime_assert(!Type.impls(*i32, Send), "a raw pointer is not Send");
+  comptime_assert(!Type.impls(*i32, Sync), "a raw pointer is not Sync");
+  comptime_assert(!Type.impls(?*i32, Send), "a nullable raw pointer is not Send");
+  comptime_assert(!Type.impls(SrpHolder, Send), "a raw-pointer struct is not Send");
+  comptime_assert(!Type.impls(SrpHolder, Sync), "a raw-pointer struct is not Sync");
+  comptime_assert(Type.impls(*i32, Acyclic), "a raw pointer stays Acyclic");
+});
+test("a raw-pointer struct that opts in is Send and Sync", {
+  comptime_assert(Type.impls(SrpOptIn, Send), "the opt-in makes it Send");
+  comptime_assert(Type.impls(SrpOptIn, Sync), "the opt-in makes it Sync");
+});
+// A struct holding a raw pointer cannot cross Thread.spawn.
+comptime_expect_error({
+  _spawn_raw_holder :: (fn() -> unit)({
+    (n : i32) = i32(1);
+    h := SrpHolder(p : &n);
+    t := Thread(unit).spawn(io => {
+      _q := h.p;
+      ()
+    });
+    t.join();
+  });
+  _spawn_raw_holder();
+}, "does not implement Send");
+// One that opts in does.
+_spawn_opt_in :: (fn() -> i32)({
+  (n : i32) = i32(41);
+  h := SrpOptIn(p : &n);
+  got := AtomicI32(i32(0));
+  t := Thread(unit).spawn(io => {
+    got.store(h.p.*, MemoryOrder.Release);
+    ()
+  });
+  t.join();
+  got.load(MemoryOrder.Acquire)
+});
+test("an opted-in raw-pointer struct crosses Thread.spawn", {
+  assert(_spawn_opt_in() == i32(41), "the thread read through the pointer");
+});

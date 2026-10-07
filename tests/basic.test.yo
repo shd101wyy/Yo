@@ -276,12 +276,14 @@ test("Test type auto derive Send", {
   comptime_assert(Type.impls(GenericPoint(i32), Send) == true);
   comptime_assert(Type.impls(GenericPoint(MyBox), Send) == false);
 });
-test("Test Send on pointer-bearing types is conditional on the pointee", {
+test("Test Send on pointer-bearing types", {
   // Pre-condition: a non-Send carrier to use as a negative pointee.
   NonSendCarrier :: ref(struct(v : i32));
   comptime_assert(Type.impls(NonSendCarrier, Send) == false);
-  // *(T): Send iff T: Send.
-  comptime_assert(Type.impls(*i32, Send) == true);
+  // *(T) is neither Send nor Sync, whatever T is (plans/VALUES_BY_DEFAULT.md
+  // decision 38 E): a type holding one opts in under the pragma.
+  comptime_assert(Type.impls(*i32, Send) == false);
+  comptime_assert(Type.impls(*i32, Sync) == false);
   comptime_assert(Type.impls(*NonSendCarrier, Send) == false);
   // str (builtin static string view) is Send.
   comptime_assert(Type.impls(str, Send) == true);
@@ -289,7 +291,7 @@ test("Test Send on pointer-bearing types is conditional on the pointee", {
   comptime_assert(Type.impls(Array(i32, 4), Send) == true);
   comptime_assert(Type.impls(Array(NonSendCarrier, 4), Send) == false);
   // Nullable pointer ?(*(T)): same as *(T) via Option(*(T)) desugar.
-  comptime_assert(Type.impls(?*i32, Send) == true);
+  comptime_assert(Type.impls(?*i32, Send) == false);
 });
 // --- `Type.impls` must honour a generic impl's `where` clause ---------------
 // `impl(generic(T : Type), where(T <: Send), *(T), Send())` says `*(T)` is Send
@@ -346,10 +348,12 @@ test("Test ?*(T) Send honours the impl's where(T <: Send)", {
   assert(SEND_OPT_PTR_NONSEND == false);
 });
 test("Test where-clause enforcement does not over-reject a satisfied bound", {
-  // Positive canaries: the same three impls MUST still match a Send pointee.
-  assert(SEND_PTR_I32 == true);
+  // Positive canary: the Array impl MUST still match a Send element. A raw
+  // pointer is not Send even over a Send pointee (decision 38 E), so the
+  // pointer forms stay false.
+  assert(SEND_PTR_I32 == false);
   assert(SEND_ARRAY_I32 == true);
-  assert(SEND_OPT_PTR_I32 == true);
+  assert(SEND_OPT_PTR_I32 == false);
   // The `Option(T)` blanket family stays intact — both as a predicate and as
   // real dispatch.
   assert(SEND_WHERE_OPTION_EQ_I32 == true);

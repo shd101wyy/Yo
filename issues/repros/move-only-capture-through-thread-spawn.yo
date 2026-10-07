@@ -1,0 +1,13 @@
+{ Thread } :: import("std/thread");
+{ println } :: import("std/fmt");
+Fd :: struct(fd : i32);
+impl(Fd, Dispose(dispose : (self -> println(`dispose ${self.fd}`))));
+main :: (fn() -> unit)({
+  f := Fd(fd : i32(3));
+  t := Thread(unit).spawn(io => {
+    println(`thread sees ${f.fd}`);
+    ()
+  });
+  t.join();
+});
+export(main);

@@ -68,7 +68,7 @@
 { move_captured_explicit_copy_variable } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_implicit_copy_enabled, audit_record_implicit_copy } :: import("../utils.yo");
+{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -343,9 +343,24 @@ _captures_offense :: (
   });
   Option(String).None
 });
-/// Record closure `fid`'s capture verdicts (`Send`, `Acyclic`) at its creation.
+/// Why a closure that BORROWS its captures is not `Send`
+/// (plans/VALUES_BY_DEFAULT.md decision 38 E: a borrow capture is never
+/// `Send`). Such a closure is the literal argument of a borrowing parameter,
+/// so its captures stay in the caller's frame.
+_borrowed_captures_offense :: "it borrows its captures (it is the literal argument of a borrowing parameter and captures a value that is not implicitly copyable, so that value stays in the caller's frame), and a borrow capture is never Send";
+/// Record closure `fid`'s capture verdicts (`Send`, `Sync`, `Acyclic`) at its
+/// creation. `borrows_captures`: the closure borrows its captures instead of
+/// owning them (`closure_literal_is_borrowed`), so it is never `Send`; it is
+/// `Sync` iff every captured value is, as for an `imm` capture.
 record_closure_capture_verdicts :: (
-  fn(fid : String, cvwv : Option(HashMap(String, FuncCapturedVarInfo)), capture_ty : Option(TypeValue), env : Environment, ctx : EvalContext) -> unit
+  fn(
+    fid : String,
+    cvwv : Option(HashMap(String, FuncCapturedVarInfo)),
+    capture_ty : Option(TypeValue),
+    env : Environment,
+    ctx : EvalContext,
+    (borrows_captures : bool) ?= false
+  ) -> unit
 )({
   // The capture struct names this closure too (`g_closure_fids_by_capture`).
   match(
@@ -358,6 +373,7 @@ record_closure_capture_verdicts :: (
     .Some(cv) => {
       markers := ArrayList(String).new();
       markers.push(String.from("Send"));
+      markers.push(String.from("Sync"));
       markers.push(String.from("Acyclic"));
       (mi : usize) = usize(0);
       while(mi < markers.len(), {
@@ -365,7 +381,8 @@ record_closure_capture_verdicts :: (
         match(
           get_trait_type_from_env(env, mn.clone()),
           .Some(mt) => {
-            g_closure_capture_offense.insert(`${fid}|${mn}`, _captures_offense(cv, mt, env, ctx));
+            verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(cv, mt, env, ctx));
+            g_closure_capture_offense.insert(`${fid}|${mn}`, verdict);
           },
           .None => ()
         );
@@ -425,7 +442,10 @@ _function_value_offense :: (
       .None => ()
     )
   );
-  if(mname != "Send", {
+  // D1 covers every thread slot, `Sync` as well as `Send`
+  // (plans/VALUES_BY_DEFAULT.md decision 38 E): a `Sync` function value may be
+  // called from several threads, so what its code reaches is shared too.
+  if(!((mname == "Send") || (mname == "Sync")), {
     return(Option(String).None);
   });
   // An extern runs no Yo code.
@@ -463,7 +483,7 @@ function_value_marker :: (
   fn(ty : TypeValue, witness : Option(EvalValue), marker : TypeValue, env : Environment, ctx : EvalContext) -> Option(Option(String))
 )({
   mname := type_to_string(marker);
-  if(!((mname == "Send") || (mname == "Acyclic")), {
+  if(!((mname == "Send") || (mname == "Sync") || (mname == "Acyclic")), {
     return(Option(Option(String)).None);
   });
   if(_declares_marker(ty, marker), {
@@ -610,21 +630,27 @@ validate_send_closure_global_reach :: (
     exn : Exception
   ) -> unit
 )({
-  wants_send := match(
+  // The thread marker the slot requires (`Send` first), or "": D1 covers a
+  // `Sync` closure slot as well as a `Send` one (decision 38 E).
+  thread_marker := match(
     wrapper_type,
     .SomeT({ required_trait_types : rtts }) => {
-      (found : bool) = false;
+      (found : String) = String.new();
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
         trait_type := rtts(ti);
-        if(!is_fn_trait_type(trait_type) && (type_to_string(trait_type) == "Send"), {
-          found = true;
+        if(!is_fn_trait_type(trait_type), {
+          tts := type_to_string(trait_type);
+          if((tts == "Send") || ((tts == "Sync") && found.is_empty()), {
+            found = tts;
+          });
         });
       });
       found
     },
-    _ => false
+    _ => String.new()
   );
+  wants_send := !thread_marker.is_empty();
   // The closure is walked HERE, with its defining env, whether or not this
   // slot is `Send`: the verdict is memoized by fid, and a later judgement of
   // the closure's type (`arc(k)`, `where(T <: Send)`, an `Impl(Fn, Send)`
@@ -649,7 +675,7 @@ validate_send_closure_global_reach :: (
     match(
       reach,
       .Some(reason) => if(wants_send, {
-        _raise_capture_trait_violation(ctx, exn, error_token, `This closure runs on another thread (it is bound to a Send closure type) but ${reason}.`);
+        _raise_capture_trait_violation(ctx, exn, error_token, `This closure runs on another thread (it is bound to a ${thread_marker} closure type) but ${reason}.`);
       }),
       .None => ()
     );
@@ -669,7 +695,9 @@ validate_capture_trait_requirements :: (
     env : Environment,
     ctx : EvalContext,
     error_token : Token,
-    exn : Exception
+    exn : Exception,
+    // The closure borrows its captures (`record_closure_capture_verdicts`).
+    (borrows_captures : bool) ?= false
   ) -> unit
 )({
   match(
@@ -680,6 +708,15 @@ validate_capture_trait_requirements :: (
         trait_type := rtts(ti);
         if(!is_fn_trait_type(trait_type), {
           trait_name := type_to_string(trait_type);
+          // A borrow capture is never `Send` (decision 38 E).
+          if(borrows_captures && (trait_name == "Send"), {
+            _raise_capture_trait_violation(
+              ctx,
+              exn,
+              error_token,
+              `This closure does not implement Send: ${_borrowed_captures_offense}. A closure that crosses threads must own its captures: pass it to an owning (sink) parameter, which moves them in (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).`
+            );
+          });
           // Per-variable first: each offending capture gets its own error at
           // the capture site, not the closure site.
           match(
@@ -1227,6 +1264,8 @@ generate_captured_variable_dup_expressions :: (
                 evaluated := evaluate_expression_raw(dup_expr, env, ctx, exn);
                 dup_exprs.push(evaluated);
               },
+              // YO_AUDIT_COPY_TRAIT: a plain-data capture is a copy too.
+              audit_copy_trait_enabled() => audit_record_copy_trait(closure_tok, ci.ty, "capture", env, generate_expr_from_code(var_name.clone(), exn), ctx, false),
               true => ()
             ),
             .None => ()

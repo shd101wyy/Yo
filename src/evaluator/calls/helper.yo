@@ -74,6 +74,8 @@ pragma(Pragma.AllowUnsafe);
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_second_class_escape, require_capture_borrow_exclusivity } :: import("../utils.yo");
+
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -7589,6 +7591,12 @@ try_to_call_function_with_arguments :: (
         );
         if(!(is_method_call && (pi == usize(0))), {
           audit_borrow_marker_site(_unlabeled_argument(parg), pr.arg_type, match(pref.get(pi), .Some(b) => b, .None => false), p_owning, match(call_param_comptime.get(pi), .Some(f) => f, .None => false), ctx);
+          // YO_AUDIT_COPY_TRAIT: a plain-data argument to a by-value
+          // parameter (decision 30) is a copy when the source lives on.
+          if(audit_copy_trait_enabled() && !ctx.is_in_function_call_checking_phase && !match(pref.get(pi), .Some(b) => b, .None => false) && !match(call_param_comptime.get(pi), .Some(f) => f, .None => false), {
+            ct_arg := _unlabeled_argument(parg);
+            audit_record_copy_trait(ast_expr_token(ct_arg), pr.arg_type, "argument", caller_env_m, ct_arg, ctx, true);
+          });
         });
         match(
           pr.s0_drop,

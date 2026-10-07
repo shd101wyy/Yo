@@ -298,10 +298,12 @@ a closure). Async tasks (`std/async/channel`, which has the same
 
 ## Sendable Types
 
-Only types that implement `Send` can cross thread boundaries:
+Only types that implement `Send` can be moved across thread boundaries, and only types that
+implement `Sync` can be shared between threads (an `Arc` payload, a module-level global); see
+"The Send and Sync Traits" in `THREAD_SAFETY.md`:
 
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs/enums/tuples composed of Send
-  fields, atomic objects whose fields are all Send (`Arc`, `Mutex`, `Channel`, the `Atomic*`
+  fields, atomic objects whose fields are all Sync (`Arc`, `Mutex`, `Channel`, the `Atomic*`
   wrappers), `Dyn(Trait, Send)` (the concrete type is checked at `dyn(...)`, and its payload is
   atomically counted: `dyn(v)` boxes a value type with `arc`), `Iso(T)` (see
   `THREAD_SAFETY.md`), and function values (a named function or a closure) whose captures are
@@ -309,7 +311,9 @@ Only types that implement `Send` can cross thread boundaries:
   compiler can see it: a spawn body, an `Impl(Fn(...), Send)` argument, a generic
   `where(T <: Send)` argument, a captured variable
 - **Not Sendable**: `ref(struct(...))` / `ref(enum(...))` (non-atomic RC: `ArrayList`,
-  `Box`, ..., and values holding one, such as `String`), `Dyn(Trait)` without `Send` in its bound, `Io`, `JoinHandle`,
+  `Box`, ..., and values holding one, such as `String`), raw pointers and types holding one
+  unless they opt in, `Dyn(Trait)` without `Send` in its bound, `Io`, `JoinHandle`, closures
+  that borrow their captures,
   function values capturing any of those or reaching a non-Send global, and a bare
   `fn(...)` type whose value is not known there (a struct field, a `Channel(fn() -> unit)`
   payload) — see "Functions and Closures Across Threads" in `THREAD_SAFETY.md`

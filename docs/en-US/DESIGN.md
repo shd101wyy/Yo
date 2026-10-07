@@ -1161,6 +1161,30 @@ p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
 
 No new keyword is involved: `Point(...)` is the same constructor call in both places. Every block carries its owner in a 16-byte prefix, so its release always returns to the allocator that made it, on any thread. `std/arena`'s `Arena` panics at `deinit` while a block is still live. The safety rules are in [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#explicit-allocators-and-arenas); the full guide is [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md).
 
+#### Copy
+
+`Copy` is the prelude marker for a value whose copy is a bitwise copy. It requires `Clone`, as Rust's `Copy: Clone` does: the trait is declared `Copy :: trait(where(Self <: Clone))`, so every `Copy` impl needs a `Clone` impl beside it, and `where(T <: Copy)` lets a generic body call `x.clone()`. The integers, floats, `bool`, `char`, `unit`, `str` views and raw pointers implement both, and so do `Option(T)` and `Result(T, E)` when their payloads do. A named type opts in with `derive(T, Copy, Clone)`, and a generic one with a `where` bound:
+
+```rust
+Point :: struct(x : i32, y : i32);
+derive(Point, Copy, Clone);
+
+Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+derive(generic(T : Type), where(T <: Clone), Pair(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Pair(T), Copy);
+
+main :: (fn() -> unit)({
+  p := Point(x : i32(1), y : i32(2));
+  q := p;           // a copy: `p` stays usable
+  r := p.clone();   // the derived clone, which for a Copy type is the copy
+});
+export(main);
+```
+
+The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` or declares `MoveOnly` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. `Box`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
+
+Today `Copy` is checked but not yet required: a plain-data type without it is still copied implicitly. The next step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 36) makes it the rule, after which `q := p` moves a `Point` that is not `Copy`, and a later use of `p` is E0901.
+
 #### Move-only values
 
 A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is **move-only**, and so is every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Box`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.

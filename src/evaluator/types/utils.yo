@@ -8,7 +8,10 @@
 //!
 //! Traits auto-derived here (stored in `g_type_trait_registry` in
 //! `evaluator/trait_checking.yo`):
-//!   - Send:     struct (value) if all fields Send; object only if atomic
+//!   - Send:     struct (value) if all fields Send; atomic object if all
+//!               fields Sync; a non-atomic object never
+//!   - Sync:     struct (value) if all fields Sync; atomic object if all
+//!               fields Sync; a non-atomic object never
 //!   - Acyclic:  struct if all fields Acyclic; object if not a cycle root
 //!   - Comptime: struct if all fields Comptime; object never
 //!   - Runtime:  object always; struct if all fields Runtime
@@ -23,6 +26,7 @@
   begin_send_derivation,
   end_send_derivation,
   type_implements_send,
+  type_implements_sync,
   type_implements_acyclic,
   type_implements_comptime,
   type_implements_runtime_full,
@@ -34,6 +38,7 @@
 { Token } :: import("../../token.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 // ---------------------------------------------------------------------------
 // Helpers: check all field types for a trait
 // ---------------------------------------------------------------------------
@@ -44,6 +49,19 @@ _all_fields_implement_send :: (fn(field_types : ArrayList(TypeValue), env : Envi
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     if(!type_implements_send(ft, env), {
+      all_ok = false;
+    });
+    i = (i + usize(1));
+  });
+  all_ok
+});
+_all_fields_implement_sync :: (fn(field_types : ArrayList(TypeValue), env : Environment) -> bool)({
+  n := field_types.len();
+  (i : usize) = usize(0);
+  (all_ok : bool) = true;
+  while((i < n) && all_ok, {
+    ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    if(!type_implements_sync(ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -131,13 +149,18 @@ auto_derive_traits_for_struct_type :: (
     self_type : TypeValue
   ) -> unit
 )({
-  // Begin Send derivation cycle guard.
+  // Begin Send/Sync derivation cycle guard.
   begin_send_derivation(struct_id);
-  // Send.
-  // Object types: auto-derive Send only if atomic.
-  // Struct (value) types: all fields must be Send.
+  // Send and Sync (plans/VALUES_BY_DEFAULT.md §3.8).
+  // A non-atomic object is a cell another copy may share: neither.
+  // An atomic object's copies share one payload: both, iff every field is Sync.
+  // A value type: Send iff every field is Send, Sync iff every field is Sync.
   if(!(is_reference_semantics && !is_atomic_rc), {
-    if(_all_fields_implement_send(field_types, env), {
+    all_sync := _all_fields_implement_sync(field_types, env);
+    if(all_sync, {
+      register_type_trait(struct_id, "Sync", env);
+    });
+    if(if(is_atomic_rc, all_sync, _all_fields_implement_send(field_types, env)), {
       register_type_trait(struct_id, "Send", env);
     });
   });
@@ -166,7 +189,7 @@ auto_derive_traits_for_struct_type :: (
       register_type_trait(struct_id, "Runtime", env);
     });
   });
-  // End Send derivation cycle guard.
+  // End Send/Sync derivation cycle guard.
   end_send_derivation(struct_id);
 });
 // ---------------------------------------------------------------------------
@@ -236,9 +259,12 @@ auto_derive_traits_for_union_type :: (
     env : Environment
   ) -> unit
 )({
-  // Send: all fields Send.
+  // Send: all fields Send. Sync: all fields Sync.
   if(_all_fields_implement_send(field_types, env), {
     register_type_trait(union_id, "Send", env);
+  });
+  if(_all_fields_implement_sync(field_types, env), {
+    register_type_trait(union_id, "Sync", env);
   });
   // Acyclic: all fields Acyclic.
   if(_all_fields_implement_acyclic(field_types, env), {
@@ -256,11 +282,20 @@ auto_derive_traits_for_union_type :: (
 // ---------------------------------------------------------------------------
 // enforce_atomic_object_send
 // ---------------------------------------------------------------------------
-/// Enforce Send for atomic object types: after auto-derive completes (the
+/// Enforce Sync for atomic object types: after auto-derive completes (the
 /// begin/end_send_derivation bracket lives in
 /// `auto_derive_traits_for_struct_type` above, so the cycle breaker cannot
-/// interfere with this check), an `atomic(ref(struct(...)))` whose type did
-/// not derive Send is an error listing the non-Send fields. Acyclic is NOT
+/// interfere with this check), an `atomic(ref(struct(...)))` that is not
+/// `Sync` (derived, or declared by an `impl(T, Sync())` under the pragma) is an
+/// error listing the non-Sync fields. Every copy of an atomic object shares
+/// one payload across threads, so sharing is the question
+/// (plans/VALUES_BY_DEFAULT.md §3.8).
+///
+/// A type declared in a `pragma(Pragma.AllowUnsafe)` file is not checked here:
+/// it may hold a raw pointer and opt in with `impl(T, Sync())` /
+/// `impl(T, Send())`, an impl registered after the type is created. Skipping
+/// the check makes nothing `Sync`: without the opt-in such a type is neither
+/// marker, and every thread boundary rejects it. Acyclic is NOT
 /// enforced here — self-referential atomic objects are valid (e.g. tree nodes
 /// via Option(Self)).
 ///
@@ -277,27 +312,27 @@ enforce_atomic_object_send :: (
     exn : Exception
   ) -> unit
 )({
-  if(!type_implements_send(struct_ty, env), {
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {
+    return(());
+  });
+  if(!type_implements_sync(struct_ty, env), {
     (non_send_fields : String) = String.from("");
     n := field_labels.len();
     (i : usize) = usize(0);
     while(i < n, {
       fl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
       ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-      // DIVERGENCE from blanket-impl semantics: only a fully CONCRETE
-      // (SomeT-free) field counts as a violation. A generic type-constructor
-      // body (`Channel`'s `_data : *(T)` with `where(T <: Send)`) is
-      // trial-evaluated with T an unresolved SomeT, and the generic-impl
-      // matcher can't yet prove `*(T)` Send from the blanket
-      // `impl(generic(T), where(T <: Send), *(T), Send())` for
-      // constrained-SomeT targets.
+      // Only a fully CONCRETE (SomeT-free) field counts as a violation. A
+      // generic type-constructor body (`Atomic(T)`'s `_v : T` with
+      // `where(T <: Sync)`) is trial-evaluated with T an unresolved SomeT,
+      // whose marker the bound states but the field check cannot prove.
       // Every concrete INSTANTIATION re-evaluates the body (CTFE per call),
-      // so a real non-Send field is still rejected there.
+      // so a real non-Sync field is still rejected there.
       // Hoisted out of the `||` (an owned temp inside a short-circuit RHS in a
       // loop body trips the drop-emission bug — see _is_dots_atom's note).
       ft_somes := get_all_some_types(ft);
       ft_is_generic := (is_some_type(ft) || (ft_somes.len() > usize(0)));
-      if(!ft_is_generic && !type_implements_send(ft, env), {
+      if(!ft_is_generic && !type_implements_sync(ft, env), {
         if(non_send_fields.len() > usize(0), {
           non_send_fields = non_send_fields.concat(String.from("\n"));
         });
@@ -305,13 +340,13 @@ enforce_atomic_object_send :: (
       });
       i = (i + usize(1));
     });
-    // Throw only when a CONCRETE field is non-Send (see divergence note).
+    // Throw only when a CONCRETE field is non-Sync (see the note above).
     if(non_send_fields.len() > usize(0), {
       exn.throw(
         dyn(
           format_error_message(
             error_token,
-            `atomic object must implement Send (all fields must be Send), but ${type_to_string(struct_ty)} has non-Send fields:\n${non_send_fields}\nUse "object" instead if thread safety is not needed.`
+            `atomic object must implement Sync (its copies share one payload across threads, so all fields must be Sync), but ${type_to_string(struct_ty)} has non-Sync fields:\n${non_send_fields}\nUse "object" instead if thread safety is not needed.`
           )
         )
       );

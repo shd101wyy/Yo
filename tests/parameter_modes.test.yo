@@ -95,9 +95,11 @@ test("mut(y) := place is inout(y) := place", {
   (x : i32) = i32(1);
   mut(y) := x;
   y = i32(5);
-  assert(x == i32(5), "a write through y lands in x");
+  assert(y == i32(5), "read through y");
+  assert(x == i32(5), "a write through y lands in x (read after y's last use)");
   x = i32(6);
-  assert(y == i32(6), "a write to x is seen through y");
+  inout(z) := x;
+  assert(z == i32(6), "inout(z) := names the same place");
   h := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
   mut(n) := h.n;
   n = i32(9);
@@ -125,7 +127,8 @@ test("a marker that does not fit the parameter is an error", {
   }, "is not an expression of its own");
   comptime_expect_error({
     imm(y) := c;
-  }, "is not supported yet");
+    y = i32(1);
+  }, "is an `imm` borrow, which is read-only");
   comptime_expect_error(addr_of(c), "not available in safe code");
 });
 

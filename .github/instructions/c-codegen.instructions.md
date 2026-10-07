@@ -576,7 +576,14 @@ value in every program, and the compiler leaked ~7 M TypeValues per self-check
 a scheduled drop is "missing" from the C, check this set before the evaluator.
 To confirm a suspected leak, use a `Dispose` counter on a `ref(struct)` /
 `ref(enum)` and read it after the scope that owns the value (statement temps are
-released at SCOPE end, not after the statement).
+released at SCOPE end, not after the statement). The old-value save of a FIELD
+reassignment (`k.next = .None`) is released the same way — at the ENCLOSING
+scope's end, not after the statement — so a `Gc.collect()` later in the same
+scope still sees the old handle and classifies its target reachable. A test that
+clears a field to make a subgraph unreachable before collecting must do the
+clear inside its own function (measured 2026-10-06 writing the cycle-collector
+resurrection test; the emitted C saves `__yo_v_k->__yo_v_next` and defers its
+`__yo_decr_rc` to the function's closing brace).
 
 That set covers only the scope-end release. The early-exit gates (explicit
 `return`, `if (__yo_effect_escaped)`) additionally require the target in the

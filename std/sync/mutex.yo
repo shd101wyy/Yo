@@ -98,6 +98,11 @@ Mutex :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))
 // only sound for acyclic data, and this lets the sync containers nest
 // inside each other and inside the imm family (same contract as std/imm).
 impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Acyclic());
+// SAFETY: every access to `_value` happens under `_handle`, one thread at a
+// time, so the mutex is Sync whenever `T` may be moved between threads: Sync
+// for `T <: Send`, not `T <: Sync` (plans/VALUES_BY_DEFAULT.md §3.8).
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Send());
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Sync());
 
 /// An UNGUARDED lock with no protected value. `lock` / `try_lock` /
 /// `unlock` are the whole API and balancing them is the caller's job — no

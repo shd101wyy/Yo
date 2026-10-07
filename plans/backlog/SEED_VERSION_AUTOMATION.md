@@ -191,6 +191,61 @@ called with parameters. Nothing in `std/` or `src/` uses the form.
   `mut` capture, and the docs' and skills' examples may use the form; the
   skill-tree cli goldens move with any skill edit.
 
+## Seed-gated follow-up (2026-10-06): the `Send`/`Sync` split's std bounds
+
+`plans/VALUES_BY_DEFAULT.md` §3.8 and decision 38 E. The tree compiler derives
+`Sync` (today's `Send`) and the narrower `Send`; the v0.2.52 seed knows only
+`Send`, and to it `Sync` is a plain trait with no impls. So a std bound that
+names `Sync` makes every instantiation fail under the seed (`Arc(i32)` would
+miss `Sync`).
+
+**Generation A DONE 2026-10-06** (feat/vbd-send-sync):
+- The prelude declares `Sync` with the primitive impls beside each `Send` one,
+  `Io` and `JoinHandle` add `!(Sync())`, and the blanket
+  `impl(generic(T), where(T <: Send), *(T), Send())` is gone (the seed still
+  derives a pointer's `Send` structurally, so it is unaffected).
+- Raw-pointer types opt in explicitly, which the seed accepts as ordinary
+  pragma'd impls: `Channel`, `Mutex`, `Waker`, `ImmString`, `imm.Vec`,
+  `MapBranch`, `MapCollision`.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+- `Arc :: where(V <: (Sync, Acyclic))`, `arc`'s bound and its `Deref`/`Send`
+  impls (`Arc(T)` is `Send` and `Sync` for `T <: Sync`); drop the explicit
+  `impl(Arc(T), Send())`, which derivation now answers.
+- `Mutex`/`RwLock`/`Channel`/`Sender`/`Receiver`: `T <: Send` stays on
+  `Mutex`/`Channel`; `RwLock(T)` needs `T <: (Send, Sync)`.
+- `Thread(T)`/`Thread.spawn`/`spawn_blocking`/`spawn(pool, …)` keep
+  `Impl(Fn, Send)`; their result `T` keeps `Send`. Moving a move-only capture
+  into them is DONE - the externs take `own(cb)` and the lowering moves
+  (`issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
+- The `std/imm` element bounds become `Sync` (their nodes are shared).
+- `docs/en-US/PARALLELISM.md` signatures, both languages.
+
+## Seed-gated follow-up (2026-10-06): decision 36's `Copy` flip
+
+`plans/VALUES_BY_DEFAULT.md` decision 36 (its phase section, "Decision 36:
+the `Copy` trait"). The prelude `Copy` trait, its `where(Self <: Clone)`
+supertrait and its impls are plain std code to the v0.2.52 seed (an
+ordinary marker trait with a `Self` constraint), so they landed in
+Generation A. What the seed cannot do is check a `Copy` impl's parts,
+register a derive's `Clone` before its `Copy`, answer `Copy` structurally
+for a tuple or closure, or treat a type without `Copy` as move-on-copy.
+
+**Generation A DONE 2026-10-06** (PR #1253): the trait and its
+supertrait, the prelude impls (each beside its `Clone`, with new `Clone`
+impls for `str`, `*(T)` and tuples of arity 1 to 12), `derive(T, Copy)`,
+the impl check with its `Copy: Clone` error, the hand-written-`Clone` rule,
+structural `Copy` and `Clone`, the raw-pointer clone clash, and the
+`YO_AUDIT_COPY_TRAIT` audit.
+
+**Generation B (once `SEED_VERSION` >= the release carrying Generation A):**
+- The `yo fix` sweep: `derive(T, Copy, Clone)` on every type the audit
+  lists. Until then `std/` and `src/` write `Copy` only as
+  `derive(T, Clone, Copy)` (`Clone` first): the seed processes a derive's
+  traits in order, so its supertrait check at `Copy` needs the `Clone` impl
+  registered already.
+- The flip: `type_requires_explicit_copy(T)` becomes `!(T <: Copy)`.
+- Delete `MoveOnly`.
 ## Seed-gated follow-up (2026-10-05): rename the shared cell `Box` to `Rc`
 
 `plans/VALUES_BY_DEFAULT.md` §6 V1 step 1. The rename is NOT plain std code
@@ -220,6 +275,22 @@ to the seed:
   `tests/`, docs and skills (counts in VALUES_BY_DEFAULT §6 V1 step 1).
 - Delete the prelude `Box`/`box`, and make `Rc`/`rc` canonical.
 - Delete the `Box` row from `shared_cell_names_at`.
+
+## Seed-gated follow-up (2026-10-06): local borrows (VALUES_BY_DEFAULT V3)
+
+**Generation A DONE 2026-10-06** (feat/vbd-local-borrows): the compiler
+accepts `imm(y) := place` and the re-points `imm(cur) = place` /
+`mut(cur) = place`, and enforces last-use live ranges, place-based
+exclusivity (E0911) and the function boundary (E0912: `return(<a place
+rooted at the borrow>)` and a body-tail yielding one are rejected) for
+every local borrow, `inout(y) :=` included.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+nothing to flip. `std/` and `src/` may then write `imm(y) :=` and re-points
+(a seed without them rejects `imm(y) :=` as "not supported yet" and
+evaluates `mut(cur) = place` as a call of an unknown `mut`). No `std/` or
+`src/` site uses a local borrow today, so the new exclusivity rules need no
+migration there.
 
 ## Seed-gated follow-up (2026-10-01): `ArrayList.push` states its elements
 
