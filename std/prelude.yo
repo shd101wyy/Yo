@@ -9934,8 +9934,8 @@ export(Arc, arc);
 /// (auto-dereference, plans/VALUES_BY_DEFAULT.md §3.3). Nothing is called at
 /// run time: `w.field` and `w.method()` on a `Deref` type whose own members
 /// lack that name mean `w.*.field` and `w.*.method()`, recursively through
-/// nested wrappers, and the wrapper's own members always win (`b.clone()` is
-/// the `Rc`'s `clone`). `w.*` names the payload place.
+/// nested wrappers. A name both have is E0616 (decision 32): `Rc.clone(b)`
+/// is the `Rc`'s `clone`, `b.*.clone()` the payload's. `w.*` is the payload.
 ///
 /// Implemented by `Box`, `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
 /// a compile error, so every auto-dereference goes through one of the
