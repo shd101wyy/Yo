@@ -297,3 +297,17 @@ test("FnOnce: Dyn(FnOnce(...)) is move-only", {
   comptime_expect_error(d(), "use of moved value");
   assert(d2() == i32(1), "the moved-to handle calls once");
 });
+_once_two :: (fn(sink(t) : _OnceTok, sink(u) : _OnceTok, go : bool) -> i32)({
+  if(go, {
+    return(_once_take(t));
+  });
+  _once_take(u)
+});
+test("an early return releases an owned parameter it did not move", {
+  // issues/fixed/an-early-return-skips-the-drop-of-an-owned-parameter.md
+  before := g_once_disposed;
+  assert(_once_two(_OnceTok(n : i32(5)), _OnceTok(n : i32(6)), true) == i32(5), "early return");
+  assert(g_once_disposed == (before + i32(2)), "t by _once_take, u by the return");
+  assert(_once_two(_OnceTok(n : i32(5)), _OnceTok(n : i32(6)), false) == i32(6), "fall-through");
+  assert(g_once_disposed == (before + i32(4)), "u by _once_take, t at the end");
+});
