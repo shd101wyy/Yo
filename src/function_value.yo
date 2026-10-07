@@ -17,6 +17,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { Frame } :: import("./env.yo");
+{ Token } :: import("./token.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { t_unit } :: import("./types/creators.yo");
 { debug_knob } :: import("./utils.yo");
@@ -82,6 +83,17 @@ is_fnonce_closure_fn :: (fn(func_id : String) -> bool)(
     .None => false
   )
 );
+/// A closure's literal token (its `=>`), by `func_id`: where a capture that is
+/// not implicitly copyable is moved into it
+/// (`generate_captured_variable_dup_expressions`). A read of that capture
+/// inside the same closure's body reads the closure's own field, so the
+/// read-after-move check exempts it when the body is evaluated after the
+/// move (`dyn(...)` evaluates its closure argument twice).
+(g_closure_literal_tokens : HashMap(String, Token)) = HashMap(String, Token).new();
+register_closure_literal_token :: (fn(func_id : String, tok : Token) -> unit)({
+  g_closure_literal_tokens.insert(func_id, tok);
+});
+closure_literal_token :: (fn(func_id : String) -> Option(Token))(g_closure_literal_tokens.get(func_id));
 // ---------------------------------------------------------------------------
 // Closure capture info side-table (func_id → capture struct type + frame level)
 // ---------------------------------------------------------------------------
@@ -486,6 +498,8 @@ export(
   is_closure_fn,
   mark_as_fnonce_closure_fn,
   is_fnonce_closure_fn,
+  register_closure_literal_token,
+  closure_literal_token,
   ClosureCaptureInfo,
   register_closure_capture_info,
   get_closure_capture_info,

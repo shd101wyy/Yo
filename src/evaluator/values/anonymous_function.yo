@@ -116,6 +116,7 @@ pragma(Pragma.AllowUnsafe);
   register_func_type,
   mark_as_closure_fn,
   mark_as_fnonce_closure_fn,
+  register_closure_literal_token,
   ClosureCaptureInfo,
   register_closure_capture_info,
   get_closure_capture_info,
@@ -1873,6 +1874,7 @@ evaluate_anonymous_function_implementation :: (
   mark_closure_for_codegen := is_creating_closure;
   if(mark_closure_for_codegen, {
     mark_as_closure_fn(func_id.clone());
+    register_closure_literal_token(func_id.clone(), tok.clone());
     if(closure_owns_captures, {
       mark_as_fnonce_closure_fn(func_id.clone());
     });
