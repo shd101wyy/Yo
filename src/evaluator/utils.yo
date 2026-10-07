@@ -73,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
   variable_record_undone_move
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
-{ EvalContext, LoopBodyCtx, LoopFlowSnapshot } :: import("./context.yo");
+{ EvalContext, LoopBodyCtx, LoopFlowSnapshot, copy_trait_blockers_via_hook } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
 {
   format_error_message,
@@ -884,7 +884,9 @@ audit_note_match_binding :: (fn(binding : Variable, scr_info : ExprInfo) -> unit
         .Some(inherited) => inherited,
         .None => cond(
           (canonical_module_path(sv.token.module_path.clone()) != canonical_module_path(binding.token.module_path.clone())) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
-          is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond(sv.is_owning_the_rc_value => String.from("temp"), true => String.from("place")), root_id : sv.id),
+          // A temporary of plain data (no counted value) owns what it
+          // holds, as an owning RC temporary does.
+          is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond((sv.is_owning_the_rc_value || !type_contains_rc_type(sv.ty)) => String.from("temp"), true => String.from("place")), root_id : sv.id),
           (sv.is_owning_the_rc_value && !sv.is_module_level && !sv.is_ref) => ImplicitCopyRoot(kind : String.from("local"), root_id : sv.id),
           true => ImplicitCopyRoot(kind : String.from("place"), root_id : sv.id)
         )
@@ -1153,6 +1155,135 @@ audit_record_implicit_copy :: (
   );
 });
 // ---------------------------------------------------------------------------
+// YO_AUDIT_COPY_TRAIT (plans/VALUES_BY_DEFAULT.md decision 36)
+// ---------------------------------------------------------------------------
+/// Sizes decision 36's sweep: every implicit copy of a plain-data value (no
+/// owned buffer, not move-only) whose type is not `Copy`, with the source
+/// used again. Those are exactly the copies Generation B's flip turns into
+/// E0901 unless the sweep gives the type `Copy`. One stderr line per site:
+/// `file:line:col [copy-trait] <first blocker> <type> <path> source=<kind>
+/// needs=<A,B> \`<source>\``, where `needs` lists the named types
+/// (`copy_trait_blockers`, trait_checking.yo) that must implement `Copy`.
+///
+/// The copy points are the explicit-copy audit's (`binding`, `assign`,
+/// `field-store`, `element`, `return`, `capture`), plus `argument`: a value
+/// passed to a plain parameter, which decision 30 makes by value. The source
+/// rules follow the same audit (`audit_record_implicit_copy`), with two
+/// differences for plain data: a local or a plain parameter is judged at
+/// its frame's end (a plain parameter is the callee's own value under
+/// decision 30), and a `match` binding of a temporary owns its payload (it
+/// is not a copy). A field read is a copy at once (no partial moves,
+/// decision 19). Inert unless the knob is set.
+(g_audit_copy_trait : bool) = debug_knob(`YO_AUDIT_COPY_TRAIT`).is_some();
+audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
+/// Either copy audit: the pending-site tables and the frame-end judge serve
+/// both.
+audit_pending_copies_enabled :: (fn() -> bool)(g_audit_implicit_copy || g_audit_copy_trait);
+/// Record one implicit copy of a plain-data value for `YO_AUDIT_COPY_TRAIT`.
+/// `source` is the copied expression as written: a variable (judged by its
+/// kind), a field read (`a.b`, a copy at once) or anything else (a
+/// temporary, whose copy is a move, and is skipped).
+audit_record_copy_trait :: (
+  fn(
+    site_tok : Token,
+    ty : TypeValue,
+    copy_path : str,
+    env : Environment,
+    source : AstExpr,
+    ctx : EvalContext,
+    /// False for a closure's own captures, as for `audit_record_implicit_copy`.
+    in_closure_body_check : bool
+  ) -> unit
+)({
+  if(!g_audit_copy_trait || site_tok.module_path.starts_with("auto-generated://") || type_contains_rc_type(ty) || type_requires_explicit_copy(ty), {
+    return(());
+  });
+  // `a.b`, and a dereference `p.*`, which parses as the same dot form.
+  is_field_read := ast_expr_is_fn_call_of(source, ".", .Some(usize(2)));
+  is_variable := (ast_expr_is_atom(source) && (ast_expr_token(source).kind == TokenKind.Identifier));
+  if(!is_field_read && !is_variable, {
+    return(());
+  });
+  needs := copy_trait_blockers_via_hook(ty, env);
+  if(needs.len() == usize(0), {
+    return(());
+  });
+  (kind : String) = String.from("field");
+  (pending_id : Option(usize)) = Option(usize).None;
+  if(is_variable, {
+    match(
+      find_variable_in_env(env, ast_expr_token(source).value.clone()),
+      .Some(v) => {
+        captured := (in_closure_body_check && match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false));
+        root := g_implicit_copy_match_roots.get(v.id);
+        cond(
+          (is_any_temp_variable_name(v.name.clone()) || v.is_compile_time_only) => {
+            return(());
+          },
+          v.is_module_level => {
+            kind = String.from("global");
+          },
+          v.is_ref => {
+            kind = String.from("inout-borrow");
+          },
+          captured => {
+            kind = String.from("capture-state");
+          },
+          root.is_some() => match(
+            root,
+            .Some(r) => cond(
+              (r.kind == "temp") => {
+                return(());
+              },
+              (r.kind == "macro") => {
+                kind = String.from("for-element");
+              },
+              (r.kind == "local") => {
+                kind = String.from("match-local");
+                pending_id = Option(usize).Some(r.root_id);
+              },
+              true => {
+                kind = String.from("match-place");
+              }
+            ),
+            .None => ()
+          ),
+          true => {
+            kind = cond(v.is_parameter => String.from("param"), true => String.from("local"));
+            pending_id = Option(usize).Some(v.id);
+          }
+        );
+      },
+      .None => {
+        kind = String.from("unknown");
+      }
+    );
+  });
+  text := ast_expr_to_string(source);
+  shown_text := cond(
+    (text.len() > usize(60)) => `${text.substring(usize(0), usize(57))}...`,
+    true => text
+  );
+  first := match(needs.get(usize(0)), .Some(n) => n, .None => String.new());
+  line := `${display_module_path(site_tok.module_path)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [copy-trait] ${first} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} needs=${String.from(",").join(needs)} \`${shown_text.replace("\n", String.from(" "))}\``;
+  match(
+    pending_id,
+    .Some(vid) => {
+      entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset);
+      match(
+        g_implicit_copy_pending.get(vid),
+        .Some(lst) => lst.push(entry),
+        .None => {
+          fresh := ArrayList(ImplicitCopyPending).new();
+          fresh.push(entry);
+          g_implicit_copy_pending.insert(vid, fresh);
+        }
+      );
+    },
+    .None => audit_print_implicit_copy(line)
+  );
+});
+// ---------------------------------------------------------------------------
 // set_expr_as_needs_to_call_dup  (Phase A: dup-on-store)
 // ---------------------------------------------------------------------------
 /// Mark `rhs` as needing a `___dup` call to transfer/share RC ownership.
@@ -1188,6 +1319,15 @@ set_expr_as_needs_to_call_dup :: (
     (copy_path : str) ?= "dup"
   ) -> unit
 )({
+  // YO_AUDIT_COPY_TRAIT: a plain-data copy, before any early return (a
+  // plain value often has no temp name, and a known value is inlined).
+  if(g_audit_copy_trait, {
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
+      .Some(ct_info) => audit_record_copy_trait(ast_expr_token(rhs), ct_info.ty, copy_path, ct_info.env, rhs, ctx, true),
+      .None => ()
+    );
+  });
   // `expr.$.variableName` — no ExprInfo or no temp variable name ⇒ nothing to do.
   var_name_opt := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),
@@ -2775,6 +2915,7 @@ export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
+export(audit_copy_trait_enabled, audit_pending_copies_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);

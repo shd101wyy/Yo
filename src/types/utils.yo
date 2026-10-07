@@ -1385,6 +1385,122 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
   _collect_some_types_into(ty, acc, visited_ids);
   acc
 });
+/// Does `ty` mention a `SomeT` anywhere — through fields, elements, pointees
+/// AND a generic instantiation's TYPE ARGUMENTS? `get_all_some_types` walks
+/// fields and elements but not `type_arguments`, so it answers `[]` for a
+/// pattern whose parameter no field mentions (`Tag(T)` = `struct(id : i32)`,
+/// `T` carried only by the instantiation). Decision 36's open-pattern
+/// coverage query (`generic_pattern_implements_trait`,
+/// src/evaluator/values/impl.yo) gates on this wider question.
+type_mentions_some_type :: (fn(ty : TypeValue) -> bool)({
+  visited_ids := ArrayList(String).new();
+  _mentions_some_type_into(ty, visited_ids)
+});
+_mentions_some_type_into :: (fn(ty_in : TypeValue, inout(visited_ids) : ArrayList(String)) -> bool)({
+  // Same shell/refine conventions and cycle guards as
+  // `_collect_some_types_into` above (its sixth-shell comment).
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  ty = t_refine_inner(ty);
+  match(
+    ty,
+    .SomeT(_, _, _, _, _, _, _, _, _, _) => true,
+    .Struct({ id : st_id, field_types : st_fts, type_arguments : st_tas }) => {
+      if(_id_already_visited(visited_ids, st_id), {
+        return(false);
+      });
+      if(st_id.len() > usize(0), {
+        visited_ids.push(st_id.clone());
+      });
+      (tai : usize) = usize(0);
+      while(tai < st_tas.len(), {
+        if(recur(match(st_tas.get(tai), .Some(a) => a, .None => TypeValue.Unit), visited_ids), {
+          return(true);
+        });
+        tai = (tai + usize(1));
+      });
+      (tfi : usize) = usize(0);
+      while(tfi < st_fts.len(), {
+        if(recur(match(st_fts.get(tfi), .Some(f) => f, .None => TypeValue.Unit), visited_ids), {
+          return(true);
+        });
+        tfi = (tfi + usize(1));
+      });
+      false
+    },
+    .EnumT(en_id, _, _, en_vfs, _, _, _, _, _, en_tas) => {
+      if(_id_already_visited(visited_ids, en_id), {
+        return(false);
+      });
+      if(en_id.len() > usize(0), {
+        visited_ids.push(en_id.clone());
+      });
+      (eai : usize) = usize(0);
+      while(eai < en_tas.len(), {
+        if(recur(match(en_tas.get(eai), .Some(a) => a, .None => TypeValue.Unit), visited_ids), {
+          return(true);
+        });
+        eai = (eai + usize(1));
+      });
+      (evi : usize) = usize(0);
+      while(evi < en_vfs.len(), {
+        vf := match(en_vfs.get(evi), .Some(fl) => fl, .None => ArrayList(TypeValue).new());
+        (efi : usize) = usize(0);
+        while(efi < vf.len(), {
+          if(recur(match(vf.get(efi), .Some(f) => f, .None => TypeValue.Unit), visited_ids), {
+            return(true);
+          });
+          efi = (efi + usize(1));
+        });
+        evi = (evi + usize(1));
+      });
+      false
+    },
+    .Pointer(pt) => recur(pt, visited_ids),
+    .Array(element : el, _, _) => recur(el, visited_ids),
+    .IsoT(ch) => recur(ch, visited_ids),
+    .TypeAppT(constructor : con, args : cargs) => {
+      if(recur(con, visited_ids), {
+        return(true);
+      });
+      (cai : usize) = usize(0);
+      while(cai < cargs.len(), {
+        if(recur(match(cargs.get(cai), .Some(a) => a, .None => TypeValue.Unit), visited_ids), {
+          return(true);
+        });
+        cai = (cai + usize(1));
+      });
+      false
+    },
+    .Func({ forall_types : ftys, param_types : ptys, result : res }) => {
+      (fi2 : usize) = usize(0);
+      while(fi2 < ftys.len(), {
+        if(recur(match(ftys.get(fi2), .Some(f) => f, .None => TypeValue.Unit), visited_ids), {
+          return(true);
+        });
+        fi2 = (fi2 + usize(1));
+      });
+      (pi2 : usize) = usize(0);
+      while(pi2 < ptys.len(), {
+        if(recur(match(ptys.get(pi2), .Some(p) => p, .None => TypeValue.Unit), visited_ids), {
+          return(true);
+        });
+        pi2 = (pi2 + usize(1));
+      });
+      recur(res, visited_ids)
+    },
+    .Tuple(_, field_types : tt_fts) => {
+      (ti : usize) = usize(0);
+      while(ti < tt_fts.len(), {
+        if(recur(match(tt_fts.get(ti), .Some(f) => f, .None => TypeValue.Unit), visited_ids), {
+          return(true);
+        });
+        ti = (ti + usize(1));
+      });
+      false
+    },
+    _ => false
+  )
+});
 /// The PHANTOM type arguments of an enum instantiation: every argument at a
 /// position no payload depends on (`enum_phantom_positions`, compound
 /// or not: `Option(K)` of `Tag(Option(K))`), and each type-variable argument
@@ -2539,7 +2655,7 @@ export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);
 export(type_contains_some_type);
-export(get_all_some_types);
+export(get_all_some_types, type_mentions_some_type);
 /// True when any PARAM of this `Func` type still contains a SomeT under a RAW
 /// scan — the SomeT's own resolution is deliberately NOT consulted
 /// (unlike `type_contains_some_type`). Used to recognise the def-era ORIGINAL
