@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx
 } :: import("../context.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
-{ set_expr_as_needs_to_call_dup } :: import("../utils.yo");
+{ set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -190,6 +190,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
           );
         });
         arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(caller_env, field_type));
+        reject_second_class_escape(arg_info.ty, String.from("stored in a module member"), ast_expr_token(value_sub), ctx, exn);
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn, "field-store");
         caller_env = expr_info_adopt_env(arg_info);
         arg_type := arg_info.ty;

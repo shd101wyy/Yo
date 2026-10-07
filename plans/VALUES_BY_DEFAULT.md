@@ -25,6 +25,16 @@ Progress:
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
   - decision 32 Generation A, `Rc.clone(w)` (#1241);
+  - decision 35 Generation A, capture lists with decision 38 A/B/D
+    (second-class escapes and freezes, call exclusivity, borrow places;
+    branch `feat/vbd-capture-lists` — scope-based liveness, Generation B
+    refines it);
+  - the §6 measurement (#1220). Its call-site pass is deferred.
+- **In progress:**
+  - the Generation A wave: decision 37's `FnOnce` (with decision 38 C);
+    decision 36's `Copy`; the `Send`/`Sync` split with decision 38 E; local
+    borrows (`imm(y) :=`, decision 25);
+
   - the `Send`/`Sync` split with decision 38 E and the widened `Iso`
     bound, Generation A (feat/vbd-send-sync);
   - the §6 measurement (#1220). Its call-site pass is deferred.

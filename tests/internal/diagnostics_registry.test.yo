@@ -183,14 +183,24 @@ test("suggest_code finds near misses", {
   // IS registered: suggest_name deliberately returns None when the target
   // itself exists — and so is E0405 since member visibility landed; as a
   // typo it would have tied E0005 and E0404 at distance 1 with the
-  // earlier-listed E0005 winning. The far miss grew a digit too: E9999 is
-  // distance 3 from the E09xx family — within the threshold — since that
-  // family landed.)
+  // earlier-listed E0005 winning.) E1400 is distance 2 from E0401 (and from
+  // the rest of the E04xx family) — the transposed-digit class the
+  // code-specific threshold keeps.
   match(
     suggest_code(String.from("E1404")),
     .Some(h) => assert(h == "E0404", `typo E1404 suggests E0404, got ${h}`),
     .None => assert(false, "a near miss must suggest")
   );
+  match(
+    suggest_code(String.from("E1400")),
+    .Some(h2) => assert(h2 == "E0401", `typo E1400 suggests E0401, got ${h2}`),
+    .None => assert(false, "a distance-2 typo must suggest")
+  );
+  // The far miss is beyond the CODE threshold (2), not merely far from
+  // today's registry: codes are `E` + 4 digits, and distance 3 of a
+  // 5-character string matches on noise (E99999 → E0909 shared two nines
+  // under the old identifier threshold of 3 — the second time a denser
+  // registry had re-armed a "far" probe, after E9999 hit the E09xx family).
   assert(
     suggest_code(String.from("E99999")).is_none(),
     "a far miss suggests nothing"

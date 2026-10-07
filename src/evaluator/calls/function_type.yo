@@ -47,7 +47,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
-{ adopt_never_type } :: import("../utils.yo");
+{ adopt_never_type, reject_second_class_escape } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
@@ -1954,6 +1954,8 @@ Result type: ${type_to_string(result_box)}`
                 // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
                 // the deferred-generic twin is below.
                 if(!has_any_control_flow(ub_info.control_flow), {
+                  // Decision 38 A: a second-class value is never returned.
+                  reject_second_class_escape(ub_ty, String.from("returned"), ast_expr_token(fb), ctx, exn);
                   // A FUNCTION result's marker traits come from the returned
                   // value (rules D4 + D1, `judge_function_argument_markers`).
                   ub_fam := judge_function_argument_markers(result_box, ub_ty, ub_info.value, flow_env, ctx);

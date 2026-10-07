@@ -106,6 +106,8 @@ pragma(Pragma.AllowUnsafe);
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
   audit_print_implicit_copy,
+  reject_second_class_escape,
+  reject_second_class_result_outliving,
   local_borrows_mark,
   local_borrows_truncate,
   local_borrows_active,
@@ -2320,6 +2322,8 @@ _evaluate_begin_expression_impl :: (
             );
           });
           ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(env, TypeValue.Unit));
+          // Decision 38 A: a second-class value is never returned.
+          reject_second_class_escape(ret_info.ty, String.from("returned"), ast_expr_token(ret_arg), ctx, exn);
           env.frames = ret_info.env.frames;
           env.module_path = ret_info.env.module_path;
           env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;
@@ -2776,6 +2780,11 @@ _evaluate_begin_expression_impl :: (
   });
   last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(env, TypeValue.Unit));
   return_type := last_info.ty;
+  // Decision 38 A: the block's result may not carry a borrow of a binding the
+  // block declares (this block's own frame is the innermost one).
+  if(env.frames.len() > usize(0), {
+    reject_second_class_result_outliving(return_type, env.frames.len() - usize(1), ast_expr_token(last_expr), env, ctx, exn);
+  });
   // -------------------------------------------------------------------------
   // Return-type compatibility check
   // -------------------------------------------------------------------------

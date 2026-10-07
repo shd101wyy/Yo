@@ -1,0 +1,16 @@
+{ println } :: import("std/fmt");
+E :: enum(Leaf(n : i32), Node(k : i32, flag : bool));
+pick :: (fn(e : E) -> i32)(
+  match(e, .Node(k, true) => k, _ => i32(-1))
+);
+picki :: (fn(e : E) -> i32)(
+  match(e, .Node(7, f) => i32(70), _ => i32(-1))
+);
+main :: (fn() -> unit)({
+  println(pick(E.Node(i32(5), true)));
+  println(pick(E.Node(i32(6), false)));
+  println(pick(E.Leaf(i32(1))));
+  println(picki(E.Node(i32(7), false)));
+  println(picki(E.Node(i32(8), false)));
+});
+export(main);

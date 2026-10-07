@@ -728,6 +728,30 @@ ast_expr_is_address_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bo
 ast_expr_is_inout_mode_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
   ast_expr_is_fn_call_of(e, BK_INOUT, arg_count) || ast_expr_is_fn_call_of(e, BK_MUT, arg_count)
 );
+/// A capture-list borrow entry's left side, `imm(y)` or `mut(z)`: a prefix
+/// call of the mode word with one identifier (plans/VALUES_BY_DEFAULT.md
+/// decision 35). In a `{ … }` record it is a pun (`imm(y)` is
+/// `imm(y) : &y`) or, as the label of `:`, a renamed borrow
+/// (`imm(name) : &self.name`).
+ast_expr_is_capture_mode_entry :: (fn(e : AstExpr) -> bool)(
+  (ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(1)))) && match(
+    e,
+    .FnCall(_, _, ce_args, ce_infix, _) => (!ce_infix && match(ce_args.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false)),
+    .Atom(_, _) => false
+  )
+);
+/// A closure literal with a capture list, `{ x, imm(y) }(params) => body`:
+/// the parser's `{…}` → `_(…)` desugar makes the arrow's left side a call
+/// whose callee is the `_(…)` record literal (decision 35). `lhs` is the
+/// arrow's left operand.
+ast_expr_is_capture_list_params :: (fn(lhs : AstExpr) -> bool)(
+  match(
+    lhs,
+    .FnCall(_, cl_callee, _, cl_infix, _) => (!cl_infix && ast_expr_is_fn_call_of(cl_callee, BK_ANON_STRUCT, .None)),
+    .Atom(_, _) => false
+  )
+);
+
 /// The mode wrapper of a LOCAL borrow binding or re-point (decisions 18 and
 /// 25): `imm(y)`, `mut(y)` or `inout(y)` (`mut`'s Generation A synonym), on
 /// the left of `:=` or `=`.
@@ -1403,7 +1427,7 @@ desugar_program_if_calls :: (fn(program : ArrayList(AstExpr)) -> ArrayList(AstEx
 });
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
-export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_local_borrow_mode_call, ast_expr_strip_borrow_marker);
+export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_strip_borrow_marker, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
 export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);

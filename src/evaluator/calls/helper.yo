@@ -73,7 +73,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_second_class_escape, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -1007,6 +1007,13 @@ consume_argument_for_parameter :: (
   ) -> Option(AstExpr)
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
+  // Decision 38 A: a second-class value is never moved into a by-value
+  // (`sink`) parameter: the callee could keep it past the borrow. In
+  // Generation A only a `sink` parameter is by value; Generation B's flip
+  // makes every plain parameter one.
+  if(param_is_owning && !param_is_ct, {
+    reject_second_class_escape(arg_info.ty, String.from("moved into a by-value (`sink`) parameter"), ast_expr_token(actual_arg), ctx, exn);
+  });
   if(param_is_owning && !param_is_ct && !ctx.is_in_function_call_checking_phase, {
     match(
       arg_info.variable_name,
@@ -3891,6 +3898,11 @@ create_specialized_function_inline :: (
               // calls/function_type.yo).
               if(is_never_type(sb_ty) && (get_all_some_types(spec_ret_ty).len() == usize(0)), {
                 adopt_never_type(specialized_body, if(sb_ret_is_ref, t_ptr(spec_ret_ty), spec_ret_ty), ctx);
+              });
+              // Decision 38 A: a second-class value is never returned, which a
+              // specialization checks per instantiation (`Impl(Fn)` bodies).
+              if(!has_any_control_flow(sb_info.control_flow), {
+                reject_second_class_escape(sb_ty, String.from("returned"), ast_expr_token(cloned_body), ctx, exn);
               });
               sb_skip := (has_any_control_flow(sb_info.control_flow) || is_void_type(spec_ret_ty) || is_type_hierarchy_type(spec_ret_ty) || (get_all_some_types(spec_ret_ty).len() > usize(0)) || (get_all_some_types(sb_ty).len() > usize(0)) || sb_ret_is_ref);
               if(!sb_skip && !are_types_compatible(sb_ty, spec_ret_ty), {
@@ -7771,6 +7783,9 @@ try_to_call_function_with_arguments :: (
         exn
       );
       require_valid_ref_argument_places(vrf_param_is_ref, adjusted_args, caller_env_m, ctx, exn);
+      // A closure value's call lends the closure itself (its receiver,
+      // decision 38 B): it joins the overlap test.
+      require_capture_borrow_exclusivity(vrf_param_is_ref, adjusted_args, match(func_type, .Func({ result : _ }) => Option(AstExpr).None, _ => Option(AstExpr).Some(callee_expr)), caller_env_m, ctx, exn);
       vrf_returns_place := match(func_type, .Func({ result : vrf_res }) => is_pointer_type(vrf_res), _ => false);
       require_no_inout_write_through_borrow(d3_pending, vrf_param_labels, vrf_param_is_ref, adjusted_args, vrf_returns_place, caller_env_m, ctx);
       // Restore the io.async arg-eval context flag (set before Step 7).

@@ -38,8 +38,9 @@ import("std/fmt");
 { _type_reaches_root_by_value } :: import("./enum.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
-{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
+{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class } :: import("../../types/utils.yo");
 { is_iso_type, register_type_decl_module } :: import("../../types/guards.yo");
+{ reject_second_class_escape } :: import("../utils.yo");
 evaluate_struct_type :: (
   fn(
     expr : AstExpr,
@@ -198,6 +199,22 @@ evaluate_struct_type :: (
     // A value struct holding one is itself control-bound and cannot escape.
     if((force_reference_semantics || is_atomic_rc) && !field.is_comptime && type_is_control_bound(field.ty), {
       exn.throw(dyn(format_error_message(ast_expr_token(arg), control_bound_field_message(field.label, field.ty))));
+    });
+    // Decision 38 A, type positions: a second-class type (a closure holding
+    // a capture-list borrow) may not be stored behind a pointer or in a
+    // reference object, which outlive any one borrow: `ArrayList(type_of(f))`
+    // instantiates `_ptr : *(T)` and is rejected here.
+    if(!field.is_comptime, {
+      sc_stored := match(
+        type_pointee_second_class(field.ty),
+        .Some(sc_inner) => Option(TypeValue).Some(sc_inner),
+        .None => if(force_reference_semantics || is_atomic_rc, Option(TypeValue).Some(field.ty), Option(TypeValue).None)
+      );
+      match(
+        sc_stored,
+        .Some(sc_t) => reject_second_class_escape(sc_t, `the type of the heap-stored field \`${field.label}\` (a second-class type may not be a field type, an element type or a type argument)`, ast_expr_token(arg), ctx, exn),
+        .None => ()
+      );
     });
     field_labels.push(field.label.clone());
     field_types.push(field.ty);

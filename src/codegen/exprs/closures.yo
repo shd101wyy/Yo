@@ -6,7 +6,7 @@
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, some_resolution, scope_variables } :: import("../../expr_info.yo");
+{ expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr_info.yo");
 { declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
@@ -39,6 +39,29 @@ _resolve_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGen
     g_sm_atom_resolver,
     .Some(f) => f(expr, var_name, context),
     .None => Option(String).None
+  )
+);
+/// Hook to drop_dup.yo's `emit_deferred_dup_or_code` (the shared dup-on-store
+/// choke point: emit `expr`'s deferred `___dup`s and return the dup-result
+/// temp's C name, else `fallback_code`). THIS module cannot import drop_dup
+/// directly — types/generation.yo imports resolve_some_type_to_concrete from
+/// here, and drop_dup pulls functions/declarations.yo, so the import closes a
+/// cycle — so codegen_c.yo installs the fn at codegen init, right beside the
+/// SM resolver above. A capture-list field's by-value initializer carries its
+/// RC +1 that way: materialize the initializer, then the dup.
+DeferredDupOrCodeFn :: (fn(expr : AstExpr, fallback_code : String, indent : String, context : FunctionGenerationContext) -> String);
+(g_deferred_dup_or_code : Option(DeferredDupOrCodeFn)) = Option(DeferredDupOrCodeFn).None;
+set_deferred_dup_or_code :: (fn(f : DeferredDupOrCodeFn) -> unit)({
+  g_deferred_dup_or_code = Option(DeferredDupOrCodeFn).Some(f);
+  ()
+});
+_emit_deferred_dup_or_code :: (
+  fn(expr : AstExpr, fallback_code : String, indent : String, context : FunctionGenerationContext) -> String
+)(
+  match(
+    g_deferred_dup_or_code,
+    .Some(f) => f(expr, fallback_code, indent, context),
+    .None => fallback_code
   )
 );
 /// True if `variable_name` resolves (in `env`, node `key`'s recorded scope) to
@@ -185,6 +208,42 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
       data.push_string(sanitize_for_c_identifier(label.clone(), false));
       data.push_str(" = ");
       (field_code : Option(String)) = Option(String).None;
+      // A capture list's field (decision 35): its initializer was evaluated
+      // at the literal. A borrow entry stores the address of its place.
+      match(
+        expr_info_capture_field_inits(ei),
+        .Some(inits) => {
+          (ci : usize) = usize(0);
+          while((ci < inits.len()) && field_code.is_none(), {
+            match(
+              inits.get(ci),
+              .Some(cfi) => if(cfi.label == label, {
+                init_code := _call_generate_expr(cfi.init, indent.clone(), context);
+                // A by-value RC entry's +1 rides the initializer's own
+                // deferred `___dup` (an atom entry's `___dup(<local>)` expr
+                // renders inline — it carries no deferred list). Route the
+                // value through `emit_deferred_dup_or_code`, the shared
+                // dup-on-store choke point: it materializes the initializer
+                // first (declare-first) and emits the dup. Reusing the dup
+                // expression ALONE as the field code instead referenced an
+                // eval-time temp no generated code declared, and dropped the
+                // initializer call with it ("use of undeclared identifier",
+                // the round-2 defect on `{ first : src(usize(0)) }`).
+                field_code = Option(String).Some(
+                  if(
+                    cfi.is_borrow,
+                    `(&(${init_code}))`,
+                    _emit_deferred_dup_or_code(cfi.init, init_code, indent.clone(), context)
+                  )
+                );
+              }),
+              .None => ()
+            );
+            ci = (ci + usize(1));
+          });
+        },
+        .None => ()
+      );
       match(
         expr_info_deferred_dup_expressions(ei),
         .Some(dups) => {
@@ -416,4 +475,4 @@ register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) 
     );
   });
 });
-export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings, set_sm_atom_resolver, closure_capture_counter_reset);
+export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings, set_sm_atom_resolver, set_deferred_dup_or_code, closure_capture_counter_reset);

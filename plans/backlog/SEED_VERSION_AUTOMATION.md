@@ -177,6 +177,20 @@ Generation A, #1188).
 - `docs/*/EXPLICIT_ALLOCATORS.md` says where the types live.
 
 
+## Seed-gated follow-up (2026-10-06): closure capture lists in `std/` and `src/`
+
+`plans/VALUES_BY_DEFAULT.md` decision 35 (V3b, capture lists, branch
+`feat/vbd-capture-lists`). The compiler parses and checks
+`{ x, imm(y), mut(z) : &mut w }(params) => body`; a seed without it rejects
+`{ imm(y) }` as "a struct literal, not a block" and has no meaning for a record
+called with parameters. Nothing in `std/` or `src/` uses the form.
+
+- **Waits for:** `SEED_VERSION` at a release that carries the capture-list PR.
+- **Then:** std's non-escaping callbacks whose bodies count through an `Rc`
+  (`for_each`/`with_lock` call sites in `std/` and the compiler) may switch to a
+  `mut` capture, and the docs' and skills' examples may use the form; the
+  skill-tree cli goldens move with any skill edit.
+
 ## Seed-gated follow-up (2026-10-06): the `Send`/`Sync` split's std bounds
 
 `plans/VALUES_BY_DEFAULT.md` §3.8 and decision 38 E. The tree compiler derives

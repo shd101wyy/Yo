@@ -344,6 +344,12 @@ derive(RuntimeDestructuring, Clone);
 /// pairs below — reads of an unset group must see `.None`, and a write has to
 /// materialise the group lazily. The accessors also hide WHICH SIDE of the line a
 /// field is on, so re-partitioning never touches a call site.
+/// One field of a capture-list closure's capture struct
+/// (plans/VALUES_BY_DEFAULT.md decision 35): its label and the evaluated
+/// initializer, written at the closure literal. A by-value entry (`x`,
+/// `x : e`) stores the value; a borrow entry (`imm(y) : &p`,
+/// `mut(z) : &mut p`) stores the address of the place `init` names.
+CaptureFieldInit :: struct(label : String, init : AstExpr, is_borrow : bool);
 ExprInfoRare :: ref(
   struct(
     /// Runtime type after comptime-to-runtime conversion (e.g. comptime_str → str).
@@ -384,7 +390,10 @@ ExprInfoRare :: ref(
     is_compile_time_only_assignment : Option(bool),
     is_anonymous_function_definition : Option(bool),
     comptime_unrolled_bodies : Option(ArrayList(AstExpr)),
-    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr))
+    early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)),
+    /// A capture-list closure's field initializers (decision 35), in field
+    /// order; see `CaptureFieldInit`.
+    capture_field_inits : Option(ArrayList(CaptureFieldInit))
   )
 );
 ExprInfo :: ref(
@@ -526,7 +535,8 @@ _clone_expr_info_rare :: (fn(r : Option(ExprInfoRare)) -> Option(ExprInfoRare))(
         is_compile_time_only_assignment : x.is_compile_time_only_assignment,
         is_anonymous_function_definition : x.is_anonymous_function_definition,
         comptime_unrolled_bodies : x.comptime_unrolled_bodies,
-        early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions
+        early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions,
+        capture_field_inits : x.capture_field_inits
       )
     )
   )
@@ -561,6 +571,22 @@ expr_info_set_deferred_dup_expressions :: (fn(info : ExprInfo, v : Option(ArrayL
   });
   r := _expr_info_rare_for_write(info);
   r.deferred_dup_expressions = v;
+  ()
+});
+expr_info_capture_field_inits :: (fn(info : ExprInfo) -> Option(ArrayList(CaptureFieldInit)))(
+  match(
+    info.rare,
+    .Some(r) => r.capture_field_inits,
+    .None => Option(ArrayList(CaptureFieldInit)).None
+  )
+);
+/// Skip-None setter: writing `.None` into an absent rare group is a no-op.
+expr_info_set_capture_field_inits :: (fn(info : ExprInfo, v : Option(ArrayList(CaptureFieldInit))) -> unit)({
+  if(v.is_none() && info.rare.is_none(), {
+    return(());
+  });
+  r := _expr_info_rare_for_write(info);
+  r.capture_field_inits = v;
   ()
 });
 expr_info_capture_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
@@ -789,7 +815,8 @@ _expr_info_rare_for_write :: (fn(info : ExprInfo) -> ExprInfoRare)(
         is_compile_time_only_assignment : Option(bool).None,
         is_anonymous_function_definition : Option(bool).None,
         comptime_unrolled_bodies : Option(ArrayList(AstExpr)).None,
-        early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None
+        early_return_only_deferred_drop_expressions : Option(ArrayList(AstExpr)).None,
+        capture_field_inits : Option(ArrayList(CaptureFieldInit)).None
       );
       info.rare = Option(ExprInfoRare).Some(fresh);
       fresh
@@ -2534,6 +2561,9 @@ export(
   expr_info_set_doc_comment,
   expr_info_deferred_dup_expressions,
   expr_info_set_deferred_dup_expressions,
+  CaptureFieldInit,
+  expr_info_capture_field_inits,
+  expr_info_set_capture_field_inits,
   expr_info_capture_type,
   expr_info_set_capture_type,
   expr_info_macro_expansion,

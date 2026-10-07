@@ -1438,6 +1438,18 @@ the closure return what it built. `YO_AUDIT_INOUT_BORROW=1 yo check` lists such
 writes as `[inout-borrow-capture]` — see `.github/skills/yo-core-patterns/` and
 the `inout` audit note.
 
+## Closure capture lists: `{ x, imm(y), mut(z) : &mut w }(params) => body`
+
+`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38, Generation A (this compiler; `std/` and `src/` do not use it until the seed parses it). The `{…}` before the parameters is a record literal the closure literal reads as its captures:
+
+- `x` / `x : e` — a by-value field (copy, or move for a move-only value). `imm(y)` / `imm(name) : &place` — a read-only borrow; `mut(z)` / `mut(name) : &mut place` — a writing borrow. Mode words on the left, sigils on the right: `{ y : &y }` and `{ imm(y) : y }` are errors.
+- The list is EXHAUSTIVE: the body may read only the listed names and module-level items (`{}()` captures nothing).
+- A borrow names a place rooted at a local binding: no temporary, no module-level binding, nothing through an `Rc`/`Arc`/`ref` object or `p.*` (capture the handle and re-derive), and a `mut` place must be writable (not a plain parameter).
+- A borrowing closure is SECOND-CLASS (E0909): bind it, call it, pass it to a plain parameter — never return it, store it, `dyn` it, pass it to `sink`, capture it in `io.async`, or name it in a type argument. A `mut` capture makes it move-only. Its places are frozen until the binding's scope ends (E0910): wrap the closure and its calls in a `{ …; }` block when you need the place afterwards.
+- A binding needs the expected type and parentheses, as for any closure: `(h : Impl(Fn(m : i32) -> i32)) = ({ k, imm(w) }(m : i32) => (m + k + w));`. A literal argument needs neither: `(i32(1) .. i32(4)).for_each({ mut(total) }(x : i32) => { total = (total + x); });`.
+- In Generation A, `&f` to an `Impl(Fn)` parameter is still the address-of (V3b Generation A's rule for generic parameters): lend a closure bare, `apply(f, 1)`.
+- Not supported yet: a capture list on an `io.async` body (borrowing futures, §3.13 A2), and last-use ends of a freeze (decision 18's live ranges).
+
 ## A `=>` closure never fills a bare `fn(...)` slot (E0605)
 
 A `fn(...) -> R` parameter or field is a C function pointer: it takes a named `fn` or a

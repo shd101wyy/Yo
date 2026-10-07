@@ -55,6 +55,9 @@ json :: import("std/encoding/json");
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
   E_WRITE_THROUGH_BORROW,
+  E_BORROW_ESCAPES,
+  E_BORROW_CONFLICT,
+
   E_LOCAL_BORROW_CONFLICT,
   E_LOCAL_BORROW_ESCAPES,
   E_COMPTIME_ARGUMENT,
@@ -526,6 +529,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   );
   out.push(
     _mk_explain(
+      E_BORROW_ESCAPES,
+      "a borrowing value escapes",
+      "借用值逃逸",
+      "A value that holds a closure's capture-list borrow (`imm(y)`, `mut(z)`) would outlive the place it borrows.",
+      "一个持有闭包捕获列表借用（`imm(y)`、`mut(z)`）的值会比它借用的位置活得更久。",
+      "A closure with an `imm` or `mut` capture borrows a place, so it is second-class, and so is any value built from it: a tuple, a record, an `Option` payload, a copy, or another closure that captures it. Such a value may be bound to a local declared after (and no further out than) what it borrows, lent to a call and called. It may not be returned, stored in a field or a `Dyn`, moved into a `sink` parameter, captured by an `io.async` body, named as a type argument (`ArrayList(type_of(f))`), or carried out of the block that declares the borrowed binding. Capture a value instead (`{ s2 : s.clone() }`), or keep the closure in the scope that owns the place.",
+      "带有 `imm` 或 `mut` 捕获的闭包借用一个位置，因此是二等值，由它构成的任何值也是：元组、记录、`Option` 载荷、副本，或捕获它的另一个闭包。这样的值可以绑定到一个在被借用者之后声明（且不在其外层）的局部变量，可以借给调用并被调用；但不能被返回、存入字段或 `Dyn`、移入 `sink` 形参、被 `io.async` 体捕获、用作类型实参（`ArrayList(type_of(f))`），也不能被带出声明被借用绑定的代码块。请改为捕获一个值（`{ s2 : s.clone() }`），或把闭包留在拥有该位置的作用域中。",
+      "keep :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());\nmain :: (fn() -> unit)({\n  w := i32(1);\n  keep({ imm(w) }() => w);\n});\nexport(main);\n",
+      "keep :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());\nmain :: (fn() -> unit)({\n  w := i32(1);\n  keep({ w }() => w);\n});\nexport(main);\n",
+      "`keep` owns its argument and could keep it after `w` is gone; capturing `w` by value gives the closure its own copy.",
+      "`keep` 拥有其实参，可能在 `w` 消失后仍保留它；按值捕获 `w` 让闭包持有自己的副本。"
+    )
+  );
+  out.push(
+    _mk_explain(
       E_LOCAL_BORROW_CONFLICT,
       "access conflicts with a live local borrow",
       "访问与仍存活的局部借用冲突",
@@ -537,6 +555,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "main :: (fn() -> unit)({\n  x := i32(1);\n  mut(y) := x;\n  y = i32(3);\n  x = i32(2);\n});\nexport(main);\n",
       "`y` is used after `x = i32(2)`, so it is still live there and `x` is frozen.",
       "`x = i32(2)` 之后还使用了 `y`，因此 `y` 在那里仍然存活，`x` 被冻结。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_BORROW_CONFLICT,
+      "access conflicts with a live borrow",
+      "访问与存活的借用冲突",
+      "A place is used while a closure borrows it, or a call passes a closure that borrows a place next to an argument that reaches the same place.",
+      "在闭包借用某个位置期间使用了该位置，或一次调用在传入借用某位置的闭包的同时，又传入了能到达同一位置的实参。",
+      "While a closure with a `mut(z)` capture lives, `z` may not be read or written except through the closure; while one with an `imm(y)` capture lives, `y` may be read but not written or moved. In Generation A the closure lives until the end of its binding's scope. Call arguments are exclusive: a `mut` argument, or a closure holding a `mut` capture (lent exclusively even to a read-only parameter), may not overlap any place another argument of the same call reaches; the receiver and a called closure count as arguments. End the closure's scope before touching the place (put the closure and its calls in a block), pass the place through the closure alone, or split the call.",
+      "带有 `mut(z)` 捕获的闭包存活期间，除通过该闭包外不得读写 `z`；带有 `imm(y)` 捕获的闭包存活期间，可以读 `y`，但不得写入或移动它。在第一代实现中，闭包存活到其绑定作用域结束。调用实参是互斥的：`mut` 实参，或持有 `mut` 捕获的闭包（即使传给只读形参也按独占方式借出），不得与同一调用中其他实参能到达的任何位置重叠；接收者和被调用的闭包都算作实参。请在访问该位置前结束闭包的作用域（把闭包和对它的调用放进一个代码块），只通过闭包传递该位置，或拆分调用。",
+      "bump :: (fn(f : Impl(Fn() -> i32), mut(z) : i32) -> i32)({\n  z = (z + i32(1));\n  f()\n});\nmain :: (fn() -> unit)({\n  z := i32(0);\n  bump({ imm(z) }() => z, &mut z);\n});\nexport(main);\n",
+      "bump :: (fn(f : Impl(Fn() -> i32), mut(z) : i32) -> i32)({\n  z = (z + i32(1));\n  f()\n});\nmain :: (fn() -> unit)({\n  z := i32(0);\n  bump({ z }() => z, &mut z);\n});\nexport(main);\n",
+      "The closure reads `z` through its borrow while `bump` writes `z` through its `mut` parameter; a by-value capture copies `z` before the call.",
+      "闭包通过借用读取 `z`，而 `bump` 通过其 `mut` 形参写入 `z`；按值捕获会在调用前复制 `z`。"
     )
   );
   out.push(
@@ -925,8 +958,13 @@ all_registry_codes :: (fn() -> ArrayList(String))({
   });
   out
 });
-/// The closest registered code within distance 3, for did-you-mean.
-suggest_code :: (fn(code : String) -> Option(String))(suggest_name(code, all_registry_codes()));
+/// The closest registered code within distance 2, for did-you-mean. Codes are
+/// `E` + 4 digits: distance 1 is a mistyped digit and distance 2 a transposed
+/// one — both real typos worth suggesting — while distance 3 of a 5-character
+/// string (E99999 → E0909, matched on two nines) is noise. The identifier
+/// engine's default threshold is 3 (`suggest_name`); codes pass 2 explicitly
+/// so the registry can densify without re-arming the far-miss probe.
+suggest_code :: (fn(code : String) -> Option(String))(suggest_name(code, all_registry_codes(), usize(2)));
 /// One registry entry as JSON (for `yo explain --format json`): both
 /// languages always included.
 explain_to_json :: (fn(e : Explain) -> String)({

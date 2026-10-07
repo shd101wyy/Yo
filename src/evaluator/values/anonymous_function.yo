@@ -34,7 +34,14 @@ pragma(Pragma.AllowUnsafe);
   BK_COND,
   BK_MATCH,
   is_function_boundary_arrow,
-  clone_expr_fresh_ids
+  clone_expr_fresh_ids,
+  ast_expr_is_atom_of,
+  ast_expr_is_capture_mode_entry,
+  ast_expr_is_capture_list_params,
+  BK_MUT,
+  BK_BORROW_MUT,
+  BF_ADDRESS_OF,
+  BF_DOT
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -45,7 +52,10 @@ pragma(Pragma.AllowUnsafe);
   has_any_control_flow,
   expr_info_capture_type,
   expr_info_set_capture_type,
+  expr_info_deferred_dup_expressions,
   expr_info_set_deferred_dup_expressions,
+  CaptureFieldInit,
+  expr_info_set_capture_field_inits,
   expr_info_set_is_anonymous_function_definition,
   record_hollow_body_error,
   clear_hollow_body_error,
@@ -91,6 +101,7 @@ pragma(Pragma.AllowUnsafe);
 {
   EvalContext,
   CapturedVarInfo,
+  CaptureUsage,
   ExpectedTypeCtx
 } :: import("../context.yo");
 { stable_func_id, debug_knob } :: import("../../utils.yo");
@@ -118,14 +129,16 @@ pragma(Pragma.AllowUnsafe);
   FuncCapturedVarInfo,
   record_closure_capture_verdicts
 } :: import("../utils/closure.yo");
-{ extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{ extract_fn_trait_from_type, type_implements_fn } :: import("../trait_checking.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
-{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr } :: import("../utils.yo");
-{ is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
+{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy } :: import("../../types/utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
+{ CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
+{ is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
 {
@@ -217,6 +230,24 @@ _synthesize_default_func_type :: (
   ret_ty := t_some_t(String.from("_ret"), frame_level);
   t_func_simple(names, param_types, ret_ty)
 });
+/// True when `ty` is an UNRESOLVED `Impl(Fn(...))` — a SomeT requiring the Fn
+/// trait with no resolved concrete. A function literal has ONE lowered body,
+/// so such a PARAMETER cannot be monomorphized per call site the way a named
+/// function's can (every call's argument closure is its own capture struct):
+/// the parameter lowers to `void*` and each call site passes the struct by
+/// value — invalid C
+/// (issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md).
+_is_unresolved_impl_fn_type :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .SomeT(_, _, _, _, _, _, _, _, _, res) => match(
+      res,
+      .Some(_) => false,
+      .None => type_implements_fn(ty)
+    ),
+    _ => false
+  )
+);
 /// Helper: get the operator string from an anonymous function expression.
 /// For `(x) -> body`, returns "->"; for `(x) => body`, returns "=>"; etc.
 _get_anon_op :: (fn(expr : AstExpr) -> String)(
@@ -605,7 +636,10 @@ _check_anon_fn_captures :: (
     func_id : String,
     tok : Token,
     ctx : EvalContext,
-    exn : Exception
+    exn : Exception,
+    /// The capture-list frame (decision 35): its borrow entries are `is_ref`
+    /// by construction and second-class, so the `inout` rule skips them.
+    (cap_frame_idx : Option(usize)) ?= Option(usize).None
   ) -> unit
 )({
   if(!is_closure, {
@@ -668,6 +702,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
           .Some(ci) => {
             // Only true outer captures are checked:
             // `frame_level < outer_frames_len`.
+            in_cap_frame := match(cap_frame_idx, .Some(cfi) => (ci.frame_level == cfi), .None => false);
             if(ci.frame_level < outer_frames_len, {
               match(
                 env.frames.get(ci.frame_level),
@@ -678,7 +713,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                     match(
                       frame.variables.get(vi),
                       .Some(v) => if(v.name == k, {
-                        if(v.is_ref, {
+                        if(v.is_ref && !in_cap_frame, {
                           _raise_capture_rejection(
                             ctx,
                             exn,
@@ -712,6 +747,290 @@ Pass \`${k}\` as a regular function parameter instead of capturing it in a closu
     );
   });
 });
+// ---------------------------------------------------------------------------
+// Capture lists (plans/VALUES_BY_DEFAULT.md decisions 35 and 38)
+// ---------------------------------------------------------------------------
+/// One entry of a closure's capture list, evaluated at the literal: a
+/// by-value field (`x`, `x : e`) or a borrow of a place (`imm(y) : &p`,
+/// `mut(z) : &mut p`).
+_CapListEntry :: struct(
+  label : String,
+  label_tok : Token,
+  is_borrow : bool,
+  is_mut : bool,
+  /// The field's value type: the initializer's type, or the borrowed
+  /// place's type (the capture struct stores `*(T)` for a borrow).
+  value_ty : TypeValue,
+  /// The evaluated initializer: the value, or the borrowed place.
+  init : AstExpr,
+  root_id : usize,
+  root_name : String,
+  path : ArrayList(String)
+);
+_cap_list_error :: (fn(ctx : EvalContext, exn : Exception, tok : Token, msg : String) -> unit)(
+  _raise_capture_rejection(ctx, exn, tok, msg)
+);
+/// The one argument of a prefix call `f(a)`.
+_only_arg :: (fn(e : AstExpr) -> AstExpr)(
+  match(e, .FnCall(_, _, oa, _, _) => match(oa.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
+);
+/// `e` is the borrow marker `&p` (`imm` entries) or `&mut p` (`mut`
+/// entries), a one-operand prefix call.
+_is_borrow_sigil :: (fn(e : AstExpr, want_mut : bool) -> bool)(
+  if(want_mut, ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))))
+);
+/// The field hops of a place `a.b.c` from the root outward (`["b", "c"]`),
+/// and its root atom; `.None` unless the place is a `.` chain of identifier
+/// fields rooted at an identifier (a call, an index, a literal or a
+/// temporary is not a place a borrow can name).
+_cap_place_root :: (fn(place : AstExpr, inout(fields) : ArrayList(String)) -> Option(AstExpr))({
+  rev := ArrayList(String).new();
+  (cur : AstExpr) = place;
+  (walking : bool) = true;
+  while(walking, {
+    if(ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2))), {
+      recv := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      fld := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      if(!ast_expr_is_atom(fld), {
+        return(Option(AstExpr).None);
+      });
+      rev.push(ast_expr_token(fld).value.clone());
+      cur = recv;
+    }, {
+      walking = false;
+    });
+  });
+  if(!ast_expr_is_atom(cur), {
+    return(Option(AstExpr).None);
+  });
+  (ri : usize) = rev.len();
+  while(ri > usize(0), {
+    ri = (ri - usize(1));
+    fields.push(match(rev.get(ri), .Some(f) => f, .None => String.new()));
+  });
+  Option(AstExpr).Some(cur)
+});
+/// Decision 38 D: no hop of the evaluated place `ev` may pass through a cell
+/// (an `Rc`/`Arc`, any `ref` object, or a pointer dereference `p.*`). A borrow
+/// capture could not hold the cell's run-time mark: the closure may be copied,
+/// and a per-call mark would leave the pointer dangling between calls.
+_cap_place_crosses_cell :: (fn(ev : AstExpr, ctx : EvalContext) -> bool)({
+  (cur : AstExpr) = ev;
+  (walking : bool) = true;
+  while(walking, {
+    if(ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2))), {
+      recv := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      fld := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      if(ast_expr_is_atom_of(fld, "*"), {
+        return(true);
+      });
+      recv_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)), .Some(ri) => ri.ty, .None => t_unit());
+      if(is_reference_struct_type(recv_ty) || is_atomic_reference_struct_type(recv_ty), {
+        return(true);
+      });
+      cur = recv;
+    }, {
+      walking = false;
+    });
+  });
+  false
+});
+/// Evaluate a closure's capture list `{ … }` (decision 35) in the scope that
+/// writes the literal. Each entry becomes one field of the capture struct:
+/// - `x` (or `x : e`) is by value: plain data copies, and a value that is
+///   not implicitly copyable moves, exactly as a record field does;
+/// - `imm(y) : &p` and `mut(z) : &mut p` (puns `imm(y)`, `mut(z)`) borrow
+///   the place `p`, which must be rooted at a named local binding (decision
+///   38 D: not across a cell, not module-level; a `mut` place is writable).
+_evaluate_capture_list :: (
+  fn(raw_entries : ArrayList(AstExpr), env : Environment, ctx : EvalContext, exn : Exception) -> ArrayList(_CapListEntry)
+)({
+  out := ArrayList(_CapListEntry).new();
+  (ei : usize) = usize(0);
+  while(ei < raw_entries.len(), {
+    raw := match(raw_entries.get(ei), .Some(r) => r, .None => make_err_expr());
+    raw_tok := ast_expr_token(raw);
+    // Normalize to (label expression, initializer expression).
+    (label_e : AstExpr) = raw;
+    (init_e : AstExpr) = raw;
+    (is_pun : bool) = false;
+    cond(
+      ast_expr_is_capture_mode_entry(raw) => {
+        // Pun: `imm(y)` is `imm(y) : &y`, `mut(z)` is `mut(z) : &mut z`.
+        label_e = raw;
+        init_e = _only_arg(raw);
+        is_pun = true;
+      },
+      ast_expr_is_fn_call_of(raw, ":", Option(usize).Some(usize(2))) => {
+        label_e = match(raw, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => raw);
+        init_e = match(raw, .FnCall(_, _, la, _, _) => match(la.get(usize(1)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => raw);
+      },
+      true => {
+        _cap_list_error(ctx, exn, raw_tok, `A closure's capture list holds entries \`x\`, \`x : e\`, \`imm(y) : &p\` or \`mut(z) : &mut p\`; got \`${ast_expr_to_string(raw)}\`.`);
+      }
+    );
+    is_mode := ast_expr_is_capture_mode_entry(label_e);
+    is_borrow := is_mode;
+    is_mut := (is_mode && ast_expr_is_fn_call_of(label_e, BK_MUT, .None));
+    name_e := if(is_mode, _only_arg(label_e), label_e);
+    if(!ast_expr_is_atom(name_e) || !is_valid_variable_name(name_e), {
+      _cap_list_error(ctx, exn, ast_expr_token(label_e), `A capture-list entry is named by an identifier (\`x\`, \`imm(y)\`, \`mut(z)\`); got \`${ast_expr_to_string(label_e)}\`.`);
+    });
+    name_tok := ast_expr_token(name_e);
+    label := name_tok.value.clone();
+    (di : usize) = usize(0);
+    while(di < out.len(), {
+      if(match(out.get(di), .Some(pe) => (pe.label == label), .None => false), {
+        _cap_list_error(ctx, exn, name_tok, `The capture list names \`${label}\` twice.`);
+      });
+      di = (di + usize(1));
+    });
+    // A borrow spells its mode on the left (the field) and its sigil on the
+    // right (the initializer), as decision 33 splits a parameter from its
+    // argument.
+    cond(
+      is_borrow => {
+        if(!is_pun && !_is_borrow_sigil(init_e, is_mut), {
+          want := if(is_mut, String.from("&mut "), String.from("&"));
+          mode := if(is_mut, String.from("mut"), String.from("imm"));
+          _cap_list_error(ctx, exn, ast_expr_token(init_e), `\`${mode}(${label})\` borrows a place, so its initializer is \`${want}place\` (\`${mode}(${label}) : ${want}${label}\`, or the pun \`${mode}(${label})\`); got \`${ast_expr_to_string(init_e)}\`.`);
+        });
+      },
+      (_is_borrow_sigil(init_e, false) || _is_borrow_sigil(init_e, true)) => {
+        mode2 := if(_is_borrow_sigil(init_e, true), String.from("mut"), String.from("imm"));
+        _cap_list_error(ctx, exn, ast_expr_token(init_e), `A borrow capture spells its mode on the left: \`${mode2}(${label}) : ${ast_expr_to_string(init_e)}\`. A plain \`${label} : e\` entry captures a value.`);
+      },
+      true => ()
+    );
+    if(is_borrow, {
+      place_e := if(is_pun, init_e, _only_arg(init_e));
+      fields := ArrayList(String).new();
+      root_atom := match(
+        _cap_place_root(place_e, fields),
+        .Some(r) => r,
+        .None => {
+          _cap_list_error(ctx, exn, ast_expr_token(place_e), `A borrow capture names a place rooted at a named binding (\`y\`, \`s.items\`); \`${ast_expr_to_string(place_e)}\` is not one. A temporary dies before the closure does: bind it first (\`t := ...;\`) and borrow \`t\`, or capture the value with \`${label} : ...\`.`);
+          make_err_expr()
+        }
+      );
+      root_tok := ast_expr_token(root_atom);
+      root_vars := get_variables_from_env(env, root_tok.value.clone());
+      root_var := match(
+        root_vars.last(),
+        .Some(v) => v,
+        .None => {
+          _cap_list_error(ctx, exn, root_tok, `Variable "${root_tok.value}" is not defined.`);
+          return(out);
+        }
+      );
+      if(root_var.is_module_level, {
+        _cap_list_error(ctx, exn, root_tok, `A borrow capture cannot name the module-level binding \`${root_tok.value}\`: a module-level place has no owner the closure's borrow could be checked against (decision 18, rule 3). Read it inside the body, or capture a copy: \`${label} : ${ast_expr_to_string(place_e)}\`.`);
+      });
+      if(root_var.is_compile_time_only, {
+        _cap_list_error(ctx, exn, root_tok, `A borrow capture cannot name \`${root_tok.value}\`: it is a compile-time value with no runtime storage.`);
+      });
+      saved_bexp := ctx.expected_type;
+      ctx.expected_type = Option(ExpectedTypeCtx).None;
+      ev_place := evaluate_expression_raw(place_e, env, ctx, exn);
+      ctx.expected_type = saved_bexp;
+      require_expr_not_consumed(ev_place, env, ctx, exn);
+      place_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev_place)), .Some(pi) => pi.ty, .None => t_unit());
+      if(is_unit_type(place_ty), {
+        _cap_list_error(ctx, exn, ast_expr_token(place_e), `A borrow capture cannot name a unit-typed place: it has no runtime storage.`);
+      });
+      if(_cap_place_crosses_cell(ev_place, ctx), {
+        _cap_list_error(
+          ctx,
+          exn,
+          ast_expr_token(place_e),
+          `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ imm(${root_tok.value}) }(...) => ${ast_expr_to_string(place_e)}...\`.`
+        );
+      });
+      if(is_mut, {
+        // Decision 38 D: a `mut` capture's place must be writable.
+        // A place is writable through its root binding: a `:=` local, a
+        // `mut`/`inout` parameter or local, or a `mut` capture are
+        // reassignable; a by-value parameter, a `match`/`for` binding and an
+        // `imm` capture are not. (A cell is never crossed, checked above.)
+        if(!root_var.is_reassignable, {
+          _cap_list_error(ctx, exn, ast_expr_token(place_e), `A \`mut\` capture needs a writable place, and \`${ast_expr_to_string(place_e)}\` is not: \`${root_tok.value}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or an \`imm\` borrow). Borrow it with \`imm(${label})\`, or take the parameter \`mut(${root_tok.value})\`.`);
+        });
+      });
+      out.push(
+        _CapListEntry(
+          label : label,
+          label_tok : name_tok,
+          is_borrow : true,
+          is_mut : is_mut,
+          value_ty : place_ty,
+          init : ev_place,
+          root_id : root_var.id,
+          root_name : root_tok.value.clone(),
+          path : fields
+        )
+      );
+    }, {
+      // By value: the initializer is stored in the field, the move point of
+      // a record field.
+      saved_vexp := ctx.expected_type;
+      ctx.expected_type = Option(ExpectedTypeCtx).None;
+      ev_val := evaluate_expression_raw(init_e, env, ctx, exn);
+      ctx.expected_type = saved_vexp;
+      set_expr_as_needs_to_call_dup(ev_val, ctx, exn, "field-store");
+      val_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev_val)), .Some(vi) => vi.ty, .None => t_unit());
+      // The field must OWN its reference. An owning temp is consumed by the
+      // call above (the store moves it) and a move-only atom read moves at
+      // the read; but an ATOM read of an RC-typed binding has no temp, so
+      // `set_expr_as_needs_to_call_dup` no-ops, and a NON-owning temp
+      // records its dup on the initializer's own ExprInfo. That recorded dup
+      // MUST stay attached to the initializer: the capture field's codegen
+      // (`expr_info_capture_field_inits` in src/codegen/exprs/closures.yo)
+      // runs it through `emit_deferred_dup_or_code`, the shared dup-on-store
+      // choke point, which MATERIALIZES the initializer call first — reusing
+      // the dup expression as the field initializer instead emitted
+      // `__yo_incr_rc(<eval-time temp>)` for a temp no generated code ever
+      // declared ("use of undeclared identifier", the round-2 defect; the
+      // initializer call itself vanished with it). An atom's dup targets a
+      // declared local, so it renders inline: build it here, exactly as
+      // `generate_captured_variable_dup_expressions` does for the ordinary
+      // implicit-capture path.
+      (field_init : AstExpr) = ev_val;
+      if(type_contains_rc_type(val_ty) && !type_requires_explicit_copy(val_ty), {
+        recorded_dup := match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev_val)),
+          .Some(fi_ei) => match(
+            expr_info_deferred_dup_expressions(fi_ei),
+            .Some(fi_ds) => (fi_ds.len() > usize(0)),
+            .None => false
+          ),
+          .None => false
+        );
+        if(!recorded_dup && ast_expr_is_atom(init_e), {
+          saved_fdexp := ctx.expected_type;
+          ctx.expected_type = Option(ExpectedTypeCtx).None;
+          fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(init_e).value.clone()})`, exn);
+          field_init = evaluate_expression_raw(fd_dup, env, ctx, exn);
+          ctx.expected_type = saved_fdexp;
+        });
+      });
+      out.push(
+        _CapListEntry(
+          label : label,
+          label_tok : name_tok,
+          is_borrow : false,
+          is_mut : false,
+          value_ty : val_ty,
+          init : field_init,
+          root_id : usize(0),
+          root_name : String.new(),
+          path : ArrayList(String).new()
+        )
+      );
+    });
+    ei = (ei + usize(1));
+  });
+  out
+});
 evaluate_anonymous_function_implementation :: (
   fn(
     expr : AstExpr,
@@ -740,6 +1059,20 @@ evaluate_anonymous_function_implementation :: (
   });
   param_decl := _get_arg(expr, usize(0));
   body_expr := _get_arg(expr, usize(1));
+  // A capture list `{ … }(params) => body` (decision 35): the parser's
+  // `{…}` → `_(…)` desugar makes the left side a call of the record literal.
+  (cap_list_raw : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+  (cap_list_params : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  if(ast_expr_is_capture_list_params(param_decl), {
+    match(
+      param_decl,
+      .FnCall(_, cl_callee, cl_params, _, _) => {
+        cap_list_raw = Option(ArrayList(AstExpr)).Some(match(cl_callee, .FnCall(_, _, cl_entries, _, _) => cl_entries, .Atom(_, _) => ArrayList(AstExpr).new()));
+        cap_list_params = cl_params;
+      },
+      .Atom(_, _) => ()
+    );
+  });
   // -------------------------------------------------------------------------
   // Resolve the expected type from context.
   // -------------------------------------------------------------------------
@@ -788,6 +1121,9 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   op_is_arrow := (op_str == "->");
   is_creating_closure := !op_is_arrow;
+  if(op_is_arrow && cap_list_raw.is_some(), {
+    exn.throw(dyn(format_error_message(tok, String.from("A `->` function literal captures nothing, so it takes no capture list. Write the closure with `=>`: `{ x }(params) => body`."))));
+  });
   // Resolve the concrete Func type to use for parameter/return information.
   // For Func expected types: use directly.
   // For FnTraitT: convert to Func.
@@ -891,29 +1227,33 @@ evaluate_anonymous_function_implementation :: (
   // Parse the parameter declaration into a flat list.
   // `param_decl` is either a tuple(...) with multiple params or a single expr.
   // -------------------------------------------------------------------------
-  raw_param_exprs := match(
-    param_decl,
-    .FnCall(_, fb2, decl_args, _, _) => match(
-      fb2,
-      .Atom(_, ptok) => cond(
-        (ptok.value == BK_TUPLE) => decl_args,
-        true => {
-          single_list := ArrayList(AstExpr).new();
-          single_list.push(param_decl);
-          single_list
+  raw_param_exprs := if(
+    cap_list_raw.is_some(),
+    cap_list_params.clone(),
+    match(
+      param_decl,
+      .FnCall(_, fb2, decl_args, _, _) => match(
+        fb2,
+        .Atom(_, ptok) => cond(
+          (ptok.value == BK_TUPLE) => decl_args,
+          true => {
+            single_list := ArrayList(AstExpr).new();
+            single_list.push(param_decl);
+            single_list
+          }
+        ),
+        .FnCall(_, _, _, _, _) => {
+          single_list2 := ArrayList(AstExpr).new();
+          single_list2.push(param_decl);
+          single_list2
         }
       ),
-      .FnCall(_, _, _, _, _) => {
-        single_list2 := ArrayList(AstExpr).new();
-        single_list2.push(param_decl);
-        single_list2
+      .Atom(_, _) => {
+        single_list3 := ArrayList(AstExpr).new();
+        single_list3.push(param_decl);
+        single_list3
       }
-    ),
-    .Atom(_, _) => {
-      single_list3 := ArrayList(AstExpr).new();
-      single_list3.push(param_decl);
-      single_list3
-    }
+    )
   );
   // -------------------------------------------------------------------------
   // Separate generic / using / regular parameter expressions.
@@ -1072,6 +1412,78 @@ evaluate_anonymous_function_implementation :: (
     });
     if(ann_frame_pushed, {
       env.pop_frame();
+    });
+  });
+  // -------------------------------------------------------------------------
+  // A function literal has ONE lowered body, so an `Impl(Fn(...))` PARAMETER
+  // — which a named function monomorphizes per call site into the argument
+  // closure's capture struct — would lower to `void*` while every call site
+  // passes the struct by value: invalid C. Reject the shape at definition,
+  // AFTER the annotation-driven substitution above has produced the final
+  // parameter types
+  // (issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md).
+  // -------------------------------------------------------------------------
+  (ifp_i : usize) = usize(0);
+  while(ifp_i < param_types.len(), {
+    ifp_ty := match(param_types.get(ifp_i), .Some(t) => t, .None => TypeValue.Unit);
+    if(_is_unresolved_impl_fn_type(ifp_ty), {
+      ifp_label := match(param_labels.get(ifp_i), .Some(l) => l.clone(), .None => String.from("_"));
+      exn.throw(
+        dyn(
+          format_error_message_with_help(
+            tok,
+            `A \`${op_str}\` function literal has one body, so its "${ifp_label}" parameter of type ${type_to_string(ifp_ty)} cannot be specialized per call: the parameter would lower to void* while each call passes the argument closure's own capture struct`,
+            Option(String).Some(String.from("take the parameter as Dyn(Fn(...)) (one boxed calling convention), or write a named fn: a named function specializes its Impl(Fn(...)) parameters per call site"))
+          )
+        )
+      );
+    });
+    ifp_i = (ifp_i + usize(1));
+  });
+  // -------------------------------------------------------------------------
+  // Capture list (decision 35): evaluate the entries in the enclosing scope,
+  // then bind each one in a frame of its own between that scope and the
+  // parameters. The body sees exactly these names (plus module-level items),
+  // and the capture struct is built from them, not from what the body reads.
+  // -------------------------------------------------------------------------
+  cap_entries := match(
+    cap_list_raw,
+    .Some(cl_raw) => {
+      if(ctx.is_inside_io_async_call, {
+        _cap_list_error(ctx, exn, tok, String.from("A capture list on an `io.async` body is not supported yet: its borrows would make the future second-class (plans/VALUES_BY_DEFAULT.md §3.13 A2), which has not landed. Capture implicitly, or bind the values to locals the body reads."));
+      });
+      _evaluate_capture_list(cl_raw, env, ctx, exn)
+    },
+    .None => ArrayList(_CapListEntry).new()
+  );
+  (cap_frame_idx : Option(usize)) = Option(usize).None;
+  if(cap_list_raw.is_some(), {
+    _cap_fr := env.push_frame(false);
+    cap_frame_idx = Option(usize).Some(env.frames.len() - usize(1));
+    (cfe_i : usize) = usize(0);
+    while(cfe_i < cap_entries.len(), {
+      match(
+        cap_entries.get(cfe_i),
+        .Some(ce) => {
+          // A by-value capture is read-only in the body (decision 38: a body
+          // never writes its captures). A borrow is a pointer field read and
+          // written through (`is_ref`); an `imm` borrow is the one `is_ref`
+          // binding that is not reassignable, which the write checks read as
+          // "read-only borrow".
+          ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, ce.is_borrow && ce.is_mut, false, false, ce.label_tok.clone());
+          if(ce.is_borrow, {
+            match(
+              ce_v,
+              .Some(cv) => {
+                cv.is_ref = true;
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      );
+      cfe_i = (cfe_i + usize(1));
     });
   });
   // -------------------------------------------------------------------------
@@ -1720,6 +2132,17 @@ Result type: ${type_to_string(decl_result_ty)}`
     // THREW (empty `out`) and propagate mode is on, re-raise so the
     // expected error reaches the comptime_expect_error catch.
     if(propagate_def_time_errors() && (anon_body_out.len() == usize(0)), {
+      // The body's own error, when the trial kept it, so the observer can
+      // match its text (a capture-list rule raised inside the body).
+      if(_anon_swallow_pending(), {
+        c2_msg := _anon_swallow_message();
+        c2_diags := g_anon_swallow_diags.clone();
+        _clear_anon_swallow();
+        if(c2_diags.len() > usize(0), {
+          exn.throw(dyn(yo_error_from_diagnostics(c2_diags)));
+        });
+        exn.throw(dyn(c2_msg));
+      });
       exn.throw(
         dyn(
           format_error_message(
@@ -1768,6 +2191,10 @@ Result type: ${type_to_string(decl_result_ty)}`
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(anon_eb)),
           .Some(cr_info) => {
             cr_body_ty := cr_info.ty;
+            // Decision 38 A: a second-class value is never returned.
+            if(!has_any_control_flow(cr_info.control_flow), {
+              reject_second_class_escape(cr_body_ty, String.from("returned"), ast_expr_token(anon_eb), ctx, exn);
+            });
             cr_ret_ty := match(function_type, .Func({ result : cr_r }) => cr_r, _ => t_unit());
             cr_skip := (has_any_control_flow(cr_info.control_flow) || is_void_type(cr_ret_ty) || is_type_hierarchy_type(cr_ret_ty) || (get_all_some_types(cr_ret_ty).len() > usize(0)) || (get_all_some_types(cr_body_ty).len() > usize(0)));
             if(!cr_skip && !are_types_compatible(cr_body_ty, cr_ret_ty), {
@@ -2045,7 +2472,7 @@ Result type: ${type_to_string(decl_result_ty)}`
     match(
       body_eval_ctx.captured_variables,
       .Some(anon_caps) => if(anon_caps.len() > usize(0), {
-        _check_anon_fn_captures(anon_caps, env, is_creating_closure, n_cap_fr, func_id.clone(), tok, ctx, exn);
+        _check_anon_fn_captures(anon_caps, env, is_creating_closure, n_cap_fr, func_id.clone(), tok, ctx, exn, cap_frame_idx);
       }),
       .None => ()
     );
@@ -2054,9 +2481,42 @@ Result type: ${type_to_string(decl_result_ty)}`
     // order as closure_type.yo. (Only the non-deferred path evaluates the body and
     // thus populates captures; a deferred generic closure has none → empty struct.)
     closure_body_caps = body_eval_ctx.captured_variables;
-    if(is_creating_closure, {
-      match(closure_body_caps, .Some(nested_caps) => propagate_captures_to_enclosing(nested_caps, ctx), .None => ());
-    });
+    match(
+      cap_frame_idx,
+      .Some(cfi) => match(
+        closure_body_caps,
+        // The list is exhaustive (decision 35): a read of any local outside
+        // it is an error. Module-level items are never tracked as captures.
+        .Some(ex_caps) => {
+          ex_it := ex_caps.keys();
+          (ex_more : bool) = true;
+          while(ex_more, {
+            match(
+              ex_it.next(),
+              .Some(ex_name) => match(
+                ex_caps.get(ex_name.clone()),
+                .Some(ex_ci) => if(ex_ci.frame_level < cfi, {
+                  _cap_list_error(
+                    ctx,
+                    exn,
+                    ex_ci.token,
+                    `The closure's capture list does not name \`${ex_name}\`, and the list is exhaustive: the body may read only the listed captures and module-level items. Add \`${ex_name}\` to the list (\`{ ${ex_name} }\` copies or moves it, \`{ imm(${ex_name}) }\` borrows it).`
+                  );
+                }),
+                .None => ()
+              ),
+              .None => {
+                ex_more = false;
+              }
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => if(is_creating_closure, {
+        match(closure_body_caps, .Some(nested_caps) => propagate_captures_to_enclosing(nested_caps, ctx), .None => ());
+      })
+    );
   });
   // Deferred generic body: trial-evaluate a CLONE to catch a concrete
   // return against the declared generic return type (`(value -> i32(0))`
@@ -2233,21 +2693,99 @@ Result type: ${type_to_string(decl_result_ty)}`
   // for deferred-generic closures too, which simply have no recorded captures).
   // Same pop-then-create order as closure_type.yo. Set on the ExprInfo below so
   // generate_io_async_sync_call can resolve the SM's __capture field type.
+  (cap_field_inits : Option(ArrayList(CaptureFieldInit))) = Option(ArrayList(CaptureFieldInit)).None;
   if(mark_closure_for_codegen, {
-    cvwv := match(
-      closure_body_caps,
-      .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
-      .Some(cv) => if(cv.len() > usize(0), Option(HashMap(String, FuncCapturedVarInfo)).Some(enrich_captured_variables(cv, env)), Option(HashMap(String, FuncCapturedVarInfo)).None)
+    cvwv := cond(
+      // A capture list's struct has one field per entry, used or not: a
+      // by-value entry's value lives in the closure, and a borrow entry's
+      // field is a pointer to its place.
+      cap_list_raw.is_some() => {
+        cl_map := HashMap(String, FuncCapturedVarInfo).new();
+        cl_inits := ArrayList(CaptureFieldInit).new();
+        (cm_i : usize) = usize(0);
+        while(cm_i < cap_entries.len(), {
+          match(
+            cap_entries.get(cm_i),
+            .Some(ce) => {
+              cl_map.insert(
+                ce.label.clone(),
+                FuncCapturedVarInfo(
+                  frame_level : match(cap_frame_idx, .Some(cfi) => cfi, .None => usize(0)),
+                  usage : CaptureUsage.Read,
+                  token : ce.label_tok.clone(),
+                  ty : if(ce.is_borrow, t_ptr(ce.value_ty.clone()), ce.value_ty.clone()),
+                  value : Option(EvalValue).None,
+                  is_effect_param : false,
+                  decl_site : `${ce.label_tok.module_path}:${ce.label_tok.row.to_string()}:${ce.label_tok.column.to_string()}`
+                )
+              );
+              cl_inits.push(CaptureFieldInit(label : ce.label.clone(), init : ce.init, is_borrow : ce.is_borrow));
+            },
+            .None => ()
+          );
+          cm_i = (cm_i + usize(1));
+        });
+        cap_field_inits = Option(ArrayList(CaptureFieldInit)).Some(cl_inits);
+        if(cl_map.len() > usize(0), Option(HashMap(String, FuncCapturedVarInfo)).Some(cl_map), Option(HashMap(String, FuncCapturedVarInfo)).None)
+      },
+      true => match(
+        closure_body_caps,
+        .None => Option(HashMap(String, FuncCapturedVarInfo)).None,
+        .Some(cv) => if(cv.len() > usize(0), Option(HashMap(String, FuncCapturedVarInfo)).Some(enrich_captured_variables(cv, env)), Option(HashMap(String, FuncCapturedVarInfo)).None)
+      )
     );
     // Generate evaluated `___dup(name)` exprs for RC-typed captures BEFORE
     // building the capture struct — codegen emits them as the capture-field
     // initializers so the capture owns its own reference (missing this freed
     // the captured Command.status spawn storage under the running closure).
-    dup_res := generate_captured_variable_dup_expressions(cvwv, env, ctx, exn, tok, closure_literal_is_borrowed(expr));
-    closure_borrows_captures = dup_res.borrowed;
-    closure_capture_dups = dup_res.dup_exprs;
+    // A capture list's by-value initializers already copy or move (they are
+    // field stores), so it has no dups.
+    if(cap_list_raw.is_none(), {
+      dup_res := generate_captured_variable_dup_expressions(cvwv, env, ctx, exn, tok, closure_literal_is_borrowed(expr));
+      closure_borrows_captures = dup_res.borrowed;
+      closure_capture_dups = dup_res.dup_exprs;
+    });
     cap_res := create_capture_type_and_value(Option(TypeValue).None, cvwv, env, tok);
     closure_capture_type = cap_res.capture_type;
+    // An `io.async` body escapes into its future, and a borrowing future
+    // (§3.13 A2) has not landed: it may not capture a second-class value.
+    if(ctx.is_inside_io_async_call, {
+      match(closure_capture_type, .Some(ia_ct) => reject_second_class_escape(ia_ct, String.from("captured by an `io.async` body (a borrowing future, plans/VALUES_BY_DEFAULT.md §3.13 A2, has not landed)"), tok, ctx, exn), .None => ());
+    });
+    // The borrow entries make the capture struct second-class (and, for a
+    // `mut` entry, move-only): decision 38 A.
+    match(
+      closure_capture_type,
+      .Some(cbt) => match(
+        cbt,
+        .Struct({ id : cb_sid }) => {
+          cbs := ArrayList(CaptureBorrow).new();
+          (cb_i : usize) = usize(0);
+          while(cb_i < cap_entries.len(), {
+            match(
+              cap_entries.get(cb_i),
+              .Some(ce) => if(ce.is_borrow, {
+                cbs.push(
+                  CaptureBorrow(
+                    label : ce.label.clone(),
+                    is_mut : ce.is_mut,
+                    root_id : ce.root_id,
+                    root_name : ce.root_name.clone(),
+                    path : ce.path.clone(),
+                    site : `${ce.label_tok.module_path}:${(ce.label_tok.row + u32(1)).to_string()}:${(ce.label_tok.column + u32(1)).to_string()}`
+                  )
+                );
+              }),
+              .None => ()
+            );
+            cb_i = (cb_i + usize(1));
+          });
+          register_capture_borrows(cb_sid.clone(), cbs);
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
     // Rules D4 + D9: the captured state's marker verdicts, per captured
     // variable with its value as the witness, for a later judgement of this
     // closure's TYPE (`arc(k)`, `where(T <: Send)`).
@@ -2437,9 +2975,13 @@ Result type: ${type_to_string(decl_result_ty)}`
       _ => ()
     );
   });
+  if(cap_frame_idx.is_some(), {
+    env.pop_frame();
+  });
   info := new_expr_info(env, final_lambda_ty);
   info.value = Option(EvalValue).Some(func_val);
   expr_info_set_is_anonymous_function_definition(info, Option(bool).Some(true));
+  expr_info_set_capture_field_inits(info, cap_field_inits);
   // Phase 3: closure_function_value is not set (EvalValue is not Clone).
   // Downstream code falls back to reading info.value when closure_function_value is None.
   // io.async closures carry the capture-struct type for codegen (see above).

@@ -3073,6 +3073,58 @@ test_capture :: (fn() -> unit)({
 });
 ```
 
+### Capture lists
+
+A closure may list its captures in a record literal before its parameters
+(`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38):
+
+```rust
+k := i32(3);
+w := i32(10);
+z := i32(0);
+(h : Impl(Fn(m : i32) -> i32)) = ({ k, imm(w), mut(z) }(m : i32) => {
+  z = (z + m);           // writes the caller's `z` through the borrow
+  ((k + w) + z)
+});
+(g : Impl(Fn() -> usize)) = ({ n : s.len(), imm(name) : &s }() => (n + name.len()));
+count := i32(0);
+(i32(1) .. i32(4)).for_each({ mut(count) }(x : i32) => {
+  count = (count + x);
+});
+```
+
+- **Entries.** `x` (or `x : e`) is a by-value field: plain data copies, a
+  value that is not implicitly copyable moves. `imm(y) : &p` and
+  `mut(z) : &mut p` borrow the place `p`; `imm(y)` and `mut(z)` are the puns of
+  `imm(y) : &y` and `mut(z) : &mut z`. The left of an entry takes the mode
+  word, the right takes the sigil.
+- **The list is exhaustive.** With a list the body may read only the listed
+  captures and module-level items; `{}()` captures nothing. Without a list,
+  capture stays implicit.
+- **What a borrow may name.** A place rooted at a named local binding: not a
+  temporary, not a module-level binding, and not through an `Rc`/`Arc` (or any
+  `ref` object or pointer dereference) — capture the handle instead,
+  `{ imm(r) }() => r.*.items.len()`. A `mut` place must be writable. An `imm`
+  capture is read-only in the body.
+- **A borrowing closure is second-class**, and so is anything built from it (a
+  copy, a tuple or record holding it, a closure capturing it). It may be bound
+  to a local, called, and passed to a parameter, but never returned, stored in
+  a field or a `Dyn`, moved into a `sink` parameter, captured by an `io.async`
+  body or used as a type argument (`ArrayList(type_of(f))`), and it may not
+  outlive what it borrows (E0909). A `mut` capture also makes the closure
+  move-only (E0901 on a copy).
+- **Borrowed places are frozen while the closure lives**: no access to a
+  `mut`-captured place, no write or move of an `imm`-captured one (E0910). In
+  this release a closure lives until the end of its binding's scope, so put
+  the closure and its calls in a block when the place is needed afterwards.
+- **Call arguments are exclusive.** A closure that holds a `mut` capture is
+  lent exclusively, so a call may not also pass anything that reaches the
+  borrowed place, the receiver and a called closure included (E0910):
+  `bump({ imm(z) }() => z, &mut z)` is rejected.
+- A capture list on a `->` function literal or an `io.async` body is an
+  error, and `{ x }(y) => …` is not a `match` arm pattern (a record pattern is
+  `{ x, y } => …`).
+
 ### Closure Type Restrictions
 
 Each closure has a unique type, even if they look identical:

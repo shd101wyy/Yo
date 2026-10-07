@@ -1,0 +1,384 @@
+// Closure capture lists (plans/VALUES_BY_DEFAULT.md decision 35) and the
+// closure soundness rules that constrain them (decision 38 A, B and D),
+// Generation A.
+//
+// `{ x, imm(y) : &y, mut(z) : &mut z }(params) => body` lists every capture:
+// `x` (or `x : e`) is a by-value field, `imm(y)`/`mut(z)` borrow a place. A
+// borrow makes the closure second-class (it may be bound to a local, lent and
+// called, never returned, stored, made a `Dyn`, moved into a `sink`
+// parameter or named as a type argument), a `mut` borrow also makes it
+// move-only, and the borrowed places are frozen while the closure lives
+// (scope-based in Generation A). Call arguments stay exclusive: a closure
+// holding a `mut` borrow overlaps every place it reaches.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+(g_cl_total : i32) = i32(0);
+_cl_call0 :: (fn(f : Impl(Fn() -> i32)) -> i32)(f());
+_cl_call1 :: (fn(f : Impl(Fn(x : i32) -> i32), x : i32) -> i32)(f(x));
+_cl_each :: (fn(n : i32, f : Impl(Fn(i : i32) -> unit)) -> unit)({
+  (i : i32) = i32(0);
+  while(i < n, {
+    f(i);
+    i = (i + i32(1));
+  });
+});
+_cl_keep :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());
+_cl_dyn :: (fn(f : Dyn(Fn() -> i32)) -> i32)(f());
+_cl_with_mut :: (fn(f : Impl(Fn() -> i32), mut(z) : i32) -> i32)({
+  z = (z + i32(1));
+  f()
+});
+_cl_reentry :: (fn(a : Impl(Fn() -> i32), b : Impl(Fn() -> i32)) -> i32)(a() + b());
+_ClAcc :: struct(total : i32, other : i32);
+impl(_ClAcc, run : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)(f()));
+(g_cl_rc_disposed : i32) = i32(0);
+_ClRc :: ref(struct(v : i32));
+impl(
+  _ClRc,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_cl_rc_disposed = (g_cl_rc_disposed + i32(1));
+    })
+  )
+);
+// ---------------------------------------------------------------------------
+// Entry kinds and puns
+// ---------------------------------------------------------------------------
+test("capture list: a by-value pun and a renamed by-value entry copy the value", {
+  k := i32(3);
+  s := String.from("hey");
+  (f : Impl(Fn(m : i32) -> i32)) = ({ k, n : s.len() }(m : i32) => (m + k + i32(n)));
+  assert(f(i32(1)) == i32(7), "1 + 3 + 3");
+  assert(f(i32(2)) == i32(8), "the closure is callable again");
+  assert(s.len() == usize(3), "the source string is untouched");
+});
+test("capture list: a by-value capture of an RC value retains it", {
+  // issues/fixed/a-by-value-capture-of-an-rc-value-never-retains-it.md: the
+  // capture field must hold its own reference, or the closure's scope-end
+  // drop releases the cell under the still-live source binding.
+  t := _ClRc(v : i32(7));
+  s := String.from("abcd");
+  {
+    (f : Impl(Fn() -> i32)) = ({ t }() => t.v);
+    (g : Impl(Fn() -> usize)) = ({ n : s }() => n.len());
+    assert(f() == i32(7), "the handle is read through the capture");
+    assert(g() == usize(4), "a renamed by-value String capture");
+    assert(g_cl_rc_disposed == i32(0), "nothing is disposed while the owners live");
+  };
+  assert(t.v == i32(7), "the source handle is still alive after the closure's scope");
+  assert(s.len() == usize(4), "the source string is still alive");
+});
+test("capture list: a by-value capture of a NON-OWNING temp of an RC value", {
+  // issues/fixed/a-by-value-capture-of-a-non-owning-temp-emits-invalid-c.md:
+  // reusing the initializer's deferred `___dup` result as the field's C
+  // initializer referenced an eval-time temp no generated code declared —
+  // and dropped the initializer call with it ("use of undeclared
+  // identifier", C compile failure). Only this shape broke: an atom
+  // initializer's dup targets a declared local, an owning temp is consumed
+  // (a move), and a non-RC initializer needs no reference at all.
+  src := ArrayList(String).new();
+  src.push(String.from("a"));
+  src.push(String.from("b"));
+  {
+    (f : Impl(Fn() -> usize)) = ({ first : src(usize(0)) }() => first.len());
+    assert(f() == usize(1), "the captured element is \"a\"");
+  };
+  assert(src.len() == usize(2), "the source list outlives the closure");
+  assert(src(usize(1)).len() == usize(1), "the source elements are untouched");
+});
+test("capture list: `imm(y)` and `imm(y) : &p` borrow the place read-only", {
+  w := i32(10);
+  s := String.from("four");
+  {
+    (f : Impl(Fn() -> usize)) = ({ imm(w), imm(t) : &s }() => (usize(w) + t.len()));
+    assert(f() == usize(14), "10 + 4");
+  };
+  w = i32(20);
+  {
+    (g : Impl(Fn() -> i32)) = ({ imm(w) }() => w);
+    assert(g() == i32(20), "a fresh closure sees the new value");
+  };
+});
+test("capture list: `mut(z)` and `mut(z) : &mut p` write the caller's place", {
+  z := i32(100);
+  acc := _ClAcc(total : i32(0), other : i32(5));
+  {
+    (f : Impl(Fn(m : i32) -> i32)) = ({ mut(z), mut(t) : &mut acc.total }(m : i32) => {
+      z = (z + m);
+      t = (t + i32(1));
+      z
+    });
+    assert(f(i32(1)) == i32(101), "first call");
+    assert(f(i32(2)) == i32(103), "second call sees its own write");
+  };
+  assert(z == i32(103), "the write reached z");
+  assert(acc.total == i32(2), "the field was written twice");
+  assert(acc.other == i32(5), "the sibling field is untouched");
+});
+test("capture list: a `mut` capture counter through a for_each-style callback", {
+  count := i32(0);
+  _cl_each(i32(5), { mut(count) }(i : i32) => {
+    count = (count + i);
+  });
+  assert(count == i32(10), "0 + 1 + 2 + 3 + 4");
+  total := i32(0);
+  (i32(1) .. i32(4)).for_each({ mut(total) }(x : i32) => {
+    total = (total + x);
+  });
+  assert(total == i32(6), "1 + 2 + 3 through Iterator.for_each");
+});
+test("capture list: `{}()` captures nothing", {
+  (f : Impl(Fn() -> i32)) = ({}() => i32(42));
+  assert(f() == i32(42), "pure closure");
+  assert(_cl_call1({}(x : i32) => (x * i32(2)), i32(4)) == i32(8), "literal argument");
+});
+test("capture list: a closure literal argument with a capture list", {
+  k := i32(5);
+  assert(_cl_call1({ k }(x : i32) => (x + k), i32(1)) == i32(6), "by value");
+  assert(_cl_call0({ imm(k) }() => k) == i32(5), "borrowed");
+});
+// ---------------------------------------------------------------------------
+// Exhaustiveness and entry shapes
+// ---------------------------------------------------------------------------
+test("capture list: the list is exhaustive", {
+  a := i32(1);
+  b := i32(2);
+  comptime_expect_error(_cl_call0({ a }() => (a + b)), "does not name `b`");
+  comptime_expect_error(_cl_call0({}() => a), "does not name `a`");
+  assert(_cl_call0({ a }() => (a + g_cl_total)) == i32(1), "a module-level item needs no entry");
+});
+test("capture list: entry shapes are checked", {
+  y := i32(1);
+  comptime_expect_error(_cl_call0({ y : &y }() => y), "spells its mode on the left");
+  comptime_expect_error(_cl_call0({ imm(y) : y }() => y), "its initializer is `&place`");
+  comptime_expect_error(_cl_call0({ mut(y) : &y }() => y), "its initializer is `&mut place`");
+  comptime_expect_error(_cl_call0({ y, y }() => y), "names `y` twice");
+  comptime_expect_error(_cl_call0({ imm(t) : &_cl_call0({}() => i32(1)) }() => t), "is not one");
+  comptime_expect_error(_cl_call0({ y }() -> y), "takes no capture list");
+});
+test("capture list: a borrow entry outside a capture list is an error", {
+  y := i32(1);
+  comptime_expect_error({ imm(y) }, "is a borrow entry of a closure's capture list");
+  assert(y == i32(1), "y is untouched");
+});
+test("capture list: a match arm cannot be a capture-list closure", {
+  x := i32(1);
+  comptime_expect_error(
+    match(x, { v }(u : i32) => u, _ => i32(0)),
+    "capture list"
+  );
+  p := _ClAcc(total : i32(3), other : i32(4));
+  sum := match(p, { total, other } => (total + other));
+  assert(sum == i32(7), "a record pattern arm still works");
+});
+// ---------------------------------------------------------------------------
+// Decision 38 A: second-class values
+// ---------------------------------------------------------------------------
+test("second-class: a borrowing closure cannot escape", {
+  w := i32(1);
+  comptime_expect_error(_cl_keep({ imm(w) }() => w), "moved into a by-value (`sink`) parameter");
+  comptime_expect_error(_cl_dyn(dyn({ imm(w) }() => w)), "so it is second-class");
+  comptime_expect_error(
+    (fn(x : i32) -> Impl(Fn() -> i32))({ imm(x) }() => x),
+    "returned"
+  );
+  assert(_cl_keep({ w }() => w) == i32(1), "a by-value capture list escapes");
+});
+test("second-class: escape through a by-value capture", {
+  w := i32(1);
+  (f : Impl(Fn() -> i32)) = ({ imm(w) }() => w);
+  comptime_expect_error(_cl_keep({ f }() => f()), "second-class");
+  assert(_cl_call0({ f }() => f()) == i32(1), "a capturer that does not escape is fine");
+});
+test("second-class: a block tail may not outlive what it borrows", {
+  comptime_expect_error(
+    _cl_call0({
+      w := i32(1);
+      { imm(w) }() => w
+    }),
+    "declared inside the block"
+  );
+});
+test("second-class: `=` may not make a closure outlive what it borrows", {
+  (f : Impl(Fn() -> i32)) = ({}() => i32(0));
+  comptime_expect_error({
+    w := i32(1);
+    f = ({ imm(w) }() => w);
+  }, "would outlive");
+  assert(f() == i32(0), "f keeps its first closure");
+});
+test("second-class: a second-class type is not a type argument", {
+  w := i32(1);
+  (f : Impl(Fn() -> i32)) = ({ imm(w) }() => w);
+  comptime_expect_error(ArrayList(type_of(f)).new(), "second-class");
+});
+test("second-class: a copy of an `imm`-capturing closure is second-class too", {
+  w := i32(1);
+  {
+    (f : Impl(Fn() -> i32)) = ({ imm(w) }() => w);
+    f2 := f;
+    assert(f2() == i32(1), "the copy calls");
+    assert(f() == i32(1), "the original is still usable: imm captures copy");
+    comptime_expect_error(_cl_keep(f2), "second-class");
+    comptime_expect_error({
+      w = i32(2);
+    }, "borrows `w`");
+  };
+  w = i32(2);
+  assert(w == i32(2), "the freeze ends with the closures' scope");
+});
+test("second-class: copying a `mut`-capturing closure moves it (E0901)", {
+  n := i32(0);
+  {
+    (t : Impl(Fn() -> i32)) = ({ mut(n) }() => {
+      n = (n + i32(1));
+      n
+    });
+    t2 := t;
+    assert(t2() == i32(1), "the moved-to closure calls");
+    comptime_expect_error(t(), "use of moved value");
+  };
+  assert(n == i32(1), "one call wrote n");
+});
+test("second-class: a borrowed place is frozen while the closure lives", {
+  z := i32(0);
+  y := i32(5);
+  {
+    (f : Impl(Fn() -> i32)) = ({ mut(z) }() => {
+      z = (z + i32(1));
+      z
+    });
+    (g : Impl(Fn() -> i32)) = ({ imm(y) }() => y);
+    assert(f() == i32(1), "call");
+    comptime_expect_error(z, "the closure `f` borrows `z`");
+    comptime_expect_error({
+      z = i32(3);
+    }, "the closure `f` borrows `z`");
+    assert(y == i32(5), "an imm borrow lets y be read");
+    comptime_expect_error({
+      y = i32(6);
+    }, "the closure `g` borrows `y`");
+    assert(g() == i32(5), "g reads y");
+  };
+  assert(z == i32(1), "after the scope, z is free again");
+});
+test("second-class: freezes are transitive through a capturing closure", {
+  z := i32(0);
+  {
+    (f : Impl(Fn() -> i32)) = ({ mut(z) }() => {
+      z = (z + i32(1));
+      z
+    });
+    (g : Impl(Fn() -> i32)) = ({ imm(f) }() => f());
+    assert(g() == i32(1), "g calls f");
+    comptime_expect_error(z, "borrows `z`");
+  };
+  assert(z == i32(1), "free after the scope");
+});
+test("second-class: an `imm` capture is read-only in the body", {
+  acc := _ClAcc(total : i32(1), other : i32(2));
+  comptime_expect_error(
+    _cl_call0({ imm(a) : &acc }() => {
+      a.total = i32(9);
+      i32(0)
+    }),
+    "Cannot write through `a`"
+  );
+  n := i32(1);
+  comptime_expect_error(
+    _cl_call0({ imm(n) }() => {
+      n = i32(2);
+      n
+    }),
+    "Cannot reassign"
+  );
+});
+// ---------------------------------------------------------------------------
+// Decision 38 B: call arguments are exclusive
+// ---------------------------------------------------------------------------
+test("exclusivity: a closure argument overlaps every place it captures", {
+  z := i32(0);
+  comptime_expect_error(_cl_with_mut({ imm(z) }() => z, &mut z), "lent exclusively");
+  w := i32(0);
+  assert(_cl_with_mut({}() => i32(7), &mut w) == i32(7), "no overlap");
+  assert(w == i32(1), "the mut argument was written");
+});
+test("exclusivity: `g(&f, &mut z)` with a named closure", {
+  z := i32(0);
+  {
+    (f : Impl(Fn() -> i32)) = ({ imm(z) }() => z);
+    comptime_expect_error(_cl_with_mut(f, &mut z), "lent exclusively");
+  };
+});
+test("exclusivity: a method receiver versus a `mut` capture of it", {
+  acc := _ClAcc(total : i32(0), other : i32(0));
+  comptime_expect_error(
+    acc.run({ mut(t) : &mut acc.total }() => {
+      t = (t + i32(1));
+    }),
+    "lent exclusively"
+  );
+  other := i32(0);
+  acc.run({ mut(other) }() => {
+    other = (other + i32(1));
+  });
+  assert(other == i32(1), "a capture of another place is fine");
+});
+test("exclusivity: re-entry through a closure that reaches the callee", {
+  n := i32(0);
+  {
+    // A function literal cannot take an `Impl(Fn(...))` parameter (it has one
+    // body, so the parameter cannot be specialized per call;
+    // issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md),
+    // so the call that overlaps `f` and `g` goes through a NAMED function.
+    (f : Impl(Fn() -> i32)) = ({ mut(n) }() => {
+      n = (n + i32(1));
+      n
+    });
+    (g : Impl(Fn() -> i32)) = ({ imm(f) }() => i32(1));
+    comptime_expect_error(_cl_reentry(f, g), "lent exclusively");
+  };
+  assert(n == i32(0), "nothing ran");
+});
+test("a function literal rejects an Impl(Fn(...)) parameter", {
+  n := i32(1);
+  // issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md:
+  // one lowered body cannot specialize an `Impl(Fn(...))` parameter per call
+  // site, so the parameter would lower to `void*` while each call passes the
+  // argument closure's capture struct.
+  comptime_expect_error(
+    (f : Impl(Fn(k : Impl(Fn() -> i32)) -> i32)) = ((k : Impl(Fn() -> i32)) => (k() + n)),
+    "function literal has one body"
+  );
+  // The boxed spelling remains a literal's way to take a closure argument.
+  (d : Impl(Fn(k : Dyn(Fn() -> i32)) -> i32)) = ((k : Dyn(Fn() -> i32)) => (k() + n));
+  assert(d(dyn(() => i32(2))) == i32(3), "a Dyn(Fn(...)) parameter works");
+});
+// ---------------------------------------------------------------------------
+// Decision 38 D: what a borrow capture may name
+// ---------------------------------------------------------------------------
+test("borrow places: no borrow across an `Rc`/`Arc` deref", {
+  r := rc(_ClAcc(total : i32(4), other : i32(0)));
+  comptime_expect_error(_cl_call0({ imm(t) : &r.*.total }() => t), "cannot reach through an `Rc`");
+  assert(_cl_call0({ imm(r) }() => r.*.total) == i32(4), "capture the handle and re-derive the place");
+});
+test("borrow places: no module-level place", {
+  comptime_expect_error(_cl_call0({ imm(g_cl_total) }() => g_cl_total), "module-level binding");
+});
+test("borrow places: a `mut` capture's place must be writable", {
+  comptime_expect_error(
+    (fn(x : i32) -> i32)(
+      _cl_call0({ mut(x) }() => {
+        x = (x + i32(1));
+        x
+      })
+    ),
+    "needs a writable place"
+  );
+});
+test("borrow places: a capture list on an `io.async` body is not supported yet", {
+  k := i32(1);
+  comptime_expect_error(io.async({ k }(io : Io) => k), "not supported yet");
+  assert(k == i32(1), "k is untouched");
+});
