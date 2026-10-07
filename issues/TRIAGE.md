@@ -1,10 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-<<<<<<< HEAD
-**Generated** by `scripts/gen-issue-triage.py` over the 174 open bug
-=======
 **Generated** by `scripts/gen-issue-triage.py` over the 171 open bug
->>>>>>> origin/develop
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -32,29 +28,16 @@ Three things are worth knowing before trusting any row.
 
 | Area | Open docs | Has repro |
 | --- | ---: | ---: |
-<<<<<<< HEAD
-| CI/Release/Build | 12 | 1 |
-| Async / effects | 5 | 0 |
-| Codegen / emitted C | 16 | 3 |
-| Evaluator / types | 20 | 2 |
-| Std library | 47 | 10 |
-| Tooling (fmt/doc/lsp) | 8 | 0 |
-| Self-hosting legacy | 10 | 2 |
-| Vendor (markdown_yo) | 3 | 0 |
-| Other | 53 | 5 |
-| **Total** | **174** | **23** |
-=======
 | CI/Release/Build | 9 | 1 |
-| Async / effects | 6 | 0 |
+| Async / effects | 5 | 0 |
 | Codegen / emitted C | 15 | 3 |
-| Evaluator / types | 21 | 2 |
-| Std library | 44 | 10 |
-| Tooling (fmt/doc/lsp) | 10 | 1 |
+| Evaluator / types | 20 | 2 |
+| Std library | 46 | 10 |
+| Tooling (fmt/doc/lsp) | 9 | 0 |
 | Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 53 | 6 |
-| **Total** | **171** | **25** |
->>>>>>> origin/develop
+| Other | 54 | 5 |
+| **Total** | **171** | **23** |
 
 ## Counts by severity
 
@@ -62,14 +45,9 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 25 |
-<<<<<<< HEAD
-| S2 | 83 |
-| S3 | 66 |
-=======
-| S2 | 84 |
-| S3 | 62 |
->>>>>>> origin/develop
+| S1 | 26 |
+| S2 | 85 |
+| S3 | 60 |
 
 ## Design questions (issues/questions/)
 
@@ -244,11 +222,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`unit-zst-residual-gaps.md`](./unit-zst-residual-gaps.md) | S2 | OPEN (deliberate scope boundary, not regressi | yes |
 | [`where-bound-gc-trace-still-fails-when-run-standalone.md`](./where-bound-gc-trace-still-fails-when-run-standalone.md) | S2 | — | — |
 
-<<<<<<< HEAD
-### Std library (47)
-=======
-### Std library (44)
->>>>>>> origin/develop
+### Std library (46)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -299,10 +273,11 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`utf16-unpaired-surrogate-reported-as-invalidchar-zero.md`](./utf16-unpaired-surrogate-reported-as-invalidchar-zero.md) | S3 | OPEN — found during STD_API_AUDIT D8 (the `En | — |
 | [`walker-follow-symlinks-windows-unsupported.md`](./walker-follow-symlinks-windows-unsupported.md) | S3 | — | — |
 
-### Tooling (fmt/doc/lsp) (8)
+### Tooling (fmt/doc/lsp) (9)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
+| [`collection-iterators-have-no-sound-post-v2b-shape.md`](./collection-iterators-have-no-sound-post-v2b-shape.md) | S2 | — | — |
 | [`collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md`](./collection-method-docs-written-with-plain-slashes-are-dropped-by-yo-doc.md) | S3 | OPEN | — |
 | [`nested-backtick-template-interpolates-the-injected-import.md`](./nested-backtick-template-interpolates-the-injected-import.md) | S2 | OPEN — valid source is rejected, and the diag | — |
 | [`template-string-backslash-before-interpolation-eats-both.md`](./template-string-backslash-before-interpolation-eats-both.md) | S1 | — | — |
@@ -335,11 +310,12 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (53)
+### Other (54)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md`](./a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md) | S3 | — | — |
+| [`a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md`](./a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md) | S1 | — | — |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
 | [`a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`](./a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md) | S1 | OPEN (filed 2026-10-06, found by the VALUES_B | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
@@ -378,20 +354,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`own-param-leaks-when-a-conditional-return-is-not-taken.md`](./own-param-leaks-when-a-conditional-return-is-not-taken.md) | S1 | OPEN | yes |
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`runtime-str-plus-str-passes-check-and-fails-compile.md`](./runtime-str-plus-str-passes-check-and-fails-compile.md) | S2 | — | — |
-<<<<<<< HEAD
 | [`static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md`](./static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md) | S3 | OPEN | — |
-| [`tasks-still-pending-or-queued-at-thread-exit-are-never-released.md`](./tasks-still-pending-or-queued-at-thread-exit-are-never-released.md) | S3 | — | — |
-=======
->>>>>>> origin/develop
 | [`verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md`](./verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md) | S3 | — | — |
 | [`verify-prints-z3-error-lines-under-an-unproven-obligation.md`](./verify-prints-z3-error-lines-under-an-unproven-obligation.md) | S3 | — | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
 | [`warm-compile-selfcheck.md`](./warm-compile-selfcheck.md) | S3 | — | — |
-<<<<<<< HEAD
 | [`while-with-an-operator-condition-as-tail-of-a-unit-fn-is-rejected.md`](./while-with-an-operator-condition-as-tail-of-a-unit-fn-is-rejected.md) | S3 | — | — |
-=======
 | [`windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md`](./windows-11-arm-test-batches-have-no-aarch64-asan-runtime.md) | S3 | OPEN (split out of `issues/fixed/windows-imag | — |
->>>>>>> origin/develop
 | [`windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md`](./windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md) | S1 | — | — |
 | [`windows-process-handle-list-is-an-unlocked-process-global.md`](./windows-process-handle-list-is-an-unlocked-process-global.md) | S1 | — | — |
 | [`yo-build-artifact-cache-serves-a-stale-binary.md`](./yo-build-artifact-cache-serves-a-stale-binary.md) | S1 | OPEN | — |
