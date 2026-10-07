@@ -59,7 +59,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -4965,8 +4965,56 @@ evaluate_function_call :: (
       exn.throw(_reported_at_user_call(err, call_tok, ctx));
       expr
     },
-    .None => match(out.get(usize(0)), .Some(e) => e, .None => expr)
+    .None => {
+      r := match(out.get(usize(0)), .Some(e) => e, .None => expr);
+      if(local_borrows_active(), {
+        _local_borrow_note_call_site(r, call_tok, ctx, exn);
+      });
+      r
+    }
   )
+});
+/// Decision 18's rules 3 and 4 at a runtime call in user code: a borrow of a
+/// module-level place may not be live across a call, and a borrow through a
+/// reference cell or a module-level place may not be live across an `await`.
+/// A call evaluated at compile time, and an operator on scalars (a C
+/// operator), are not runtime calls.
+_local_borrow_note_call_site :: (fn(call : AstExpr, call_tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
+  info := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
+  is_comptime := match(info.value, .Some(v) => !is_unknown_val(v), .None => false);
+  if(is_comptime, {
+    return(());
+  });
+  is_await := (is_io_await_call(call) || is_join_handle_await_call(call));
+  (callee_text : String) = String.from("?");
+  (is_scalar_op : bool) = false;
+  match(
+    call,
+    .FnCall(_, callee, cargs, _, _) => {
+      callee_text = ast_expr_to_string(callee);
+      ctok := ast_expr_token(callee);
+      if(ast_expr_is_atom(callee) && (ctok.kind == TokenKind.Operator), {
+        (all_scalar : bool) = true;
+        (ai : usize) = usize(0);
+        while(ai < cargs.len(), {
+          match(
+            cargs.get(ai),
+            .Some(a) => if(!match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)), .Some(ai2) => local_borrow_is_scalar_type(ai2.ty), .None => false), {
+              all_scalar = false;
+            }),
+            .None => ()
+          );
+          ai = (ai + usize(1));
+        });
+        is_scalar_op = all_scalar;
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  if(is_scalar_op, {
+    return(());
+  });
+  local_borrow_note_runtime_call(is_await, call_tok, callee_text, ctx, exn);
 });
 _evaluate_function_call_unanchored :: (
   fn(

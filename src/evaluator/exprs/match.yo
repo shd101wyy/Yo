@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding } :: import("../utils.yo");
+{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -371,6 +371,13 @@ evaluate_match :: (
     }
   );
   _adopt_env(env, scr_info.env);
+  // A scrutinee reached from a local borrow: its arms' bindings are places a
+  // re-point of that borrow may go through (plans/VALUES_BY_DEFAULT.md
+  // decision 25).
+  (lb_scr_source : Option(LocalBorrowInfo)) = cond(
+    local_borrows_active() => local_borrow_scrutinee_source(scrutinee_expr, env, ctx),
+    true => Option(LocalBorrowInfo).None
+  );
   scrutinee_type := scr_info.ty;
   scrutinee_val_opt := scr_info.value;
   // Check pointer type — dereference one level
@@ -551,6 +558,7 @@ evaluate_match :: (
           );
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(b.atom), new_expr_info(env, b.ty));
           scope_release_note_binding(ast_expr_id(b.atom), env, b.name.clone());
+          match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(b.atom), lbs), .None => ());
           if(audit_pending_copies_enabled(), {
             match(_added, .Some(added_var) => audit_note_match_binding(added_var, scr_info), .None => ());
           });

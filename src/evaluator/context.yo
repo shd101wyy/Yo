@@ -303,6 +303,15 @@ EvalContext :: ref(
     expected_type : Option(ExpectedTypeCtx),
     /// The innermost function body / async block / test block being evaluated.
     is_evaluating_function_body_or_async_block : Option(FuncOrAsyncBlockCtx),
+    /// The begin expression id of a NESTED begin block whose value becomes the
+    /// enclosing function body's result — the block the body's result chain
+    /// ends in (a tail statement that is itself a block: `{ ...; { ...; y } }`).
+    /// The body block sets it around evaluating its begin-shaped tail, and the
+    /// block whose id it carries consumes it at entry, so the local-borrow
+    /// escape check (decision 18 rule 1, decision 38 A) runs at THAT block's
+    /// tail while the borrows it declares inside itself are still registered.
+    /// A test block's result is discarded, so its bodies do not arm this.
+    (local_borrow_result_chain_tail : Option(ExprId)) ?= Option(ExprId).None,
     /// Whether we are inside an `impl(...)` block body.
     is_inside_impl_block : bool,
     /// Variables captured from outer scopes in the current closure / async block.

@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 173 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 171 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -31,13 +31,13 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 9 | 1 |
 | Async / effects | 5 | 0 |
 | Codegen / emitted C | 15 | 3 |
-| Evaluator / types | 21 | 2 |
+| Evaluator / types | 20 | 2 |
 | Std library | 46 | 10 |
 | Tooling (fmt/doc/lsp) | 9 | 0 |
 | Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 55 | 5 |
-| **Total** | **173** | **23** |
+| Other | 54 | 4 |
+| **Total** | **171** | **22** |
 
 ## Counts by severity
 
@@ -45,8 +45,8 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 
 | Severity | Open docs |
 | --- | ---: |
-| S1 | 26 |
-| S2 | 86 |
+| S1 | 25 |
+| S2 | 85 |
 | S3 | 61 |
 
 ## Design questions (issues/questions/)
@@ -197,7 +197,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md`](./swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md) | S1 | — | — |
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | S2 | OPEN | — |
 
-### Evaluator / types (21)
+### Evaluator / types (20)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -206,7 +206,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`blanket-into-iter-is-not-an-intoiterator-impl.md`](./blanket-into-iter-is-not-an-intoiterator-impl.md) | S2 | OPEN | — |
 | [`comments-preceding-definitions-can-hollow-the-definition.md`](./comments-preceding-definitions-can-hollow-the-definition.md) | S2 | — | — |
 | [`comptime-enum-payload-field-assignment-is-a-silent-no-op.md`](./comptime-enum-payload-field-assignment-is-a-silent-no-op.md) | S1 | — | — |
-| [`comptime-expect-error-of-a-derive-in-a-function-body-never-sees-the-error.md`](./comptime-expect-error-of-a-derive-in-a-function-body-never-sees-the-error.md) | S3 | — | — |
 | [`comptime-float-negation-loses-the-sign-of-zero.md`](./comptime-float-negation-loses-the-sign-of-zero.md) | S2 | OPEN | — |
 | [`comptime-fn-result-loses-its-declared-return-type.md`](./comptime-fn-result-loses-its-declared-return-type.md) | S2 | — | — |
 | [`comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md`](./comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md) | S2 | — | — |
@@ -311,14 +310,13 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (55)
+### Other (54)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
 | [`a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md`](./a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md) | S3 | — | — |
 | [`a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md`](./a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md) | S1 | — | — |
 | [`a-comptime-type-parameters-associated-constant-fails-at-definition-time.md`](./a-comptime-type-parameters-associated-constant-fails-at-definition-time.md) | S2 | — | — |
-| [`a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`](./a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md) | S1 | OPEN (filed 2026-10-06, found by the VALUES_B | yes |
 | [`a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md`](./a-generic-instantiated-over-a-dyn-cannot-cross-a-module-boundary.md) | S1 | open | — |
 | [`a-hung-test-binary-blocks-yo-test-forever.md`](./a-hung-test-binary-blocks-yo-test-forever.md) | S3 | OPEN (found 2026-10-03) | — |
 | [`a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md`](./a-lambda-passed-to-a-generic-fns-plain-function-parameter-is-never-emitted.md) | S2 | — | — |
@@ -341,6 +339,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`begin-tuple-array-bindings-are-silently-hijacked.md`](./begin-tuple-array-bindings-are-silently-hijacked.md) | S3 | — | — |
 | [`canonicalize-throw-inside-io-async-corrupts-the-heap-on-windows.md`](./canonicalize-throw-inside-io-async-corrupts-the-heap-on-windows.md) | S2 | OPEN | — |
 | [`check-summarizes-every-function-body-eagerly-at-module-end.md`](./check-summarizes-every-function-body-eagerly-at-module-end.md) | S3 | — | — |
+| [`dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md`](./dispose-time-mutations-of-tracked-objects-during-a-collection-leak-conservatively.md) | S3 | OPEN (filed 2026-10-06, surfaced while fixing | — |
 | [`enum-type-arguments-made-check-about-4-percent-slower.md`](./enum-type-arguments-made-check-about-4-percent-slower.md) | S3 | — | — |
 | [`five-cli-goldens-are-stale-against-the-current-compiler.md`](./five-cli-goldens-are-stale-against-the-current-compiler.md) | S3 | — | — |
 | [`live-tls-test-treats-a-dns-outage-as-a-backend-regression.md`](./live-tls-test-treats-a-dns-outage-as-a-backend-regression.md) | S3 | open — | — |
@@ -356,7 +355,6 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`runtime-str-plus-str-passes-check-and-fails-compile.md`](./runtime-str-plus-str-passes-check-and-fails-compile.md) | S2 | — | — |
 | [`static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md`](./static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md) | S3 | OPEN | — |
-| [`structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`](./structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md) | S2 | — | — |
 | [`verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md`](./verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md) | S3 | — | — |
 | [`verify-prints-z3-error-lines-under-an-unproven-obligation.md`](./verify-prints-z3-error-lines-under-an-unproven-obligation.md) | S3 | — | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
