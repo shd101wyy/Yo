@@ -200,7 +200,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path } :: import("../memory_safety.yo");
-{ E_ARGUMENT_LABEL_MISMATCH } :: import("../../diagnostics.yo");
+{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_MOVES_CAPTURE } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
@@ -1059,6 +1059,15 @@ consume_argument_for_parameter :: (
 /// Report `msg` at `tok`, flagging the flow-violation channel first so a
 /// definition-time swallow re-raises it at `check` time (outside trials, cee
 /// propagate mode, and when a flag is already pending).
+/// The base name of the closure trait a type carries (`"Fn"`, `"FnOnce"`),
+/// or `""` when it carries none.
+_fn_trait_base_of :: (fn(ty : TypeValue) -> String)(
+  match(
+    extract_fn_trait_from_type(ty),
+    .Some(ft) => match(ft, .FnTraitT(base_name : fb) => fb.clone(), _ => String.from("")),
+    .None => String.from("")
+  )
+);
 _arg_rule_throw :: (fn(tok : Token, msg : String, ctx : EvalContext, exn : Exception) -> unit)({
   raise_flow_violation(format_error_message(tok, msg), ctx, exn);
 });
@@ -1155,6 +1164,24 @@ check_argument_for_parameter :: (
     if(!nc_callable, {
       _arg_rule_throw(arg_tok, fn_argument_not_callable_message(param_label.clone(), resolved_pt, lowered), ctx, exn);
     });
+  });
+  // Decision 37: `Fn` implies `FnOnce`, never the reverse. A closure typed
+  // `FnOnce(...)` may be called once, and an `Fn(...)` parameter's callee may
+  // call it again. A closure literal adopts the parameter's trait, so this
+  // fires for a named closure (or a forwarded parameter) only.
+  if((_fn_trait_base_of(resolved_pt) == "Fn") && (_fn_trait_base_of(lowered) == "FnOnce"), {
+    raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          arg_tok,
+          `Argument for parameter "${param_label}" is an \`FnOnce(...)\` closure, which is called at most once (its call consumes it), and the parameter is \`Fn(...)\`: its callee may call the closure again.`,
+          Option(String).Some(String.from("pass an `Fn(...)` closure (one whose body moves no capture out), or declare the parameter `sink(f) : Impl(FnOnce(...))` if the callee calls it once"))
+        ),
+        E_CLOSURE_MOVES_CAPTURE
+      ),
+      ctx,
+      exn
+    );
   });
   // A FUNCTION argument's marker traits come from its value first — what it
   // captures and what its code reaches (rules D4 + D9,
@@ -3358,6 +3385,11 @@ create_specialized_function_inline :: (
             .Func({ meta : __fm_rb }) => __fm_rb.*.param_is_ref,
             _ => ArrayList(bool).new()
           );
+          decl_param_is_owning := match(
+            func_type,
+            .Func({ meta : __fm_rbo }) => __fm_rbo.*.param_is_owning,
+            _ => ArrayList(bool).new()
+          );
           // The re-bind is NON-owning even for an `own(p)` parameter, and
           // that is load-bearing, not an oversight: it re-binds only a
           // closure parameter or one whose argument FOLDED to a constant
@@ -3368,6 +3400,11 @@ create_specialized_function_inline :: (
           // (`dyn(NotFound(...))` boxes a folded struct through
           // `box(own(value))`). Phase 2.5 of plans/TYPE_SYSTEM_SOUNDNESS.md
           // tried the declared flag here and reverted it.
+          //
+          // The one exception is a `sink(f) : Impl(FnOnce(...))` closure
+          // parameter (plans/VALUES_BY_DEFAULT.md decision 37): calling `f`
+          // consumes it, so the callee must OWN it — the caller moved it in —
+          // and drops it at scope end only when the body did not call it.
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
@@ -3692,6 +3729,13 @@ create_specialized_function_inline :: (
                 }),
                 .None => ()
               );
+              cl_owns := (
+                match(decl_param_is_owning.get(rbp_i), .Some(b) => b, .None => false) && match(
+                  extract_fn_trait_from_type(bind_pt_cl),
+                  .Some(cl_ft) => match(cl_ft, .FnTraitT(base_name : cl_fb) => (cl_fb == "FnOnce"), _ => false),
+                  .None => false
+                )
+              );
               _rbc := bind_parameter(
                 callee_env,
                 p_label,
@@ -3699,7 +3743,7 @@ create_specialized_function_inline :: (
                 Option(EvalValue).Some(create_unknown_val(bind_pt_cl)),
                 false,
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
-                false,
+                cl_owns,
                 synthetic_token(p_label, callee_env.module_path)
               );
             }, if(cur_is_folded_const, {
