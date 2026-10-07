@@ -2,7 +2,7 @@
 
 **Severity:** S3: an inconsistency in when a diagnostic fires, not a miscompile. In a generic body, a call that is E0616 outside it keeps its pre-decision-32 meaning (the wrapper's member) with no diagnostic.
 
-> Found 2026-10-08 while landing `plans/VALUES_BY_DEFAULT.md` decision 32 Generation B (`feat/vbd-d32-clash`).
+> Found 2026-10-08 while landing `plans/VALUES_BY_DEFAULT.md` decision 32 Generation B (#1268).
 
 ## Reproducer
 

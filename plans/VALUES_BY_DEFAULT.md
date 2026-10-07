@@ -25,7 +25,7 @@ Progress:
     canonical (#1267; part 2 deletes the legacy `Box` after the next
     seed);
   - decision 32 Generation B, the wrapper/payload clash is E0616
-    (`feat/vbd-d32-clash`; one gap open, see the decision's "as built");
+    (#1268; one gap open, see the decision's "as built");
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -2585,7 +2585,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     of a `T <: Trait` call.
   - Box handles copy implicitly until V2c, so `.clone()` on one is rare
     today; V2c's `Rc.clone(w)` sites (decision 17) are the sweep's bulk.
-- **Generation B as built (2026-10-08, `feat/vbd-d32-clash`).**
+- **Generation B as built (2026-10-08, #1268).**
   - **The code is E0616**, the existing "a method name has two readings"
     code (two traits' `get`), widened in the registry. Its message names
     both spellings, `Rc.clone(w)` and `w.*.clone(...)`.
