@@ -363,6 +363,17 @@ jobs:
           fi
           echo "issues/TRIAGE.md is fresh"
 
+      # The three issues/ discipline assertions from the repo's own gate:
+      # no doc duplicated across root/fixed/retired/questions; every cited
+      # issues/** path resolves; root docs carry a Severity verdict and
+      # questions/ docs a Recommendation. Pure bash+git — seconds on Linux
+      # (its hours-long runtime on Windows/MSYS is a stat-throughput artifact
+      # of local checkouts, not a property of the script).
+      - name: issues/ discipline (check-issue-refs)
+        run: |
+          set -euo pipefail
+          bash scripts/check-issue-refs.sh
+
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
     needs: changes
