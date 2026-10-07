@@ -78,6 +78,13 @@ Waker :: atomic(
     )
   )
 );
+// SAFETY: `_p` is the runtime's waker token. Every operation on it
+// (`__yo_waker_wake`, `__yo_waker_is_woken`, `__yo_waker_release`) is
+// thread-safe: a foreign wake posts to the owner loop instead of touching the
+// park (rule D7). So the raw pointer may be moved and shared across threads
+// (plans/VALUES_BY_DEFAULT.md decision 38 E: a type holding one opts in).
+impl(Waker, Send());
+impl(Waker, Sync());
 impl(
   Waker,
   /// Make the parked task runnable. A no-op if it was already woken, or if

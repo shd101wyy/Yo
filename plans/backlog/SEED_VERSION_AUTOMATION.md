@@ -177,6 +177,36 @@ Generation A, #1188).
 - `docs/*/EXPLICIT_ALLOCATORS.md` says where the types live.
 
 
+## Seed-gated follow-up (2026-10-06): the `Send`/`Sync` split's std bounds
+
+`plans/VALUES_BY_DEFAULT.md` §3.8 and decision 38 E. The tree compiler derives
+`Sync` (today's `Send`) and the narrower `Send`; the v0.2.52 seed knows only
+`Send`, and to it `Sync` is a plain trait with no impls. So a std bound that
+names `Sync` makes every instantiation fail under the seed (`Arc(i32)` would
+miss `Sync`).
+
+**Generation A DONE 2026-10-06** (feat/vbd-send-sync):
+- The prelude declares `Sync` with the primitive impls beside each `Send` one,
+  `Io` and `JoinHandle` add `!(Sync())`, and the blanket
+  `impl(generic(T), where(T <: Send), *(T), Send())` is gone (the seed still
+  derives a pointer's `Send` structurally, so it is unaffected).
+- Raw-pointer types opt in explicitly, which the seed accepts as ordinary
+  pragma'd impls: `Channel`, `Mutex`, `Waker`, `ImmString`, `imm.Vec`,
+  `MapBranch`, `MapCollision`.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+- `Arc :: where(V <: (Sync, Acyclic))`, `arc`'s bound and its `Deref`/`Send`
+  impls (`Arc(T)` is `Send` and `Sync` for `T <: Sync`); drop the explicit
+  `impl(Arc(T), Send())`, which derivation now answers.
+- `Mutex`/`RwLock`/`Channel`/`Sender`/`Receiver`: `T <: Send` stays on
+  `Mutex`/`Channel`; `RwLock(T)` needs `T <: (Send, Sync)`.
+- `Thread(T)`/`Thread.spawn`/`spawn_blocking`/`spawn(pool, …)` keep
+  `Impl(Fn, Send)`; their result `T` keeps `Send`. Moving a move-only capture
+  into them is DONE - the externs take `own(cb)` and the lowering moves
+  (`issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
+- The `std/imm` element bounds become `Sync` (their nodes are shared).
+- `docs/en-US/PARALLELISM.md` signatures, both languages.
+
 ## Seed-gated follow-up (2026-10-06): decision 36's `Copy` flip
 
 `plans/VALUES_BY_DEFAULT.md` decision 36 (its phase section, "Decision 36:
@@ -187,7 +217,7 @@ Generation A. What the seed cannot do is check a `Copy` impl's parts,
 register a derive's `Clone` before its `Copy`, answer `Copy` structurally
 for a tuple or closure, or treat a type without `Copy` as move-on-copy.
 
-**Generation A DONE 2026-10-06** (PR #COPY_PR): the trait and its
+**Generation A DONE 2026-10-06** (PR #1253): the trait and its
 supertrait, the prelude impls (each beside its `Clone`, with new `Clone`
 impls for `str`, `*(T)` and tuples of arity 1 to 12), `derive(T, Copy)`,
 the impl check with its `Copy: Clone` error, the hand-written-`Clone` rule,

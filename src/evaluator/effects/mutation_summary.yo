@@ -3391,8 +3391,8 @@ function_param_mutation_mask :: (
 // GLOBAL-REACH mode — rule D1 (plans/reference/PARALLELISM_RULES.md)
 //
 // Answers, for a closure that will run on another thread (one coerced to an
-// `Impl(Fn(...), Send)` slot): does its body, or any function it can call,
-// reference a module-level runtime global that is not `Send`? A non-atomic RC
+// `Impl(Fn(...), Send)` or `Sync` slot): does its body, or any function it
+// can call, reference a module-level runtime global that is not `Sync`? A non-atomic RC
 // global (`ArrayList`, `HashMap`, `String`, any `ref(struct)`) is a static
 // every thread shares, and even a READ through its handle updates a refcount
 // (issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md).
@@ -3597,7 +3597,7 @@ _gr_env_of :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(Environment))(
     .None => Option(Environment).None
   )
 );
-/// The violation an ATOM introduces, if it names a non-Send, non-thread-local
+/// The violation an ATOM introduces, if it names a non-Sync, non-thread-local
 /// module-level runtime global.
 _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
   tok := ast_expr_token(e);
@@ -3623,7 +3623,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
     .None => true
   );
   if(send_ok, {
-    // A Send global another thread reads: a violation iff it is also written.
+    // A Sync global another thread reads: a violation iff it is also written.
     key := _d1_global_key(v.token, name.clone());
     _gr_note_read(ctx.fid.clone(), key.clone(), _d1_location(tok));
     return(
@@ -3634,7 +3634,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
       )
     );
   });
-  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Send — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Send globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(tok)})`)
+  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Sync — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Sync globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(tok)})`)
 });
 /// A call whose callee is an atom bound to a compile-time closure value (a
 /// local `(k : Impl(Fn() -> R)) = (() => ...)` binding, or a captured one):
@@ -3894,7 +3894,10 @@ function_reaches_non_send_global :: (
   // This walk records the function's reads and callees afresh.
   _r0 := g_gr_reads_by_fid.remove(fid.clone());
   _r1 := g_gr_callees_by_fid.remove(fid.clone());
-  ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Send")), fid : fid.clone());
+  // A module-level binding is one static every thread shares: the question is
+  // sharing, so the global must be `Sync` (Rust's `static: Sync`;
+  // plans/VALUES_BY_DEFAULT.md §3.8).
+  ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
   r := _gr_walk(body, ctx);
   g_gr_in_progress.remove(fid.clone());
   g_gr_depth = my_depth;

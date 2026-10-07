@@ -6,32 +6,63 @@ Yo provides **data-race-freedom by default** for safe (non-pragma'd) code. Every
 
 > For every program that compiles without `pragma(Pragma.AllowUnsafe)` and uses only primitives from `std/`, every shared cross-thread mutable access is mediated by a synchronization primitive. The program is data-race-free under the C11 memory model.
 
-## The Send Trait
+## The Send and Sync Traits
 
-`Send` is a marker trait meaning "safe to transfer between threads." A type implements `Send` if it is safe to move a value of that type to another thread.
+Two marker traits answer two different questions, as in Rust:
+
+- **`Send`**: a value of the type may be **moved** to another thread. A channel's payload, a
+  spawned closure and an `Iso` cross threads this way.
+- **`Sync`**: copies of a value of the type may be **read** from several threads at once. An
+  `Arc`'s payload, an atomic object and a module-level global are shared this way.
 
 ### Auto-Derivation
 
-`Send` is auto-derived for structs, enums, unions, and tuples: a composite type is `Send` if **all** of its fields are `Send`.
+Both are derived for structs, enums, unions, tuples and arrays:
+
+| A value of this type                                          | `Send`                    | `Sync`                    |
+| ------------------------------------------------------------- | ------------------------- | ------------------------- |
+| a primitive (`i32`, `bool`, `f64`, `str`, …)                  | yes                       | yes                       |
+| a struct, enum, union, tuple or array                         | iff every field is `Send` | iff every field is `Sync` |
+| a non-atomic cell (`Rc(T)`, `Box(T)`, any `ref(struct(...))`) | no                        | no                        |
+| an atomic object (`Arc(T)`, `atomic(ref(struct(...)))`)       | iff every field is `Sync` | iff every field is `Sync` |
+| a raw pointer `*(T)`                                          | no                        | no                        |
+| `Dyn(Trait)`                                                  | only as `Dyn(Trait, Send)`| only as `Dyn(Trait, Sync)`|
+| a closure                                                     | see below                 | see below                 |
 
 ```rust
-// All fields are Send → Point is Send
+// All fields are Send and Sync → so is Point
 Point :: struct(x : i32, y : i32);
 
-// Regular reference type is NOT Send — it uses non-atomic RC
+// A non-atomic cell is neither — its count is not atomic
 MyObj :: ref(struct(data : Vec(i32)));
+
+// A raw pointer is neither: nothing says who owns the pointee
+Raw :: struct(p : ?(*(u8)));
 ```
 
-### Manual Send Impls Require Pragma
+An atomic object's copies share one payload, so it is `Send` only when that payload is `Sync`.
+`Mutex(T)` is the exception that proves the rule: it hands `T` to one thread at a time, so it is
+`Sync` whenever `T` is `Send`.
 
-Writing `impl(MyType, Send())` requires `pragma(Pragma.AllowUnsafe)` and a `// SAFETY:` comment explaining why the type is safe to send across threads. This ensures every manual Send claim is auditable.
+`String` and the collections are not `Send` yet: today their buffer is a shared, non-atomically
+counted cell, so a copy left on the sending thread would race on its count. Once their buffers
+become uniquely owned (`plans/VALUES_BY_DEFAULT.md` V2b), moving one hands over its only owner and
+`Channel(String)` works with no compiler change. Until then, use `Iso` (below) or an `std/imm`
+type.
+
+### Manual Send and Sync Impls Require Pragma
+
+Writing `impl(MyType, Send())` or `impl(MyType, Sync())` requires `pragma(Pragma.AllowUnsafe)`
+and a `// SAFETY:` comment explaining why the type is safe to move or share across threads. This
+is how a type holding a raw pointer opts in (std's `Channel`, `Waker`, `ImmString`), and it keeps
+every such claim auditable.
 
 ## Atomic Objects vs Regular Objects
 
 |                          | `ref(struct(...))`           | `atomic(ref(struct(...)))`              |
 | ------------------------ | ---------------------------- | --------------------------------------- |
 | **Reference counting**   | Non-atomic RC (thread-local) | Atomic RC (thread-safe)                 |
-| **Cross-thread sharing** | Not allowed (not Send)       | Allowed (Send when all fields are Send) |
+| **Cross-thread sharing** | Not allowed (not Send)       | Allowed (Send and Sync when all fields are Sync) |
 | **Cycle collection**     | Yes (stop-the-world GC)      | No (purely atomic RC)                   |
 | **Example**              | `ArrayList`, `HashMap`       | `Arc(T)`, `Mutex(T)`, `Channel(T)`      |
 
@@ -196,12 +227,13 @@ A module-level runtime binding (`name := init` or `(name : T) = init` outside an
 one static that every thread shares. In safe code:
 
 - a closure that runs on another thread (a `Thread.spawn` body, a pool task, a
-  `spawn_blocking` callback — anything bound to `Impl(Fn(...), Send)`) may not reach a global
-  whose type is not `Send`, directly or through any function it calls. A non-atomic
+  `spawn_blocking` callback — anything bound to `Impl(Fn(...), Send)` or `Impl(Fn(...), Sync)`)
+  may not reach a global whose type is not `Sync`, directly or through any function it calls. A
+  global is shared by every thread, so sharing is the question. A non-atomic
   reference-counted global (`ArrayList`, `String`, any `ref(struct)`) stays legal for the main
   thread, but reading a field through such a handle updates a reference count, so no other
   thread may touch it;
-- a `Send` value global (a scalar or a struct with no reference inside) that is WRITTEN
+- a `Sync` value global (a scalar or a struct with no reference inside) that is WRITTEN
   anywhere — assigned, the root of a field or index store, or handed to an `inout` parameter
   whose callee writes through it — is a mutable static, and a closure that runs on another
   thread may not reach it. Written and read on one thread only, it is an ordinary global; read
@@ -223,7 +255,9 @@ Thread(i32).spawn(io => counter);             // ERROR: ...but another thread re
 ## Functions and Closures Across Threads
 
 A function value is `Send` when **what it captures** is `Send` and **what its code reaches**
-obeys the global rules above. Its type cannot answer this: two functions of one signature share
+obeys the global rules above; it is `Sync` when what it captures is `Sync` and its code obeys
+the same rules. A closure that **borrows** its captures (a literal passed to a borrowing
+parameter, whose captures stay in the caller's frame) is never `Send`. Its type cannot answer this: two functions of one signature share
 the type, and a closure that captures nothing still runs code. So the compiler judges the value
 wherever it can see it:
 
@@ -236,6 +270,8 @@ wherever it can see it:
   `arc(f)`, `Channel(typeof(f))`, a generic `g(f)`.
 - **Captured functions.** A closure captured by another thread's closure is judged by the
   captured value.
+- **`Sync` slots.** An `Impl(Fn(...), Sync)` parameter runs the same checks for `Sync`: a
+  closure over an `Rc` is not `Sync`, and neither is one whose code reaches a non-`Sync` global.
 
 A bare `fn(...)` type whose value the compiler cannot see is **not `Send`**: a struct field, a
 collection element, a `Channel(fn() -> unit)` payload, or a plain local `f := count` captured by
@@ -257,12 +293,13 @@ h := Holder(f : count);
 Thread(unit).spawn((io : Io) => { (h.f)(io); });    // ERROR: Holder has a bare fn field
 ```
 
-## Negative Impls — Opting Out of Send
+## Negative Impls — Opting Out of Send and Sync
 
-A type that would auto-derive `Send` can explicitly opt out with `!(Send)`:
+A type that would auto-derive `Send` or `Sync` can explicitly opt out with `!(Send)` / `!(Sync)`:
 
 ```rust
 impl(MyHandle, !Send()); // MyHandle is NOT Send, regardless of fields
+impl(MyHandle, !Sync()); // nor Sync
 ```
 
 This is used by the standard library for:
@@ -270,12 +307,13 @@ This is used by the standard library for:
 - **`JoinHandle(T)`** — the async task handle lives on the spawner's event-loop thread
 - **`Io`** — the async runtime is per-thread
 
-Negative impls do **not** require `pragma(Pragma.AllowUnsafe)` — they are restrictive (removing a capability), never permissive. Anyone can declare `impl(MyType, !(Send()))` freely.
+Both declare `!(Send())` and `!(Sync())`. Negative impls do **not** require `pragma(Pragma.AllowUnsafe)` — they are restrictive (removing a capability), never permissive. Anyone can declare `impl(MyType, !(Send()))` freely.
 
 ## Iso(T) — Unique Ownership Transfer
 
-`Iso(T)` wraps a non-`Send` value for one-shot transfer to another thread: `T` can be a plain
-`ref(struct)` graph, and `Iso(T)` itself is `Send` without requiring `T <: Send`. The argument
+`Iso(T)` wraps a non-`Send` value for one-shot transfer to another thread: `T` is any value that
+reaches a non-atomic cell — a plain `ref(struct)` graph, or a struct holding an `ArrayList` — and
+`Iso(T)` itself is `Send` without requiring `T <: Send`. The argument
 for that is uniqueness — at the moment of use, at most one thread holds the inner value.
 
 ```rust
@@ -295,8 +333,9 @@ safe code (the raw `Iso(T)(v)` needs the pragma). It checks at compile time that
 value, has no other alias and cannot form a reference cycle, and at run time walks the value's
 whole graph: every non-atomic object reachable from it must have a reference count of exactly
 1, or `^v` answers `.None` — an aliased interior (`Wrap(items : shared)`) is refused, not moved.
-An atomic object inside the value is shared by design and stops the walk. `T` must be a
-non-atomic reference object (`Iso(i32)` is a compile error). `extract()`'s atomic one-shot flag
+An atomic object inside the value is shared by design and stops the walk. `T` must reach at
+least one non-atomic cell (`Iso(i32)` and `Iso(Point)` are compile errors: such a value is moved
+as it is). `extract()`'s atomic one-shot flag
 hands the value out exactly once. Details: `docs/en-US/ISOLATED.md`.
 
 - `Iso(Arc(T))`, `Iso(<atomic object>)` and `Iso(Iso(T))` are rejected at compile time — redundant (send the value directly)
@@ -321,18 +360,17 @@ Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in
 
 | Layer                      | What's Trusted                                 | What's Enforced                                                                                                                                      |
 | -------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send impls rejected. Atomic-object writes rejected (field and index assignment, `inout` arguments, `inout(self)` receivers). Non-Send captures rejected. A function value crossing threads is judged by what it captures and what its code reaches (D4, D9); a bare `fn` field or payload is not Send. |
-| **`std/sync/`** (pragma'd) | Primitive bodies implement contracts correctly | Manual Send impls require `// SAFETY:` comments. Phase F re-verifies atomic-object field Send-ness.                                                  |
+| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send and Sync impls rejected. Atomic-object writes rejected (field and index assignment, `inout` arguments, `inout(self)` receivers). Non-Send captures rejected. A function value crossing threads is judged by what it captures and what its code reaches (D4, D9); a bare `fn` field or payload is not Send. |
+| **`std/sync/`** (pragma'd) | Primitive bodies implement contracts correctly | Manual Send and Sync impls require `// SAFETY:` comments. An atomic object holding a raw pointer opts in with them; a safe file's atomic object must have `Sync` fields. |
 | **Codegen runtime**        | Atomic RC ops use correct memory ordering      | C11 `atomic_fetch_add_explicit(..., relaxed)` for increment, `atomic_fetch_sub_explicit(..., acq_rel)` for decrement.                                |
 | **`extern("c", ...)`**     | C functions are reentrant-safe                 | Out of scope — same audit boundary as the memory-safety pass.                                                                                        |
 
 ## What's Not Covered (Yet)
 
 - **Deadlock prevention** — same as Rust. Lock ordering is the user's responsibility.
-- **`Sync` trait** — cross-thread shared references. Deferred; cross-thread sharing always goes through `Arc + Mutex / Atomic / Channel`.
 - **`AtomicPtr(T)`** — generic atomic pointer for lock-free data structures. Deferred since safe code cannot construct or deref raw pointers, so the primitive would only be usable from pragma'd code. Will be added when a concrete `std/` consumer surfaces.
 - **`Sender(T)` / `Receiver(T)` split** — currently `Channel(T)` exposes both send and receive ends on the same handle. Rust-style split halves are a future ergonomic refinement.
-- **TSan covers the thread corpus, not every program.** The Linux/Clang CI job (a required status check) runs `tests/sync` and, through `scripts/tsan-thread-corpus.sh`, the thread corpus under `--sanitize thread`: `tests/thread*.test.yo`, `arc`, `atomic_object`, `iso*`, `cross_thread_wake`, `spawn_blocking`, `imm_threading`, `parallelism_soundness`, `encoding/html`, `unsafe_cast_rc_borrow`. Each file must spawn at least one thread (a file that spawns none is reported HOLLOW), and a both-ways ratchet (`scripts/bootstrap/tsan-known-failing.tsv`) fails the job when an unlisted file reports a race or a listed one stops reporting one. The compile-time rules are pinned by `tests/thread_safety.test.yo` and `tests/parallelism_soundness.test.yo`, which carries one rejection block and one over-rejection canary per rule.
+- **TSan covers the thread corpus, not every program.** The Linux/Clang CI job (a required status check) runs `tests/sync` and, through `scripts/tsan-thread-corpus.sh`, the thread corpus under `--sanitize thread`: `tests/thread*.test.yo`, `arc`, `atomic_object`, `iso*`, `send_sync`, `cross_thread_wake`, `spawn_blocking`, `imm_threading`, `parallelism_soundness`, `encoding/html`, `unsafe_cast_rc_borrow`. Each file must spawn at least one thread (a file that spawns none is reported HOLLOW), and a both-ways ratchet (`scripts/bootstrap/tsan-known-failing.tsv`) fails the job when an unlisted file reports a race or a listed one stops reporting one. The compile-time rules are pinned by `tests/thread_safety.test.yo` and `tests/parallelism_soundness.test.yo`, which carries one rejection block and one over-rejection canary per rule.
 
 ## Known Holes
 

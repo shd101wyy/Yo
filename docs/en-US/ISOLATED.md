@@ -1,7 +1,9 @@
 # Isolated Type
 
-`Iso(T)` moves a reference object that is NOT `Send` — a plain `ref(struct)` graph, an
-`ArrayList`, a `HashMap` — to another thread, exactly once. It is the one way a non-atomic object
+`Iso(T)` moves a value that is NOT `Send` — a plain `ref(struct)` graph, an `ArrayList`, a
+`HashMap`, or a value struct holding one — to another thread, exactly once. `T` is any value
+that reaches a non-atomic cell (plans/VALUES_BY_DEFAULT.md §3.6): an object is held by its
+handle, a value inline, and the uniqueness walk starts at the cells the value holds. It is the one way a non-atomic object
 legitimately crosses a thread boundary. The rules are D2 of
 `plans/reference/PARALLELISM_RULES.md`.
 

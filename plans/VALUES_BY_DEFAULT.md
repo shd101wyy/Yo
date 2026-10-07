@@ -25,11 +25,12 @@ Progress:
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
   - decision 32 Generation A, `Rc.clone(w)` (#1241);
+  - the `Send`/`Sync` split with decision 38 E and the widened `Iso`
+    bound, Generation A (feat/vbd-send-sync);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
   - the Generation A wave: decision 35's capture lists with decision 38's
-    rules, then decision 37's `FnOnce`; decision 36's `Copy`; the
-    `Send`/`Sync` split with decision 38 E;
+    rules, then decision 37's `FnOnce`; decision 36's `Copy`;
   - local borrows, Generation A: `imm(y) :=`, last-use live ranges,
     place-based exclusivity, rules 3 and 4, and decision 25's re-points
     (feat/vbd-local-borrows; see V3's "Local borrows");
@@ -2341,10 +2342,12 @@ and in git, not a silent edit.
 3. **V3, compiler:** move-only values and the general predicate.
    - Generation A landed in #1217. It also brings decision 26 for move-only
      payloads.
-   - Still to come: the async rules (§3.13), `Iso`, `Send`/`Sync`.
+   - `Send`/`Sync` with decision 38 E, and `Iso`'s bound, landed in
+     Generation A (feat/vbd-send-sync).
    - Local borrows (`imm(y) :=`, last-use live ranges, decision 25's
      re-pointing without the projection step): Generation A on
      feat/vbd-local-borrows (V3, "Local borrows").
+   - Still to come: the async rules (§3.13).
 4. **V3b:** the parameter conventions (decisions 30, 33 and 34) and the
    capture list (decision 35).
 5. **V1 step 2:** the unique `Box`, explicit-copy from its first commit.
@@ -2613,12 +2616,79 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   - scoped children for `timeout`/`select` (A4);
   - the bundle rule (A6);
   - a re-check of `__yo_started_child`.
-- **`Iso(T)`'s bound** widens to "reaches a non-atomic cell".
-- **`Send`/`Sync`** (§3.8). Today's `Send` derivation becomes `Sync`, and
-  the new `Send` is "reaches no `Rc`". `Arc`, `Mutex`, `RwLock`, `Channel`,
-  `Thread.spawn` and the `Impl(Fn, Send)` boundaries take their bounds.
-  Tests: `Channel(String)` and `Channel(ArrayList(T))` move under TSan, and
-  an `Rc` payload is E0602.
+- **`Send`/`Sync` (§3.8) and decision 38 E, Generation A — landed
+  (feat/vbd-send-sync).**
+  - **The derivation.** `Sync` is today's `Send` derivation: plain data,
+    atomic cells and values composed of them (`_all_fields_implement_sync`,
+    `src/evaluator/types/utils.yo`, and the step-4b re-derivation in
+    `trait_checking.yo`). `Send` needs every component `Send` and no
+    non-atomic cell. An atomic object is `Send` and `Sync` iff its fields are
+    `Sync`, and `enforce_atomic_object_send` now asks `Sync`.
+  - **Raw pointers** are neither. The prelude's blanket
+    `impl(generic(T), where(T <: Send), *(T), Send())` is deleted. A type
+    holding one opts in under the pragma with `impl(T, Send())` /
+    `impl(T, Sync())`, which the manual-impl gate now requires for `Sync`
+    too. std opts in `Channel`, `Mutex` (`Sync` for `T <: Send`), `Waker`,
+    `ImmString`, `imm.Vec`, `MapBranch`, `MapCollision` and `thread`'s
+    `_BlockingOwner` (the blocking-bracket loop pointer `spawn_blocking`'s
+    worker carries,
+    `issues/fixed/spawn-blockings-worker-closure-captures-a-raw-loop-pointer-and-is-never-send.md`).
+    The atomic-object
+    field check is skipped in a pragma'd file, because the opt-in registers
+    after the type; skipping it makes nothing `Sync`.
+  - **`Io` and `JoinHandle`** add `!(Sync())` beside `!(Send())`.
+  - **`Dyn(Trait)`** is either only through an explicit bound
+    (`_thread_marker_named_in`, `values/dyn.yo`). `dyn(v)` into
+    `Dyn(Trait, Send)` checks `v` for `Send`, and for `Sync` as well until
+    V2b, because a `Dyn`'s copies share its payload today. A `Sync` Dyn is
+    boxed atomically and its vtable methods get D1's walk.
+  - **Closures.** `Sync` is structural over the captures
+    (`record_closure_capture_verdicts`, `function_value_marker`). A closure
+    literal that borrows its captures (`closure_literal_is_borrowed`) is never
+    `Send`. That closed an S1 bug: a `Dispose` capture sent through
+    `Thread.spawn` or `spawn(pool, …)` was disposed twice
+    (`issues/fixed/a-move-only-capture-sent-to-another-thread-is-disposed-twice.md`).
+    A move-only value now MOVES into the thread: the spawn externs take the
+    closure `own(cb)` (so each relaying literal escapes and moves its `cb`
+    capture in — an `own` closure parameter shadowed by a specialized body's
+    non-owning re-bind gives its reference up to the capture,
+    `move_captured_explicit_copy_variable`), and the parallelism lowering's
+    heap copy INHERITS the call-site struct's references — no dup — with the
+    spawn wrapper the single releaser, disposing the move-only content it
+    owns (`issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
+    `mut` captures arrive with decision 35's capture list; that work must
+    make a `mut` capture never `Sync`, and an `imm` capture `Sync` iff its
+    type is.
+  - **D1 covers `Sync` slots.** The reach walk runs for an
+    `Impl(Fn, Sync)` slot and a `Dyn(Trait, Sync)` too, and D1's global must
+    be `Sync` (`_GrCtx`, `mutation_summary.yo`).
+  - **Tests:** `tests/send_sync.test.yo` and the pragma'd
+    `tests/send_sync_raw_pointer.test.yo`: `Channel(Rc(i32))` is E0602, a
+    raw-pointer struct is `!Send` and cannot cross `Thread.spawn` unless it
+    opts in, a `Dyn` without `Send` cannot cross `Thread.spawn`, a closure
+    with an `imm` capture of an `Rc` is `!Sync`, and a value struct moves
+    through a `Channel` between threads. `send_sync` joined the TSan thread
+    corpus.
+  - **Deviation from this section's first test list.** `Channel(String)` and
+    `Channel(ArrayList(T))` cannot move yet. Until V2b their buffer is a
+    shared, non-atomically counted cell, so a copy left on the sending
+    thread races on its count. The tests assert they are not `Send`, and V2b
+    flips them with no compiler change. The TSan move test runs on a value
+    struct instead.
+  - **Generation B** (`plans/backlog/SEED_VERSION_AUTOMATION.md`): `Arc`
+    and `arc` take `T <: Sync`, `RwLock` takes `T <: (Send, Sync)`, the
+    `std/imm` element bounds become `Sync`, and the explicit `Arc(T)` `Send`
+    impl goes. `Mutex`, `Channel` and `Thread.spawn` keep `Send`. The seed
+    does not derive `Sync`, so no std bound may name it before then.
+- **`Iso(T)`'s bound widens to "reaches a non-atomic cell" — landed
+  (feat/vbd-send-sync).** `type_reaches_non_atomic_cell`
+  (`src/types/utils.yo`) is the bound at `Iso(T)` and `__yo_iso_unique`. A
+  value child is held inline: its uniqueness walk starts at the cells it
+  holds (`__yo_iso_roots_<Iso>`, through the collector's `_traverse_value`),
+  and its dispose drops it field by field
+  (`generate_iso_uniqueness_functions`). Tests: `^` isolates a struct
+  holding a list and moves it to another thread, refuses one whose list is
+  aliased, and rejects `Iso(<plain struct>)`.
 - **Local borrows:** `imm(y) := place`, last-use live ranges, decision 18's
   place-based exclusivity, and decision 25's re-pointing (without the
   projection step).

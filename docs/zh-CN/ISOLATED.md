@@ -1,7 +1,8 @@
 # 隔离类型
 
-`Iso(T)` 把一个**不是** `Send` 的引用对象 —— 普通的 `ref(struct)` 对象图、`ArrayList`、`HashMap`
-—— 一次性地移交给另一个线程。这是非原子对象合法跨越线程边界的唯一途径。规则见
+`Iso(T)` 把一个**不是** `Send` 的值 —— 普通的 `ref(struct)` 对象图、`ArrayList`、`HashMap`，
+或持有它们的值类型结构体 —— 一次性地移交给另一个线程。`T` 是任何能触及非原子单元的值
+（plans/VALUES_BY_DEFAULT.md §3.6）：对象通过句柄持有，值则内联持有，唯一性遍历从值所持有的单元开始。这是非原子对象合法跨越线程边界的唯一途径。规则见
 `plans/reference/PARALLELISM_RULES.md` 的 D2。
 
 ## 模型

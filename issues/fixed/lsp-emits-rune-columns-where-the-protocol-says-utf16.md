@@ -17,7 +17,7 @@ hover at UTF-16 column 17 answers, at 16 does not; rename on the emoji line is
 `tests/cli-cases/lsp-position-encoding-utf32` (same requests, rune columns),
 plus the unit conversions in `tests/internal/lsp_protocol.test.yo`.
 
-**Status:** OPEN — found 2026-09-04 during the std-API-audit re-measurement of
+**Status:** FIXED (stale header read OPEN; the doc sits in fixed/) — found 2026-09-04 during the std-API-audit re-measurement of
 the D4 PR 9 / LSP row. Reproduced at runtime against `yo 0.2.24`.
 **Severity:** wrong-value, and **destructive** on the rename path: the client
 applies the returned `TextEdit` to a span the server did not mean, silently

@@ -1,0 +1,278 @@
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ assert } :: import("std/assert");
+// The Send/Sync split (plans/VALUES_BY_DEFAULT.md §3.8 and decision 38 E),
+// Generation A.
+//
+// - `Send`: the value may be MOVED to another thread. It reaches no
+//   non-atomic cell, holds no raw pointer and no borrow.
+// - `Sync`: copies of the value may be READ from several threads at once.
+//   Today's `Send` derivation (plain data, atomic cells, values composed of
+//   them) is this marker.
+{ Thread, ThreadPool, spawn } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
+{ Mutex } :: import("std/sync/mutex");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+
+// ============================================================================
+// The derivation, by reflection
+// ============================================================================
+SsPoint :: struct(x : i32, y : i32);
+SsCell :: ref(struct(v : i32));
+SsSpeak :: trait(speak : (fn(self : Self) -> i32));
+SsDog :: struct(n : i32);
+impl(SsDog, SsSpeak(speak : (self -> self.n)));
+test("primitives and plain data are Send and Sync", {
+  comptime_assert(Type.impls(i32, Send), "i32 is Send");
+  comptime_assert(Type.impls(i32, Sync), "i32 is Sync");
+  comptime_assert(Type.impls(bool, Sync), "bool is Sync");
+  comptime_assert(Type.impls(SsPoint, Send), "a struct of i32 is Send");
+  comptime_assert(Type.impls(SsPoint, Sync), "a struct of i32 is Sync");
+  comptime_assert(Type.impls(Array(i32, 4), Sync), "an array of i32 is Sync");
+  comptime_assert(Type.impls(Option(SsPoint), Sync), "an Option of plain data is Sync");
+});
+test("a non-atomic cell is neither Send nor Sync", {
+  comptime_assert(!Type.impls(Rc(i32), Send), "Rc is not Send");
+  comptime_assert(!Type.impls(Rc(i32), Sync), "Rc is not Sync");
+  comptime_assert(!Type.impls(Box(i32), Sync), "today's Box (a shared cell) is not Sync");
+  comptime_assert(!Type.impls(SsCell, Send), "a ref(struct) is not Send");
+  comptime_assert(!Type.impls(SsCell, Sync), "a ref(struct) is not Sync");
+  // Until V2b gives String and the collections unique buffers, their buffer
+  // is a shared, non-atomically counted cell, so moving one is not yet safe:
+  // a copy left on the sending thread would race on the count. V2b flips
+  // these with no compiler change (the walk then sees a plain buffer).
+  comptime_assert(!Type.impls(String, Send), "String is not Send until V2b");
+  comptime_assert(!Type.impls(ArrayList(i32), Send), "ArrayList is not Send until V2b");
+});
+test("atomic cells are Send and Sync", {
+  comptime_assert(Type.impls(Arc(i32), Send), "Arc(i32) is Send");
+  comptime_assert(Type.impls(Arc(i32), Sync), "Arc(i32) is Sync");
+  comptime_assert(Type.impls(AtomicI32, Sync), "AtomicI32 is Sync");
+  comptime_assert(Type.impls(Mutex(i32), Sync), "Mutex(i32) is Sync");
+  comptime_assert(Type.impls(Channel(i32), Send), "Channel(i32) is Send");
+  comptime_assert(Type.impls(Channel(i32), Sync), "Channel(i32) is Sync");
+});
+// Raw pointers exist only under pragma(Pragma.AllowUnsafe), so their rules are
+// pinned in tests/send_sync_raw_pointer.test.yo.
+// Naming `JoinHandle(T)` inside a sync test body instantiates the type and
+// emits its Dispose body, whose `__yo_join_handle_release_raw` call must pull
+// in the async runtime
+// (issues/fixed/naming-joinhandle-inside-a-sync-test-body-emits-a-call-to-an-undeclared-runtime-function.md).
+test("Io and JoinHandle declare negative markers", {
+  comptime_assert(!Type.impls(Io, Send), "Io is not Send");
+  comptime_assert(!Type.impls(Io, Sync), "Io is not Sync");
+  comptime_assert(!Type.impls(JoinHandle(i32), Send), "JoinHandle is not Send");
+  comptime_assert(!Type.impls(JoinHandle(i32), Sync), "JoinHandle is not Sync");
+});
+test("a Dyn is Send or Sync only through an explicit bound", {
+  comptime_assert(!Type.impls(Dyn(SsSpeak), Send), "Dyn(Trait) is not Send");
+  comptime_assert(!Type.impls(Dyn(SsSpeak), Sync), "Dyn(Trait) is not Sync");
+  comptime_assert(Type.impls(Dyn(SsSpeak, Send), Send), "Dyn(Trait, Send) is Send");
+  comptime_assert(Type.impls(Dyn(SsSpeak, Sync), Sync), "Dyn(Trait, Sync) is Sync");
+});
+
+// ============================================================================
+// Thread boundaries
+// ============================================================================
+// A channel moves its payload to the receiving thread. An Rc payload is E0602.
+comptime_expect_error({
+  _rc_channel :: (fn() -> unit)({
+    _ch := Channel(Rc(i32)).new(usize(1));
+  });
+  _rc_channel();
+}, "Send");
+// A Dyn without Send cannot cross Thread.spawn.
+comptime_expect_error({
+  _spawn_plain_dyn :: (fn() -> unit)({
+    (d : Dyn(SsSpeak)) = dyn(SsDog(n : i32(3)));
+    t := Thread(unit).spawn(io => {
+      _n := d.speak();
+      ()
+    });
+    t.join();
+  });
+  _spawn_plain_dyn();
+}, "does not implement Send");
+// Over-rejection canary: a Dyn(Trait, Send) does cross it.
+_spawn_send_dyn :: (fn() -> i32)({
+  (d : Dyn(SsSpeak, Send)) = dyn(SsDog(n : i32(4)));
+  hits := AtomicI32(i32(0));
+  t := Thread(unit).spawn(io => {
+    hits.fetch_add(d.speak(), MemoryOrder.AcqRel);
+    ()
+  });
+  t.join();
+  hits.load(MemoryOrder.Acquire)
+});
+test("a Dyn(Trait, Send) crosses Thread.spawn", {
+  assert(_spawn_send_dyn() == i32(4), "the spawned thread called the trait object");
+});
+// A manual Sync impl needs pragma(Pragma.AllowUnsafe), as a manual Send does.
+comptime_expect_error({
+  _SsClaimsSync :: struct(n : i32);
+  impl(_SsClaimsSync, Sync());
+}, "requires pragma(Pragma.AllowUnsafe)");
+// An atomic object is shared by every copy, so each field must be Sync.
+comptime_expect_error({
+  _SsAtomicRc :: atomic(ref(struct(r : Rc(i32))));
+}, "atomic object must implement Sync");
+
+// ============================================================================
+// Closures (decision 38 E)
+// ============================================================================
+// A closure is Sync iff its captured state is. A closure literal passed to an
+// `imm(f)` parameter captures by borrow, and an `imm` capture of an Rc is not
+// Sync.
+_run_sync :: (fn(imm(f) : Impl(Fn() -> i32, Sync)) -> i32)(f());
+comptime_expect_error({
+  _imm_capture_of_rc :: (fn() -> i32)({
+    r := rc(i32(1));
+    _run_sync(() => r.*)
+  });
+  _imm_capture_of_rc();
+}, "does not implement Sync");
+test("a closure over plain data is Sync", {
+  n := i32(5);
+  assert(_run_sync(() => (n + i32(1))) == i32(6), "the Sync closure ran");
+});
+// D1 covers a Sync slot as well as a Send one: a closure that may run on
+// several threads may not reach a non-Sync module-level global.
+(g_ss_names : ArrayList(i32)) = ArrayList(i32).new();
+comptime_expect_error({
+  _sync_reaches_global :: (fn() -> i32)(_run_sync(() => i32(g_ss_names.len())));
+  _sync_reaches_global();
+}, "module-level global 'g_ss_names'");
+// A borrow capture is never Send (decision 38 E). A closure literal passed
+// to a BORROWING parameter borrows a capture that is not implicitly
+// copyable (a move-only one), so it stays in the caller's frame and may not
+// cross into a Send slot. The spawn boundaries take the closure `own`, so
+// they MOVE such a capture in instead — the two tests after this one.
+_ss_dispose_count := AtomicI32.new(i32(0));
+_SsFd :: struct(fd : i32);
+impl(
+  _SsFd,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      _n := _ss_dispose_count.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ()
+    })
+  )
+);
+_ss_run_send :: (fn(f : Impl(Fn() -> unit, Send)) -> unit)(f());
+comptime_expect_error({
+  _borrowed_capture_never_send :: (fn() -> unit)({
+    f := _SsFd(fd : i32(3));
+    _ss_run_send(() => {
+      _n := f.fd;
+      ()
+    });
+  });
+  _borrowed_capture_never_send();
+}, "a borrow capture is never Send");
+test("a move-only capture crosses Thread.spawn and disposes once", {
+  _ss_dispose_count.store(i32(0), MemoryOrder.Release);
+  {
+    f := _SsFd(fd : i32(3));
+    t := Thread(unit).spawn(io => {
+      assert(f.fd == i32(3), "the thread saw the moved value");
+      ()
+    });
+    t.join();
+  };
+  assert(_ss_dispose_count.load(MemoryOrder.Acquire) == i32(1), "the moved capture disposed exactly once");
+});
+test("a move-only capture crosses spawn(pool, …) and disposes once", {
+  _ss_dispose_count.store(i32(0), MemoryOrder.Release);
+  {
+    pool := ThreadPool.new(usize(1));
+    f := _SsFd(fd : i32(4));
+    spawn(pool, io => {
+      assert(f.fd == i32(4), "the worker saw the moved value");
+      ()
+    });
+    pool.join_all();
+  };
+  assert(_ss_dispose_count.load(MemoryOrder.Acquire) == i32(1), "the moved capture disposed exactly once");
+});
+
+// ============================================================================
+// Moves through a channel, at run time (TSan: tests/send_sync.test.yo is in
+// the TSan job's list; see the issue doc for the local run)
+// ============================================================================
+_move_points :: (fn() -> i32)({
+  ch := Channel(SsPoint).new(usize(4));
+  producer := Thread(unit).spawn(io => {
+    (i : i32) = i32(0);
+    while(i < i32(4), {
+      _ := ch.send(SsPoint(x : i, y : (i * i32(2))));
+      i = (i + i32(1));
+    });
+    ()
+  });
+  (sum : i32) = i32(0);
+  (k : i32) = i32(0);
+  while(k < i32(4), {
+    match(
+      ch.recv(),
+      .Some(p) => {
+        sum = (sum + (p.x + p.y));
+      },
+      .None => ()
+    );
+    k = (k + i32(1));
+  });
+  producer.join();
+  sum
+});
+test("a value struct moves through a Channel between threads", {
+  // (0+0) + (1+2) + (2+4) + (3+6) = 18
+  assert(_move_points() == i32(18), "every point arrived");
+});
+
+// ============================================================================
+// Iso(T): T is any value that reaches a non-atomic cell (§3.6)
+// ============================================================================
+SsBag :: struct(n : i32, items : ArrayList(i32));
+_isolate_a_value_bag :: (fn() -> i32)({
+  bag := SsBag(n : i32(7), items : ArrayList(i32).new());
+  bag.items.push(i32(1));
+  bag.items.push(i32(2));
+  total := AtomicI32(i32(0));
+  match(
+    ^bag,
+    .Some(iso) => {
+      t := Thread(unit).spawn((io : Io) => {
+        got := iso.extract();
+        (s : i32) = got.n;
+        (i : usize) = usize(0);
+        while(i < got.items.len(), {
+          s = (s + match(got.items.get(i), .Some(v) => v, .None => i32(0)));
+          i = (i + usize(1));
+        });
+        total.fetch_add(s, MemoryOrder.AcqRel);
+        ()
+      });
+      t.join();
+    },
+    .None => ()
+  );
+  total.load(MemoryOrder.Acquire)
+});
+test("^ isolates a value struct holding a list and moves it to another thread", {
+  assert(_isolate_a_value_bag() == i32(10), "7 + 1 + 2 arrived on the other thread");
+});
+test("^ refuses a value whose cell is aliased", {
+  bag := SsBag(n : i32(1), items : ArrayList(i32).new());
+  alias := bag.items;
+  match(
+    ^bag,
+    .Some(_) => assert(false, "an aliased interior list is not isolated"),
+    .None => ()
+  );
+  assert(alias.len() == usize(0), "the alias is still usable");
+});
+// A value that reaches no cell is moved as it is.
+comptime_expect_error({
+  _SsIsoPoint :: Iso(SsPoint);
+}, "reaches none");

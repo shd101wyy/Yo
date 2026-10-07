@@ -203,7 +203,7 @@ AssocTypeCheckResult :: struct(
 /// Only `TraitT` has an explicit `id` field; `FnTraitT`/`FutureTraitT` use
 /// their `base_name` as a key (they cannot be the `Comptime`/`Runtime` traits).
 /// Identify which auto-derived MARKER trait `trait_type` is, by comparing its id
-/// against the fixed env marker set (Send/Comptime/Acyclic/Runtime/MoveOnly); returns
+/// against the fixed env marker set (Send/Sync/Comptime/Acyclic/Runtime/MoveOnly); returns
 /// the marker name, or "" if it isn't one. Used by the step-4b on-demand
 /// re-derivation, which selects per-marker field rules. (The registry lookup
 /// itself matches by trait VALUE, not name — see `is_type_registered_as_trait`.)
@@ -214,6 +214,7 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
   });
   markers := ArrayList(String).new();
   markers.push(String.from("Send"));
+  markers.push(String.from("Sync"));
   markers.push(String.from("Comptime"));
   markers.push(String.from("Acyclic"));
   markers.push(String.from("Runtime"));
@@ -232,6 +233,13 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
     i = (i + usize(1));
   });
   found
+});
+/// True when `trait_type` is one of the two thread markers, `Send` (may be
+/// moved to another thread) or `Sync` (copies may be read from several
+/// threads), plans/VALUES_BY_DEFAULT.md §3.8.
+_is_thread_marker :: (fn(trait_type : TypeValue, env : Environment) -> bool)({
+  mn := _marker_name_of(trait_type, env);
+  (mn == "Send") || (mn == "Sync")
 });
 /// True if the on-demand re-derivation guard currently holds `key`
 /// (`${type_id}:${trait_id}`). Used by step 4b to break cycles on
@@ -999,7 +1007,7 @@ type_implements_trait :: (
   // would be a blanket impl. Any other trait needs a real impl.
   if(match(target, .ExternOpaqueT(_, _) => true, _ => false), {
     eom := _marker_name_of(trait_type, env);
-    if((eom == "Runtime") || (eom == "Send") || (eom == "Acyclic"), {
+    if((eom == "Runtime") || (eom == "Send") || (eom == "Sync") || (eom == "Acyclic"), {
       return(TraitCheckResult(implemented : true, env : env));
     });
     if(eom == "Comptime", {
@@ -1079,26 +1087,20 @@ type_implements_trait :: (
       });
     }
   );
-  // 2a. Send builtin fast path (primitive leaves). Auto-derived
+  // 2a. Send / Sync builtin fast path (primitive leaves). Auto-derived
   // markers live in a nominal-id registry that can't hold primitives; this tag-only
-  // path recognizes Send for value/comptime-data leaves so primitive fields
+  // path recognizes Send and Sync for value/comptime-data leaves so primitive fields
   // (and bare primitives) satisfy `where(T <: Send)`, mirroring the Comptime/
-  // Runtime builtins above.
-  match(
-    get_trait_type_from_env(env, String.from("Send")),
-    .None => (),
-    .Some(st) => {
-      if(_trait_type_id(trait_type) == _trait_type_id(st), {
-        match(
-          type_implements_send_builtin(target),
-          .Some(b) => {
-            return(TraitCheckResult(implemented : b, env : env));
-          },
-          .None => ()
-        );
-      });
-    }
-  );
+  // Runtime builtins above. The prelude declares both impls for the same set.
+  if(_is_thread_marker(trait_type, env), {
+    match(
+      type_implements_send_builtin(target),
+      .Some(b) => {
+        return(TraitCheckResult(implemented : b, env : env));
+      },
+      .None => ()
+    );
+  });
   // 2b. Acyclic builtin fast path (primitive leaves) — same rationale as Send.
   match(
     get_trait_type_from_env(env, String.from("Acyclic")),
@@ -1217,10 +1219,17 @@ type_implements_trait :: (
   );
   if(!marker_name.is_empty() && !_ondemand_guard_contains(ondemand_key), {
     tn := marker_name.clone();
-    marker_relevant := ((tn == "Send") || (tn == "Comptime") || (tn == "Acyclic") || (tn == "Runtime"));
+    is_thread_marker := ((tn == "Send") || (tn == "Sync"));
+    marker_relevant := (is_thread_marker || (tn == "Comptime") || (tn == "Acyclic") || (tn == "Runtime"));
     if(marker_relevant, {
       // Determine the field types to check (None = marker not recomputable here).
       (fields_opt : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
+      // The marker each field must hold. An atomic object's copies share one
+      // payload, so it is `Send` and `Sync` only when its fields are `Sync`
+      // (plans/VALUES_BY_DEFAULT.md §3.8: `Arc(T)` is `Send` and `Sync` when
+      // `T <: Sync`).
+      (field_trait : TypeValue) = trait_type.clone();
+      sync_trait := get_trait_type_from_env(env, String.from("Sync"));
       (direct_true : bool) = false;
       match(
         target,
@@ -1231,11 +1240,24 @@ type_implements_trait :: (
           }, {
             fields_opt = Option(ArrayList(TypeValue)).Some(fts);
           }),
-          // Send: value structs + atomic objects need all fields Send; non-atomic
-          // objects never auto-derive Send (leave to impls — fall through).
-          (tn == "Send") => if(!(is_ref && !is_atomic), {
-            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
-          }),
+          // Send / Sync: a value struct needs every field to hold the
+          // marker; an atomic object needs every field `Sync`; a non-atomic
+          // object (a cell another copy may share) holds neither — leave it
+          // to impls (fall through).
+          is_thread_marker => cond(
+            !is_ref => {
+              fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+            },
+            is_atomic => match(
+              sync_trait,
+              .Some(st) => {
+                fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+                field_trait = st;
+              },
+              .None => ()
+            ),
+            true => ()
+          ),
           // Comptime: objects never; value structs need all fields Comptime.
           (tn == "Comptime") => if(!is_ref, {
             fields_opt = Option(ArrayList(TypeValue)).Some(fts);
@@ -1271,9 +1293,14 @@ type_implements_trait :: (
             (tn == "Runtime") => {
               direct_true = true;
             },
-            ((tn == "Send") && e_is_atomic) => {
-              fields_opt = Option(ArrayList(TypeValue)).Some(flat);
-            },
+            (is_thread_marker && e_is_atomic) => match(
+              sync_trait,
+              .Some(st) => {
+                fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+                field_trait = st;
+              },
+              .None => ()
+            ),
             true => ()
           );
         },
@@ -1301,9 +1328,12 @@ type_implements_trait :: (
         .Func({ result : _ }) => if(tn == "Acyclic", {
           direct_true = true;
         }),
-        // `*(T)`: Send/Acyclic iff `T` is (mirrors the prelude
-        // `impl(generic(T), where(T <: Send), *(T), Send())`).
-        .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
+        // `*(T)`: Acyclic iff `T` is. A raw pointer is neither `Send` nor
+        // `Sync` (plans/VALUES_BY_DEFAULT.md decision 38 E): nothing says
+        // who owns the pointee or who else reads it, so a type holding one
+        // opts in with an `impl(T, Send())` / `impl(T, Sync())` under
+        // pragma(Pragma.AllowUnsafe).
+        .Pointer(pointee_box) => if(tn == "Acyclic", {
           pfields := ArrayList(TypeValue).new();
           pfields.push(pointee_box);
           fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
@@ -1323,7 +1353,7 @@ type_implements_trait :: (
             fty := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
             // Self-recurse via `recur` (Yo cannot reference the enclosing
             // function by name inside its own body).
-            if(!recur(fty, trait_type, env).implemented, {
+            if(!recur(fty, field_trait, env).implemented, {
               all_pass = false;
             });
             fi = (fi + usize(1));
@@ -1849,9 +1879,12 @@ end_send_derivation :: (fn(type_id : String) -> unit)({
 /// Check if a type implements the Send trait.
 ///
 ///
-type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
-  // Cycle break: if this type is currently being checked for Send derivation,
-  // optimistically assume it implements Send.
+type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)(_type_implements_thread_marker(ty, "Send", env));
+/// Check if a type implements the Sync trait.
+type_implements_sync :: (fn(ty : TypeValue, env : Environment) -> bool)(_type_implements_thread_marker(ty, "Sync", env));
+_type_implements_thread_marker :: (fn(ty : TypeValue, marker : str, env : Environment) -> bool)({
+  // Cycle break: if this type is currently being checked for marker derivation,
+  // optimistically assume it implements the marker.
   ty_id := _type_id_for_trait_check(ty);
   (in_derivation : bool) = false;
   nd := g_send_derivation_in_progress.len();
@@ -1874,9 +1907,9 @@ type_implements_send :: (fn(ty : TypeValue, env : Environment) -> bool)({
     return(true);
   });
   match(
-    get_trait_type_from_env(env, String.from("Send")),
+    get_trait_type_from_env(env, String.from(marker)),
     .None => false,
-    .Some(send_trait) => type_implements_trait_bool(ty, send_trait, env)
+    .Some(marker_trait) => type_implements_trait_bool(ty, marker_trait, env)
   )
 });
 // ---------------------------------------------------------------------------
@@ -2186,7 +2219,7 @@ impl_param_unmet_trait :: (fn(param_type : TypeValue, arg_type : TypeValue, env 
         while((ip_i < ip_req.len()) && ip_miss.is_none(), {
           match(
             ip_req.get(ip_i),
-            .Some(ip_t) => if(!is_fn_trait_type(ip_t) && !(markers_judged && ((type_to_string(ip_t) == "Send") || (type_to_string(ip_t) == "Acyclic")))
+            .Some(ip_t) => if(!is_fn_trait_type(ip_t) && !(markers_judged && ((type_to_string(ip_t) == "Send") || (type_to_string(ip_t) == "Sync") || (type_to_string(ip_t) == "Acyclic")))
             && !type_implements_trait_bool(arg_type, ip_t, env), {
               ip_miss = Option(TypeValue).Some(ip_t);
             }),
@@ -2762,7 +2795,7 @@ export(type_implements_trait, type_implements_trait_bool);
 export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
-export(type_implements_send, type_implements_dispose, type_implements_acyclic);
+export(type_implements_send, type_implements_sync, type_implements_dispose, type_implements_acyclic);
 export(deref_target_type);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
