@@ -982,36 +982,36 @@ _evaluate_capture_list :: (
       // call above (the store moves it) and a move-only atom read moves at
       // the read; but an ATOM read of an RC-typed binding has no temp, so
       // `set_expr_as_needs_to_call_dup` no-ops, and a NON-owning temp
-      // records its dup on the initializer's own ExprInfo, which the capture
-      // field's codegen (`expr_info_capture_field_inits`) never reads — both
-      // alias the source handle, and the closure's drop then releases it
-      // under the still-live binding (a block-scoped `{ t }` of an RC value
-      // hangs at exit; issues/fixed/a-by-value-capture-of-an-rc-value-never-retains-it.md).
-      // The ordinary implicit-capture path dups every RC-typed capture; emit
-      // the same dup expression as the field's initializer.
+      // records its dup on the initializer's own ExprInfo. That recorded dup
+      // MUST stay attached to the initializer: the capture field's codegen
+      // (`expr_info_capture_field_inits` in src/codegen/exprs/closures.yo)
+      // runs it through `emit_deferred_dup_or_code`, the shared dup-on-store
+      // choke point, which MATERIALIZES the initializer call first — reusing
+      // the dup expression as the field initializer instead emitted
+      // `__yo_incr_rc(<eval-time temp>)` for a temp no generated code ever
+      // declared ("use of undeclared identifier", the round-2 defect; the
+      // initializer call itself vanished with it). An atom's dup targets a
+      // declared local, so it renders inline: build it here, exactly as
+      // `generate_captured_variable_dup_expressions` does for the ordinary
+      // implicit-capture path.
       (field_init : AstExpr) = ev_val;
       if(type_contains_rc_type(val_ty) && !type_requires_explicit_copy(val_ty), {
-        match(
-          match(
-            expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev_val)),
-            .Some(fi_ei) => match(
-              expr_info_deferred_dup_expressions(fi_ei),
-              .Some(fi_ds) => fi_ds.get(usize(0)),
-              .None => Option(AstExpr).None
-            ),
-            .None => Option(AstExpr).None
+        recorded_dup := match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev_val)),
+          .Some(fi_ei) => match(
+            expr_info_deferred_dup_expressions(fi_ei),
+            .Some(fi_ds) => (fi_ds.len() > usize(0)),
+            .None => false
           ),
-          .Some(fd) => {
-            field_init = fd;
-          },
-          .None => if(ast_expr_is_atom(init_e), {
-            saved_fdexp := ctx.expected_type;
-            ctx.expected_type = Option(ExpectedTypeCtx).None;
-            fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(init_e).value.clone()})`, exn);
-            field_init = evaluate_expression_raw(fd_dup, env, ctx, exn);
-            ctx.expected_type = saved_fdexp;
-          })
+          .None => false
         );
+        if(!recorded_dup && ast_expr_is_atom(init_e), {
+          saved_fdexp := ctx.expected_type;
+          ctx.expected_type = Option(ExpectedTypeCtx).None;
+          fd_dup := generate_expr_from_code(`___dup(${ast_expr_token(init_e).value.clone()})`, exn);
+          field_init = evaluate_expression_raw(fd_dup, env, ctx, exn);
+          ctx.expected_type = saved_fdexp;
+        });
       });
       out.push(
         _CapListEntry(

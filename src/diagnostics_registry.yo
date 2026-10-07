@@ -925,8 +925,13 @@ all_registry_codes :: (fn() -> ArrayList(String))({
   });
   out
 });
-/// The closest registered code within distance 3, for did-you-mean.
-suggest_code :: (fn(code : String) -> Option(String))(suggest_name(code, all_registry_codes()));
+/// The closest registered code within distance 2, for did-you-mean. Codes are
+/// `E` + 4 digits: distance 1 is a mistyped digit and distance 2 a transposed
+/// one — both real typos worth suggesting — while distance 3 of a 5-character
+/// string (E99999 → E0909, matched on two nines) is noise. The identifier
+/// engine's default threshold is 3 (`suggest_name`); codes pass 2 explicitly
+/// so the registry can densify without re-arming the far-miss probe.
+suggest_code :: (fn(code : String) -> Option(String))(suggest_name(code, all_registry_codes(), usize(2)));
 /// One registry entry as JSON (for `yo explain --format json`): both
 /// languages always included.
 explain_to_json :: (fn(e : Explain) -> String)({

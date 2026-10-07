@@ -471,11 +471,18 @@ lookup_std_exporters :: (fn(name : String) -> ArrayList(String))({
   });
   out
 });
-/// The closest candidate within distance 3 — the did-you-mean engine for
-/// unresolved names (P3) and unknown codes. First-listed wins ties.
-suggest_name :: (fn(target : String, candidates : ArrayList(String)) -> Option(String))({
+/// The closest candidate within `max_distance` (default 3) — the did-you-mean
+/// engine for unresolved names (P3) and unknown codes. First-listed wins ties.
+/// An ABSOLUTE threshold is right for identifiers (their callers pass this
+/// default); a short fixed-format string needs a tighter one, which those
+/// callers (`suggest_code`: `E` + 4 digits, where distance 2 is a transposed
+/// digit and distance 3 of 5 characters is noise — `E99999` → `E0909`)
+/// pass explicitly.
+suggest_name :: (
+  fn(target : String, candidates : ArrayList(String), (max_distance : usize) ?= usize(3)) -> Option(String)
+)({
   best := Option(String).None;
-  (best_d : usize) = usize(4);
+  (best_d : usize) = (max_distance + usize(1));
   (i : usize) = usize(0);
   while(i < candidates.len(), {
     match(

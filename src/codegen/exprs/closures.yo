@@ -9,6 +9,7 @@
 { expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr_info.yo");
 { declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { is_closure_fn, get_closure_capture_info } :: import("../../function_value.yo");
@@ -196,7 +197,23 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
               inits.get(ci),
               .Some(cfi) => if(cfi.label == label, {
                 init_code := _call_generate_expr(cfi.init, indent.clone(), context);
-                field_code = Option(String).Some(if(cfi.is_borrow, `(&(${init_code}))`, init_code));
+                // A by-value RC entry's +1 rides the initializer's own
+                // deferred `___dup` (an atom entry's `___dup(<local>)` expr
+                // renders inline — it carries no deferred list). Route the
+                // value through `emit_deferred_dup_or_code`, the shared
+                // dup-on-store choke point: it materializes the initializer
+                // first (declare-first) and emits the dup. Reusing the dup
+                // expression ALONE as the field code instead referenced an
+                // eval-time temp no generated code declared, and dropped the
+                // initializer call with it ("use of undeclared identifier",
+                // the round-2 defect on `{ first : src(usize(0)) }`).
+                field_code = Option(String).Some(
+                  if(
+                    cfi.is_borrow,
+                    `(&(${init_code}))`,
+                    emit_deferred_dup_or_code(cfi.init, init_code, indent.clone(), context)
+                  )
+                );
               }),
               .None => ()
             );

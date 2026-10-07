@@ -69,6 +69,24 @@ test("capture list: a by-value capture of an RC value retains it", {
   assert(t.v == i32(7), "the source handle is still alive after the closure's scope");
   assert(s.len() == usize(4), "the source string is still alive");
 });
+test("capture list: a by-value capture of a NON-OWNING temp of an RC value", {
+  // issues/fixed/a-by-value-capture-of-a-non-owning-temp-emits-invalid-c.md:
+  // reusing the initializer's deferred `___dup` result as the field's C
+  // initializer referenced an eval-time temp no generated code declared —
+  // and dropped the initializer call with it ("use of undeclared
+  // identifier", C compile failure). Only this shape broke: an atom
+  // initializer's dup targets a declared local, an owning temp is consumed
+  // (a move), and a non-RC initializer needs no reference at all.
+  src := ArrayList(String).new();
+  src.push(String.from("a"));
+  src.push(String.from("b"));
+  {
+    (f : Impl(Fn() -> usize)) = ({ first : src(usize(0)) }() => first.len());
+    assert(f() == usize(1), "the captured element is \"a\"");
+  };
+  assert(src.len() == usize(2), "the source list outlives the closure");
+  assert(src(usize(1)).len() == usize(1), "the source elements are untouched");
+});
 test("capture list: `imm(y)` and `imm(y) : &p` borrow the place read-only", {
   w := i32(10);
   s := String.from("four");

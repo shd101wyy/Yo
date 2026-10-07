@@ -361,7 +361,11 @@ test("Parse a capture list: `{ x, imm(y), mut(z) : &mut w }(m) => body`", {
   );
   prog := parse(`{ x, imm(y), mut(z) : &mut w }(m) => m`, `test.yo`, exn);
   e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `((_(x : x, imm(y), (mut(z) : &mut(w))))(m) => m)`, "the record literal is the arrow's callee; borrow puns stay unexpanded");
+  // The renderer's canonical form: the record callee is NOT parenthesized
+  // (an arrow callee never is — `f(g(m)) => m` renders the same way), and a
+  // renamed borrow entry renders `label : <unary operand>` with only the
+  // OPERAND parenthesized (`&mut(w)`, like the `&(y)` of `imm(y) : &y`).
+  assert_str_eq(ast_expr_to_string(e), `_(x : x, imm(y), mut(z) : &mut(w))(m) => m`, "the record literal is the arrow's callee; borrow puns stay unexpanded");
 });
 test("Parse a record pattern arm `{ x, y } => body` next to a capture-list closure", {
   exn := Exception(
@@ -374,10 +378,13 @@ test("Parse a record pattern arm `{ x, y } => body` next to a capture-list closu
   );
   prog := parse(`match(p, { x, y } => x)`, `test.yo`, exn);
   e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `match(p, (_(x : x, y : y) => x))`, "a record pattern arm keeps the record shape");
+  // Match arms render without wrapping parens (`match(p, y(x) => x)` does
+  // too); the record keeps the `_(…)` shape the shorthand-struct test above
+  // establishes.
+  assert_str_eq(ast_expr_to_string(e), `match(p, _(x : x, y : y) => x)`, "a record pattern arm keeps the record shape");
   prog2 := parse(`match(p, { x }(y) => y)`, `test.yo`, exn);
   e2 := only_expr(prog2);
-  assert_str_eq(ast_expr_to_string(e2), `match(p, ((_(x : x))(y) => y))`, "the capture-list shape parses; the evaluator rejects it as an arm pattern");
+  assert_str_eq(ast_expr_to_string(e2), `match(p, _(x : x)(y) => y)`, "the capture-list shape parses; the evaluator rejects it as an arm pattern");
 });
 // ─── Array and bracket expressions ───────────────────────────────────────────
 test("Parse array value [1, 2, 3]", {
