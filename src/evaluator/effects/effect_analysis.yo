@@ -667,7 +667,7 @@ analyze_effect_call_points :: (
   // Side-channel: stores effect-specific fields for each detected suspension point
   // A `Box`: the detector closure and this function hold the same map on
   // purpose, and a closure captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
-  effect_extras := box(HashMap(String, EffectCallPointExtra_).new());
+  effect_extras := rc(HashMap(String, EffectCallPointExtra_).new());
   result := analyze_suspension_points(
     body.clone(),
     get_info,
@@ -741,7 +741,7 @@ analyze_effect_call_points :: (
     );
     ecv := EffectCapturedVariable(
       base : sv,
-      is_owning_the_same_rc_value_as : Option(Box(EffectCapturedVariable)).None
+      is_owning_the_same_rc_value_as : Option(Rc(EffectCapturedVariable)).None
     );
     captured_variables.push(ecv);
     ci = (ci + usize(1));

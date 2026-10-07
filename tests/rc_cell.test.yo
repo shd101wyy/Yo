@@ -1,5 +1,5 @@
 //! `Rc(T)` is the shared, counted cell under its plans/VALUES_BY_DEFAULT.md
-//! name (§6 V1 step 1, Generation A): everything today's `Box(T)` does, `Rc(T)`
+//! name (§6 V1 step 1, Generation A): everything today's `Rc(T)` does, `Rc(T)`
 //! does too — construction by `rc(...)`, auto-dereference, patterns through
 //! the payload, `dyn` over the cell, a type built by a comptime function,
 //! `ref_count`, and `Clone`/`Eq`/`Hash`/`Default`. The compiler recognises the
@@ -41,10 +41,10 @@ test("rc(v) builds an Rc(T) whose handles share one cell", {
 });
 test("Rc and Box are two types in Generation A", {
   comptime_expect_error({
-    (b : Box(i32)) = rc(i32(1));
+    (b : Rc(i32)) = rc(i32(1));
   });
   comptime_expect_error({
-    (r : Rc(i32)) = box(i32(1));
+    (r : Rc(i32)) = rc(i32(1));
   });
 });
 test("ref_count reads an Rc's count", {

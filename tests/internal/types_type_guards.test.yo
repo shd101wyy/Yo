@@ -88,19 +88,19 @@ test("is_str_type matches the dedicated Str variant only", {
   assert(!is_str_type(not_str_name), "wrong name");
   assert(!is_str_type(t_i32()), "i32 is not str");
 });
-test("is_box_type matches reference-semantics Struct named Box(T) with single field *", {
-  box_ty := mk_struct("Box(i32)", box_labels(), true, false, false);
-  assert(is_box_type(box_ty), "Box(i32)");
+test("is_box_type matches reference-semantics Struct named Rc(T) with single field *", {
+  box_ty := mk_struct("Rc(i32)", box_labels(), true, false, false);
+  assert(is_box_type(box_ty), "Rc(i32)");
   // Not a Box because it's a value struct.
-  not_box_value := mk_struct("Box(i32)", box_labels(), false, false, false);
-  assert(!is_box_type(not_box_value), "value struct named Box(...) isn't a Box");
-  // Not a Box because name doesn't start with "Box(".
+  not_box_value := mk_struct("Rc(i32)", box_labels(), false, false, false);
+  assert(!is_box_type(not_box_value), "value struct named Rc(...) isn't a Box");
+  // Not a Box because name doesn't start with "Rc(".
   wrong_name_labels := box_labels();
   not_box_name := mk_struct("Other", wrong_name_labels, true, false, false);
   assert(!is_box_type(not_box_name), "wrong name");
   // Not a Box because the field isn't labeled `*`.
   no_star_labels := ArrayList(String).new();
   no_star_labels.push(String.from("inner"));
-  not_box_field := mk_struct("Box(i32)", no_star_labels, true, false, false);
+  not_box_field := mk_struct("Rc(i32)", no_star_labels, true, false, false);
   assert(!is_box_type(not_box_field), "wrong field label");
 });

@@ -12,7 +12,7 @@
 //!   as a `base` field and delegates access through it.
 //! * `EffectCapturedVariable` embeds the base `SuspensionCapturedVariable`
 //!   fields plus the effect-typed self-referential override
-//!   `is_owning_the_same_rc_value_as : Option(Box(Self))`.
+//!   `is_owning_the_same_rc_value_as : Option(Rc(Self))`.
 //! * Optional fields are `Option(T)`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -59,8 +59,8 @@ EffectCapturedVariable :: ref(
     /// Shared captured-variable fields (id, name, ty).
     base : SuspensionCapturedVariable,
     /// Effect-typed self-referential override for `is_owning_the_same_rc_value_as`.
-    /// Uses `Box(Self)` to break the recursive value-type cycle.
-    is_owning_the_same_rc_value_as : Option(Box(Self))
+    /// Uses `Rc(Self)` to break the recursive value-type cycle.
+    is_owning_the_same_rc_value_as : Option(Rc(Self))
   )
 );
 // ---------------------------------------------------------------------------

@@ -291,7 +291,7 @@ _capture_env_variable :: (
                   id : owner_var.id.to_string(),
                   name : owner_var.name.clone(),
                   ty : owner_var.ty.clone(),
-                  is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+                  is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
                   decl_site : `${owner_var.token.module_path}:${owner_var.token.row.to_string()}:${owner_var.token.column.to_string()}`
                 );
                 captured_variables.insert(owner_var.id.to_string(), owner_captured);
@@ -312,7 +312,7 @@ _capture_env_variable :: (
                     id : variable.id.to_string(),
                     name : var_name.clone(),
                     ty : variable.ty.clone(),
-                    is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).Some(box(owner_entry)),
+                    is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).Some(rc(owner_entry)),
                     decl_site : `${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
                   );
                   captured_variables.insert(variable.id.to_string(), alias_captured);
@@ -339,7 +339,7 @@ _capture_env_variable :: (
                 id : variable.id.to_string(),
                 name : var_name.clone(),
                 ty : cap_ty,
-                is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+                is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
                 decl_site : `${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
               );
               captured_variables.insert(variable.id.to_string(), sc);

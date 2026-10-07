@@ -584,7 +584,7 @@ read_http_message_buffered :: (
     stream : R,
     max_bytes : usize,
     kind : MessageKind,
-    carry : Box(ArrayList(u8)),
+    carry : Rc(ArrayList(u8)),
     io : Io,
     where(R <: Reader)
   ) -> Impl(Future(Result(String, HttpError), IoExn))
@@ -765,7 +765,7 @@ read_http_message :: (
   fn(generic(R : Type), stream : R, max_bytes : usize, kind : MessageKind, io : Io, where(R <: Reader)) ->
     Impl(Future(Result(String, HttpError), IoExn))
 )(
-  read_http_message_buffered(stream, max_bytes, kind, box(ArrayList(u8).new()), io)
+  read_http_message_buffered(stream, max_bytes, kind, rc(ArrayList(u8).new()), io)
 );
 export(
   MessageKind,

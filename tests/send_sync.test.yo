@@ -35,7 +35,7 @@ test("primitives and plain data are Send and Sync", {
 test("a non-atomic cell is neither Send nor Sync", {
   comptime_assert(!Type.impls(Rc(i32), Send), "Rc is not Send");
   comptime_assert(!Type.impls(Rc(i32), Sync), "Rc is not Sync");
-  comptime_assert(!Type.impls(Box(i32), Sync), "today's Box (a shared cell) is not Sync");
+  comptime_assert(!Type.impls(Rc(i32), Sync), "today's Box (a shared cell) is not Sync");
   comptime_assert(!Type.impls(SsCell, Send), "a ref(struct) is not Send");
   comptime_assert(!Type.impls(SsCell, Sync), "a ref(struct) is not Sync");
   // Until V2b gives String and the collections unique buffers, their buffer

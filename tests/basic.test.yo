@@ -37,8 +37,8 @@ test("Test assignments", {
     assert(y == 1);
   };
   {
-    x := box(1);
-    y := (x = box(2));
+    x := rc(1);
+    y := (x = rc(2));
     assert(x.* == 2);
     assert(y.* == 1);
   };
@@ -461,21 +461,21 @@ test("Test type auto derive Comptime", {
   // Array
   comptime_assert(Type.impls(Array(i32, 3), Comptime));
   comptime_assert(Type.impls(Array(comptime_int, 3), Comptime));
-  comptime_assert(Type.impls(Array(Box(i32), 3), Comptime) == false);
+  comptime_assert(Type.impls(Array(Rc(i32), 3), Comptime) == false);
   // Slice
   // Tuple
   comptime_assert(Type.impls(Tuple(i32), Comptime));
   comptime_assert(Type.impls(Tuple(comptime_int), Comptime));
-  comptime_assert(Type.impls(Tuple(Box(i32)), Comptime) == false);
+  comptime_assert(Type.impls(Tuple(Rc(i32)), Comptime) == false);
   // Ptr
   // Yo support compile-time pointer
   comptime_assert(Type.impls(*comptime_int, Comptime));
   comptime_assert(Type.impls(*i32, Comptime));
-  comptime_assert(Type.impls(*Box(i32), Comptime) == false);
+  comptime_assert(Type.impls(*Rc(i32), Comptime) == false);
   // Function
   comptime_assert(Type.impls(fn() -> unit, Comptime));
   // Iso type is runtime only
-  comptime_assert(Type.impls(Iso(Box(i32)), Comptime) == false);
+  comptime_assert(Type.impls(Iso(Rc(i32)), Comptime) == false);
   // Value structs with comptime-compatible fields are Comptime
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Comptime) == true);
@@ -556,7 +556,7 @@ test("Test Tuple derives Comptime from its field types", {
   comptime_assert(Type.impls(Tuple(i32), Comptime) == true);
   comptime_assert(Type.impls(Tuple(comptime_int), Comptime) == true);
   // Negative canary: an object field is not Comptime, so neither is the tuple.
-  comptime_assert(Type.impls(Tuple(Box(i32)), Comptime) == false);
+  comptime_assert(Type.impls(Tuple(Rc(i32)), Comptime) == false);
 });
 test("Test Tuple derives Send from its field types", {
   TupleNonSend :: ref(struct(v : i32));
@@ -618,21 +618,21 @@ test("Test type auto derive Runtime", {
   // Array
   comptime_assert(Type.impls(Array(i32, 3), Runtime));
   comptime_assert(Type.impls(Array(comptime_int, 3), Runtime) == false);
-  comptime_assert(Type.impls(Array(Box(i32), 3), Runtime));
+  comptime_assert(Type.impls(Array(Rc(i32), 3), Runtime));
   // Slice
   // Tuple
   comptime_assert(Type.impls(Tuple(i32), Runtime));
   comptime_assert(Type.impls(Tuple(comptime_int), Runtime) == false);
-  comptime_assert(Type.impls(Tuple(Box(i32)), Runtime));
+  comptime_assert(Type.impls(Tuple(Rc(i32)), Runtime));
   // Ptr
   // Yo support compile-time pointer
   comptime_assert(Type.impls(*comptime_int, Runtime) == false);
   comptime_assert(Type.impls(*i32, Runtime));
-  comptime_assert(Type.impls(*Box(i32), Runtime));
+  comptime_assert(Type.impls(*Rc(i32), Runtime));
   // Function
   comptime_assert(Type.impls(fn() -> unit, Runtime));
   // Iso type is runtime only
-  comptime_assert(Type.impls(Iso(Box(i32)), Runtime));
+  comptime_assert(Type.impls(Iso(Rc(i32)), Runtime));
   // Value structs with runtime-compatible fields are Runtime
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Runtime) == true);
@@ -2154,7 +2154,7 @@ test("Test type availability", {
   };
   {
     comptime_expect_error(
-      Point3 :: struct(x : comptime_int, y : Box(i32)) // Error: incompatible field contexts
+      Point3 :: struct(x : comptime_int, y : Rc(i32)) // Error: incompatible field contexts
       // comptime_int can only be used in compile-time context,
       // Box `object` can only be used in run-time context.
       // There is no intersection between the two contexts.
@@ -2213,7 +2213,7 @@ test("Test type availability", {
     comptime_expect_error(
       MixedResult :: enum(
         Ok(value : comptime_int),
-        Err(ptr : Box(i32))
+        Err(ptr : Rc(i32))
       ) // Error: incompatible variant field contexts
     );
   };

@@ -980,7 +980,7 @@ expr_info_set_closure_function_value :: (
 /// copies the handle). The map therefore sits in a `Box`, so a copy of the
 /// table stays the same table once collections are values
 /// (plans/VALUES_BY_DEFAULT.md §6 V2a).
-ExprInfoTable :: newtype(data : Box(HashMap(ExprId, ExprInfo)));
+ExprInfoTable :: newtype(data : Rc(HashMap(ExprId, ExprInfo)));
 // ---------------------------------------------------------------------------
 // Scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6). When an outermost
 // function body finishes evaluating, the ExprInfos written during it stop
@@ -1496,7 +1496,7 @@ scope_release_report :: (fn() -> unit)(
 export(scope_release_note_query, scope_release_mode, scope_release_note_mismatch, scope_release_note_hard, scope_release_note_binding, scope_release_set_table, scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, scope_release_report);
 /// Create a new empty ExprInfoTable.
 expr_info_table_new :: (fn() -> ExprInfoTable)(
-  ExprInfoTable(data : box(HashMap(ExprId, ExprInfo).new()))
+  ExprInfoTable(data : rc(HashMap(ExprId, ExprInfo).new()))
 );
 /// Store an ExprInfo for the given expression id.
 /// Copy-on-write accessor for `ExprInfo.path_collection`: every ExprInfo starts
@@ -2270,7 +2270,7 @@ lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
 );
 /// Trait counterpart of the struct ctor-fid table. The generic-impl
 /// registry keys parameterized traits by the trait constructor's funcId
-/// — so `Eq(Box(T))` and `Eq(Box(i32))`
+/// — so `Eq(Rc(T))` and `Eq(Rc(i32))`
 /// share one bucket. `TraitT` cannot carry the fid; the id-keyed
 /// table is the same object-identity surrogate as the struct table above.
 /// First stamp wins.

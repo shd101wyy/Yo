@@ -23,13 +23,13 @@ test("level filtering incl. Off", {
 });
 test("lazy closures run only when the level admits them", {
   log.set_level(log.Level.Error);
-  filtered := Box(bool)(false);
+  filtered := Rc(bool)(false);
   log.info_lazy(() => {
     filtered.* = true;
     `should not build`.to_string()
   });
   assert(!(filtered.*), "below-level lazy closure is skipped");
-  emitted := Box(bool)(false);
+  emitted := Rc(bool)(false);
   log.error_lazy(() => {
     emitted.* = true;
     `built`.to_string()

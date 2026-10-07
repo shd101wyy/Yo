@@ -292,12 +292,12 @@ Emitter :: ref(
     /// (set by generate_function). `emit_*` code-section writes record any
     /// minted-temp declaration into it so the drop-emission gate has the
     /// C-emission-order ground truth. See `_emitter_record_declared_temp`.
-    declared_ref : Option(Box(HashSet(String))),
+    declared_ref : Option(Rc(HashSet(String))),
     /// When `.Some`, points at the current function's block-scope stack
     /// (declared_scopes). Each emitted body line pushes/pops `"{"` frames on every
     /// C brace and records named-local + temp decls — the escape gate's
     /// block-scope-aware liveness signal. See `_emitter_track_scope`.
-    scope_ref : Option(Box(ArrayList(String))),
+    scope_ref : Option(Rc(ArrayList(String))),
     /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
     /// `code_spill_path`, finished code past `CODE_SPILL_BYTES` is written
     /// to that file between functions and the `code` buffer is cleared, so
@@ -352,8 +352,8 @@ impl(
       headers : String.new(),
       declarations : String.new(),
       code : String.new(),
-      declared_ref : Option(Box(HashSet(String))).None,
-      scope_ref : Option(Box(ArrayList(String))).None,
+      declared_ref : Option(Rc(HashSet(String))).None,
+      scope_ref : Option(Rc(ArrayList(String))).None,
       code_spill_fd : i32(-1),
       code_spill_path : String.new(),
       code_spilled_bytes : usize(0),

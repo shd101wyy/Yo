@@ -194,14 +194,14 @@ test("a future type as an enum payload declares the payload type first", {
 // ---------------------------------------------------------------------------
 _BareE :: enum(X, Y);
 _bare_future :: (fn(generic(T : Type), v : Option(T), io : Io) -> Impl(Future(Result(T, _BareE), Io)))({
-  b := Box(Option(T))(v);
+  b := Rc(Option(T))(v);
   io.async((io : Io) => {
     c := b.*;
     match(c, .Some(x) => .Ok(x), .None => .Err(_BareE.X))
   })
 });
 _bare_fn :: (fn(generic(T : Type), v : Option(T)) -> Impl(Fn(k : i32) -> Result(T, _BareE)))({
-  b := Box(Option(T))(v);
+  b := Rc(Option(T))(v);
   (k : i32) => {
     c := b.*;
     match(c, .Some(x) => .Ok(x), .None => .Err(_BareE.X))

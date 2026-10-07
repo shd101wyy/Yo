@@ -156,8 +156,8 @@ test("fetch over https returns a real response (mandatory under CI)", {
   // unwound out of the test on every error, so a broken TLS stack passed
   // with no assertion at all
   // (issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md).
-  reached := Box(bool)(false);
-  ok := Box(bool)(false);
+  reached := Rc(bool)(false);
+  ok := Rc(bool)(false);
   exn := Exception(
     throw : (
       err -> {
@@ -249,7 +249,7 @@ _read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn))
 // A `Box`: the caller and the spawned task share the list on purpose, and a
 // task captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
 _serve_scripted :: (
-  fn(listener : TcpListener, responses : ArrayList(String), seen : Box(ArrayList(String)), io : Io) ->
+  fn(listener : TcpListener, responses : ArrayList(String), seen : Rc(ArrayList(String)), io : Io) ->
     Impl(Future(unit, IoExn))
 )(
   io.async(e => {
@@ -286,7 +286,7 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   responses.push(_redirect_to(`next`)); // relative → /dir/next
   responses.push(_redirect_to(`/final`)); // absolute path → /final
   responses.push(_ok_body(`done`));
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   resp := io.await(fetch_with(`http://127.0.0.1:19960/dir/start`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.OK(), `final status should be 200, got ${resp.status}`);
@@ -314,7 +314,7 @@ test("fetch throws TooManyRedirects past max_redirects", {
   responses.push(_redirect_to(`/again`));
   responses.push(_redirect_to(`/again`));
   responses.push(_redirect_to(`/again`));
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   // max_redirects 2: hop 0 → hop 1 → hop 2 is the third 3xx, one too many.
   opts := FetchOptions.new().with_max_redirects(usize(2));
@@ -334,7 +334,7 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   responses := ArrayList(String).new();
   responses.push(_redirect_to(`/elsewhere`));
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_max_redirects(usize(0));
   resp := io.await(fetch_with(`http://127.0.0.1:19962/start`, opts, io), IoExn(io : io, exn : exn));
@@ -364,7 +364,7 @@ test("fetch throws ResponseTooLarge past max_response_bytes", {
   });
   responses := ArrayList(String).new();
   responses.push(_ok_body(body));
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_max_response_bytes(usize(100));
   _r := io.await(fetch_with(`http://127.0.0.1:19963/big`, opts, io), IoExn(io : io, exn : exn));
@@ -455,7 +455,7 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   // Same body, but the first chunk carries a chunk extension (`;name=value`)
   // and sizes use UPPER-case hex — both legal per RFC 9112 §7.1.
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(r1.status == StatusCode.OK(), `status ${r1.status}`);
@@ -493,7 +493,7 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   responses := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   client := io.spawn(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : chunk_exn));
   outcome := client.await(io);
@@ -531,7 +531,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   responses := ArrayList(String).new();
   responses.push(`garbage\r\n\r\n`);
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   (outcome : Option(HttpResponse)) = Option(HttpResponse).None;
   {
@@ -571,7 +571,7 @@ test("fetch round-trips a binary body byte-for-byte", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   responses := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`);
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   r := io.await(fetch_with(`http://127.0.0.1:19968/bin`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   server.await(io);
@@ -780,7 +780,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello`);
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: -5\r\nConnection: close\r\n\r\nhello`);
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 9\r\nConnection: close\r\n\r\nhello`);
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   c1 := io.spawn(fetch_with(`http://127.0.0.1:19976/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
   o1 := c1.await(io);
@@ -1046,7 +1046,7 @@ _ka_conn :: (fn(stream : TcpStream, mode : i32, stats : _KaStats, io : Io) -> Im
   io.async(e => {
     // ONE carry list for the whole connection: a single `read` can deliver
     // the end of this request and the start of the next.
-    carry := box(ArrayList(u8).new());
+    carry := rc(ArrayList(u8).new());
     open := true;
     while(runtime(open), {
       framed := e.io.await(
@@ -1617,7 +1617,7 @@ test("wire: a 204 followed by another response in one read carries the tail", {
   );
   e := IoExn(io : io, exn : exn);
   r := _pipe(`${_P204}${_PNEXT}`);
-  carry := box(ArrayList(u8).new());
+  carry := rc(ArrayList(u8).new());
   raw1 := match(
     io.await(_wire.read_http_message_buffered(r, usize(0), _wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
@@ -1652,7 +1652,7 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
   );
   e := IoExn(io : io, exn : exn);
   r := _pipe(`${_PHEAD}${_PNEXT}`);
-  carry := box(ArrayList(u8).new());
+  carry := rc(ArrayList(u8).new());
   raw1 := match(
     io.await(_wire.read_http_message_buffered(r, usize(0), _wire.MessageKind.HeadResponse, carry, io), e),
     .Ok(x) => x,
@@ -1667,7 +1667,7 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
   // first three bytes as this one's body — which is exactly the smuggling the
   // kind parameter exists to prevent.
   r2 := _pipe(`${_PHEAD}${_PNEXT}`);
-  carry2 := box(ArrayList(u8).new());
+  carry2 := rc(ArrayList(u8).new());
   as_get := match(
     io.await(_wire.read_http_message_buffered(r2, usize(0), _wire.MessageKind.Response, carry2, io), e),
     .Ok(x) => x,

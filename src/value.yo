@@ -90,11 +90,11 @@ EvalValue :: ref(
     /// parameters. At call time these are bound from explicit `name` args
     /// (which evaluate to the named value from the caller's env).
     /// `cap_vals` (closure capture VALUES) stays inline — it is `ArrayList(Self)`
-    /// (recursive). All other fields live in `data : Box(FuncValData)` (P2: the
+    /// (recursive). All other fields live in `data : Rc(FuncValData)` (P2: the
     /// inline 9-handle variant set sizeof(EvalValue) ~80 B, wasted in every inline
     /// Option(EvalValue) / nested ArrayList(EvalValue) copy).
     FuncVal(
-      data : Box(FuncValData),
+      data : Rc(FuncValData),
       cap_vals : ArrayList(Self)
     ),
     /// Control-flow signal emitted by a `return(expr)` statement.
@@ -147,7 +147,7 @@ EvalValue :: ref(
     ArrayVal(elements : ArrayList(Self)),
     /// A compile-time slice into an array.
     ///
-    /// `source` is a `Box(EvalValue)` wrapping an `ArrayVal`.
+    /// `source` is a `Rc(EvalValue)` wrapping an `ArrayVal`.
     /// `start_idx` (inclusive) and `end_idx` (exclusive) delimit the view.
     ///
     /// Note: the `Box` design preserves the backing-array reference concept

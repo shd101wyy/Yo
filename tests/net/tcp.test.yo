@@ -478,7 +478,7 @@ _d6_read_headers :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoEx
   })
 );
 _d6_scripted_server :: (
-  fn(listener : TcpListener, rounds : usize, seen : Box(ArrayList(String)), io : Io) -> Impl(Future(unit, IoExn))
+  fn(listener : TcpListener, rounds : usize, seen : Rc(ArrayList(String)), io : Io) -> Impl(Future(unit, IoExn))
 )(
   io.async(e => {
     k := usize(0);
@@ -506,7 +506,7 @@ test("accept pending in a spawned task before the client connects", {
   );
   addr := SocketAddr.loopback(u16(19913));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_d6_scripted_server(listener, usize(1), seen, io), IoExn(io : io, exn : exn));
   eprintln(`  client: connecting while the server task's accept is pending`);
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
@@ -533,7 +533,7 @@ test("three request/response rounds against a spawned scripted server", {
   );
   addr := SocketAddr.loopback(u16(19914));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  seen := box(ArrayList(String).new());
+  seen := rc(ArrayList(String).new());
   server := io.spawn(_d6_scripted_server(listener, usize(3), seen, io), IoExn(io : io, exn : exn));
   round := 0;
   while(round < 3, {

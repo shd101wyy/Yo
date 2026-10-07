@@ -49,11 +49,11 @@ pragma(Pragma.AllowUnsafe);
 /// wrappers read these FuncVals to dispatch; a field with no registered method
 /// falls back to None. Shared by both the executing and non-executing paths so
 /// codegen has the evidence regardless of the mode the body was evaluated in.
-/// For a BOXED dyn payload (`Box(Sq)`), return the box's underlying value type
+/// For a BOXED dyn payload (`Rc(Sq)`), return the box's underlying value type
 /// (`Sq`, its single `*` field) so trait methods resolve on the concrete type the
 /// impl is registered against; non-boxed passes through. The codegen wrapper's
 /// is_boxed branch then unboxes `Box* -> &box->*` at the call. Requires the box's
-/// `Box(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
+/// `Rc(...)` name (stamped in comptime_fn.yo) so is_boxed_type recognises it.
 /// `<ctor>(inner_type)` for a prelude cell type constructor `ctor` — the
 /// shared cell (`Box`/`Rc`), or the atomic box `Arc(inner_type)` a
 /// `Dyn(..., Send)` payload takes — evaluated like the constructor call it
@@ -100,10 +100,10 @@ _create_box_type_via :: (fn(ctor : String, inner_type : TypeValue, env : Environ
         variadic_args : ArrayList(VarArgEntry).new()
       );
       // The callee expr must be a synthetic `Box` atom, not `.None`: the
-      // `Box(arg)` display-name stamp in comptime_fn.yo reads the constructor
+      // `Rc(arg)` display-name stamp in comptime_fn.yo reads the constructor
       // NAME off the callee expr token (FuncVals carry no funcName),
-      // and `is_boxed_type` keys off that `Box(`-prefixed name. With `.None`
-      // this site minted the MEMOIZED canonical `Box(T)` instance UNSTAMPED,
+      // and `is_boxed_type` keys off that `Rc(`-prefixed name. With `.None`
+      // this site minted the MEMOIZED canonical `Rc(T)` instance UNSTAMPED,
       // so any consumer handed the canonical (the era-repair return re-eval)
       // failed is_boxed_type and the boxed-dyn path registered the impl
       // against the Box pointer itself (dyn_dispatch_autobox_value printed
@@ -251,7 +251,7 @@ _require_dyn_traits_implemented :: (
   ) -> unit
 )({
   // Decide the bound on the UNDERLYING type when the payload is a Box: both
-  // `dyn(box(i32(42)))` and the auto-box path arrive here as `Box(i32)`, while
+  // `dyn(rc(i32(42)))` and the auto-box path arrive here as `Rc(i32)`, while
   // the impl is registered against `i32` (the same unwrap the trait-value
   // resolution does before its registry lookups).
   // Rules D4 + D9: a FUNCTION payload (`dyn(k)` into `Dyn(Fn() -> R, Send)`)
@@ -261,7 +261,7 @@ _require_dyn_traits_implemented :: (
   // and the early return below skipped every check for it
   // (issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md).
   // A `Dyn(..., Send)` shares its data object across threads, so the object
-  // must be atomically counted: a `box(...)` payload is not
+  // must be atomically counted: a `rc(...)` payload is not
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   if(match(dyn_type, .DynT(required_trait_types : sd_rtt) => _traits_name_send(sd_rtt), _ => false) && is_boxed_type(value_type) && !is_atomic_reference_struct_type(value_type), {
     sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`arc\`) or \`arc(v)\`.`;
@@ -558,7 +558,7 @@ _reject_dyn_of_dyn :: (fn(ty : TypeValue, tok : Token, exn : Exception) -> unit)
 });
 _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, ctx : EvalContext, caller_env : Environment, exn : Exception) -> ArrayList(EvalValue))({
   trait_vals := ArrayList(EvalValue).new();
-  // Resolve trait methods on the UNDERLYING type when the payload is a Box.
+  // Resolve trait methods on the UNDERLYING type when the payload is a Rc.
   method_lookup_type := _unwrap_box_for_method_lookup(value_type);
   match(
     dyn_type,
@@ -832,15 +832,15 @@ evaluate_dyn_value :: (
           Option(TypeValue).None
         );
         (exp_ty : TypeValue) = w_ty;
-        // dyn(box(<closure>)) special case — `box` or any other shared-cell
+        // dyn(rc(<closure>)) special case — `box` or any other shared-cell
         // constructor (`rc`, types/guards.yo `shared_cell_names_at`): pass
-        // `Box(Impl-SomeT)` (`Rc(...)` for `rc`) as the cell call's expected
+        // `Rc(Impl-SomeT)` (`Rc(...)` for `rc`) as the cell call's expected
         // type so its early return-type synthesis binds `V := <the
         // Fn-carrying wrapper>` and the closure argument is contextually
         // typed from the wrapper's Fn trait (concrete param types). Without
         // it the closure is created through the no-expected placeholder
         // fallback (`fn(y : y) -> _ret`) and its C signature emits `void*`
-        // params (the cluster-B family). (`Box(T)(...)` ctor calls are not
+        // params (the cluster-B family). (`Rc(T)(...)` ctor calls are not
         // recognized; the bare constructor head covers the dyn-closure
         // pattern.)
         dyn_cell_closure_type := match(
@@ -936,13 +936,13 @@ evaluate_dyn_value :: (
     );
     out_info := new_expr_info(env, ret_type.clone());
     // Auto-box a non-object, non-dyn payload (always boxed), evaluating the
-    // synthetic `box(value)` with the EXPECTED
-    // `Box(value_type)` so the box's `generic(V)` binds. The synthetic atom/call
+    // synthetic `rc(value)` with the EXPECTED
+    // `Rc(value_type)` so the box's `generic(V)` binds. The synthetic atom/call
     // get REAL ids (alloc_global_expr_id) — id=0 breaks the call's ExprInfo/generic
     // setup. The boxed expr is surfaced via runtime_arg_exprs_in_order (the field
     // generate_dyn_call reads). Trait evidence stays on the PRE-box concrete type.
     //
-    // Dyn'd CLOSURE payload (Dyn(Fn(...)) struct fields): `Box(<fn type>)` is
+    // Dyn'd CLOSURE payload (Dyn(Fn(...)) struct fields): `Rc(<fn type>)` is
     // not constructible (fn-typed struct fields are rejected — the
     // SuspensionPointDetector design note), and the closure's runtime value IS
     // its capture struct — box THAT instead (the box rtparam is the capture
@@ -1081,7 +1081,7 @@ evaluate_dyn_value :: (
   (cur_env : Environment) = expr_info_adopt_env(inner_info);
   (final_value_type : TypeValue) = value_type;
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType
-  // special case exists — all non-object, non-dyn values are wrapped in box().
+  // special case exists — all non-object, non-dyn values are wrapped in rc().
   // A `Dyn(..., Send)` boxes with `arc` instead: the Dyn's data object is
   // SHARED — every copy of the Dyn, and the box's own handle, hold it — and a
   // Send value is shared across threads, so its reference count must be

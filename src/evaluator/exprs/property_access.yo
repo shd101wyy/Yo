@@ -1330,7 +1330,7 @@ Raw pointer operations may dereference invalid memory.`
       prop_name_tt := ast_expr_token(property_expr).value;
       // `<:` WITNESS member access:
       // a TraitT whose `is_concrete` carries the receiver type — e.g.
-      // `(Box(i32) <: Isolation).can_isolate` — resolves the method against
+      // `(Rc(i32) <: Isolation).can_isolate` — resolves the method against
       // the generic impl registry (trait-filtered) and stamps the RESOLVED
       // method type + VALUE. Without this the arm below returned the trait
       // FIELD's declared type with no value, so codegen fell back to a
@@ -1580,7 +1580,7 @@ Raw pointer operations may dereference invalid memory.`
     );
   });
   // A recursive struct's `Self` field (e.g. `Variable.is_owning_..._as :
-  // Option(Box(Variable))`) captured the empty-field self-shell during the
+  // Option(Rc(Variable))`) captured the empty-field self-shell during the
   // struct's own definition; `box.*.field` then derefs to that 0-field shell
   // and the field lookup degenerates to unit. Resolve the shell to its final
   // populated form so `fields_labels`/`fields_types` come from the real struct

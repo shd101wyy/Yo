@@ -315,11 +315,11 @@ comptime_expect_error(
 // rejected.
 comptime_expect_error(
   box_deref_with_box_arg :: (fn() -> unit)({
-    evil :: (fn(inout(v) : i32, victim : Box(Holder)) -> unit)({
+    evil :: (fn(inout(v) : i32, victim : Rc(Holder)) -> unit)({
       victim.* = Holder(s : String.from("replacement"), n : i32(7));
       v = i32(99);
     });
-    b := box(Holder(s : String.from("orig"), n : i32(1)));
+    b := rc(Holder(s : String.from("orig"), n : i32(1)));
     evil(b.*.n, b);
   })
 );
@@ -330,7 +330,7 @@ test("box deref is allowed when the box is unreachable", {
   read_n :: (fn(inout(v) : i32) -> unit)({
     v = (v + i32(1));
   });
-  b := box(Holder(s : String.from("x"), n : i32(5)));
+  b := rc(Holder(s : String.from("x"), n : i32(5)));
   read_n(b.*.n);
   assert(b.*.n == i32(6), "write landed through the deref place");
 });

@@ -1128,7 +1128,7 @@ type_implements_trait :: (
         ArrayList(TypeValue).new(),
         ArrayList(TypeValue).new(),
         result,
-        box(
+        rc(
           FuncMeta(
             forall_labels : ArrayList(String).new(),
             param_labels : param_labels,
@@ -1942,7 +1942,7 @@ type_implements_acyclic :: (fn(ty : TypeValue, env : Environment) -> bool)(
 // deref_target_type
 // ---------------------------------------------------------------------------
 /// The payload type auto-dereference forwards to: `Target` of the prelude's
-/// `Deref` marker when `ty` implements it (`Box(V)`, `Arc(V)` → `V`), else
+/// `Deref` marker when `ty` implements it (`Rc(V)`, `Arc(V)` → `V`), else
 /// `.None` (plans/VALUES_BY_DEFAULT.md §3.3). Only a concrete struct can be a
 /// wrapper — a SomeT, pointer, Dyn or type value never auto-dereferences —
 /// and `Deref` is implementable only in the prelude (impl.yo), so a hit is

@@ -868,8 +868,8 @@ _compat_impl :: (
       // shortcut for structs. Reject only on field-count / nominal-distinctness
       // and otherwise recurse field types — a pure name-only rule rejected
       // two instantiations of the SAME constructor whose STAMPED names differ —
-      // e.g. `Box(V)` (generic placeholder, or a recursive `Box(Self)` field whose
-      // name embeds the unresolved `__self_shell`) vs the resolved `Box(<final>)` —
+      // e.g. `Rc(V)` (generic placeholder, or a recursive `Rc(Self)` field whose
+      // name embeds the unresolved `__self_shell`) vs the resolved `Rc(<final>)` —
       // even though their fields are compatible. Accept the
       // empty-name / equal-name wildcard fast paths, reject only genuinely-distinct
       // nominals (different non-empty names, NO SomeT either side, DIFFERENT
@@ -884,7 +884,7 @@ _compat_impl :: (
         // accept below (issues/fixed/lenient-generic-enum-compatibility-by-name.md).
         // A SomeT on either side of a position keeps it a wildcard (a
         // def-time placeholder, an unresolved instantiation), so
-        // `Box(V)` vs `Box(i32)` is untouched; only two SomeT-free payloads
+        // `Rc(V)` vs `Rc(i32)` is untouched; only two SomeT-free payloads
         // that are not themselves non-exact-compatible disagree. The
         // placeholder is NOT read through its resolution: a SomeT's
         // resolution can carry an EARLIER call's binding
@@ -1019,11 +1019,11 @@ _compat_impl :: (
       // empty field list". Under exact comparison an empty-fields side must
       // therefore compare by ID ONLY: two different structs' shells are both
       // 0-field ""-named and would wrongly compare STRUCTURALLY EQUAL,
-      // colliding the comptime-fn CTFE cache — `Box(Self)` inside the
-      // SECOND `ref(struct(... : Option(Box(Self))))` hit the FIRST struct's
-      // cached `Box(shell)` entry, so e.g. SuspensionCapturedVariable's
+      // colliding the comptime-fn CTFE cache — `Rc(Self)` inside the
+      // SECOND `ref(struct(... : Option(Rc(Self))))` hit the FIRST struct's
+      // cached `Rc(shell)` entry, so e.g. SuspensionCapturedVariable's
       // `is_owning_the_same_rc_value_as` field emitted as
-      // `Option(Box(Variable))` (stage-2 `__yo_t628 → __yo_t114`
+      // `Option(Rc(Variable))` (stage-2 `__yo_t628 → __yo_t114`
       // incompatible-type cluster). Shells exist because TypeValue is
       // value-semantic (no shared in-place-mutated `Self` object that
       // "grows" into the final); comparing them by id only is the
@@ -1058,7 +1058,7 @@ _compat_impl :: (
       // UNLESS either contains a SomeT (a specialization placeholder). The
       // struct `id` churns across generic instantiations (no stable funcId), so
       // the stamped NAME is the nominal identity here — same-named instantiations
-      // (Box(i32) vs Box(String)) and ""-named reconstructions still fall through
+      // (Rc(i32) vs Rc(String)) and ""-named reconstructions still fall through
       // to the structural field comparison below. Without this, CodegenTypeEntry
       // vs CodegenExternFnEntry (identical fields, distinct names) collided in the
       // comptime-fn CTFE cache, collapsing HashMap(_, CodegenTypeEntry).values()
@@ -1086,7 +1086,7 @@ _compat_impl :: (
       // nominal arms above never fire for them; without this rule two
       // same-shaped captures (`{a : i32}` from two different closures)
       // compare exact-equal and collide the comptime-fn CTFE cache — the
-      // second `box(<closure>)`'s `Box(V)(value)` ctor hit the FIRST
+      // second `rc(<closure>)`'s `Rc(V)(value)` ctor hit the FIRST
       // closure's cached Box instantiation ("passing __yo_t32 to parameter
       // of incompatible type __yo_t26", the fn dyn-manual-boxing batch).
       (aid.starts_with("capture_") && eid.starts_with("capture_")) => (aid == eid), 
@@ -1376,7 +1376,7 @@ _compat_impl :: (
         // unconstrained forall (`A` in `where(I <: Iterator(Item := A))`
         // accepting the trait's raw `Item`). Scoped to (a) NON-exact
         // comparisons — the exact mode keys spec/CTFE caches, where
-        // collapsing `Box(V)`/`Box(T)` is the gap-6 identity-split family —
+        // collapsing `Rc(V)`/`Rc(T)` is the gap-6 identity-split family —
         // and (b) def-time trials, whose stamps are discardable (the
         // repair-1 contract); unscoped, the compensations around the
         // stricter name+level rule regress. EMPTY expected-constraint lists

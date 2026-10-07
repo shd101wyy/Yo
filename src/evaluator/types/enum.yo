@@ -315,7 +315,7 @@ evaluate_enum_type :: (
   // re-evaluation GENERATION of the same declaration node shares one enum
   // identity, so shells/finals/instantiation memo entries unify across
   // generations (SomeT surgery slice 2 — the cross-generation split minted a
-  // fresh enum id per generation, splitting Box(Self)/ArrayList(Self)
+  // fresh enum id per generation, splitting Rc(Self)/ArrayList(Self)
   // instantiations into per-generation C types; the recursive-enum
   // construct+drop heap corruption). Inside CTFE (generic constructor
   // instantiation), ids stay eval-fresh: Option(i32) vs Option(String)
@@ -754,7 +754,7 @@ evaluate_enum_type :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `recursive value enum: variant '${vname}' contains the enum itself by value (a path with no reference indirection) — a plain 'enum(...)' would have infinite size. Make it 'ref(enum(...))', or route the recursion through a reference type (ArrayList, Box, ref(struct)).`
+                `recursive value enum: variant '${vname}' contains the enum itself by value (a path with no reference indirection) — a plain 'enum(...)' would have infinite size. Make it 'ref(enum(...))', or route the recursion through a reference type (ArrayList, Rc, ref(struct)).`
               )
             )
           );

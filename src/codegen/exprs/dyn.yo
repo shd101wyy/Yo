@@ -3,7 +3,7 @@
 //! Builds the fat-pointer literal `(<DynT>){ .data = <value>, .vtable =
 //! &__yo_vtable_<implKey> }` into the result temp, and registers the
 //! (concrete, dyn) impl pair so its vtable is emitted later. The wrapped value
-//! must be an object type (value types use `box()`); the inner value is dup'd
+//! must be an object type (value types use `rc()`); the inner value is dup'd
 //! so both the Dyn wrapper's drop and the scope-exit drop can each decrement RC.
 //!
 //! Box-type unwrap is limited (is_boxed_type ≡ false — Box not modeled);
@@ -27,9 +27,9 @@
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { expr_info_dyn_call_trait_values, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
-/// For a BOXED dyn payload (`Box(Sq)`), the impl concrete type is the UNDERLYING
+/// For a BOXED dyn payload (`Rc(Sq)`), the impl concrete type is the UNDERLYING
 /// type (`Sq`, the box's single `*` field) while the runtime data type stays
-/// `Box(Sq)`. Keeps the dyn-box / vtable / impl_key keyed on the
+/// `Rc(Sq)`. Keeps the dyn-box / vtable / impl_key keyed on the
 /// concrete type consistently; a non-boxed value passes through unchanged.
 _unwrap_box_concrete :: (fn(t : TypeValue) -> TypeValue)({
   (result : TypeValue) = t;
@@ -97,13 +97,13 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   });
   value_ei := match(context.base.get_expr_info(value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := value_ei.ty;
-  // dyn() requires an object type (value types must use box()). Box is not
+  // dyn() requires an object type (value types must use rc()). Box is not
   // modeled (is_boxed_type ≡ false), so the Box branch is dead.
   if(!is_reference_struct_type(value_type) && !is_boxed_type(value_type), {
-    return(String.from("/* Error: dyn() requires an object type (use box() for value types) */"));
+    return(String.from("/* Error: dyn() requires an object type (use rc() for value types) */"));
   });
   // Unwrap a boxed payload: impl concrete type = underlying (`Sq`), runtime data
-  // type = `Box(Sq)`.
+  // type = `Rc(Sq)`.
   concrete_type := _unwrap_box_concrete(value_type);
   // Resolve a SomeType (`Impl(Fn(...))` for a boxed closure) to its concrete
   // type BEFORE deriving the impl KEY.
@@ -131,7 +131,7 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   (value_code : String) = _call_generate_expr(value_expr, indent.clone(), context);
   em := context.base.emitter;
   // DEGRADED dyn when the INNER value failed to transpile (e.g. a
-  // `box(<closure>)` whose spec was dropped — the c03 cluster-B shape):
+  // `rc(<closure>)` whose spec was dropped — the c03 cluster-B shape):
   // splicing the FTT comment into `<type> <tmp> = <comment>;` and then
   // building a fat pointer over the missing temp breaks the whole batch C.
   // Emit the comment and degrade the dyn expression itself to the same

@@ -71,7 +71,7 @@ make_noop_detector :: (fn() -> SuspensionPointDetector)(
 // pushing into a handed-in list), so the running index lives in a shared
 // counter cell, as `await_analysis`'s detector keeps its own state.
 make_detect_all_detector :: (fn() -> SuspensionPointDetector)({
-  next_index := box(usize(0));
+  next_index := rc(usize(0));
   SuspensionPointDetector(
     detect : dyn((expr, parent_expr) => {
       idx := next_index.*;

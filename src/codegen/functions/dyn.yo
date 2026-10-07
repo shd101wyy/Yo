@@ -30,7 +30,7 @@ _func_val_id :: (fn(v : EvalValue) -> String)(
 _is_reserved_dyn_label :: (fn(label : String) -> bool)(
   (label == "___dup") || (label == "___drop") || (label == "___dispose") || (label == "dispose")
 );
-/// Sanitized C field name of the single field of a Box(T) data type ("*").
+/// Sanitized C field name of the single field of a Rc(T) data type ("*").
 _box_field_name :: (fn(data_type : TypeValue) -> String)(
   match(
     data_type,
@@ -255,7 +255,7 @@ _emit_wrapper_call :: (fn(em : Emitter, cname : String, first_arg : String, n_pa
   em.emit_declaration_string_line(line);
 });
 /// Resolve a boxed dyn payload type's SomeT fields/type-arguments through
-/// their resolutions (`Box(W)` → `Box(<capture struct>)`). The
+/// their resolutions (`Rc(W)` → `Rc(<capture struct>)`). The
 /// eval-side declared-param bridge (2026-07-27) registers the box spec on
 /// the RESOLVED instantiation, so the collected C struct is keyed on it,
 /// while the dyn impl entry recorded the wrapper-SomeT form at coercion
@@ -470,7 +470,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     call.push_str(");");
                     em.emit_declaration_string_line(call);
                   }, {
-                    em.emit_declaration_string_line(`  (void)self_ptr; /* Dyn(Fn): expected Box(...) data */`);
+                    em.emit_declaration_string_line(`  (void)self_ptr; /* Dyn(Fn): expected Rc(...) data */`);
                     (ai2 : usize) = usize(0);
                     while(ai2 < ncp, {
                       em.emit_declaration_string_line(`  (void)arg${(ai2 + usize(1)).to_string()};`);

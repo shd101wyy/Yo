@@ -66,7 +66,7 @@ impl(
   )
 );
 impl(
-  Box(i32),
+  Rc(i32),
   Id(
     id : (
       self -> {
@@ -77,7 +77,7 @@ impl(
   )
 );
 impl(
-  Box(i32),
+  Rc(i32),
   RetI32(
     // Let's x2 here
     return_i32 : (
@@ -94,13 +94,13 @@ ret_i32_i32 :: (fn() -> Impl(RetI32))({
   return(i32(123));
 });
 ret_boxi32_i32 :: (fn() -> Impl(RetI32))({
-  return(Box(i32)(456));
+  return(Rc(i32)(456));
 });
-test("Test impl for i32, bool, Box(i32)", {
+test("Test impl for i32, bool, Rc(i32)", {
   i := 42;
   t := true;
   f := false;
-  bi := Box(i32)(100);
+  bi := Rc(i32)(100);
   assert(use_id(i) == i, "use_id should return the same i32 value");
   assert(use_id(t) == t, "use_id should return the same bool value");
   assert(use_id(f) == f, "use_id should return the same bool value");
@@ -132,7 +132,7 @@ test("Test fn return Impl that expects error", {
           return(true);
         },
         .Blue => {
-          return(Box(i32));
+          return(Rc(i32));
         }
       );
     })

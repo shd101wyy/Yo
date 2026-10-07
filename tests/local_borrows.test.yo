@@ -12,8 +12,8 @@
 Point :: struct(x : i32, y : i32);
 Shape :: struct(origin : Point, name : String);
 Holder :: ref(struct(n : i32, s : String));
-Node :: struct(value : i32, next : Option(Box(Self)));
-List :: struct(head : Option(Box(Node)));
+Node :: struct(value : i32, next : Option(Rc(Self)));
+List :: struct(head : Option(Rc(Node)));
 (g_count : i32) = i32(0);
 g_list := List(head : .None);
 bump :: (fn(mut(n) : i32) -> unit)({
@@ -148,7 +148,7 @@ append :: (fn(mut(list) : List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(box(Node(value : v, next : .None)));
+  cur = .Some(rc(Node(value : v, next : .None)));
 });
 sum_list :: (fn(imm(list) : List) -> i32)({
   (total : i32) = i32(0);
@@ -387,7 +387,7 @@ comptime_expect_error(
   }),
   "is a module-level binding"
 );
-head_of :: (fn(imm(l) : List) -> Option(Box(Node)))(l.head);
+head_of :: (fn(imm(l) : List) -> Option(Rc(Node)))(l.head);
 comptime_expect_error(
   repoint_to_a_place_a_callee_could_reach_rejected :: (fn() -> unit)({
     l1 := List(head : .None);

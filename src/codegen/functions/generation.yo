@@ -779,11 +779,11 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // switch, so a `throw` inside the RHS would otherwise drop the not-yet-
       // declared `x`). Seed it with the parameters, which ARE in scope from entry
       // (they are declared by the prototype, not via get_variable_type_string).
-      context.base.declared_c_var_names = box(HashSet(String).new());
+      context.base.declared_c_var_names = rc(HashSet(String).new());
       // Also reset the block-scope stack (see declared_scopes / _keep_pending_drop
       // escape path): the flat base frame is seeded with the parameters, which are
       // in scope from entry. Body begin-blocks push/pop `"{"`-delimited sub-frames.
-      context.base.declared_scopes = box(ArrayList(String).new());
+      context.base.declared_scopes = rc(ArrayList(String).new());
       match(
         function_type,
         .Func({ param_types : _pt, meta : _pm }) => {
@@ -836,8 +836,8 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // scope frames and records declared names — the escape gate's liveness signal.
       prev_emitter_ref := context.base.emitter.declared_ref;
       prev_scope_ref := context.base.emitter.scope_ref;
-      context.base.emitter.declared_ref = Option(Box(HashSet(String))).Some(context.base.declared_c_var_names);
-      context.base.emitter.scope_ref = Option(Box(ArrayList(String))).Some(context.base.declared_scopes);
+      context.base.emitter.declared_ref = Option(Rc(HashSet(String))).Some(context.base.declared_c_var_names);
+      context.base.emitter.scope_ref = Option(Rc(ArrayList(String))).Some(context.base.declared_scopes);
       generate_function_body(body_box, function_type, String.from("  "), context);
       context.base.emitter.declared_ref = prev_emitter_ref;
       context.base.emitter.scope_ref = prev_scope_ref;

@@ -1502,9 +1502,9 @@ ${ast_expr_to_string(actual_arg)}`
   // time; a GENERIC function defers its body (should_defer_ft) and is
   // evaluated against THIS binding, so every `own` param of every specialized
   // generic lost its scope-end drop while the body's store still emitted the
-  // balancing `___dup` — a net +1 per call. `box(v)`/`dyn(v)` are the
+  // balancing `___dup` — a net +1 per call. `rc(v)`/`dyn(v)` are the
   // highest-traffic instances (prelude `box :: (fn(generic(V : Type),
-  // own(value) : V) -> Box(V))(Box(V)(value))`), so every boxed value and
+  // own(value) : V) -> Rc(V))(Rc(V)(value))`), so every boxed value and
   // every `AnyError` payload leaked
   // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
   bound_param_opt := bind_parameter(callee_env_r, param_label, bind_pt, arg_value, is_ct_only, param_is_ref, param_is_owning, param_tok);
@@ -2247,7 +2247,7 @@ _build_forward_ref_funcval :: (
     .Some(fv) => match(
       fv,
       .FuncVal(__fvm1, _) => EvalValue.FuncVal(
-        box(
+        rc(
           FuncValData(
             forall_names : __fvm1.*.forall_names.clone(),
             params : __fvm1.*.params.clone(),
@@ -2880,7 +2880,7 @@ create_specialized_function_inline :: (
                       // Declared-param bridge, mint-env half: the forall bound to
                       // an UNRESOLVED wrapper SomeT (box's `V` := the
                       // Impl-Fn wrapper from the expected-type arm) leaves
-                      // the spec BODY eval typing `Box(V)(value)` with the
+                      // the spec BODY eval typing `Rc(V)(value)` with the
                       // pattern-era instantiation — a DIFFERENT C struct
                       // identity than the registered concrete return (the
                       // cluster-B `__yo_new___yo_t3` undeclared-ctor shape).
@@ -3167,7 +3167,7 @@ create_specialized_function_inline :: (
           });
           // Recursive-instantiation era repair, mint half (see the rre_era_suspect
           // comment in calls/function.yo — same class, same exclusions): a declared
-          // return whose NOMINAL type_arguments carry SomeTs (`-> Box(V)`) that the
+          // return whose NOMINAL type_arguments carry SomeTs (`-> Rc(V)`) that the
           // occurrence-substitution above rewrote to a SomeT-free result is a
           // def-era COPY whose type_key diverges from the ctor memo's canonical
           // instance for recursive payloads. Route it through the return-EXPR
@@ -3393,7 +3393,7 @@ create_specialized_function_inline :: (
           // re-bind added a callee-side release on top — measured as corrupt
           // `downcast` payloads and a SIGSEGV in tests/error_ergonomics
           // (`dyn(NotFound(...))` boxes a folded struct through
-          // `box(own(value))`). Phase 2.5 of plans/TYPE_SYSTEM_SOUNDNESS.md
+          // `rc(own(value))`). Phase 2.5 of plans/TYPE_SYSTEM_SOUNDNESS.md
           // tried the declared flag here and reverted it.
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
@@ -4129,7 +4129,7 @@ create_specialized_function_inline :: (
             register_funcval_cap_slices(new_env_key, cap_slices_with_list(spec_prefix, new_cap_vars));
           });
           specialized_func_val := EvalValue.FuncVal(
-            box(
+            rc(
               FuncValData(
                 forall_names : forall_names,
                 params : params,
@@ -4766,7 +4766,7 @@ create_specialized_function_inline :: (
                 sp_it,
                 sp_wt,
                 spec_result,
-                box(
+                rc(
                   FuncMeta(
                     forall_labels : ArrayList(String).new(),
                     param_labels : sp_pl_f,
@@ -5254,7 +5254,7 @@ evaluate_ctl_function_body_inline :: (
     register_funcval_cap_slices(ctl_env_key, cap_slices_with_list(ctl_prefix, ctl_cap_vars));
   });
   ctl_func_val := EvalValue.FuncVal(
-    box(
+    rc(
       FuncValData(
         forall_names : orig_forall_labels,
         params : orig_params,
@@ -5551,7 +5551,7 @@ reapply_where_clause_exprs_for_call :: (
 /// `.Variant`-shorthand argument cannot resolve its enum type. Synthesize the
 /// foralls from the expected type, then
 /// re-evaluate the parameter types so they become concrete (`V → Tree` for
-/// `(.Atom(...))` with expected `Box(Tree)`).
+/// `(.Atom(...))` with expected `Rc(Tree)`).
 ///
 /// The resolved types are pushed to `out` (which the caller pre-creates empty);
 /// on synthesis failure `out` stays empty and the caller keeps the declared
@@ -6272,7 +6272,7 @@ try_to_call_function_with_arguments :: (
           ArrayList(TypeValue).new(),
           ArrayList(TypeValue).new(),
           cr_box,
-          box(
+          rc(
             FuncMeta(
               forall_labels : ArrayList(String).new(),
               param_labels : cpl,

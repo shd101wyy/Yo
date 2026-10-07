@@ -252,7 +252,7 @@ test("Test Impl closure callback", {
   assert(x == 13);
   y := use_cb(20, u => (u * 2)); // capture nothing
   assert(y == 40);
-  b := Box(i32)(5);
+  b := Rc(i32)(5);
   z := use_cb(10, u => (u + 1 + b.*)); // capture variable 'a'
   assert(z == 16);
 });
@@ -265,7 +265,7 @@ test("Test Dyn closure callback", {
   assert(x == 13);
   y := use_cb(20, dyn(u => (u * 2))); // capture nothing
   assert(y == 40);
-  b := Box(i32)(5);
+  b := Rc(i32)(5);
   z := use_cb(10, dyn(u => (u + 1 + b.*))); // capture variable 'b'
   assert(z == 16);
 });
@@ -274,12 +274,12 @@ test("Test Dyn closure callback with manual boxing", {
     return(cb(v));
   });
   a := 2;
-  x := use_cb(10, dyn(box(u => (u + 1 + a)))); // capture variable 'a'
+  x := use_cb(10, dyn(rc(u => (u + 1 + a)))); // capture variable 'a'
   assert(x == 13);
-  y := use_cb(20, dyn(box(u => (u * 2)))); // capture nothing
+  y := use_cb(20, dyn(rc(u => (u * 2)))); // capture nothing
   assert(y == 40);
-  b := Box(i32)(5);
-  z := use_cb(10, dyn(box(u => (u + 1 + b.*)))); // capture variable 'b'
+  b := Rc(i32)(5);
+  z := use_cb(10, dyn(rc(u => (u + 1 + b.*)))); // capture variable 'b'
   assert(z == 16);
 });
 test("Test the `where` scoping in functions", {
@@ -386,7 +386,7 @@ test("Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Box(i32), box(123));
+    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
@@ -400,7 +400,7 @@ test("Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Box(i32), box(123));
+    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
@@ -414,7 +414,7 @@ test("Test generic functions", {
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
-    b := id(Box(i32), box(123));
+    b := id(Rc(i32), rc(123));
     assert(x == 12);
     assert(y == 3.14);
     assert(z == true);
@@ -859,11 +859,11 @@ test "Test variadic function", {
 // value-less declaration is dropped.
 // issues/fixed/binding-a-unit-returning-call-emits-invalid-c.md
 // ---------------------------------------------------------------------------
-_unit_bump :: (fn(b : Box(i32), by : i32) -> unit)({
+_unit_bump :: (fn(b : Rc(i32), by : i32) -> unit)({
   b.* = (b.* + by);
 });
 test("Binding a unit-returning call compiles and still runs the call", {
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
   // The binding form that used to emit invalid C.
   _r := _unit_bump(counter, i32(7));
   assert(counter.* == i32(7), "bound unit call must still execute");

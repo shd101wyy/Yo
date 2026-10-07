@@ -1,8 +1,8 @@
-// Regression: `box(t.clone())` as the rhs of a PROPERTY store must not drop
-// the clone temp after the call — box() MOVES its argument, so the post-store
+// Regression: `rc(t.clone())` as the rhs of a PROPERTY store must not drop
+// the clone temp after the call — rc() MOVES its argument, so the post-store
 // rhs-temp cleanup dropping it over-releases the boxed payload. Stage-2's
 // emission of merge_and_check_envs' `base_var.consumed_at_token =
-// Option(Box(Token)).Some(box(t.clone()))` emitted exactly that extra
+// Option(Rc(Token)).Some(rc(t.clone()))` emitted exactly that extra
 // __yo_decr_rc(clone_temp) (TS reference emission has none) — the t1.yo
 // rc=133 GC-trial-delete UAF (freed Box/Token child of a live Variable).
 { String } :: import("std/string");
@@ -11,15 +11,15 @@
 Tok :: ref(struct(text : String));
 derive(Tok, Clone);
 
-Holder :: ref(struct(slot : Option(Box(Tok))));
+Holder :: ref(struct(slot : Option(Rc(Tok))));
 
 mark :: (fn(h : Holder, t : Tok) -> unit)({
-  h.slot = Option(Box(Tok)).Some(box(t.clone()));
+  h.slot = Option(Rc(Tok)).Some(rc(t.clone()));
 });
 
 main :: (fn() -> unit)({
   t := Tok(text : String.from("alpha"));
-  h := Holder(slot : Option(Box(Tok)).None);
+  h := Holder(slot : Option(Rc(Tok)).None);
   mark(h, t);
   mark(h, t);
   match(h.slot, .Some(b) => println(b.*.text), .None => println(`none`));

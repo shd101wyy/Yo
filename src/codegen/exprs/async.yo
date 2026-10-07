@@ -2755,11 +2755,11 @@ _make_sm_captured_variable :: (fn(id : String, name : String, ty : TypeValue, ki
       id : id,
       name : name,
       ty : ty,
-      is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
       decl_site : String.from("")
     ),
     kind : kind,
-    is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None
+    is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
   )
 );
 /// Copy a HashMap(String, String) (shallow) — for building merged field aliases
@@ -3016,12 +3016,12 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   prev_scopes := context.base.declared_scopes;
   prev_declared_ref := em.declared_ref;
   prev_scope_ref := em.scope_ref;
-  context.base.declared_c_var_names = box(HashSet(String).new());
+  context.base.declared_c_var_names = rc(HashSet(String).new());
   declare_c_var_name(context.base, String.from("sm"));
-  context.base.declared_scopes = box(ArrayList(String).new());
+  context.base.declared_scopes = rc(ArrayList(String).new());
   push_declared_scope(context.base, String.from("sm"));
-  em.declared_ref = Option(Box(HashSet(String))).Some(context.base.declared_c_var_names);
-  em.scope_ref = Option(Box(ArrayList(String))).Some(context.base.declared_scopes);
+  em.declared_ref = Option(Rc(HashSet(String))).Some(context.base.declared_c_var_names);
+  em.scope_ref = Option(Rc(ArrayList(String))).Some(context.base.declared_scopes);
   saved_binding_ids := context.state_machine_binding_ids;
   context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
   saved_sm_unwind_catch := context.sm_unwind_catch;

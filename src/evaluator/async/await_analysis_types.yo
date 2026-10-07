@@ -9,7 +9,7 @@
 //!
 //! * No interface inheritance in Yo: base types are embedded as a `base` field.
 //! * The self-referential `is_owning_the_same_rc_value_as` override uses
-//!   `Option(Box(Self))` to break the recursive value-type cycle.
+//!   `Option(Rc(Self))` to break the recursive value-type cycle.
 //! * Optional fields are `Option(T)`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -68,8 +68,8 @@ CapturedVariable :: ref(
     /// The kind of variable being captured (local or outer-scope).
     kind : CapturedVariableKind,
     /// Async-typed self-referential override for `is_owning_the_same_rc_value_as`.
-    /// Uses `Box(Self)` to break the recursive value-type cycle.
-    is_owning_the_same_rc_value_as : Option(Box(Self))
+    /// Uses `Rc(Self)` to break the recursive value-type cycle.
+    is_owning_the_same_rc_value_as : Option(Rc(Self))
   )
 );
 // ---------------------------------------------------------------------------

@@ -314,7 +314,7 @@ _func_from_fn_trait :: (fn(ftt : TypeValue) -> TypeValue)(
       ArrayList(TypeValue).new(),
       // no where types
       cr_box,
-      box(
+      rc(
         FuncMeta(
           forall_labels : ArrayList(String).new(),
           param_labels : cpl,
@@ -404,7 +404,7 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
         ss_new_pts.push(recur(ss_elem, env2, allow.clone()));
         ss_pi = (ss_pi + usize(1));
       });
-      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(ss_ret, env2, allow.clone()), box(ss_fm.*.clone()), ArrayList(TypeValue).new())
+      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(ss_ret, env2, allow.clone()), rc(ss_fm.*.clone()), ArrayList(TypeValue).new())
     },
     _ => ty
   )
@@ -1808,7 +1808,7 @@ evaluate_anonymous_function_implementation :: (
   // FuncVal; the definition-time body evaluation further down needs it.
   body_for_def_eval := body_expr.clone();
   func_val := EvalValue.FuncVal(
-    box(
+    rc(
       FuncValData(
         forall_names : forall_labels,
         params : actual_param_labels,
@@ -1842,7 +1842,7 @@ evaluate_anonymous_function_implementation :: (
     .Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _) => {
       _l3nm := _l3m.*.clone();
       _l3nm.param_labels = actual_param_labels.clone();
-      TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), box(_l3nm), ArrayList(TypeValue).new())
+      TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), ArrayList(TypeValue).new())
     },
     _ => function_type.clone()
   );
@@ -2071,7 +2071,7 @@ Result type: ${type_to_string(decl_result_ty)}`
     // not Clone; `func_val` above is consumed by the ExprInfo below). Same
     // pattern as closure_type.yo's `func_val_pre`.
     body_ctx_func_val := EvalValue.FuncVal(
-      box(
+      rc(
         FuncValData(
           forall_names : ArrayList(String).new(),
           params : ArrayList(String).new(),
@@ -2391,7 +2391,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                 .Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt) => {
                   nrs_nm := nrs_m.*.clone();
                   nrs_nm.param_labels = actual_param_labels.clone();
-                  TypeValue.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, box(nrs_nm), nrs_vt)
+                  TypeValue.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, rc(nrs_nm), nrs_vt)
                 },
                 _ => function_type
               );
@@ -2482,7 +2482,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                     // which codegen then lowered to `void*` once the id-keyed
                     // registry stopped carrying binder resolutions
                     // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-                    TypeValue.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), box(_l4nm), ArrayList(TypeValue).new())
+                    TypeValue.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), ArrayList(TypeValue).new())
                   },
                   _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
                 );
@@ -2590,7 +2590,7 @@ Result type: ${type_to_string(decl_result_ty)}`
     dgc_check_result := (get_all_some_types(dgc_ret).len() > usize(0));
     {
       dgc_fv := EvalValue.FuncVal(
-        box(
+        rc(
           FuncValData(
             forall_names : ArrayList(String).new(),
             params : ArrayList(String).new(),

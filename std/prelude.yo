@@ -9657,44 +9657,13 @@ impl(
   )
 );
 export(Result);
-/// Box — a heap-allocated, **reference-counted** container for a single value.
-///
-/// ## ⚠️ `Box` is Rust's `Rc`, NOT Rust's `Box`
-///
-/// **Read this before assuming move semantics.** In Rust, `Box<T>` is a
-/// UNIQUE owner: cloning it deep-copies, and passing it moves. Yo's `Box(V)`
-/// is a `ref` type — copying the handle **shares one heap value and bumps a
-/// refcount**, exactly like Rust's `Rc<T>`:
-///
-/// ```yo
-/// a := box(i32(42));
-/// b := a;          // NOT a copy of the value — a second handle to it
-/// consume(b.* = i32(7));
-/// assert(a.* == i32(7), "a and b name the SAME value");
-/// ```
-///
-/// `Rc(V)` (below) is the same cell under its `plans/VALUES_BY_DEFAULT.md`
-/// name: V1 step 1 renames every `Box` site to `Rc`, and V1 step 2 then
-/// reintroduces `Box` as a uniquely owned, uncounted cell. Until then, every
-/// `ref(struct(...))` in this language is refcounted; `Box` is simply the
-/// one-field case of that.
-///
-/// Consequences worth knowing:
-/// - Sharing is silent. Two `Box` handles to one value is the normal case.
-/// - A `Box` cycle leaks unless broken (see `Isolation` / the cycle
-///   collector); Rust's `Box` cannot form a cycle at all.
-/// - `ref_count(b)` reports the current reference count (the optimizer may cancel a
-///   dup against a scope-end drop, so it is the live count, not a count of
-///   names); `Iso`/`can_isolate` is how you ask for uniqueness.
-///
-/// Use `box(value)` or `rc(value)` to allocate. Access the inner value with
-/// `b.*`.
-///
-/// ## Example
-/// ```yo
-/// b := box(i32(42));
-/// assert(b.* == i32(42), "inner value is 42");
-/// ```
+/// `Box(V)`: the old spelling of the shared, reference-counted cell, now `Rc(V)`
+/// (`plans/VALUES_BY_DEFAULT.md` §6 V1 step 1). Nothing in std, src or tests
+/// spells it. It stays defined for ONE seed only: the v0.2.54 seed compiles
+/// `src/` against this std and still synthesizes `box(...)` when `dyn(...)`
+/// auto-boxes a payload that is not an object. Generation B part 2 deletes
+/// `Box`/`box` once `SEED_VERSION` carries `Rc` as the canonical cell, and V1
+/// step 2 later reintroduces `Box` as the unique, uncounted cell.
 Box :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
@@ -9760,9 +9729,10 @@ export(
 /// as with Rust's `Rc<T>`; `w.*` names the payload, and `w.field` /
 /// `w.method()` reach it through auto-dereference (`Deref`).
 ///
-/// `Rc(V)` has today's `Box(V)` definition and impls. The two names are two
-/// types until V1 step 1 renames every `Box` site to `Rc`; V1 step 2 then
-/// reintroduces `Box` as the unique, uncounted cell.
+/// `Rc(V)` is the canonical shared cell (V1 step 1, Generation B): the cell
+/// the compiler synthesizes (`dyn(v)` auto-boxes into `rc(v)`), and the one
+/// every std, src and test site spells. The legacy `Box(V)` above is a
+/// separate type with the same definition, kept for the seed only.
 ///
 /// ```yo
 /// a := rc(i32(42));
@@ -9963,7 +9933,7 @@ export(Arc, arc);
 ///
 /// ```yo
 /// P :: struct(n : i32);
-/// b := box(P(n : i32(1)));
+/// b := rc(P(n : i32(1)));
 /// b.n = i32(2);              // writes b.*.n
 /// assert(b.n == i32(2), "read through the box");
 /// ```

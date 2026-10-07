@@ -66,7 +66,7 @@ Pattern :: ref(
     Or(alts : ArrayList(Self)),
     /// `(name := p)` — bind the whole value AND match `p` against it.
     At(name : String, token : Token, atom : AstExpr, sub : Self),
-    /// A structural sub-pattern applied at a `Box(T)` position: the box is
+    /// A structural sub-pattern applied at a `Rc(T)` position: the box is
     /// looked through, `sub` matches `T`, and the access path dereferences
     /// the box (`path-><first field>`). `Bind`/`Wildcard`/`At` never sit
     /// under one (they bind/ignore the box itself); every other form does.
@@ -184,7 +184,7 @@ gadt_branch_reachable :: (fn(enum_id : String, variant_idx : usize) -> bool)({
 // Type helpers
 // ---------------------------------------------------------------------------
 /// The type a pattern at a position is compiled against: one pointer level
-/// and one `Box(T)` wrapper looked through, a leaked recursive-enum
+/// and one `Rc(T)` wrapper looked through, a leaked recursive-enum
 /// self-shell resolved. A Box position is presented as its inner type to the
 /// constructor reasoning (the box wrapper is transparent for coverage).
 norm_position_type :: (fn(t : TypeValue) -> TypeValue)({
@@ -204,7 +204,7 @@ _box_shaped :: (fn(fls : ArrayList(String), fts : ArrayList(TypeValue)) -> bool)
     .None => false
   )
 );
-/// `Box(T)` → `T` (the field the `*` label names); anything else → `.None`.
+/// `Rc(T)` → `T` (the field the `*` label names); anything else → `.None`.
 /// NOTE: a case whose pattern carries a curly `{…}` destructuring cannot
 /// take a brace-block body (E0007) — the body stays an expression.
 box_inner_type :: (fn(t : TypeValue) -> Option(TypeValue))(

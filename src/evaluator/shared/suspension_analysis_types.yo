@@ -9,7 +9,7 @@
 //! * Optional fields are `Option(T)`.
 //! * No generics: `SuspensionAnalysisResult` and the typed point lists use
 //!   concrete instantiations (see the note at `SuspensionAnalysisResult`).
-//! * The self-referential `is_owning_the_same_rc_value_as` uses `Box(Self)`
+//! * The self-referential `is_owning_the_same_rc_value_as` uses `Rc(Self)`
 //!   to break the recursive object-type cycle.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -75,13 +75,13 @@ SuspensionPoint :: ref(
 /// Information about a local variable that needs to persist across suspension points.
 ///
 /// Note: the self-referential field `is_owning_the_same_rc_value_as`
-/// uses `Box(Self)` to break the recursive object-type cycle.
+/// uses `Rc(Self)` to break the recursive object-type cycle.
 SuspensionCapturedVariable :: ref(
   struct(
     id : String,
     name : String,
     ty : TypeValue,
-    is_owning_the_same_rc_value_as : Option(Box(Self)),
+    is_owning_the_same_rc_value_as : Option(Rc(Self)),
     /// Declaration site (`module:row:col` from the Variable's decl token) —
     /// an identity that survives env re-stamping. Name-based SM
     /// lookups (atom.yo's fallback, the ref-collector's unification map) use
