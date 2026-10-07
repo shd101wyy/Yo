@@ -126,6 +126,10 @@ while IFS= read -r hit; do
   case "$text" in *"git mv"*|*"grep -rn"*|*"ls issues"*) continue;; esac
   for p in $(printf '%s\n' "$text" | grep -ohE "issues/(fixed/|retired/|questions/|repros/|patches/)?[A-Za-z0-9._-]+\.(md|yo|patch)"); do
     [ -e "$p" ] && continue
+    # issues/TRIAGE.md is UNTRACKED and gitignored since 2026-10-07: a locally
+    # generated index (scripts/gen-issue-triage.py), never committed, so prose
+    # citing it is correct even though it is absent from a fresh checkout.
+    [ "$p" = "issues/TRIAGE.md" ] && continue
     printf '%s:%s: does not resolve -> %s\n    %s\n' "$file" "$line" "$p" "$(printf '%s' "$text" | sed 's/^[[:space:]]*//' | cut -c1-100)"
     fail=1
   done
