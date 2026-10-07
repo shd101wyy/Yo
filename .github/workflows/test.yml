@@ -325,6 +325,44 @@ jobs:
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "classification: code=$CODE"
 
+  # Tree hygiene: cheap always-on checks that protect EVERY path — docs-only
+  # fast-path runs included (markers and stale generated files live in docs).
+  # Added 2026-10-07 after #1231 shipped six unresolved `<<<<<<<` hunks inside
+  # issues/TRIAGE.md: the markers were committed on a branch by an earlier
+  # merge and flowed through every later merge as ordinary text, because git
+  # has no opinion about marker lines in a COMMITTED file. This job is that
+  # opinion. It is on merge-gate's needs list, so nothing merges past it.
+  tree-hygiene:
+    name: Tree hygiene (no conflict markers; generated files fresh)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: No unresolved conflict markers anywhere in the tree
+        run: |
+          set -euo pipefail
+          # `<<<<<<< ` (7 <, space, ref name) is unambiguous; the ======= and
+          # >>>>>>> middles only ever appear in its company, so one pattern
+          # suffices with zero false positives (a setext `====` heading rule
+          # is not 7 `=` followed by a space-prefixed label on its own line).
+          if git grep -nE '^<{7} ' -- .; then
+            echo "::error::unresolved conflict markers are committed. Resolve them; for GENERATED files (issues/TRIAGE.md) regenerate with scripts/gen-issue-triage.py instead of hand-resolving."
+            exit 1
+          fi
+          echo "no conflict markers in $(git ls-files | wc -l) tracked files"
+
+      - name: Generated files are fresh (issues/TRIAGE.md)
+        run: |
+          set -euo pipefail
+          python3 scripts/gen-issue-triage.py
+          if ! git diff --exit-code -- issues/TRIAGE.md; then
+            echo "::error::issues/TRIAGE.md is stale — regenerate it with: python3 scripts/gen-issue-triage.py"
+            exit 1
+          fi
+          echo "issues/TRIAGE.md is fresh"
+
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
     needs: changes
@@ -2972,6 +3010,7 @@ jobs:
       - test-tsan
       - test-wasm32_emscripten
       - test-wasm32_wasi
+      - tree-hygiene
       - hollow-sweep
     # Runs when dependencies succeeded OR failed (so it can report the
     # failure), but not when the run itself is cancelled/superseded: a
