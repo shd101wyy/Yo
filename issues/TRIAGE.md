@@ -1,6 +1,6 @@
 # `issues/` triage index — open docs, categorised
 
-**Generated** by `scripts/gen-issue-triage.py` over the 171 open bug
+**Generated** by `scripts/gen-issue-triage.py` over the 173 open bug
 docs in `issues/` root and the 15 design questions in
 `issues/questions/`. A NAVIGATION aid, not a source of truth: each doc stays
 authoritative about itself. Regenerate rather than hand-edit.
@@ -31,13 +31,13 @@ Three things are worth knowing before trusting any row.
 | CI/Release/Build | 9 | 1 |
 | Async / effects | 5 | 0 |
 | Codegen / emitted C | 15 | 3 |
-| Evaluator / types | 20 | 2 |
+| Evaluator / types | 21 | 2 |
 | Std library | 46 | 10 |
 | Tooling (fmt/doc/lsp) | 9 | 0 |
 | Self-hosting legacy | 10 | 2 |
 | Vendor (markdown_yo) | 3 | 0 |
-| Other | 54 | 5 |
-| **Total** | **171** | **23** |
+| Other | 55 | 5 |
+| **Total** | **173** | **23** |
 
 ## Counts by severity
 
@@ -46,8 +46,8 @@ Scale defined in `issues/README.md`; assigned in the 2026-09-28 triage pass.
 | Severity | Open docs |
 | --- | ---: |
 | S1 | 26 |
-| S2 | 85 |
-| S3 | 60 |
+| S2 | 86 |
+| S3 | 61 |
 
 ## Design questions (issues/questions/)
 
@@ -197,7 +197,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md`](./swallowed-closure-spec-emits-wrong-typed-return-msvc-error.md) | S1 | — | — |
 | [`wasm-runtime-missing-six-statx-accessors-that-std-declares.md`](./wasm-runtime-missing-six-statx-accessors-that-std-declares.md) | S2 | OPEN | — |
 
-### Evaluator / types (20)
+### Evaluator / types (21)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -206,6 +206,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`blanket-into-iter-is-not-an-intoiterator-impl.md`](./blanket-into-iter-is-not-an-intoiterator-impl.md) | S2 | OPEN | — |
 | [`comments-preceding-definitions-can-hollow-the-definition.md`](./comments-preceding-definitions-can-hollow-the-definition.md) | S2 | — | — |
 | [`comptime-enum-payload-field-assignment-is-a-silent-no-op.md`](./comptime-enum-payload-field-assignment-is-a-silent-no-op.md) | S1 | — | — |
+| [`comptime-expect-error-of-a-derive-in-a-function-body-never-sees-the-error.md`](./comptime-expect-error-of-a-derive-in-a-function-body-never-sees-the-error.md) | S3 | — | — |
 | [`comptime-float-negation-loses-the-sign-of-zero.md`](./comptime-float-negation-loses-the-sign-of-zero.md) | S2 | OPEN | — |
 | [`comptime-fn-result-loses-its-declared-return-type.md`](./comptime-fn-result-loses-its-declared-return-type.md) | S2 | — | — |
 | [`comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md`](./comptime-str-method-result-does-not-convert-to-str-in-typed-binding.md) | S2 | — | — |
@@ -310,7 +311,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`vendor-markdown-shared-utf8-codec-has-no-callers.md`](./vendor-markdown-shared-utf8-codec-has-no-callers.md) | S3 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 | [`vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`](./vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md) | S2 | OPEN (upstream — `vendor/markdown_yo`, submod | — |
 
-### Other (54)
+### Other (55)
 
 | Doc | Severity | Status (self-reported) | Repro |
 | --- | --- | --- | --- |
@@ -355,6 +356,7 @@ stale reference there, and 'repairing' it reverts someone else's work.
 | [`parser-accepts-an-unclosed-call-paren.md`](./parser-accepts-an-unclosed-call-paren.md) | S2 | — | yes |
 | [`runtime-str-plus-str-passes-check-and-fails-compile.md`](./runtime-str-plus-str-passes-check-and-fails-compile.md) | S2 | — | — |
 | [`static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md`](./static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md) | S3 | OPEN | — |
+| [`structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`](./structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md) | S2 | — | — |
 | [`verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md`](./verify-function-ids-carry-0-based-rows-so-explain-file-line-misses.md) | S3 | — | — |
 | [`verify-prints-z3-error-lines-under-an-unproven-obligation.md`](./verify-prints-z3-error-lines-under-an-unproven-obligation.md) | S3 | — | — |
 | [`vscode-extension-floor-is-below-the-client-librarys.md`](./vscode-extension-floor-is-below-the-client-librarys.md) | S3 | — | — |
