@@ -22,8 +22,8 @@ Progress:
   - V1 Generation A (#1186, #1188, #1191, #1207);
   - V1 step 1 Generation A, the `Rc` names (#1232);
   - V1 step 1 Generation B part 1, the `Box` → `Rc` rename with `Rc`
-    canonical (`feat/vbd-box-to-rc`; part 2 deletes the legacy `Box` after
-    the next seed);
+    canonical (#1267; part 2 deletes the legacy `Box` after the next
+    seed);
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -2633,7 +2633,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   the v0.2.54 seed's canonical cell is still `box`: every
   `dyn(<non-object>)` it lowers synthesizes a `box(...)` that must resolve
   in the tree's prelude.
-  - **Part 1 (`feat/vbd-box-to-rc`):** the rename (1,173 sites in 141 `.yo`
+  - **Part 1 (#1267):** the rename (1,173 sites in 141 `.yo`
     files, plus docs and skills); `Rc`/`rc` canonical in
     `shared_cell_canonical_names`, with `Box` as the list's second row; the
     prelude `Box`/`box` kept as the legacy spelling for the seed.

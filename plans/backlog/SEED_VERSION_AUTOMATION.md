@@ -277,7 +277,7 @@ cell is still `Box`/`box`. Every `dyn(<non-object>)` it lowers (`std/` and
 `src/` have about 1,600 `dyn(` sites) synthesizes a `box(...)` call that has
 to resolve in the tree's prelude.
 
-- **Part 1 (`feat/vbd-box-to-rc`, on the v0.2.54 seed):**
+- **Part 1 (#1267, on the v0.2.54 seed):**
   - the mechanical rename of every `Box(`/`box(`/`Box.` site in `src/`,
     `std/` and `tests/` (1,173 sites in 141 files), plus docs and skills;
   - `Rc`/`rc` canonical (`shared_cell_canonical_names`), with `Box` as the
