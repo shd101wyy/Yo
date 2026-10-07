@@ -326,14 +326,17 @@ jobs:
           echo "classification: code=$CODE"
 
   # Tree hygiene: cheap always-on checks that protect EVERY path — docs-only
-  # fast-path runs included (markers and stale generated files live in docs).
-  # Added 2026-10-07 after #1231 shipped six unresolved `<<<<<<<` hunks inside
-  # issues/TRIAGE.md: the markers were committed on a branch by an earlier
-  # merge and flowed through every later merge as ordinary text, because git
-  # has no opinion about marker lines in a COMMITTED file. This job is that
-  # opinion. It is on merge-gate's needs list, so nothing merges past it.
+  # fast-path runs included. Added 2026-10-07 after #1231 shipped six
+  # unresolved `<<<<<<<` hunks inside issues/TRIAGE.md: the markers were
+  # committed on a branch by an earlier merge and flowed through every later
+  # merge as ordinary text, because git has no opinion about marker lines in
+  # a COMMITTED file. This job is that opinion. It is on merge-gate's needs
+  # list, so nothing merges past it. (TRIAGE.md itself is now UNTRACKED and
+  # gitignored — a locally generated index, never committed, so it can never
+  # conflict or ship stale; the freshness check that ran here became vacuous
+  # and was removed.)
   tree-hygiene:
-    name: Tree hygiene (no conflict markers; generated files fresh)
+    name: Tree hygiene (no conflict markers; issues/ discipline)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -348,20 +351,10 @@ jobs:
           # suffices with zero false positives (a setext `====` heading rule
           # is not 7 `=` followed by a space-prefixed label on its own line).
           if git grep -nE '^<{7} ' -- .; then
-            echo "::error::unresolved conflict markers are committed. Resolve them; for GENERATED files (issues/TRIAGE.md) regenerate with scripts/gen-issue-triage.py instead of hand-resolving."
+            echo "::error::unresolved conflict markers are committed. Resolve them by hand; there is no longer any generated file in the tree to regenerate instead."
             exit 1
           fi
           echo "no conflict markers in $(git ls-files | wc -l) tracked files"
-
-      - name: Generated files are fresh (issues/TRIAGE.md)
-        run: |
-          set -euo pipefail
-          python3 scripts/gen-issue-triage.py
-          if ! git diff --exit-code -- issues/TRIAGE.md; then
-            echo "::error::issues/TRIAGE.md is stale — regenerate it with: python3 scripts/gen-issue-triage.py"
-            exit 1
-          fi
-          echo "issues/TRIAGE.md is fresh"
 
       # The three issues/ discipline assertions from the repo's own gate:
       # no doc duplicated across root/fixed/retired/questions; every cited
