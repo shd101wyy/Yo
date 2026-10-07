@@ -9,6 +9,18 @@ The design is DECIDED — decision 39 in
 and this doc tracks the V2b implementation requirement plus the V3b sweep
 exemption that must land first.
 
+**Amended 2026-10-07 (second audit #1264, finding 4, confirmed by the
+maintainer):** the "handle + index" iterator the first text of decision 39
+described has no spelling under decision 38 A (a borrow cannot be a struct
+field, a second-class value cannot be returned, and only closures and
+futures hold borrows). Decision 39 now says the iterator holds NO handle:
+read-only walks are the borrowed `for` over the container place, index
+cursors are `xs.indices()` (a `Range(usize)`) with `xs(i)` re-derived,
+`into_iter()` consumes, `Rc(C).iter()` iterates a shared container, and
+`iter()` on a value container leaves the safe surface. Step 2 below
+re-derives the signatures from THAT text; the step 3 test applies to the
+borrowed `for` and to an `indices()` walk.
+
 ## Why neither remaining spelling works after V2b
 
 Today `ArrayList.iter()` takes `self` by value, stores the receiver in
@@ -34,7 +46,8 @@ mutation *through* the iterator, not the iterator's own validity.
 ## The decision (decision 39, 2026-10-07)
 
 - `iter()` and every safe read-only iterator become **index-based**:
-  handle + index, re-derive `xs(i)` at each `next`; growth mid-walk is an
+  an index cursor with no handle to the container (amended 2026-10-07,
+  see above), re-derive `xs(i)` at each step; growth mid-walk is an
   out-of-bounds error, not UB. `into_iter()` keeps consuming.
 - Pointer-yielding iterators stay only beside `ptr()` inside
   `pragma(Pragma.AllowUnsafe)` std files (the `HashMapIterPtr` shape).

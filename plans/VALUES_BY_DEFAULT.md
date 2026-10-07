@@ -25,28 +25,22 @@ Progress:
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
   - decision 32 Generation A, `Rc.clone(w)` (#1241);
-  - decision 35 Generation A, capture lists with decision 38 A/B/D
-    (second-class escapes and freezes, call exclusivity, borrow places;
-    branch `feat/vbd-capture-lists` — scope-based liveness, Generation B
-    refines it);
-  - the §6 measurement (#1220). Its call-site pass is deferred.
-- **In progress:**
-  - the Generation A wave: decision 37's `FnOnce` (with decision 38 C);
-    decision 36's `Copy`; the `Send`/`Sync` split with decision 38 E; local
-    borrows (`imm(y) :=`, decision 25);
-
+  - decision 36 Generation A, the `Copy` trait (#1253);
   - the `Send`/`Sync` split with decision 38 E and the widened `Iso`
-    bound, Generation A (feat/vbd-send-sync);
-  - the §6 measurement (#1220). Its call-site pass is deferred.
-- **In progress:**
-  - the Generation A wave: decision 35's capture lists with decision 38's
-    rules, then decision 37's `FnOnce`; decision 36's `Copy`;
+    bound, Generation A (#1254);
   - local borrows, Generation A: `imm(y) :=`, last-use live ranges,
     place-based exclusivity, rules 3 and 4, and decision 25's re-points
-    (feat/vbd-local-borrows; see V3's "Local borrows");
+    (#1255; see V3's "Local borrows");
+  - decision 35 Generation A, capture lists with decision 38 A/B/D
+    (second-class escapes and freezes, call exclusivity, borrow places;
+    #1259 — scope-based liveness, Generation B refines it);
+  - the §6 measurement (#1220). Its call-site pass is deferred.
+- **In progress:**
+  - decision 37's `FnOnce` with decision 38 C, Generation A (not started;
+    the first item of `plans/handover/VBD_HANDOVER_2026-10-07.md`);
   - V3's remaining async work (§3.13).
-- **Next:** v0.2.53, then the Generation B sweeps (the Box→Rc rename,
-  decision 32's clash error, the V3b sweep and flip).
+- **Next:** the v0.2.54 seed, then the Generation B sweeps (the Box→Rc
+  rename, decision 32's clash error, the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -87,7 +81,7 @@ Unique ownership removes the question instead of answering it.
 
 | Kind | Which types | A copy is | Example |
 | --- | --- | --- | --- |
-| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `rune`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
+| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `char`, `unit`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`std/string/rune.yo`'s `rune` newtype is one) (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
 | **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
 | **move-only** (§3.4) | implements neither `Copy` nor `Clone` (decision 36); a `Dispose` type is never `Copy` | an error unless it is the last use; with `Clone` it is explicit-copy instead (`Sender`) | `f2 := f` moves the `File` |
 
@@ -137,7 +131,7 @@ Unique ownership removes the question instead of answering it.
   | --- | --- | --- | --- |
   | **`Box(T)`** | uniquely owned heap cell, no count (Rust's `Box`); used for recursion and stable addresses | `b.clone()`, deep | as `T` |
   | **`Rc(T)`** | shared and mutable, one thread | `r.clone()`: a new handle to the same object | not `Send` |
-  | **`Arc(T)`** | shared across threads, atomically counted; mutation through `Mutex`/atomics (D3) | `a.clone()` | `Send` and `Sync` when `T <: Sync` |
+  | **`Arc(T)`** | shared across threads, atomically counted; mutation through `Mutex`/atomics (D3) | `a.clone()` | `Send` and `Sync` when `T <: (Send, Sync)` (amended 2026-10-07, second audit #1264 finding 2) |
 
 - **`Dyn(Trait)`** is a uniquely owned, type-erased cell (decision 7).
   - It is explicit-copy when the trait or the payload provides `Clone`
@@ -288,7 +282,7 @@ allocator:
 ```rust
 box :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None) -> Box(T))(...);
 rc :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None) -> Rc(T))(...);
-arc :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None, where(T <: (Sync, Acyclic))) -> Arc(T))(...);
+arc :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None, where(T <: (Send, Sync, Acyclic))) -> Arc(T))(...);
 
 e := Expr.Add(box(l), box(r));                   // T inferred from the argument
 c := rc(node, alloc : .Some(arena.allocator()));  // placed in the arena
@@ -466,9 +460,9 @@ cannot be copied.
 - **`Acyclic`** keeps its meaning. A type that reaches no `Rc`/`Arc` is
   acyclic by construction.
 - **`Send` and `Sync`** (§3.8). `Rc` is neither. `Arc(T)` is both when `T`
-  is `Sync`. A value is `Send` iff every field is. A move-only value follows
-  the same rules: a `File` is `Send`, and a `Mutex(T)` is `Sync` when `T` is
-  `Send`.
+  is `Send` and `Sync` (amended 2026-10-07, second audit #1264 finding 2). A value
+  is `Send` iff every field is. A move-only value follows the same rules: a
+  `File` is `Send`, and a `Mutex(T)` is `Sync` when `T` is `Send`.
 - **`Iso(T)` / `^v`.** `T` is any value that reaches at least one non-atomic
   cell. The deep `ref_count == 1` walk is unchanged.
 - **Reflection** keeps its names and changes its reading:
@@ -509,14 +503,26 @@ today's `Send` means "may be shared across threads". The plan splits the two
 notions, as Rust does:
 
 - **`Send`: the value may be moved to another thread.** A value is `Send`
-  iff it reaches no `Rc`. Moving a `String` or a collection hands over its
-  only owner, so `Channel(String)` and `Channel(ArrayList(T))` work, with
-  no isolation walk and no copy.
+  iff it reaches no `Rc`, no raw pointer (unless its type opts in under
+  `pragma(Pragma.AllowUnsafe)`, decision 38 E) and no type carrying a
+  negative `!(Send())` marker (`Io`, `JoinHandle`) — stated in full
+  2026-10-07, second audit #1264 finding 5; "reaches no `Rc`" alone contradicted
+  38 E. Moving a `String` or a collection hands over its only owner, so
+  `Channel(String)` and `Channel(ArrayList(T))` work, with no isolation
+  walk and no copy.
 - **`Sync`: copies of the value may be read from several threads at once.**
   This covers atomic cells (`Arc`, `Atomic*`, `Mutex`, `std/imm`), plain
   data, uniquely owned buffers whose elements are `Sync`, and values
   composed of them.
-  - `Arc(T)` requires `T <: Sync`.
+  - `Arc(T)` requires `T <: (Send, Sync)` (amended 2026-10-07, second
+    audit finding 2; the first text required `Sync` alone). `Sync` covers
+    the concurrent reads. `Send` is needed because the LAST handle may be
+    dropped on any thread, and `T`'s `Dispose` then runs there: Rust's
+    `Arc<T>: Send + Sync` requires `T: Send + Sync` for the same reason.
+    Decision 38 E lets a type opt into `Sync` without `Send`, or declare
+    `!(Send())` while structurally `Sync`, so the hole is expressible, and
+    every `Sync` type in std today is also `Send`, so the wider bound costs
+    nothing.
   - `Mutex(T)` requires `T <: Send` and is itself `Sync`.
   - `Arc(String)` and `Arc(ArrayList(T))` are legal read-only sharing.
 - **`Iso(T)` / `^v`** remain the explicit "fail if shared" transfer.
@@ -570,6 +576,9 @@ Each kind of root gets its own check:
   - A write through the cell, or an exclusive acquire whose path crosses
     it, asserts that no conflicting mark is held
     (`__yo_borrow_assert_unborrowed`).
+  - On an `Arc` cell the marks are atomic (stated 2026-10-07, second audit #1264
+    finding 9): `imm` lends through different handles run on different
+    threads at once, and a non-atomic shared count would race.
   - That is `RefCell::borrow_mut`'s panic with no annotation, so a plain
     write through `Rc(T)` is sound (decision 4). The assert and the
     mutation mask behind it are the Law of Exclusivity in
@@ -684,7 +693,13 @@ instead.
   - This deletes multi-await, the per-await result dup, and the
     second-spawn bundle rule (`plans/ASYNC_IO_API_AUDIT.md`, A3). V3
     re-checks `__yo_started_child`.
-  - A shared result is `Rc(JoinHandle(T))`.
+  - A result that several tasks need is joined ONCE and shared as `Rc(T)`,
+    or sent through a channel (corrected 2026-10-07, second audit #1264 finding
+    3; the first text said `Rc(JoinHandle(T))`). That spelling cannot
+    work: `join(self, io)` consumes its handle, and nothing is moved out
+    through an `Rc` (decisions 19 and 26), so a handle behind an `Rc` could
+    never be joined. Whether std adds a shared-future adapter (one task
+    joins, the others wait on the result) is a V3 async sub-decision (§9).
 - **A2. A future may borrow, and is then second-class.**
   - **When it borrows.** A function returns a future whose body captures one
     of its `mut` or `imm` parameters of a non-implicitly-copyable type. A
@@ -694,7 +709,12 @@ instead.
     - as the direct operand of `io.await`;
     - as the operand of a future-taking combinator (A4), whose own future
       is then second-class too;
-    - returned under the same rule.
+    - returned under the same rule: every place it borrows is rooted at
+      the returning function's own `imm`/`mut` parameters (decision 38's
+      small rules). At the call site the result then borrows the argument
+      places lent to those parameters, and decision 38 A's transitive
+      freeze holds them until the future's last use (clarified 2026-10-07,
+      second audit #1264 finding 10; the caller-side mapping was unstated).
 
     It cannot be bound to a local, stored, captured or spawned.
   - **No exclusive borrow through an `Rc`/`Arc`.** A `mut` argument whose
@@ -1780,8 +1800,12 @@ and in git, not a silent edit.
       - Without it, `tx.send(msg)` in a spawned closure is
         `tx.send(msg.clone())` (a wasted copy), or an `Option` plus `take`
         through a `mut`/`Rc` capture (noise).
-      - One-shot callbacks are common: thread and task spawns, the
-        `Option`/`Result` combinators, `with_lock`'s body.
+      - One-shot callbacks that ESCAPE are where it matters: thread and
+        task spawns. The `Option`/`Result` combinators and `with_lock`'s
+        body are also called once, but they do not escape and keep
+        `imm(f) : Impl(Fn(...))` (decision 38 C), so a body passed to them
+        cannot move a capture out (corrected 2026-10-07, second audit #1264
+        finding 6; the first text listed them as `FnOnce` motivations).
     - **Why no `FnMut`.** In Rust, an `FnMut` closure is a value whose own
       state changes on every call. Yo never needs one, because every use
       has an explicit spelling:
@@ -1978,8 +2002,10 @@ and in git, not a silent edit.
       value, transitively. The same goes for a tuple, a record, an `Option`
       payload and a generic instantiation: anything that contains a
       second-class value is second-class.
-    - **`Copy` is never first-class.** A second-class closure with only
-      `imm` captures is `Copy` (decision 36). Its copies are second-class
+    - **`Copy` never implies first-class** (reworded 2026-10-07, second
+      audit finding 8; the first text said "`Copy` is never first-class").
+      A second-class closure with only `imm` captures is `Copy` (decision
+      36). Its copies are second-class
       too, and a copy carries the same borrows. So:
       - "`Copy`" never implies "may be stored";
       - decision 34's by-value operand exception needs a first-class
@@ -1999,7 +2025,12 @@ and in git, not a silent edit.
       type, an element type, or a generic argument of a type constructor.
       `type_of(f)` names closure types, so `ArrayList(type_of(f))` is
       checked too. The check runs at the declaration and at every
-      instantiation.
+      instantiation. The rule is about DECLARED storage, a type written in
+      source; a composite VALUE built from a second-class value (`.Some(f)`,
+      the tuple `(f, 1)`) is legal and is itself second-class by the
+      structural rule above, so "an `Option` payload" there and "a generic
+      argument" here do not contradict each other (clarified 2026-10-07,
+      second audit #1264 finding 8).
     - **Transitive freezes.** A borrow, or any second-class value built
       from one, keeps its source live, and so frozen (decision 18), until
       its own last use. This applies transitively through captures, `Copy`
@@ -2201,18 +2232,75 @@ and in git, not a silent edit.
       hot loops that need the raw pointer keep using `ptr()` under the
       pragma. V2b's PR measures the iterator-heavy std tests before and
       after.
+    - **Amended 2026-10-07 by the maintainer (second audit #1264, finding 4):
+      the iterator holds NO handle. "Index-based" means an index cursor,
+      and the borrowed `for` is the ordinary walk.** The first text's
+      "handle to the container plus an index" has no spelling in this
+      design: under decision 38 A a borrow cannot be a struct field and a
+      second-class value cannot be returned; only a closure's capture
+      record and a future's capture slots hold borrows, a closure cannot
+      advance its own index (decision 37, no stateful call), and A2's
+      return exception is for futures alone. So `iter(imm(self))`
+      returning a borrowing iterator is rejected by the very rules that
+      made the pointer iterator unsound, and the `Iterator` trait's
+      `next -> Option(Self.Item)` cannot yield a borrow either
+      (`Option(imm(T))` is a borrow in a type-constructor argument).
+      - **Read-only walks over a value container** are the borrowed `for`
+        over the container place (§3.10): the body is a non-escaping
+        closure, each element is re-derived per step through the place,
+        and no iterator value exists.
+      - **Index cursors.** `xs.indices()` returns a `Range(usize)`, which
+        is `Copy` and first-class, and `xs(i)` is re-derived by the user or
+        by a non-escaping closure: `xs.indices().map(i => xs(i).len())`.
+        This is Swift's index model, and it is what "re-derive `xs(i)` at
+        each step" meant.
+      - **`into_iter()` consumes**, and `iter()` on an `Rc(C)` iterates a
+        shared container through a first-class handle with decision 38 D's
+        per-call marks.
+      - **`iter()` on a value container leaves the safe surface.** A
+        stored, read-only, borrowing iterator (`it := xs.iter(); …
+        it.next()` with `xs` a local value) and lazy adapter chains over a
+        borrowed container are not expressible; a chain that must own its
+        source writes `xs.clone().into_iter()`, an explicit copy.
+      - **Growth mid-walk** is an out-of-bounds error in both the borrowed
+        `for` and an `indices()` walk, which is the test
+        `issues/collection-iterators-have-no-sound-post-v2b-shape.md`
+        requires.
+      - **Recorded for later, not adopted: borrow-mode struct fields.** A
+        named struct declaring `imm(xs) : ArrayList(T)` as a field would be
+        the record decision 35's capture list already builds, second-class
+        by 38 A's structural rule, and with A2's return exception
+        generalized to every second-class value rooted at the callee's own
+        parameters it would give a true borrowing iterator
+        (`struct(imm(xs) : ArrayList(T), i : usize)`, `next(mut(self)) ->
+        imm(T)`). It widens the same escape machinery as decision 37's
+        parked stateful call and is decided together with it, by the same
+        trigger: adapter chains over borrowed containers proving common
+        enough that `for` bodies and `indices()` are a burden. Rejected
+        outright: `rc(xs.clone()).iter()` as the read-only walk, a clone
+        per walk being the hidden copy this plan removes.
 
 40. **No `Pin`: live values never relocate, and borrows stay
     second-class.** Confirmed 2026-10-07 by the maintainer, from the
     design question "does mutable value semantics need Rust's `Pin`?"
-    - **The invariant.** The address of a live non-`Copy` value is stable
-      from construction to `drop`. A move transfers ownership of the
-      underlying storage; it never byte-copies a live object to a new
-      address. Structural `Copy` values — scalars and aggregates that
-      cannot contain interior references in safe code — may be copied
-      freely. Codegen must not lower a move of a non-`Copy` inline value
-      into a relocating byte copy under any optimization: the dup/drop
-      machinery transfers cells, and that is the visible contract.
+    - **The invariant** (corrected 2026-10-07, second audit #1264 finding 1; the
+      first text said a live non-`Copy` value never relocates and that
+      codegen must never lower a move of an inline value as a byte copy,
+      which §0.2's `T x` lowering, §3.11's "a plain struct allocates
+      nothing" and §3.2's stable-address `Box` all contradict). HEAP
+      STORAGE never relocates: a `Box`/`Rc`/`Arc` cell, a `String` or
+      collection buffer, a `Dyn` cell and a started state machine keep
+      their address from allocation to free, and a move of their owner
+      transfers the pointer. An INLINE value (a plain struct, enum, tuple
+      or array held in a local, a field or an element) IS relocated by a
+      move: after V2b `y := x` on an `ArrayList` is a C copy of its three
+      words, and the buffer those words point at stays put. That is why a
+      resource whose address must be stable lives in a `Box` of a
+      move-only state (§3.2, §3.4). Copying an inline value's words is a
+      move, not a hazard, because safe code cannot point into an inline
+      value; what codegen must never do is byte-copy a cell or a buffer.
+      Structural `Copy` values — scalars and aggregates that cannot contain
+      interior references in safe code — may be copied freely.
     - **Why not `Pin`.** `Pin` exists to police exactly one hazard:
       bitwise-moving a value that contains pointers into itself. In safe
       Yo that value is unexpressible — borrows are modes and places
@@ -2225,10 +2313,12 @@ and in git, not a silent edit.
       moving a future moves the cell, not the frame's bytes. With no
       relocation there is nothing to pin — the same position Hylo takes.
     - **The raw-pointer contract.** `addr_of(x)` and raw pointers may rely
-      on the invariant: a live non-`Copy` object's address is good until
-      its `drop`. This universal invariant replaces a per-type pinning
-      protocol; what such a pointer may still not do is cross a thread
-      (§3.8's `Send` rules) or outlive its object, as ever.
+      on the invariant as corrected: a cell's or a buffer's address is good
+      until its free, and an inline value's address is good until that
+      value is moved or dropped (a move is an access the pointer's holder
+      must not outlive). This universal invariant replaces a per-type
+      pinning protocol; what such a pointer may still not do is cross a
+      thread (§3.8's `Send` rules) or outlive its object, as ever.
     - **Revisit triggers.** Each of these would reintroduce the
       relocation hazard by the back door and reopen the question — at
       that point the choice is "extend the stability guarantee or add a
@@ -2686,7 +2776,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     flips them with no compiler change. The TSan move test runs on a value
     struct instead.
   - **Generation B** (`plans/backlog/SEED_VERSION_AUTOMATION.md`): `Arc`
-    and `arc` take `T <: Sync`, `RwLock` takes `T <: (Send, Sync)`, the
+    and `arc` take `T <: (Send, Sync)` (§3.8, as amended 2026-10-07),
+    `RwLock` takes `T <: (Send, Sync)`, the
     `std/imm` element bounds become `Sync`, and the explicit `Arc(T)` `Send`
     impl goes. `Mutex`, `Channel` and `Thread.spawn` keep `Send`. The seed
     does not derive `Sync`, so no std bound may name it before then.
@@ -3036,7 +3127,7 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
 
 ### Decision 36: the `Copy` trait
 
-**Generation A (PR #COPY_PR, branch `feat/vbd-copy-trait`), with
+**Generation A (#1253, branch `feat/vbd-copy-trait`), with
 `Copy: Clone` (#1245, #1246) and the raw-pointer clash (#1247):**
 - **The trait.** `Copy :: trait(id := "Copy", where(Self <: Clone))` in
   `std/prelude.yo`: `Clone` is its supertrait in the ordinary
@@ -3056,8 +3147,20 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - **`fn` pointers** are structural, like tuples: no prelude impl can range
     over every signature, so `type_implements_trait` answers a `.Func` type
     `Copy` and `Clone` directly.
-  - **`rune`** has no type of its own in Yo; `char` is the byte type, and
-    gets the impl.
+  - **`rune`** is not a prelude type: it is the `newtype` in
+    `std/string/rune.yo` (corrected 2026-10-07, second audit #1264 finding 7; the
+    first text said no such type exists), so it opts in there with
+    `derive(rune, Copy, Clone)` in decision 36's Generation B sweep, and
+    the audit's `rune 73` line in §4 counts its copies. `char` is the byte
+    type and gets the prelude impl.
+  - **`str` is `Copy` on one condition:** a `str` is a view, and its copy
+    is sound only because the safe surface derives one from a literal or
+    from another `str` alone (`from_raw_parts` is the unsafe constructor,
+    `std/prelude.yo`), so a view never outlives its bytes. A safe method
+    returning a `str` into an owned buffer (`String.as_str`, being removed;
+    `std/imm`'s `as_str`, which leaves with the package at V5) would be a
+    storable borrow, which decision 40 rules out (stated 2026-10-07, second
+    audit finding 11).
 - **Tuple `Clone`.** The prelude writes element-wise
   `impl(generic(A…), where(A <: Clone, …), Tuple(A, …), Clone(...))` for
   arities 1 to 12, as Rust does, so `t.clone()` dispatches.
@@ -3216,7 +3319,12 @@ compiler; the std shapes are plain structs the seed lowers):
 - **Unique buffers.**
   - `ArrayList(T)` owns a plain buffer, with `Dispose` (free) and `Trace`
     (visit each slot) on its private buffer type. The same goes for every
-    collection and `String`.
+    collection and `String`. V3's landed gate makes `Trace` reference-only
+    (`receiver_kind_trait_violation_msg`, `src/evaluator/trait_checking.yo`:
+    "only a reference type may implement it"), so the same PR widens it to
+    admit the private buffer types, which their owner traverses inline
+    (stated 2026-10-07, second audit #1264 finding 12; §3.5 and this bullet
+    assumed a value-type `Trace` the gate rejects).
   - `clone()` is deep and goes through the source's owner (§3.11).
   - Tests: a list built in an arena, cloned out under the global allocator,
     after which `Arena.deinit` succeeds.
@@ -3361,7 +3469,7 @@ stage-2 RSS):
 | `own(x) : T` / `sink(x) : T` | `x : T` | V3b sweep |
 | `T :: ref(struct(...))` mutated through one handle only | `T :: struct(...)`, mutators `mut(self)` | E0908 audit |
 | `T :: ref(struct(...))` held in two places on purpose | `struct(...)` plus `Rc(T)` at the sharing site | E0908 audit, `__yo_ptr_eq` sites |
-| `T :: atomic(ref(struct(...)))` shared across threads | `Arc(T)` over a value `T` (requires `T <: Sync`) | E0602 at the `Arc` |
+| `T :: atomic(ref(struct(...)))` shared across threads | `Arc(T)` over a value `T` (requires `T <: (Send, Sync)`) | E0602 at the `Arc` |
 | `T :: ref(enum(... Self ...))` | `enum(... Box(Self) ...)`, or `Rc(Self)` for the large compiler trees | V4 list |
 | `Box(T)` whose copies must alias | `Rc(T)` | V1 step 1 renames all; step 2 moves recursion back |
 | an implicit copy of a `String`, collection, `Box` or `Dyn` whose source lives on | `x.clone()`, a move, or `imm(y) := x` | E0901 + note (V2b) |
@@ -3375,7 +3483,7 @@ stage-2 RSS):
 | `Box(T)(v)` / `Arc(T)(v)` in user code | `box(v)` / `arc(v)`; `box(v, alloc : .Some(a))` | docs and skills; E0405 after V5 |
 | `with_allocator(a, () => box(v))` for one cell | `box(v, alloc : .Some(a))` | review |
 | `rc(x)` (the count) | `ref_count(x)` on an `Rc`/`Arc` | done (#1186) |
-| a future awaited twice, or by two tasks | await once; share the result as `Rc(JoinHandle(T))` | E0901 at the second use |
+| a future awaited twice, or by two tasks | await once in one task; share the result as `Rc(T)` or through a channel (A1) | E0901 at the second use |
 | a `JoinHandle` copied, or joined twice | one owner; `join(h, io)` consumes it | E0901 |
 | `race(handles, io)` then reusing `handles` | `match(io.await(race(handles, io), io), (w, rest) => …)` | E0901 at the reuse |
 | a method whose returned future mutates `self` | `mut(self)`, awaited at the call (A2) | the capture audit |
@@ -3419,19 +3527,27 @@ stage-2 RSS):
 
 ## 9. Open questions
 
-No design question is open. The latest were decided as decisions 31 (the
-child wrapper in patterns), 34 (operator operands), 35 (the closure capture
-list), 36 (the `Copy` trait) and 37 (`FnOnce`, and no `FnMut`). Decision
-38 records the closure soundness rules from the 2026-10-06 audit; its D
-rule was extended to borrowing future captures on 2026-10-07 (audit
-#1251). Decision 39 (2026-10-07, same audit) makes post-V2b iterators
-index-based. Decision 18 was also
-amended to place-based exclusivity.
+No design question is open. The latest decisions were 31 (the child wrapper in patterns), 34 (operator
+operands), 35 (the closure capture list), 36 (the `Copy` trait) and 37
+(`FnOnce`, and no `FnMut`). Decision 38 records the closure soundness rules
+from the 2026-10-06 audit; its D rule was extended to borrowing future
+captures on 2026-10-07 (audit #1251). Decision 39 (2026-10-07, same audit)
+makes post-V2b iterators index-based; it was amended the same day (second
+audit, finding 4) so that the iterator holds no handle: index cursors and
+the borrowed `for`. Decision 40 (2026-10-07) rules out
+`Pin`; its invariant was corrected the same day (second audit #1264, finding 1).
+Decision 18 was also amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
 inside a settled design:
 - **A6:** what the bundle copy does with an `Rc`/`Arc` field: clone it,
   or make bundles explicit-copy. Decided in V2c.
+- **§3.13 A1:** whether std adds a shared-future adapter (one task joins,
+  the others wait on the result), now that `Rc(JoinHandle(T))` is known
+  not to work. Decided in V3's async work.
+- **Decision 39:** borrow-mode struct fields as the path to a true
+  borrowing iterator, decided together with decision 37's stateful call,
+  by the same trigger.
 - **§3.10:** whether `pragma(Pragma.StrictBorrow)` is deleted or kept for
   `Rc` roots. Decided in V2b, when the collections' headers go.
 - **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
