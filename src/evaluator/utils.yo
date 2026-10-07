@@ -638,6 +638,71 @@ _owning_param_binding_for_capture_move :: (fn(env : Environment, name : String) 
   });
   Option(Variable).None
 });
+/// Decision 37 (plans/VALUES_BY_DEFAULT.md): the call `f(...)` of a closure
+/// typed `FnOnce(...)` takes it as `self`, so it CONSUMES the binding `v`
+/// that names it: a later use, a second call included, is E0901 pointing at
+/// this call. Inside a specialized body `v` is the non-owning shadow of a
+/// `sink(f) : Impl(FnOnce(...))` parameter, and the call consumes the owning
+/// binding the caller's transfer handed the closure to, as a capture's move
+/// does (`move_captured_explicit_copy_variable`). Storage the call cannot
+/// take the closure from is rejected: a borrowed parameter (a non-escaping
+/// API cannot take `FnOnce`), an `inout` binding, a module-level binding, and
+/// the by-value capture of a closure typed `Fn(...)` (E0913). A re-evaluation
+/// of the same call site is not a second call.
+consume_called_fnonce_closure :: (fn(callee : AstExpr, v : Variable, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  tok := ast_expr_token(callee);
+  same_site := match(
+    v.consumed_at_token,
+    .Some(moved_at) => ((moved_at.*.row == tok.row) && ((moved_at.*.column == tok.column) && (moved_at.*.module_path == tok.module_path))),
+    .None => false
+  );
+  if(same_site, {
+    return(());
+  });
+  owner := if(!v.is_owning_the_rc_value && v.is_parameter && !v.is_ref, _owning_param_binding_for_capture_move(env, v.name.clone()), Option(Variable).None);
+  what := cond(
+    v.is_module_level => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
+    v.is_ref => Option(String).Some(String.from("it is an `inout` binding, which names storage the caller owns")),
+    (v.is_parameter && !v.is_owning_the_rc_value && owner.is_none()) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value, `sink(f) : Impl(FnOnce(...))` (only an API the closure escapes into calls it once)")),
+    true => Option(String).None
+  );
+  match(
+    what,
+    .Some(w) => raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          tok,
+          `use of moved value: cannot call \`${v.name}\`: an \`FnOnce(...)\` call consumes the closure, and \`${v.name}\` cannot give it away: ${w}.`,
+          Option(String).Some(String.from("call an `Fn(...)` closure through a borrow; an `FnOnce(...)` closure is called once, by its owner"))
+        ),
+        E_USE_OF_MOVED_VALUE
+      ),
+      ctx,
+      exn
+    ),
+    .None => cond(
+      is_fn_capture_value_binding(v.id) => raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `Cannot call \`${v.name}\` here: it is a by-value capture of a closure typed \`Fn(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
+            Option(String).Some(String.from("type the enclosing closure `FnOnce(...)`, so its body owns its captures"))
+          ),
+          E_CLOSURE_MOVES_CAPTURE
+        ),
+        ctx,
+        exn
+      ),
+      owner.is_some() => {
+        o := match(owner, .Some(x) => x, .None => v);
+        _log_user_move(o, tok, env);
+        o.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+        v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      },
+      true => set_expr_as_consumed(callee, env, false, ctx, exn)
+    )
+  );
+});
 move_captured_explicit_copy_variable :: (fn(v : Variable, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
   match(
     v.consumed_at_token,
@@ -3337,7 +3402,7 @@ in_compile_time_fn_body :: (fn(ctx : EvalContext) -> bool)(
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
-export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, transfer_explicit_copy_value);
+export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, consume_called_fnonce_closure, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
 export(audit_copy_trait_enabled, audit_pending_copies_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);

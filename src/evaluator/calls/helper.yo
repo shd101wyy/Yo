@@ -3385,11 +3385,6 @@ create_specialized_function_inline :: (
             .Func({ meta : __fm_rb }) => __fm_rb.*.param_is_ref,
             _ => ArrayList(bool).new()
           );
-          decl_param_is_owning := match(
-            func_type,
-            .Func({ meta : __fm_rbo }) => __fm_rbo.*.param_is_owning,
-            _ => ArrayList(bool).new()
-          );
           // The re-bind is NON-owning even for an `own(p)` parameter, and
           // that is load-bearing, not an oversight: it re-binds only a
           // closure parameter or one whose argument FOLDED to a constant
@@ -3400,11 +3395,6 @@ create_specialized_function_inline :: (
           // (`dyn(NotFound(...))` boxes a folded struct through
           // `box(own(value))`). Phase 2.5 of plans/TYPE_SYSTEM_SOUNDNESS.md
           // tried the declared flag here and reverted it.
-          //
-          // The one exception is a `sink(f) : Impl(FnOnce(...))` closure
-          // parameter (plans/VALUES_BY_DEFAULT.md decision 37): calling `f`
-          // consumes it, so the callee must OWN it — the caller moved it in —
-          // and drops it at scope end only when the body did not call it.
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
@@ -3729,13 +3719,6 @@ create_specialized_function_inline :: (
                 }),
                 .None => ()
               );
-              cl_owns := (
-                match(decl_param_is_owning.get(rbp_i), .Some(b) => b, .None => false) && match(
-                  extract_fn_trait_from_type(bind_pt_cl),
-                  .Some(cl_ft) => match(cl_ft, .FnTraitT(base_name : cl_fb) => (cl_fb == "FnOnce"), _ => false),
-                  .None => false
-                )
-              );
               _rbc := bind_parameter(
                 callee_env,
                 p_label,
@@ -3743,7 +3726,7 @@ create_specialized_function_inline :: (
                 Option(EvalValue).Some(create_unknown_val(bind_pt_cl)),
                 false,
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
-                cl_owns,
+                false,
                 synthetic_token(p_label, callee_env.module_path)
               );
             }, if(cur_is_folded_const, {
