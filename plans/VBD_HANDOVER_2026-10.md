@@ -125,7 +125,7 @@ Each is Generation A: src/ and std/ must still build with the v0.2.52 seed (§5.
 
 | Issue | Severity | Note |
 | --- | --- | --- |
-| `issues/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md` | **S1** | Confirmed in today's runtime. The repro is `issues/repros/…`; it prints `resurrected v=0 rc=0 tracked=1`. The fix is PEP 442-style: re-check white counts after the dispose pass and keep resurrected cells. **Not started**; do it early. |
+| `issues/fixed/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md` | **S1** | Confirmed in that day's runtime. The repro is `issues/repros/…`; it printed `resurrected v=0 rc=0 tracked=1`. The fix was PEP 442-style: re-check white counts after the dispose pass and keep resurrected cells — **FIXED in #1256** (2026-10-07). |
 | `issues/a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md` | S3 | Filed by #1240. The fix is a design choice that decision 34 leaves open (binary operator traits label their first operand `lhs`, so they have no vtable slot). |
 | `issues/a-partially-applied-constructor-names-its-instances-with-an-internal-name.md` | S3 | Filed by #1241. |
 | `issues/a-member-read-on-a-primitive-value-has-no-diagnostic.md` | S3 | No test yet; the test lands with the fix. |
