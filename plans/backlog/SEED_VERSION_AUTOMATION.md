@@ -207,6 +207,22 @@ to the seed:
 - Delete the prelude `Box`/`box`, and make `Rc`/`rc` canonical.
 - Delete the `Box` row from `shared_cell_names_at`.
 
+## Seed-gated follow-up (2026-10-06): local borrows (VALUES_BY_DEFAULT V3)
+
+**Generation A DONE 2026-10-06** (feat/vbd-local-borrows): the compiler
+accepts `imm(y) := place` and the re-points `imm(cur) = place` /
+`mut(cur) = place`, and enforces last-use live ranges, place-based
+exclusivity (E0911) and the function boundary (E0912: `return(<a place
+rooted at the borrow>)` and a body-tail yielding one are rejected) for
+every local borrow, `inout(y) :=` included.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+nothing to flip. `std/` and `src/` may then write `imm(y) :=` and re-points
+(a seed without them rejects `imm(y) :=` as "not supported yet" and
+evaluates `mut(cur) = place` as a call of an unknown `mut`). No `std/` or
+`src/` site uses a local borrow today, so the new exclusivity rules need no
+migration there.
+
 ## Seed-gated follow-up (2026-10-01): `ArrayList.push` states its elements
 
 **Generation A DONE 2026-10-01** (`feat/verifier-for-produced`,

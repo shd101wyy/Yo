@@ -29,8 +29,10 @@ Progress:
 - **In progress:**
   - the Generation A wave: decision 35's capture lists with decision 38's
     rules, then decision 37's `FnOnce`; decision 36's `Copy`; the
-    `Send`/`Sync` split with decision 38 E; local borrows (`imm(y) :=`,
-    decision 25);
+    `Send`/`Sync` split with decision 38 E;
+  - local borrows, Generation A: `imm(y) :=`, last-use live ranges,
+    place-based exclusivity, rules 3 and 4, and decision 25's re-points
+    (feat/vbd-local-borrows; see V3's "Local borrows");
   - V3's remaining async work (§3.13).
 - **Next:** v0.2.53, then the Generation B sweeps (the Box→Rc rename,
   decision 32's clash error, the V3b sweep and flip).
@@ -2323,9 +2325,10 @@ and in git, not a silent edit.
 3. **V3, compiler:** move-only values and the general predicate.
    - Generation A landed in #1217. It also brings decision 26 for move-only
      payloads.
-   - Still to come: the async rules (§3.13), `Iso`, `Send`/`Sync`, then
-     `imm(y) :=`, last-use live ranges, and decision 25's re-pointing
-     without the projection step.
+   - Still to come: the async rules (§3.13), `Iso`, `Send`/`Sync`.
+   - Local borrows (`imm(y) :=`, last-use live ranges, decision 25's
+     re-pointing without the projection step): Generation A on
+     feat/vbd-local-borrows (V3, "Local borrows").
 4. **V3b:** the parameter conventions (decisions 30, 33 and 34) and the
    capture list (decision 35).
 5. **V1 step 2:** the unique `Box`, explicit-copy from its first commit.
@@ -2603,6 +2606,94 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
 - **Local borrows:** `imm(y) := place`, last-use live ranges, decision 18's
   place-based exclusivity, and decision 25's re-pointing (without the
   projection step).
+  - **Generation A, as landed** (feat/vbd-local-borrows). The compiler
+    enforces it for `imm(y) :=`, `mut(y) :=` and `inout(y) :=` alike; no
+    `src/` or `std/` code uses a local borrow (the prelude's borrowed `for`
+    binds a pointer-dereference place, which the model leaves out).
+    - **Where it lives.** `src/evaluator/utils.yo`, "Local borrows": a
+      `LocalBorrowInfo` per binding in scope (`g_local_borrows`, truncated
+      when its block ends), places as (root, field steps), and the hooks:
+      the identifier and `.` evaluators (reads; a `.` chain reports its
+      outermost place), assignment targets, the `mut`/`inout` arguments and
+      receivers the callee's mutation mask says it writes (`d3_check_pending`),
+      moves (`set_expr_as_consumed`), and a `mut` binding (an exclusive
+      access). A conflict is E0911 (`E_LOCAL_BORROW_CONFLICT`); a write
+      through `imm` is E0908.
+    - **The function boundary (decision 18 rule 1, decision 38 A).** A
+      local borrow never crosses the function boundary:
+      `return(<a place rooted at the borrow>)` and a body whose result
+      expression is one (a block tail that yields it, including a nested
+      block the body's result ends in) are **E0912**
+      (`E_LOCAL_BORROW_ESCAPES`); reading the value out into an owned local
+      first (`v := y;` … `v`) is the way out. A call or index on the place
+      (`y.len()`, `xs(i)`) and an operation on the borrow are fine: their
+      result is the callee's, not the place. The rejection covers
+      `imm`/`mut`/`inout` bindings alike; `inout`/`mut` **parameters** are a
+      different mechanism and still return the pointee copy until V3b's
+      plain parameters become borrows. A `cond`/`match` arm whose block
+      yields a borrow as the body's result is not yet caught (it is the
+      same escape shape; the arms flow through the cond/match evaluators,
+      which do not carry the chain identity) — it joins the rule with
+      decision 38 A's closure work, the closure analogue being E0909 there
+      (`feat/vbd-capture-lists`' `E_BORROW_ESCAPES`).
+      `issues/fixed/a-local-borrow-crossed-the-function-boundary-in-a-return-or-a-body-tail.md`
+      records the bug (both shapes were accepted, returning the pointee
+      copy) and the fix.
+    - **Error codes.** The local-borrow rules take **E0911/E0912**; the
+      closure branch (`feat/vbd-capture-lists`) keeps **E0909/E0910** for
+      `E_BORROW_ESCAPES`/`E_BORROW_CONFLICT`, so both branches merge without
+      a collision.
+    - **Live ranges.** A binding's block hands it the statements after it
+      (`local_borrow_set_lookahead`). The range ends at the innermost
+      statement holding the last mention that is not a block or a branch arm:
+      a whole loop (so the back edge keeps it live), a whole call (so an
+      argument stays borrowed for the call). An access in a later arm of the
+      same `cond`/`match` is after the range. This is syntactic and
+      conservative: a use that only an earlier arm reaches still extends the
+      range over a later arm's access.
+    - **Places.** The steps stop at the first step into a reference cell
+      (`ref` objects, `Box`, `Rc`, `Arc`, `Dyn`: the cell is the unit), at an
+      index, a dereference, or a member that is not a value-aggregate field.
+      Two places overlap when one is a prefix of the other; roots are
+      identified by name and declaration token (a branch reassignment mints a
+      new variable id).
+    - **Rule 3** fires at a runtime call in a module-level borrow's range
+      (not at a compile-time-evaluated call or a scalar operator); **rule 4**
+      at an `io.await`/`.await` in the range of a borrow whose declaration or
+      a re-point crossed a cell or a module-level root.
+    - **Decision 38 A** as it applies to local borrows: a borrow of a borrow
+      extends its parents' ranges to its own (transitive freeze), and a
+      re-point is E0911 while a borrow derived from the re-pointed one is
+      live. Closures cannot capture a local borrow today (the existing
+      rejection), and borrowing futures are A2's, so the capture and future
+      halves of 38 A have nothing to act on yet; they land with decision 35's
+      capture lists and A2.
+    - **Re-points** (`imm(cur) = place`, `mut(cur) = place`, keeping the
+      declared mode): the place is a field chain rooted at `cur` or at a
+      `match` binding over `cur` (`local_borrow_note_pattern_binding`). A
+      `match` binding is a copy until decision 26's place bindings, so a
+      re-point through one must step into a cell. The declared place stays in
+      the frozen set, and so does the binding a re-point went through.
+    - **The step pin.** When the block re-points the borrow, the binding gets
+      a hidden owning local (`record_local_borrow_step_pin`), declared null
+      beside it. Each step through a cell takes the new cell (+1) before it
+      releases the old one, and the ordinary scope-end drop releases the last
+      one on every exit (`break`, `return`, `unwind`, the async abort path).
+      The step pin is released at the borrow's scope end, not at its last use.
+  - **Deferred.**
+    - **The run-time flag** (decision 18 rule 3's "keeps the run-time flag
+      on that cell", and decision 25's "flags it"): the cell header has one
+      `borrow_count`, which cannot express decision 28's shared and exclusive
+      marks, and a flag released at scope end would make a statically legal
+      access after the last use panic. Both land with decision 28's `Rc` arm,
+      which brings the marks, the write-site assert and last-use release.
+      Until then a conflict through two handles of one cell is not caught.
+    - **The projection step** of "reached from `cur`", with V2b.
+    - **Re-points through a `match` binding without a cell step**, with
+      decision 26's `mut` scrutinees.
+  - **Generation B** has nothing to flip: `std/` and `src/` may use `imm(y)
+    :=` and re-points once `SEED_VERSION` carries this
+    (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 **std** (over `ref(struct)` still; Generation A for the type shapes,
 Generation B for methods that need the seed to enforce move-only). This half
@@ -2741,8 +2832,9 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     `imm`/`mut` and the snake_case names.
   - **Local bindings.** `mut(y) := place` is `inout(y) := place` at every
     site that recognizes the binding (`ast_expr_is_inout_mode_call`).
-    `imm(y) := place` is rejected with "not supported yet". It is V3's
-    follow-up with last-use live ranges (decision 18).
+    `imm(y) := place` was rejected with "not supported yet" here; V3's
+    local-borrow work (feat/vbd-local-borrows) added it with last-use live
+    ranges (decision 18).
   - **`&mut`** is one operator token. The lexer emits it for a lone `&` that
     ends an operator run and is directly followed by the word `mut`, so
     `&&mut` is still `&&` followed by `mut`.
@@ -2782,7 +2874,8 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - **Collisions.** `std/term.yo`'s `size_of` became `term_size`. Six
     `type_id` locals in `src/` became `tid`. Parameters and fields named
     `type_id` are not binding sites and stay.
-  - **Not in Generation A:** `imm(y) :=`, re-points, projection results,
+  - **Not in Generation A:** projection results (`imm(y) :=` and re-points
+    landed with V3's local borrows),
     lambda parameters spelled `(mut(n)) => …` (a lambda takes its modes
     from the expected `Fn` type, and `(inout(n)) => …` is not legal
     either), and `for(xs, mut(x) => …)`.

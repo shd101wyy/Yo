@@ -34,6 +34,7 @@
   module_global_recording_mark,
   rollback_module_level_globals_to
 } :: import("../../expr_info.yo");
+{ local_borrows_mark, local_borrows_truncate } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
 { set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -204,6 +205,7 @@ evaluate_comptime_expect_error :: (
   // The expected throw can strand cond.yo's branch-group entries (push
   // without pop) — truncate back to this depth after the arg eval.
   saved_branch_groups := branch_group_stack_len();
+  saved_local_borrows := local_borrows_mark();
   // Module-level globals registered by the (expected-to-fail) arg eval must
   // not survive it — see expr_info.yo's rollback comment.
   saved_mg_mark := module_global_recording_mark();
@@ -290,6 +292,7 @@ evaluate_comptime_expect_error :: (
     });
   };
   truncate_branch_group_stack(saved_branch_groups);
+  local_borrows_truncate(saved_local_borrows);
   rollback_module_level_globals_to(saved_mg_mark);
   if(arg_threw, {
     // The optional second argument is the text the error must contain: an

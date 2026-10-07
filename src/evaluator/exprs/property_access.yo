@@ -51,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name } :: import("../../diagnostics.yo");
-{ attach_temp_variable_to_expr } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -440,6 +440,9 @@ evaluate_property_access :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
+  // The receiver of an enclosing `.` place chain reports no access of its
+  // own (local borrows, plans/VALUES_BY_DEFAULT.md decision 18).
+  lb_is_receiver := local_borrow_take_receiver(expr);
   // Guard: must be a "." function call.
   if(!ast_expr_is_fn_call_of(expr, BF_DOT, .None), {
     exn.throw(
@@ -657,8 +660,16 @@ evaluate_property_access :: (
   old_expected_type := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   // RAW — see the comment at the `is_kind` early-return above.
+  local_borrow_mark_receiver(object_expr);
   object_expr = evaluate_expression_raw(object_expr, env, ctx, exn);
+  local_borrow_clear_receiver();
   ctx.expected_type = old_expected_type;
+  // The outermost node of a place chain reads the whole place: E0911 while a
+  // `mut` borrow of an overlapping place is live (decision 18; siblings stay
+  // free).
+  if(!lb_is_receiver && local_borrows_active(), {
+    local_borrow_access_expr(expr, LocalBorrowAccess.Read, ast_expr_token(property_expr), env, ctx, exn);
+  });
   // Update env from the evaluated object's ExprInfo.
   obj_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(object_expr));
   match(
