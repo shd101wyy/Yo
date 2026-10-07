@@ -101,13 +101,23 @@
 /// nested bundle fields) and the C access path into the future's capture/bundle.
 EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
 /// True if the extern name is defined in the async runtime (poll / fs_event /
-/// async / waker prefixes). The `__yo_waker_*` family lives in runtime_core:
-/// a program that only stores a `Waker` (its Dispose calls
+/// async / waker / join prefixes). The `__yo_waker_*` family lives in
+/// runtime_core: a program that only stores a `Waker` (its Dispose calls
 /// `__yo_waker_release`) never awaits, so without the prefix the runtime was
 /// not emitted and the call was undeclared
 /// (issues/fixed/a-waker-in-a-program-without-await-calls-an-undeclared-runtime-function.md).
+/// Same shape for `__yo_join_*`: `__yo_join_handle_release_raw` sits in
+/// `JoinHandle(T)`'s Dispose, so NAMING `JoinHandle(T)` inside a sync body
+/// instantiates the type, emits that Dispose body, and pulls in no runtime —
+/// the call was undeclared. The `__yo_join_wait_*` family behind std/async's
+/// combinators is covered by the same prefix
+/// (issues/fixed/naming-joinhandle-inside-a-sync-test-body-emits-a-call-to-an-undeclared-runtime-function.md).
 is_async_runtime_extern_name :: (fn(name : String) -> bool)(
-  name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_") || name.starts_with("__yo_async_") || name.starts_with("__yo_waker_")
+  name.starts_with("__yo_poll_") ||
+    name.starts_with("__yo_fs_event_") ||
+      name.starts_with("__yo_async_") ||
+        name.starts_with("__yo_waker_") ||
+          name.starts_with("__yo_join_")
 );
 /// The FIRST effect type of an io.async call's own recorded Future trait type,
 /// when it is CONCRETE (not a SomeT). This is the per-call stamp: for the

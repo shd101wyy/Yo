@@ -110,6 +110,11 @@ MapCollision :: (
     )
   )
 );
+// SAFETY: `_pairs_ptr` owns the node's entries, which no operation writes
+// after construction; every copy reads them, so the node is Send and Sync
+// when its keys and values are Sync (plans/VALUES_BY_DEFAULT.md decision 38 E).
+impl(generic(K : Type, V : Type), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)), MapCollision(K, V), Send());
+impl(generic(K : Type, V : Type), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)), MapCollision(K, V), Sync());
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
@@ -145,6 +150,12 @@ MapBranch :: (
     )
   )
 );
+// SAFETY: `_children_ptr` owns the node's children (`MapNode(K, V)`), which
+// no operation writes after construction; every copy reads them, so the node
+// is Send and Sync when its keys and values are Sync
+// (plans/VALUES_BY_DEFAULT.md decision 38 E).
+impl(generic(K : Type, V : Type), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)), MapBranch(K, V), Send());
+impl(generic(K : Type, V : Type), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)), MapBranch(K, V), Sync());
 /// Tagged union representing a single HAMT node.
 MapNode :: (
   fn(

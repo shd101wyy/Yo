@@ -221,7 +221,8 @@ import("std/fmt");
   BF_COMPTIME_STRING_INDEX,
   BF_COMPTIME_STRING_INDEX_RANGE,
   BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,
-  BF_COMPTIME_ARRAY_INDEX
+  BF_COMPTIME_ARRAY_INDEX,
+  ast_expr_is_local_borrow_mode_call
 } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
@@ -237,7 +238,7 @@ import("std/fmt");
 { set_evaluate_expression_fn, set_evaluate_expression_raw_fn } :: import("./expr.yo");
 { BindingResult, evaluate_binding } :: import("./binding.yo");
 { register_rerun_pending_def_evals } :: import("../calls/function_type.yo");
-{ evaluate_initialization_assignment } :: import("./initialization_assignment.yo");
+{ evaluate_initialization_assignment, evaluate_local_borrow_repoint } :: import("./initialization_assignment.yo");
 { evaluate_assignment } :: import("./assignment.yo");
 { evaluate_recur } :: import("./recur.yo");
 { evaluate_runtime, evaluate_borrow_check } :: import("./runtime.yo");
@@ -701,8 +702,11 @@ _evaluate_expression :: (
             ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, BK_CONST, .Some(usize(2))))
         ) =>
           evaluate_initialization_assignment(expr, env, ctx, exn),
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2)))) =>
-          evaluate_assignment(expr, env, ctx, exn),
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2)))) => cond(
+          // `imm(cur) = place` / `mut(cur) = place`: a re-point (decision 25).
+          ast_expr_is_local_borrow_mode_call(ast_expr_get_arg0(expr), .Some(usize(1))) => evaluate_local_borrow_repoint(expr, env, ctx, exn),
+          true => evaluate_assignment(expr, env, ctx, exn)
+        ),
         ((__dk_len == usize(2)) && ast_expr_is_fn_call_of(expr, "->", .Some(usize(2)))) => {
           arg0 := ast_expr_get_arg0(expr);
           cond(

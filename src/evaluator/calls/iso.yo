@@ -18,12 +18,12 @@ pragma(Pragma.AllowUnsafe);
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_iso, t_type } :: import("../../types/creators.yo");
-{ is_iso_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_reference_struct_type, is_reference_enum_type, is_function_type, is_some_type } :: import("../../types/guards.yo");
+{ is_iso_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type, is_function_type, is_some_type } :: import("../../types/guards.yo");
 { resolve_struct_shell, resolve_enum_shell } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ can_type_form_rc_cycle, type_has_no_open_some, is_closure_capture_struct } :: import("../../types/utils.yo");
+{ can_type_form_rc_cycle, type_has_no_open_some, is_closure_capture_struct, type_reaches_non_atomic_cell } :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { EvalContext, ExpectedTypeCtx, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
@@ -315,15 +315,19 @@ evaluate_iso_type_call :: (
       ),
       .None => ()
     );
-    child_is_object := (is_reference_struct_type(child_type) || is_reference_enum_type(child_type));
-    if(!child_is_object || (is_atomic_reference_struct_type(child_type) || is_atomic_reference_enum_type(child_type)), {
+    // `T` is any value that reaches at least one non-atomic cell
+    // (plans/VALUES_BY_DEFAULT.md §3.6): a non-atomic object, or a value
+    // (struct, enum, tuple, array) holding one inline. The Iso holds an
+    // object by its handle and a value inline.
+    child_is_atomic := (is_atomic_reference_struct_type(child_type) || is_atomic_reference_enum_type(child_type));
+    if(child_is_atomic || !type_reaches_non_atomic_cell(child_type), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(expr),
             cond(
-              !child_is_object => `Iso(${type_to_string(child_type)}) is not allowed: Iso isolates a reference-counted OBJECT (a ref struct or ref enum — ArrayList, HashMap, Box, a user ref(struct)) so it can move to one other thread, and ${type_to_string(child_type)} is not one. A value type is copied on send — pass it directly, or put it in a Box.`,
-              true => `Iso(${type_to_string(child_type)}) is not allowed: an atomic object is already shared safely across threads (it is Send) — send it directly.`
+              child_is_atomic => `Iso(${type_to_string(child_type)}) is not allowed: an atomic object is already shared safely across threads (it is Sync) — send it directly.`,
+              true => `Iso(${type_to_string(child_type)}) is not allowed: Iso isolates a value that reaches a non-atomic cell (a ref struct or ref enum — ArrayList, HashMap, Rc, a user ref(struct) — or a value holding one) so it can move to one other thread, and ${type_to_string(child_type)} reaches none. Such a value is moved as it is — pass it directly.`
             )
           )
         )

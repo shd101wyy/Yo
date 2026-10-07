@@ -23,6 +23,7 @@ FILES=(
   tests/thread_pool.test.yo
   tests/arc.test.yo
   tests/iso.test.yo
+  tests/send_sync.test.yo
   tests/cross_thread_wake.test.yo
   tests/spawn_blocking.test.yo
   tests/imm_threading.test.yo

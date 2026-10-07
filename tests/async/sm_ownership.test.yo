@@ -384,21 +384,23 @@ test("aborting a task in the second of two sibling scopes that share a slot", {
 });
 // An `inout` binding through an object pins it (a hidden owning local); in a
 // state machine the pin lives in a task slot, released once at the end of its
-// scope or by the abort dispose.
+// scope or by the abort dispose. The binding itself ends before the await (a
+// borrow through a reference cell may not be live across one, decision 18
+// rule 4), but its pin holds the first object to the end of the scope.
 _pin_across_await :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     o := Thing(n : i32(1));
     inout(r) := o.n;
+    r = (r + i32(1));
     o = Thing(n : i32(5));
     e.await(sleep(nap), e);
-    r = (r + i32(1));
-    r + o.n
+    o.n + i32(2)
   })
 );
 test("a pinned object is released once when the task completes", {
   g_disposed = i32(0);
   r := io.await(_pin_across_await(u64(0), io), io);
-  assert(r == i32(7), "the binding writes the pinned object, o is the new one");
+  assert(r == i32(7), "the binding wrote the pinned object, o is the new one");
   assert(g_disposed == i32(2), "the pinned object and the new one are each disposed once");
 });
 _abort_pinned :: (fn(io : Io) -> unit)({

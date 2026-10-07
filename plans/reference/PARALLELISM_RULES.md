@@ -1,7 +1,8 @@
 # Parallelism rules
 
 **Status:** DECIDED 2026-09-25 by the parallelism-soundness audit
-(`plans/archive/PARALLELISM_SOUNDNESS.md`); **ALL LANDED 2026-09-26.** D9 was added while
+(`plans/archive/PARALLELISM_SOUNDNESS.md`); **ALL LANDED 2026-09-26.** D10, the `Send`/`Sync`
+split, was added on 2026-10-06. D9 was added while
 closing that plan. The audit measured D1–D8 as violated on develop `e9b159709`. Each rule's
 status line names where it is enforced. A change to a rule is a new decision: record it here,
 with its reason.
@@ -11,6 +12,34 @@ These rules are what makes the user-facing guarantee in `docs/en-US/THREAD_SAFET
 > For every program that compiles without `pragma(Pragma.AllowUnsafe)` and uses only primitives
 > from `std/`, every shared cross-thread mutable access is mediated by a synchronization
 > primitive. The program is data-race-free under the C11 memory model.
+
+## D10 — `Send` is a move, `Sync` is sharing
+
+**Status:** LANDED 2026-10-06, Generation A (plans/VALUES_BY_DEFAULT.md §3.8 and decision 38 E,
+feat/vbd-send-sync). This amends the marker every rule below names.
+
+The single `Send` marker meant "may be shared across threads". It is split, as in Rust:
+
+- **`Sync`**, today's derivation: copies of the value may be read from several threads at once.
+  Plain data, atomic cells and values composed of them are `Sync`; a non-atomic cell is not.
+- **`Send`**: the value may be moved to another thread. A value is `Send` iff every component is,
+  and it reaches no non-atomic cell. An atomic object is `Send` iff it is `Sync`, because its
+  copies share one payload; `Mutex(T)` is `Sync` for `T <: Send`.
+- **Raw pointers** are neither, unless a type opts in with `impl(T, Send())` / `impl(T, Sync())`
+  under the pragma (std: `Channel`, `Mutex`, `Waker`, `ImmString`, the `std/imm` nodes). The
+  atomic-object field check is not run in a pragma'd file, where the opt-in is the audit.
+- **`Dyn(Trait)`** is either only through an explicit bound. `dyn(v)` into `Dyn(Trait, Send)`
+  checks `v` for `Send`, and for `Sync` too while a `Dyn`'s copies share its payload.
+- **Closures**: `Sync` is structural over the captures, and a closure that borrows its captures
+  is never `Send`.
+
+What the rules below ask after the split: D1's global must be `Sync` (a global is shared), and its
+reach walk runs for a `Sync` closure slot and a `Dyn(Trait, Sync)` too. D4 and D9 judge both
+markers. D2's `Iso(T)` stays the explicit move of a non-`Send` graph; `T` is any value that
+reaches a non-atomic cell.
+
+Until V2b gives `String` and the collections unique buffers, they reach a non-atomic cell and are
+not `Send`. Moving one is not safe while a copy on the sending thread shares its count.
 
 ## D1 — Module-level runtime bindings must be thread-safe
 

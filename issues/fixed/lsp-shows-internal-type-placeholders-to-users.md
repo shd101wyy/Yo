@@ -16,7 +16,7 @@ has no written name. Nothing else reads the table, so identity is untouched.
 Enum instantiations needed no new type field after all: the id is enough as
 the key.
 
-**Status:** OPEN
+**Status:** FIXED (stale header read OPEN; the doc sits in fixed/)
 **Found:** 2026-08-25, reading the `lsp-completion` CLI golden while landing
 `derive(Default)`.
 **Severity:** low (cosmetic), but it is on the most-seen surface in the language.

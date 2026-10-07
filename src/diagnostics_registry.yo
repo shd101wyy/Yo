@@ -55,6 +55,8 @@ json :: import("std/encoding/json");
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
   E_WRITE_THROUGH_BORROW,
+  E_LOCAL_BORROW_CONFLICT,
+  E_LOCAL_BORROW_ESCAPES,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -514,12 +516,42 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "通过借用的值写入",
       "A write (a field or element assignment, or an `inout` argument the callee may write) would change or release a value that the binding it goes through does not own.",
       "一次写入（字段或元素的赋值，或被调用方可能写入的 `inout` 实参）会改变或释放一个其所经由的绑定并不拥有的值。",
-      "A by-value parameter and a `match` or `for` binding borrow their value: the storage is a copy of the caller's (or the matched value's), and the RC data inside it still belongs to the caller. Writing a field whose old value holds RC data (a `String`, a collection, a `Box`, …) would release that data while its owner still holds it, so it is rejected. The same holds for passing such a place to an `inout` parameter the callee may write, including calling an `inout(self)` method such as `push_str` on it: the write would land in the borrowed copy alone. Fields without RC data can still be written; the write changes only the local copy. Take the parameter as `sink(p) : T` (the function owns it) or `inout(p) : T` (the write reaches the caller's place), or copy the value into a local first (`q := p;`) and write the copy.",
-      "按值参数以及 `match` 或 `for` 的绑定都借用其值：存储是调用方（或被匹配值）的一份副本，其中的 RC 数据仍属于调用方。写入一个旧值含有 RC 数据（`String`、集合、`Box` 等）的字段，会在其所有者仍持有这些数据时释放它们，因此被拒绝。把这样的位置传给被调用方可能写入的 `inout` 形参也是如此，包括在其上调用 `push_str` 这类 `inout(self)` 方法：写入只会落在借用的副本上。不含 RC 数据的字段仍可写入；写入只改变本地副本。请把参数声明为 `sink(p) : T`（函数拥有它）或 `inout(p) : T`（写入会到达调用方的位置），或先把值复制到一个局部变量（`q := p;`）再写入该副本。",
+      "A by-value parameter and a `match` or `for` binding borrow their value: the storage is a copy of the caller's (or the matched value's), and the RC data inside it still belongs to the caller. Writing a field whose old value holds RC data (a `String`, a collection, a `Box`, …) would release that data while its owner still holds it, so it is rejected. The same holds for passing such a place to an `inout` parameter the callee may write, including calling an `inout(self)` method such as `push_str` on it: the write would land in the borrowed copy alone. Fields without RC data can still be written; the write changes only the local copy. Take the parameter as `sink(p) : T` (the function owns it) or `inout(p) : T` (the write reaches the caller's place), or copy the value into a local first (`q := p;`) and write the copy. An `imm` local borrow (`imm(y) := place`) is read-only too: assigning through it, passing it to a `mut` parameter or calling a method that writes it, and borrowing a place under it with `mut`, are E0908.",
+      "按值参数以及 `match` 或 `for` 的绑定都借用其值：存储是调用方（或被匹配值）的一份副本，其中的 RC 数据仍属于调用方。写入一个旧值含有 RC 数据（`String`、集合、`Box` 等）的字段，会在其所有者仍持有这些数据时释放它们，因此被拒绝。把这样的位置传给被调用方可能写入的 `inout` 形参也是如此，包括在其上调用 `push_str` 这类 `inout(self)` 方法：写入只会落在借用的副本上。不含 RC 数据的字段仍可写入；写入只改变本地副本。请把参数声明为 `sink(p) : T`（函数拥有它）或 `inout(p) : T`（写入会到达调用方的位置），或先把值复制到一个局部变量（`q := p;`）再写入该副本。`imm` 局部借用（`imm(y) := place`）同样是只读的：通过它赋值、把它传给 `mut` 形参或调用会写入它的方法，以及用 `mut` 借用它之下的位置，都是 E0908。",
       "{ String } :: import(\"std/string\");\nP :: struct(s : String);\nrename :: (fn(p : P) -> unit)({\n  p.s = String.from(\"new\");\n});\nexport(rename);\n",
       "{ String } :: import(\"std/string\");\nP :: struct(s : String);\nrename :: (fn(p : P) -> P)({\n  q := p;\n  q.s = String.from(\"new\");\n  q\n});\nexport(rename);\n",
       "`p` borrows the caller's `P`; releasing its old `s` would free a string the caller still holds.",
       "`p` 借用了调用方的 `P`；释放它旧的 `s` 会释放调用方仍持有的字符串。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_LOCAL_BORROW_CONFLICT,
+      "access conflicts with a live local borrow",
+      "访问与仍存活的局部借用冲突",
+      "A place is accessed while a local borrow (`imm(y) := place`, `mut(y) := place`) that freezes it is still live.",
+      "在冻结某个位置的局部借用（`imm(y) := place`、`mut(y) := place`）仍存活时访问了该位置。",
+      "A local borrow is live from its binding to its last use, and freezes its place for that range: while an `imm` borrow is live, the borrowed place, the places inside it and the places containing it are not written or moved; while a `mut` borrow is live, they are not accessed at all except through the borrow. Sibling fields of a value stay free. Below a reference cell (a `Box`, `Rc`, `Arc` or `ref` object) the cell is the unit, because other handles reach it. A loop that uses the borrow keeps it live for the whole loop. The same code reports a borrow of a module-level place whose live range contains a call (a callee can reach the place by name), a borrow through a reference cell or a module-level place that is live across an `await`, and a re-point (`mut(cur) = place`) while a borrow derived from the old target is live. Move the access after the borrow's last use, or make it through the borrow.",
+      "局部借用从绑定处一直存活到它的最后一次使用，并在这段范围内冻结它的位置：`imm` 借用存活时，被借用的位置、它内部的位置以及包含它的位置都不能被写入或移动；`mut` 借用存活时，除通过该借用外完全不能访问它们。值的兄弟字段不受影响。在引用单元（`Box`、`Rc`、`Arc` 或 `ref` 对象）之下，整个单元是一个单位，因为其他句柄也能到达它。使用该借用的循环会让它在整个循环内保持存活。同一错误码还报告：存活范围内包含调用的模块级位置借用（被调用方可以按名字访问该位置）、经由引用单元或模块级位置且跨越 `await` 存活的借用，以及在派生自旧目标的借用仍存活时的重新指向（`mut(cur) = place`）。请把访问移到借用的最后一次使用之后，或通过该借用进行访问。",
+      "main :: (fn() -> unit)({\n  x := i32(1);\n  mut(y) := x;\n  x = i32(2);\n  y = i32(3);\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  x := i32(1);\n  mut(y) := x;\n  y = i32(3);\n  x = i32(2);\n});\nexport(main);\n",
+      "`y` is used after `x = i32(2)`, so it is still live there and `x` is frozen.",
+      "`x = i32(2)` 之后还使用了 `y`，因此 `y` 在那里仍然存活，`x` 被冻结。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_LOCAL_BORROW_ESCAPES,
+      "a local borrow crosses the function boundary",
+      "局部借用量跨越了函数边界",
+      "A function's result expression names a local borrow (`imm(y) := place`, `mut(y) := place`): the borrow itself is `return(...)`'s argument or the body's result expression.",
+      "函数的结果表达式指名了一个局部借用（`imm(y) := place`、`mut(y) := place`）：借用本身就是 `return(...)` 的实参或函数体的结果表达式。",
+      "A local borrow is second-class (decision 18 rule 1, decision 38 A): it may not be returned, stored, captured by an escaping closure or spawned — the value it names may be read through, but the borrow itself never crosses the function boundary. `return(y)` and a body whose result expression is `y` (or a place reached from it, `y.x`) therefore name the borrow, not its value, and are rejected; the same holds for a nested block that the body's result ends in. Until the parameter-convention phases, reading through a borrow of an implicitly copyable type produces a copy, so the rejected shapes happen to return that copy — the rule is about the spelling: when borrows stop copying, `return(y)` would have to move the borrowed place or escape the borrow itself. Copy the value into an owned local first and return that (`v := y;` then `return(v)`), or return the value of an operation on it (`return(y + i32(0))` for a scalar). E0911 reports the exclusivity rules for the same borrows.",
+      "局部借用是二等公民（决策 18 规则 1、决策 38 A）：它不能被返回、存储、被逃逸闭包捕获或 spawn——通过它可以读取它命名的值，但借用本身永远不会跨越函数边界。因此 `return(y)` 与以 `y`（或从它到达的位置 `y.x`）作为结果表达式的函数体指名的是借用而非它的值，都会被拒绝；函数体结果所终止于的嵌套块同理。在参数约定阶段落地之前，通过一个可隐式复制类型的借用读取会得到一份副本，因此被拒绝的写法碰巧返回的是这份副本——这条规则针对的是拼写本身：当借用不再复制时，`return(y)` 就只能移动被借用的位置或让借用本身逃逸。请先把值复制到一个自有局部变量中再返回它（`v := y;` 然后 `return(v)`），或返回对它的某个运算的结果（对标量是 `return(y + i32(0))`）。同一借用的排他性规则由 E0911 报告。",
+      "get :: (fn() -> i32)({\n  x := i32(1);\n  imm(y) := x;\n  return(y);\n});\nexport(get);\n",
+      "get :: (fn() -> i32)({\n  x := i32(1);\n  imm(y) := x;\n  v := y;\n  return(v);\n});\nexport(get);\n",
+      "`return(y)` names the borrow itself; `v := y` reads through it, and `v` owns the copy it gets.",
+      "`return(y)` 指名的是借用本身；`v := y` 通过它读取，`v` 拥有它得到的副本。"
     )
   );
   out.push(

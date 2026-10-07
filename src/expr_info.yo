@@ -982,6 +982,10 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 (g_extern_c_globals : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
 /// Method-call expr id → resolved method FuncVal (see `record_method_callee_value`).
 (g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
+/// Local borrow binding's `imm(y)`/`mut(y)` node id → the hidden owning local
+/// that holds the reference cell its re-points step into (plans/VALUES_BY_DEFAULT.md
+/// decision 25; see `record_local_borrow_step_pin`).
+(g_local_borrow_step_pins : HashMap(ExprId, Variable)) = HashMap(ExprId, Variable).new();
 /// `YO_SCOPE_RELEASE`: `release` (the default) releases each outermost
 /// function body's recorded envs at scope exit; `shadow` keeps them, answers
 /// codegen from the envs and counts where the records would differ (the
@@ -1659,6 +1663,18 @@ record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
 /// Look up the resolved/specialized method FuncVal for a method-call expr id.
 lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
   g_method_callee_values.get(call_id)
+);
+/// Record the step pin of the local borrow bound by the `imm(y)`/`mut(y)`
+/// node `lhs_id`: codegen declares it (null) beside the binding, each re-point
+/// replaces the cell it holds, and its ordinary scope-end drop releases the
+/// last one on every exit path.
+record_local_borrow_step_pin :: (fn(lhs_id : ExprId, pin : Variable) -> unit)({
+  record_owned_expr_id(lhs_id);
+  g_local_borrow_step_pins.insert(lhs_id, pin);
+  ()
+});
+lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
+  g_local_borrow_step_pins.get(lhs_id)
 );
 // Names of extern-C GLOBAL symbols declared via `c_include` (e.g. `stdout`,
 // `stderr`, `stdin`). `is_extern` is modelled only on the `Func` TypeValue
@@ -2557,7 +2573,7 @@ export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
-export(record_method_callee_value, lookup_method_callee_value);
+export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
@@ -2773,6 +2789,7 @@ _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
   _b := g_io_builtin_calls.remove(id);
   _v := g_method_callee_values.remove(id);
   _m := g_macro_expansions.remove(id);
+  _p := g_local_borrow_step_pins.remove(id);
 });
 /// Drop the metadata an EXECUTED fresh-id clone left behind: every node of
 /// `root`'s tree whose id lies in `[lo, hi)` (the ids the clone minted, see

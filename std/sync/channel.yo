@@ -175,6 +175,13 @@ Channel :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type
 // only sound for acyclic data, and this lets the sync containers nest
 // inside each other and inside the imm family (same contract as std/imm).
 impl(generic(T : Type), where(T <: (Send, Acyclic)), Channel(T), Acyclic());
+// SAFETY: `_data` is the ring buffer the channel owns. Every slot access
+// happens under `_mutex`, and a value is moved in by `send` and out by `recv`,
+// so the channel may be moved and shared across threads when `T` may be moved
+// (plans/VALUES_BY_DEFAULT.md decision 38 E: a type holding a raw pointer
+// opts in).
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Channel(T), Send());
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Channel(T), Sync());
 impl(
   generic(T : Type),
   Channel(T),

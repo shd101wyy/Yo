@@ -25,12 +25,15 @@ Progress:
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
   - decision 32 Generation A, `Rc.clone(w)` (#1241);
+  - the `Send`/`Sync` split with decision 38 E and the widened `Iso`
+    bound, Generation A (feat/vbd-send-sync);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
   - the Generation A wave: decision 35's capture lists with decision 38's
-    rules, then decision 37's `FnOnce`; decision 36's `Copy`; the
-    `Send`/`Sync` split with decision 38 E; local borrows (`imm(y) :=`,
-    decision 25);
+    rules, then decision 37's `FnOnce`; decision 36's `Copy`;
+  - local borrows, Generation A: `imm(y) :=`, last-use live ranges,
+    place-based exclusivity, rules 3 and 4, and decision 25's re-points
+    (feat/vbd-local-borrows; see V3's "Local borrows");
   - V3's remaining async work (§3.13).
 - **Next:** v0.2.53, then the Generation B sweeps (the Box→Rc rename,
   decision 32's clash error, the V3b sweep and flip).
@@ -1654,7 +1657,23 @@ and in git, not a silent edit.
     - **First measurement.** Count the named plain-data types in `src/`,
       `std/` and `tests/` that are copied implicitly today, which are the
       types that need `Copy`. Do it with an audit flag like §6's before
-      the sweep PR is opened.
+      the sweep PR is opened. The flag is decision 36's Generation A
+      `YO_AUDIT_COPY_TRAIT=1` (one stderr line per copy site,
+      `needs=<types>` naming the types that must implement `Copy`).
+      - **Measured 2026-10-06** (branch `feat/vbd-copy-trait`, tree-built
+        binary, `YO_AUDIT_COPY_TRAIT=1 yo check <tree> --std-path ./std`):
+        `src/` 2,039 copy sites over 71 named types; `std/` 640 sites over
+        41 types; `tests/` (excluding `tests/internal` and
+        `tests/cli-cases`) 3,106 sites over 97 types. The largest counts
+        in `src/`: `TokenKind` 578, `Io` 373, `MemoryOrder` 252, `IoExn`
+        200, `Exception` 131, `rune` 73, `VcOp` 51, `TypeTag` 27 — mostly
+        enum tag copies. This is the PRE-flip count (the bullet below:
+        "today" means after the V3b flip, whose by-value plain-parameter
+        copies the audit's `argument` site already counts); the sweep PR
+        re-runs it. `tests/` numbers come from the 570 of 640 files that
+        plain `check` evaluates — the other 70 are negative fixtures
+        (ghost/law verifier cases, duplicate-method bootstrap cases) that
+        no plain `check` was ever green on, and they report nothing.
       - **Its blind spots are §6's.** Files that fail `check` report
         nothing, and a generic body counts only where something
         instantiates it. A plain-data type the audit misses flips to move
@@ -2082,8 +2101,8 @@ and in git, not a silent edit.
       pass, it re-checks each white cell's count. A resurrected cell, and
       everything reachable from it, is leaked and turned black instead of
       freed (as in CPython's PEP 442). **Confirmed in today's collector**
-      and tracked as
-      `issues/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`
+      and fixed as
+      `issues/fixed/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`
       (S1, a reproducer is in `issues/repros/`). It is fixed on its own,
       not deferred to V3's std half.
     - **Unwind and abort (decision 28's `Rc` arm).** Per-call shared marks
@@ -2323,9 +2342,12 @@ and in git, not a silent edit.
 3. **V3, compiler:** move-only values and the general predicate.
    - Generation A landed in #1217. It also brings decision 26 for move-only
      payloads.
-   - Still to come: the async rules (§3.13), `Iso`, `Send`/`Sync`, then
-     `imm(y) :=`, last-use live ranges, and decision 25's re-pointing
-     without the projection step.
+   - `Send`/`Sync` with decision 38 E, and `Iso`'s bound, landed in
+     Generation A (feat/vbd-send-sync).
+   - Local borrows (`imm(y) :=`, last-use live ranges, decision 25's
+     re-pointing without the projection step): Generation A on
+     feat/vbd-local-borrows (V3, "Local borrows").
+   - Still to come: the async rules (§3.13).
 4. **V3b:** the parameter conventions (decisions 30, 33 and 34) and the
    capture list (decision 35).
 5. **V1 step 2:** the unique `Box`, explicit-copy from its first commit.
@@ -2594,15 +2616,170 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   - scoped children for `timeout`/`select` (A4);
   - the bundle rule (A6);
   - a re-check of `__yo_started_child`.
-- **`Iso(T)`'s bound** widens to "reaches a non-atomic cell".
-- **`Send`/`Sync`** (§3.8). Today's `Send` derivation becomes `Sync`, and
-  the new `Send` is "reaches no `Rc`". `Arc`, `Mutex`, `RwLock`, `Channel`,
-  `Thread.spawn` and the `Impl(Fn, Send)` boundaries take their bounds.
-  Tests: `Channel(String)` and `Channel(ArrayList(T))` move under TSan, and
-  an `Rc` payload is E0602.
+- **`Send`/`Sync` (§3.8) and decision 38 E, Generation A — landed
+  (feat/vbd-send-sync).**
+  - **The derivation.** `Sync` is today's `Send` derivation: plain data,
+    atomic cells and values composed of them (`_all_fields_implement_sync`,
+    `src/evaluator/types/utils.yo`, and the step-4b re-derivation in
+    `trait_checking.yo`). `Send` needs every component `Send` and no
+    non-atomic cell. An atomic object is `Send` and `Sync` iff its fields are
+    `Sync`, and `enforce_atomic_object_send` now asks `Sync`.
+  - **Raw pointers** are neither. The prelude's blanket
+    `impl(generic(T), where(T <: Send), *(T), Send())` is deleted. A type
+    holding one opts in under the pragma with `impl(T, Send())` /
+    `impl(T, Sync())`, which the manual-impl gate now requires for `Sync`
+    too. std opts in `Channel`, `Mutex` (`Sync` for `T <: Send`), `Waker`,
+    `ImmString`, `imm.Vec`, `MapBranch`, `MapCollision` and `thread`'s
+    `_BlockingOwner` (the blocking-bracket loop pointer `spawn_blocking`'s
+    worker carries,
+    `issues/fixed/spawn-blockings-worker-closure-captures-a-raw-loop-pointer-and-is-never-send.md`).
+    The atomic-object
+    field check is skipped in a pragma'd file, because the opt-in registers
+    after the type; skipping it makes nothing `Sync`.
+  - **`Io` and `JoinHandle`** add `!(Sync())` beside `!(Send())`.
+  - **`Dyn(Trait)`** is either only through an explicit bound
+    (`_thread_marker_named_in`, `values/dyn.yo`). `dyn(v)` into
+    `Dyn(Trait, Send)` checks `v` for `Send`, and for `Sync` as well until
+    V2b, because a `Dyn`'s copies share its payload today. A `Sync` Dyn is
+    boxed atomically and its vtable methods get D1's walk.
+  - **Closures.** `Sync` is structural over the captures
+    (`record_closure_capture_verdicts`, `function_value_marker`). A closure
+    literal that borrows its captures (`closure_literal_is_borrowed`) is never
+    `Send`. That closed an S1 bug: a `Dispose` capture sent through
+    `Thread.spawn` or `spawn(pool, …)` was disposed twice
+    (`issues/fixed/a-move-only-capture-sent-to-another-thread-is-disposed-twice.md`).
+    A move-only value now MOVES into the thread: the spawn externs take the
+    closure `own(cb)` (so each relaying literal escapes and moves its `cb`
+    capture in — an `own` closure parameter shadowed by a specialized body's
+    non-owning re-bind gives its reference up to the capture,
+    `move_captured_explicit_copy_variable`), and the parallelism lowering's
+    heap copy INHERITS the call-site struct's references — no dup — with the
+    spawn wrapper the single releaser, disposing the move-only content it
+    owns (`issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
+    `mut` captures arrive with decision 35's capture list; that work must
+    make a `mut` capture never `Sync`, and an `imm` capture `Sync` iff its
+    type is.
+  - **D1 covers `Sync` slots.** The reach walk runs for an
+    `Impl(Fn, Sync)` slot and a `Dyn(Trait, Sync)` too, and D1's global must
+    be `Sync` (`_GrCtx`, `mutation_summary.yo`).
+  - **Tests:** `tests/send_sync.test.yo` and the pragma'd
+    `tests/send_sync_raw_pointer.test.yo`: `Channel(Rc(i32))` is E0602, a
+    raw-pointer struct is `!Send` and cannot cross `Thread.spawn` unless it
+    opts in, a `Dyn` without `Send` cannot cross `Thread.spawn`, a closure
+    with an `imm` capture of an `Rc` is `!Sync`, and a value struct moves
+    through a `Channel` between threads. `send_sync` joined the TSan thread
+    corpus.
+  - **Deviation from this section's first test list.** `Channel(String)` and
+    `Channel(ArrayList(T))` cannot move yet. Until V2b their buffer is a
+    shared, non-atomically counted cell, so a copy left on the sending
+    thread races on its count. The tests assert they are not `Send`, and V2b
+    flips them with no compiler change. The TSan move test runs on a value
+    struct instead.
+  - **Generation B** (`plans/backlog/SEED_VERSION_AUTOMATION.md`): `Arc`
+    and `arc` take `T <: Sync`, `RwLock` takes `T <: (Send, Sync)`, the
+    `std/imm` element bounds become `Sync`, and the explicit `Arc(T)` `Send`
+    impl goes. `Mutex`, `Channel` and `Thread.spawn` keep `Send`. The seed
+    does not derive `Sync`, so no std bound may name it before then.
+- **`Iso(T)`'s bound widens to "reaches a non-atomic cell" — landed
+  (feat/vbd-send-sync).** `type_reaches_non_atomic_cell`
+  (`src/types/utils.yo`) is the bound at `Iso(T)` and `__yo_iso_unique`. A
+  value child is held inline: its uniqueness walk starts at the cells it
+  holds (`__yo_iso_roots_<Iso>`, through the collector's `_traverse_value`),
+  and its dispose drops it field by field
+  (`generate_iso_uniqueness_functions`). Tests: `^` isolates a struct
+  holding a list and moves it to another thread, refuses one whose list is
+  aliased, and rejects `Iso(<plain struct>)`.
 - **Local borrows:** `imm(y) := place`, last-use live ranges, decision 18's
   place-based exclusivity, and decision 25's re-pointing (without the
   projection step).
+  - **Generation A, as landed** (feat/vbd-local-borrows). The compiler
+    enforces it for `imm(y) :=`, `mut(y) :=` and `inout(y) :=` alike; no
+    `src/` or `std/` code uses a local borrow (the prelude's borrowed `for`
+    binds a pointer-dereference place, which the model leaves out).
+    - **Where it lives.** `src/evaluator/utils.yo`, "Local borrows": a
+      `LocalBorrowInfo` per binding in scope (`g_local_borrows`, truncated
+      when its block ends), places as (root, field steps), and the hooks:
+      the identifier and `.` evaluators (reads; a `.` chain reports its
+      outermost place), assignment targets, the `mut`/`inout` arguments and
+      receivers the callee's mutation mask says it writes (`d3_check_pending`),
+      moves (`set_expr_as_consumed`), and a `mut` binding (an exclusive
+      access). A conflict is E0911 (`E_LOCAL_BORROW_CONFLICT`); a write
+      through `imm` is E0908.
+    - **The function boundary (decision 18 rule 1, decision 38 A).** A
+      local borrow never crosses the function boundary:
+      `return(<a place rooted at the borrow>)` and a body whose result
+      expression is one (a block tail that yields it, including a nested
+      block the body's result ends in) are **E0912**
+      (`E_LOCAL_BORROW_ESCAPES`); reading the value out into an owned local
+      first (`v := y;` … `v`) is the way out. A call or index on the place
+      (`y.len()`, `xs(i)`) and an operation on the borrow are fine: their
+      result is the callee's, not the place. The rejection covers
+      `imm`/`mut`/`inout` bindings alike; `inout`/`mut` **parameters** are a
+      different mechanism and still return the pointee copy until V3b's
+      plain parameters become borrows. A `cond`/`match` arm whose block
+      yields a borrow as the body's result is not yet caught (it is the
+      same escape shape; the arms flow through the cond/match evaluators,
+      which do not carry the chain identity) — it joins the rule with
+      decision 38 A's closure work, the closure analogue being E0909 there
+      (`feat/vbd-capture-lists`' `E_BORROW_ESCAPES`).
+      `issues/fixed/a-local-borrow-crossed-the-function-boundary-in-a-return-or-a-body-tail.md`
+      records the bug (both shapes were accepted, returning the pointee
+      copy) and the fix.
+    - **Error codes.** The local-borrow rules take **E0911/E0912**; the
+      closure branch (`feat/vbd-capture-lists`) keeps **E0909/E0910** for
+      `E_BORROW_ESCAPES`/`E_BORROW_CONFLICT`, so both branches merge without
+      a collision.
+    - **Live ranges.** A binding's block hands it the statements after it
+      (`local_borrow_set_lookahead`). The range ends at the innermost
+      statement holding the last mention that is not a block or a branch arm:
+      a whole loop (so the back edge keeps it live), a whole call (so an
+      argument stays borrowed for the call). An access in a later arm of the
+      same `cond`/`match` is after the range. This is syntactic and
+      conservative: a use that only an earlier arm reaches still extends the
+      range over a later arm's access.
+    - **Places.** The steps stop at the first step into a reference cell
+      (`ref` objects, `Box`, `Rc`, `Arc`, `Dyn`: the cell is the unit), at an
+      index, a dereference, or a member that is not a value-aggregate field.
+      Two places overlap when one is a prefix of the other; roots are
+      identified by name and declaration token (a branch reassignment mints a
+      new variable id).
+    - **Rule 3** fires at a runtime call in a module-level borrow's range
+      (not at a compile-time-evaluated call or a scalar operator); **rule 4**
+      at an `io.await`/`.await` in the range of a borrow whose declaration or
+      a re-point crossed a cell or a module-level root.
+    - **Decision 38 A** as it applies to local borrows: a borrow of a borrow
+      extends its parents' ranges to its own (transitive freeze), and a
+      re-point is E0911 while a borrow derived from the re-pointed one is
+      live. Closures cannot capture a local borrow today (the existing
+      rejection), and borrowing futures are A2's, so the capture and future
+      halves of 38 A have nothing to act on yet; they land with decision 35's
+      capture lists and A2.
+    - **Re-points** (`imm(cur) = place`, `mut(cur) = place`, keeping the
+      declared mode): the place is a field chain rooted at `cur` or at a
+      `match` binding over `cur` (`local_borrow_note_pattern_binding`). A
+      `match` binding is a copy until decision 26's place bindings, so a
+      re-point through one must step into a cell. The declared place stays in
+      the frozen set, and so does the binding a re-point went through.
+    - **The step pin.** When the block re-points the borrow, the binding gets
+      a hidden owning local (`record_local_borrow_step_pin`), declared null
+      beside it. Each step through a cell takes the new cell (+1) before it
+      releases the old one, and the ordinary scope-end drop releases the last
+      one on every exit (`break`, `return`, `unwind`, the async abort path).
+      The step pin is released at the borrow's scope end, not at its last use.
+  - **Deferred.**
+    - **The run-time flag** (decision 18 rule 3's "keeps the run-time flag
+      on that cell", and decision 25's "flags it"): the cell header has one
+      `borrow_count`, which cannot express decision 28's shared and exclusive
+      marks, and a flag released at scope end would make a statically legal
+      access after the last use panic. Both land with decision 28's `Rc` arm,
+      which brings the marks, the write-site assert and last-use release.
+      Until then a conflict through two handles of one cell is not caught.
+    - **The projection step** of "reached from `cur`", with V2b.
+    - **Re-points through a `match` binding without a cell step**, with
+      decision 26's `mut` scrutinees.
+  - **Generation B** has nothing to flip: `std/` and `src/` may use `imm(y)
+    :=` and re-points once `SEED_VERSION` carries this
+    (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 **std** (over `ref(struct)` still; Generation A for the type shapes,
 Generation B for methods that need the seed to enforce move-only). This half
@@ -2741,8 +2918,9 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     `imm`/`mut` and the snake_case names.
   - **Local bindings.** `mut(y) := place` is `inout(y) := place` at every
     site that recognizes the binding (`ast_expr_is_inout_mode_call`).
-    `imm(y) := place` is rejected with "not supported yet". It is V3's
-    follow-up with last-use live ranges (decision 18).
+    `imm(y) := place` was rejected with "not supported yet" here; V3's
+    local-borrow work (feat/vbd-local-borrows) added it with last-use live
+    ranges (decision 18).
   - **`&mut`** is one operator token. The lexer emits it for a lone `&` that
     ends an operator run and is directly followed by the word `mut`, so
     `&&mut` is still `&&` followed by `mut`.
@@ -2782,7 +2960,8 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - **Collisions.** `std/term.yo`'s `size_of` became `term_size`. Six
     `type_id` locals in `src/` became `tid`. Parameters and fields named
     `type_id` are not binding sites and stay.
-  - **Not in Generation A:** `imm(y) :=`, re-points, projection results,
+  - **Not in Generation A:** projection results (`imm(y) :=` and re-points
+    landed with V3's local borrows),
     lambda parameters spelled `(mut(n)) => …` (a lambda takes its modes
     from the expected `Fn` type, and `(inout(n)) => …` is not legal
     either), and `for(xs, mut(x) => …)`.
@@ -2844,6 +3023,151 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     the diagnostics registry, the LSP and `yo context`).
   - **Generation B:** the sweep over `src/`, `std/`, `tests/`, docs and
     skills, then the old names are deleted, with no alias.
+
+### Decision 36: the `Copy` trait
+
+**Generation A (PR #COPY_PR, branch `feat/vbd-copy-trait`), with
+`Copy: Clone` (#1245, #1246) and the raw-pointer clash (#1247):**
+- **The trait.** `Copy :: trait(id := "Copy", where(Self <: Clone))` in
+  `std/prelude.yo`: `Clone` is its supertrait in the ordinary
+  `where(Self <: …)` form, which the v0.2.52 seed compiles (measured: a
+  `yo compile` against the tree's std of a `where(T <: Copy)` function
+  calling `x.clone()`). So the bound expansion needs no compiler code: a
+  type parameter's required traits already contribute their
+  `self_constraints` (`type_implements_trait`, the required-trait walk), and
+  the concrete impl path already checks them.
+- **Prelude impls, each directly after its `Clone` impl:** `i8`…`u64`,
+  `isize`, `usize`, `f32`, `f64`, `bool`, `char`, the C number types
+  (`short`…`ulonglong`, `longdouble`), `unit`; `str` and
+  `impl(generic(T : Type), *(T), …)`, whose `Clone` impls are new
+  (`__yo_return_self`, a copy of the view or the address); `Option(T)` under
+  `where(T <: Copy)` and `Result(T, E)` under `where(T <: Copy, E <: Copy)`,
+  after their `where(T <: Clone)` `Clone` impls.
+  - **`fn` pointers** are structural, like tuples: no prelude impl can range
+    over every signature, so `type_implements_trait` answers a `.Func` type
+    `Copy` and `Clone` directly.
+  - **`rune`** has no type of its own in Yo; `char` is the byte type, and
+    gets the impl.
+- **Tuple `Clone`.** The prelude writes element-wise
+  `impl(generic(A…), where(A <: Clone, …), Tuple(A, …), Clone(...))` for
+  arities 1 to 12, as Rust does, so `t.clone()` dispatches.
+- **The derive rule.** `derive_rule(Copy, __derive_copy)` generates
+  `impl(T, Copy())`, with the derive's `generic`/`where` for a generic type.
+  `evaluate_derive` processes a `Copy` argument after the others, so
+  `derive(T, Copy, Clone)` registers the `Clone` impl first, in either
+  order.
+- **Structural `Copy` and `Clone`** (`copy_structural_parts`,
+  `src/evaluator/trait_checking.yo`): a tuple, an `Array(T, N)`, a closure's
+  capture record, an anonymous record and a `fn` pointer are `Copy`
+  (`Clone`) exactly when every part is. A closure is judged on its capture
+  record, which in Generation A holds values only; decision 38 A's rule for
+  `imm`/`mut` captures lands with decision 35's capture list.
+  - **Dispatch gap:** `.clone()` on an anonymous record, a closure or a
+    `fn` pointer has no method yet, although `Type.impls(_, Clone)` holds
+    (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
+- **The impl check** (`_copy_impl_violation_msg`, on both the concrete and
+  the generic impl paths through the receiver-kind gate):
+  - **a `Clone` impl must cover the type** (`_copy_without_clone_msg`): for
+    a generic receiver pattern, `Pair(T)` under the `Copy` impl's own
+    `where(T <: Copy)` must be `Clone`, which `T <: Copy` giving
+    `T <: Clone` decides. The ordinary predicate cannot answer that — it
+    rejects a match that binds a forall to another impl's `SomeT` — so an
+    open pattern (a type over `SomeT`s) is asked through
+    `generic_pattern_implements_trait` (`src/evaluator/values/impl.yo`):
+    the candidate match runs with abstract bindings allowed, and each of
+    the candidate's `where` bounds, substituted by the match, must hold of
+    the pattern through the pattern's OWN bounds and their supertraits
+    (the prelude's `impl(generic(T : Type), *(T), Copy())` is covered by
+    the blanket `*(T)` `Clone`; `Option(T)` under `where(T <: Copy)` by the
+    `where(T <: Clone)` `Clone` impl). A `Clone` impl pending later in the
+    module is forced first (by the pattern's head name; an unnamed pattern
+    — `*(T)`, a tuple — has none, so its `Clone` impl must precede it, as
+    the prelude writes). The error names `derive(T, Copy, Clone)` and
+    `derive(T, Clone)` beside `impl(T, Copy())`; the compiler never writes
+    the impl. The prelude's own scalar, `str` and pointer impls take the
+    same check;
+  - every field and variant payload must be `Copy`; the error names the
+    first that is not ("its field `name` has type `String`, which does not
+    implement required trait "Copy"", E0602). A part whose own `Copy` impl
+    is pending later in its module is forced first;
+  - a move-only type (`Dispose`, `MoveOnly`, or a move-only part) cannot be
+    `Copy`, and a `Dispose`/`MoveOnly` impl on a `Copy` type is rejected
+    too, so either order errors;
+  - a reference type cannot be `Copy`; a tuple, array, closure, anonymous
+    record or `fn` pointer cannot declare it; anything else that is not a
+    value nominal type (a blanket `T`, `Dyn`, a C opaque type) cannot
+    either.
+  - A `derive` is an ordered statement, so `derive(T, Clone)` must come
+    before an `impl(T, Copy())` that needs it; `impl(T, Copy())` is
+    order-independent for its fields' `Copy` impls.
+- **The hand-written-`Clone` rule** (#1244, kept by #1245):
+  - `derive(T, Clone)` is always accepted. A derive is told from a
+    hand-written impl by its `Clone(...)` token: a derive's comes from the
+    prelude template, and the prelude's own impls are exempt.
+  - **A hand-written `Clone` is an error only where every instantiation it
+    serves is `Copy`** (`_check_copy_clone_exclusion`,
+    `_check_generic_copy_clone_exclusion`, `src/evaluator/values/impl.yo`):
+    a concrete `Copy` type, or a generic `Clone` impl whose receiver
+    pattern is `Copy` under the `Clone` impl's own bounds. Either order is
+    caught: a later `Copy` impl re-tests the hand-written `Clone` impls
+    recorded so far. The error names `derive(T, Clone)`.
+  - A generic hand-written `Clone` that also serves non-`Copy`
+    instantiations (`where(T <: Clone)`, the prelude `Option(T)`'s) is
+    allowed.
+- **The raw-pointer clash** (#1247, its rule completed by #1248): a member
+  name the pointer and its pointee both have is an error, whatever the
+  name — `p.m(...)` through a raw pointer, where the pointee has a FIELD
+  `m` (field reads and calls of function-typed fields auto-dereference)
+  and the pointer has a METHOD `m` (`clone` from the `Clone` impl `Copy`
+  requires, or `add`/`sub`/`offset_from`), is an error naming `p.*.m(...)`
+  for the pointee's field and, for the pointer's `clone`, the copy
+  `q := p` (`src/evaluator/exprs/property_access.yo`,
+  `get_pointer_own_methods_by_name_from_env`; no trait names are
+  hard-coded — the check asks which members the pointer itself has). A
+  pointee METHOD named like a pointer method has no second reading to
+  clash with: method calls through a pointer do not reach the pointee's
+  methods (E0610). Before this, the field won silently. **Measured count
+  of affected call sites: 0 in `check ./src` and `check ./std`** with the
+  tree-built binary (both green; run 2026-10-06 on this branch). The
+  language suite and `tests/internal` did not run on this branch — the PR
+  battery owns them.
+- **The audit** (`YO_AUDIT_COPY_TRAIT=1`, `src/evaluator/utils.yo`; the
+  sizing this decision's `First measurement` bullet in §4 asks for) and
+  **`tests/copy_trait.test.yo`**: the prelude
+  impls and their `Clone`s, a `derive(Point, Copy, Clone)` copy,
+  `derive(T, Clone, Copy)` in the other order, `derive(T, Copy)` alone and
+  `impl(T, Copy())` without `Clone` (concrete and generic) rejected,
+  `impl(T, Copy())` over a `String` field, `Copy` plus `Dispose` and plus
+  `MoveOnly` in both orders, `Pair(T)` with
+  `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the
+  derive's clone calls `.clone()` on its fields, so the bound is part of
+  the spelling — and a conditional `Copy` at `i32` (implicit copy) and
+  `String` (explicit `.clone()`), `Option(i32)` staying `Copy` with its
+  generic `Clone`, a hand-written `Clone` on a concrete `Copy` type (both
+  orders) and under an unbounded generic `Copy` impl, a `where(T <: Copy)`
+  body calling `x.clone()` at a struct, a scalar and a tuple, tuple
+  `.clone()` at arities 1 and 2, `str` and raw-pointer `.clone()`, and the
+  pointer clash at `clone` and at `add` (any shared member name).
+
+**Generation B** (once `SEED_VERSION` carries Generation A;
+`plans/backlog/SEED_VERSION_AUTOMATION.md`):
+1. **The sweep:** `yo fix` adds `derive(T, Copy, Clone)` (or `Copy` beside
+   an existing `Clone`) to every named type the audit lists (`needs=`), in
+   `src/`, `std/`, `tests/`, docs and skills.
+2. **Structural `clone()` dispatch** for anonymous records, closures and
+   `fn` pointers (the issue above), if it has not landed earlier.
+3. **The flip:** `type_requires_explicit_copy(T)` becomes `!(T <: Copy)`
+   for named types; compile-time-only types stay outside the predicate.
+   - **Ordering with V3b's flip:** V3b's sweep keeps a plain parameter
+     plain when its type is implicitly copyable. Run it after this flip,
+     or the sweep must key on `Copy` instead of "no owned buffer".
+4. **Delete `MoveOnly`** and its structural derivation: move-only is
+   "neither `Copy` nor `Clone`". `impl(T, MoveOnly())` sites become a
+   plain declaration with no `Clone`.
+5. **Tests that need the flip:** a plain struct without `Copy` moves at
+   `q := p`, and a later use of `p` is E0901 with a note naming
+   `derive(T, Copy, Clone)` and `p.clone()`; a by-value argument of one is
+   a move; an `imm`-only closure is `Copy` and second-class (decision 38 A).
 
 ### V2: the collections become values
 
