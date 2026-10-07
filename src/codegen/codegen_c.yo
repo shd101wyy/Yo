@@ -31,7 +31,8 @@
 { generate_all_functions, generate_main_wrapper, emit_module_level_variable_declarations, emit_thread_local_accessors } :: import("./functions/generation.yo");
 { generate_dyn_box_functions, generate_dyn_wrapper_functions, generate_dyn_vtables, generate_dyn_dup_drop } :: import("./functions/dyn.yo");
 { register_generate_expr } :: import("./exprs/generation.yo");
-{ register_impl_closure_call_mappings, set_sm_atom_resolver } :: import("./exprs/closures.yo");
+{ register_impl_closure_call_mappings, set_sm_atom_resolver, set_deferred_dup_or_code } :: import("./exprs/closures.yo");
+{ emit_deferred_dup_or_code } :: import("./exprs/drop_dup.yo");
 { _generate_sm_atom } :: import("./exprs/atom.yo");
 { preregister_async_block_types, generate_deferred_async_blocks, emit_fused_await } :: import("./exprs/async.yo");
 { register_inline_await_emitter, register_fused_await_emitter } :: import("./async/_fsm.yo");
@@ -387,6 +388,10 @@ compile_module :: (fn(module_value : EvalValue, inout(info) : ExprInfoTable, tar
   // Closure-capture SM-field resolution (closures.yo cannot import atom.yo —
   // atom.yo imports closures.yo).
   set_sm_atom_resolver(_generate_sm_atom);
+  // A capture-list field's by-value dup emission (closures.yo cannot import
+  // drop_dup.yo — types/generation.yo imports from closures.yo, and drop_dup
+  // pulls functions/declarations.yo, closing the cycle).
+  set_deferred_dup_or_code(emit_deferred_dup_or_code);
   // Register the FSM await/cond/match/while emitter indirections.
   register_inline_await_emitter(emit_inline_await);
   register_fused_await_emitter(emit_fused_await);
