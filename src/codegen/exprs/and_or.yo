@@ -201,7 +201,7 @@ _emit_node_list_drops :: (
                   .Some(nh) => nh.contains(ntarget.clone()),
                   .None => false
                 );
-                if(!already_emitted && !n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(nd_drop)) && !is_deferred_drop_for_closure_capture(nd_drop, context.current_closure_captures), {
+                if(!already_emitted && !n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(nd_drop)) && !is_deferred_drop_for_closure_capture(nd_drop, context.current_closure_drop_skip), {
                   n_cn := sanitize_for_c_identifier(ntarget.clone(), false);
                   n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.*.contains(n_cn));
                   if(!n_undeclared && scope_stack_contains(context.base.declared_scopes.*, n_cn), {

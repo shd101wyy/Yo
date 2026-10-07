@@ -70,7 +70,8 @@ pragma(Pragma.AllowUnsafe);
   find_live_inout_borrowers,
   snapshot_env,
   UndoneMove,
-  variable_record_undone_move
+  variable_record_undone_move,
+  is_fn_capture_value_binding
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, LoopBodyCtx, LoopFlowSnapshot, copy_trait_blockers_via_hook } :: import("./context.yo");
@@ -85,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -704,6 +705,21 @@ _throw_explicit_copy_violation :: (fn(rhs : AstExpr, ty : TypeValue, what : Stri
     exn
   );
 });
+/// E0913 for a move out of a by-value capture of a closure typed `Fn(...)`
+/// (plans/VALUES_BY_DEFAULT.md decision 37): an `Fn` call borrows the
+/// captures so the closure can run again, and a closure that moves one out is
+/// call-once. The error names the moving line; the fix is the `FnOnce(...)`
+/// type, whose call consumes the closure.
+_throw_fn_closure_moves_capture :: (fn(rhs : AstExpr, ty : TypeValue, ctx : EvalContext, exn : Exception) -> unit)({
+  name := _place_text(rhs);
+  msg := `Cannot move \`${name}\` out of the closure: it is a by-value capture, and the closure is typed \`Fn(...)\`, whose call borrows its captures so it can run again. A closure that moves a capture out is called once.`;
+  help := `type the closure \`FnOnce(...)\`: its call consumes the closure, whose body then owns its captures and may move \`${name}\` (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}) out`;
+  raise_flow_violation(
+    with_code(format_error_message_with_help(ast_expr_token(rhs), msg, Option(String).Some(help)), E_CLOSURE_MOVES_CAPTURE),
+    ctx,
+    exn
+  );
+});
 /// The move of a value that is not implicitly copyable
 /// (`type_requires_explicit_copy`: today a move-only one) at a point where a
 /// copyable RC value would be dupped (`set_expr_as_needs_to_call_dup`): `:=`,
@@ -739,6 +755,7 @@ transfer_explicit_copy_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name 
       v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
+      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, ei.ty, ctx, exn),
       true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
     )
   );

@@ -29,7 +29,7 @@
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { is_target_posix, is_target_windows } :: import("../../target.yo");
-{ get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member, is_index_entry_method } :: import("../../function_value.yo");
+{ get_func_type, is_closure_fn, is_fnonce_closure_fn, get_closure_capture_info, is_effect_record_member, is_index_entry_method } :: import("../../function_value.yo");
 { declare_c_var_name, push_declared_scope, get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls, note_line_position, get_variable_name_for_codegen_at, is_self_named_atom } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _return_type_override } :: import("./declarations.yo");
@@ -756,11 +756,19 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       prev_caps := context.current_closure_captures;
       prev_cap_level := context.current_closure_capture_frame_level;
       prev_cap_cname := context.current_closure_capture_type_c_name;
+      prev_drop_skip := context.current_closure_drop_skip;
+      (owned_capture_labels : ArrayList(String)) = ArrayList(String).new();
       if(is_closure_fn(func_id.clone()), {
         match(
           get_closure_capture_info(func_id.clone()),
           .Some(ci) => {
             cap_labels := match(ci.capture_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+            if(is_fnonce_closure_fn(func_id.clone()), {
+              context.current_closure_drop_skip = Option(ArrayList(String)).None;
+              owned_capture_labels = cap_labels.clone();
+            }, {
+              context.current_closure_drop_skip = Option(ArrayList(String)).Some(cap_labels.clone());
+            });
             context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels);
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
             context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(ci.capture_type, context.base));
@@ -807,6 +815,21 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         },
         _ => ()
       );
+      // An FnOnce closure's captures are in scope from entry, like its
+      // parameters: the body drops the ones it did not move, and those drops
+      // pass the declared-name gate only if the names are seeded here.
+      (oc_i : usize) = usize(0);
+      while(oc_i < owned_capture_labels.len(), {
+        match(
+          owned_capture_labels.get(oc_i),
+          .Some(ocl) => {
+            declare_c_var_name(context.base, ocl.clone());
+            push_declared_scope(context.base, ocl.clone());
+          },
+          .None => ()
+        );
+        oc_i = (oc_i + usize(1));
+      });
       // Point the emitter at this function's declared_c_var_names so every body
       // line that DECLARES a minted temp records it (in C-emission order),
       // regardless of which codegen path built the declaration string — the
@@ -824,6 +847,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       context.current_closure_captures = prev_caps;
       context.current_closure_capture_frame_level = prev_cap_level;
       context.current_closure_capture_type_c_name = prev_cap_cname;
+      context.current_closure_drop_skip = prev_drop_skip;
       context.base.current_function_name = prev_name;
       context.current_function_type = prev_type;
       context.override_return_type_str = prev_override;

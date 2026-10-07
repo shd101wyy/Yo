@@ -48,7 +48,8 @@ pragma(Pragma.AllowUnsafe);
   fv_source_ty,
   fv_source_count,
   fv_source_val,
-  bind_parameter
+  bind_parameter,
+  is_fn_capture_value_binding
 } :: import("../../env.yo");
 { TypeValue, FuncMeta, t_refine_inner } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
@@ -57,7 +58,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
-{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int } :: import("../../utils.yo");
+{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
 { attach_temp_variable_to_expr, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type } :: import("../utils.yo");
 {
@@ -158,7 +159,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message, format_error_message_with_help, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
-{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER } :: import("../../diagnostics.yo");
+{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_CLOSURE_MOVES_CAPTURE } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -5016,6 +5017,66 @@ _local_borrow_note_call_site :: (fn(call : AstExpr, call_tok : Token, ctx : Eval
   });
   local_borrow_note_runtime_call(is_await, call_tok, callee_text, ctx, exn);
 });
+/// Decision 37 (plans/VALUES_BY_DEFAULT.md): an `FnOnce(...)` call takes its
+/// closure as `self`, so the call CONSUMES the callee, as `h.join()` consumes
+/// `h`. A named local is moved: a later use, a second call included, is E0901
+/// pointing at this call. Storage the call cannot take the closure from is
+/// rejected: a borrowed parameter (`imm(f)` — a non-escaping API cannot take
+/// `FnOnce`), an `inout` binding, a module-level binding, and the by-value
+/// capture of a closure typed `Fn(...)` (E0913). A temporary callee needs
+/// nothing: its value dies with the call.
+_consume_fnonce_callee :: (fn(callee : AstExpr, callee_info : ExprInfo, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  is_once := match(
+    extract_fn_trait_from_type(callee_info.ty),
+    .Some(oft) => match(oft, .FnTraitT(base_name : ob) => (ob == "FnOnce"), _ => false),
+    .None => false
+  );
+  if(!is_once || ctx.is_in_function_call_checking_phase, {
+    return(());
+  });
+  name := match(callee_info.variable_name, .Some(n) => n, .None => return(()));
+  if(is_temp_variable_name(env.module_path, name.clone()), {
+    return(());
+  });
+  vars := get_variables_from_env(env, name.clone());
+  v := match(vars.last(), .Some(x) => x, .None => return(()));
+  tok := ast_expr_token(callee);
+  what := cond(
+    v.is_module_level => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
+    v.is_ref => Option(String).Some(String.from("it is an `inout` binding, which names storage the caller owns")),
+    (v.is_parameter && !v.is_owning_the_rc_value) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value (`sink(f) : Impl(FnOnce(...))`), since only an API the closure escapes into can call it once")),
+    true => Option(String).None
+  );
+  match(
+    what,
+    .Some(w) => raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          tok,
+          `use of moved value: cannot call \`${name}\`: an \`FnOnce(...)\` call consumes the closure, and \`${name}\` cannot give it away: ${w}.`,
+          Option(String).Some(String.from("call an `Fn(...)` closure through a borrow; an `FnOnce(...)` closure is called once, by its owner"))
+        ),
+        E_USE_OF_MOVED_VALUE
+      ),
+      ctx,
+      exn
+    ),
+    .None => if(is_fn_capture_value_binding(v.id), {
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `Cannot call \`${name}\` here: it is a by-value capture of a closure typed \`Fn(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
+            Option(String).Some(String.from("type the enclosing closure `FnOnce(...)` so its body owns its captures"))
+          ),
+          E_CLOSURE_MOVES_CAPTURE
+        ),
+        ctx,
+        exn
+      );
+    }, set_expr_as_consumed(callee, env, false, ctx, exn))
+  );
+});
 _evaluate_function_call_unanchored :: (
   fn(
     expr : AstExpr,
@@ -5601,6 +5662,11 @@ _evaluate_function_call_unanchored :: (
   // the real call. No-op otherwise. See `_try_expand_call_overload`.
   _try_expand_call_overload(evaluated_callee, expr, args, env, ctx, exn);
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
+  match(
+    callee_info_opt,
+    .Some(once_ci) => _consume_fnonce_callee(evaluated_callee, once_ci, env, ctx, exn),
+    .None => ()
+  );
   // Resolve this call's io-builtin marker at the dispatch choke point —
   // BEFORE any arm-specific processing, so it fires for BOTH the concrete-
   // FuncVal arms AND the UnknownVal fallthrough (a def-time body eval sees

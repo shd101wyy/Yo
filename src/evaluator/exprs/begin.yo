@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
   record_branch_consume
 } :: import("../../expr_info.yo");
 { scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating, is_fnonce_capture_frame } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -3123,6 +3123,41 @@ _evaluate_begin_expression_impl :: (
           .None => ()
         );
       },
+      .None => ()
+    );
+  });
+  // A closure typed `FnOnce(...)` owns its by-value captures (decision 37),
+  // which its capture-list frame binds two levels below the body: the call
+  // consumed the closure, so the body drops every capture it did not move,
+  // after the parameters.
+  if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(3)), {
+    match(
+      env.frames.get(env.frames.len() - usize(3)),
+      .Some(cap_fr) => if(is_fnonce_capture_frame(cap_fr.id), {
+        match(
+          _schedule_scope_end_drops(cap_fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
+          .Some(cd_list) => {
+            (merged_caps : ArrayList(AstExpr)) = match(
+              scope_end_drops,
+              .Some(existing) => existing,
+              .None => ArrayList(AstExpr).new()
+            );
+            (cd_i : usize) = usize(0);
+            while(cd_i < cd_list.len(), {
+              match(
+                cd_list.get(cd_i),
+                .Some(cd) => {
+                  merged_caps.push(cd);
+                },
+                .None => ()
+              );
+              cd_i = (cd_i + usize(1));
+            });
+            scope_end_drops = Option(ArrayList(AstExpr)).Some(merged_caps);
+          },
+          .None => ()
+        );
+      }),
       .None => ()
     );
   });

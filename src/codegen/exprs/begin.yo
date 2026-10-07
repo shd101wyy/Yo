@@ -124,7 +124,7 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
               eprintln(`[sd-emq] target=${match(get_deferred_drop_target_atom_name(drop_expr), .Some(n) => n, .None => String.from("-"))} already=${context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)).to_string()}`);
             });
             if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
-              skip_capture := is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures);
+              skip_capture := is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_drop_skip);
               // Skip a drop whose target TEMP was never emitted as a C
               // declaration — same gate as drop_dup.yo's
               // generate_deferred_drop_expressions (an arm/expression whose C
