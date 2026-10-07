@@ -1522,11 +1522,14 @@ _compat_impl :: (
         },
         _ => false
       ),
-    // FnTraitT: structural — same base_name, pairwise params, compatible result
+    // FnTraitT: structural — compatible base_name, pairwise params, compatible
+    // result. `Fn` implies `FnOnce` (plans/VALUES_BY_DEFAULT.md decision 37):
+    // a borrowing call also serves for one call, so an `Fn` is accepted where
+    // an `FnOnce` is expected; never the other way round.
     .FnTraitT(base_name : abn, call_param_types : apts, call_result : aret) => match(
       expected,
       .FnTraitT(base_name : ebn, call_param_types : epts, call_result : eret) => {
-        if(abn != ebn, {
+        if((abn != ebn) && !((abn == "Fn") && (ebn == "FnOnce")), {
           return(false);
         });
         if(apts.len() != epts.len(), {

@@ -21,6 +21,7 @@ import("std/fmt");
   BK_UNSAFE_FN,
   BK_CTL,
   BK_FN_TRAIT,
+  BK_FN_ONCE_TRAIT,
   BK_ATOMIC,
   BK_STRUCT,
   BK_REF,
@@ -731,7 +732,7 @@ _evaluate_expression :: (
             },
             (
               ast_expr_is_fn_call(arg0) &&
-                ast_expr_is_fn_call_of(arg0, BK_FN_TRAIT, .None)
+                (ast_expr_is_fn_call_of(arg0, BK_FN_TRAIT, .None) || ast_expr_is_fn_call_of(arg0, BK_FN_ONCE_TRAIT, .None))
             ) =>
               evaluate_fn_trait_type(expr, env, ctx, exn),
             true =>
