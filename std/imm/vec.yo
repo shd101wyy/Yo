@@ -2,7 +2,7 @@
 //! NOT a structurally-shared trie.
 //!
 //! `Vec(T)` is an immutable vector: every mutation returns a new vector and
-//! leaves the original unchanged. All elements must implement `Send`, which is
+//! leaves the original unchanged. All elements must implement `Send` and `Sync`, which is
 //! what makes a vector safe to hand to another thread. The sharing is
 //! whole-buffer: when the receiver is the ONLY owner the buffer is updated in
 //! place, and when anyone else still holds it the whole array is copied, so a
@@ -100,10 +100,10 @@ _scope_tag :: (fn() -> usize)(cond(current_allocator().is_some() => _CAP_TAG, tr
 /// happens in place and is O(1) amortized; a mutation on a SHARED one copies
 /// the whole array and is O(n) — there is no per-node sharing. See the module
 /// header for why that trade was kept rather than replaced with a
-/// structurally-shared trie. Elements must be `Send` (the buffer crosses
+/// structurally-shared trie. Elements must be `Send` and `Sync` (the buffer crosses
 /// threads) and `Acyclic` (the cycle collector does not scan atomic
 /// objects).
-Vec :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+Vec :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -116,7 +116,7 @@ Vec :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
 );
 // O7: an Acyclic-element Vec cannot form a cycle — lets Vec nest as another
 // imm container's element.
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Vec(T), Acyclic());
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Vec(T), Acyclic());
 // SAFETY: `_ptr` owns the node's elements, which no operation writes after
 // construction; every copy reads them, so the node is Send and Sync when its
 // elements are Sync (plans/VALUES_BY_DEFAULT.md decision 38 E).
@@ -124,7 +124,7 @@ impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Vec(T), Send());
 impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Vec(T), Sync());
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: (Send, Sync, Acyclic)),
   Vec(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
@@ -137,12 +137,12 @@ impl(
   )
 );
 /// Result of a pop operation.
-PopResult :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+PopResult :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
   struct(vec : Vec(T), value : Option(T))
 );
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: (Send, Sync, Acyclic)),
   Vec(T),
   /// Allocate raw buffer without creating an intermediate atomic object.
   _raw_alloc : (fn(cap : usize) -> *T)({
@@ -408,7 +408,7 @@ impl(
     result
   }),
   /// Apply a function to each element, producing a new vector.
-  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: (Send, Acyclic))) -> Vec(U))({
+  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: (Send, Sync, Acyclic))) -> Vec(U))({
     new_ptr := Vec(U)._raw_alloc(self._len);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
@@ -541,7 +541,7 @@ impl(
     result
   }),
   /// Zip two vectors together using a combining function.
-  zip_with : (fn(generic(U : Type, V : Type), self : Self, other : Vec(U), f : Impl(Fn(a : T, b : U) -> V), where(U <: (Send, Acyclic), V <: (Send, Acyclic))) -> Vec(V))({
+  zip_with : (fn(generic(U : Type, V : Type), self : Self, other : Vec(U), f : Impl(Fn(a : T, b : U) -> V), where(U <: (Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Vec(V))({
     min_len := cond(
       (self._len < other._len) => self._len,
       true => other._len
@@ -574,7 +574,7 @@ impl(
 /// Eq trait for Vec(T) — element-wise equality.
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic, Eq(T))),
+  where(T <: (Send, Sync, Acyclic, Eq(T))),
   Vec(T),
   Eq(Vec(T))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)({
@@ -597,7 +597,7 @@ impl(
 /// passes the right C-ABI shape. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: (Send, Sync, Acyclic)),
   Vec(T),
   Index(usize)(
     Output : T,
@@ -611,7 +611,7 @@ impl(
 ///
 /// The backing store is a flat array, so this is an index walk: O(1) per step
 /// and no allocation.
-VecIter :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+VecIter :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
   struct(
     _vec : Vec(T),
     _index : usize
@@ -619,7 +619,7 @@ VecIter :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type
 );
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: (Send, Sync, Acyclic)),
   VecIter(T),
   Iterator(
     Item : T,
@@ -637,7 +637,7 @@ impl(
 );
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: (Send, Sync, Acyclic)),
   Vec(T),
   IntoIterator(
     Item : T,
@@ -650,7 +650,7 @@ impl(
 /// `Default` — the empty vector.
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: (Send, Sync, Acyclic)),
   Vec(T),
   Default(
     default : (fn() -> Self)(

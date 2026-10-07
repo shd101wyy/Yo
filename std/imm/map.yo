@@ -4,7 +4,7 @@
 //! thread-safe structural sharing. All mutations return new maps, leaving the
 //! original unchanged.
 //!
-//! Keys must implement `Eq`, `Hash`, and `Send`. Values must implement `Send`.
+//! Keys must implement `Eq`, `Hash`, `Send` and `Sync`. Values must implement `Send` and `Sync`.
 //!
 //! # Cycle safety
 //!
@@ -79,7 +79,7 @@ MapLeaf :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> comptime(Type)
 )(
   atomic(
@@ -97,7 +97,7 @@ MapCollision :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> comptime(Type)
 )(
   atomic(
@@ -117,7 +117,7 @@ impl(generic(K : Type, V : Type), where(K <: (Eq(K), Hash, Send, Sync, Acyclic),
 impl(generic(K : Type, V : Type), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)), MapCollision(K, V), Sync());
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   MapCollision(K, V),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
@@ -137,7 +137,7 @@ MapBranch :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> comptime(Type)
 )(
   atomic(
@@ -161,7 +161,7 @@ MapNode :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> comptime(Type)
 )(
   enum(
@@ -172,7 +172,7 @@ MapNode :: (
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   MapBranch(K, V),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
@@ -190,7 +190,7 @@ Map :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> comptime(Type)
 )(
   struct(
@@ -202,26 +202,26 @@ Map :: (
 // another imm container's element (and be an Arc payload).
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   Map(K, V),
   Acyclic()
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   MapBranch(K, V),
   // The child count, without the allocator tag.
   _clen : (fn(self : Self) -> u8)(self._children_lw & _BRANCH_MASK)
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   MapCollision(K, V),
   // The pair count, without the allocator tag.
   _plen : (fn(self : Self) -> usize)(self._pairs_lw & _PAIRS_MASK)
 );
 // -- MapBranch helpers --
-_alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> *void)({
+_alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> *void)({
   sz := (sizeof(MapNode(K, V)) * usize(count));
   match(
     _alloc_node_buf(sz),
@@ -229,18 +229,18 @@ _alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, w
     .None => __yo_panic("imm.Map: allocation failed")
   )
 });
-_branch_index_for :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> u8)(
+_branch_index_for :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> u8)(
   u8((branch.bitmap & (bit - u32(1))).count_ones())
 );
-_branch_has_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> bool)(
+_branch_has_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> bool)(
   (branch.bitmap & bit) != u32(0)
 );
-_branch_child_at :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), idx : u8, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> MapNode(K, V))({
+_branch_child_at :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), idx : u8, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapNode(K, V))({
   offset := (sizeof(MapNode(K, V)) * usize(idx));
   target := (*MapNode(K, V))(branch._children_ptr.add(offset));
   target.*
 });
-_branch_set_child :: (fn(comptime(K) : Type, comptime(V) : Type, ptr : *void, idx : u8, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> unit)({
+_branch_set_child :: (fn(comptime(K) : Type, comptime(V) : Type, ptr : *void, idx : u8, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> unit)({
   offset := (sizeof(MapNode(K, V)) * usize(idx));
   target := (*MapNode(K, V))(ptr.add(offset));
   target.* = child;
@@ -256,7 +256,7 @@ _copy_children :: (
     dst_offset : u8,
     src_offset : u8,
     count : u8,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> unit
 )({
   node_sz := sizeof(MapNode(K, V));
@@ -267,7 +267,7 @@ _copy_children :: (
     consume(dst_ptr.* = src_ptr.*);
   });
 });
-_branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> MapBranch(K, V))({
+_branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
   idx := _branch_index_for(K, V, branch, bit);
   new_len := (branch._clen() + u8(1));
   new_ptr := _alloc_map_children(K, V, new_len);
@@ -283,14 +283,14 @@ _branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBr
   });
   MapBranch(K, V)(bitmap : (branch.bitmap | bit), _children_ptr : new_ptr, _children_lw : (new_len | _branch_tag()))
 });
-_branch_replace_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> MapBranch(K, V))({
+_branch_replace_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
   idx := _branch_index_for(K, V, branch, bit);
   new_ptr := _alloc_map_children(K, V, branch._clen());
   _copy_children(K, V, new_ptr, branch._children_ptr, u8(0), u8(0), branch._clen());
   _branch_set_child(K, V, new_ptr, idx, child);
   MapBranch(K, V)(bitmap : branch.bitmap, _children_ptr : new_ptr, _children_lw : (branch._clen() | _branch_tag()))
 });
-_branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> MapBranch(K, V))({
+_branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
   idx := _branch_index_for(K, V, branch, bit);
   new_len := (branch._clen() - u8(1));
   alloc_len := cond((new_len == u8(0)) => u8(1), true => new_len);
@@ -305,7 +305,7 @@ _branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : Ma
   MapBranch(K, V)(bitmap : (branch.bitmap & ~bit), _children_ptr : new_ptr, _children_lw : (new_len | _branch_tag()))
 });
 // -- MapCollision helpers --
-_alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> *MapEntry(K, V))({
+_alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> *MapEntry(K, V))({
   sz := (sizeof(MapEntry(K, V)) * count);
   match(
     _alloc_node_buf(sz),
@@ -313,7 +313,7 @@ _alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where
     .None => __yo_panic("imm.Map: collision allocation failed")
   )
 });
-_coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> Option(usize))({
+_coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Option(usize))({
   i := usize(0);
   while(i < coll._plen(), i = (i + usize(1)), {
     if((coll._pairs_ptr.add(i)).*.key == k, {
@@ -332,7 +332,7 @@ _copy_pairs :: (
     dst_offset : usize,
     src_offset : usize,
     count : usize,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> unit
 )({
   i := usize(0);
@@ -340,7 +340,7 @@ _copy_pairs :: (
     consume((dst.add(dst_offset + i)).* = (src.add(src_offset + i)).*);
   });
 });
-_coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, v : V, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> MapCollision(K, V))(
+_coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, v : V, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapCollision(K, V))(
   match(
     _coll_find_key(K, V, coll, k),
     .Some(idx) => {
@@ -358,7 +358,7 @@ _coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollisi
     }
   )
 );
-_coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> Option(MapCollision(K, V)))(
+_coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Option(MapCollision(K, V)))(
   match(
     _coll_find_key(K, V, coll, k),
     .Some(idx) => {
@@ -395,7 +395,7 @@ _make_branch :: (
     hash1 : u64,
     node2 : MapNode(K, V),
     hash2 : u64,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> MapNode(K, V)
 )({
   frag1 := _fragment(hash1, shift);
@@ -440,7 +440,7 @@ _make_branch :: (
 /// The flag is what lets `insert` maintain `len` without a second lookup —
 /// replacing an existing key must not increment it. Internal to the HAMT
 /// walk; it is not part of the map's public surface.
-InsertResult :: (fn(comptime(K) : Type, comptime(V) : Type, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> comptime(Type))(
+InsertResult :: (fn(comptime(K) : Type, comptime(V) : Type, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> comptime(Type))(
   struct(node : MapNode(K, V), added : bool)
 );
 _node_insert :: (
@@ -452,7 +452,7 @@ _node_insert :: (
     hash : u64,
     k : K,
     v : V,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> InsertResult(K, V)
 )(
   match(
@@ -536,7 +536,7 @@ _node_get :: (
     shift : usize,
     hash : u64,
     k : K,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Option(V)
 )(
   match(
@@ -576,7 +576,7 @@ _node_get :: (
 /// The `Option` is the collapse signal: a branch whose last child went away
 /// must disappear rather than stay as an empty node. Internal to the HAMT
 /// walk; `Map.remove` returns only the new map.
-RemoveResult :: (fn(comptime(K) : Type, comptime(V) : Type, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> comptime(Type))(
+RemoveResult :: (fn(comptime(K) : Type, comptime(V) : Type, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> comptime(Type))(
   struct(node : Option(MapNode(K, V)), removed : bool)
 );
 _node_remove :: (
@@ -587,7 +587,7 @@ _node_remove :: (
     shift : usize,
     hash : u64,
     k : K,
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RemoveResult(K, V)
 )(
   match(
@@ -687,7 +687,7 @@ _merge_from_node :: (
     comptime(V) : Type,
     acc : Map(K, V),
     node : MapNode(K, V),
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Map(K, V)
 )(
   match(
@@ -718,7 +718,7 @@ _collect_keys :: (
     comptime(V) : Type,
     node : MapNode(K, V),
     acc : List(K),
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(K)
 )(
   match(
@@ -748,7 +748,7 @@ _collect_values :: (
     comptime(V) : Type,
     node : MapNode(K, V),
     acc : List(V),
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(V)
 )(
   match(
@@ -778,7 +778,7 @@ _collect_entries :: (
     comptime(V) : Type,
     node : MapNode(K, V),
     acc : List(MapEntry(K, V)),
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(MapEntry(K, V))
 )(
   match(
@@ -809,7 +809,7 @@ _map_values_node :: (
     comptime(U) : Type,
     node : MapNode(K, V),
     f : Impl(Fn(a : V) -> U),
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic), U <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic), U <: (Send, Sync, Acyclic))
   ) -> MapNode(K, U)
 )(
   match(
@@ -854,7 +854,7 @@ _filter_from_node :: (
     acc : Map(K, V),
     node : MapNode(K, V),
     f : Impl(Fn(k : K, v : V) -> bool),
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Map(K, V)
 )(
   match(
@@ -890,7 +890,7 @@ _all_entries_match :: (
     comptime(V) : Type,
     node : MapNode(K, V),
     target : Map(K, V),
-    where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic, Eq(V)))
+    where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic, Eq(V)))
   ) -> bool
 )(
   match(
@@ -934,7 +934,7 @@ _all_entries_match :: (
 // -- Public Map API --
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   Map(K, V),
   /// Create an empty map.
   new : (fn() -> Self)(
@@ -1046,7 +1046,7 @@ impl(
     )
   ),
   /// Apply a function to each value, producing a new map.
-  map_values : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : V) -> U), where(U <: (Send, Acyclic))) -> Map(K, U))(
+  map_values : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : V) -> U), where(U <: (Send, Sync, Acyclic))) -> Map(K, U))(
     match(
       self._root,
       .Some(root) => Map(K, U)(_root : .Some(_map_values_node(K, V, U, root, f)), _len : self._len),
@@ -1079,7 +1079,7 @@ impl(
 );
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic, Eq(V))),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic, Eq(V))),
   Map(K, V),
   Eq(Map(K, V))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)({
@@ -1105,7 +1105,7 @@ impl(
 /// be lazier than it is.
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   Map(K, V),
   IntoIterator(
     Item : MapEntry(K, V),
@@ -1118,7 +1118,7 @@ impl(
 /// `Default` — the empty map.
 impl(
   generic(K : Type, V : Type),
-  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   Map(K, V),
   Default(
     default : (fn() -> Self)(

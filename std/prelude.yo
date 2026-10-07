@@ -9913,7 +9913,7 @@ export(^);
 /// a := arc(i32(42));
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -9923,11 +9923,13 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
   )
 );
 /// Allocate a value inside an Arc, returning an `Arc(V)`.
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(Arc(V)(value));
-// SAFETY: Arc(T) is an atomic reference-counted wrapper. It is Send when
-// the inner T is Send (all fields of the atomic-object must be Send per
-// auto-derive) and Acyclic (prevents permanent leaks from Arc cycles).
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(Arc(V)(value));
+// `Sync` because every handle reads the payload from its own thread; `Send`
+// because the last handle may be dropped on any thread, and the payload's
+// `Dispose` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's
+// `Arc<T>: Send + Sync` needs `T: Send + Sync`); `Acyclic` because an `Arc`
+// cycle is never collected. `Arc(T)` itself is `Send` and `Sync` by
+// derivation: an atomic object is both when its fields are `Sync`.
 export(Arc, arc);
 /// === Deref ===
 /// Deref — marks a wrapper whose members forward to its payload `Target`
@@ -9955,7 +9957,7 @@ Deref :: trait(
 export(Deref);
 impl(generic(T : Type), Box(T), Deref(Target : T));
 impl(generic(T : Type), Rc(T), Deref(Target : T));
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Deref(Target : T));
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===
 extern(
   "Yo",
