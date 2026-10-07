@@ -33,6 +33,9 @@ my-project/
 ├── tests/
 │   ├── main.test.yo      ← 可执行文件的测试
 │   └── lib.test.yo       ← 库的测试
+├── spec/
+│   ├── README.md         ← 声明之墙：law（法则声明）在此，证明在代码里
+│   └── example.yo        ← 种子法则；`yo verify ./spec --strict` 可将其证毕
 ├── .gitignore
 ├── AGENTS.md             ← AI 编码代理的指引（列出各技能）
 ├── .agents/skills/       ← 捆绑的 agent 技能文件（见 yo skills install）
@@ -153,9 +156,9 @@ test_step.depend_on(tests);
 | 值                      | 编译器标志 | 描述                 |
 | ----------------------- | ---------- | -------------------- |
 | `Optimize.Debug`        | `-O0 -g`   | 无优化，包含调试符号 |
-| `Optimize.ReleaseSafe`  | `-O2 -g`   | 优化并包含调试符号   |
+| `Optimize.ReleaseSafe`  | `-O2`      | 优化并保留安全检查   |
 | `Optimize.ReleaseFast`  | `-O3`      | 最大性能             |
-| `Optimize.ReleaseSmall` | `-O2`      | 优化二进制体积       |
+| `Optimize.ReleaseSmall` | `-Os`      | 优化二进制体积       |
 
 ### 分配器
 
@@ -790,13 +793,14 @@ Options:
 - `src/main.yo` — 可执行文件入口
 - `src/lib.yo` — 库代码
 - `tests/main.test.yo` — 测试文件
+- `spec/README.md`、`spec/example.yo` — 验证规约：README 说明“声明之墙”（law 是人写在此处的声明，证明是代码中的契约与不变式），种子法则让新项目的 `yo verify ./spec --strict` 直接为绿
 - `.gitignore`、`README.md`
 
 随后（除非传入 `--no-skills`）会把捆绑的 agent 技能文件安装到项目的 agent
 配置目录（新项目中为 `.agents/skills/`），并写入两个面向 AI 编码代理的入口
 文件：
 
-- `AGENTS.md` — 列出已安装的技能及其描述；仅在不存在时创建
+- `AGENTS.md` — 列出已安装的技能及其描述，工具链配方包含 `yo verify ./spec --strict`；仅在不存在时创建
 
 ## 多目标构建
 
@@ -1303,7 +1307,15 @@ yo doc -o docs/api          # 自定义输出目录
 yo doc --name "My Library"  # 覆盖项目名称
 yo doc --document-private   # 包含非导出项
 yo doc --version v1.0.0     # 设置版本号（未指定时自动从 git 检测）
+yo doc --allow-token-only   # 对求值器无法加载的模块接受仅词法（token-only）文档
 ```
+
+求值器无法加载的模块——通常是因为本次运行解析到的 std 与源码所属的
+不一致，用 `--std-path <dir>` 指向正确的 std 即可修复——会使运行**失败**
+（`doc: N of M module(s) failed to evaluate ...`），而不是悄悄生成没有签名、
+成员无类型的页面。仅词法输出需要显式选择：加上 `--allow-token-only`
+后，降级模块照常渲染，文档注释挂在对应的条目上，每个模块按导出的
+顶层声明计数一次。
 
 ### 构建系统集成
 

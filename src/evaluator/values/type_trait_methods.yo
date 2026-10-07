@@ -181,8 +181,10 @@ MethodEntry :: ref(
     /// MEMBER VISIBILITY: the `file://` module whose evaluation registered
     /// this entry — stamped by `register_type_trait_method` from
     /// `registration_owner()` (a generic-impl candidate carries its impl's
-    /// owner instead). `""` = unknown, never enforced. Read by function.yo's
-    /// `_`-prefixed method check (plans/reference/MEMBER_VISIBILITY.md).
+    /// owner instead; the prelude's entries carry its `${std_path}/prelude.yo`
+    /// key, stamped by mm_load_prelude_file around the prelude's evaluation).
+    /// `""` = unknown, never enforced. Read by function.yo's `_`-prefixed
+    /// method check (plans/reference/MEMBER_VISIBILITY.md).
     owner : String
   )
 );
@@ -330,11 +332,13 @@ _canonical_owner :: (fn(owner : String) -> String)(
 /// ANY earlier file in the same process loaded it
 /// (issues/fixed/a-file-that-fails-check-alone-passes-inside-a-directory-check.md).
 ///
-///   - no current module (owner tag `""`: codegen, the CLI, the prelude
-///     bootstrap) — everything is visible;
-///   - an entry with owner `""` (registered outside any module load, i.e.
-///     the prelude and derive machinery) — always visible;
-///   - otherwise the owner must be in the current module's import closure.
+///   - no current module (owner tag `""`: codegen, the CLI) — everything is
+///     visible;
+///   - an entry with owner `""` (registered outside any module load, e.g.
+///     the derive machinery) — always visible;
+///   - otherwise the owner must be in the current module's import closure
+///     (the prelude's key is in every closure via `mark_owner_always_visible`,
+///     module_loader.yo — mm_load_prelude_file marks it when it stamps it).
 owner_visible_from_current :: (fn(owner : String) -> bool)({
   if(_registration_owner.len() == usize(0), {
     return(true);
@@ -372,7 +376,10 @@ register_type_trait_method :: (
 });
 /// Drop every method entry registered by `owner` (a `file://` abs module
 /// path). Called with each module the LSP invalidates, right before its
-/// re-evaluation re-registers the surviving impls under fresh type ids.
+/// re-evaluation re-registers the surviving impls under fresh type ids. The
+/// prelude's `${std_path}/prelude.yo` owner key is deliberately NOT a
+/// loading-key spelling, so it never matches here: the cached prelude is
+/// never re-evaluated, and purging it would strand every later analysis.
 purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
@@ -430,7 +437,9 @@ purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
   });
 });
 /// The method values the module `owner` registered (its impl members). The
-/// empty owner is what was registered outside any module load: the prelude's.
+/// prelude's are registered under its `${std_path}/prelude.yo` key —
+/// mm_load_prelude_file stamps it around the prelude's evaluation and is the
+/// one caller that collects them.
 type_trait_method_values_owned_by :: (fn(owner : String) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
   it := _type_trait_methods.keys();

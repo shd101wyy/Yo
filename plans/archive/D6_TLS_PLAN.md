@@ -96,7 +96,7 @@ throwing `UnsupportedScheme` — std stays honest.
    `PKG_CONFIG_PATH=/opt/homebrew/opt/openssl/lib/pkgconfig` — brew does not
    put keg .pc dirs on the default path, so the probe must add the keg
    fallbacks). Windows TLS goes to the same platform-audit backlog as the
-   fs/process Windows story (issues/s3-fs-wrappers-windows-semantics-audit.md).
+   fs/process Windows story (issues/fixed/s3-fs-wrappers-windows-semantics-audit.md).
 2. **Not seed-gated.** No new C-runtime externs: the OpenSSL functions come
    from the system library through `c_include("<openssl/ssl.h>", ...)`
    bindings in std (the `std/libc/*` mechanism), and the link/include flags

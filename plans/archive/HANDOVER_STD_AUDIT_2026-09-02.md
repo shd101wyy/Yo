@@ -433,7 +433,7 @@ worktree — see §4), FIXPOINT_HOLDS, CLI `--network` 55/0/0, dyn 9/9.
    argument); arity validation OUTSIDE the def-eval swallow + the async-SM
    C22 equivalent (`issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md`).
 6. Windows: stdin pipe WRITES (overlapped named pipes; reads landed #353);
-   `issues/s3-fs-wrappers-windows-semantics-audit.md`; Schannel (D6 deferred).
+   `issues/fixed/s3-fs-wrappers-windows-semantics-audit.md`; Schannel (D6 deferred).
 7. Polish rows: regex extras, cli typed values + std/term adoption, O5
    Formatter routing; D4 LSP UTF-16 position encoding.
 8. Next patch release once #364 has soaked: notes must say the curl
@@ -477,7 +477,7 @@ reads `YO_SELF_BIN`; after any golden re-record rerun the FULL scorecard.
 link failed `cannot find -lasan` (uniform, rerun-stable, while develop's
 windows legs were green minutes earlier) → the two windows full-suite
 invocations now pass `--disable-sanitize` via a `RUNNER_OS` conditional
-(`issues/windows-images-lost-libasan.md`, restore path documented);
+(`issues/fixed/windows-images-lost-libasan.md`, restore path documented);
 (2) with ASan out of the way the REAL cross-platform bug showed: `_mg_canon`
 canonicalized `file:///C:/a/b` → `/C:/a/b` but the CLI spelling prepended a
 raw backslashed cwd → the module-global registry keys disagreed on windows

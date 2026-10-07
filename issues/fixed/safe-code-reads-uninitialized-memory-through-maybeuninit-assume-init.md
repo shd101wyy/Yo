@@ -75,7 +75,7 @@ C compile under the seed (measured). Passing the witness through to the extern
 `((mu))` under the seed and the tree alike, and the emitter never sees the
 type arguments. A `_assume_init_plain` one-parameter back door kept the seed
 shape but was measured STILL CALLABLE from a safe file — prelude methods carry
-no visibility owner (`issues/prelude-methods-have-no-visibility-owner.md`) —
+no visibility owner (`issues/fixed/prelude-methods-have-no-visibility-owner.md`) —
 and was removed.
 
 ## Verification

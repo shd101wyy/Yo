@@ -1,0 +1,16 @@
+// REGRESSION GATE for
+// issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md
+//
+// A leak-shaped regression test: it exercises a construct and asserts only a
+// value that was never wrong, so its ONLY failure mode is the LeakSanitizer
+// verdict. Under `YO_TEST_LEAK_VERDICT=0` (what every CI job sets — the
+// staging ratchet for the self-hosted-emit leak debt) such a test used to run
+// and be counted as PASSED, a vacuous verdict. Declaring
+// `pragma(Pragma.NeedsLeakVerdict);` makes the runner SKIP the file with a
+// line that says why, instead of lying about coverage.
+pragma(Pragma.NeedsLeakVerdict);
+{ assert } :: import("std/assert");
+
+test("leak-shaped test (only the leak verdict can fail it)", {
+  assert(true, "values were never the defect");
+});

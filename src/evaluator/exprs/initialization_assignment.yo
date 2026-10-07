@@ -94,6 +94,7 @@
 { find_rc_value_owner_relationship, throw_expr_is_implicit_variable_error, require_expr_not_consumed, set_expr_as_needs_to_call_dup, doc_comment_lookup_key_from_token, audit_pending_copies_enabled } :: import("../utils.yo");
 { generate_new_temp_variable_name } :: import("../../utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_io_async_call } :: import("../async/await_analysis.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment
@@ -652,14 +653,17 @@ evaluate_initialization_assignment :: (
   // Save/restore context fields that are locally overridden.
   old_expected_type := ctx.expected_type;
   old_is_inside_given_handler := ctx.is_inside_given_handler;
-  // A bare `.Variant(…)` right-hand side takes the block's look-ahead hint
+  // A bare `.Variant(…)` right-hand side — or an `io.async(…)` call whose
+  // future the local returns (the call-side machinery unwraps the function's
+  // `Impl(Future(T, E))` result and pre-binds `T`, giving the closure's
+  // `.Variant` tail its expected enum) — takes the block's look-ahead hint
   // (the enclosing function's result type, when a later statement returns
   // this local) as its expected type; every other RHS is evaluated without
   // one, as before. The hint is one-shot.
   variant_hint := ctx.local_variant_hint;
   ctx.local_variant_hint = Option(ExpectedTypeCtx).None;
   ctx.expected_type = cond(
-    (variant_hint.is_some() && _rhs_is_bare_variant_literal(rhs)) => variant_hint,
+    (variant_hint.is_some() && (_rhs_is_bare_variant_literal(rhs) || is_io_async_call(rhs))) => variant_hint,
     true => Option(ExpectedTypeCtx).None
   );
   if(is_implicit, {

@@ -327,13 +327,11 @@ This applies to all parameters and return types in comptime-only APIs:
 - `E` is a single type — typically a struct that bundles every effect the async body needs. Define one bundle struct (e.g. `Ctx :: struct(io : Io, raise : Raise)`) and pass it as the single `E`.
 - The async closure takes that bundle as one parameter: `io.async((ctx : Ctx) => { ctx.raise(...); ... })`.
 - When a function uses `io : Io` and runs an async body, the bundle must include `Io`, so the return type names it: `Impl(Future(Result(T, E), Ctx))`.
-- Return `io.async(...)` directly as the last expression. An intermediate
-  variable is HALF-working since #792: it passes `yo check` (the local's
-  variant infers from a later `return(local)` or the body tail) but still
-  FAILS `yo compile` with `Failed to infer enum variant type` at the bare
-  variant inside the async closure
-  (`issues/io-async-variant-inference-passes-check-but-fails-compile.md`) —
-  keep the direct form until that lands:
+- Return `io.async(...)` directly as the last expression, or through an
+  intermediate variable that a later statement returns (or that is the body
+  tail) — both forms infer the closure's bare-variant tail from the function's
+  result type
+  (`issues/fixed/io-async-variant-inference-passes-check-but-fails-compile.md`):
 
 ```rust
 // CORRECT — return io.async directly:
@@ -343,6 +341,15 @@ my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, String), Io)))(
     .Ok((i32(42) + zero))
   })
 );
+
+// CORRECT — through an intermediate local that is returned (or is the tail):
+my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, String), Io)))({
+  task := io.async((io : Io) => {
+    zero := i32(0);
+    .Ok((i32(42) + zero))
+  });
+  return(task);
+});
 ```
 
 (The async closure body above uses two statements on purpose: a

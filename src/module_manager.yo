@@ -88,7 +88,7 @@ env_mod :: import("std/env");
   file_exists_sync
 } :: import("./manifest.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module, update_module_cache_slot, mark_owner_always_visible } :: import("./evaluator/module_loader.yo");
-{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by, take_owned_func_ids, take_owned_expr_ids, purge_trait_defaults_owned_by, type_trait_method_values_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
+{ purge_type_trait_methods_owned_by, purge_trait_impl_sites_owned_by, take_owned_func_ids, take_owned_expr_ids, purge_trait_defaults_owned_by, type_trait_method_values_owned_by, registration_owner, set_registration_owner } :: import("./evaluator/values/type_trait_methods.yo");
 { summarize_function_bodies, purge_mutation_summaries } :: import("./evaluator/effects/mutation_summary.yo");
 { purge_function_side_tables } :: import("./evaluator/types/function.yo");
 { purge_function_value_tables } :: import("./function_value.yo");
@@ -184,7 +184,10 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
 // ---------------------------------------------------------------------------
 /// The `--std-path` CLI override (highest-precedence std root). `main.yo`
 /// strips the flag from argv before subcommand dispatch and stashes the
-/// value here.
+/// value here. `prefer_entry_std_root` (below) installs the entry-side std
+/// root through the same slot, so every later resolution in the process —
+/// and the `--std-path` a `test`/`build` parent forwards to its child
+/// `compile` processes — agrees with it.
 (g_std_path_override : Option(String)) = Option(String).None;
 set_std_path_override :: (fn(path : String) -> unit)({
   g_std_path_override = Option(String).Some(path);
@@ -223,6 +226,26 @@ _std_canonicalize :: (fn(p : String) -> String)({
   });
   path.normalize().to_string()
 });
+/// `YO_STD` when the env var is set to a non-empty value — arm 2 of the
+/// lookup order below. An EMPTY value is treated as unset, the way the
+/// resolver has always read it; `prefer_entry_std_root` shares this read so
+/// the two never disagree about what "explicitly chosen" means.
+_yo_std_env_value :: (fn() -> Option(String))({
+  name_cstr := String.from("YO_STD").to_cstr().ptr().unwrap();
+  val_ptr := unsafe(getenv((*char)(name_cstr)));
+  match(
+    val_ptr,
+    .None => Option(String).None,
+    .Some(ptr) => {
+      v := String.from_cstr((*u8)(ptr)).unwrap();
+      if(v.len() > usize(0), {
+        return(Option(String).Some(v));
+      }, {
+        return(Option(String).None);
+      });
+    }
+  )
+});
 /// Lookup order:
 ///   1. The `--std-path` CLI flag (stashed via `set_std_path_override`).
 ///   2. `YO_STD` env var, if set and non-empty.
@@ -241,17 +264,12 @@ resolve_std_path :: (fn() -> String)({
     },
     .None => {}
   );
-  name_cstr := String.from("YO_STD").to_cstr().ptr().unwrap();
-  val_ptr := unsafe(getenv((*char)(name_cstr)));
   match(
-    val_ptr,
-    .None => {},
-    .Some(ptr) => {
-      v := String.from_cstr((*u8)(ptr)).unwrap();
-      if(v.len() > usize(0), {
-        return(_std_canonicalize(v));
-      });
-    }
+    _yo_std_env_value(),
+    .Some(v) => {
+      return(_std_canonicalize(v));
+    },
+    .None => {}
   );
   match(
     current_exe(),
@@ -269,6 +287,132 @@ resolve_std_path :: (fn() -> String)({
     }
   );
   _std_canonicalize(String.from("./std"))
+});
+/// True when `dir` is a std ROOT: it directly holds a `prelude.yo`. That
+/// file is the one artifact every std tree must have (`mm_preload_prelude`
+/// reads exactly `<std>/prelude.yo`), so its presence is the test for "this
+/// directory IS somebody's std" — as opposed to a project that merely uses
+/// one.
+_dir_holds_prelude :: (fn(dir : String) -> bool)(
+  file_exists_sync(
+    Path.new(dir.clone()).join(Path.new(String.from("prelude.yo"))).to_string()
+  )
+);
+/// The std root that contains `entry`, if any: the NEAREST ancestor of the
+/// canonicalized entry — the entry itself counts, because `check ./std`
+/// hands the resolver the root directly — that holds a `prelude.yo`.
+/// Nearest-first, so a std tree nested inside another resolves to its own
+/// root.
+_entry_std_root :: (fn(entry : String) -> Option(String))({
+  ancestors := Path.new(_std_canonicalize(entry.clone())).ancestors();
+  (ai : usize) = usize(0);
+  while(ai < ancestors.len(), {
+    dir := ancestors(ai);
+    if(_dir_holds_prelude(dir.to_string()), {
+      return(Option(String).Some(dir.to_string()));
+    });
+    ai = (ai + usize(1));
+  });
+  Option(String).None
+});
+/// Adopt the ENTRY-side std root for this run — the fix for
+/// `check ./std` in a repository checkout reporting false failures
+/// (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
+///
+/// `resolve_std_path` picks a std that can have nothing to do with the
+/// entries: an installed release finds its own bundled `<prefix>/std` beside
+/// the binary (arm 3) before the `./std` the entries live in (arm 4) is ever
+/// consulted. Checking a std tree that way evaluates TWO copies of std —
+/// every entry from its own tree, every `import("std/…")` inside them from
+/// the other root — and each module that is both an entry and an import
+/// then exists twice under two paths: impls register twice ("already
+/// implemented"), privacy checks compare the two declaring modules
+/// ("private to its declaring module"), safe-code checks meet the other
+/// copy's types. A std tree is never meant to be checked against a
+/// different std.
+///
+/// So when EVERY entry path handed to the command lives inside ONE
+/// directory that is itself a std root, and std was not chosen explicitly
+/// (`--std-path`, or a non-empty `YO_STD`), resolve std to that entry-side
+/// root and say so on stderr. A no-op when the two roots coincide (the
+/// tree-built-binary dev flow, where arm 3 already walks up to the `./std`
+/// the entries live in), when the entries are not all inside one std tree
+/// (a mixed target like `check .` over a whole checkout names no single
+/// std), or when the entry list is empty.
+///
+/// The root goes in through `set_std_path_override` in its
+/// `_std_canonicalize` spelling, so the resolution route still never leaks
+/// into module paths or emitted C. Callers: the check / test / compile /
+/// fix / verify / effects / doc dispatch in `main.yo` / `doc_command.yo`,
+/// each with the command's ENTRY paths, before the run's first
+/// `resolve_std_path()`.
+prefer_entry_std_root :: (fn(entries : ArrayList(String)) -> unit)({
+  match(
+    g_std_path_override,
+    .Some(_) => {
+      return(());
+    },
+    .None => {}
+  );
+  match(
+    _yo_std_env_value(),
+    .Some(_) => {
+      return(());
+    },
+    .None => {}
+  );
+  if(entries.len() == usize(0), {
+    return(());
+  });
+  // The ONE root every entry must share; `.None` (an entry outside any std
+  // tree) or a second, different root ends the search — a mixed entry set
+  // names no single std, and the resolver's own answer must stand.
+  (shared : Option(String)) = Option(String).None;
+  (ei : usize) = usize(0);
+  while(ei < entries.len(), {
+    entry := match(
+      entries.get(ei),
+      .Some(e) => e.clone(),
+      .None => String.new()
+    );
+    if(entry.len() == usize(0), {
+      return(());
+    });
+    root := _entry_std_root(entry.clone());
+    match(
+      root,
+      .None => {
+        return(());
+      },
+      .Some(r) => {
+        match(
+          shared,
+          .None => {
+            shared = Option(String).Some(r.clone());
+          },
+          .Some(s) => {
+            if(!(s == r), {
+              return(());
+            });
+          }
+        );
+      }
+    );
+    ei = (ei + usize(1));
+  });
+  match(
+    shared,
+    .None => (),
+    .Some(root) => {
+      resolved := resolve_std_path();
+      if(!(root == resolved), {
+        set_std_path_override(root.clone());
+        eprintln(
+          `yo: every entry lives inside the std tree at ${root}; using it as the std root for this run (pass --std-path or set YO_STD to use another)`
+        );
+      });
+    }
+  );
 });
 // ---------------------------------------------------------------------------
 // State accessors (main.yo's compile path drives these directly)
@@ -2407,6 +2551,23 @@ mm_load_prelude_file :: (
     .None => ()
   );
   register_evaluate_expression();
+  // MEMBER VISIBILITY: the prelude evaluates OUTSIDE the module loader, so
+  // `_registration_owner` would stay "" for its whole evaluation and every
+  // method its impls register would be unowned — which made a `_`-prefixed
+  // prelude method public everywhere (`private_member_blocked` never blocks an
+  // ownerless entry; issues/fixed/prelude-methods-have-no-visibility-owner.md).
+  // Stamp the prelude's own key for the evaluation window — the loading-stack
+  // discipline of register_loading/unregister_loading, done by hand because
+  // the prelude is not a loader module — and mark it always-visible so its
+  // impls resolve from every module without an import edge. The key is the
+  // `${std_path}/prelude.yo` spelling, NOT a `file://` loading key, so the
+  // per-document registry purges (which use loading keys) can never drop it:
+  // the cached prelude is never re-evaluated, so purging it would strand every
+  // later analysis.
+  prelude_owner := `${std_path}/prelude.yo`;
+  mark_owner_always_visible(prelude_owner.clone());
+  prev_owner := registration_owner();
+  set_registration_owner(prelude_owner.clone());
   // Phase 0: the prelude's evaluation window (its read+parse belongs to the
   // caller that owns the parse step). Exclusive like every other module row.
   prof_t0 := Instant.now();
@@ -2424,14 +2585,15 @@ mm_load_prelude_file :: (
     true,
     local_exn
   );
+  set_registration_owner(prev_owner);
   // check: the prelude's table goes with this frame like any module's, and
   // every module calls into it (its operators, its loop machinery).
   if(prelude_per_module_table, {
-    // Its impl members are registered outside any module load (owner "");
-    // its definitions are its walk's.
+    // Its impl members are registered under the prelude owner key stamped
+    // above; its definitions are its walk's.
     prelude_minted := specialization_recording_take(prelude_mint_mark);
     prelude_values := ArrayList(EvalValue).new();
-    _push_non_generic_fn_values(type_trait_method_values_owned_by(String.new()), prelude_values);
+    _push_non_generic_fn_values(type_trait_method_values_owned_by(prelude_owner.clone()), prelude_values);
     match(
       finished_walk_for(input_path.clone()),
       .Some(pw) => _push_non_generic_fn_values(_walk_def_values(pw.defs), prelude_values),
@@ -2847,9 +3009,10 @@ mm_preload_prelude :: (
 )({
   (ok : bool) = true;
   if(g_cached_prelude_env.is_none(), {
-    // The prelude's impls are visible from every module without an import edge
-    // (`owner_visible_from_current`, type_trait_methods.yo).
-    mark_owner_always_visible(`${std_path}/prelude.yo`);
+    // The always-visible mark for the prelude's registrations is applied
+    // inside mm_load_prelude_file, together with the registration-owner stamp,
+    // so EVERY path that evaluates the prelude — this one and the single-file
+    // self-bootstrap in mm_load_file — gets both.
     pre_outcome := mm_load_file(`${std_path}/prelude.yo`, std_path.clone(), verbose, io, exn);
     // Print its diagnostic here, once, at this edge (the P1 single-print rule;
     // the loader's handlers only stash).
@@ -2901,6 +3064,7 @@ export(
   mm_revalidate_plan,
   mm_revalidate_apply,
   resolve_std_path,
+  prefer_entry_std_root,
   set_std_path_override,
   get_std_path_override,
   set_imports_file_override,

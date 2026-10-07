@@ -5,7 +5,7 @@ re-measure below found the whole family.)
 
 **Severity:** S2 — every `Stream ... .for_each(...)` use leaks a 32-byte object plus a 16-byte inner allocation; a long-running consumer loop grows without bound
 
-**Found**: 2026-10-01, running the local fast suite for the safe-mode audit PR — `yo test ./tests --exclude tests/internal --exclude tests/cli-cases` with leak verdicts ON (their default outside CI) fails `tests/async/combinators.test.yo`. **Status**: OPEN. Reproduces with the installed v0.2.48 seed binary, so it predates 2026-10-01's async merges; CI has never seen it because every CI job sets `YO_TEST_LEAK_VERDICT=0` (`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md` — the hollow-gate issue).
+**Found**: 2026-10-01, running the local fast suite for the safe-mode audit PR — `yo test ./tests --exclude tests/internal --exclude tests/cli-cases` with leak verdicts ON (their default outside CI) fails `tests/async/combinators.test.yo`. **Status**: OPEN. Reproduces with the installed v0.2.48 seed binary, so it predates 2026-10-01's async merges; CI has never seen it because every CI job sets `YO_TEST_LEAK_VERDICT=0` (`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md` — the hollow-gate issue).
 
 ## Symptom
 
@@ -56,8 +56,9 @@ block survives in a match arm with an awaiting while" reports
 failing in a v0.2.47 leak-verdict-on baseline (tree std at `74fe87715`,
 2026-10-01). `tests/basic.test.yo`'s "a tuple element type inside a generic
 container declares its C name in time" is the other leak verdict in that run.
-It has its own doc:
-`issues/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`.
+It has its own doc (fixed 2026-10-03 — the tuple literal's missing owning
+temp):
+`issues/fixed/a-container-stored-in-a-tuple-stored-in-a-container-is-never-released.md`.
 
 ## Root cause
 
