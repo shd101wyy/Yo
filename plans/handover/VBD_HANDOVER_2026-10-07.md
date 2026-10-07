@@ -27,7 +27,7 @@ The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. The m
 ### 2.1 The releases
 
 - **v0.2.53** (published 2026-10-06 22:01Z): both s3 batches (#1200, #1231), the handover doc (#1249), the merge-gate job (#1250). Notes curated (sections: Language, Compile and codegen, Async runtime, Toolchain for agents; 15 known issues listed).
-- **v0.2.54** (dispatched after develop's battery on the final tip went green; check `gh release view v0.2.54`): the five wave-2/S1 PRs and the CI-hygiene layer below. **Its seed is the one to install** — it carries Copy, Sync, capture lists and local borrows, which every Generation B sweep in §3 needs.
+- **v0.2.54** (published 2026-10-07 19:44Z; tag on the bump commit `257729156`; `SEED_VERSION` auto-bumped to v0.2.54 by `307380401`): the five wave-2/S1 PRs, the CI-hygiene layer below, and #1265's develop-green fix. Notes curated (sections: Language, Compile and codegen, Toolchain for agents; 7 known issues listed). Release run 37654605552 needed one `gh run rerun --failed`: the windows-arm64 cross-emit leg was never assigned a runner (no steps, a missing log blob). That was infra, not code, and the rerun passed. **Its seed is the one to install**: it carries Copy, Sync, capture lists and local borrows, which every Generation B sweep in §3 needs.
 
 ### 2.2 Landed on develop this cycle (2026-10-07)
 
@@ -41,10 +41,19 @@ The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. The m
 | #1260 | **CI hygiene**: `tree-hygiene` job (no committed `<<<<<<<` markers; `check-issue-refs.sh` machine-enforced) wired as a fail-fast gate before the whole battery; `issues/TRIAGE.md` UNTRACKED and gitignored (a locally generated index — run `python scripts/gen-issue-triage.py`, never `git add` it) |
 | #1261 | `check-issue-refs` tolerates citations to the untracked TRIAGE; the old handover's S1 citation follows its doc into `fixed/` |
 | #1262 | `issues/ci-flake-episodes-nondeterministic-job-failures-across-platforms.md` (S3): today's two infra-flake episodes and the rerun-first guidance |
+| #1265 | **develop green after the batch merge**: restores the local-borrow read check and call-site rules that #1259's squash merge silently deleted (S2, `issues/fixed/capture-lists-merge-dropped-local-borrow-read-and-call-site-checks.md`). Also a fmt fix, 12 CLI goldens re-recorded (stale against each other after the batch), and the compile-memory baseline 2,708,300 → 2,990,712 kB (src+std grew 4.1%) |
 
 **Error-code registry state:** E0909/E0910 = capture-list borrow escapes/conflicts; E0911/E0912 = local-borrow conflict/escape. The collision was resolved by agreement, not by renumbering after the fact — keep this split.
 
 **The integration precedent worth knowing:** landing the five branches produced real cross-branch conflicts (capture-lists ↔ local-borrows in the evaluator: shared files like `utils.yo`, `begin.yo`, `assignment.yo`, the registry). All were additive unions — both sides' imports, both diagnostic families, both state blocks — but the unions must be done carefully: **duplicate `export(...)`/import statements are a compile error** (merge them into one statement with the union of names), and a scripted hunk-union can eat a `);`, a comma, or splice an import into a doc comment. Reconstruct a damaged 1-hunk file from `git show <pre-merge>:<path>` plus the single intended line rather than patching the splice. Verify with a full build before pushing.
+
+**The batch merge also LOST code without a conflict** (found after the fact; #1265). #1259's branch had never seen #1255's hooks in `identifer_and_operator.yo` and `calls/function.yo`. Its squash commit deleted them, while the import lists kept the names, so `check` stayed green while E0911 stopped firing. After a batch merge, scan every merged commit for lines an EARLIER PR in the batch added and THIS one deleted:
+
+```bash
+git diff <batch-base> <merge>^ -- src std | grep '^+' | sed 's/^+//;s/^[[:space:]]*//' | sort -u > added
+git diff <merge>^ <merge> -- src std | grep '^-' | sed 's/^-//;s/^[[:space:]]*//' | sort -u > removed
+comm -12 added removed    # anything that is not a deliberate rewrite is a merge loss
+```
 
 ### 2.3 New CI behavior you will hit
 
@@ -55,7 +64,7 @@ The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. The m
 ## 3. The next steps, in order
 
 1. **Install the v0.2.54 seed** (`bash scripts/install.sh`; verify `yo --version`). Everything below assumes it.
-2. **FnOnce (decision 37), stacked on capture-lists.** Gen A: the compiler accepts and checks `FnOnce` bounds (the plan's §decision 37 has the full rules; only escaping APIs get it). Then its Gen B: the std signatures — `Thread.spawn`/`ThreadPool.spawn` and the `io.async` exception only, per the amended list. This was never started; it is a clean, well-specified PR.
+2. **FnOnce (decision 37): Generation A is in draft PR #1266** (`feat/vbd-fnonce`, off develop, since capture lists landed in #1259). It contains the trait, the consuming call, `Fn` implies `FnOnce`, E0913, capture-list `FnOnce` bodies that own their captures, the `Dyn(FnOnce)` call-once wrapper, and move-only `Dyn(FnOnce)`. The maintainer amended the Generation A scope on 2026-10-07: only capture-list entries are owned, and a move out of an implicit capture is E0913. Its adversarial review found 10 defects. Nine are fixed with RC/Dispose regression tests (`tests/fn_once.test.yo`). One is open as S2: `issues/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md`. Four existing S2 bugs were fixed on the branch along the way: the `dyn(...)` double evaluation, `sink` closure forwarding, an early `return` leaking an owned `sink` parameter, and `FnOnce` captures inheriting the same leak. **Then Generation B**, stacked on #1266 and needing the v0.2.54 seed: the std signatures, i.e. `Thread.spawn`/`ThreadPool.spawn` and the `io.async` exception only, per the amended list.
 3. **Generation B tranche** (each is a sweep on the new seed; stack as PRs, or batch-merge per §1):
    1. **Box→Rc rename** (V1 step 1 Gen B): the plan records the counts — 215+16+633 `Box(` and 91+8+170 `box(` across src/std/tests, plus docs and the skills; then delete the prelude `Box`/`box` (Rc becomes canonical until V1 step 2's unique `Box`).
    2. **Decision 32 Gen B**: the wrapper/payload member clash becomes an error; #1241 measured 2 `.clone()` sites plus 6 derive-generated clones needing the derive rule.
