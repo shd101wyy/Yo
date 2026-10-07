@@ -855,7 +855,7 @@ The "handler returns void" branch handles this: it declares a zero-initialized t
 
 Effect handler functions (both struct-record and fn-type) are compiled as standalone C functions via evidence passing. They are **not closures** and cannot reference variables from the enclosing scope — no closure/capture struct is generated. This is **by design**.
 
-If a handler needs state, pass it as explicit arguments to the effect functions, or allocate a `Box` outside the handler and pass its address.
+If a handler needs state, pass it as explicit arguments to the effect functions, or allocate an `Rc` outside the handler and pass its address.
 
 See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) for details.
 

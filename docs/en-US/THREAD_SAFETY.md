@@ -354,7 +354,7 @@ User code **cannot** access `mutex._value` or `mutex._handle` — the compiler r
 
 Same-directory access is allowed — `std/sync/` files access each other's `_`-prefixed internals.
 
-Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in safe code (see Atomic Field Mutation above).
+Non-`_`-prefixed fields (like `arc.*`) are readable but not writable in safe code (see Atomic Field Mutation above).
 
 ## Trust Boundary
 

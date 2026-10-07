@@ -203,7 +203,7 @@ Every Yo file automatically imports **[std/prelude.yo](./std/prelude.yo)**, whic
 - **Core traits**: `Eq`, `Ord`, `Add`, `Sub`, `Mul`, `Div`, `Iterator`, `IntoIterator`, `TryFrom`, `TryInto`, `Dispose`, `Send`, `Acyclic`, etc.
 - **Metaprogramming**: `Type`, `Expr`, `ExprList`, `Var`
 - **Async**: `Io`, `FutureState`, `JoinHandle`
-- **Utilities**: `assert`, `unsafe`, `try`, `for`, `not`, `arc`, `Box`, `box`
+- **Utilities**: `assert`, `unsafe`, `try`, `for`, `not`, `arc`, `Rc`, `rc`
 - etc.
 
 ## Standard Library

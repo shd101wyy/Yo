@@ -59,19 +59,17 @@ Point* point = /* Point(3, 4) */;  // Point 是引用语义类型
 void* data = point;                // 存储 Point 指针
 ```
 
-**Box 类型定义：**
+**Rc 类型定义：**
 
 ```rust
-Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
       (*) : V
     )
   )
 );
-box :: (fn(generic(V : Type), value : V) -> Rc(V))(
-  Rc(V)(value)
-);
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 **为什么有此约束？**
@@ -130,7 +128,7 @@ d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a
 
 ## dyn(...) 的引用语义类型要求
 
-**规则**：`dyn(value)` 要求 `value` 具有**引用语义类型**（指向引用计数数据的指针）。如果是值类型，则会自动进行 `box` 装箱。
+**规则**：`dyn(value)` 要求 `value` 具有**引用语义类型**（指向引用计数数据的指针）。如果是值类型，则会自动包装成 `rc(value)`。
 
 **原因**：`Dyn` 中的 `data` 字段必须指向引用计数的内存。这确保了安全的内存管理，而无需为 `Dyn` 本身添加 ref_header。
 
@@ -148,7 +146,7 @@ dyn(42); // 42 自动变为 rc(42)
 dyn(true); // true 自动变为 rc(true)
 ```
 
-**`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `arc` 而不是 `box` 装箱值类型。非原子的引用载荷是错误：
+**`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `arc` 而不是 `rc` 装箱值类型。非原子的引用载荷是错误：
 
 ```rust
 (d : Dyn(Fn() -> unit, Send)) = dyn(k);       // OK：k 用 arc 装箱
@@ -267,9 +265,9 @@ if(downcast(animal, Dog).is_some(), {
 **结果是被拥有的。** `Dyn` 只持有引用计数数据，所以成功的 downcast 会增加引用计数并
 返回一个被拥有的引用：`Dyn` 保留自己那一份，两者各自独立释放。
 
-**值类型会从盒子里取出来。** `dyn(42)` 会自动装箱（见
+**值类型会从单元里取出来。** `dyn(42)` 会自动装箱（见
 [dyn(...) 的引用语义类型要求](#dyn-的引用语义类型要求)），所以 `dyn.data` 指向的是
-一个 `Box` 结构而不是值本身。downcast 到值类型或 newtype 目标时，会从那个盒子里把值
+一个 `Rc` 单元而不是值本身。downcast 到值类型或 newtype 目标时，会从那个单元里把值
 读出来并 dup——把 `data` 直接转成值结构体连合法的 C 都算不上。
 
 **永远不可能成功的 downcast 是编译期的 `.None`。** 编译器知道程序中每一个
@@ -334,7 +332,7 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 **要点：**
 
 - 无需类型特定的 dup/drop — `data` 始终是引用语义类型指针
-- `data` 引用语义类型的 dispose 函数负责清理（无论是 Box 还是普通引用语义类型）
+- `data` 引用语义类型的 dispose 函数负责清理（无论是 `Rc` 单元还是普通引用语义类型）
 - `Dyn` 本身从不在堆上分配，因此不需要 dispose 函数
 
 ## 设计总结
@@ -343,6 +341,6 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 2. **`data` 必须是引用语义类型**：确保数据始终是引用计数的
 3. **值类型使用 `rc()`**：`dyn(rc(42))` 将值包装在 `Rc(T)` 引用语义类型中
 4. **引用语义类型直接使用**：`dyn(Point(3, 4))` 直接使用 Point 指针
-5. **Box 的包装函数**：生成的包装函数在调用 impl 方法前先解包 `Rc(T)`
+5. **Rc 的包装函数**：生成的包装函数在调用 impl 方法前先解包 `Rc(T)`
 6. **简单的引用计数**：只有 `data` 是引用计数的，`Dyn` 结构体按值复制
 7. **Dup/Drop 函数**：标准函数，对 `data` 指针执行 dup/drop 操作

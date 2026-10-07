@@ -21,6 +21,9 @@ Progress:
 - **Landed:**
   - V1 Generation A (#1186, #1188, #1191, #1207);
   - V1 step 1 Generation A, the `Rc` names (#1232);
+  - V1 step 1 Generation B part 1, the `Box` → `Rc` rename with `Rc`
+    canonical (`feat/vbd-box-to-rc`; part 2 deletes the legacy `Box` after
+    the next seed);
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -2625,10 +2628,17 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   `box(` sites in `src/`/`std/`/`tests/`, plus about 85 + 101 in `docs/` and
   9 + 8 in skills, and the diagnostics and help texts that suggest "`Box`"
   as a reference type (`evaluator/utils.yo`, `calls/iso.yo`,
-  `types/enum.yo`, `types/struct.yo`). The same PR:
-  - deletes `Box` and `box` from the prelude;
-  - makes `Rc`/`rc` the canonical spelling in `shared_cell_canonical_names`;
-  - deletes the list's second row, so the list holds `Rc` alone.
+  `types/enum.yo`, `types/struct.yo`). **Amended 2026-10-07: two parts,
+  one seed apart.** The seed compiles `src/` against the tree's `std/`, and
+  the v0.2.54 seed's canonical cell is still `box`: every
+  `dyn(<non-object>)` it lowers synthesizes a `box(...)` that must resolve
+  in the tree's prelude.
+  - **Part 1 (`feat/vbd-box-to-rc`):** the rename (1,173 sites in 141 `.yo`
+    files, plus docs and skills); `Rc`/`rc` canonical in
+    `shared_cell_canonical_names`, with `Box` as the list's second row; the
+    prelude `Box`/`box` kept as the legacy spelling for the seed.
+  - **Part 2 (once `SEED_VERSION` carries part 1):** delete `Box` and `box`
+    from the prelude and the list's second row, so the list holds `Rc` alone.
 
   V1 step 2 then reintroduces `Box` as the unique cell, a separate type
   that is not on the list.

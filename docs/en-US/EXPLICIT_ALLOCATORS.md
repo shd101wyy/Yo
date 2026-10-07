@@ -84,7 +84,7 @@ The previous allocator is restored when `f` returns or unwinds, so scopes nest.
 Inside a scope, these come from `a`:
 
 - `ref` struct and `ref` enum constructors,
-- `box` and `arc`,
+- `rc` and `arc`,
 - `dyn` boxes,
 - `Iso` values,
 - the state machines of `io.async` tasks created there,

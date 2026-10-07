@@ -366,7 +366,7 @@ top_handler :: (raise : Raise) = ((msg) -> { unwind(i32(0)); });
 // ❌ Pointer to a handler — could write through to outer storage.
 P :: *(Raise);  // rejected
 
-// ❌ Storing in a Box — heap outlives the install frame.
+// ❌ Storing in an Rc — heap outlives the install frame.
 b := rc((msg) -> { unwind(i32(0)); });
 
 // ❌ Closure capturing a handler — closure escapes; handler with it.
@@ -453,7 +453,7 @@ If a handler needs state, pass it explicitly:
 
 - take it as an argument to the effect function, so the caller supplies it at
   the `ctl` call site; or
-- allocate a `Box` outside the handler and pass its address in.
+- allocate an `Rc` outside the handler and pass its address in.
 
 (`.github/instructions/c-codegen.instructions.md` § "Handler functions are
 standalone, not closures" is the implementation-side statement of the same rule.)

@@ -186,7 +186,7 @@ $ yo fmt --check            # 只检查格式，不写入变更
 - **核心 trait**：`Eq`、`Ord`、`Add`、`Sub`、`Mul`、`Div`、`Iterator`、`IntoIterator`、`TryFrom`、`TryInto`、`Dispose`、`Send`、`Acyclic` 等
 - **元编程**：`Type`、`Expr`、`ExprList`、`Var`
 - **异步**：`Io`、`FutureState`、`JoinHandle`
-- **工具函数**：`assert`、`unsafe`、`try`、`for`、`not`、`arc`、`Box`、`box`
+- **工具函数**：`assert`、`unsafe`、`try`、`for`、`not`、`arc`、`Rc`、`rc`
 - 等等
 
 ## 标准库

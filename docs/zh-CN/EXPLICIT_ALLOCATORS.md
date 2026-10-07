@@ -77,7 +77,7 @@ arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的�
 在作用域内，以下内容来自 `a`：
 
 - `ref` struct 和 `ref` enum 的构造，
-- `box` 和 `arc`，
+- `rc` 和 `arc`，
 - `dyn` 盒子，
 - `Iso` 值，
 - 在作用域内创建的 `io.async` 任务的状态机，

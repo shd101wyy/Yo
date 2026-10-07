@@ -94,7 +94,7 @@ broken :: (fn(p : Point) -> unit)({
 
 A by-value parameter borrows its value: its storage is a copy of the caller's, and a field
 write changes only that copy. A field whose old value holds RC data (a `String`, a
-collection, a `Box`, …) cannot be written through it, because the write would release data
+collection, an `Rc`, …) cannot be written through it, because the write would release data
 the caller still holds (E0908). The same holds for a `match` or `for` binding, and for
 passing such a place to an `inout` parameter the callee may write, including calling an
 `inout(self)` method such as `push_str` on it: the write would land in the borrowed copy
@@ -169,7 +169,7 @@ assert(ref_count(b) == usize(1), "one owner");
 
 The count reflects the compiler's dup/drop optimizations, so a copy the optimizer cancelled does not show up; it is meant for uniqueness checks (copy-on-write) and tests, not program logic.
 
-`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns an `Rc(T)` handle whose `ref_count` is `1`. `Rc(T)` has the same definition and behaviour as today's `Rc(T)` (Yo's `Box` is already reference counted); `Rc` is the shared cell's name going forward, and `Box` will become a uniquely owned cell (`plans/VALUES_BY_DEFAULT.md`).
+`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns an `Rc(T)` handle whose `ref_count` is `1`. `Rc(T)` is Yo's shared cell; it used to be spelled `Box(T)`, which stays in the prelude as a legacy alias for one more release. `Box` will later return as a uniquely owned cell (`plans/VALUES_BY_DEFAULT.md`, V1 step 2).
 
 ```rust
 a := rc(i32(42));

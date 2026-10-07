@@ -332,7 +332,7 @@ top_handler :: (raise : Raise) = ((msg) -> { unwind(i32(0)); });
 // ❌ 指向处理器的指针 — 可能通过指针写入外层存储。
 P :: *(Raise);  // 拒绝
 
-// ❌ 存入 Box — 堆超过安装帧。
+// ❌ 存入 Rc — 堆超过安装帧。
 b := Rc(Raise).new((msg) -> { unwind(i32(0)); });
 
 // ❌ 闭包捕获处理器 — 闭包可能逃出，带走处理器。
@@ -414,7 +414,7 @@ passing）编译为独立的 C 函数。它们**不是**闭包：不会生成捕
 如果处理器需要状态，请显式传入：
 
 - 把它作为效应函数的参数，由调用方在 `ctl` 调用处提供；或者
-- 在处理器之外分配一个 `Box`，把它的地址传进去。
+- 在处理器之外分配一个 `Rc`，把它的地址传进去。
 
 （`.github/instructions/c-codegen.instructions.md` 的 "Handler functions are
 standalone, not closures" 一节是同一条规则在实现层面的表述。）
