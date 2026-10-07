@@ -607,9 +607,25 @@ subgraph reachable from it:
      its reachable subgraph.
    - **Scan** each root: a gray object with RC > 0 is live → **ScanBlack**
      (restore counts); otherwise it is white (cycle garbage).
-   - **CollectWhite** frees the white subgraph (dispose then free, in two passes
-     so a member's traversal never touches an already-freed sibling), then clears
-     the buffer.
+   - **CollectWhite** frees the white subgraph (dispose, then a resurrection
+     re-check, then free — in separate passes so a member's traversal never
+     touches an already-freed sibling), then clears the buffer.
+
+**Resurrection during dispose (PEP 442).** A dispose is user code and can store
+a handle to a white member into a LIVE object (a cache, a registry, a keeper
+node). The member's count rises above its trial-deleted 0, but the free pass
+would have freed it anyway — leaving the live object a handle to freed memory
+(`issues/fixed/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`,
+S1). Both collectors therefore re-check every white cell's count **after** the
+dispose pass: a cell whose count rose, and everything reachable from it, is
+turned black (ScanBlack restores the trial decrements over that subgraph) and
+kept — leaked from THIS collection, and reclaimed by a later one once it is
+unreachable again. Because tracked decrements are skipped while
+`__yo_gc_collecting` is set, a white count can only have RISEN since the
+classify pass, so dispose-time mutations err toward keeping: a leak, never a
+dangling handle. A reference that one dispose resurrects and a later dispose in
+the same pass overwrites keeps a phantom count and stays leaked — the
+conservative bound of that one-sided check.
 
 Each incremental collection is **O(possible-roots + their reachable subgraph)**
 rather than O(all tracked). Because a cycle collection still traverses that

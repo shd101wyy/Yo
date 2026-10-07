@@ -15,7 +15,9 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
+  ast_expr_strip_borrow_marker,
   make_err_expr,
+  ExprId,
   BK_BEGIN,
   BK_TUPLE,
   BK_RETURN,
@@ -103,7 +105,14 @@ pragma(Pragma.AllowUnsafe);
   ImplicitCopyPending,
   audit_implicit_copy_enabled,
   audit_take_implicit_copy_pending,
-  audit_print_implicit_copy
+  audit_print_implicit_copy,
+  local_borrows_mark,
+  local_borrows_truncate,
+  local_borrows_active,
+  local_borrow_is_binding_stmt,
+  local_borrow_set_lookahead,
+  local_borrow_result_borrow_of,
+  local_borrow_reject_result_borrow
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -2056,6 +2065,9 @@ evaluate_begin_expression :: (
   // re-reads them); CTFE bodies are never released (their caller adopts the
   // body env right after, and the executed clone is purged anyway). The depth
   // is restored, not decremented, so a throw past this frame cannot pin it.
+  // The local borrows a block declares are listed while it evaluates
+  // (plans/VALUES_BY_DEFAULT.md decision 18).
+  lb_mark := local_borrows_mark();
   if(scope_release_active() && is_evaluating_function_body_begin_block && (ctx.ctfe_depth == usize(0)), {
     sr_saved_depth := scope_release_depth();
     sr_mark := scope_release_mark();
@@ -2066,9 +2078,12 @@ evaluate_begin_expression :: (
     if(sr_saved_depth == usize(0), {
       scope_release_body(sr_mark, sr_entry);
     });
+    local_borrows_truncate(lb_mark);
     return(sr_r);
   });
-  _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn)
+  lb_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
+  local_borrows_truncate(lb_mark);
+  lb_r
 });
 _evaluate_begin_expression_impl :: (
   fn(
@@ -2104,6 +2119,40 @@ _evaluate_begin_expression_impl :: (
     single
   });
   n_args := begin_args.len();
+  // The body RESULT chain (plans/VALUES_BY_DEFAULT.md decision 18 rule 1,
+  // decision 38 A): this block is the enclosing function body's own block
+  // (every body site passes `is_evaluating_function_body_begin_block` =
+  // true), or a nested begin block the body's tail ends in
+  // (`ctx.local_borrow_result_chain_tail` carries its id, armed by the
+  // enclosing chain block around evaluating its begin-shaped tail). A
+  // test block's result is discarded, so it never joins the chain. The
+  // chain flag is consumed here: one arming names one block.
+  (is_result_chain_block : bool) = false;
+  cond(
+    is_evaluating_function_body_begin_block => {
+      is_result_chain_block = match(
+        ctx.is_evaluating_function_body_or_async_block,
+        .Some(chain_fb) => match(chain_fb.kind, .TestBlock => false, _ => true),
+        .None => false
+      );
+    },
+    true => {
+      match(
+        ctx.local_borrow_result_chain_tail,
+        .Some(chain_id) => {
+          ctx.local_borrow_result_chain_tail = Option(ExprId).None;
+          is_result_chain_block = (
+            (ast_expr_id(expr) == chain_id) && match(
+              ctx.is_evaluating_function_body_or_async_block,
+              .Some(chain_fb2) => match(chain_fb2.kind, .TestBlock => false, _ => true),
+              .None => false
+            )
+          );
+        },
+        .None => ()
+      );
+    }
+  );
   // Empty begin → unit result immediately.
   if(n_args == usize(0), {
     info := new_expr_info(env, TypeValue.Unit);
@@ -2211,6 +2260,22 @@ _evaluate_begin_expression_impl :: (
             .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
             .Atom(_, _) => make_err_expr()
           );
+          // Decision 18 rule 1 (decision 38 A): a local borrow is
+          // second-class and never crosses the function boundary.
+          // `return(<borrow>)` — the bare binding, or a place reached from
+          // it — names the BORROW as the function's result, not the value it
+          // reads through, so it is rejected even where reading through the
+          // borrow produces a copy today: once borrows stop copying, the
+          // same spelling would have to move the borrowed place or escape
+          // the borrow itself. The way out is to copy the value into an
+          // owned local first (`v := y; return(v);`).
+          if(local_borrows_active(), {
+            match(
+              local_borrow_result_borrow_of(ret_arg, env, ctx),
+              .Some(lb_info) => local_borrow_reject_result_borrow(lb_info, ast_expr_token(ret_arg), ctx, exn),
+              .None => ()
+            );
+          });
           // Pass the function-body's return type as the expected type for the
           // return argument: for a
           // FunctionBody context, `expectedType = { type:
@@ -2557,7 +2622,48 @@ _evaluate_begin_expression_impl :: (
         // function's result type as a one-shot hint
         // (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §2.2).
         ctx.local_variant_hint = _variant_local_hint(expr_to_eval, begin_args, loop_i, is_evaluating_function_body_begin_block, env, ctx);
+        // A local borrow's live range ends at its last use in this block
+        // (decision 18): hand the binding the statements after it.
+        if(local_borrow_is_binding_stmt(expr_to_eval), {
+          local_borrow_set_lookahead(begin_args, loop_i, expr_to_eval);
+        });
+        // The result chain's tail (decision 18 rule 1, decision 38 A): when
+        // a chain block's last statement names a local borrow as the body's
+        // result expression — the bare binding or a place reached from it —
+        // the borrow would cross the function boundary, and is rejected (a
+        // borrow is second-class; the value may be read out and copied into
+        // an owned local, `v := y;`). A begin-shaped tail JOINS the chain
+        // instead: `ctx.local_borrow_result_chain_tail` names it, and its own
+        // block runs this check at its tail, while the borrows it declares
+        // inside itself are still registered (a `return(...)` inside it is
+        // checked by the return branch above).
+        (chain_tail_armed : bool) = false;
+        if(is_result_chain_block && is_last_in_loop, {
+          // The arming cannot be gated on `local_borrows_active()`: the
+          // borrow the tail block yields may be DECLARED inside it (its own
+          // statements register it before its tail is judged), so a body
+          // with no borrow in scope yet still arms the chain.
+          chain_tail := ast_expr_strip_borrow_marker(expr_to_eval);
+          cond(
+            ast_expr_is_fn_call_of(chain_tail, BK_BEGIN, Option(usize).None) => {
+              ctx.local_borrow_result_chain_tail = Option(ExprId).Some(ast_expr_id(chain_tail));
+              chain_tail_armed = true;
+            },
+            true => {
+              if(local_borrows_active(), {
+                match(
+                  local_borrow_result_borrow_of(chain_tail, env, ctx),
+                  .Some(lb_info) => local_borrow_reject_result_borrow(lb_info, ast_expr_token(chain_tail), ctx, exn),
+                  .None => ()
+                );
+              });
+            }
+          );
+        });
         evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, exn);
+        if(chain_tail_armed, {
+          ctx.local_borrow_result_chain_tail = Option(ExprId).None;
+        });
         ctx.local_variant_hint = Option(ExpectedTypeCtx).None;
         ctx.expected_type = old_expected;
         ev_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));

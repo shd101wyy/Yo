@@ -6712,15 +6712,17 @@ _inout_pinned :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     o := _InoutObj(v : i32(1));
     inout(r) := o.v;
-    // The binding pins the first object: reassigning the handle cannot free it.
+    r = (r + i32(1));
+    // The binding's last use is above: a borrow through a reference cell may
+    // not be live across an await (decision 18, rule 4). Its pin holds the
+    // first object to the end of the scope, across the await.
     o = _InoutObj(v : i32(100));
     e.await(yield(e), e);
-    r = (r + i32(1));
-    r + o.v
+    o.v + i32(2)
   })
 );
-test("an inout binding through an object pins it across an await", {
-  assert(io.await(_inout_pinned(io), io) == i32(102), "r is the pinned object's field, o the new one");
+test("an inout binding through an object pins it to the end of its scope, across an await", {
+  assert(io.await(_inout_pinned(io), io) == i32(102), "r wrote the pinned object, o is the new one");
 });
 _inout_loop :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {

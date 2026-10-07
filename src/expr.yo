@@ -728,6 +728,12 @@ ast_expr_is_address_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bo
 ast_expr_is_inout_mode_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
   ast_expr_is_fn_call_of(e, BK_INOUT, arg_count) || ast_expr_is_fn_call_of(e, BK_MUT, arg_count)
 );
+/// The mode wrapper of a LOCAL borrow binding or re-point (decisions 18 and
+/// 25): `imm(y)`, `mut(y)` or `inout(y)` (`mut`'s Generation A synonym), on
+/// the left of `:=` or `=`.
+ast_expr_is_local_borrow_mode_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
+  ast_expr_is_inout_mode_call(e, arg_count) || ast_expr_is_fn_call_of(e, BK_IMM, arg_count)
+);
 /// The place under a call-site borrow marker (decision 33): `&mut x` and a
 /// `&x` that lends to a borrowing parameter both name the place `x`. Every
 /// walker that roots an argument's PLACE (the `inout` alias roots, D3, the
@@ -1397,7 +1403,7 @@ desugar_program_if_calls :: (fn(program : ArrayList(AstExpr)) -> ArrayList(AstEx
 });
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
-export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_strip_borrow_marker);
+export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_local_borrow_mode_call, ast_expr_strip_borrow_marker);
 export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
