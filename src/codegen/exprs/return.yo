@@ -642,7 +642,9 @@ generate_consumed_var_drops_for_escape :: (fn(indent : String, context : Functio
                               cond(
                                 _variable_moved_before_cleanup_point(lv, expr) => false,
                                 !_consumption_is_ordered_against_cleanup_point(lv, expr) => false,
-                                true => (_drop_target_is_state_machine_field(lv, var_name.clone(), context) || scope_stack_contains(context.base.declared_scopes.*, lv_c_name))
+                                // An `FnOnce` closure's owned capture lives in
+                                // the closure context, never a C local.
+                                true => (is_fnonce_capture_drop(ast_expr_id(de)) || _drop_target_is_state_machine_field(lv, var_name.clone(), context) || scope_stack_contains(context.base.declared_scopes.*, lv_c_name))
                               )
                             },
                             .None => false
@@ -734,7 +736,9 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
                     .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(drop_expr), .Some(ta) => ast_expr_id(ta), .None => ast_expr_id(expr)), ei.env, vn, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot).is_some()),
                     .None => false
                   );
-                  !in_slot && !scope_stack_contains(context.base.declared_scopes.*, cn)
+                  // Likewise an `FnOnce` closure's owned capture lives in the
+                  // closure context, never a C local (decision 37).
+                  !in_slot && !is_fnonce_capture_drop(ast_expr_id(drop_expr)) && !scope_stack_contains(context.base.declared_scopes.*, cn)
                 },
                 .None => false
               );
