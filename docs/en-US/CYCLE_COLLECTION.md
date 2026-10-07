@@ -247,7 +247,7 @@ handle.join();
 | Closures                         | ❌ No     | May capture references          |
 | `*(T)` (pointers)                | ❌ No     | Not safe across threads         |
 
-**Key Design Decision:** PLAIN (non-atomic) reference types (`ref(struct(...))`) are thread-local and never cross thread boundaries. The ATOMIC forms — `atomic(ref(...))`, i.e. `Arc`, `std/sync` and `std/imm` — are `Send` and are shared across threads with atomic RC (and are therefore not cycle-collected). This means:
+**Key Design Decision:** PLAIN (non-atomic) reference types (`ref(struct(...))`) are thread-local and never cross thread boundaries. The ATOMIC forms — `atomic(ref(...))`, i.e. `Arc`, `std/sync` and `std/imm` — are `Send` and `Sync` when their payload is `Sync`, and are shared across threads with atomic RC (and are therefore not cycle-collected). This means:
 
 - Each thread's GC only tracks objects created on that thread
 - No cross-thread GC coordination needed

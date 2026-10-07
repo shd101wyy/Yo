@@ -8,12 +8,12 @@
 
 ## 共同特性
 
-| 特性               | 说明                                                     |
-| ------------------ | -------------------------------------------------------- |
-| **持久化**         | 插入、更新、删除后旧版本仍然有效。                       |
-| **线程安全共享**   | 底层节点使用 `atomic(ref(struct(...)))` 与原子引用计数。 |
-| **带 `Send` 约束** | 集合类型构造器要求元素/值类型实现 `Send`。               |
-| **天然无环**       | 这些数据结构是树、链表、前缀树，不依赖循环收集器。       |
+| 特性                     | 说明                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| **持久化**               | 插入、更新、删除后旧版本仍然有效。                                                  |
+| **线程安全共享**         | 底层节点使用 `atomic(ref(struct(...)))` 与原子引用计数。                            |
+| **`Send` + `Sync` 约束** | 元素、键和值类型必须是 `Send` 且 `Sync`：节点被所有版本共享，可能在任意线程上释放。 |
+| **天然无环**             | 这些数据结构是树、链表、前缀树，不依赖循环收集器。                                  |
 
 ## 集合概览
 
@@ -83,14 +83,14 @@ yo doc ./std/imm
 从不被修改。为了表达这一安全保证，内部节点类型声明了**手动 `Acyclic` 实现**：
 
 ```rust
-ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+ListNode :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(ref(struct(_value : T, _next : Option(Self))))
 );
-impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), ListNode(T), Acyclic());
 ```
 
 这类似于 Rust 的 `unsafe impl Send` ——由程序员断言一个编译器无法从结构上
-验证的安全属性。`atomic(ref(struct(...)))` 字段的 `Send` 约束作为硬性错误强制执行；
+验证的安全属性。`atomic(ref(struct(...)))` 字段的 `Sync` 约束作为硬性错误强制执行；
 `Acyclic` 在可能时自动派生，否则由程序员手动声明。
 
 ## 写时复制（COW）优化

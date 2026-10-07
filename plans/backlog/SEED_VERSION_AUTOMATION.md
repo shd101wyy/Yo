@@ -211,18 +211,26 @@ miss `Sync`).
   pragma'd impls: `Channel`, `Mutex`, `Waker`, `ImmString`, `imm.Vec`,
   `MapBranch`, `MapCollision`.
 
-**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
-- `Arc :: where(V <: (Sync, Acyclic))`, `arc`'s bound and its `Deref`/`Send`
-  impls (`Arc(T)` is `Send` and `Sync` for `T <: Sync`); drop the explicit
-  `impl(Arc(T), Send())`, which derivation now answers.
-- `Mutex`/`RwLock`/`Channel`/`Sender`/`Receiver`: `T <: Send` stays on
-  `Mutex`/`Channel`; `RwLock(T)` needs `T <: (Send, Sync)`.
-- `Thread(T)`/`Thread.spawn`/`spawn_blocking`/`spawn(pool, …)` keep
-  `Impl(Fn, Send)`; their result `T` keeps `Send`. Moving a move-only capture
+**Generation B DONE 2026-10-08** (`feat/vbd-sendsync-genb`):
+- `Arc :: where(V <: (Send, Sync, Acyclic))` and the same bound on `arc`,
+  per the 2026-10-07 amendment (this entry first said `(Sync, Acyclic)`):
+  `Send` because the last handle may be dropped, and the payload disposed,
+  on any thread. The explicit `impl(Arc(T), Send())` is dropped; derivation
+  makes `Arc(T)` `Send` and `Sync`.
+- `RwLock(T)` needs `T <: (Send, Sync, Acyclic)` (concurrent read guards).
+- Every `std/imm` element, key and value bound is `(Send, Sync, Acyclic)`
+  (their nodes are shared by every version).
+- Unchanged: `Mutex`/`Channel`/`Sender`/`Receiver` keep `T <: (Send, Acyclic)`;
+  `Thread(T)`/`Thread.spawn`/`spawn_blocking`/`spawn(pool, …)` keep
+  `Impl(Fn, Send)` and their result `T <: Send`. Moving a move-only capture
   into them is DONE - the externs take `own(cb)` and the lowering moves
   (`issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
-- The `std/imm` element bounds become `Sync` (their nodes are shared).
-- `docs/en-US/PARALLELISM.md` signatures, both languages.
+- Docs updated in both languages (`ARC.md`, `THREAD_SAFETY.md`,
+  `IMMUTABLE_COLLECTIONS.md`, `DESIGN.md`; `CYCLE_COLLECTION.md` in en-US,
+  whose zh-CN text states no bound). `PARALLELISM.md` names no
+  `Arc`/`RwLock`/`std/imm` bound and is unchanged.
+- Tests: `tests/send_sync.test.yo` rejects a `Send`-but-not-`Sync` type in
+  `arc`, `RwLock` and `imm.Vec`, and accepts it in `Mutex` and `Channel`.
 
 ## Seed-gated follow-up (2026-10-06): decision 36's `Copy` flip
 

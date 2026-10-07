@@ -26,6 +26,8 @@ Progress:
     seed);
   - decision 32 Generation B, the wrapper/payload clash is E0616
     (#1268; one gap open, see the decision's "as built");
+  - the `Send`/`Sync` split, Generation B: sharing needs `Sync` (`Arc`,
+    `RwLock`, `std/imm`; `feat/vbd-sendsync-genb`);
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -2846,6 +2848,26 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     `std/imm` element bounds become `Sync`, and the explicit `Arc(T)` `Send`
     impl goes. `Mutex`, `Channel` and `Thread.spawn` keep `Send`. The seed
     does not derive `Sync`, so no std bound may name it before then.
+  - **Generation B as built (2026-10-08, `feat/vbd-sendsync-genb`).**
+    - `Arc` and `arc` take `T <: (Send, Sync, Acyclic)`. `Sync` because
+      every handle reads the payload from its own thread; `Send` because the
+      last handle may be dropped on any thread and the payload's `Dispose`
+      runs there; `Acyclic` because an `Arc` cycle is never collected.
+    - The explicit `impl(Arc(T), Send())` is deleted. `Arc(T)`'s own `Send`
+      and `Sync` come from derivation: an atomic object is both when its
+      fields are `Sync`.
+    - `RwLock(T)` takes `T <: (Send, Sync, Acyclic)` (concurrent read
+      guards). Every `std/imm` element, key and value bound (`List`, `Vec`,
+      `Map`, `Set`, `SortedMap`, `SortedSet`) gained `Sync`: their nodes are
+      shared by every version and released on any thread.
+    - Unchanged: `Mutex(T)` and `Channel`/`Sender`/`Receiver` keep
+      `T <: (Send, Acyclic)`; `Thread`/`Thread.spawn`/`ThreadPool`/`spawn`
+      keep `Impl(Fn, Send)` and a `T <: Send` result.
+    - `String` and `ArrayList` stay neither `Send` nor `Sync` until V2b, so
+      `Channel(String)` still waits for V2b.
+    - **Tests** (`tests/send_sync.test.yo`): a `Send`-but-not-`Sync` type
+      (plain data with `impl(T, !(Sync()))`) is rejected by `arc`, `RwLock`
+      and `imm.Vec`, and accepted by `Mutex` and `Channel`.
 - **`Iso(T)`'s bound widens to "reaches a non-atomic cell" — landed
   (feat/vbd-send-sync).** `type_reaches_non_atomic_cell`
   (`src/types/utils.yo`) is the bound at `Iso(T)` and `__yo_iso_unique`. A

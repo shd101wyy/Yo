@@ -44,6 +44,13 @@ An atomic object's copies share one payload, so it is `Send` only when that payl
 `Mutex(T)` is the exception that proves the rule: it hands `T` to one thread at a time, so it is
 `Sync` whenever `T` is `Send`.
 
+The std types follow the same split. A type that shares its payload between threads asks for
+`Sync`: `Arc(T)`, `RwLock(T)` (concurrent read guards) and every `std/imm` element, key and value
+type need `T <: (Send, Sync, Acyclic)`. A type that hands its payload to one thread at a time asks
+only for `Send`: `Mutex(T)` and `Channel(T)` need `T <: (Send, Acyclic)`. So a type that is `Send`
+but opts out of `Sync` with `impl(T, !(Sync()))` can go in a `Mutex` or through a `Channel`, but
+not in an `Arc`.
+
 `String` and the collections are not `Send` yet: today their buffer is a shared, non-atomically
 counted cell, so a copy left on the sending thread would race on its count. Once their buffers
 become uniquely owned (`plans/VALUES_BY_DEFAULT.md` V2b), moving one hands over its only owner and
@@ -266,8 +273,8 @@ wherever it can see it:
   written.
 - **Function values passed in.** A named function or a closure passed to an
   `Impl(Fn(...), Send)` parameter is judged at the call.
-- **Generic bounds.** A function bound to a `where(T <: Send)` parameter is judged too:
-  `arc(f)`, `Channel(typeof(f))`, a generic `g(f)`.
+- **Generic bounds.** A function bound to a `where(T <: Send)` or `where(T <: Sync)` parameter
+  is judged too: `arc(f)` (both), `Channel(typeof(f))`, a generic `g(f)`.
 - **Captured functions.** A closure captured by another thread's closure is judged by the
   captured value.
 - **`Sync` slots.** An `Impl(Fn(...), Sync)` parameter runs the same checks for `Sync`: a
