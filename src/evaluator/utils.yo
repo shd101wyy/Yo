@@ -790,8 +790,9 @@ _throw_fn_closure_moves_capture :: (fn(rhs : AstExpr, ty : TypeValue, ctx : Eval
   );
 });
 /// `v` is captured IMPLICITLY by the closure whose body is being evaluated:
-/// it is bound in a frame below the body's own frames, and not in an
-/// `FnOnce` closure's capture-list frame (whose bindings the body owns).
+/// it is bound in a frame below the body's own frames, and not in a capture
+/// list's frame (an `Fn` closure's by-value entries are checked first; an
+/// `FnOnce` closure's, which the body owns, are excluded here).
 /// `io.async` bodies are excluded: their state machine owns its captures.
 _is_implicit_closure_capture :: (fn(v : Variable, env : Environment, ctx : EvalContext) -> bool)(
   match(
@@ -832,6 +833,32 @@ _is_implicit_closure_capture :: (fn(v : Variable, env : Environment, ctx : EvalC
     .None => false
   )
 );
+/// `v` is the non-owning re-bind that shadows a `sink(f) : Impl(...)`
+/// closure parameter inside a SPECIALIZED body (calls/helper.yo's re-bind
+/// loop keeps it non-owning: an owning re-bind was a double release). The
+/// owning binding the caller's transfer handed the closure to sits in an
+/// outer frame (`_owning_param_binding_for_capture_move`); a move of the
+/// shadow — forwarding `f` to another `sink` parameter, storing it — moves
+/// THAT binding, so its scope-end drop is skipped. Both moves are logged for
+/// the `cond`/`match` joins. False (no move) when there is no such owner.
+/// (issues/fixed/forwarding-a-sink-closure-parameter-to-a-sink-parameter-is-rejected.md)
+_move_through_sink_shadow :: (fn(v : Variable, rhs : AstExpr, env : Environment) -> bool)({
+  if(!v.is_parameter || v.is_ref || v.is_module_level, {
+    return(false);
+  });
+  match(
+    _owning_param_binding_for_capture_move(env, v.name.clone()),
+    .Some(o) => {
+      tok := ast_expr_token(rhs);
+      _log_user_move(o, tok, env);
+      o.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      _log_user_move(v, tok, env);
+      v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      true
+    },
+    .None => false
+  )
+});
 /// E0913 for a move out of an implicit capture (Generation A of decision 37,
 /// as amended 2026-10-07): a closure body owns, and so may move out, only the
 /// by-value entries of a capture list, in a closure typed `FnOnce(...)`.
@@ -879,9 +906,10 @@ transfer_explicit_copy_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name 
       },
       v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
+      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, ei.ty, ctx, exn),
       _is_implicit_closure_capture(v, ei.env, ctx) => _throw_implicit_capture_move(rhs, ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
-      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, ei.ty, ctx, exn),
+      _move_through_sink_shadow(v, rhs, ei.env) => (),
       true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
     )
   );

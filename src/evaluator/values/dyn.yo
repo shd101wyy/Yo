@@ -15,7 +15,9 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set,
   expr_info_table_get,
   expr_info_set_dyn_call_trait_values,
-  expr_info_adopt_env
+  expr_info_adopt_env,
+  mark_node_preevaluated,
+  unmark_node_preevaluated
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env, snapshot_env } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
@@ -982,7 +984,12 @@ evaluate_dyn_value :: (
           ne_box_call := AstExpr.FnCall(alloc_global_expr_id(), ne_box_atom, ne_box_args, false, expr_tok);
           saved_bet := ctx.expected_type;
           ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : box_ty, env : env));
+          // The inner value is evaluated once: as the box call's argument it
+          // is pre-evaluated, so a closure's capture moves do not run again
+          // (issues/fixed/dyn-of-a-closure-capturing-a-move-only-value-is-a-bogus-e0901.md).
+          mark_node_preevaluated(ast_expr_id(inner_ne));
           ne_boxed := evaluate_expression_raw(ne_box_call, env, ctx, exn);
+          unmark_node_preevaluated(ast_expr_id(inner_ne));
           ctx.expected_type = saved_bet;
           match(
             expr_info_table_get(ctx.expr_info_table, ast_expr_id(ne_boxed)),
@@ -1066,7 +1073,9 @@ evaluate_dyn_value :: (
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
     box_call := AstExpr.FnCall(alloc_global_expr_id(), box_atom, box_args, false, expr_tok);
+    mark_node_preevaluated(ast_expr_id(eval_inner));
     boxed_expr := evaluate_expression_raw(box_call, cur_env, ctx, exn);
+    unmark_node_preevaluated(ast_expr_id(eval_inner));
     boxed_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(boxed_expr));
     match(
       boxed_info_opt,
