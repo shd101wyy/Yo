@@ -540,7 +540,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "keep :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());\nmain :: (fn() -> unit)({\n  w := i32(1);\n  keep({ w }() => w);\n});\nexport(main);\n",
       "`keep` owns its argument and could keep it after `w` is gone; capturing `w` by value gives the closure its own copy.",
       "`keep` 拥有其实参，可能在 `w` 消失后仍保留它；按值捕获 `w` 让闭包持有自己的副本。"
-
+    )
+  );
+  out.push(
+    _mk_explain(
       E_LOCAL_BORROW_CONFLICT,
       "access conflicts with a live local borrow",
       "访问与仍存活的局部借用冲突",
@@ -567,7 +570,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "bump :: (fn(f : Impl(Fn() -> i32), mut(z) : i32) -> i32)({\n  z = (z + i32(1));\n  f()\n});\nmain :: (fn() -> unit)({\n  z := i32(0);\n  bump({ z }() => z, &mut z);\n});\nexport(main);\n",
       "The closure reads `z` through its borrow while `bump` writes `z` through its `mut` parameter; a by-value capture copies `z` before the call.",
       "闭包通过借用读取 `z`，而 `bump` 通过其 `mut` 形参写入 `z`；按值捕获会在调用前复制 `z`。"
-
+    )
+  );
+  out.push(
+    _mk_explain(
       E_LOCAL_BORROW_ESCAPES,
       "a local borrow crosses the function boundary",
       "局部借用量跨越了函数边界",
