@@ -7,6 +7,10 @@
 - **Decisions:** all 38 in §4 are confirmed. No design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
+- **Handover:** the campaign was handed over on 2026-10-06. Start with
+  [`plans/VBD_HANDOVER_2026-10.md`](VBD_HANDOVER_2026-10.md), which has the
+  open PRs, the pushed wave-2 branches, the release step and the
+  Generation B queue.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -16,14 +20,22 @@ rejected alternatives are in git history (this file at commit 7e0efc70f, and PRs
 Progress:
 - **Landed:**
   - V1 Generation A (#1186, #1188, #1191, #1207);
+  - V1 step 1 Generation A, the `Rc` names (#1232);
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
+  - V3b Generation A (#1240);
+  - decision 32 Generation A, `Rc.clone(w)` (#1241);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
-  - V1 step 1, Generation A: the compiler learns the `Rc` names (#1232);
-  - V3b Generation A;
-  - V3's remaining compiler work: async, `Iso`, `Send`/`Sync`, and
-    `imm(y) :=` (see V3).
+  - the Generation A wave: decision 35's capture lists with decision 38's
+    rules, then decision 37's `FnOnce`; decision 36's `Copy`; the
+    `Send`/`Sync` split with decision 38 E; local borrows (`imm(y) :=`,
+    decision 25);
+  - V3's remaining async work (§3.13).
+- **Next:** v0.2.53, then the Generation B sweeps (the Box→Rc rename,
+  decision 32's clash error, the V3b sweep and flip).
+- **Rule for this header:** the PR that lands a phase moves its line from
+  "In progress" to "Landed".
 
 - Builds on [`plans/STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md):
   S1, S2, S3a (#1190) and S4 (#1175) have landed, and S3b is dropped (§0 below).
@@ -62,7 +74,7 @@ Unique ownership removes the question instead of answering it.
 
 | Kind | Which types | A copy is | Example |
 | --- | --- | --- | --- |
-| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `rune`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy)` or `impl(T, Copy())`; and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy)` |
+| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `rune`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
 | **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
 | **move-only** (§3.4) | implements neither `Copy` nor `Clone` (decision 36); a `Dispose` type is never `Copy` | an error unless it is the last use; with `Clone` it is explicit-copy instead (`Sender`) | `f2 := f` moves the `File` |
 
@@ -189,8 +201,13 @@ aware grep (`grep -Pzo 'ref\(\s*(struct|enum)\('`) checked by hand:
   `Emitter`, the specialization and comptime-fn caches, `VcCtx`,
   `BuildRegistry`, …. The rest are result records, options and report rows
   that are never aliased.
-- **`Box(`** appears at 56 code sites in `src/` (plus 59 `box(`), 8 in
-  `std/`, and about 665 in tests.
+- **`Box(`** appears in 56 files in `src/` (plus 33 with `box(`), 8 in
+  `std/`, and about 665 occurrences in tests. These are FILE counts; §6
+  step 1 quotes the OCCURRENCE counts (about 215 + 16 + 633 `Box(` and
+  91 + 8 + 170 `box(` in `src/`/`std/`/`tests/`), which are the numbers
+  the rename sizing and decision 17's handle-copy counts read off
+  (corrected 2026-10-07, audit #1251 finding 6: the two sections used to
+  mix the metrics without saying so).
 
 `ref` does three jobs, and each gets its own replacement:
 
@@ -314,6 +331,10 @@ Explicit sharing must not mean writing `.*` everywhere.
   a raw pointer it stays the pointer dereference. In V5 this becomes the
   only reading, and `is_box_type` and the `*`-label tests move to the
   `Deref` check.
+  - Through a raw pointer, field reads and calls of function-typed
+    pointee fields auto-dereference, and method calls do not (E0610). A
+    member name the pointer and its pointee both have is decision 32's
+    clash error, which covers raw pointers (decision 36).
 - **Resolution.** A member is looked up on the wrapper and on its
   payload, recursively through nested wrappers (`Rc(Box(T))` reaches `T`).
   - A name only one of them has resolves to that one.
@@ -338,7 +359,13 @@ Explicit sharing must not mean writing `.*` everywhere.
   Codegen sees an ordinary chain.
 - **Places.** `rc.n = v` and `rc.items.push(x)` write the shared payload.
   D3 carries over: in a file without the pragma, no write goes through an
-  `Arc` root (`throw_if_write_through_atomic_root`).
+  `Arc` root (`throw_if_write_through_atomic_root`). "Write" here covers
+  every path that hands out an exclusive place, not just assignment: the
+  `inout`/`mut`-argument binding sites (which the evaluator already routes
+  through the same check), decision 20's `with`/`take`/`swap` lends, and —
+  once V2b adds them — `mut` projection yields. So
+  `Arc(ArrayList(T)).with(i, ...)` is D3-rejected, not silently admitted
+  (amended 2026-10-07, audit #1251 finding 4).
 - **Writes through a `Box`** are plain writes, because the owner is unique.
 
 ### 3.4 Identity and resources are move-only values
@@ -664,6 +691,14 @@ instead.
     - The fix the error names: own the value in the task, or use
       `Rc(Mutex(S))`.
     - A shared (`imm`) borrow of a move-only receiver stays allowed.
+    - **A shared (`imm`) borrow whose place crosses an `Rc`/`Arc` deref is
+      rejected too** (amended 2026-10-07, audit #1251 finding 1): decision
+      28's shared marks are call-scoped, so nothing holds the cell's mark
+      for the suspension, and a concurrent write through the other handle
+      would not trip §3.10's assert. The error names the same fix as
+      decision 38 D: capture the handle (`f(imm(r), io)` deriving
+      `r.*.items` at each use), or own the value in the task. This is 38
+      D's rule, extended from closure captures to future captures.
   - **Precedent.** This is the second-class rule `mut` already follows,
     extended to the future that carries the borrow. It is Swift's
     `mutating func next() async`.
@@ -729,7 +764,12 @@ instead.
   join-wait primitive (`__yo_join_wait_new`/`__yo_join_wait_add`), and
   `JoinHandle`/`Io` staying `!Send`.
   `spawn_blocking`'s result crosses through a `Channel(T)` by move.
-- **Captures.** An `io.async` body escapes, so it owns its captures.
+- **Captures.** An `io.async` body escapes, so it owns its captures —
+  unless it borrows: `io.async(body)` is decision 37's one stated
+  exception, a by-value slot that accepts a second-class body, and the
+  future it returns is then second-class and follows A2 above (corrected
+  2026-10-07, audit #1251 finding 5; the unconditional sentence
+  contradicted decision 37 and its own `_execute_batch` example).
   - `_execute_batch` (`src/build_runner.yo`) writes a captured `results`
     map. Its only caller awaits the future directly, so the fix is
     `mut(results)`.
@@ -894,6 +934,14 @@ and in git, not a silent edit.
     - **Live ranges end at the last use, not the scope end** (Hylo's rule).
       Today's `mut` locals are scope-based, and last-use ranges land with
       `imm(y) :=`.
+    - **Mark lifecycle for borrows through an `Rc`/`Arc` deref** (stated
+      2026-10-07, audit #1251 finding 3 — rule 3 above said where the flag
+      lives but never when it is taken or dropped): the shared mark (for
+      `imm`) or the exclusive acquire (for `mut`) happens at the binding,
+      and again at each re-point's entry per decision 25; it is released at
+      the borrow's last use, and on every unwind path through the live
+      range, by the same unwind cleanup that releases decision 28's
+      call-scoped marks. A panic must not leave the cell flagged.
     - `mut(e) := xs(i)` accepts element places once projections land (V2b).
     - `y := s.items` is a move (an error under decision 19) or an explicit
       clone. The borrow is `imm(items) := s.items`.
@@ -1129,6 +1177,12 @@ and in git, not a silent edit.
         that cannot be stored" kind, checked at every instantiation and
         field. Hylo, Swift and Mojo keep conventions out of types for the
         same reason.
+        - *Amended 2026-10-06 by decision 38 A.* Decision 38 builds that
+          check for closure and future types, which are nameable through
+          `type_of`. So "it would need a new kind" no longer argues against
+          borrow types by itself. The decision stands on the other three
+          reasons: a C signature readable from the Yo signature, operators
+          that would consume their operands, and auto-ref probing.
       - **The C would stop being readable from the signature.** In
         `fn(x : T)` with `T := &String`, `x` is a pointer, which defeats
         this decision's reason.
@@ -1191,6 +1245,14 @@ and in git, not a silent edit.
       - `w.*.clone()` for the payload's.
 
       A name only one of them has forwards (§3.3).
+    - **Raw pointers are covered too** (amended 2026-10-06, decision 36).
+      If `p : *(T)` and both the pointer and `T` have a member `m`, then
+      `p.m` is an error naming `p.*.m()` for the pointee's member and the
+      implicit copy `q := p` for the pointer. In practice the only shared
+      names are `Clone`/`Copy` members against a function-typed pointee
+      field, because method calls through a pointer do not auto-dereference
+      today. This part needs no seed and lands in decision 36's Generation A
+      (see its "Raw pointers and `clone`" bullet).
     - **This is Rust's convention, made a rule.** Rust's `w.clone()` on an
       `Rc` compiles and means the handle copy. The Rust book recommends
       `Rc::clone(&w)`, and clippy's `clone_on_ref_ptr` lint enforces it, so
@@ -1199,9 +1261,12 @@ and in git, not a silent edit.
     - **The spelling needs one small feature:** calling a method through an
       unapplied generic type constructor, with its arguments inferred from
       the receiver (`Rc.clone(w)`, as Rust infers `Rc::clone`'s `T`).
-      Today `Rc(T).clone(w)` works and `Rc.clone(w)` is E0610.
-    - **Phase.** V1 Generation A; the call sites migrate with V1 step 1's
-      rename.
+      Landed as V1 Generation A (§6 V1); before it, `Rc(T).clone(w)`
+      worked and `Rc.clone(w)` was E0610.
+    - **Phase.** The unapplied-constructor call is V1 Generation A. The
+      clash error and the call-site sweep are Generation B, after a
+      `SEED_VERSION` carries Generation A, since the sweep writes
+      `Box.clone(w)` into `src/` and `std/`.
 
 33. **A borrow is marked at the call site too: `&x` lends to an `imm`
     parameter, `&mut x` to a `mut` one, and a bare `x` passes by value.**
@@ -1484,25 +1549,99 @@ and in git, not a silent edit.
         instantiation.
       - "Explicit whenever we can" (the maintainer).
     - **The rule.**
-      - `Copy :: trait()` is a prelude marker.
-      - A struct, enum or newtype opts in with `derive(T, Copy)` or
-        `impl(T, Copy())`, and a generic type with
+      - `Copy :: trait(where(Self <: Clone))` is a prelude marker with
+        `Clone` as its supertrait, the same `where(Self <: …)` declaration
+        form other traits use (docs/en-US/DESIGN.md). So **`where(T <: Copy)`
+        implies `T <: Clone` in a generic body**, as `T: Copy` does in Rust:
+        `x.clone()` needs no second bound. If the seed cannot compile the
+        supertrait form in `std/prelude.yo`, Generation A expands the bound
+        in the compiler, and the declaration follows in Generation B.
+      - A struct, enum or newtype opts in with `derive(T, Copy, Clone)`, or
+        with `impl(T, Copy())` beside a `Clone` impl. A generic type uses
         `impl(generic(T : Type), where(T <: Copy), Pair(T), Copy())`.
       - **The impl is checked.** Every field, payload and element must be
         `Copy`, and the type must not implement `Dispose`, which is Rust's
         `Copy`/`Drop` exclusion. A failing impl is an error naming the
         first non-`Copy` part.
-      - **`Copy` provides `clone()`.** A `Copy` type's clone can only be the
-        bitwise copy, so the compiler supplies `Clone` and a manual `Clone`
-        impl is an error. Rust asks for both impls and requires that they
-        agree.
-      - **Prelude impls:** the integers, floats, `bool`, `rune`, `unit`, raw
-        pointers, `fn` pointers and `str` views; `Option(T)` and
-        `Result(T, E)` with `where(T <: Copy)` (and `E <: Copy`).
+      - **`Copy` and `Clone`** (amended twice on 2026-10-06 by the maintainer.
+        The first text rejected `derive(T, Clone)` on a `Copy` type, which
+        made a conditionally `Copy` generic type impossible to write. The
+        second amendment makes `Copy` require `Clone`, as in Rust.)
+        - **`Copy` requires `Clone`**, Rust's `Copy: Clone` supertrait.
+          `impl(T, Copy())` needs a `Clone` impl that covers the same
+          instantiations. `derive(T, Copy)` without `Clone` is an error
+          naming `derive(T, Copy, Clone)`. The compiler never synthesizes a
+          `Clone` impl.
+          - **Why.** A synthesized impl is an implicit one:
+            `Type.impls(Point, Clone)` would be true, and `where(T <: Clone)`
+            would accept `Point`, with no `Clone` in the source.
+          - Synthesis also needs coherence rules for impls nobody wrote: an
+            inherited conditional bound, and no overlap with a derived or
+            hand-written generic `Clone`. A supertrait check is one rule.
+          - `derive(T, Copy, Clone)` is what Rust programmers, and agents,
+            already write.
+          - The cost is one word per `Copy` type, added by the decision 36
+            sweep.
+        - **`derive(T, Clone)` is allowed.** A derived clone is field-wise,
+          and for `Copy` fields that is exactly the bitwise copy, so it
+          cannot diverge. It is the spelling for a type that is `Copy` only
+          under a bound:
+          ```rust
+          Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+          derive(Pair(T), Clone);                                      // Pair(String) needs it
+          impl(generic(T : Type), where(T <: Copy), Pair(T), Copy());  // Pair(i32) is also Copy
+          ```
+        - **A hand-written `Clone` is an error only on a type that is `Copy`
+          for every instantiation:** a concrete `Copy` type such as
+          `Point`, or a generic type whose `Copy` impl has no bound. There
+          the impl can only be redundant or divergent (`log("cloning")`),
+          and a divergent one would break the rule that cloning a `Copy`
+          value is the copy. Generic code calling `x.clone()` on a `Copy`
+          `T` relies on that rule. Decision 27's elision does not, because
+          it only elides compiler-known clones. The error names
+          `derive(T, Clone)`.
+        - **A generic hand-written `Clone` that also serves non-`Copy`
+          instantiations is allowed.** The prelude `Option(T)`'s
+          `.Some(v) => .Some(v.clone())` is one: at a `Copy` `T` its
+          structural clone reduces to the copy.
+        - **The one difference from Rust.** Rust's documentation says a
+          `Copy` type's `Clone` must equal the copy, but leaves divergence
+          to a Clippy lint (`expl_impl_clone_on_copy`). Yo enforces it in
+          the one case that can be checked without breaking generics.
+      - **Prelude impls,** each beside its `Clone`: the integers, floats,
+        `bool`, `rune`, `unit`, raw pointers, `fn` pointers and `str` views;
+        `Option(T)` and `Result(T, E)` with `where(T <: Copy)` (and
+        `E <: Copy`).
+      - **Raw pointers and `clone`** (corrected 2026-10-06; the first text
+        said `p.clone()` auto-dereferenced to the pointee today, which is
+        false).
+        - **Today:** a method call through a raw pointer does not
+          auto-dereference. `q.clone()` on a `*(Point)` is E0610, because
+          receiver resolution skips pointer receivers
+          (`src/evaluator/calls/function.yo`, the `!is_pointer_type` guard).
+          A field read (`q.x`) and a call of a function-typed pointee field
+          (`q.getv()`) do auto-dereference.
+        - **So `*(T)`'s new `Clone`, a pointer copy, changes no working
+          program's meaning,** except one corner: a pointee field of
+          function type named `clone` (or another `Clone`/`Copy` member
+          name), called through a pointer.
+        - **That corner gets decision 32's clash rule:** a member both the
+          pointer and its pointee have is an error at `p.m`, naming
+          `p.*.m()` for the pointee and the implicit copy `q := p` for the
+          pointer.
+        - **Timing.** The pointer `Copy`/`Clone` impls and this pointer clash
+          error land together in decision 36's Generation A. Neither needs
+          the seed: the suggestions are `p.*.m()` and `q := p`, not
+          decision 32's unapplied-constructor call. So `where(T <: Copy)`
+          accepts raw pointers from Generation A on.
+        - The count of affected call sites (pointer-through calls of a
+          pointee fn-field with a clashing name) is expected to be about
+          zero. It is measured and reported in the Generation A PR.
       - **Structural for anonymous composites.** Tuples, `Array(T, N)`,
         anonymous records `_(...)` and closures (their capture records)
-        have no declaration to annotate, so each is `Copy` when all its
-        parts are. Rust does the same for tuples, arrays and closures.
+        have no declaration to annotate. Each is `Copy`, and `Clone`, when
+        all its parts are. Rust does the same for tuples, arrays and
+        closures.
       - **Never `Copy`:** `Rc`, `Arc`, `Box`, `String`, the collections,
         `Dyn`, and every type with a `Dispose`.
     - **The three kinds become Rust's** (§0.2):
@@ -1516,31 +1655,52 @@ and in git, not a silent edit.
       `std/` and `tests/` that are copied implicitly today, which are the
       types that need `Copy`. Do it with an audit flag like §6's before
       the sweep PR is opened.
+      - **Its blind spots are §6's.** Files that fail `check` report
+        nothing, and a generic body counts only where something
+        instantiates it. A plain-data type the audit misses flips to move
+        semantics at the flip. The result is E0901 at call sites the sweep
+        never touched, an error rather than corruption, and the diagnostic
+        names `derive(T, Copy, Clone)`. The sweep PR therefore lists its
+        uncovered files.
+      - **What "today" means.** Count after the V3b flip. By then a plain
+        parameter of an implicitly copyable type is a by-value copy, and
+        those copies count.
     - **Phase.** Before V2b, which widens the same predicate to `String`
       and the collections.
       - **Generation A:**
         - the prelude `Copy` trait and its impls;
         - the impl check;
-        - the compiler-supplied `clone()`;
+        - the `Copy: Clone` supertrait check and its error;
         - the `derive` rule.
 
         The seed sees `Copy` as an ordinary marker trait, so `std/` and
         `src/` may add their impls at once.
       - **Generation B:**
-        - the `yo fix` sweep, which adds `Copy` to every named type that is
-          copied implicitly today;
+        - the `yo fix` sweep, which adds `Copy`, plus `Clone` where it is
+          missing, to every named type that is copied implicitly today;
         - the flip: a named type without `Copy` is no longer implicitly
           copyable;
         - deleting `MoveOnly`.
     - **Tests:**
-      - a `derive(Point, Copy)` copy;
+      - a `derive(Point, Copy, Clone)` copy;
+      - `derive(Point, Copy)` without `Clone` is the error naming
+        `derive(Point, Copy, Clone)`;
       - a plain struct without `Copy` moves, and a later use is E0901;
       - `impl(T, Copy())` over a `String` field is an error;
       - `Copy` plus `Dispose` is an error;
-      - a manual `Clone` on a `Copy` type is an error;
+      - a hand-written `Clone` on a concrete `Copy` type is an error naming
+        `derive(T, Clone)`;
+      - `Pair(T)` with `derive(Clone)` and a conditional `Copy` works at
+        both `i32` (implicit copy) and `String` (explicit `.clone()`);
+      - the prelude `Option(i32)` stays `Copy` with its generic `Clone`;
       - a generic `where(T <: Copy)` operator impl;
       - a tuple of `Copy` parts copies implicitly;
-      - a closure whose captures are all `Copy` copies implicitly.
+      - a closure whose captures are all `Copy` copies implicitly — read
+        through decision 38 A (cross-referenced 2026-10-07, audit #1251
+        finding 7): only closures with NO `mut` captures qualify. A
+        `mut`-capturing closure is second-class and move-only however
+        copyable its capture record's words are, so the anonymous-composite
+        rule must not derive `Copy` for it.
 
 37. **`FnOnce` is added; `FnMut` is not.** Confirmed 2026-10-05 by the
     maintainer. This amends decision 23.
@@ -1717,7 +1877,8 @@ and in git, not a silent edit.
         add := { k }(x : i32) => (x + k);
         add(1); add(2);                      // an Fn call: unmarked, add stays usable
         apply :: (fn(imm(f) : Impl(Fn(i32) -> i32), x : i32) -> i32)(f(x));
-        apply(&add, 5);                      // lending the closure: marked
+        apply(&add, 5);                      // lending the closure: marked (after V3b Generation B;
+                                             // until then &add to an Impl(...) parameter is the address-of)
         apply((x : i32) => (x * 2), 5);      // a literal is a temporary: exempt
         keep(add);                           // a by-value (escaping) parameter: moves add
 
@@ -1879,6 +2040,16 @@ and in git, not a silent edit.
     - **The place must be writable.** A `mut` capture's place must be
       writable: not through an `imm` binding, and not through an `Arc`
       (D3).
+    - **Amended 2026-10-07 (audit #1251 finding 1): the rule covers
+      borrowing future captures too.** A future's `imm` parameter whose
+      place crosses an `Rc`/`Arc` deref is rejected exactly like a closure
+      borrow capture: decision 28's marks are call-scoped, so no mark is
+      held for the suspension, and a concurrent write through the other
+      handle would miss §3.10's assert. The error names the same fix: pass
+      the handle (`f(imm(r), io)`, deriving `r.*.field` at each use) or
+      own the value in the task. §3.13 A2 carries the normative sentence.
+      The maintainer chose this over await-scoped marks, which would be
+      the model's only non-call mark scope.
 
     **E. Threads.**
     - **Borrows.** A borrow capture is never `Send`.
@@ -1910,8 +2081,11 @@ and in git, not a silent edit.
     - **The cycle collector (V3's `Dispose` work).** After the dispose
       pass, it re-checks each white cell's count. A resurrected cell, and
       everything reachable from it, is leaked and turned black instead of
-      freed (as in CPython's PEP 442). Verify this against the collector's
-      code.
+      freed (as in CPython's PEP 442). **Confirmed in today's collector**
+      and tracked as
+      `issues/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md`
+      (S1, a reproducer is in `issues/repros/`). It is fixed on its own,
+      not deferred to V3's std half.
     - **Unwind and abort (decision 28's `Rc` arm).** Per-call shared marks
       and the borrowed-`for` guard are released by the unwind cleanup, not
       by code after the call. A by-value or `FnOnce` argument counts as
@@ -1966,6 +2140,38 @@ and in git, not a silent edit.
   the parameter the closure is passed to (`imm(f)` or a by-value `f`,
   decision 22), which the callee's signature spells. The explicit form is
   the capture list (decision 35).
+
+39. **Post-V2b iterators are index-based; pointer iterators are
+    unsafe-gated.** Confirmed 2026-10-07 by the maintainer, from audit
+    #1251 finding 2. This decides the shape V2b leaves `iter()` in, before
+    the V3b sweep can walk it into a broken spelling.
+    - **The gap.** Today `ArrayList.iter()` takes `self` by value, stores
+      the receiver in the iterator, and yields `*(T)` into the list's own
+      buffer (`std/collections/array_list.yo`); it is sound only because
+      the stored handle is an RC dup keeping the buffer alive, and growth
+      mid-walk is UB by discipline. After V2b the buffer is uniquely owned
+      and uncounted: a by-value `iter()` consumes the list at every
+      read-only walk, and an `imm(self)` spelling cannot exist — a
+      pointer-yielding iterator is a stored, returned, first-class value,
+      and borrows are second-class (decision 38 A). The old text said only
+      "V2b needs an `iter_mut(mut(self))` split", which addresses mutation
+      through the iterator, not the iterator's own validity.
+    - **The decision.** `iter()` — and every read-only iterator reachable
+      from safe code — becomes INDEX-BASED: the iterator holds a handle to
+      the container plus an index, re-derives `xs(i)` at each `next`, and
+      growth mid-walk is an out-of-bounds error, not UB. A consuming
+      `into_iter()` keeps yielding values. Pointer-yielding iterators
+      stay only beside `ptr()` inside `pragma(Pragma.AllowUnsafe)` std
+      files (the `HashMapIterPtr` shape); they are not part of the
+      ordinary iteration story and are not touched by the rename.
+    - **The V3b sweep is told:** iterator-returning methods are exempt
+      from the mechanical `imm(x)` conversion (§7's table carries the
+      row); their signatures are re-derived from this decision when V2b
+      lands.
+    - **Perf note.** Index re-derivation costs one bounds check per step;
+      hot loops that need the raw pointer keep using `ptr()` under the
+      pragma. V2b's PR measures the iterator-heavy std tests before and
+      after.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -2108,19 +2314,44 @@ and in git, not a silent edit.
   reference types at the impl site until V3 (#1188);
 - the `build.AllocatorKind` rename (#1188);
 - `Deref` and auto-dereference (#1191);
-- `Allocator` in the prelude (#1188, #1207).
+- `Allocator` in the prelude (#1188, #1207);
+- decision 32, Generation A: a method called through an unapplied generic
+  type constructor (`Box.clone(b)`, `Pair.first(p)`), its arguments inferred
+  from the receiver (#1241).
+  - **The rule.** `G.m(x, ...)`, where `G` evaluates to a comptime function
+    returning a `Type`, is `G(A, ...).m(x, ...)` when the type of `x`, the
+    first argument, is an instantiation `G(A, ...)`. The match is by
+    constructor identity (a struct's `constructor_func_id`, an enum's
+    registered cfid), so it is never ambiguous: an `Rc(Box(T))` argument is
+    an `Rc` instance, not a `Box` one. Generic and trait impls are found as
+    for the written form, because the call then proceeds as that form.
+    The AST is not rewritten: the receiver node's ExprInfo is overwritten
+    with the inferred `G(A, ...)`, so a generic body infers again per
+    specialization. A first rewrite of the receiver into a fresh atom
+    broke a module-qualified constructor (`m.Pair.first(p)`) in a generic
+    body, because the definition-time trial left an atom named `.` behind.
+  - **Aliases and partial applications** are constructors of their own
+    (identity, not inversion of a comptime function): `IntPair.first(q)`
+    for `q : Pair(i32, u8)` is E0613 telling the user that another
+    constructor built the argument; `Pair.first(q)` and
+    `IntPair(u8).first(q)` work. A labeled receiver
+    (`Pair.first(self : p)`) is the first argument too, since labels are
+    positional.
+  - **Static methods.** A method with no `self` has nothing to infer from,
+    so `Pair.make(a, b)` is E0613; the type arguments are written,
+    `Pair(A, B).make(a, b)`. The type a binding expects of the result does
+    not supply them either: "whenever we could be explicit, do explicit".
+    A first argument of another type (`Box.clone(a)` for an `Arc`) is
+    E0613 naming its type; a missing method stays E0610, which now names
+    the instance (`No method "m" on Box(i32)`, not `on Type`).
+  - **`Arc.clone(a)`** is the same E0610 as `Arc(i32).clone(a)` until V2c
+    gives `Arc` a `clone` (decision 17). `Rc.clone(w)` is tested on #1232's
+    prelude `Rc`.
+  - Hook: `_infer_unapplied_ctor_receiver`
+    (`src/evaluator/calls/function.yo`), before `_try_find_receiver_method`.
+  - Test: `tests/unapplied_constructor_method.test.yo`.
 
 **Remaining, Generation A:**
-- **Decision 32.**
-  - The wrapper/payload name clash becomes an error, in
-    `evaluate_property_access` and `_try_find_receiver_method`.
-  - A method can be called through an unapplied generic type constructor
-    (`Rc.clone(w)`), with the arguments inferred from the receiver.
-  - Tests: the clash error with both suggested spellings; `Rc.clone(w)`,
-    `Box.clone(b)` and `Arc.clone(a)` inferring `T`; and forwarding of
-    unclashed names unchanged.
-  - Measured 2026-10-05: `Box(i32).clone(b)` and `String.len(s)` compile
-    today, and `Box.clone(b)` is E0610.
 - **The exclusivity assert moves to the write-through-`Rc` site** (§3.10).
   Tests: a closure and an async fn that mutate a captured
   `Rc(ArrayList(T))` while a `for` borrows it panic deterministically.
@@ -2128,6 +2359,41 @@ and in git, not a silent edit.
 - **Diagnostics:** E0406/E0610 learn "`w` is a `Box(P)`; its payload `P`
   has no field `x` either" when auto-deref also misses.
 - **`arc` gains the `alloc` parameter.**
+
+**Decision 32, Generation B: the wrapper/payload name clash is an error,**
+in `evaluate_property_access` and `_try_find_receiver_method`. It waits for
+a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
+`std/` and tests to `Box.clone(w)`, which the seed compiles
+(`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+- Tests: the clash error with both suggested spellings, and forwarding of
+  unclashed names unchanged.
+- **Sites, measured 2026-10-05:** two source sites.
+  - Measured with a temporary probe in `_try_find_receiver_method`
+    (`YO_AUDIT_D32`, not committed): an instance call whose receiver
+    (pointer-stripped) has the method AND whose `deref_target_type`
+    payload has it too, printed per call and deduplicated on
+    `module:row:col`. Run with the tree-built compiler over
+    `check ./src` (278/278 files), `check ./std` (178/178) and
+    `check ./tests --exclude tests/internal --exclude tests/cli-cases`
+    (563/633 files pass `check` standalone; the rest are negative
+    fixtures). It sees only bodies `check` evaluates: a generic body only
+    at the instantiations something reaches.
+  - **`clone`:** `src/` 0, `std/` 0, tests 2:
+    `tests/deref_auto.test.yo:63` (the test that pins "the wrapper's own
+    members win") and `tests/rc_cell.test.yo:129`. The probe ran on the
+    tree just before #1232 landed; #1232's diff adds that one `.clone()`
+    on a wrapper (read from the diff, not probed). Six more evaluations
+    are `derive(Clone)` bodies cloning a `Box` field
+    (`auto-generated://`): the derive rule, not a call site, has to spell
+    `Box.clone(self.f)`.
+  - **Other names:** `id` at `tests/impl.test.yo:19` (`value.id()` with
+    `T := Box(i32)`) and `hash` at `std/collections/hash_map.yo:233`
+    (`key.hash(h)` with `K := Box(i32)`, reached from a test). Both are
+    trait-bound calls on a type parameter: the error must fire only where
+    the receiver's type is written as a wrapper, never at an instantiation
+    of a `T <: Trait` call.
+  - Box handles copy implicitly until V2c, so `.clone()` on one is rare
+    today; V2c's `Rc.clone(w)` sites (decision 17) are the sweep's bulk.
 
 **Step 1: rename every `Box(` to `Rc(` and `box(` to `rc(`** in `src/`,
 `std/`, `tests/`, docs and skills.
@@ -2553,8 +2819,10 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - `StringBuilder.to_string` is one of them: it detaches the buffer.
   - `spare_capacity`, `assume_init`, `extend_from_ptr` and `get_entry_ptr`
     take `inout(self)`.
-  - `ptr()` and `iter()` stay read pointers; V2b needs an
-    `iter_mut(mut(self))` split.
+  - `ptr()` and `iter()` stay read pointers for now; V2b needs an
+    `iter_mut(mut(self))` split — and `iter()`'s own post-V2b shape is
+    decided by decision 39 (index-based; the pointer form moves under
+    `pragma(Pragma.AllowUnsafe)` beside `ptr()`).
   - `Dispose.dispose` receivers are exempt.
 - **The audit** (`YO_AUDIT_INOUT_BORROW=1`, `src/evaluator/exprs/assignment.yo`)
   lists collection writes through borrowed places, with
@@ -2718,6 +2986,7 @@ stage-2 RSS):
 | Today | After | Found by |
 | --- | --- | --- |
 | a plain parameter of an owning type that only reads | `imm(x) : T` | V3b `yo fix` sweep |
+| an iterator-returning method's `self` | NOT converted by the sweep — re-derived from decision 39 (index-based) when V2b lands | decision 39 exemption |
 | `inout(x) : T`, `inout(self)` | `mut(x) : T`, `mut(self)` | V3b sweep |
 | `own(x) : T` / `sink(x) : T` | `x : T` | V3b sweep |
 | `T :: ref(struct(...))` mutated through one handle only | `T :: struct(...)`, mutators `mut(self)` | E0908 audit |
@@ -2783,7 +3052,10 @@ stage-2 RSS):
 No design question is open. The latest were decided as decisions 31 (the
 child wrapper in patterns), 34 (operator operands), 35 (the closure capture
 list), 36 (the `Copy` trait) and 37 (`FnOnce`, and no `FnMut`). Decision
-38 records the closure soundness rules from the 2026-10-06 audit. Decision 18 was also
+38 records the closure soundness rules from the 2026-10-06 audit; its D
+rule was extended to borrowing future captures on 2026-10-07 (audit
+#1251). Decision 39 (2026-10-07, same audit) makes post-V2b iterators
+index-based. Decision 18 was also
 amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices

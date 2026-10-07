@@ -42,6 +42,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Trait Method Disambiguation](#trait-method-disambiguation)
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
+    - [Calling a method through its type](#calling-a-method-through-its-type)
     - [Associated constants](#associated-constants)
   - [Private members](#private-members)
   - [recur](#recur)
@@ -973,6 +974,31 @@ impl(
 
 p := Point(x : 3, y : 4);
 p.set_x(10); // No `&(p)` required — the compiler inserts it
+```
+
+#### Calling a method through its type
+
+A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Box(i32).clone(b)`) or without them (`Box.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. This works for any generic struct or enum, not only the prelude's wrappers.
+
+A static method (one with no `self`) has no receiver to infer from, so its type arguments are written out: `Pair(i32, bool).make(...)`. The type the call's result is expected to have does not supply them either. Leaving them out there, or passing a first argument that is not an instance of the constructor, is E0613, and the message names the argument's type.
+
+The receiver may be labeled like any argument (`Pair.first(self : p)`), and the constructor may be module-qualified (`m.Pair.first(p)`). The match is by constructor identity, so a constructor whose body applies another one is a constructor of its own: for an alias `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` or a partial application `Pair(i32, _)`, a value built as `IntPair(u8)` is a `Pair(i32, u8)`, which `Pair.first(q)` and `IntPair(u8).first(q)` accept and `IntPair.first(q)` rejects with E0613.
+
+```rust
+Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  struct(a : A, b : B)
+);
+impl(
+  generic(A : Type, B : Type),
+  Pair(A, B),
+  first : (fn(self : Self) -> A)(self.a),
+  make : (fn(a : A, b : B) -> Self)(Self(a : a, b : b))
+);
+
+p := Pair(i32, bool).make(i32(1), true); // static: type arguments written
+a := Pair.first(p);                      // A := i32, B := bool, from `p`
+w := rc(i32(5));
+c := Rc.clone(w);                        // Rc(i32).clone(w)
 ```
 
 #### Associated constants
@@ -3411,6 +3437,8 @@ See [DYN_DESIGN.md](./DYN_DESIGN.md) for comprehensive documentation on dynamic 
 ### `Dyn` and `dyn`
 
 Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified traits. Use the `dyn()` function to create a `Dyn` instance from an object.
+
+The position of the `dyn(v)` call must say which `Dyn(...)` to build — a parameter of `Dyn(...)` type, an annotated binding `(x : Dyn(Trait)) = dyn(v)`, a declared return type, a struct field, or a collection element slot. A bare `dyn(v)` in a position with no such expected type (for example directly inside `downcast(dyn(v), T)`, whose first parameter accepts any `Dyn`) is a compile error: `cannot infer the Dyn type of dyn(...) here — annotate the value or bind it first`.
 
 `Dyn` types in Yo are reference-counted, like other reference-semantics types. They enable dynamic dispatch through trait objects. This applies to closures too: a `Dyn(Fn(...))` closure is heap-boxed and reference counted, whereas the `Impl(Fn(...))` form is monomorphized, passed by value and carries no reference count of its own.
 

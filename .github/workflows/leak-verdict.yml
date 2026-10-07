@@ -1,0 +1,112 @@
+name: LeakVerdict (leak-sensitive tests, Linux)
+
+# The leak-verdict gate that test.yml stages off everywhere
+# (issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md).
+# Every job there sets `YO_TEST_LEAK_VERDICT: "0"` — the staging ratchet for
+# the pre-existing self-hosted-emit leak debt
+# (issues/self-hosted-emit-leaks-remaining-classes.md) — so a test whose only
+# failure mode is the LeakSanitizer verdict can NEVER go red in CI, and 28
+# real leak failures in the language suite went unseen
+# (issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md).
+#
+# This leg keeps the ratchet for the compiler-sized batches and runs a small
+# ALLOWLIST of leak-sensitive test files with the verdict LEFT ON (the runner
+# default; the env var is deliberately unset below). Linux + clang only: that
+# is where LSan is known to work — macOS arms no ASan under AMFI and a
+# Windows/MSVC box may have no matching ASan runtime
+# (.github/instructions/testing.instructions.md).
+#
+# SCHEDULED + dispatchable, like ubsan.yml: it costs a stage-1 build, and the
+# allowlist must stay LEAN while the known async leak debt is open. Deliberately
+# NOT a required status check — an unlisted job does not gate, and promoting it
+# is a manual branch-protection edit (AGENTS.md). Dispatch it on a PR branch
+# with `gh workflow run leak-verdict.yml --ref <branch>` when touching the
+# runner's leak plumbing or the allowlisted files.
+#
+# No `paths:` filter, for the reason fixpoint-arm64.yml gives.
+
+on:
+  schedule:
+    # Weekly, Sundays 05:41 UTC — off ubsan's Saturday 05:23 slot, and the odd
+    # minute avoids the top-of-hour scheduled-run stampede.
+    - cron: "41 5 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: leak-verdict
+  cancel-in-progress: true
+
+env:
+  # THE FIFTH PIN, guarded by test.yml's `changes` job and bumped by
+  # release.yml's publish-release like the other four. Full rationale:
+  # test.yml's SEED_VERSION comment. The guard requires all five to agree.
+  SEED_VERSION: v0.2.53
+
+jobs:
+  leak-verdict:
+    name: Leak verdict (allowlisted leak-sensitive tests, Linux/Clang)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build stage-1 with the seed
+        uses: ./.github/actions/build-stage1
+        with:
+          seed-version: ${{ env.SEED_VERSION }}
+      # A leak verdict that never fires is this workflow's whole failure mode
+      # — the hollow-gate disease this job exists to close. So prove the CHAIN
+      # fires before trusting the allowlist step: this Yo test leaks 64 KiB of
+      # raw heap on purpose and asserts only a value (the exact shape the
+      # original issue measured passing green under the ratchet). Under this
+      # job's configuration it MUST FAIL with a leak verdict; if it passes,
+      # every "N passed" below is vacuous and the job errors out.
+      - name: Vacuity probe (the leak verdict must fail a deliberately leaking test)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          set -euo pipefail
+          cat > /tmp/leak-probe.test.yo <<'EOF'
+          pragma(Pragma.AllowUnsafe);
+          extern("Yo", __yo_malloc : (fn(size : usize) -> ?*void));
+          { assert } :: import("std/assert");
+
+          test("deliberate leak (the vacuity probe)", {
+            p := __yo_malloc(usize(65536));
+            ok := match(
+              p,
+              .Some(_) => true,
+              .None => false
+            );
+            assert(ok, "allocation succeeded");
+          });
+          EOF
+          set +e
+          "$S1" test /tmp/leak-probe.test.yo --c-compiler clang --parallel 1 --verbose > /tmp/leak-probe.log 2>&1
+          rc=$?
+          set -e
+          cat /tmp/leak-probe.log
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::the leak verdict did not fail a deliberately leaking test — this job would pass vacuously (is LSan linked? is YO_TEST_LEAK_VERDICT set anywhere?)"
+            exit 1
+          fi
+          grep -q "Memory leak detected" /tmp/leak-probe.log || {
+            echo "::error::the leaking probe test failed for a reason OTHER than the leak verdict — read the log above"
+            exit 1
+          }
+      # THE ALLOWLIST. Deliberately tiny and deliberately leak-clean: both
+      # files were in the passing set of the 2026-10-02 full-suite
+      # leak-verdicts-on run whose failures are catalogued in
+      # issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md
+      # (the async files named there stay OFF this list until that debt is
+      # fixed; add tests/async/combinators.test.yo back first once it is).
+      # `YO_TEST_LEAK_VERDICT` is deliberately NOT set — the runner default
+      # (verdict on) is the entire point of this leg.
+      - name: Run the allowlisted leak-sensitive tests (leak verdicts ON)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          "$S1" test ./tests/short_circuit_drops.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/rc.test.yo --c-compiler clang --verbose

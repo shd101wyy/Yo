@@ -112,7 +112,7 @@ aborts — not just a corrected exit code.
 A signal-based exit code is unaffected: an rc=139 SIGSEGV or an rc=134 abort is
 set by the kernel, not by `main`'s return, so verdicts that rest on a crash
 still hold. This is the same class as
-`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`
+`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`
 and the hollow-batch problem: a gate that cannot fail. Anything scoring those
 repros by exit code — including a bulk sweep over the corpus — silently reads
 them all as passing.

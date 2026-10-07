@@ -185,6 +185,22 @@ run_with_timeout() {
   if [[ ${#TIMEOUT_BIN[@]} -gt 0 ]]; then "${TIMEOUT_BIN[@]}" "$secs" "$@"; else "$@"; fi
 }
 
+# Every sed in the captured-stream path must run in BINARY mode. Cygwin/MSYS
+# sed opens its input in text mode and silently strips the \r out of every
+# CRLF pair, which deletes the CRs of the LSP base protocol's `Content-Length:
+# N\r\n\r\n` headers — every lsp-* golden (recorded on POSIX, where sed is
+# byte-exact) then GOLDEN-DIFFs on a Windows host on framing bytes alone
+# (found 2026-10-06 scoring lsp-member-definition after the develop merge:
+# `tr -d '\r'` on the golden made it byte-identical to the normalized run).
+# GNU sed's --binary flag opens files in binary mode; it exists only on builds
+# with a text/binary distinction (Cygwin, MSYS), so probe it and fall back to
+# plain sed — which is already byte-exact on POSIX — everywhere else.
+if printf 'x\r\n' | sed --binary -e p 2>/dev/null | od -An -c | grep -q '\\r'; then
+  SED=(sed --binary)
+else
+  SED=(sed)
+fi
+
 # Artifacts that are legitimately allowed to differ byte-for-byte between runs
 # (emitted C, object files, linked binaries) or that are pure noise. A case may
 # add more via its own `ignore` file. Kept deliberately short: a too-broad
@@ -193,10 +209,11 @@ DEFAULT_IGNORES=(
   './yo-out/*' '*/yo-out/*'
   '*.o' '*.a' '*.dylib' '*.so' '*.out' '*.bin'
   '*.yo.c' '*.bin.c'
+  '*.pdb'
   './.DS_Store' '*/.DS_Store'
 )
 
-strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
+strip_ansi() { "${SED[@]}" $'s/\x1b\\[[0-9;]*m//g'; }
 
 # Rewrite everything environment-specific out of a captured stream so a run is
 # comparable to a golden recorded on another machine: sandbox roots, the repo
@@ -219,18 +236,44 @@ strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 # $1 = project dir, $2 = home dir
 normalize_stream() {
   local proj="$1" home="$2"
-  strip_ansi \
-    | sed -e "s|$proj|<PROJ>|g" \
+  # On Windows the sandboxed child is a native exe that spells the sandbox
+  # paths the Windows way (C:/Users/.../Temp/tmp.X/...) while $proj/$home
+  # carry the MSYS spelling (/tmp/tmp.X/...). A substitution anchored on the
+  # MSYS spelling then never matches the child's output, so any
+  # stdout_keep_match over <PROJ>/<HOME> scores the case as a vacuous
+  # NO-GOLDEN instead of the assertion it is (init-existing,
+  # install-offline-empty-cache; found 2026-10-04 re-recording the init-*
+  # goldens). cygpath -m gives the forward-slash Windows spelling the Yo
+  # toolchain prints; there is no cygpath elsewhere, where both spellings
+  # coincide anyway.
+  #
+  # The `.exe` strip one stage down is the same Windows-only convergence:
+  # `yo build` names its artifact `yo-out/<target>/bin/app.exe` there and
+  # `bin/app` on POSIX, so the suffix is dropped from yo-out/ paths at a
+  # word boundary and goldens stay platform-neutral (a no-op on POSIX).
+  local proj_m="" home_m=""
+  if command -v cygpath >/dev/null 2>&1; then
+    proj_m="$(cygpath -m "$proj")"
+    home_m="$(cygpath -m "$home")"
+  fi
+  # FIRST, before any line-anchored rewrite below: in binary mode a Windows
+  # child's lines still end in \r, which defeats every `$` anchor (the
+  # <PRELUDE_EXPRS> rewrite missed and `parsed 1278` leaked into the stream).
+  converge_crlf_line_noise \
+    | strip_ansi \
+    | "${SED[@]}" -e "s|$proj|<PROJ>|g" \
           -e "s|$home|<HOME>|g" \
           -e "s|$REPO_ROOT|<REPO>|g" \
-    | if [[ -n "$REPO_ROOT_URI_UPPER" ]]; then sed -e "s|$REPO_ROOT_URI_UPPER|<REPO>|g" -e "s|$REPO_ROOT_URI_LOWER|<REPO>|g"; else cat; fi \
-    | sed -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|seconds|s([^A-Za-z0-9_]|$))/<TIME>\3/g' \
+    | if [[ -n "$REPO_ROOT_URI_UPPER" ]]; then "${SED[@]}" -e "s|$REPO_ROOT_URI_UPPER|<REPO>|g" -e "s|$REPO_ROOT_URI_LOWER|<REPO>|g"; else cat; fi \
+    | if [[ -n "$proj_m" ]]; then "${SED[@]}" -e "s|$proj_m|<PROJ>|g" -e "s|$home_m|<HOME>|g"; else cat; fi \
+    | "${SED[@]}" -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|seconds|s([^A-Za-z0-9_]|$))/<TIME>\3/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{40}([^A-Za-z0-9_]|$)/\1<SHA1>\2/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{64}([^A-Za-z0-9_]|$)/\1<SHA256>\2/g' \
              -e 's/\(key [0-9a-f]{12}\)/(key <CONTEXT_KEY>)/g' \
              -e 's/(^|[^A-Za-z0-9_])(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)([^A-Za-z0-9_]|$)/\1<TARGET>\5/g' \
-    | sed -E -e '\|^check: parsing .*std/prelude\.yo$|{n; s/^check: parsed [0-9]+ top-level exprs$/check: parsed <PRELUDE_EXPRS> top-level exprs/;}' \
-    | if [[ -n "$YO_SELF_VERSION_RE" ]]; then sed -E -e "s/(^|[^A-Za-z0-9_])yo ${YO_SELF_VERSION_RE}([^A-Za-z0-9_.-]|\$)/\1yo <VERSION>\2/g"; else cat; fi \
+             -e 's#(yo-out/[^[:space:]]*)\.exe([[:space:]]|$)#\1\2#g' \
+    | "${SED[@]}" -E -e '\|^check: parsing .*std/prelude\.yo$|{n; s/^check: parsed [0-9]+ top-level exprs$/check: parsed <PRELUDE_EXPRS> top-level exprs/;}' \
+    | if [[ -n "$YO_SELF_VERSION_RE" ]]; then "${SED[@]}" -E -e "s/(^|[^A-Za-z0-9_])yo ${YO_SELF_VERSION_RE}([^A-Za-z0-9_.-]|\$)/\1yo <VERSION>\2/g"; else cat; fi \
     | refit_lsp_frames
 }
 
@@ -246,6 +289,28 @@ refit_lsp_frames() {
   # A body ends at the next header, at the harness's own `rc=N` trailer, or
   # at the end of the stream.
   perl -0777 -Mbytes -pe 's/Content-Length: \d+(\r?\n\r?\n)(.*?)(?=Content-Length: |rc=\d+\n\z|\z)/"Content-Length: " . length($2) . $1 . $2/gse'
+}
+
+# The only CARRIAGE RETURNS a golden may carry are the LSP headers' own
+# CRLFCRLF terminators — protocol CONTENT, not line endings. Everything else
+# in a POSIX-recorded golden ends in bare LF, while a Windows child's
+# C-runtime text mode ends its ordinary lines in CRLF (the `yo: error:`
+# trailer of lsp-exit-without-shutdown, measured: `...lists them)\r\n` from
+# both the v0.2.52 seed and a tree build, vs the golden's bare `\n`), which
+# both diffs the trailer line and inflates the last LSP frame's refitted
+# Content-Length by one. Converge the host noise: park ONLY the headers — a
+# CRLFCRLF that follows `Content-Length: <digits>`, since an ordinary blank
+# line between two CRLF lines is the same four bytes with no marker to tell
+# it apart (explain-list's paragraph break) — behind a sentinel, drop every
+# remaining CR that immediately precedes an LF (never a CR that stands alone
+# — progress bars keep their \r), put the headers back. A no-op on POSIX,
+# where streams carry no stray CRLF.
+converge_crlf_line_noise() {
+  perl -0777 -Mbytes -pe '
+    s/(Content-Length: \d+)\r\n\r\n/$1\x01\x02\x03/g;
+    s/\r\n/\n/g;
+    s/\x01\x02\x03/\r\n\r\n/g;
+  '
 }
 
 # framing=strict (plans/archive/LSP_AUDIT_2026-09-29.md §6.3): validate the RAW

@@ -56,3 +56,13 @@ test("generic-impl methods carry their declaring module", {
   comptime_expect_error(cell._peek());
   comptime_expect_error(cell._inner);
 });
+test("a prelude-declared private method is not callable from another directory", {
+  // MaybeUninit._probe is declared in std/prelude.yo — the prelude evaluates
+  // outside the module loader, so its impl members used to register unowned
+  // and the E0405 gate never fired for them
+  // (issues/fixed/prelude-methods-have-no-visibility-owner.md). The STATIC
+  // spelling of a generic impl's private method is a separate, pre-existing
+  // hole for every module (issues/static-form-of-a-generic-impl-private-method-is-not-e0405-gated.md).
+  m := MaybeUninit(i64).new();
+  comptime_expect_error(m._probe(), "is private");
+});

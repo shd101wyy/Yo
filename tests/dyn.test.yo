@@ -211,6 +211,26 @@ test("Test downcast to a value type that no dyn() in the program wraps", {
   make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
   assert(downcast(make_animal(), NeverDynnedValue).is_none(), "Expected None from a freshly built Dyn too");
 });
+// Regression (issues/fixed/dyn-as-a-direct-downcast-argument-reports-got-option.md):
+// a bare `dyn(...)` as downcast's FIRST argument has nothing to say WHICH Dyn
+// to build — downcast accepts any Dyn, so the position supplies no expected
+// type. The evaluator used to fall back to an EMPTY Dyn (zero traits): `yo
+// check` passed and the build then died inside the C compiler on
+// `/* Error: dyn() call missing trait values */`. It now reports at the `dyn`
+// token that the Dyn type cannot be inferred; the two spellings that DO
+// supply one (an annotated binding, a declared return type) keep working.
+test("Test downcast rejects a bare dyn() operand it cannot infer a Dyn for", {
+  Cat :: ref(struct(name : String));
+  impl(Cat, ToString(to_string : (self -> self.name)));
+  Animal :: Dyn(ToString);
+  comptime_expect_error(downcast(dyn(Cat(`shadow`)), String), "cannot infer the Dyn type");
+  // The two accepted spellings from the issue, as over-rejection canaries in
+  // the same batch:
+  (animal : Animal) = dyn(Cat(`shadow`));
+  assert(downcast(animal, String).is_none(), "the annotated-binding spelling supplies the Dyn");
+  make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
+  assert(downcast(make_animal(), String).is_none(), "the declared-return spelling supplies the Dyn");
+});
 test("Test downcast with multiple concrete types", {
   Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : (self -> self.name)));

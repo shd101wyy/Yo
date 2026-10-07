@@ -15,10 +15,18 @@
   Requirement,
   ChosenRef,
   choose_ref,
-  locked_entry_satisfies
+  locked_entry_satisfies,
+  ResolveMode,
+  ResolveOptions,
+  resolve_and_fetch
 } :: import("../../src/resolver.yo");
-{ GitRequirement } :: import("../../src/manifest.yo");
+{ GitRequirement, parse_manifest } :: import("../../src/manifest.yo");
 { LockEntry, git_source, path_source } :: import("../../src/lock_file.yo");
+{ YoError, primary_diagnostic_code } :: import("../../src/error.yo");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ env, temp_dir } :: import("std/env");
+{ AnyError, Exception, IoExn } :: import("std/error");
 _tags :: (fn(text : str) -> ArrayList(SemVer))(semver_tags_from_ls_remote(String.from(text)));
 _latest_tag :: (fn(text : str) -> Option(String))(
   match(latest_release(_tags(text)), .Some(sv) => Option(String).Some(sv.tag), .None => Option(String).None)
@@ -329,4 +337,95 @@ test("locked_entry_satisfies: a different URL or a path source never satisfies",
   _want(reqs, "<root>", _ver("*"));
   assert(!locked_entry_satisfies(_locked(git_source(String.from("https://elsewhere/dep"), String.from("v1.0.0"))), _url(), reqs), "moved repository");
   assert(!locked_entry_satisfies(_locked(path_source(String.from("../dep"))), _url(), reqs), "a path entry for a git requirement");
+});
+// ---------------------------------------------------------------------------
+// The dependency toolchain's failures carry codes (E15xx)
+// (issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md): `yo install`
+// prints error[EXXXX] and `--error-format json` carries the code only if the
+// resolver's raises go through the coded diagnostic path — these drive the
+// two raise sites no network or git fixture needs. The handlers are
+// capture-free (effect handlers are, by design), so YO_CACHE_DIR is left
+// pointing at the fixture: each test sets it before its own call, and
+// nothing else in this batch process reads it.
+// ---------------------------------------------------------------------------
+/// The E15xx assertion, shared by the capture-free handlers below: the thrown
+/// error must be a coded YoError whose primary code is `code`.
+_expect_e15xx :: (fn(err : AnyError, code : String) -> unit)({
+  match(
+    downcast(err, YoError),
+    .Some(ye) => match(
+      ye.diagnostics.get(usize(0)),
+      .Some(d) => match(
+        d.code,
+        .Some(c) => assert(c == code, `the failure is ${code}, got ${c}`),
+        .None => assert(false, `the primary diagnostic carries no code`)
+      ),
+      .None => assert(false, "a diagnostic group must have an entry")
+    ),
+    .None => assert(false, `the failure must be a coded YoError, got: ${err}`)
+  );
+});
+test("resolve_and_fetch --offline with no cached tags fails as error[E1501]", {
+  root := Path.new(temp_dir()).join(Path.new(String.from("yo_e15xx_offline")));
+  mk := Exception(
+    throw : (
+      err -> {
+        assert(false, `fixture io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : mk);
+  io.await(create_dir_all(root.clone(), io), ioexn);
+  manifest := match(
+    parse_manifest(
+      String.from("[package]\nname = \"e15xx\"\nversion = \"0.1.0\"\n\n[dependencies]\nnope = { git = \"https://github.com/shd101wyy/definitely-not-a-repo-xyz\", version = \"^1.0\" }\n"),
+      root.join(Path.new(String.from("yo.toml"))).to_string()
+    ),
+    .Ok(m) => m,
+    .Err(msg) => panic(`fixture manifest must parse: ${msg}`)
+  );
+  _ := env.set(String.from("YO_CACHE_DIR"), root.join(Path.new(String.from("cache"))).to_string());
+  exn := Exception(
+    throw : (
+      err -> {
+        _expect_e15xx(err, String.from("E1501"));
+        unwind(());
+      }
+    )
+  );
+  options := ResolveOptions(mode : ResolveMode.Install, locked : false, offline : true, verbose : false);
+  io.await(resolve_and_fetch(manifest, options, io, exn), IoExn(io : io, exn : exn));
+  assert(false, "the offline resolve must throw");
+});
+test("resolve_and_fetch --locked with no yo.lock fails as error[E1503]", {
+  root := Path.new(temp_dir()).join(Path.new(String.from("yo_e15xx_locked")));
+  mk := Exception(
+    throw : (
+      err -> {
+        assert(false, `fixture io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : mk);
+  io.await(create_dir_all(root.clone(), io), ioexn);
+  manifest := match(
+    parse_manifest(
+      String.from("[package]\nname = \"e15xx\"\nversion = \"0.1.0\"\n"),
+      root.join(Path.new(String.from("yo.toml"))).to_string()
+    ),
+    .Ok(m) => m,
+    .Err(msg) => panic(`fixture manifest must parse: ${msg}`)
+  );
+  _ := env.set(String.from("YO_CACHE_DIR"), root.join(Path.new(String.from("cache"))).to_string());
+  exn := Exception(
+    throw : (
+      err -> {
+        _expect_e15xx(err, String.from("E1503"));
+        unwind(());
+      }
+    )
+  );
+  options := ResolveOptions(mode : ResolveMode.Install, locked : true, offline : true, verbose : false);
+  io.await(resolve_and_fetch(manifest, options, io, exn), IoExn(io : io, exn : exn));
+  assert(false, "the locked resolve must throw");
 });

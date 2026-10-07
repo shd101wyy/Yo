@@ -153,6 +153,14 @@ process_file() {
     "$YO_SELF_BIN" compile "$f" --c-compiler "$CC" $RELEASE -o "$work/self.out" >"$work/self.compile" 2>&1; crc=$?
     if [[ $crc -eq 0 ]]; then
       body="$(run_with_timeout "$RUN_TIMEOUT" "$work/self.out" 2>&1)"; rrc=$?
+      # The compiled program runs under the target's C runtime, and Windows'
+      # text mode ends every stdout line in CRLF where the POSIX-recorded
+      # goldens end in LF (measured running gates_fast GATE 2 on Windows:
+      # 27/156 corpus cases GOLDEN-DIFFed on `4\r\n3\r\n` vs `4\n3\n` with
+      # identical behavior and rc). Converge at CAPTURE so both scoring and
+      # --record are platform-neutral; a no-op on POSIX, whose captures carry
+      # no CR at all.
+      body="${body//$'\r'/}"
     fi
     head="mode=run compile_rc=$crc rc=$rrc"
   fi

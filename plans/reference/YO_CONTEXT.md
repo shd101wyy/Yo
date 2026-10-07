@@ -524,9 +524,11 @@ manifest/cli cases; internal test for the manifest→store walk.
 > **Correction (audit, 2026-10-01):** task 1 landed WITHOUT its last line —
 > the scaffolded `AGENTS.md` (`src/init.yo`) carries context/build/test/
 > check/fmt but NOT `yo verify --strict ./spec` (confirmed by `git log -S`;
-> the line never existed). It is filed as
-> `issues/init-agentsmd-template-omits-the-verify-recipe.md`, and the
-> `spec/` convention it teaches was blocked by
+> the line never existed). It was filed as
+> `issues/fixed/init-agentsmd-template-omits-the-verify-recipe.md`
+> (fixed 2026-10-04: the recipe line landed and `yo init` scaffolds `spec/`
+> — the claims/proofs wall README plus a seed law); the `spec/` convention
+> it teaches had been blocked by
 > `issues/fixed/law-over-an-imported-callee-cannot-verify.md` (fixed 2026-10-03).
 
 1. `yo init`'s `AGENTS.md` template (`src/init.yo` ~L186): the four-line

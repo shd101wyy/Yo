@@ -53,6 +53,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_is_anonymous_function_definition,
   expr_info_is_compile_time_only_assignment,
   expr_info_macro_expansion,
+  expr_info_consumed_variable_drop_expressions,
+  expr_info_set_consumed_variable_drop_expressions,
   expr_info_set_capture_type,
   expr_info_set_comptime_ref,
   expr_info_set_deferred_dup_expressions,
@@ -1900,9 +1902,18 @@ _enclosing_fn_result_type :: (fn(ctx : EvalContext) -> Option(TypeValue))(
     .None => Option(TypeValue).None
   )
 );
-/// For statement `stmt` = `name := .Variant(…)`: the function result type as
-/// an expected-type hint when a LATER statement of the block returns `name`
-/// (or `name` is the function body's tail); `.None` otherwise.
+/// For statement `stmt` = `name := .Variant(…)` (or `name := io.async(…)`):
+/// the function result type as an expected-type hint when a LATER statement of
+/// the block returns `name` (or `name` is the function body's tail); `.None`
+/// otherwise. The io.async shape additionally requires the result type to
+/// carry a Future with a CONCRETE output: the call-side machinery then
+/// unwraps `Impl(Future(T, E))` and pre-binds `T`, so the closure's
+/// `.Variant` tail gets its expected enum — the same flow the direct
+/// (tail-expression) form already takes
+/// (issues/fixed/io-async-variant-inference-passes-check-but-fails-compile.md).
+/// A SomeT output (a generic fn's own parameter) must NOT flow: the
+/// SomeT-clearing rule in values/anonymous_function.yo exists because a
+/// SomeT expected type coerces operator-bodied closure results.
 _variant_local_hint :: (
   fn(
     stmt : AstExpr,
@@ -1919,11 +1930,22 @@ _variant_local_hint :: (
   sargs := match(stmt, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(sargs.get(usize(0)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs := match(sargs.get(usize(1)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
-  if(!ast_expr_is_atom(lhs) || !_is_bare_variant_literal(rhs), {
+  rhs_is_async := is_io_async_call(rhs);
+  if(!ast_expr_is_atom(lhs) || !(_is_bare_variant_literal(rhs) || rhs_is_async), {
     return(Option(ExpectedTypeCtx).None);
   });
   name := ast_expr_token(lhs).value.clone();
   result_ty := match(_enclosing_fn_result_type(ctx), .Some(t) => t, .None => return(Option(ExpectedTypeCtx).None));
+  if(rhs_is_async, {
+    async_out_concrete := match(
+      extract_future_trait_from_type(result_ty),
+      .Some(.FutureTraitT({ output : ao_out })) => !is_some_type(ao_out),
+      _ => false
+    );
+    if(!async_out_concrete, {
+      return(Option(ExpectedTypeCtx).None);
+    });
+  });
   n := begin_args.len();
   (found : bool) = false;
   (k : usize) = (idx + usize(1));
@@ -2812,6 +2834,14 @@ _evaluate_begin_expression_impl :: (
       _ => ()
     );
   });
+  // Escape-path drops for this frame's CONSUMED owning locals, filled by the
+  // M3 driver below (and, for the function-body begin, the parameters-frame
+  // pass) and stamped into the begin ExprInfo's
+  // `consumed_variable_drop_expressions` — the channel codegen's
+  // `__yo_effect_escaped` checks read via
+  // `generate_consumed_var_drops_for_escape`, position-gated to escape points
+  // BEFORE the consumption.
+  (consumed_escape_drops : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   rv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(return_value_expr));
   rv_name_opt := match(
     rv_info_opt,
@@ -2992,6 +3022,13 @@ _evaluate_begin_expression_impl :: (
   // M3 driver: attach early-return-only `___drop`s for CONSUMED (moved-out) owning
   // locals to each return/unwind preceding consumption. Runs
   // before pop_frame. Consumed vars are disjoint from the scope-end drop set.
+  // The SAME evaluated drops also feed `consumed_escape_drops`: an effect
+  // escape (`__yo_effect_escaped`) is a third exit kind neither the scope-end
+  // scheduler (e5 skips consumed vars) nor the return/unwind nodes cover —
+  // the frame returns a dummy that owns nothing, so a consumed local's count
+  // is released by nobody. Codegen's escape checks emit them position-gated
+  // (only at escape points BEFORE the consumption — see
+  // `generate_consumed_var_drops_for_escape`'s moved-before-cleanup gate).
   match(
     current_frame_opt,
     .Some(fr2) => {
@@ -3008,6 +3045,7 @@ _evaluate_begin_expression_impl :: (
               drop_code := `___drop(${ev.name})`;
               drop_expr := generate_expr_from_code(drop_code, exn);
               evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+              consumed_escape_drops.push(evaluated);
               (dai : usize) = usize(0);
               while(dai < begin_args.len(), {
                 match(begin_args.get(dai), .Some(arg) => _attach_early_return_only_drop_to_returns(arg, ev, evaluated, ctx), .None => ());
@@ -3022,6 +3060,40 @@ _evaluate_begin_expression_impl :: (
     },
     .None => ()
   );
+  // The FUNCTION-BODY begin block also collects escape drops for CONSUMED
+  // parameters (one level down, the parameters frame) — an `own(name) : T`
+  // param whose count the body moved out (returned, stored into an inout
+  // field, passed on to another own-arg callee) is released by nobody on an
+  // escape: the callee's dummy result owns nothing and the caller transferred
+  // the count in. Unconsumed own params ride the scope-end list (the params
+  // pass above); these are the consumed complement, mirroring the M3 driver's
+  // eligible set.
+  if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
+    match(
+      env.frames.get(env.frames.len() - usize(2)),
+      .Some(params_fr2) => {
+        (pei : usize) = usize(0);
+        while(pei < params_fr2.variables.len(), {
+          match(
+            params_fr2.variables.get(pei),
+            .Some(pev) => {
+              p_not_auto := !pev.token.module_path.starts_with(String.from("auto-generated://"));
+              p_eligible := (pev.is_parameter && (pev.consumed_at_token.is_some() && (pev.initialized_at_token.is_some() && (p_not_auto && (!_variable_is_captured_by_current_function(pev, ctx) && _variable_can_need_drop_ignoring_consumed(pev))))));
+              if(p_eligible, {
+                p_drop_code := `___drop(${pev.name})`;
+                p_drop_expr := generate_expr_from_code(p_drop_code, exn);
+                p_evaluated := evaluate_expression_raw(p_drop_expr, env, ctx, exn);
+                consumed_escape_drops.push(p_evaluated);
+              });
+            },
+            .None => ()
+          );
+          pei = (pei + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
   // Warnings channel (D15): before the block's frame dies, its initialized
   // locals that no identifier expression ever evaluated THROUGH get one
   // `unused variable` warning each. Assignment targets resolve through the
@@ -3183,6 +3255,28 @@ _evaluate_begin_expression_impl :: (
     ),
     scope_end_drops
   );
+  // Stamp the escape-path drops collected by the M3 driver (and the params
+  // pass) above. Concat AFTER anything a shared-id clone carried (mirroring
+  // `deferred_drop_expressions` above) so neither channel is lost.
+  if(consumed_escape_drops.len() > usize(0), {
+    (escape_drop_list : ArrayList(AstExpr)) = match(
+      expr_info_consumed_variable_drop_expressions(out_info),
+      .Some(existing_escape_drops) => existing_escape_drops,
+      .None => ArrayList(AstExpr).new()
+    );
+    (dcd_i : usize) = usize(0);
+    while(dcd_i < consumed_escape_drops.len(), {
+      match(
+        consumed_escape_drops.get(dcd_i),
+        .Some(dcd) => {
+          escape_drop_list.push(dcd);
+        },
+        .None => ()
+      );
+      dcd_i = (dcd_i + usize(1));
+    });
+    expr_info_set_consumed_variable_drop_expressions(out_info, Option(ArrayList(AstExpr)).Some(escape_drop_list));
+  });
   out_info.value = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
   out_info.control_flow = last_info.control_flow;
   expr_info_set_comptime_ref(out_info, expr_info_comptime_ref(last_info));

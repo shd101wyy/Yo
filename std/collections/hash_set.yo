@@ -410,8 +410,8 @@ impl(
   where(T <: (Eq(T), Hash)),
   HashSetIterPtr(T),
   Iterator(
-    Item : *(T),
-    next : (fn(inout(self) : Self) -> Option(*(T)))(
+    Item : *T,
+    next : (fn(inout(self) : Self) -> Option(*T))(
       // The entry's KEY is the set's element; take its address rather than
       // assuming `MapEntry`'s field order puts it at offset 0.
       match(self._inner.next(), .Some(p) => .Some(&(p.*.key)), .None => .None)

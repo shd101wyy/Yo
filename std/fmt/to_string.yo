@@ -84,7 +84,7 @@ export(Debug);
 _SNPRINTF_BUFFER_SIZE :: usize(32);
 _snprintf_to_string :: (fn(comptime(fmt) : str, comptime(T) : Type, v : T) -> String)({
   buffer := Array(u8, _SNPRINTF_BUFFER_SIZE).fill(0);
-  buffer_ptr := (&(buffer(0)));
+  buffer_ptr := &buffer(0);
   unsafe(snprintf((*char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v));
   String.from_cstr(buffer_ptr).unwrap()
 });
@@ -308,7 +308,7 @@ impl(
   ToString(
     to_string : (fn(inout(self) : Self) -> String)({
       buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
+      buffer_ptr := &buffer(0);
       // Use %Lg for general format (removes trailing zeros)
       unsafe(snprintf((*char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%Lg", self));
       String.from_cstr(buffer_ptr).unwrap()
@@ -335,7 +335,7 @@ impl(
       // char is a single byte, create a 2-byte buffer (char + null)
       buffer := Array(u8, usize(2)).fill(0);
       buffer(0) = u8(self);
-      buffer_ptr := (&(buffer(0)));
+      buffer_ptr := &buffer(0);
       String.from_cstr(buffer_ptr).unwrap()
     })
   )
@@ -633,13 +633,13 @@ impl(
 // Local helpers (not exported from prelude, so defined locally)
 __ts_s2 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str) -> comptime(comptime_str))(a + b);
 __ts_s3 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str) -> comptime(comptime_str))(
-  (a + b) + c
+  a + b + c
 );
 __ts_s4 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str, comptime(d) : comptime_str) -> comptime(comptime_str))(
-  ((a + b) + c) + d
+  a + b + c + d
 );
 __ts_s5 :: (fn(comptime(a) : comptime_str, comptime(b) : comptime_str, comptime(c) : comptime_str, comptime(d) : comptime_str, comptime(e) : comptime_str) -> comptime(comptime_str))(
-  (((a + b) + c) + d) + e
+  a + b + c + d + e
 );
 __ts_fold_range :: (
   fn(
@@ -768,7 +768,7 @@ __derive_debug :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
   ctx.make_impl(
     quote(
       Debug(
-        debug_string : ((self) -> #(body.to_expr()))
+        debug_string : (self -> #(body.to_expr()))
       )
     )
   )
@@ -784,7 +784,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
   ctx.make_impl(
     quote(
       ToString(
-        to_string : ((self) -> #(body.to_expr()))
+        to_string : (self -> #(body.to_expr()))
       )
     )
   )

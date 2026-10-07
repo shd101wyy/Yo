@@ -1,0 +1,14 @@
+# This case's whole condition is NO explicitly chosen std. The harness
+# injects YO_STD=<repo>/std for every case; clear it here — the resolver
+# treats an empty YO_STD as unset, so std falls back to exe-walk-up and then
+# ./std, which is exactly the installed-release situation of the issue (the
+# harness cannot place a std beside $YO_SELF_BIN, so the empty-env form
+# stands in for the bundled std an installed binary finds).
+env=YO_STD=
+# Keep the two assertions this case exists for, in stream order: the
+# preference NOTE (its stable prefix — the root it prints is an absolute
+# sandbox path the normalizer cannot rewrite on Windows, where the harness's
+# MSYS sandbox path and the binary's native one differ) and each command's
+# verdict line.
+stdout_keep_match=(yo: every entry lives inside the std tree at|check: [0-9]+/[0-9]+ file\(s\) passed)
+timeout=120

@@ -153,8 +153,9 @@ _clear_import_closure_memo :: (fn() -> unit)({
   g_import_closure_memo = HashMap(String, HashSet(String)).new();
 });
 /// Mark a module whose registrations every module may see without importing
-/// it: the prelude, which is loaded through the ordinary entry path (so its
-/// impls carry its key as owner) but is implicitly in scope everywhere.
+/// it: the prelude, whose impls carry `${std_path}/prelude.yo` as their owner
+/// (stamped by mm_load_prelude_file, which also calls this so every prelude
+/// load path gets both) but which is implicitly in scope everywhere.
 mark_owner_always_visible :: (fn(module : String) -> unit)({
   g_always_visible_owners.push(_canonical(module));
   _clear_import_closure_memo();

@@ -9,6 +9,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { Token, TokenKind } :: import("../token.yo");
 { is_any_temp_variable_name } :: import("../utils.yo");
 {
@@ -1645,7 +1646,328 @@ extract_impl_info_from_tokens :: (
 // ---------------------------------------------------------------------------
 // Token-only fallback builder + cross references
 // ---------------------------------------------------------------------------
-/// Build a minimal DocModule from token extraction only (no evaluator).
+/// One paren group of the declaration walk: the identifier that heads it
+/// (`struct`, `enum`, `trait`, `impl`, `fn`, a call name; "" for anonymous
+/// groups) and the top-level declaration whose right-hand side the group
+/// belongs to.
+_TokenGroupFrame :: struct(
+  head : String,
+  owner : String,
+  /// This group's `(` index in the filtered token list.
+  open_index : usize
+);
+/// The declaration STRUCTURE of a module's tokens — what the token-only
+/// fallback needs to emit the same ITEMS the evaluated path would.
+///
+/// The fallback used to flatten every doc-commented member — impl methods,
+/// struct fields, enum variants, trait methods, unexported helpers — into
+/// standalone `(unknown)` constants, so a degraded run counted ~1.8x the
+/// items of the evaluated one and read as the BETTER run. The evaluated path
+/// counts exported top-level declarations only (its items are the module
+/// TYPE's fields, and a module without an `export(...)` statement exports
+/// nothing — `std/math.yo`'s zero-item page); this structure lets the token
+/// path apply the same rule, with members attached to their owners
+/// (issues/fixed/yo-doc-without-std-path-silently-emits-token-only-docs.md).
+TokenDeclStructure :: struct(
+  /// The trivia-filtered token list the indices below refer into.
+  toks : ArrayList(Token),
+  /// "row:column" of every top-level binding NAME token (`Name :: ...`,
+  /// `Name := ...`, `(name : T) = ...`).
+  top_level_positions : HashSet(String),
+  /// member name "row:column" -> "struct" | "union" | "enum" | "trait".
+  member_kinds : HashMap(String, String),
+  /// member name "row:column" -> the top-level declaration that owns it.
+  member_owners : HashMap(String, String),
+  /// member name "row:column" -> the sliced type text (struct/union fields).
+  member_field_types : HashMap(String, String),
+  /// top-level name -> "struct" | "union" | "enum" | "trait" when its
+  /// right-hand side is a type or trait body.
+  body_kinds : HashMap(String, String),
+  /// trait declaration name -> the `(` index of its body group in `toks`.
+  trait_body_lparens : HashMap(String, usize),
+  /// The module's exported names (from every `export(...)` statement).
+  exported : HashSet(String)
+);
+/// The head identifiers whose group makes an identifier a MEMBER of a type or
+/// trait declaration. `trait` members are covered by the trait body
+/// extraction (`_extract_trait_body_members`), so the map records them only
+/// to keep them OUT of the top-level emission.
+_token_member_head :: (fn(head : String) -> Option(String))(
+  cond(
+    ((head == `struct`) || (head == `union`)) => Option(String).Some(`struct`),
+    (head == `enum`) => Option(String).Some(`enum`),
+    (head == `trait`) => Option(String).Some(`trait`),
+    true => Option(String).None
+  )
+);
+/// Walk the token stream once and record which identifiers name top-level
+/// bindings, which name members of a type/trait declaration (and of which
+/// owner), and which names the module exports. See `TokenDeclStructure`.
+_classify_token_declarations :: (fn(tokens : ArrayList(Token)) -> TokenDeclStructure)({
+  toks := ArrayList(Token).new();
+  (fi : usize) = usize(0);
+  while(fi < tokens.len(), {
+    match(
+      tokens.get(fi),
+      .Some(t) => if(!_is_trivia_token(t), {
+        toks.push(t);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  structure := TokenDeclStructure(
+    toks : toks,
+    top_level_positions : HashSet(String).new(),
+    member_kinds : HashMap(String, String).new(),
+    member_owners : HashMap(String, String).new(),
+    member_field_types : HashMap(String, String).new(),
+    body_kinds : HashMap(String, String).new(),
+    trait_body_lparens : HashMap(String, usize).new(),
+    exported : HashSet(String).new()
+  );
+  frames := ArrayList(_TokenGroupFrame).new();
+  (current_top : String) = String.new();
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    tok := match(
+      toks.get(i),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    if(tok.kind == TokenKind.LParen, {
+      head := match(
+        // A leading LParen can only be a parenthesized statement in a file
+        // with no imports/pragmas; there is no identifier before it then.
+        if(i > usize(0), toks.get(i - usize(1)), Option(Token).None),
+        .Some(prev) => if(prev.kind == TokenKind.Identifier, prev.value.clone(), String.new()),
+        .None => String.new()
+      );
+      if(_token_member_head(head.clone()).is_some() && (current_top.len() > usize(0)), {
+        structure.body_kinds.insert(current_top.clone(), head.clone());
+        if(head == `trait`, {
+          structure.trait_body_lparens.insert(current_top.clone(), i);
+        });
+      });
+      frames.push(
+        _TokenGroupFrame(head : head, owner : current_top.clone(), open_index : i)
+      );
+      i = (i + usize(1));
+      continue;
+    });
+    if(tok.kind == TokenKind.RParen, {
+      if(frames.len() > usize(0), {
+        frames.pop();
+      });
+      i = (i + usize(1));
+      continue;
+    });
+    if(tok.kind != TokenKind.Identifier, {
+      i = (i + usize(1));
+      continue;
+    });
+    next := match(
+      toks.get(i + usize(1)),
+      .Some(t) => t,
+      .None => {
+        i = (i + usize(1));
+        continue;
+      }
+    );
+    is_binding := (
+      (next.kind == TokenKind.Operator)
+      && ((next.value == `::`) || ((next.value == `:`) || (next.value == `:=`)))
+    );
+    key := `${tok.row}:${tok.column}`;
+    if(frames.len() == usize(0), {
+      // Top level. `impl(`/`derive(`/`export(` heads are followed by `(`,
+      // not a binding operator, so block keywords never land here.
+      if(is_binding, {
+        structure.top_level_positions.insert(key.clone());
+        current_top = tok.value.clone();
+      });
+      // `export(a, b, ...)` names the module's exports. A spread's
+      // `...(_source)` sits one paren deeper, so only plain names are read.
+      if((tok.value == `export`) && (next.kind == TokenKind.LParen), {
+        (j : usize) = (i + usize(2));
+        (depth : usize) = usize(1);
+        while((j < toks.len()) && (depth > usize(0)), {
+          inner := match(
+            toks.get(j),
+            .Some(t) => t,
+            .None => {
+              j = (j + usize(1));
+              continue;
+            }
+          );
+          if(inner.kind == TokenKind.LParen, {
+            depth = (depth + usize(1));
+          }, {
+            if(inner.kind == TokenKind.RParen, {
+              depth = (depth - usize(1));
+            }, {
+              if((depth == usize(1)) && (inner.kind == TokenKind.Identifier), {
+                // `export(Label : orig)` exports the definition `orig` under
+                // `Label`; both names may carry the definition's docs.
+                structure.exported.insert(inner.value.clone());
+              });
+            });
+          });
+          j = (j + usize(1));
+        });
+      });
+      i = (i + usize(1));
+      continue;
+    });
+    // Inside a group. A statement-level typed binding `(name : T) = ...` —
+    // its parens open at depth 1 and do not start with `fn`, unlike a fn
+    // TYPE's parameter list — still names a top-level binding.
+    outer := match(
+      frames.get(frames.len() - usize(1)),
+      .Some(f) => f,
+      .None => _TokenGroupFrame(
+        head : String.new(),
+        owner : String.new(),
+        open_index : usize(0)
+      )
+    );
+    statement_binding := (
+      (frames.len() == usize(1))
+      && (outer.head.len() == usize(0))
+      && is_binding
+      && match(
+        toks.get(outer.open_index + usize(1)),
+        .Some(first) => !((first.kind == TokenKind.Identifier) && (first.value == `fn`)),
+        .None => false
+      )
+    );
+    if(statement_binding, {
+      structure.top_level_positions.insert(key.clone());
+      current_top = tok.value.clone();
+      i = (i + usize(1));
+      continue;
+    });
+    // Member classification: walk the group stack outward. Anonymous groups
+    // and `ref(`/`atomic(` wrappers are transparent; `fn(`, `impl(` and any
+    // other call head (a variant payload `Some(...)`, a `where(...)`) are
+    // opaque — identifiers inside them belong to their own scope, and impl
+    // bodies are covered by `extract_impl_info_from_tokens`.
+    (k : isize) = (isize(frames.len()) - isize(1));
+    while(k >= isize(0), {
+      frame := match(
+        frames.get(usize(k)),
+        .Some(f) => f,
+        .None => {
+          break;
+        }
+      );
+      head := frame.head.clone();
+      if((head.len() == usize(0)) || ((head == `ref`) || (head == `atomic`)), {
+        k = (k - isize(1));
+        continue;
+      });
+      match(
+        _token_member_head(head.clone()),
+        .Some(kind) => {
+          if(frame.owner.len() > usize(0), {
+            structure.member_kinds.insert(key.clone(), kind.clone());
+            structure.member_owners.insert(key.clone(), frame.owner.clone());
+            // A struct/union field's type text: `name : <type>` up to the
+            // argument's delimiter.
+            if((kind == `struct`) && is_binding, {
+              type_start := (i + usize(2));
+              type_end := _skip_delimited_argument(toks, type_start);
+              if(type_end > type_start, {
+                structure.member_field_types.insert(
+                  key.clone(),
+                  _slice_token_text(toks, type_start, type_end - usize(1))
+                );
+              });
+            });
+          });
+          break;
+        },
+        .None => ()
+      );
+      // `fn`, `impl`, or an ordinary call head: opaque.
+      break;
+    });
+    i = (i + usize(1));
+  });
+  structure
+});
+/// Append `field` to `types(idx)`'s field list, creating the list on first
+/// use (the write-back pattern `build_cross_references` uses for traits).
+_attach_token_field :: (fn(types : ArrayList(DocType), idx : usize, field : DocField) -> unit)({
+  t := match(
+    types.get(idx),
+    .Some(x) => x,
+    .None => {
+      return(());
+    }
+  );
+  fields := match(
+    t.fields,
+    .Some(fs) => fs,
+    .None => ArrayList(DocField).new()
+  );
+  fields.push(field);
+  types(idx) = DocType(
+    name : t.name,
+    doc : t.doc,
+    kind : t.kind,
+    signature : t.signature,
+    type_params : t.type_params,
+    fields : Option(ArrayList(DocField)).Some(fields),
+    variants : t.variants,
+    methods : t.methods,
+    trait_impls : t.trait_impls,
+    impls : t.impls,
+    deprecated : t.deprecated,
+    examples : t.examples
+  );
+});
+/// Append `variant` to `types(idx)`'s variant list, creating the list on
+/// first use.
+_attach_token_variant :: (fn(types : ArrayList(DocType), idx : usize, variant : DocVariant) -> unit)({
+  t := match(
+    types.get(idx),
+    .Some(x) => x,
+    .None => {
+      return(());
+    }
+  );
+  variants := match(
+    t.variants,
+    .Some(vs) => vs,
+    .None => ArrayList(DocVariant).new()
+  );
+  variants.push(variant);
+  types(idx) = DocType(
+    name : t.name,
+    doc : t.doc,
+    kind : t.kind,
+    signature : t.signature,
+    type_params : t.type_params,
+    fields : t.fields,
+    variants : Option(ArrayList(DocVariant)).Some(variants),
+    methods : t.methods,
+    trait_impls : t.trait_impls,
+    impls : t.impls,
+    deprecated : t.deprecated,
+    examples : t.examples
+  );
+});
+/// Build a DocModule from token extraction only (no evaluator). Emits the
+/// same ITEMS the evaluated path counts — exported top-level declarations —
+/// with members attached to their types: impl methods and their docs ride on
+/// the receiver type (`extract_impl_info_from_tokens`), struct fields and
+/// enum variants on their declaration, trait methods on the trait. The doc
+/// comment of every emitted item is the one the extractor already associated
+/// with it (issues/fixed/yo-doc-renders-the-prelude-empty.md, root cause 3).
 build_doc_module_from_tokens :: (
   fn(
     name : String,
@@ -1654,7 +1976,10 @@ build_doc_module_from_tokens :: (
     tokens : ArrayList(Token)
   ) -> DocModule
 )({
+  doc_lookup := build_doc_lookup(extraction);
   trait_impl_map := extract_trait_impls_from_tokens(tokens);
+  impl_info_map := extract_impl_info_from_tokens(tokens, doc_lookup);
+  structure := _classify_token_declarations(tokens);
   (module_doc : Option(String)) = Option(String).None;
   match(
     extraction.module_doc,
@@ -1664,7 +1989,10 @@ build_doc_module_from_tokens :: (
     .None => ()
   );
   types := ArrayList(DocType).new();
+  traits := ArrayList(DocTrait).new();
   constants := ArrayList(DocConstant).new();
+  /// name -> index into `types` (members attach through this).
+  type_index := HashMap(String, usize).new();
   (i : usize) = usize(0);
   while(i < extraction.declarations.len(), {
     assoc := match(
@@ -1681,45 +2009,257 @@ build_doc_module_from_tokens :: (
     });
     decl_name := assoc.declaration_name.clone();
     sections := extract_doc_sections(Option(String).Some(assoc.comment.content.clone()));
-    match(
-      trait_impl_map.get(decl_name.clone()),
-      .Some(trait_impls) => {
-        // Likely a type — add as a type with trait impls. The doc comment is
-        // the one `sections` was just extracted from, so dropping it rendered
-        // every declaration of a module that failed to evaluate bare
-        // (issues/fixed/yo-doc-renders-the-prelude-empty.md, root cause 3).
-        types.push(
-          DocType(
+    key := match(
+      assoc.declaration_position,
+      .Some(pos) => `${pos.row}:${pos.column}`,
+      .None => String.new()
+    );
+    body_kind := structure.body_kinds.get(decl_name.clone());
+    if(structure.top_level_positions.contains(key.clone()), {
+      // A top-level declaration — and only an EXPORTED one is an item: the
+      // evaluated path documents the module's exports, and a module with no
+      // export statement exports nothing (`std/math.yo`'s zero-item page).
+      // Both spellings of an aliased export (`export(Label : orig)`) are
+      // recorded, so a definition's docs are never dropped for its label's
+      // sake.
+      if(!structure.exported.contains(decl_name.clone()), {
+        i = (i + usize(1));
+        continue;
+      });
+      // A type/trait body decides the entry; an impl receiver is a type
+      // (with its methods); anything else is a constant — the shapes the
+      // evaluated path would classify the same way, minus the signatures
+      // only the evaluator has.
+      if(body_kind == Option(String).Some(`trait`), {
+        (trait_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+        match(
+          structure.trait_body_lparens.get(decl_name.clone()),
+          .Some(lp) => {
+            extracted := _extract_trait_body_members(structure.toks, lp, tokens);
+            trait_methods = extracted.methods;
+          },
+          .None => ()
+        );
+        traits.push(
+          DocTrait(
             name : decl_name.clone(),
             doc : Option(String).Some(assoc.comment.content.clone()),
-            kind : DocItemKind.Struct,
+            kind : DocTraitKind.Trait,
             signature : decl_name.clone(),
             type_params : Option(ArrayList(DocParam)).None,
-            fields : Option(ArrayList(DocField)).None,
-            variants : Option(ArrayList(DocVariant)).None,
-            methods : ArrayList(DocFunction).new(),
-            trait_impls : trait_impls,
-            impls : Option(ArrayList(DocImpl)).None,
+            associated_types : Option(ArrayList(DocAssociatedType)).None,
+            methods : trait_methods,
+            implementors : ArrayList(String).new(),
             deprecated : sections.deprecated,
             examples : sections.examples
           )
         );
-      },
+      }, {
+        // A type body (`struct(`/`enum(`/`union(`) or an impl receiver is a
+        // TYPE; every other top-level declaration is a constant, exactly the
+        // split the evaluator's classification would make.
+        is_type_entry := (
+          body_kind.is_some() || trait_impl_map.get(decl_name.clone()).is_some()
+        );
+        if(is_type_entry, {
+          item_kind := cond(
+            (body_kind == Option(String).Some(`enum`)) => DocItemKind.Enum,
+            (body_kind == Option(String).Some(`union`)) => DocItemKind.Union,
+            true => DocItemKind.Struct
+          );
+          (methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+          (trait_impls : ArrayList(String)) = ArrayList(String).new();
+          match(
+            impl_info_map.get(decl_name.clone()),
+            .Some(info) => {
+              methods = info.methods;
+            },
+            .None => ()
+          );
+          match(
+            trait_impl_map.get(decl_name.clone()),
+            .Some(ti) => {
+              trait_impls = ti;
+            },
+            .None => ()
+          );
+          types.push(
+            DocType(
+              name : decl_name.clone(),
+              doc : Option(String).Some(assoc.comment.content.clone()),
+              kind : item_kind,
+              signature : decl_name.clone(),
+              type_params : Option(ArrayList(DocParam)).None,
+              fields : Option(ArrayList(DocField)).None,
+              variants : Option(ArrayList(DocVariant)).None,
+              methods : methods,
+              trait_impls : trait_impls,
+              impls : Option(ArrayList(DocImpl)).None,
+              deprecated : sections.deprecated,
+              examples : sections.examples
+            )
+          );
+          type_index.insert(decl_name.clone(), types.len() - usize(1));
+        }, {
+          constants.push(
+            DocConstant(
+              name : decl_name.clone(),
+              doc : Option(String).Some(assoc.comment.content.clone()),
+              type_ : String.from("(unknown)"),
+              value : Option(String).None,
+              deprecated : sections.deprecated,
+              examples : sections.examples
+            )
+          );
+        });
+      });
+    }, {
+      match(
+        structure.member_kinds.get(key.clone()),
+        .Some(kind) => {
+          // A trait-declared method is covered by the trait body extraction
+          // in the top-level arm above; attaching it again would synthesize
+          // a bogus TYPE named after the trait.
+          if(kind != `trait`, {
+            owner := match(
+              structure.member_owners.get(key.clone()),
+              .Some(o) => o,
+              .None => {
+                i = (i + usize(1));
+                continue;
+              }
+            );
+            // Members of an unexported type are not items either.
+            if(!structure.exported.contains(owner.clone()), {
+              i = (i + usize(1));
+              continue;
+            });
+            // The owner's own association came first (its comment sits above
+            // `Name :: ...`), so a member reaching an owner without an entry
+            // means the type is undocumented: synthesize the entry so the
+            // member's doc survives on it.
+            idx := match(
+              type_index.get(owner.clone()),
+              .Some(ix) => ix,
+              .None => {
+                owner_kind := cond(
+                  (kind == `enum`) => DocItemKind.Enum,
+                  true => DocItemKind.Struct
+                );
+                types.push(
+                  DocType(
+                    name : owner.clone(),
+                    doc : Option(String).None,
+                    kind : owner_kind,
+                    signature : owner.clone(),
+                    type_params : Option(ArrayList(DocParam)).None,
+                    fields : Option(ArrayList(DocField)).None,
+                    variants : Option(ArrayList(DocVariant)).None,
+                    methods : ArrayList(DocFunction).new(),
+                    trait_impls : ArrayList(String).new(),
+                    impls : Option(ArrayList(DocImpl)).None,
+                    deprecated : Option(String).None,
+                    examples : Option(String).None
+                  )
+                );
+                types.len() - usize(1)
+              }
+            );
+            if((kind == `struct`) || (kind == `union`), {
+              field_type := match(
+                structure.member_field_types.get(key.clone()),
+                .Some(t) => t,
+                .None => String.from("(unknown)")
+              );
+              _attach_token_field(
+                types,
+                idx,
+                DocField(
+                  name : decl_name.clone(),
+                  type_ : field_type,
+                  doc : Option(String).Some(assoc.comment.content.clone()),
+                  default_value : Option(String).None
+                )
+              );
+            }, {
+              _attach_token_variant(
+                types,
+                idx,
+                DocVariant(
+                  name : decl_name.clone(),
+                  fields : Option(ArrayList(DocField)).None,
+                  doc : Option(String).Some(assoc.comment.content.clone()),
+                  discriminant : Option(String).None
+                )
+              );
+            });
+          });
+        },
+        // An impl-scope member (its doc rides on the receiver type's
+        // methods via `impl_info_map`), a trait-declared method (covered
+        // by the trait body extraction), a parameter, or the `impl`/
+        // `derive`/`export` keywords themselves — none is an item.
+        .None => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  // Impl receivers with no association of their own still need their type
+  // entry: their methods carry docs that must not vanish. Sorted, so the
+  // emission order does not depend on the HashMap's iteration order.
+  orphan_receivers := ArrayList(String).new();
+  // `for(map, ...)` hands out owned entries (into_iter); `iter()` would need
+  // raw pointers (same route as lsp/server.yo's workspace/symbols).
+  for(impl_info_map, entry => {
+    receiver := entry.key;
+    if(!type_index.contains_key(receiver.clone()) && structure.exported.contains(receiver.clone()), {
+      orphan_receivers.push(receiver.clone());
+    });
+  });
+  orphan_receivers.sort();
+  (oi : usize) = usize(0);
+  while(oi < orphan_receivers.len(), {
+    receiver := match(
+      orphan_receivers.get(oi),
+      .Some(r) => r,
       .None => {
-        // Generic fallback: a constant — same doc-dropping defect as above.
-        constants.push(
-          DocConstant(
-            name : decl_name.clone(),
-            doc : Option(String).Some(assoc.comment.content.clone()),
-            type_ : String.from("(unknown)"),
-            value : Option(String).None,
-            deprecated : sections.deprecated,
-            examples : sections.examples
-          )
-        );
+        oi = (oi + usize(1));
+        continue;
       }
     );
-    i = (i + usize(1));
+    (methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
+    (trait_impls : ArrayList(String)) = ArrayList(String).new();
+    match(
+      impl_info_map.get(receiver.clone()),
+      .Some(info) => {
+        methods = info.methods;
+      },
+      .None => ()
+    );
+    match(
+      trait_impl_map.get(receiver.clone()),
+      .Some(ti) => {
+        trait_impls = ti;
+      },
+      .None => ()
+    );
+    types.push(
+      DocType(
+        name : receiver.clone(),
+        doc : Option(String).None,
+        kind : DocItemKind.Struct,
+        signature : receiver.clone(),
+        type_params : Option(ArrayList(DocParam)).None,
+        fields : Option(ArrayList(DocField)).None,
+        variants : Option(ArrayList(DocVariant)).None,
+        methods : methods,
+        trait_impls : trait_impls,
+        impls : Option(ArrayList(DocImpl)).None,
+        deprecated : Option(String).None,
+        examples : Option(String).None
+      )
+    );
+    oi = (oi + usize(1));
   });
   DocModule(
     name : name,
@@ -1728,7 +2268,7 @@ build_doc_module_from_tokens :: (
     stability : module_stability(module_doc),
     functions : ArrayList(DocFunction).new(),
     types : types,
-    traits : ArrayList(DocTrait).new(),
+    traits : traits,
     constants : constants,
     submodules : ArrayList(Box(DocModule)).new()
   )

@@ -107,9 +107,10 @@ keeps its name) landed in #457.
   flags.
 - **`fmt`'s verdict on `*(X(...))` vs `*X(...)` is file-dependent** and not yet
   explained: `hash_map.yo:694` and `ordered_map.yo:280` hold byte-identical
-  text and get opposite verdicts. Filed as
-  `issues/fmt-pointer-type-paren-verdict-is-context-dependent.md` with three
-  narrowing experiments. Practical rule: run `yo fmt` and take what it gives.
+  text and get opposite verdicts. Filed with three narrowing experiments;
+  since fixed
+  (`issues/fixed/fmt-pointer-type-paren-verdict-is-context-dependent.md`).
+  Practical rule: run `yo fmt` and take what it gives.
 - **A remote branch literally named `std` exists**, so every `std/*` branch name
   is rejected with `remote rejected … (directory file conflict)`. All D-batch
   branches are named `std-d9-…` etc. for that reason. Deleting that branch would
