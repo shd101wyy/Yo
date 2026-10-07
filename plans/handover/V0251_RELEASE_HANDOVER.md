@@ -5,7 +5,7 @@ v0.2.50 stopped here. Develop is at `692399851` and `SEED_VERSION` is
 v0.2.50 (published, notes curated).
 
 **The goal.** v0.2.51 must carry everything
-[`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) needs from a seed. Once
+[`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md) needs from a seed. Once
 v0.2.51 is published and the release pipeline bumps `SEED_VERSION` to it, the
 values-by-default migration starts with **V1 step 0b** (§5 below).
 
@@ -164,7 +164,7 @@ AGENTS.md "Release notes" and the CI-run rules apply.
 ## 6. Then VALUES_BY_DEFAULT (for the next agent)
 
 Start on a v0.2.51 seed. Read
-[`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md):
+[`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md):
 - §3.2 constructors: `box`/`rc`/`arc` with `alloc : Option(Allocator) ?= .None`; the types are not callable;
 - §3.5 cells: `__yo_cell` / `__yo_atomic_cell`; `Box` and `Rc` are distinct nominal wrappers over one cell;
 - §3.11 allocators: a copy-on-write clone lands with its source's owner;

@@ -4,7 +4,7 @@
 - **Written:** 2026-10-07 by the agent that ran the campaign from 2026-10-06 (evening) through 2026-10-07, on the maintainer's instruction to finish the v0.2.54 release, stop, and hand over.
 - **Who it is for:** an agent on another machine.
 - **What it covers:** what landed (v0.2.53 shipped most of it; v0.2.54 ships the rest), the repository's new CI/merge machinery, the exact next steps in order, and the traps.
-- **The authoritative design** is [`plans/VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) (decisions 1–40, phases in §6). This document points into it and does not restate it. The previous handover is [`VBD_HANDOVER_2026-10.md`](VBD_HANDOVER_2026-10.md) — its §1 (the maintainer's rules) still applies unless amended below.
+- **The authoritative design** is [`plans/VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md) (decisions 1–40, phases in §6). This document points into it and does not restate it. The previous handover is [`VBD_HANDOVER_2026-10-06.md`](VBD_HANDOVER_2026-10-06.md) — its §1 (the maintainer's rules) still applies unless amended below.
 
 Read in this order:
 1. AGENTS.md;

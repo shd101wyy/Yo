@@ -11,7 +11,7 @@ the user on 2026-10-03, taking the recommendation in each: aborts propagate,
 `FutureState.Pending` becomes `Cold`. Measured on develop `bcb57bfe7` with a compiler built from
 that tree by the v0.2.49 seed. Related plans:
 `ASYNC_STATE_MACHINE_GENERATION.md` (the lowering),
-`ASYNC_PERFORMANCE_HANDOVER.md` (throughput),
+`handover/ASYNC_PERFORMANCE_HANDOVER.md` (throughput),
 `backlog/ASYNC_DEADLINE_COMBINATOR.md` (the HTTP server keep-alive this
 unblocks), `reference/ASYNC_ITERATION_STREAM.md` (streams, not re-audited).
 
@@ -236,7 +236,7 @@ stub".
   state machine and copied into every bundle. The four functions are
   compiler builtins; a zero-sized `Io` token would shrink each task by 32
   bytes and each bundle copy to nothing. Performance item, not an API change
-  (`ASYNC_PERFORMANCE_HANDOVER.md` territory).
+  (`handover/ASYNC_PERFORMANCE_HANDOVER.md` territory).
 - **An owning `JoinHandle` costs a second allocation per spawn** —
   `issues/an-owning-join-handle-costs-an-allocation-per-spawn.md` (S3), fix
   designed (a value struct over the counted `Impl(Future)`), seed-gated.
@@ -412,7 +412,7 @@ reason: the value-struct `JoinHandle` waits for the seed
 function types and the synthesizer, and effect-row polymorphism stays as a
 `generic(E : Type.Struct)` parameter
 (`issues/fixed/effect-row-spreads-outlived-the-single-bundle-future.md`); a zero-sized `Io` is a measurement
-for `ASYNC_PERFORMANCE_HANDOVER.md`, not an API change. The plan text below is
+for `handover/ASYNC_PERFORMANCE_HANDOVER.md`, not an API change. The plan text below is
 the proposal.
 
 

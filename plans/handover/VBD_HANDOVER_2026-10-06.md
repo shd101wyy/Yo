@@ -4,7 +4,7 @@
 - **Written:** 2026-10-06 by the agent that ran the campaign from 2026-10-04 to 2026-10-06, on the maintainer's instruction to stop and hand over.
 - **Who it is for:** an agent on another machine.
 - **What it covers:** what is done, what is open, the exact next steps, and the traps.
-- **The authoritative design** is [`plans/VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) (decisions 1–38, phases in §6). This document points into it and does not restate it.
+- **The authoritative design** is [`plans/VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md) (decisions 1–38, phases in §6). This document points into it and does not restate it.
 
 Read in this order:
 1. AGENTS.md;

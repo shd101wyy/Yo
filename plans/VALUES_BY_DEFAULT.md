@@ -8,7 +8,7 @@
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 - **Handover:** the campaign was handed over on 2026-10-06. Start with
-  [`plans/VBD_HANDOVER_2026-10.md`](VBD_HANDOVER_2026-10.md), which has the
+  [`plans/handover/VBD_HANDOVER_2026-10-06.md`](handover/VBD_HANDOVER_2026-10-06.md), which has the
   open PRs, the pushed wave-2 branches, the release step and the
   Generation B queue.
 
