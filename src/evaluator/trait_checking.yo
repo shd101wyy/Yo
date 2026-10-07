@@ -27,7 +27,8 @@ pragma(Pragma.AllowUnsafe);
   is_struct_type,
   is_enum_type,
   is_reference_struct_type,
-  is_reference_enum_type
+  is_reference_enum_type,
+  is_primitive_type
 } :: import("../types/guards.yo");
 { enum_instance_node_id } :: import("../types/type_key.yo");
 {
@@ -37,7 +38,7 @@ pragma(Pragma.AllowUnsafe);
   is_type_hierarchy_type
 } :: import("../types/guards.yo");
 { are_types_compatible, set_compat_type_implements_trait_fn } :: import("../types/compatibility.yo");
-{ resolve_enum_shell } :: import("../types/creators.yo");
+{ resolve_enum_shell, type_binding_name } :: import("../types/creators.yo");
 {
   get_trait_type_from_env,
   get_value_of_some_type_from_env
@@ -46,17 +47,19 @@ pragma(Pragma.AllowUnsafe);
   type_contains_some_type,
   type_implements_runtime_builtin,
   get_all_some_types,
+  type_mentions_some_type,
   enum_phantom_type_arg_somes,
   is_bound_closure_identity,
   resolve_cell_chain,
   type_is_move_only,
+  move_only_reason,
   move_only_declarations_exist,
   is_value_nominal_type,
   set_move_only_nominal_fn,
   MoveOnlyNominalFn
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
-{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker } :: import("./context.yo");
+{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
 { Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { EvalValue } :: import("../value.yo");
@@ -74,7 +77,9 @@ pragma(Pragma.AllowUnsafe);
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
   has_negative_impl,
   get_trait_key,
-  find_associated_type_from_generic_impls
+  find_associated_type_from_generic_impls,
+  type_has_impl_shape_for,
+  generic_pattern_implements_trait
 }
 :: import("./values/impl.yo");
 {
@@ -602,6 +607,339 @@ _check_associated_type_constraints :: (
   AssocTypeCheckResult(satisfied : ok, env : cur_env)
 });
 // ---------------------------------------------------------------------------
+// Copy (plans/VALUES_BY_DEFAULT.md decision 36)
+// ---------------------------------------------------------------------------
+/// True for the prelude `Copy` trait. The name test is cheap (a `::`-bound
+/// trait is stamped with its binding name), so the identity lookup runs only
+/// for a trait that could be it.
+is_copy_trait :: (fn(trait_type : TypeValue, env : Environment) -> bool)(
+  match(trait_type, .TraitT({ name : ct_name }) => (ct_name == "Copy"), _ => false) && _is_prelude_trait_named(trait_type, "Copy", env)
+);
+/// An anonymous record: a value struct with no name, no binding, no
+/// constructor and no namespace role (`_(a : i32(1))`, or an inline
+/// `struct(...)` written as a field type). It has no declaration an impl
+/// could name.
+_is_anonymous_record_type :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Struct({ id : ar_id, name : ar_name, is_reference_semantics : ar_ref, is_newtype : ar_new, constructor_func_id : ar_cfid, is_source_namespace : ar_sns }) => (
+      // A type rebuilt from a value carries no id at all, and is not
+      // known to be anonymous.
+      !ar_ref && !ar_new && (!ar_sns && ar_name.is_empty()) && ar_cfid.is_empty() && !ar_id.is_empty() && type_binding_name(ar_id).is_none()
+    ),
+    _ => false
+  )
+);
+/// The parts of a type that is `Copy` structurally (decision 36): a tuple's
+/// elements, an array's element, a closure's capture record, an anonymous
+/// record's fields, and none for a `fn` pointer (a code address). `.None`
+/// for every other type, which answers `Copy` through an impl.
+copy_structural_parts :: (fn(ty_in : TypeValue) -> Option(ArrayList(TypeValue)))({
+  ty := resolve_enum_shell(ty_in);
+  if(is_bound_closure_identity(ty), {
+    return(
+      match(
+        resolve_cell_chain(ty),
+        .Struct({ field_types : cs_fields }) => Option(ArrayList(TypeValue)).Some(cs_fields),
+        _ => Option(ArrayList(TypeValue)).None
+      )
+    );
+  });
+  match(
+    ty,
+    .Tuple({ field_types : tp_fields }) => Option(ArrayList(TypeValue)).Some(tp_fields),
+    .Array(element : ar_elem, length : _, length_var : _) => {
+      parts := ArrayList(TypeValue).new();
+      parts.push(ar_elem);
+      Option(ArrayList(TypeValue)).Some(parts)
+    },
+    .Func({ result : _ }) => Option(ArrayList(TypeValue)).Some(ArrayList(TypeValue).new()),
+    .Struct({ field_types : rec_fields }) => cond(
+      _is_anonymous_record_type(ty) => Option(ArrayList(TypeValue)).Some(rec_fields),
+      true => Option(ArrayList(TypeValue)).None
+    ),
+    _ => Option(ArrayList(TypeValue)).None
+  )
+});
+/// True for the prelude `Clone` trait, by the same cheap name test first as
+/// `is_copy_trait`.
+_is_clone_trait :: (fn(trait_type : TypeValue, env : Environment) -> bool)(
+  match(trait_type, .TraitT({ name : cl_name }) => (cl_name == "Clone"), _ => false) && _is_prelude_trait_named(trait_type, "Clone", env)
+);
+/// The first part of the value nominal type `target` that is not `Copy`,
+/// as "its field `x` has type `T`" ("its variant `V`" for an enum
+/// payload), or `.None` when every part is.
+_first_non_copy_part :: (fn(target : TypeValue, copy_tt : TypeValue, env : Environment) -> Option(String))({
+  labels := ArrayList(String).new();
+  parts := ArrayList(TypeValue).new();
+  match(
+    target,
+    .Struct({ field_labels : nc_labels, field_types : nc_fields }) => {
+      (i : usize) = usize(0);
+      while(i < nc_fields.len(), {
+        labels.push(`its field \`${match(nc_labels.get(i), .Some(l) => l, .None => String.new())}\``);
+        parts.push(match(nc_fields.get(i), .Some(f) => f, .None => TypeValue.Unit));
+        i = (i + usize(1));
+      });
+    },
+    .EnumT({ variant_names : nc_vns, variant_fields : nc_vfs }) => {
+      (vi : usize) = usize(0);
+      while(vi < nc_vfs.len(), {
+        vf := match(nc_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vn := match(nc_vns.get(vi), .Some(n) => n, .None => String.new());
+        (fi : usize) = usize(0);
+        while(fi < vf.len(), {
+          labels.push(`its variant \`${vn}\``);
+          parts.push(match(vf.get(fi), .Some(f) => f, .None => TypeValue.Unit));
+          fi = (fi + usize(1));
+        });
+        vi = (vi + usize(1));
+      });
+    },
+    _ => ()
+  );
+  (pi : usize) = usize(0);
+  while(pi < parts.len(), {
+    part := match(parts.get(pi), .Some(p) => p, .None => TypeValue.Unit);
+    (part_is_copy : bool) = type_implements_trait(part, copy_tt, env).implemented;
+    // The part's own `impl(P, Copy())` may sit later in its module
+    // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force it first.
+    if(!part_is_copy, {
+      match(
+        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(part), Option(String).None),
+        .Forced => {
+          part_is_copy = type_implements_trait(part, copy_tt, env).implemented;
+        },
+        _ => ()
+      );
+    });
+    if(!part_is_copy, {
+      lbl := match(labels.get(pi), .Some(l) => l, .None => String.new());
+      return(Option(String).Some(`${lbl} has type \`${type_to_string(part)}\``));
+    });
+    pi = (pi + usize(1));
+  });
+  Option(String).None
+});
+/// The impl check of `impl(T, Copy())` (decision 36): `.Some(message)` when
+/// `T` may not implement `Copy`.
+///
+/// - A reference type never does: its copies share one cell.
+/// - A builtin scalar, `str`, `unit` or raw pointer does through the
+///   prelude's impls, so it passes here once its `Clone` impl is registered
+///   (anywhere else coherence rejects a second impl).
+/// - A tuple, array, closure, anonymous record or `fn` pointer is `Copy`
+///   structurally and declares nothing.
+/// - Anything else that is not a value `struct`/`enum`/`newtype` (a `Dyn`,
+///   an `Iso`, a blanket `T`, a C opaque type) cannot.
+/// - A value nominal type must not be move-only (a `Dispose` would run once
+///   per copy, and `MoveOnly` forbids the copy), and every field and payload
+///   must be `Copy`. The first one that is not is named.
+/// - Every type that may be `Copy` must also be `Clone`
+///   (`_copy_without_clone_msg`).
+_copy_impl_violation_msg :: (fn(target_type : TypeValue, target : TypeValue, copy_tt : TypeValue, env : Environment) -> Option(String))({
+  shown := type_to_string(target_type);
+  if(is_reference_struct_type(target) || is_reference_enum_type(target), {
+    return(Option(String).Some(`Type "${shown}" cannot implement "Copy": it is a reference type, so its copies share one cell. Copy is a bitwise copy of a value that owns nothing; a shared cell is copied with .clone().`));
+  });
+  if(!is_value_nominal_type(target), {
+    is_builtin_leaf := match(
+      target,
+      .Unit => true,
+      .Str => true,
+      .Pointer(_) => true,
+      _ => is_primitive_type(target)
+    );
+    return(
+      cond(
+        is_builtin_leaf => _copy_without_clone_msg(target_type, env),
+        copy_structural_parts(target).is_some() => Option(String).Some(`Type "${shown}" cannot implement "Copy": a tuple, array, closure, anonymous record or fn pointer is Copy exactly when all its parts are, and declares nothing.`),
+        true => Option(String).Some(`Type "${shown}" cannot implement "Copy": only a value type (struct, enum, newtype) may declare it.`)
+      )
+    );
+  });
+  match(
+    move_only_reason(target),
+    .Some(mo_reason) => {
+      return(Option(String).Some(`Type "${shown}" cannot implement "Copy": ${mo_reason}, so it is move-only. A copy is bitwise, so a Dispose would run once per copy; a type that releases a resource is moved, never copied.`));
+    },
+    .None => ()
+  );
+  match(
+    _first_non_copy_part(target, copy_tt, env),
+    .Some(part) => {
+      return(Option(String).Some(`Type "${shown}" cannot implement "Copy": ${part}, which does not implement required trait "Copy". Every field and payload of a Copy type must be Copy: derive Copy on that type first, or give the field a type that is Copy.`));
+    },
+    .None => ()
+  );
+  _copy_without_clone_msg(target_type, env)
+});
+/// `Copy` requires `Clone` (decision 36, Rust's `Copy: Clone` supertrait,
+/// declared by the prelude trait's `where(Self <: Clone)`): `.Some(message)`
+/// when no `Clone` impl covers `target_type`. For a generic impl's receiver
+/// pattern (`Pair(T)` under `where(T <: Copy)`) the `Clone` impl must cover
+/// the same instantiations, which `T <: Copy` implying `T <: Clone` decides.
+/// The compiler never writes the `Clone` impl, so the message names the
+/// spelling that does.
+_copy_without_clone_msg :: (fn(target_type : TypeValue, env : Environment) -> Option(String))(
+  match(
+    get_trait_type_from_env(env, String.from("Clone")),
+    .Some(clone_tt) => {
+      (has_clone : bool) = type_implements_trait(target_type, clone_tt, env).implemented;
+      // A `Clone` impl placed after the `Copy` impl in its module
+      // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force it first.
+      if(!has_clone, {
+        match(
+          force_pending_impls_for_type_name(type_head_name_for_impl_forcing(target_type), Option(String).None),
+          .Forced => {
+            has_clone = type_implements_trait(target_type, clone_tt, env).implemented;
+          },
+          _ => ()
+        );
+      });
+      cond(
+        has_clone => Option(String).None,
+        true => {
+          // An OPEN receiver pattern (decision 36's generic `Copy` impl: the
+          // prelude's `*(T)`, `Option(T)`, a user `Pair(T)`): the question is
+          // whether a generic `Clone` impl covers EVERY instantiation of the
+          // pattern. The ordinary predicate above cannot answer it — it
+          // rejects a match that binds a forall to another impl's SomeT — so
+          // `generic_pattern_implements_trait` runs the match with abstract
+          // bindings allowed and checks each candidate's `where` bounds
+          // against the pattern's own bounds (`T <: Copy` gives `T <: Clone`).
+          // A `Clone` impl pending later in the module was already forced
+          // above when the pattern has a head name. `type_mentions_some_type`
+          // (not `get_all_some_types`): a parameter no field mentions
+          // (`Tag(T)` = `struct(id : i32)`) is carried by the instantiation's
+          // type arguments alone.
+          if(type_mentions_some_type(target_type) && generic_pattern_implements_trait(target_type, clone_tt, env), {
+            return(Option(String).None);
+          });
+          shown := type_to_string(target_type);
+          // A generic receiver pattern names the generic spellings: the derive
+          // carries the impl's own `generic(...)`/`where(...)` (a derived clone
+          // calls `.clone()` on its fields, so it needs `where(T <: Clone)`).
+          remedy := cond(
+            type_mentions_some_type(target_type) => `Write a Clone impl that covers the same instantiations: derive(generic(T : Type), where(T <: Clone), <type constructor>(T), Clone) beside this impl, or bound this impl (where(T <: Copy)) so the existing Clone impl covers it.`,
+            true => `Write derive(${shown}, Copy, Clone), or derive(${shown}, Clone) beside impl(${shown}, Copy()).`
+          );
+          Option(String).Some(`Type "${shown}" cannot implement "Copy" without "Clone": Copy requires Clone, as Rust's Copy: Clone (plans/VALUES_BY_DEFAULT.md decision 36), and the compiler never writes the Clone impl. ${remedy}`)
+        }
+      )
+    },
+    .None => Option(String).None
+  )
+);
+/// `YO_AUDIT_COPY_TRAIT` (plans/VALUES_BY_DEFAULT.md decision 36): the named
+/// types through which `ty`, a plain-data type, fails to be `Copy`. Those are
+/// the types the Generation B sweep must give `Copy` so that a copy of `ty`
+/// stays implicit after the flip:
+///
+/// - a named value type with no `Copy` impl at all, by its base name
+///   (`Point`, `Pair` for `Pair(i32)`), then the named types among its own
+///   parts, because its `Copy` impl will need them;
+/// - for a type whose conditional `Copy` fails (`Option(Point)`), the named
+///   types among its parts;
+/// - the parts of a tuple, array, closure or anonymous record;
+/// - a C opaque type, by name.
+///
+/// Empty when `ty` is `Copy`, and for a compile-time-only type: its copies
+/// never reach run time.
+copy_trait_blockers :: (fn(ty : TypeValue, env : Environment) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  if(type_is_comptime_only_full(ty, env), {
+    return(out);
+  });
+  match(
+    get_trait_type_from_env(env, String.from("Copy")),
+    .Some(copy_tt) => _copy_blockers_into(ty, copy_tt, env, u32(0), out),
+    .None => ()
+  );
+  out
+});
+_copy_blockers_into :: (fn(ty_in : TypeValue, copy_tt : TypeValue, env : Environment, depth : u32, inout(out) : ArrayList(String)) -> unit)({
+  ty := resolve_enum_shell(ty_in);
+  if((depth > u32(6)) || is_some_type(ty) || type_implements_trait(ty, copy_tt, env).implemented, {
+    return(());
+  });
+  parts := match(
+    copy_structural_parts(ty),
+    .Some(sp) => sp,
+    .None => ArrayList(TypeValue).new()
+  );
+  if(is_value_nominal_type(ty), {
+    if(!type_has_impl_shape_for(ty, copy_tt), {
+      raw := type_to_string(ty);
+      base := match(raw.index_of(String.from("(")), .Some(p) => raw.substring(usize(0), p), .None => raw);
+      if(!out.contains(base), {
+        out.push(base);
+      });
+    });
+    match(
+      ty,
+      .Struct({ field_types : bl_fields }) => {
+        (i : usize) = usize(0);
+        while(i < bl_fields.len(), {
+          parts.push(match(bl_fields.get(i), .Some(f) => f, .None => TypeValue.Unit));
+          i = (i + usize(1));
+        });
+      },
+      .EnumT({ variant_fields : bl_vfs }) => {
+        (vi : usize) = usize(0);
+        while(vi < bl_vfs.len(), {
+          vf := match(bl_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          (fi : usize) = usize(0);
+          while(fi < vf.len(), {
+            parts.push(match(vf.get(fi), .Some(f) => f, .None => TypeValue.Unit));
+            fi = (fi + usize(1));
+          });
+          vi = (vi + usize(1));
+        });
+      },
+      _ => ()
+    );
+  });
+  if(match(ty, .ExternOpaqueT(_, _) => true, _ => false), {
+    shown := type_to_string(ty);
+    if(!out.contains(shown), {
+      out.push(shown);
+    });
+  });
+  (pi : usize) = usize(0);
+  while(pi < parts.len(), {
+    recur(match(parts.get(pi), .Some(p) => p, .None => TypeValue.Unit), copy_tt, env, depth + u32(1), out);
+    pi = (pi + usize(1));
+  });
+});
+/// Is `bound` the trait `wanted`, or one of its supertraits: a trait its
+/// `where(Self <: …)` clause names, transitively? A type parameter bounded by
+/// `bound` implements every supertrait, as in Rust: `where(T <: Copy)` gives
+/// `T <: Clone` (plans/VALUES_BY_DEFAULT.md decision 36). The depth guard
+/// stops a cyclic `where(Self <: …)` chain.
+_trait_or_supertrait_is :: (fn(bound : TypeValue, wanted : TypeValue, depth : u32) -> bool)({
+  if(_trait_type_id(bound) == _trait_type_id(wanted), {
+    return(true);
+  });
+  if(depth > u32(8), {
+    return(false);
+  });
+  match(
+    bound,
+    .TraitT({ self_constraints : st_scs }) => {
+      (si : usize) = usize(0);
+      while(si < st_scs.len(), {
+        if(recur(match(st_scs.get(si), .Some(sc) => sc, .None => TypeValue.Unit), wanted, depth + u32(1)), {
+          return(true);
+        });
+        si = (si + usize(1));
+      });
+    },
+    _ => ()
+  );
+  false
+});
+// ---------------------------------------------------------------------------
 // type_implements_trait
 // ---------------------------------------------------------------------------
 /// Check if a type implements a specific trait.
@@ -683,6 +1021,26 @@ type_implements_trait :: (
   // parameter keeps the bound-based path below.
   if(move_only_declarations_exist() && !is_some_type(target) && _is_prelude_trait_named(trait_type, "MoveOnly", env), {
     return(TraitCheckResult(implemented : type_is_move_only(target), env : env));
+  });
+  // Copy and Clone are structural for the types no impl can name (decision
+  // 36): a tuple, an array, a closure's capture record, an anonymous record
+  // and a `fn` pointer are Copy (Clone) exactly when every part is. Every
+  // other type answers through its impls below.
+  if(is_copy_trait(trait_type, env) || _is_clone_trait(trait_type, env), {
+    match(
+      copy_structural_parts(target),
+      .Some(cp_parts) => {
+        (cp_i : usize) = usize(0);
+        while(cp_i < cp_parts.len(), {
+          if(!recur(match(cp_parts.get(cp_i), .Some(p) => p, .None => TypeValue.Unit), trait_type, env).implemented, {
+            return(TraitCheckResult(implemented : false, env : env));
+          });
+          cp_i = (cp_i + usize(1));
+        });
+        return(TraitCheckResult(implemented : true, env : env));
+      },
+      .None => ()
+    );
   });
   // 0. Phase N: Negative-impl check — runs first, authoritative. If the type
   // has a registered negative impl for this trait, it does NOT implement the
@@ -1093,7 +1451,7 @@ type_implements_trait :: (
             continue;
           }
         );
-        if(_trait_type_id(req_t) == _trait_type_id(trait_type), {
+        if(_trait_or_supertrait_is(req_t, trait_type, u32(0)), {
           found_req = true;
         });
         ir = (ir + usize(1));
@@ -1135,7 +1493,7 @@ type_implements_trait :: (
                 continue;
               }
             );
-            if(_trait_type_id(wr_t) == _trait_type_id(trait_type), {
+            if(_trait_or_supertrait_is(wr_t, trait_type, u32(0)), {
               found_req = true;
             });
             iwr = (iwr + usize(1));
@@ -1292,6 +1650,7 @@ receiver_kind_trait_violation_msg :: (
     _is_prelude_trait_named(trait_type, "Dispose", env) => String.from("Dispose"),
     _is_prelude_trait_named(trait_type, "MoveOnly", env) => String.from("MoveOnly"),
     _is_prelude_trait_named(trait_type, "Trace", env) => String.from("Trace"),
+    is_copy_trait(trait_type, env) => String.from("Copy"),
     true => String.from("")
   );
   if(trait_name.is_empty(), {
@@ -1303,6 +1662,20 @@ receiver_kind_trait_violation_msg :: (
   });
   is_reference := (is_reference_struct_type(target) || is_reference_enum_type(target));
   is_value_nominal := is_value_nominal_type(target);
+  if(trait_name == "Copy", {
+    return(_copy_impl_violation_msg(target_type, target, trait_type, env));
+  });
+  // A Copy type is never move-only (decision 36): the other direction of
+  // the impl check, for a `Dispose`/`MoveOnly` impl registered after `Copy`.
+  if(is_value_nominal && ((trait_name == "Dispose") || (trait_name == "MoveOnly")), {
+    match(
+      get_trait_type_from_env(env, String.from("Copy")),
+      .Some(dm_copy_tt) => if(type_implements_trait(target, dm_copy_tt, env).implemented, {
+        return(Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "${trait_name}": it implements Copy, and a Copy value is duplicated bitwise, so it can never be move-only. A type that releases a resource is moved, never copied: remove Copy.`));
+      }),
+      .None => ()
+    );
+  });
   cond(
     (trait_name == "Trace") => if(
       is_reference,
@@ -2409,6 +2782,7 @@ _trait_checking_init := (fn() -> bool)({
   set_check_self_constraints_fn(check_self_constraints_violation_msg);
   set_receiver_kind_trait_fn(receiver_kind_trait_violation_msg);
   set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
+  set_copy_trait_blockers_fn(copy_trait_blockers);
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();

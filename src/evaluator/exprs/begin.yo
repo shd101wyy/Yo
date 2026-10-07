@@ -103,7 +103,7 @@ pragma(Pragma.AllowUnsafe);
   get_dup_use_site_token,
   snapshot_loop_flow,
   ImplicitCopyPending,
-  audit_implicit_copy_enabled,
+  audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
   audit_print_implicit_copy,
   local_borrows_mark,
@@ -3032,7 +3032,7 @@ _evaluate_begin_expression_impl :: (
   // YO_AUDIT_IMPLICIT_COPY: judge the pending copies of this block's locals
   // and, for a function body, of its parameters (plans/VALUES_BY_DEFAULT.md
   // §6, item 1). Read-only.
-  if(audit_implicit_copy_enabled(), {
+  if(audit_pending_copies_enabled(), {
     match(current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(audit_fr, begin_args, ctx), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
       match(env.frames.get(env.frames.len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(audit_pfr, begin_args, ctx), .None => ());

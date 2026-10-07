@@ -92,7 +92,7 @@
 } :: import("./destructuring_assignment.yo");
 { synthesize_expr_and_type } :: import("../types/expr_synthesizer.yo");
 { clone_value } :: import("../values/clone_value.yo");
-{ find_rc_value_owner_relationship, throw_expr_is_implicit_variable_error, require_expr_not_consumed, set_expr_as_needs_to_call_dup, doc_comment_lookup_key_from_token, audit_implicit_copy_enabled } :: import("../utils.yo");
+{ find_rc_value_owner_relationship, throw_expr_is_implicit_variable_error, require_expr_not_consumed, set_expr_as_needs_to_call_dup, doc_comment_lookup_key_from_token, audit_pending_copies_enabled } :: import("../utils.yo");
 {
   LocalBorrowPlace,
   LocalBorrowAccess,
@@ -1061,7 +1061,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`
     // Insert dup-on-store (transfers/shares RC ownership of the RHS). A
     // binding a macro introduced (`for`'s gensym'd collection pin) carries
     // the macro's module in its name token, not the user's.
-    set_expr_as_needs_to_call_dup(rhs, ctx, exn, cond((!audit_implicit_copy_enabled() || (ast_expr_token(actual_lhs).module_path == ast_expr_token(rhs).module_path)) => "binding", true => "binding(macro)"));
+    set_expr_as_needs_to_call_dup(rhs, ctx, exn, cond((!audit_pending_copies_enabled() || (ast_expr_token(actual_lhs).module_path == ast_expr_token(rhs).module_path)) => "binding", true => "binding(macro)"));
     // Re-read env in case set_expr_as_needs_to_call_dup updated it.
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs)),

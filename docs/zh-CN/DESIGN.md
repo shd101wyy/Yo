@@ -1130,6 +1130,30 @@ p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
 
 不需要新关键字：两处的 `Point(...)` 是同一个构造调用。每个内存块在 16 字节前缀中记录自己的所有者，所以释放总是回到分配它的分配器，无论在哪个线程。`std/arena` 的 `Arena` 在仍有活跃块时调用 `deinit` 会 panic。安全规则见 [MEMORY_SAFETY.md](./MEMORY_SAFETY.md#显式分配器与-arena)；完整指南见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)。
 
+#### Copy
+
+`Copy` 是 prelude 中的标记 trait，表示一个值的复制就是按位复制。它要求 `Clone`，与 Rust 的 `Copy: Clone` 一样：这个 trait 声明为 `Copy :: trait(where(Self <: Clone))`，所以每个 `Copy` impl 旁边都需要一个 `Clone` impl，而 `where(T <: Copy)` 让泛型函数体可以调用 `x.clone()`。整数、浮点数、`bool`、`char`、`unit`、`str` 视图和裸指针两者都实现；`Option(T)` 与 `Result(T, E)` 在载荷实现它们时也实现。具名类型通过 `derive(T, Copy, Clone)` 选择加入，泛型类型则加上 `where` 约束：
+
+```rust
+Point :: struct(x : i32, y : i32);
+derive(Point, Copy, Clone);
+
+Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+derive(generic(T : Type), where(T <: Clone), Pair(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Pair(T), Copy);
+
+main :: (fn() -> unit)({
+  p := Point(x : i32(1), y : i32(2));
+  q := p;           // 复制：`p` 仍然可用
+  r := p.clone();   // 派生的 clone；对 Copy 类型来说就是复制
+});
+export(main);
+```
+
+这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 或声明了 `MoveOnly` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。`Box`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
+
+目前 `Copy` 会被检查，但还不是必需的：没有它的纯数据类型仍然会被隐式复制。[值默认计划](../../plans/VALUES_BY_DEFAULT.md)（决定 36）的下一步会把它变成规则：之后 `q := p` 会移动一个不是 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901。
+
 #### 只能移动的值
 
 资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Dispose`，或声明了 `impl(T, MoveOnly())` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Box`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Dispose` 在计数归零时运行一次。

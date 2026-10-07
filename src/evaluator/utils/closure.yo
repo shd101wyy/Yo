@@ -68,7 +68,7 @@
 { move_captured_explicit_copy_variable } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_implicit_copy_enabled, audit_record_implicit_copy } :: import("../utils.yo");
+{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1264,6 +1264,8 @@ generate_captured_variable_dup_expressions :: (
                 evaluated := evaluate_expression_raw(dup_expr, env, ctx, exn);
                 dup_exprs.push(evaluated);
               },
+              // YO_AUDIT_COPY_TRAIT: a plain-data capture is a copy too.
+              audit_copy_trait_enabled() => audit_record_copy_trait(closure_tok, ci.ty, "capture", env, generate_expr_from_code(var_name.clone(), exn), ctx, false),
               true => ()
             ),
             .None => ()

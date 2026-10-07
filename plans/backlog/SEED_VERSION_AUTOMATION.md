@@ -207,6 +207,31 @@ miss `Sync`).
 - The `std/imm` element bounds become `Sync` (their nodes are shared).
 - `docs/en-US/PARALLELISM.md` signatures, both languages.
 
+## Seed-gated follow-up (2026-10-06): decision 36's `Copy` flip
+
+`plans/VALUES_BY_DEFAULT.md` decision 36 (its phase section, "Decision 36:
+the `Copy` trait"). The prelude `Copy` trait, its `where(Self <: Clone)`
+supertrait and its impls are plain std code to the v0.2.52 seed (an
+ordinary marker trait with a `Self` constraint), so they landed in
+Generation A. What the seed cannot do is check a `Copy` impl's parts,
+register a derive's `Clone` before its `Copy`, answer `Copy` structurally
+for a tuple or closure, or treat a type without `Copy` as move-on-copy.
+
+**Generation A DONE 2026-10-06** (PR #1253): the trait and its
+supertrait, the prelude impls (each beside its `Clone`, with new `Clone`
+impls for `str`, `*(T)` and tuples of arity 1 to 12), `derive(T, Copy)`,
+the impl check with its `Copy: Clone` error, the hand-written-`Clone` rule,
+structural `Copy` and `Clone`, the raw-pointer clone clash, and the
+`YO_AUDIT_COPY_TRAIT` audit.
+
+**Generation B (once `SEED_VERSION` >= the release carrying Generation A):**
+- The `yo fix` sweep: `derive(T, Copy, Clone)` on every type the audit
+  lists. Until then `std/` and `src/` write `Copy` only as
+  `derive(T, Clone, Copy)` (`Clone` first): the seed processes a derive's
+  traits in order, so its supertrait check at `Copy` needs the `Clone` impl
+  registered already.
+- The flip: `type_requires_explicit_copy(T)` becomes `!(T <: Copy)`.
+- Delete `MoveOnly`.
 ## Seed-gated follow-up (2026-10-05): rename the shared cell `Box` to `Rc`
 
 `plans/VALUES_BY_DEFAULT.md` §6 V1 step 1. The rename is NOT plain std code

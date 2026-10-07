@@ -699,6 +699,11 @@ note_trait_impl_site :: (fn(type_id : String, trait_key : String, site : String)
     }
   )
 });
+/// The site of the impl of trait `trait_key` for the type `type_id`, if one
+/// is registered (`note_trait_impl_site`), without recording anything.
+trait_impl_site_of :: (fn(type_id : String, trait_key : String) -> Option(String))(
+  _trait_impl_sites.get(`${type_id}\n${trait_key}`)
+);
 /// Drop every trait-impl site registered by `owner` (LSP invalidation).
 purge_trait_impl_sites_owned_by :: (fn(owner : String) -> unit)({
   if(owner.len() == usize(0), {
@@ -1029,6 +1034,7 @@ export(
   register_type_trait_method,
   note_inherent_method_site,
   note_trait_impl_site,
+  trait_impl_site_of,
   purge_trait_impl_sites_owned_by,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,
