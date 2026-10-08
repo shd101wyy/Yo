@@ -38,7 +38,7 @@ _min :: (fn(a : usize, b : usize) -> usize)(
 // the allocator `with_allocator` made current, and so carry its owner prefix
 // (`std/allocator.yo`); their release routes through it
 // (plans/archive/EXPLICIT_ALLOCATORS.md P3). Read the capacity with `_capn()`.
-_CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_CAP_TAG :: (usize(1) << ((size_of(usize) * usize(8)) - usize(1)));
 _CAP_MASK :: (_CAP_TAG - usize(1));
 // The tag for bytes `_alloc_bytes` just placed.
 _scope_tag :: (fn() -> usize)(cond(current_allocator().is_some() => _CAP_TAG, true => usize(0)));

@@ -78,7 +78,7 @@ test("variadic comptime Trait", {
 _size_sum_impl :: (fn(comptime(types) : ComptimeList(Type)) -> comptime(usize))(
   cond(
     (types.len() == usize(0)) => usize(0),
-    true => (sizeof(types.first()) + recur(types.rest()))
+    true => (size_of(types.first()) + recur(types.rest()))
   )
 );
 size_sum :: (fn(...(comptime(types) : ComptimeList(Type))) -> comptime(usize))(

@@ -87,7 +87,7 @@ test("soundness: a phantom argument is checked against a bound parameter", {
   assert(_pick(true, _Phantom(bool).A(i32(1))), "a matching phantom argument is accepted");
 });
 _PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
-_ksize :: (fn(generic(K : Type), _t : _PhantomTag(K)) -> usize)(sizeof(K));
+_ksize :: (fn(generic(K : Type), _t : _PhantomTag(K)) -> usize)(size_of(K));
 test("soundness: a body reads a type parameter bound only by a phantom argument", {
   assert(_ksize(_PhantomTag(u8).A) == usize(1), "u8");
   assert(_ksize(_PhantomTag(i64).A) == usize(8), "i64");

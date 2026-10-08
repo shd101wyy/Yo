@@ -608,7 +608,7 @@ result := asm("rdtsc", out("eax", u32));
 | ------------------ | -------------------- |
 | 无                 | `unit`               |
 | 一个 `out(_, T)`   | `T`                  |
-| 一个 `inout(_, v)` | `typeof(v)`          |
+| 一个 `inout(_, v)` | `type_of(v)`          |
 | 多个               | `tuple(T1, T2, ...)` |
 
 `inout` 和 `inlateout` 始终算作返回值输出。

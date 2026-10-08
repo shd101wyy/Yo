@@ -361,7 +361,7 @@ test("a container of a closure type compiles and calls the closure", {
       ();
     }
   );
-  ks := ArrayList(typeof(k)).new();
+  ks := ArrayList(type_of(k)).new();
   ks.push(k);
   match(ks.get(usize(0)), .Some(g0) => g0(), .None => assert(false, "the pushed closure is there"));
   assert(ks.len() == usize(1), "one closure in the list");
@@ -370,9 +370,9 @@ test("a container of a closure type compiles and calls the closure", {
 test("a generic's static -> Self constructor at a closure type", {
   n := i32(40);
   (k : Impl(Fn() -> i32)) = (() => (n + i32(2)));
-  e := _ClosureSlot(typeof(k)).empty(i32(3));
+  e := _ClosureSlot(type_of(k)).empty(i32(3));
   assert(e.tag == i32(3), "the empty slot");
-  s := _ClosureSlot(typeof(k)).holding(i32(4), k);
+  s := _ClosureSlot(type_of(k)).holding(i32(4), k);
   assert(s.tag == i32(4), "the holding slot");
   assert(match(s._f, .Some(g) => g(), .None => i32(0)) == i32(42), "the held closure ran");
 });
@@ -392,8 +392,8 @@ test("two closures' lists are two types, one per closure", {
       ();
     }
   );
-  l1 := ArrayList(typeof(k1)).new();
-  l2 := ArrayList(typeof(k2)).new();
+  l1 := ArrayList(type_of(k1)).new();
+  l2 := ArrayList(type_of(k2)).new();
   l1.push(k1);
   l2.push(k2);
   match(l1.get(usize(0)), .Some(g1) => g1(), .None => assert(false, "k1 is in l1"));
@@ -412,7 +412,7 @@ test("a second closure's list after the first list's push", {
       ();
     }
   );
-  l1 := ArrayList(typeof(k1)).new();
+  l1 := ArrayList(type_of(k1)).new();
   l1.push(k1);
   (k2 : Impl(Fn() -> unit)) = (
     () => {
@@ -420,7 +420,7 @@ test("a second closure's list after the first list's push", {
       ();
     }
   );
-  l2 := ArrayList(typeof(k2)).new();
+  l2 := ArrayList(type_of(k2)).new();
   l2.push(k2);
   match(l1.get(usize(0)), .Some(g1) => g1(), .None => assert(false, "k1 is in l1"));
   match(l2.get(usize(0)), .Some(g2) => g2(), .None => assert(false, "k2 is in l2"));

@@ -274,7 +274,7 @@ wherever it can see it:
 - **Function values passed in.** A named function or a closure passed to an
   `Impl(Fn(...), Send)` parameter is judged at the call.
 - **Generic bounds.** A function bound to a `where(T <: Send)` or `where(T <: Sync)` parameter
-  is judged too: `arc(f)` (both), `Channel(typeof(f))`, a generic `g(f)`.
+  is judged too: `arc(f)` (both), `Channel(type_of(f))`, a generic `g(f)`.
 - **Captured functions.** A closure captured by another thread's closure is judged by the
   captured value.
 - **`Sync` slots.** An `Impl(Fn(...), Sync)` parameter runs the same checks for `Sync`: a

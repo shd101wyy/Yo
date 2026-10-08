@@ -229,15 +229,15 @@ x := io.await(fut2, io);
 ```
 
 The closure passed to `io.async` must pin `e`'s type — the inferencer
-cannot derive it from the bare closure literal. Use `typeof(effects)`
+cannot derive it from the bare closure literal. Use `type_of(effects)`
 at top-level call sites, or rely on the enclosing function's annotated
 return type when the closure is inside a function body:
 
 ```rust
 effects := { raise, log };
 
-// Top-level: annotate e with typeof(effects).
-fut := io.async((e : typeof(effects)) => {
+// Top-level: annotate e with type_of(effects).
+fut := io.async((e : type_of(effects)) => {
   e.raise(`err`);
   e.log(`hello`);
 });

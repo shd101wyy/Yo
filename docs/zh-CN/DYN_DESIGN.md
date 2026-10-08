@@ -276,7 +276,7 @@ if(downcast(animal, Dog).is_some(), {
 一个永远为假的检查。
 
 **没有非检查式的强制转换。** `downcast` 始终返回 `Option(T)`；如果你想在不匹配时
-panic，那就是 `downcast(v, T).unwrap()`，写在调用点上因此是可见的。`typeid` 是另一个
+panic，那就是 `downcast(v, T).unwrap()`，写在调用点上因此是可见的。`type_id` 是另一个
 内建，它接受一个**类型**而不是值——不能用来在运行时判断 `Dyn`。
 
 ## 向上转换：`upcast(value, Dyn(...))`

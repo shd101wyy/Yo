@@ -163,7 +163,7 @@ Custom types and standard library collections (like `ArrayList`) use the Index t
 
 1. Built-in array/slice indexing (if the callee is `[T; N]` or `[T]`)
 2. Range slicing with `..` or `..=` (if the argument is a range expression)
-3. Index trait dispatch (looks up `Index(typeof(arg))` impl on the callee type)
+3. Index trait dispatch (looks up `Index(type_of(arg))` impl on the callee type)
 4. Regular function call
 
 ## Inline with Operators

@@ -48,7 +48,7 @@ test("HashSet churn keeps the backing map's live + tombstones under the load thr
 // `_alloc_with_capacity` at the set's own entry width, MapEntry(T, unit)
 // (issues/fixed/hash-container-capacity-overflow-guard-has-no-regression-test.md).
 test("the backing map's _alloc_with_capacity rejects a capacity that would overflow at the set's entry width", {
-  big := ((SIZE_MAX / sizeof(MapEntry(i64, unit))) + usize(1));
+  big := ((SIZE_MAX / size_of(MapEntry(i64, unit))) + usize(1));
   match(
     HashMap(i64, unit)._alloc_with_capacity(big),
     .Err(.CapacityOverflow) => assert(true, "the wrapped byte size is refused"),

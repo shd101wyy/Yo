@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 // `Allocator` and carries its owner prefix (`std/allocator.yo`), so growth and
 // release go through it. Kept inside an existing word so the deque object does
 // not grow (plans/archive/EXPLICIT_ALLOCATORS.md §3.3); every capacity read masks it.
-_CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_CAP_TAG :: (usize(1) << ((size_of(usize) * usize(8)) - usize(1)));
 _CAP_MASK :: (_CAP_TAG - usize(1));
 /// Circular buffer supporting efficient push/pop at both front and back.
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -118,7 +118,7 @@ impl(
     if(size_would_overflow(T, new_cap) || (new_cap > _CAP_MASK), {
       __yo_panic("Deque: capacity overflow");
     });
-    size := (new_cap * sizeof(T));
+    size := (new_cap * size_of(T));
     // The new ring comes from the allocator that owns the old one.
     new_raw := cond(
       self._owned() => Allocator.owner_of((*void)(self._buf.unwrap())).alloc(size),

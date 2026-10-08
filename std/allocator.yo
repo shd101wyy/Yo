@@ -42,14 +42,14 @@ Layout :: struct(
 layout_of ::
   (fn(comptime(T) : Type) -> comptime(Layout))(
     Layout(
-      size : sizeof(T),
-      alignment : alignof(T)
+      size : size_of(T),
+      alignment : align_of(T)
     )
   );
 /// Check if allocating `count` elements of type T would overflow `usize`.
 size_would_overflow ::
   (fn(comptime(T) : Type, count : usize) -> bool)({
-    type_size :: sizeof(T);
+    type_size :: size_of(T);
     cond(
       (type_size == usize(0)) => false,
       true => (count > (SIZE_MAX / type_size))
@@ -144,7 +144,7 @@ GlobalAllocator :: impl({
           ((alignment & (alignment - usize(1))) != usize(0))
       ) => .None,
       true => {
-        min_alignment :: sizeof(*void);
+        min_alignment :: size_of(*void);
         effective := cond(
           (alignment < min_alignment) => min_alignment,
           true => alignment

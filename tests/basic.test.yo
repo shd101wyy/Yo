@@ -1191,7 +1191,7 @@ test("Test raw pointer", {
     { GlobalAllocator } :: import("std/allocator");
     { malloc, free } :: GlobalAllocator;
     {
-      ptr := (*i32)(malloc(sizeof(i32) * 2).unwrap());
+      ptr := (*i32)(malloc(size_of(i32) * 2).unwrap());
       ptr.* = 42;
       (ptr.add(1)).* = 84;
       assert(ptr.* == 42);
@@ -2115,7 +2115,7 @@ test("Test 'Impl'", {
     );
     ImplId :: Impl(Id);
     test1 :: (fn(x : ImplId) -> ImplId)({
-      y := (typeof(x) <: Id).id(x);
+      y := (type_of(x) <: Id).id(x);
       return(y.id());
     });
     // TODO: add assertions
@@ -2125,11 +2125,11 @@ test("Test 'Impl'", {
       id : (fn(self : Self) -> Self)
     );
     test1 :: (fn(generic((T : Type) = Impl(Id)), x : T) -> T)({
-      y := (typeof(x) <: Id).id(x);
+      y := (type_of(x) <: Id).id(x);
       return(y.id());
     });
     test2 :: (fn((comptime(T) : Type) = Impl(Id), x : T) -> T)({
-      y := (typeof(x) <: Id).id(x);
+      y := (type_of(x) <: Id).id(x);
       return(y.id());
     });
   };
@@ -2565,8 +2565,8 @@ test("enum tag participates in alignment and struct tail padding", {
   // 22). Pre-fix the evaluator said 22 and every ArrayList of TagPadded
   // mixed a 22-byte stride with 24-byte C copies (heap overflow on the
   // ASan CI legs).
-  assert(sizeof(LowAlignPayload) == usize(20), "enum: 4-byte tag + 16-byte payload");
-  assert(sizeof(TagPadded) == usize(24), "struct: 20 + 2 rounded up to align 4");
+  assert(size_of(LowAlignPayload) == usize(20), "enum: 4-byte tag + 16-byte payload");
+  assert(size_of(TagPadded) == usize(24), "struct: 20 + 2 rounded up to align 4");
   // Functional roundtrip across a growth boundary — the ASan legs check the
   // memory behavior, every leg checks the values.
   { ArrayList } :: import("std/collections/array_list");
@@ -2603,7 +2603,7 @@ test("enum tag participates in alignment and struct tail padding", {
 _ct_pick :: (fn(x : i32) -> i32)(
   cond(
     (x > i32(10)) => i32(1),
-    (sizeof(i32) == usize(4)) => i32(2),
+    (size_of(i32) == usize(4)) => i32(2),
     true => i32(3)
   )
 );
@@ -2613,7 +2613,7 @@ _ct_stmt :: (fn(x : i32) -> i32)({
     (x > i32(10)) => {
       r = i32(1);
     },
-    (sizeof(i32) == usize(4)) => {
+    (size_of(i32) == usize(4)) => {
       r = i32(2);
     },
     true => {
@@ -2720,10 +2720,10 @@ test("every plain-named builtin is reserved for bindings", {
   /// the/as/clone/quote/dyn — a user fn of any of these is silently
   /// hijacked by the builtin dispatch (or, for as/clone, only fragily
   /// defers), so all are rejected at the binding sites.
-  comptime_expect_error(typeof := 1, "names a builtin");
-  comptime_expect_error(sizeof := 2, "names a builtin");
-  comptime_expect_error(alignof := 3, "names a builtin");
-  comptime_expect_error(typeid := 4, "names a builtin");
+  comptime_expect_error(type_of := 1, "names a builtin");
+  comptime_expect_error(size_of := 2, "names a builtin");
+  comptime_expect_error(align_of := 3, "names a builtin");
+  comptime_expect_error(type_id := 4, "names a builtin");
   comptime_expect_error(asm := 5, "names a builtin");
   comptime_expect_error(pragma := 6, "names a builtin");
   comptime_expect_error(the := 7, "names a builtin");

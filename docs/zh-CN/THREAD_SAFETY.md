@@ -195,7 +195,7 @@ Thread(i32).spawn(io => counter);             // 错误：……但另一个线�
 
 - **派生与任务闭包体**：直接写进 `Send` 位置的闭包字面量（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调）在书写处检查。
 - **传入的函数值**：传给 `Impl(Fn(...), Send)` 参数的具名函数或闭包在调用处判断。
-- **泛型约束**：绑定到 `where(T <: Send)` 或 `where(T <: Sync)` 参数的函数同样判断：`arc(f)`（两者都判断）、`Channel(typeof(f))`、泛型的 `g(f)`。
+- **泛型约束**：绑定到 `where(T <: Send)` 或 `where(T <: Sync)` 参数的函数同样判断：`arc(f)`（两者都判断）、`Channel(type_of(f))`、泛型的 `g(f)`。
 - **被捕获的函数**：被另一个线程的闭包捕获的闭包，按被捕获的值判断。
 - **`Sync` 位置**：`Impl(Fn(...), Sync)` 参数对 `Sync` 做同样的检查：捕获了 `Rc` 的闭包不是 `Sync`，代码触及非 `Sync` 全局变量的闭包也不是。
 

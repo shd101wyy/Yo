@@ -105,7 +105,7 @@ test("A method on a phantom generic enum resolves through a comptime type parame
 // `_PhantomTag(i64)` have identical payloads, so their C type key once
 // ignored `K` and all three calls below shared the first one's
 // specialization (1, 1, 1; and 8, 8 through the helper).
-impl(generic(K : Type), _PhantomTag(K), ksize : (fn(self : Self) -> usize)(sizeof(K)));
+impl(generic(K : Type), _PhantomTag(K), ksize : (fn(self : Self) -> usize)(size_of(K)));
 _phantom_ksize :: (fn(comptime(K) : Type, t : _PhantomTag(K)) -> usize)(t.ksize());
 test("A method on a phantom generic enum is specialized per instantiation", {
   assert(_PhantomTag(u8).A.ksize() == usize(1), "u8, which a payload also spells");
@@ -120,10 +120,10 @@ test("A method on a phantom generic enum is specialized per instantiation", {
 // 16 16 16 16 (one specialization) and then failed to compile in C.
 _opt_ksize :: (fn(comptime(K) : Type, t : _PhantomTag(Option(K))) -> usize)(t.ksize());
 test("A compound phantom argument of an enum reaches the method's generic", {
-  assert(_opt_ksize(i64, _PhantomTag(Option(i64)).A) == sizeof(Option(i64)), "Option(i64)");
-  assert(_opt_ksize(u8, _PhantomTag(Option(u8)).A) == sizeof(Option(u8)), "Option(u8)");
-  assert(_PhantomTag(Option(i64)).A.ksize() == sizeof(Option(i64)), "directly, Option(i64)");
-  assert(_PhantomTag(Option(u8)).A.ksize() == sizeof(Option(u8)), "directly, Option(u8)");
+  assert(_opt_ksize(i64, _PhantomTag(Option(i64)).A) == size_of(Option(i64)), "Option(i64)");
+  assert(_opt_ksize(u8, _PhantomTag(Option(u8)).A) == size_of(Option(u8)), "Option(u8)");
+  assert(_PhantomTag(Option(i64)).A.ksize() == size_of(Option(i64)), "directly, Option(i64)");
+  assert(_PhantomTag(Option(u8)).A.ksize() == size_of(Option(u8)), "directly, Option(u8)");
 });
 // Phantomness is what the enum DEPENDS on, not what its constructor spells:
 // each constructor below names `K` and still mints the same payloads for
@@ -132,14 +132,14 @@ test("A compound phantom argument of an enum reaches the method's generic", {
 // instantiation's `sizeof(K)` for every receiver.
 _Discard :: (fn(comptime(X) : Type) -> comptime(Type))(u8);
 _DiscardTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : _Discard(K))));
-impl(generic(K : Type), _DiscardTag(K), ksize : (fn(self : Self) -> usize)(sizeof(K)));
+impl(generic(K : Type), _DiscardTag(K), ksize : (fn(self : Self) -> usize)(size_of(K)));
 _BoundTag :: (fn(comptime(K) : Type) -> comptime(Type))({
   _k :: K;
   enum(A, B(n : u8))
 });
-impl(generic(K : Type), _BoundTag(K), ksize : (fn(self : Self) -> usize)(sizeof(K)));
+impl(generic(K : Type), _BoundTag(K), ksize : (fn(self : Self) -> usize)(size_of(K)));
 _LabelTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, K(n : u8)));
-impl(generic(K : Type), _LabelTag(K), ksize : (fn(self : Self) -> usize)(sizeof(K)));
+impl(generic(K : Type), _LabelTag(K), ksize : (fn(self : Self) -> usize)(size_of(K)));
 test("A parameter the enum's payloads do not depend on is phantom, however its constructor spells it", {
   assert(_DiscardTag(u8).A.ksize() == usize(1), "passed to a constructor that ignores it, u8");
   assert(_DiscardTag(i64).A.ksize() == usize(8), "passed to a constructor that ignores it, i64");

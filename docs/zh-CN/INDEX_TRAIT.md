@@ -163,7 +163,7 @@ RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 1. 内置数组/切片索引（如果被调用者是 `[T; N]` 或 `[T]`）
 2. 范围切片 `..` 或 `..=`（如果参数是范围表达式）
-3. Index 特征分派（在被调用者类型上查找 `Index(typeof(arg))` 实现）
+3. Index 特征分派（在被调用者类型上查找 `Index(type_of(arg))` 实现）
 4. 普通函数调用
 
 ## 与运算符内联使用

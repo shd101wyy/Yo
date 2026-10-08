@@ -56,7 +56,7 @@ test("The owner prefix is ctx then vtable, 16 bytes before the block", {
   // `ctx` at offset 0, `vtable` at `sizeof(*void)` (4 on wasm32, not 8).
   prefix := p.sub(usize(16));
   word0 := unsafe((*?*void)(prefix).*);
-  word1 := unsafe((**AllocatorVTable)(prefix.add(sizeof(*void))).*);
+  word1 := unsafe((**AllocatorVTable)(prefix.add(size_of(*void))).*);
   assert(word0 == a.ctx, "prefix word 0 is ctx");
   assert(word1 == a.vtable, "prefix word 1 is the vtable");
   Allocator.free(.Some((*void)(p)));

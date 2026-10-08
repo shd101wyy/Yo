@@ -32,7 +32,7 @@ test("Test basic pointer arithmetic operations", {
 });
 test("Test pointer to object type value and `consume` builtin function", {
   b := MyBox(42);
-  p := malloc(sizeof(Option(MyBox)));
+  p := malloc(size_of(Option(MyBox)));
   match(
     p,
     .None => {
@@ -54,8 +54,8 @@ test("sizeof of a nullable-pointer Option is the pointer's", {
   // Codegen lowers `Option(*(T))` to the bare pointer (NULL = `.None`), so the
   // size/alignment model must say the same: it said a tag plus a pointer (16 B
   // on a 64-bit target) for an 8-byte C type.
-  assert(sizeof(Option(*i32)) == sizeof(*i32), "sizeof(Option(*(i32))) is a pointer's size");
-  assert(alignof(Option(*i32)) == alignof(*i32), "alignof(Option(*(i32))) is a pointer's alignment");
+  assert(size_of(Option(*i32)) == size_of(*i32), "sizeof(Option(*(i32))) is a pointer's size");
+  assert(align_of(Option(*i32)) == align_of(*i32), "alignof(Option(*(i32))) is a pointer's alignment");
 });
 // issues/fixed/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md:
 // `&v` of a generic fn's parameter, called with a compile-time argument, is

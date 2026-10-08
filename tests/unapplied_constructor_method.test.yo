@@ -76,7 +76,7 @@ test("Rc.clone(b) has the type Rc(i32).clone(b) has", {
   (c : Rc(i32)) = Rc.clone(b);
   d := Rc(i32).clone(b);
   assert(c.* == d.*, "both spellings clone the payload");
-  comptime_assert(Type.eq(typeof(Rc.clone(b)), Rc(i32)), "the result is an Rc(i32)");
+  comptime_assert(Type.eq(type_of(Rc.clone(b)), Rc(i32)), "the result is an Rc(i32)");
 });
 test("Rc.clone infers T inside a generic body", {
   x := _clone_rc(rc(i32(9)));
@@ -89,15 +89,15 @@ test("Rc.clone(w) infers T from the receiver", {
   c := Rc.clone(w);
   w.* = i32(7);
   assert(c.* == i32(5), "today's Rc clone is a new cell (V2c makes it a handle)");
-  comptime_assert(Type.eq(typeof(Rc.clone(w)), Rc(i32)), "the result is an Rc(i32)");
-  comptime_assert(Type.eq(typeof(Rc.clone(rc(true))), Rc(bool)), "T := bool");
+  comptime_assert(Type.eq(type_of(Rc.clone(w)), Rc(i32)), "the result is an Rc(i32)");
+  comptime_assert(Type.eq(type_of(Rc.clone(rc(true))), Rc(bool)), "T := bool");
   (d : Rc(i32)) = Rc(i32).clone(w);
   assert(d.* == i32(7), "the applied spelling still works");
 });
 test("Rc.clone(w) on a nested wrapper names the outer constructor", {
   w := rc(rc(i32(2)));
   c := Rc.clone(w);
-  comptime_assert(Type.eq(typeof(c), Rc(Rc(i32))), "T := Rc(i32), never a payload search");
+  comptime_assert(Type.eq(type_of(c), Rc(Rc(i32))), "T := Rc(i32), never a payload search");
   v := rc(arc(i32(2)));
   comptime_expect_error(Arc._handle(v), "which has type `Rc(Arc(i32))`, not an instance of `Arc`");
 });

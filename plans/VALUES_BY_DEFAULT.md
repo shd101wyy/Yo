@@ -3246,6 +3246,17 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     the diagnostics registry, the LSP and `yo context`).
   - **Generation B:** the sweep over `src/`, `std/`, `tests/`, docs and
     skills, then the old names are deleted, with no alias.
+  - **Generation B as built (2026-10-09).** A token-aware rewrite renamed
+    every call in code position (not in `//` comments, `"..."` strings or the
+    text of backtick templates, so the C sources embedded in
+    `src/codegen` keep C's `sizeof`): 181 sites in `src/`, `std/` and
+    `tests/`, 3 CLI fixtures, the derive rules' generated `type_of(...)`
+    strings, and the docs and instruction files (the C lines kept). The
+    compiler matches only the new names: `src/expr.yo`'s `BF_TYPEOF`,
+    `BF_SIZEOF`, `BF_ALIGNOF` and `BF_TYPEID`, their `_expr.yo` dispatch
+    arms, and the old names in the reserved-binding and pure-builtin lists
+    are gone, and the arity errors name the new spelling.
+    `tests/snake_case_builtins.test.yo` checks the old names are unknown.
 
 ### Decision 36: the `Copy` trait
 

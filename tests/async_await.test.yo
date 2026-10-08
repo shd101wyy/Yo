@@ -6819,7 +6819,7 @@ test("an io.async future in a generic struct field and in an Option", {
   h := _hold_fut(io.async((io : Io) => i32(8)));
   a := match(h.r, .Some(task) => io.await(task, io), .None => i32(-1));
   f := io.async((io : Io) => i32(9));
-  o := Option(typeof(f)).Some(f);
+  o := Option(type_of(f)).Some(f);
   b := match(o, .Some(task) => io.await(task, io), .None => i32(-1));
   assert((a == i32(8)) && (b == i32(9)), "both held futures are awaited");
 });

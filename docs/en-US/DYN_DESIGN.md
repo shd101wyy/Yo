@@ -301,7 +301,7 @@ than to a check that is always false.
 
 **There is no unchecked cast.** `downcast` always returns `Option(T)`; if you
 want a panic on mismatch, that is `downcast(v, T).unwrap()`, spelled at the call
-site so it is visible. `typeid` is a separate builtin and takes a TYPE, not a
+site so it is visible. `type_id` is a separate builtin and takes a TYPE, not a
 value — it cannot be used to test a `Dyn` at runtime.
 
 ## Upcasting: `upcast(value, Dyn(...))`

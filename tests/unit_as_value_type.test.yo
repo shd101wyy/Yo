@@ -84,24 +84,24 @@ derive(_AllUnitsWrapped, Copy, Clone);
 _UnitTuple :: Tuple(i32, unit);
 _AllUnitTuple :: Tuple(unit, unit);
 _UnitPayloadEnum :: enum(A(a : i32, u : unit), B);
-_SZ_UNIT :: sizeof(unit);
-_SZ_ONLY_UNIT :: sizeof(_OnlyUnit);
-_SZ_UNIT_FIRST :: sizeof(_UnitFirst);
-_SZ_UNIT_MID :: sizeof(_UnitMid);
-_SZ_UNIT_LAST :: sizeof(_UnitLast);
-_SZ_ALL_UNITS :: sizeof(_AllUnits);
-_SZ_NESTED_UNIT :: sizeof(_NestedUnit);
-_SZ_ALL_UNITS_WRAPPED :: sizeof(_AllUnitsWrapped);
-_SZ_UNIT_TUPLE :: sizeof(_UnitTuple);
-_SZ_ALL_UNIT_TUPLE :: sizeof(_AllUnitTuple);
-_SZ_UNIT_PAYLOAD_ENUM :: sizeof(_UnitPayloadEnum);
-_SZ_OPTION_UNIT :: sizeof(Option(unit));
-_SZ_UNIT_ARRAY :: sizeof(Array(unit, 16));
+_SZ_UNIT :: size_of(unit);
+_SZ_ONLY_UNIT :: size_of(_OnlyUnit);
+_SZ_UNIT_FIRST :: size_of(_UnitFirst);
+_SZ_UNIT_MID :: size_of(_UnitMid);
+_SZ_UNIT_LAST :: size_of(_UnitLast);
+_SZ_ALL_UNITS :: size_of(_AllUnits);
+_SZ_NESTED_UNIT :: size_of(_NestedUnit);
+_SZ_ALL_UNITS_WRAPPED :: size_of(_AllUnitsWrapped);
+_SZ_UNIT_TUPLE :: size_of(_UnitTuple);
+_SZ_ALL_UNIT_TUPLE :: size_of(_AllUnitTuple);
+_SZ_UNIT_PAYLOAD_ENUM :: size_of(_UnitPayloadEnum);
+_SZ_OPTION_UNIT :: size_of(Option(unit));
+_SZ_UNIT_ARRAY :: size_of(Array(unit, 16));
 _UnitOnlyPayloadEnum :: enum(A(u : unit), B);
 derive(_UnitOnlyPayloadEnum, Copy, Clone);
-_SZ_UNIT_ONLY_PAYLOAD_ENUM :: sizeof(_UnitOnlyPayloadEnum);
-_ALIGN_ONLY_UNIT :: alignof(_OnlyUnit);
-_ALIGN_UNIT_LAST :: alignof(_UnitLast);
+_SZ_UNIT_ONLY_PAYLOAD_ENUM :: size_of(_UnitOnlyPayloadEnum);
+_ALIGN_ONLY_UNIT :: align_of(_OnlyUnit);
+_ALIGN_UNIT_LAST :: align_of(_UnitLast);
 test("sizeof of a unit-bearing aggregate matches the emitted C struct", {
   assert(_SZ_UNIT == usize(0), "unit is a zero-sized type");
   // struct { uint8_t _zst_dummy; } — a member-less aggregate carries one dummy
@@ -344,8 +344,8 @@ derive(generic(T : Type), where(T <: Copy), _Pair(T), Copy);
 _pair_x :: (fn(generic(T : Type), p : _Pair(T)) -> T)(p.x);
 _pair_n :: (fn(generic(T : Type), p : _Pair(T)) -> i32)(p.n);
 _mk_pair :: (fn(generic(T : Type), v : T, n : i32) -> _Pair(T))(_Pair(T)(x : v, n : n));
-_SZ_PAIR_UNIT :: sizeof(_Pair(unit));
-_SZ_PAIR_I32 :: sizeof(_Pair(i32));
+_SZ_PAIR_UNIT :: size_of(_Pair(unit));
+_SZ_PAIR_I32 :: size_of(_Pair(i32));
 test("a generic struct at T = unit erases the field; Array(unit, N) constructs, fills and indexes", {
   assert(_SZ_PAIR_UNIT == usize(4), "Pair(unit) is just the i32");
   assert(_SZ_PAIR_I32 == usize(8), "Pair(i32) is two i32s");
@@ -357,7 +357,7 @@ test("a generic struct at T = unit erases the field; Array(unit, N) constructs, 
   arr := Array(unit, usize(3)).fill(());
   assert(arr.len() == usize(3), "Array(unit, 3).fill(()) has length 3");
   e := arr(usize(1));
-  assert(sizeof(Array(unit, usize(3))) == usize(1), "Array(unit, 3) is the dummy byte");
+  assert(size_of(Array(unit, usize(3))) == usize(1), "Array(unit, 3) is the dummy byte");
 });
 // `unit` OPERANDS. A unit-typed operand has no C representation in expression
 // position, so it renders as the EMPTY string — and `_binop`'s degraded-render

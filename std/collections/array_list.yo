@@ -29,7 +29,7 @@ pragma(Pragma.Verify);
 // Keeping the bit inside an existing word keeps `sizeof(ArrayList(T))`
 // unchanged: one more field would push the object across a malloc size class
 // (plans/archive/EXPLICIT_ALLOCATORS.md §1.6). Every capacity READ masks it.
-_CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_CAP_TAG :: (usize(1) << ((size_of(usize) * usize(8)) - usize(1)));
 _CAP_MASK :: (_CAP_TAG - usize(1));
 /// Error variants for ArrayList operations.
 ArrayListError :: enum(
@@ -69,7 +69,7 @@ impl(
   /// reason.
   capacity : (fn(self : Self) -> usize)(
     cond(
-      (sizeof(T) == usize(0)) => SIZE_MAX,
+      (size_of(T) == usize(0)) => SIZE_MAX,
       true => (self._capacity & _CAP_MASK)
     )
   ),
@@ -256,9 +256,9 @@ impl(
         __yo_panic("ArrayList.with_capacity: capacity overflow"),
       // Zero-sized element (`unit`, an all-`unit` struct): the buffer holds no
       // bytes, so the list never grows — see `_zst_anchor`.
-      (sizeof(T) == usize(0)) => Self._zst_anchor(),
+      (size_of(T) == usize(0)) => Self._zst_anchor(),
       true => {
-        ptr_result := malloc(sizeof(T) * cap);
+        ptr_result := malloc(size_of(T) * cap);
         match(
           ptr_result,
           .Some(_ptr) =>
@@ -289,8 +289,8 @@ impl(
         __yo_panic("ArrayList.with_capacity_in: capacity overflow"),
       true => {
         // A zero-sized element type takes a one-byte anchor, as `_zst_anchor`.
-        bytes := cond((sizeof(T) == usize(0)) => usize(1), true => (sizeof(T) * cap));
-        tagged_cap := cond((sizeof(T) == usize(0)) => _CAP_MASK, true => cap);
+        bytes := cond((size_of(T) == usize(0)) => usize(1), true => (size_of(T) * cap));
+        tagged_cap := cond((size_of(T) == usize(0)) => _CAP_MASK, true => cap);
         match(
           alloc.alloc(bytes),
           .Some(p) =>
@@ -345,12 +345,12 @@ impl(
         // `_zst_anchor`), so this branch runs once for it and never again.
         cap := self._cap();
         new_capacity := cond(
-          (sizeof(T) == usize(0)) => _CAP_MASK,
+          (size_of(T) == usize(0)) => _CAP_MASK,
           (cap == usize(0)) => usize(4),
           true => (cap * usize(2))
         );
         // Allocate or reallocate, through the allocator that owns the buffer
-        new_some_ptr := self._buf_resize(cond((sizeof(T) == usize(0)) => usize(1), true => (sizeof(T) * new_capacity)));
+        new_some_ptr := self._buf_resize(cond((size_of(T) == usize(0)) => usize(1), true => (size_of(T) * new_capacity)));
         match(
           new_some_ptr,
           .Some(new_ptr) => {
@@ -463,7 +463,7 @@ impl(
     // anchor; `realloc(p, 0)` would free it — see `_zst_anchor`).
     cond(
       ((self._length == self._cap()) || (self._cap() == usize(0))) => .Ok(()),
-      (sizeof(T) == usize(0)) => .Ok(()),
+      (size_of(T) == usize(0)) => .Ok(()),
       true =>
         // If length is zero, free the buffer. A buffer from an explicit
         // allocator shrinks to its owner prefix instead, so the list keeps
@@ -487,7 +487,7 @@ impl(
               self._ptr,
               .None => __yo_panic("ArrayList has capacity but no ptr"),
               .Some(_) => {
-                new_some_ptr := self._buf_resize(sizeof(T) * self._length);
+                new_some_ptr := self._buf_resize(size_of(T) * self._length);
                 match(
                   new_some_ptr,
                   .Some(new_ptr) => {
@@ -586,7 +586,7 @@ impl(
                   },
                   true => {
                     // For non-RC types, use fast memmove
-                    element_size := sizeof(T);
+                    element_size := size_of(T);
                     bytes_to_move := (elements_after * element_size);
                     dst_void := (*void)(dst_ptr);
                     src_void := (*void)(src_ptr);
@@ -856,7 +856,7 @@ impl(
     cond(
       (min_cap <= self._cap()) => (),
       // A zero-sized element type's anchor satisfies every capacity.
-      ((sizeof(T) == usize(0)) && self._ptr.is_some()) => (),
+      ((size_of(T) == usize(0)) && self._ptr.is_some()) => (),
       // Same wrap as `with_capacity` — and the doubling loop below has a second
       // face: once `cap * 2` wraps to 0 the loop can never reach `min_cap`, so
       // an oversized request SPINS FOREVER instead of failing
@@ -866,7 +866,7 @@ impl(
       // Zero-sized element type: the anchor buffer satisfies every capacity
       // (see `_zst_anchor`); the arm above catches it once the anchor is in
       // place.
-      (sizeof(T) == usize(0)) => {
+      (size_of(T) == usize(0)) => {
         anchor := Self._zst_anchor();
         self._ptr = anchor._ptr;
         self._capacity = anchor._capacity;
@@ -889,7 +889,7 @@ impl(
             cap
           }
         );
-        new_some_ptr := self._buf_resize(sizeof(T) * new_capacity);
+        new_some_ptr := self._buf_resize(size_of(T) * new_capacity);
         match(
           new_some_ptr,
           .Some(new_ptr) => {
@@ -917,7 +917,7 @@ impl(
           self._ptr,
           .Some(dst_base) => {
             dst := (*void)(dst_base.add(self._length));
-            unsafe(memcpy(dst, (*void)(src), count * sizeof(T)));
+            unsafe(memcpy(dst, (*void)(src), count * size_of(T)));
             self._length = (self._length + count);
           },
           .None => __yo_panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
@@ -943,7 +943,7 @@ impl(
       self._ptr,
       .None => (),
       .Some(_ptr) => {
-        unsafe(memset((*void)(_ptr), byte_val, self._length * sizeof(T)));
+        unsafe(memset((*void)(_ptr), byte_val, self._length * size_of(T)));
       }
     )
   ),
@@ -965,7 +965,7 @@ impl(
           self._ptr,
           .Some(_ptr) => {
             start := (*void)(_ptr.add(self._length));
-            fill_count := ((new_len - self._length) * sizeof(T));
+            fill_count := ((new_len - self._length) * size_of(T));
             unsafe(memset(start, byte_val, fill_count));
             self._length = new_len;
           },
@@ -1769,7 +1769,7 @@ array_list :: (fn(...(quote(elems))) -> unquote(Expr))({
   rest_pushes :: __array_list_build_pushes(tmp, rest);
   quote({
     unquote(first_tmp) := unquote(first);
-    unquote(tmp) := ArrayList(typeof(unquote(first_tmp))).new();
+    unquote(tmp) := ArrayList(type_of(unquote(first_tmp))).new();
     unquote(tmp).push(unquote(first_tmp));
     unquote_splicing(rest_pushes);
     unquote(tmp)

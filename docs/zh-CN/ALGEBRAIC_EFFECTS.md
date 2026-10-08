@@ -212,14 +212,14 @@ x := io.await(fut2, io);
 ```
 
 传给 `io.async` 的闭包必须显式标注 `e` 的类型 — 推断器无法从孤立
-的闭包字面量推出 `E`。顶层调用点用 `typeof(effects)`；位于带返回
+的闭包字面量推出 `E`。顶层调用点用 `type_of(effects)`；位于带返回
 类型注解的函数体内时，可省略闭包参数注解：
 
 ```rust
 effects := { raise, log };
 
-// 顶层：用 typeof(effects) 标注 e
-fut := io.async((e : typeof(effects)) => {
+// 顶层：用 type_of(effects) 标注 e
+fut := io.async((e : type_of(effects)) => {
   e.raise(`err`);
   e.log(`hello`);
 });

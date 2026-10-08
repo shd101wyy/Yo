@@ -1,7 +1,6 @@
-//! `size_of`, `align_of`, `type_of` and `type_id` are exact synonyms of
-//! `sizeof`, `alignof`, `typeof` and `typeid` (plans/VALUES_BY_DEFAULT.md
-//! V3b, Generation A: the compiler accepts both spellings; Generation B
-//! sweeps the tree and deletes the old names).
+//! `size_of`, `align_of`, `type_of` and `type_id` are the builtins' only
+//! names: V3b Generation B (plans/VALUES_BY_DEFAULT.md) swept the tree and
+//! deleted the C-style `sizeof`, `alignof`, `typeof` and `typeid`.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 
@@ -10,35 +9,39 @@ _SnShape :: enum(Dot, Line(len : i32));
 _SN_SIZE :: size_of(_SnPoint);
 _SN_ALIGN :: align_of(_SnPoint);
 
-test("size_of is sizeof", {
-  comptime_assert(size_of(i64) == sizeof(i64), "i64");
-  comptime_assert(size_of(u8) == sizeof(u8), "u8");
-  comptime_assert(size_of(_SnPoint) == sizeof(_SnPoint), "a struct");
-  comptime_assert(_SN_SIZE == sizeof(_SnPoint), "a module-level constant");
+test("size_of", {
+  comptime_assert(size_of(i64) == usize(8), "i64");
+  comptime_assert(size_of(u8) == usize(1), "u8");
+  comptime_assert(size_of(_SnPoint) == usize(24), "a struct, padded to its alignment");
+  comptime_assert(_SN_SIZE == size_of(_SnPoint), "a module-level constant");
   n := size_of(_SnShape);
-  assert(n == sizeof(_SnShape), "a runtime use, an enum");
-  assert(size_of(String) == sizeof(String), "a std type");
+  assert(n >= size_of(i32), "a runtime use, an enum");
 });
 
-test("align_of is alignof", {
-  comptime_assert(align_of(i64) == alignof(i64), "i64");
-  comptime_assert(align_of(_SnPoint) == alignof(_SnPoint), "a struct");
-  comptime_assert(_SN_ALIGN == alignof(_SnPoint), "a module-level constant");
-  assert(align_of(_SnShape) == alignof(_SnShape), "a runtime use, an enum");
+test("align_of", {
+  comptime_assert(align_of(i64) == usize(8), "i64");
+  comptime_assert(align_of(_SnPoint) == usize(8), "a struct takes its widest field's");
+  comptime_assert(_SN_ALIGN == align_of(_SnPoint), "a module-level constant");
 });
 
-test("type_of is typeof", {
+test("type_of", {
   x := i32(7);
   s := String.from("t");
-  comptime_assert(Type.is_compatible_with(type_of(x), typeof(x)), "a local");
+  comptime_assert(Type.is_compatible_with(type_of(x), i32), "a local");
   comptime_assert(Type.is_compatible_with(type_of(s), String), "a std value");
   (y : type_of(x)) = (x + i32(1));
   assert(y == i32(8), "type_of in a type annotation");
 });
 
-test("type_id is typeid", {
-  assert(type_id(i32) == typeid(i32), "i32");
-  assert(type_id(_SnPoint) == typeid(_SnPoint), "a struct");
+test("type_id", {
+  assert(type_id(i32) == type_id(i32), "one type, one id");
   assert(type_id(i32) != type_id(i64), "distinct types keep distinct ids");
   comptime_expect_error(type_id(i32(1)), "expects a type argument");
+});
+
+test("the C-style spellings are gone", {
+  comptime_expect_error(sizeof(i64), "sizeof");
+  comptime_expect_error(alignof(i64), "alignof");
+  comptime_expect_error(typeof(i32(1)), "typeof");
+  comptime_expect_error(typeid(i32), "typeid");
 });
