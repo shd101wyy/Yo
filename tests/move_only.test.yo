@@ -1,7 +1,8 @@
 // Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, phase V3, Generation A).
 //
-// A value type that implements `Dispose` or declares `MoveOnly`, and every
-// value aggregate holding one, cannot be copied: each move point (`:=`, `=`,
+// A value type that implements `Dispose`, a plain value type that is neither
+// `Copy` nor `Clone` (decision 36), and every value aggregate holding one,
+// cannot be copied: each move point (`:=`, `=`,
 // a `sink` argument, a field or element store, a return, a closure capture)
 // moves it, a use after the move is E0901, and its one owner disposes it
 // exactly once. `g_mo_disposed` counts the `dispose` runs of `_MoFd` and
@@ -21,8 +22,8 @@ impl(
   )
 );
 _MoHolder :: struct(fd : _MoFd, tag : i32);
+// Neither `Copy` nor `Clone`: a token that stays unique without a `Dispose`.
 _MoToken :: struct(id : i32);
-impl(_MoToken, MoveOnly());
 _MoChoice :: enum(Open(fd : _MoFd), Closed);
 _MoRef :: ref(struct(fd : _MoFd));
 _mo_take :: (fn(sink(f) : _MoFd) -> i32)(f.n);
@@ -43,7 +44,7 @@ _mo_both_arms :: (fn(c : bool) -> i32)({
   a := _MoFd(n : i32(20));
   cond(c => _mo_take(a), true => _mo_take(a))
 });
-// The impl of a move-only type may come after its first use: `MoveOnly` is
+// The impl of a move-only type may come after its first use: move-only is
 // derived on demand, not when the type is declared.
 _mo_late_user :: (fn() -> i32)({
   a := _MoLate(n : i32(5));
@@ -67,23 +68,23 @@ _mo_move_generic :: (fn(generic(T : Type), sink(x) : T) -> T)(x);
 // ---------------------------------------------------------------------------
 // The marker
 // ---------------------------------------------------------------------------
-test("move-only: Dispose and MoveOnly make a value type move-only, and value aggregates inherit it", {
-  comptime_assert(Type.impls(_MoFd, MoveOnly), "a Dispose value type is move-only");
-  comptime_assert(Type.impls(_MoToken, MoveOnly), "a declared MoveOnly type is move-only");
-  comptime_assert(Type.impls(_MoHolder, MoveOnly), "a struct holding one is move-only");
-  comptime_assert(Type.impls(Option(_MoFd), MoveOnly), "an Option of one is move-only");
-  comptime_assert(Type.impls(Tuple(_MoFd, i32), MoveOnly), "a tuple holding one is move-only");
-  comptime_assert(Type.impls(_MoChoice, MoveOnly), "an enum carrying one is move-only");
-  comptime_assert(Type.impls(Array(_MoFd, 2), MoveOnly), "an array of them is move-only");
-  comptime_assert(!Type.impls(i32, MoveOnly), "i32 is copyable");
-  comptime_assert(!Type.impls(_MoRef, MoveOnly), "a reference type shares its payload: never move-only");
-  comptime_assert(!Type.impls(Rc(_MoFd), MoveOnly), "Rc is a reference type: never move-only");
+test("move-only: Dispose makes a value type move-only, and value aggregates inherit it", {
+  // Move-only is "neither Copy nor Clone" for a value type (decision 36).
+  comptime_assert(!Type.impls(_MoFd, Copy) && !Type.impls(_MoFd, Clone), "a Dispose value type is move-only");
+  comptime_assert(!Type.impls(_MoToken, Copy) && !Type.impls(_MoToken, Clone), "a plain type with neither is move-only");
+  comptime_assert(!Type.impls(_MoHolder, Copy) && !Type.impls(_MoHolder, Clone), "a struct holding one is move-only");
+  comptime_assert(!Type.impls(Option(_MoFd), Copy) && !Type.impls(Option(_MoFd), Clone), "an Option of one is move-only");
+  comptime_assert(!Type.impls(Tuple(_MoFd, i32), Copy) && !Type.impls(Tuple(_MoFd, i32), Clone), "a tuple holding one is move-only");
+  comptime_assert(!Type.impls(_MoChoice, Copy) && !Type.impls(_MoChoice, Clone), "an enum carrying one is move-only");
+  comptime_assert(!Type.impls(Array(_MoFd, 2), Copy) && !Type.impls(Array(_MoFd, 2), Clone), "an array of them is move-only");
+  comptime_assert(Type.impls(i32, Copy), "i32 is copyable");
   comptime_assert(Type.contains_rc_type(_MoFd), "a move-only value has a drop to run");
+  // A reference type shares its payload: its copy is another handle, never a move.
+  r := _MoRef(fd : _MoFd(n : i32(4)));
+  r2 := r;
+  assert((r.fd.n + r2.fd.n) == i32(8), "both handles stay usable");
 });
-_MoPlain :: struct(n : i32);
 test("move-only: the impl-site gate", {
-  comptime_expect_error(impl(_MoPlain, !MoveOnly), "Cannot use '!(MoveOnly)'");
-  comptime_expect_error(impl(_MoRef, MoveOnly()), "it is a reference type");
   comptime_expect_error(impl(i32, Dispose(dispose : (fn(self : Self) -> unit)(()))), "cannot implement \"Dispose\"");
   comptime_expect_error(impl(_MoToken, Trace(trace : (fn(self : Self, tracer : GcTracer) -> unit)(()))), "cannot implement \"Trace\"");
 });
@@ -209,7 +210,6 @@ test("move-only: an impl declared after its first use", {
   before := g_mo_disposed;
   assert(_mo_late_user() == i32(5), "moved");
   assert(g_mo_disposed == (before + i32(1)), "disposed once");
-  comptime_assert(Type.impls(_MoLate, MoveOnly), "derived on demand");
 });
 test("move-only: a generic `sink` parameter moves at the instantiation", {
   before := g_mo_disposed;
@@ -282,7 +282,7 @@ test("move-only: the E0901 note names why the type is move-only", {
   comptime_expect_error(h.tag, "holds a move-only value in its field `fd`");
   t := _MoToken(id : i32(3));
   u := t;
-  comptime_expect_error(t.id, "declares MoveOnly");
+  comptime_expect_error(t.id, "neither `Copy` nor `Clone`");
   assert((g.tag + u.id) == i32(5), "moved values");
 });
 test("move-only: `own` is the old spelling of `sink`, and both spell one function type", {

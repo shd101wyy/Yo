@@ -139,7 +139,7 @@ test("Test a generic 'Dispose' impl runs once, and 'Trace'/a blanket receiver ar
     w := v;
   };
   assert((g_generic_value_pair_disposed - value_before) == i32(1), "a generic Dispose on a value struct runs once, for its one owner");
-  comptime_assert(Type.impls(GenericValuePair(i32), MoveOnly), "the value pair is move-only");
+  comptime_assert(!Type.impls(GenericValuePair(i32), Copy) && !Type.impls(GenericValuePair(i32), Clone), "the value pair is move-only (neither Copy nor Clone)");
   comptime_expect_error(
     impl(
       generic(T : Type),

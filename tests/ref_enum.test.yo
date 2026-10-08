@@ -226,6 +226,7 @@ test("fieldless ref(enum) compiles, matches, and is RC-managed", {
 // (The `Rc` marker trait this list began with is deleted,
 // plans/VALUES_BY_DEFAULT.md §3.6; `Dispose` on a ref enum is covered below.)
 PlainValueEnum :: enum(PvA, PvB(x : i32));
+derive(PlainValueEnum, Copy, Clone);
 RefEnumBox :: (fn(comptime(T) : Type) -> comptime(Type))(ref(enum(RbEmpty, RbHas(x : T))));
 AtomicRefEnumBox :: (fn(comptime(T) : Type) -> comptime(Type))(atomic(ref(enum(ArbEmpty, ArbHas(x : T)))));
 ref_enum_is_send :: Type.impls(Shape, Send);
@@ -328,8 +329,8 @@ test("Dispose accepts every reference enum, and a value enum it makes move-only"
     w := v;
   };
   assert((g_value_enum_disposed - value_before) == i32(1), "a value enum's Dispose runs once, for its one owner");
-  comptime_assert(Type.impls(DisposedValueEnum, MoveOnly), "a value enum with Dispose is move-only");
-  comptime_assert(!Type.impls(PlainValueEnum, MoveOnly), "one without stays copyable");
+  comptime_assert(!Type.impls(DisposedValueEnum, Copy) && !Type.impls(DisposedValueEnum, Clone), "a value enum with Dispose is move-only");
+  comptime_assert(Type.impls(PlainValueEnum, Copy), "one without Dispose can be Copy");
   comptime_expect_error(
     impl(
       PlainValueEnum,

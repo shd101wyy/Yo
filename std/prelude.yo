@@ -274,30 +274,13 @@ Acyclic :: trait(
   id := "Acyclic"
 );
 export(Acyclic);
-/// MoveOnly trait - a value that cannot be copied, only moved.
-///
-/// A value type is move-only when it implements `Dispose`, when it declares
-/// `impl(T, MoveOnly())`, or when one of its fields, variant payloads, tuple
-/// or array elements, or closure captures is move-only. The compiler derives
-/// it; a declaration is needed only for a type that has no `Dispose` but must
-/// still never be duplicated (a token, a unique id).
-///
-/// A copy of a move-only value is a compile error (E0901). `y := x` moves
-/// `x`, and so do passing it to an `own(...)` parameter, storing it in a
-/// field or element, returning it and capturing it in a closure. A by-value
-/// parameter borrows it, so `use_file(f)` needs no move. Only a value type
-/// (`struct`, `enum`, `newtype`, and the tuples, arrays and closures built
-/// from them) can be move-only. A reference type (`ref(struct(...))`, `Rc`,
-/// `Arc`) is how a value is shared: its copies alias one cell, so it is never
-/// move-only, even around a move-only payload.
-MoveOnly :: trait(
-  id := "MoveOnly"
-);
-export(MoveOnly);
 /// Dispose trait - defines a dispose method for cleaning up resources.
 /// A value type (`struct`, `enum`, `newtype`) that implements it is
-/// move-only (`MoveOnly`): its one owner runs `dispose` exactly once, when it
-/// drops the value. A reference type (`ref(struct(...))`, `ref(enum(...))`
+/// move-only, and so is every value holding one (a field, a variant payload,
+/// a tuple or array element, a closure capture): it is never `Copy`, its one
+/// owner runs `dispose` exactly once, when it drops the value, and a copy is
+/// E0901. A plain value type that is neither `Copy` nor `Clone` is moved too
+/// (decision 36): that is how a token with no `Dispose` stays unique. A reference type (`ref(struct(...))`, `ref(enum(...))`
 /// and their `atomic(...)` forms) may implement it too: its copies share one
 /// cell, and `dispose` runs when the count reaches zero. No other type may
 /// implement it; the compiler checks this at the `impl`.
@@ -986,7 +969,7 @@ export(Clone);
 /// derive's clone calls `.clone()` on its fields, so it needs the bound.
 /// The impl is checked: every
 /// field, variant payload and element must be `Copy`, and the type must not
-/// implement `Dispose` (a copy would dispose twice) or declare `MoveOnly`.
+/// implement `Dispose` (a copy would dispose twice).
 /// A hand-written `Clone` is an error only on a type that is `Copy` for
 /// every instantiation it serves: there `clone()` is the copy, so the
 /// derived, field-wise clone is the only spelling.

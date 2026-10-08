@@ -415,7 +415,7 @@ type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// Answers whether a value nominal type (a `struct`, `enum` or `newtype` that
 /// is not a reference type) itself declares move-only, and through which
-/// trait: `"Dispose"` or `"MoveOnly"`, concretely or through a generic impl
+/// trait: `"Dispose"`, concretely or through a generic impl
 /// whose receiver pattern matches it; `""` when it does not. Installed at
 /// init (the impl registries live above this module) and consulted only once
 /// `note_move_only_possible` has run, so a program with no such impl pays one
@@ -427,7 +427,7 @@ MoveOnlyNominalFn :: (fn(ty : TypeValue) -> String);
 set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
   g_move_only_nominal_fn = f;
 });
-/// Set once some `impl` that declares `Dispose` or `MoveOnly` has been seen
+/// Set once some `impl` that declares `Dispose` has been seen
 /// (registered, or recorded pending by the lazy module walk): until then no
 /// type is move-only, and the move-only checks skip their work. Never
 /// cleared: it only gates a fast path.
@@ -785,7 +785,7 @@ _type_is_move_only_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
   )
 });
 /// True if a value of `ty` cannot be copied, only moved (§3.4): a value
-/// nominal type implementing `Dispose` or `MoveOnly`, or a value aggregate
+/// nominal type implementing `Dispose`, or a value aggregate
 /// (struct, enum, tuple, array, closure capture struct) with a move-only
 /// component. A reference type never is. `type_contains_rc_type` is true
 /// for every move-only type, so the ownership machinery (temps, drops,
@@ -824,6 +824,14 @@ trait_impl_epoch :: (fn() -> u64)(g_trait_impl_epoch);
 set_type_lacks_copy_fn :: (fn(f : (fn(ty : TypeValue) -> bool)) -> unit)({
   g_type_lacks_copy_fn = Option(fn(ty : TypeValue) -> bool).Some(f);
 });
+/// Whether a type lacks `Clone` (installed by `evaluator/trait_checking.yo`):
+/// a plain-data type with neither `Copy` nor `Clone` is move-only, which is
+/// how a diagnostic names it (decision 36: move-only is "neither").
+(g_type_lacks_clone_fn : Option(fn(ty : TypeValue) -> bool)) = Option(fn(ty : TypeValue) -> bool).None;
+set_type_lacks_clone_fn :: (fn(f : (fn(ty : TypeValue) -> bool)) -> unit)({
+  g_type_lacks_clone_fn = Option(fn(ty : TypeValue) -> bool).Some(f);
+});
+type_lacks_clone :: (fn(ty : TypeValue) -> bool)(match(g_type_lacks_clone_fn, .Some(f) => f(ty), .None => false));
 /// `YO_FLIP_REPORT=1`: the flip is off, and each plain-data type it would
 /// make explicit-copy is printed once (`[flip] <type>`) where a copy of it is
 /// decided, so one pass over a tree names every type its sweep still needs.
@@ -887,9 +895,6 @@ _move_only_reason_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(String)
   tn := _nominal_move_only_trait(ty);
   if(tn == "Dispose", {
     return(Option(String).Some(`\`${type_to_string(ty)}\` implements Dispose`));
-  });
-  if(tn == "MoveOnly", {
-    return(Option(String).Some(`\`${type_to_string(ty)}\` declares MoveOnly`));
   });
   if(_capture_struct_declares_mut(ty), {
     return(Option(String).Some(String.from("the closure has a `mut` capture, and two copies of one exclusive borrow would alias")));
@@ -3073,7 +3078,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
+export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);

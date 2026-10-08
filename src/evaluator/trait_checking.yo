@@ -58,6 +58,7 @@ pragma(Pragma.AllowUnsafe);
   set_move_only_nominal_fn,
   MoveOnlyNominalFn,
   set_type_lacks_copy_fn,
+  set_type_lacks_clone_fn,
   type_is_control_bound,
   bump_trait_impl_epoch,
   trait_impl_epoch
@@ -226,7 +227,7 @@ AssocTypeCheckResult :: struct(
 /// Only `TraitT` has an explicit `id` field; `FnTraitT`/`FutureTraitT` use
 /// their `base_name` as a key (they cannot be the `Comptime`/`Runtime` traits).
 /// Identify which auto-derived MARKER trait `trait_type` is, by comparing its id
-/// against the fixed env marker set (Send/Sync/Comptime/Acyclic/Runtime/MoveOnly); returns
+/// against the fixed env marker set (Send/Sync/Comptime/Acyclic/Runtime); returns
 /// the marker name, or "" if it isn't one. Used by the step-4b on-demand
 /// re-derivation, which selects per-marker field rules. (The registry lookup
 /// itself matches by trait VALUE, not name — see `is_type_registered_as_trait`.)
@@ -241,7 +242,6 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
   markers.push(String.from("Comptime"));
   markers.push(String.from("Acyclic"));
   markers.push(String.from("Runtime"));
-  markers.push(String.from("MoveOnly"));
   (i : usize) = usize(0);
   (found : String) = String.from("");
   while((i < markers.len()) && found.is_empty(), {
@@ -756,7 +756,7 @@ _first_non_copy_part :: (fn(target : TypeValue, copy_tt : TypeValue, env : Envir
 /// - Anything else that is not a value `struct`/`enum`/`newtype` (a `Dyn`,
 ///   an `Iso`, a blanket `T`, a C opaque type) cannot.
 /// - A value nominal type must not be move-only (a `Dispose` would run once
-///   per copy, and `MoveOnly` forbids the copy), and every field and payload
+///   per copy), and every field and payload
 ///   must be `Copy`. The first one that is not is named.
 /// - Every type that may be `Copy` must also be `Clone`
 ///   (`_copy_without_clone_msg`).
@@ -887,6 +887,20 @@ push_copy_pending :: (fn(ty : TypeValue) -> unit)({
 clear_copy_pending :: (fn() -> unit)({
   g_copy_pending_keys.clear();
 });
+/// Whether `ty` has no `Clone` impl, asked in the flip's environment: a
+/// plain-data type with neither `Copy` nor `Clone` is move-only, and the E0901
+/// wording says so instead of offering a `.clone()` that does not exist.
+_type_lacks_clone_for_diagnostics :: (fn(ty : TypeValue) -> bool)(
+  match(
+    g_flip_env,
+    .Some(env) => match(
+      get_trait_type_from_env(env, String.from("Clone")),
+      .Some(clone_tt) => !type_implements_trait(ty, clone_tt, env).implemented,
+      .None => false
+    ),
+    .None => false
+  )
+);
 /// True when a value of the plain-data type `ty` is NOT implicitly copyable
 /// under decision 36's flip: it is not `Copy`. Compile-time-only types (their
 /// copies never reach run time), control-bound records (`Exception`, effect
@@ -1136,14 +1150,6 @@ type_implements_trait :: (
     if(eom == "Comptime", {
       return(TraitCheckResult(implemented : false, env : env));
     });
-  });
-  // MoveOnly is derived structurally from the impls that declare it
-  // (plans/VALUES_BY_DEFAULT.md §3.4): a value type implementing `Dispose` or
-  // `MoveOnly`, or an aggregate with a move-only component, where the other
-  // markers need EVERY component. `type_is_move_only` is that rule; a generic
-  // parameter keeps the bound-based path below.
-  if(move_only_declarations_exist() && !is_some_type(target) && _is_prelude_trait_named(trait_type, "MoveOnly", env), {
-    return(TraitCheckResult(implemented : type_is_move_only(target), env : env));
   });
   // Copy and Clone are structural for the types no impl can name (decision
   // 36): a tuple, an array, a closure's capture record, an anonymous record
@@ -1747,22 +1753,20 @@ _is_prelude_trait_named :: (fn(trait_type : TypeValue, name : str, env : Environ
     .None => false
   )
 );
-/// The receiver-kind gate on `Dispose`, `MoveOnly` and `Trace`: `.Some(msg)`
+/// The receiver-kind gate on `Dispose` and `Trace`: `.Some(msg)`
 /// when `trait_type` is one of them and `target_type` may not implement it. A
 /// `SomeT` is resolved and an enum shell mapped to its final type first, as
 /// `type_implements_trait` does.
 ///
 /// - `Dispose`: a value nominal type (`struct`, `enum`, `newtype`), which it
-///   makes move-only (plans/VALUES_BY_DEFAULT.md §3.4: `Dispose` implies
-///   `MoveOnly`, so its one owner disposes it once), or a reference type
+///   makes move-only (plans/VALUES_BY_DEFAULT.md §3.4: its one owner
+///   disposes it once), or a reference type
 ///   (`ref(struct)`, `ref(enum)`, and their `atomic(...)` forms), whose copies
 ///   share one cell disposed at count zero. The reference arm is V3's staging
 ///   (the plan's V3 section, "Staging"): std's resources are reference types
 ///   until the std migration makes them value structs over a move-only cell,
 ///   and the arm is deleted then. Any other receiver (a primitive, pointer,
 ///   tuple, function, `Dyn`, blanket `T`) can be neither, so it is rejected.
-/// - `MoveOnly`: a value nominal type only. A reference type is how a value
-///   is shared (§3.4: `Rc(T)` and `Arc(T)` never are move-only).
 /// - `Trace`: a reference type only: a value has no header `traverse_fn` (it
 ///   is traversed inline by whoever holds it).
 ///
@@ -1780,7 +1784,6 @@ receiver_kind_trait_violation_msg :: (
 )({
   trait_name := cond(
     _is_prelude_trait_named(trait_type, "Dispose", env) => String.from("Dispose"),
-    _is_prelude_trait_named(trait_type, "MoveOnly", env) => String.from("MoveOnly"),
     _is_prelude_trait_named(trait_type, "Trace", env) => String.from("Trace"),
     is_copy_trait(trait_type, env) => String.from("Copy"),
     true => String.from("")
@@ -1798,8 +1801,8 @@ receiver_kind_trait_violation_msg :: (
     return(_copy_impl_violation_msg(target_type, target, trait_type, env));
   });
   // A Copy type is never move-only (decision 36): the other direction of
-  // the impl check, for a `Dispose`/`MoveOnly` impl registered after `Copy`.
-  if(is_value_nominal && ((trait_name == "Dispose") || (trait_name == "MoveOnly")), {
+  // the impl check, for a `Dispose` impl registered after `Copy`.
+  if(is_value_nominal && (trait_name == "Dispose"), {
     match(
       get_trait_type_from_env(env, String.from("Copy")),
       .Some(dm_copy_tt) => if(type_implements_trait(target, dm_copy_tt, env).implemented, {
@@ -1814,15 +1817,6 @@ receiver_kind_trait_violation_msg :: (
       Option(String).None,
       Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "Trace": only a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it. A value is traversed inline by whoever holds it.`)
     ),
-    (trait_name == "MoveOnly") => cond(
-      is_value_nominal => Option(String).None,
-      is_reference => Option(String).Some(
-        `Type "${type_to_string(target_type)}" cannot implement "MoveOnly": it is a reference type, and its copies share one cell, so it is never move-only. Declare MoveOnly on a value type (struct, enum, newtype) instead.`
-      ),
-      true => Option(String).Some(
-        `Type "${type_to_string(target_type)}" cannot implement "MoveOnly": only a value type (struct, enum, newtype) may declare it. Aggregates (tuples, arrays, closures) are move-only when a component is.`
-      )
-    ),
     (is_value_nominal || is_reference) => Option(String).None,
     true => Option(String).Some(
       `Type "${type_to_string(target_type)}" cannot implement "Dispose": only a value type (struct, enum, newtype), which Dispose makes move-only, or a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
@@ -1830,7 +1824,7 @@ receiver_kind_trait_violation_msg :: (
   )
 });
 /// Message-returning core of the impl-site self check: `.Some(msg)` when the
-/// target may not implement the trait (the `Dispose`/`MoveOnly`/`Trace`
+/// target may not implement the trait (the `Dispose`/`Trace`
 /// receiver gate, `receiver_kind_trait_violation_msg`) or violates a positive or negative
 /// selfConstraint on it, `.None` otherwise. Split out (throw-free) so
 /// `impl.yo`'s concrete-impl path can call it through the injected
@@ -2916,6 +2910,7 @@ _trait_checking_init := (fn() -> bool)({
   set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
   set_copy_trait_blockers_fn(copy_trait_blockers);
   set_type_lacks_copy_fn(type_lacks_copy_for_flip);
+  set_type_lacks_clone_fn(_type_lacks_clone_for_diagnostics);
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();

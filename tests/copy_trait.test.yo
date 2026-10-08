@@ -3,7 +3,7 @@
 // `Copy` is a prelude marker that requires `Clone`, as Rust's `Copy: Clone`.
 // A named type opts in with `derive(T, Copy, Clone)`, or `impl(T, Copy())`
 // beside a `Clone` impl; the impl is checked (a `Clone` impl covers it,
-// every part is `Copy`, no `Dispose`, no `MoveOnly`, never a reference
+// every part is `Copy`, no `Dispose`, never a reference
 // type). The compiler never writes a `Clone` impl. `derive(T, Clone)` is
 // always allowed, and a hand-written `Clone` is an error only on a type that
 // is `Copy` for every instantiation the impl serves. `where(T <: Copy)` gives
@@ -71,8 +71,6 @@ impl(
     dispose : (fn(self : Self) -> unit)(())
   )
 );
-_CtToken :: struct(id : i32);
-impl(_CtToken, MoveOnly());
 _CtRef :: ref(struct(n : i32));
 _CtCopied :: struct(n : i32);
 derive(_CtCopied, Clone);
@@ -274,11 +272,9 @@ test("Copy: an impl over a part that is not Copy names that part", {
   comptime_expect_error(impl(generic(T : Type), _CtOpen(T), Copy()), "its field `item` has type `T`");
 });
 _CtPlainHolder :: struct(inner : _CtPlain);
-test("Copy: Copy and Dispose (or MoveOnly) exclude each other, in either order", {
+test("Copy: Copy and Dispose exclude each other, in either order", {
   comptime_expect_error(impl(_CtFd, Copy()), "implements Dispose");
-  comptime_expect_error(impl(_CtToken, Copy()), "declares MoveOnly");
   comptime_expect_error(impl(_CtCopied, Dispose(dispose : (fn(self : Self) -> unit)(()))), "it implements Copy");
-  comptime_expect_error(impl(_CtCopied, MoveOnly()), "it implements Copy");
 });
 test("Copy: a reference type, a tuple and a blanket type parameter cannot declare Copy", {
   comptime_expect_error(impl(_CtRef, Copy()), "it is a reference type");
