@@ -60,6 +60,8 @@ impl(_CtEnd, Copy());
 _CtPlain :: struct(n : i32);
 // `Clone` without `Copy`: the explicit-copy kind (decision 36).
 derive(_CtPlain, Clone);
+// No `Clone` at all (and so no `Copy`): what a tuple holding it is not.
+_CtNoClone :: struct(n : i32);
 // Rejected impls, each checked in a test below.
 _CtLabel :: struct(id : i32, name : String);
 _CtFd :: struct(fd : i32);
@@ -234,7 +236,7 @@ test("Copy: a tuple, an array, a fn pointer and an anonymous record are Copy and
   r := _(a : i32(1), b : i32(2));
   comptime_assert(Type.impls(type_of(r), Copy), "an anonymous record of Copy fields");
   comptime_assert(Type.impls(Tuple(i32, bool), Clone) && Type.impls(Tuple(i32, String), Clone), "a tuple of Clone parts is Clone");
-  comptime_assert(!Type.impls(Tuple(i32, _CtPlain), Clone), "a tuple holding a type without Clone is not");
+  comptime_assert(!Type.impls(Tuple(i32, _CtNoClone), Clone), "a tuple holding a type without Clone is not");
   comptime_assert(Type.impls(Array(String, 2), Clone) && Type.impls((fn(x : i32) -> i32), Clone), "an array of Clone elements, a fn pointer");
   comptime_assert(Type.impls(type_of(r), Clone), "an anonymous record of Clone fields");
   w := t.clone();

@@ -902,7 +902,11 @@ type_lacks_copy_for_flip :: (fn(ty_in : TypeValue) -> bool)({
   });
   // A type still mentioning a type variable is judged per instantiation (a
   // generic body is evaluated again for each), as `type_is_move_only` does.
-  if(type_contains_some_type_for_codegen_param(ty, ArrayList(String).new()), {
+  // A RESOLVED variable counts too: asking `Copy` of `Option(U)` with `U`
+  // resolved to `Option(i32)` binds the impl's `T` to the variable itself, not
+  // to its resolution, and answers no (`_ww_thrice`,
+  // tests/generic_instantiation_compat.test.yo).
+  if(get_all_some_types(ty).len() > usize(0), {
     return(false);
   });
   env := match(

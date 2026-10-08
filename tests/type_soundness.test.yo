@@ -35,7 +35,11 @@ _Value :: (fn(comptime(T) : Type) -> comptime(Type))(
     PairVal(a : i32, b : bool) -> recur(i32)
   )
 );
+derive(generic(T : Type), _Value(T), Clone);
+derive(generic(T : Type), _Value(T), Copy);
 _Phantom :: (fn(comptime(T) : Type) -> comptime(Type))(enum(A(x : i32), B(y : bool)));
+derive(generic(T : Type), _Phantom(T), Clone);
+derive(generic(T : Type), _Phantom(T), Copy);
 test("soundness: a GADT instantiation does not flow into another index", {
   comptime_expect_error({
     x := _Value(i32).IntVal(i32(77));
@@ -87,6 +91,8 @@ test("soundness: a phantom argument is checked against a bound parameter", {
   assert(_pick(true, _Phantom(bool).A(i32(1))), "a matching phantom argument is accepted");
 });
 _PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
+derive(generic(K : Type), _PhantomTag(K), Clone);
+derive(generic(K : Type), _PhantomTag(K), Copy);
 _ksize :: (fn(generic(K : Type), _t : _PhantomTag(K)) -> usize)(sizeof(K));
 test("soundness: a body reads a type parameter bound only by a phantom argument", {
   assert(_ksize(_PhantomTag(u8).A) == usize(1), "u8");
