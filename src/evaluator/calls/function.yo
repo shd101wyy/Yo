@@ -663,67 +663,74 @@ _reject_private_construction :: (
     i = (i + usize(1));
   });
 });
-/// `clone()` on a type that is `Copy` structurally (decision 36): a `fn`
+/// `x.clone()` on a value that is `Copy` structurally (decision 36): a `fn`
 /// pointer, a closure whose captures are all `Copy`, or an anonymous record
 /// whose fields are. No impl can name these types (a closure's capture
 /// record and an anonymous record have no declaration, and no impl ranges
 /// over every `fn` signature), so the receiver lookup misses although
-/// `Type.impls(T, Clone)` holds. The clone of a `Copy` value is the copy,
-/// which the prelude's `__yo_return_self` is. A tuple or an array has the
-/// prelude's element-wise `Clone` impl and never reaches here. A record or a
+/// `Type.impls(T, Clone)` holds. The clone of a `Copy` value is the copy, so
+/// the call expands to its receiver (`ExprInfo.macro_expansion`, recorded
+/// durably like the numeric conversions'): `g := f.clone()` is `g := f`, and
+/// the binding copies as it does for any read of `f`. A tuple or an array has
+/// the prelude's element-wise `Clone` impl and never misses. A record or a
 /// closure that is `Clone` but not `Copy` needs a field-wise clone, which
 /// this does not provide
 /// (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
-_structural_copy_clone_hit :: (
+_try_structural_copy_clone :: (
   fn(
-    receiver_type : TypeValue,
-    receiver_expr : AstExpr,
-    receiver_value : Option(EvalValue),
-    env : Environment
-  ) -> Option(ReceiverMethodResult)
+    expr : AstExpr,
+    callee : AstExpr,
+    arg_count : usize,
+    env : Environment,
+    ctx : EvalContext
+  ) -> Option(AstExpr)
 )({
-  if(is_pointer_type(receiver_type) || copy_structural_parts(receiver_type).is_none(), {
-    return(Option(ReceiverMethodResult).None);
+  if((arg_count != usize(0)) || !ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(AstExpr).None);
+  });
+  pargs := match(
+    callee,
+    .FnCall(_, _, pa, _, _) => pa,
+    _ => {
+      return(Option(AstExpr).None);
+    }
+  );
+  recv := match(
+    pargs.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      return(Option(AstExpr).None);
+    }
+  );
+  name_ok := match(pargs.get(usize(1)), .Some(n) => (ast_expr_token(n).value == "clone"), .None => false);
+  if(!name_ok, {
+    return(Option(AstExpr).None);
+  });
+  ri := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
+    .Some(i) => i,
+    .None => {
+      return(Option(AstExpr).None);
+    }
+  );
+  recv_ty := ri.ty;
+  if(is_pointer_type(recv_ty) || copy_structural_parts(recv_ty).is_none(), {
+    return(Option(AstExpr).None);
   });
   is_copy := match(
     get_trait_type_from_env(env, String.from("Copy")),
-    .Some(copy_tt) => type_implements_trait(receiver_type, copy_tt, env).implemented,
+    .Some(copy_tt) => type_implements_trait(recv_ty, copy_tt, env).implemented,
     .None => false
   );
   if(!is_copy, {
-    return(Option(ReceiverMethodResult).None);
+    return(Option(AstExpr).None);
   });
-  vars := get_variables_from_env(env, String.from("__yo_return_self"));
-  rs := match(
-    vars.get(vars.len() - usize(1)),
-    .Some(v) => v,
-    .None => {
-      return(Option(ReceiverMethodResult).None);
-    }
-  );
-  rs_val := rs.value.get(usize(0));
-  entry := MethodEntry(
-    label : String.from("clone"),
-    ty : rs.ty,
-    value : rs_val,
-    source_trait_id : String.new(),
-    needs_pointer_conversion : false,
-    self_type : Option(TypeValue).Some(receiver_type),
-    owner : String.new()
-  );
-  hits := ArrayList(MethodEntry).new();
-  hits.push(entry);
-  Option(ReceiverMethodResult).Some(
-    ReceiverMethodResult(
-      method_val_opt : rs_val,
-      method_ty : rs.ty,
-      receiver_expr : receiver_expr,
-      is_static : false,
-      needs_pointer_conversion : false,
-      receiver_value : receiver_value,
-      all_hits : hits
-    )
-  )
+  out_info := new_expr_info(env, recv_ty);
+  out_info.value = ri.value;
+  record_macro_expansion(ast_expr_id(expr), recv.clone());
+  expr_info_set_macro_expansion(out_info, Option(AstExpr).Some(recv));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  Option(AstExpr).Some(expr)
 });
 _try_find_receiver_method :: (
   fn(
@@ -898,15 +905,6 @@ _try_find_receiver_method :: (
             },
             .None => ()
           );
-        },
-        .None => ()
-      );
-    });
-    if(!is_static && (method_name == "clone"), {
-      match(
-        _structural_copy_clone_hit(receiver_type, receiver_expr_r, receiver_value, env),
-        .Some(sc_hit) => {
-          return(Option(ReceiverMethodResult).Some(sc_hit));
         },
         .None => ()
       );
@@ -9511,6 +9509,13 @@ Fix: wrap the call:
             take_pending_impl_force_error(),
             .Some(impl_fail_msg) => {
               exn.throw(dyn(impl_fail_msg));
+            },
+            .None => ()
+          );
+          match(
+            _try_structural_copy_clone(expr, evaluated_callee, args.len(), callee_env, ctx),
+            .Some(sc_expr) => {
+              return(sc_expr);
             },
             .None => ()
           );
