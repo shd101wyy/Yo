@@ -4,7 +4,7 @@
 
 Found 2026-10-06 while landing `plans/VALUES_BY_DEFAULT.md` decision 36's Generation A (`Copy` requires `Clone`, #1245).
 
-> **Partly fixed 2026-10-08** (decision 36 Generation B's sweep, `feat/vbd-copy-sweep`): `x.clone()` on a value that is `Copy` structurally (a `fn` pointer, a closure whose captures are all `Copy`, an anonymous record whose fields are) expands to its receiver, the copy (`_try_structural_copy_clone`, `src/evaluator/calls/function.yo`). `derive(Clone)` copies a `Copy` field instead of calling `.clone()` on it. **Still open:** a record or a closure that is `Clone` but not `Copy` (a `String` field or capture) still has no `clone()`; it needs the field-wise clone below.
+> **Partly fixed 2026-10-08** (decision 36 Generation B's sweep, `feat/vbd-copy-sweep`): `x.clone()` on a value that is `Copy` structurally (a `fn` pointer, a closure whose captures are all `Copy`, an anonymous record whose fields are) expands to its receiver, the copy (`_try_structural_copy_clone`, `src/evaluator/calls/function.yo`), so a derived `Clone` over a `fn` field works too. **Still open:** a record or a closure that is `Clone` but not `Copy` (a `String` field or capture) still has no `clone()`; it needs the field-wise clone below.
 
 ## Symptom
 

@@ -3374,6 +3374,56 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
    `derive(T, Copy, Clone)` and `p.clone()`; a by-value argument of one is
    a move; an `imm`-only closure is `Copy` and second-class (decision 38 A).
 
+**Generation B as built, part 1: the sweep (2026-10-08, `feat/vbd-copy-sweep`).**
+- **Measured again before the sweep** (`YO_AUDIT_COPY_TRAIT=1`, tree
+  binary): `src/` 2,067 sites, `std/` 637, `tests/` 3,188, over about 180
+  named types. The 2026-10-06 numbers were 2,039 / 640 / 3,106.
+- **Step 2 first: structural `clone()`** for the `Copy` kinds. `x.clone()` on
+  a `fn` pointer, a closure of `Copy` captures or an anonymous record of
+  `Copy` fields expands to its receiver, the copy
+  (`_try_structural_copy_clone`, `src/evaluator/calls/function.yo`, through
+  `ExprInfo.macro_expansion`). A first version dispatched to a synthesized
+  `__yo_return_self` method entry; its call bodies failed to transpile. A
+  record or closure that is `Clone` but not `Copy` still has no `clone()`
+  (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`,
+  narrowed).
+- **The sweep:** `derive(T, Copy, Clone)` on about 165 named types in `src/`,
+  `std/` and `tests/`, driven by the audit's `needs=` list. Generic types get
+  a conditional pair, `derive(generic(T : Type), where(T <: Clone), G(T),
+  Clone)` and the same under `T <: Copy` (`Range`, `Reverse`, `IterPair`,
+  `MapEntry`, and test types). A derive is an ordered statement, so the
+  prelude types declared above the derive rules (`Pragma`, `Allocator`,
+  `Ordering`, `Range`, `Reverse`) take theirs after `Result`'s `Copy` impl;
+  `Allocator.ctx` is a `?*void`, whose clone needs `Option`'s `Clone` impl
+  registered first. `IpAddr`'s and `SocketAddr`'s hand-written `Clone`
+  impls were deleted, because a `Copy` type's `Clone` is derived.
+- **Left for the flip, measured after the sweep** (`src/` 355 sites,
+  `std/` 51, `tests/` 996, nearly all of them the first group):
+  - **Control-bound records are never `Clone`.** `Exception` (1,359 sites)
+    and `IoExn` (775) hold a `ctl` handler, and no function may return a
+    control-bound type, so `clone()` cannot exist for them; the same holds
+    for effect records like `tests/algebraic_effects.test.yo`'s `Eff`. The
+    flip must leave them outside the predicate, with compile-time-only
+    types, so they keep copying implicitly (they are only ever passed
+    downward). A C opaque type (`__yo_thread_t`) needs the same exemption.
+  - **`Io` waits for a seed carrying this PR.** Its fields are `fn`
+    pointers, and its derived `Clone` calls `.clone()` on them, which the
+    v0.2.54 seed (compiling `src/` against this std) cannot dispatch. Making
+    the derive rule copy such fields instead was tried and backed out: asking
+    a field type for `Copy` during a derive answers before a later
+    `impl(T, Copy())` registers, and the answer sticks
+    (`tests/copy_trait.test.yo`'s `_CtSeg`), while `Type.get_info(T)` on an
+    abstract `T` cannot fold.
+  - **Function-local types cannot opt in yet.** A `derive` inside a
+    function body is a silent no-op
+    (`issues/a-derive-inside-a-function-body-is-silently-ignored.md`, S2), so
+    `Point1`, `Color`, `EvenNumber`, `Cell` and `Inner` in the language
+    tests stay non-`Copy` until it is fixed.
+  - **The `markdown_yo` dependency** has its own plain-data types
+    (`ParentType`, `InlineType`, `InlineToken`, `AbbrEntry`, `Delimiter`,
+    `LinkMarker`, `_SQEntry`). They need `derive(T, Copy, Clone)` upstream
+    before the flip, or `yo build` of the compiler breaks.
+
 ### V2: the collections become values
 
 **V2a — DONE 2026-10-05 (#1204).**

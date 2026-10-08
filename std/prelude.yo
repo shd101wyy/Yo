@@ -8679,13 +8679,10 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
         "",
         (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
           fname :: fields.get(fi).name;
-          // A `Copy` field's clone is its copy (decision 36), so the field is
-          // copied: a `fn` pointer or a closure has no `clone` method to call.
           // A `Deref` wrapper field (`Rc`, `Arc`) clones through its own
           // `Clone` impl by name: `self.f.clone()` would be decision 32's
           // wrapper/payload clash (E0616) when the payload is `Clone` too.
           part :: cond(
-            Type.impls(fields.get(fi).field_type, Copy) => __s2("self.", fname),
             Type.impls(fields.get(fi).field_type, Deref) => __s5("(typeof(self.", fname, ") <: Clone).clone(self.", fname, ")"),
             true => __s3("self.", fname, ".clone()")
           );
@@ -8736,7 +8733,6 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   part :: cond(
-                    Type.impls(v.fields.get(fi).field_type, Copy) => __s2("__v_", fname),
                     Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(typeof(__v_", fname, ") <: Clone).clone(__v_", fname, ")"),
                     true => __s3("__v_", fname, ".clone()")
                   );
@@ -12545,7 +12541,6 @@ Io :: struct(
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
-derive(Io, Copy, Clone);
 // Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
 // is per-thread (per AGENTS.md). Sending Io across a thread boundary would
 // reference a scheduler on the wrong thread.
