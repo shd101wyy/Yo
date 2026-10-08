@@ -1,7 +1,10 @@
-//! evaluate_fn_trait_type — evaluates `Fn(params) -> ReturnType` expressions.
+//! evaluate_fn_trait_type — evaluates `Fn(params) -> ReturnType` and
+//! `FnOnce(params) -> ReturnType` expressions.
 //!
-//! Creates a FnTraitT type that represents a callable Fn trait
-//! (similar to Rust's Fn trait). Used with:
+//! Creates a FnTraitT type that represents a callable trait (similar to
+//! Rust's `Fn` / `FnOnce`); `base_name` says which. An `FnOnce` call consumes
+//! the closure, and `Fn` implies `FnOnce` (plans/VALUES_BY_DEFAULT.md
+//! decision 37). Used with:
 //!   - Impl(Fn(...) -> ...) for static dispatch with closures
 //!   - Dyn(Fn(...) -> ...) for dynamic dispatch
 pragma(Pragma.AllowUnsafe);
@@ -15,7 +18,8 @@ import("std/fmt");
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   make_err_expr,
-  BK_FN_TRAIT
+  BK_FN_TRAIT,
+  BK_FN_ONCE_TRAIT
 }
 :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
@@ -25,6 +29,7 @@ import("std/fmt");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_fn_trait } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
+{ note_move_only_possible } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -68,13 +73,18 @@ evaluate_fn_trait_type :: (
   expr_args := _fn_trait_call_args(expr);
   fn_call_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   return_type_expr := match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  is_once := ast_expr_is_fn_call_of(fn_call_expr, BK_FN_ONCE_TRAIT, Option(usize).None);
+  if(is_once, {
+    // `Dyn(FnOnce(...))` is move-only: arm the move-only checks.
+    note_move_only_possible();
+  });
   if(!ast_expr_is_fn_call(fn_call_expr) ||
-    !ast_expr_is_fn_call_of(fn_call_expr, BK_FN_TRAIT, Option(usize).None), {
+    !(ast_expr_is_fn_call_of(fn_call_expr, BK_FN_TRAIT, Option(usize).None) || is_once), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(fn_call_expr),
-          `Expected Fn(...) for function trait, got:\n${ast_expr_to_string(fn_call_expr)}`
+          `Expected Fn(...) or FnOnce(...) for function trait, got:\n${ast_expr_to_string(fn_call_expr)}`
         )
       )
     );
@@ -162,7 +172,7 @@ evaluate_fn_trait_type :: (
     implicit_types.push(ip.ty);
     ii = (ii + usize(1));
   });
-  fn_trait_type := t_fn_trait(String.from(BK_FN_TRAIT), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, call_param_is_ref);
+  fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, true => BK_FN_TRAIT)), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, call_param_is_ref);
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(fn_trait_type));
   out_info.value = .Some(create_type_value(fn_trait_type));

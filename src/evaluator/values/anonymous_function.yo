@@ -53,6 +53,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_capture_type,
   expr_info_set_capture_type,
   expr_info_deferred_dup_expressions,
+  mark_call_once_capture_dup,
   expr_info_set_deferred_dup_expressions,
   CaptureFieldInit,
   expr_info_set_capture_field_inits,
@@ -83,6 +84,8 @@ pragma(Pragma.AllowUnsafe);
   Environment,
   Variable,
   add_variable_to_env,
+  mark_fnonce_capture_frame,
+  mark_fn_capture_value_binding,
   synthetic_token,
   snapshot_env,
   get_variables_from_env,
@@ -113,6 +116,7 @@ pragma(Pragma.AllowUnsafe);
   register_closure_body_type,
   register_func_type,
   mark_as_closure_fn,
+  mark_as_fnonce_closure_fn,
   ClosureCaptureInfo,
   register_closure_capture_info,
   get_closure_capture_info,
@@ -843,7 +847,16 @@ _cap_place_crosses_cell :: (fn(ev : AstExpr, ctx : EvalContext) -> bool)({
 ///   the place `p`, which must be rooted at a named local binding (decision
 ///   38 D: not across a cell, not module-level; a `mut` place is writable).
 _evaluate_capture_list :: (
-  fn(raw_entries : ArrayList(AstExpr), env : Environment, ctx : EvalContext, exn : Exception) -> ArrayList(_CapListEntry)
+  fn(
+    raw_entries : ArrayList(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception,
+    /// The closure is typed `FnOnce(...)`: its capture struct dies at the
+    /// call, so every by-value entry's dup is marked uncancellable
+    /// (`mark_call_once_capture_dup`).
+    call_once : bool
+  ) -> ArrayList(_CapListEntry)
 )({
   out := ArrayList(_CapListEntry).new();
   (ei : usize) = usize(0);
@@ -1012,6 +1025,24 @@ _evaluate_capture_list :: (
           field_init = evaluate_expression_raw(fd_dup, env, ctx, exn);
           ctx.expected_type = saved_fdexp;
         });
+        if(call_once, {
+          mark_call_once_capture_dup(ast_expr_id(field_init));
+          match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev_val)),
+            .Some(co_ei) => match(
+              expr_info_deferred_dup_expressions(co_ei),
+              .Some(co_ds) => {
+                (co_i : usize) = usize(0);
+                while(co_i < co_ds.len(), {
+                  match(co_ds.get(co_i), .Some(co_d) => mark_call_once_capture_dup(ast_expr_id(co_d)), .None => ());
+                  co_i = (co_i + usize(1));
+                });
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        });
       });
       out.push(
         _CapListEntry(
@@ -1147,6 +1178,20 @@ evaluate_anonymous_function_implementation :: (
     },
     _ => Option(TypeValue).None
   );
+  // Decision 37: a closure typed against `FnOnce(...)` is called once and its
+  // call consumes it, so a capture-list body OWNS its by-value captures and
+  // may move one out. Against `Fn(...)` the call borrows them.
+  expected_fn_base := match(
+    expected_ty,
+    .FnTraitT(base_name : efb) => efb.clone(),
+    .SomeT(_, _, _, _, _, _, _, _, _, _) => match(
+      extract_fn_trait_from_type(expected_ty),
+      .Some(eft) => match(eft, .FnTraitT(base_name : efb2) => efb2.clone(), _ => String.from("")),
+      .None => String.from("")
+    ),
+    _ => String.from("")
+  );
+  closure_owns_captures := (is_creating_closure && cap_list_raw.is_some() && (expected_fn_base == "FnOnce"));
   (function_type : TypeValue) = match(
     function_type_opt,
     .Some(ft) => ft,
@@ -1452,7 +1497,7 @@ evaluate_anonymous_function_implementation :: (
       if(ctx.is_inside_io_async_call, {
         _cap_list_error(ctx, exn, tok, String.from("A capture list on an `io.async` body is not supported yet: its borrows would make the future second-class (plans/VALUES_BY_DEFAULT.md §3.13 A2), which has not landed. Capture implicitly, or bind the values to locals the body reads."));
       });
-      _evaluate_capture_list(cl_raw, env, ctx, exn)
+      _evaluate_capture_list(cl_raw, env, ctx, exn, closure_owns_captures)
     },
     .None => ArrayList(_CapListEntry).new()
   );
@@ -1460,6 +1505,9 @@ evaluate_anonymous_function_implementation :: (
   if(cap_list_raw.is_some(), {
     _cap_fr := env.push_frame(false);
     cap_frame_idx = Option(usize).Some(env.frames.len() - usize(1));
+    if(closure_owns_captures, {
+      match(env.frames.get(_cap_fr), .Some(cfr) => mark_fnonce_capture_frame(cfr.id), .None => ());
+    });
     (cfe_i : usize) = usize(0);
     while(cfe_i < cap_entries.len(), {
       match(
@@ -1469,17 +1517,22 @@ evaluate_anonymous_function_implementation :: (
           // never writes its captures). A borrow is a pointer field read and
           // written through (`is_ref`); an `imm` borrow is the one `is_ref`
           // binding that is not reassignable, which the write checks read as
-          // "read-only borrow".
-          ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, ce.is_borrow && ce.is_mut, false, false, ce.label_tok.clone());
-          if(ce.is_borrow, {
-            match(
-              ce_v,
-              .Some(cv) => {
+          // "read-only borrow". An `FnOnce` body OWNS its by-value captures
+          // (decision 37): they bind as owning, so a move consumes one and
+          // the body drops the rest when the call ends.
+          ce_owned := (closure_owns_captures && !ce.is_borrow);
+          ce_v := add_variable_to_env(env, ce.label.clone(), ce.value_ty.clone(), Option(EvalValue).None, false, ce.is_borrow && ce.is_mut, ce_owned, false, ce.label_tok.clone());
+          match(
+            ce_v,
+            .Some(cv) => {
+              if(ce.is_borrow, {
                 cv.is_ref = true;
-              },
-              .None => ()
-            );
-          });
+              }, if(!ce_owned, {
+                mark_fn_capture_value_binding(cv.id);
+              }));
+            },
+            .None => ()
+          );
         },
         .None => ()
       );
@@ -1848,6 +1901,9 @@ evaluate_anonymous_function_implementation :: (
   mark_closure_for_codegen := is_creating_closure;
   if(mark_closure_for_codegen, {
     mark_as_closure_fn(func_id.clone());
+    if(closure_owns_captures, {
+      mark_as_fnonce_closure_fn(func_id.clone());
+    });
   });
   (closure_capture_type : Option(TypeValue)) = Option(TypeValue).None;
   (closure_capture_dups : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;

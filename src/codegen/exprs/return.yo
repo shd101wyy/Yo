@@ -12,7 +12,7 @@
 { Token } :: import("../../token.yo");
 { Variable, Environment, variable_moved_at_cleanup_point, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
-{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch } :: import("../../expr_info.yo");
+{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -323,7 +323,10 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
       },
       .None => ()
     );
-    return(scope_stack_contains(context.base.declared_scopes.*, guard_cn.clone()));
+    // An `FnOnce` closure's owned capture lives in the closure context from
+    // the body's entry (decision 37): it has no C declaration on the stack,
+    // and the consumption check above already ruled out a moved one.
+    return(is_fnonce_capture_drop(ast_expr_id(drop_expr)) || scope_stack_contains(context.base.declared_scopes.*, guard_cn.clone()));
   });
   env := match(context.base.get_expr_info(expr), .Some(ei) => ei.env, .None => return(true));
   variables := _cleanup_drop_variables(expr, env, var_name, drop_expr, context);
@@ -359,7 +362,9 @@ _keep_pending_drop :: (fn(drop_expr : AstExpr, expr : AstExpr, already : HashSet
   // reference an out-of-scope identifier. A target absent from the stack holds
   // no C value here, so skipping its drop cannot double-free or leak.
   c_name := sanitize_for_c_identifier(var_name, false);
-  if(!_drop_target_is_state_machine_field(latest_var, var_name.clone(), context) && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
+  // An `FnOnce` closure's owned capture lives in the closure context, never
+  // a C local, so the stack cannot vouch for it (decision 37).
+  if(!is_fnonce_capture_drop(ast_expr_id(drop_expr)) && !_drop_target_is_state_machine_field(latest_var, var_name.clone(), context) && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
     return(false);
   });
   match(
@@ -639,7 +644,9 @@ generate_consumed_var_drops_for_escape :: (fn(indent : String, context : Functio
                               cond(
                                 _variable_moved_before_cleanup_point(lv, expr) => false,
                                 !_consumption_is_ordered_against_cleanup_point(lv, expr) => false,
-                                true => (_drop_target_is_state_machine_field(lv, var_name.clone(), context) || scope_stack_contains(context.base.declared_scopes.*, lv_c_name))
+                                // An `FnOnce` closure's owned capture lives in
+                                // the closure context, never a C local.
+                                true => (is_fnonce_capture_drop(ast_expr_id(de)) || _drop_target_is_state_machine_field(lv, var_name.clone(), context) || scope_stack_contains(context.base.declared_scopes.*, lv_c_name))
                               )
                             },
                             .None => false
@@ -731,7 +738,9 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : AstExpr, inde
                     .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(drop_expr), .Some(ta) => ast_expr_id(ta), .None => ast_expr_id(expr)), ei.env, vn, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot).is_some()),
                     .None => false
                   );
-                  !in_slot && !scope_stack_contains(context.base.declared_scopes.*, cn)
+                  // Likewise an `FnOnce` closure's owned capture lives in the
+                  // closure context, never a C local (decision 37).
+                  !in_slot && !is_fnonce_capture_drop(ast_expr_id(drop_expr)) && !scope_stack_contains(context.base.declared_scopes.*, cn)
                 },
                 .None => false
               );

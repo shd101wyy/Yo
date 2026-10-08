@@ -16,7 +16,7 @@
 { Emitter } :: import("../../emitter.yo");
 { should_skip_function_codegen } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ get_func_type } :: import("../../function_value.yo");
+{ get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, dyn_slot_param_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
@@ -375,8 +375,11 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
             .Some(rt) => if(is_fn_trait_type(rt.clone()), {
               match(
                 rt,
-                .FnTraitT({ call_param_types, call_result, call_param_is_ref }) => {
+                .FnTraitT({ base_name : fn_base, call_param_types, call_result, call_param_is_ref }) => {
                   return_str := get_type_string(call_result, context.base);
+                  // A `Dyn(FnOnce(...))` call consumes the Dyn (decision 37):
+                  // the wrapper releases the box after the call.
+                  is_call_once := (fn_base == "FnOnce");
                   wrapper := `__yo_wrap_${impl_key}_call`;
                   params := _wrapper_params(call_param_types.clone(), call_param_is_ref.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
@@ -406,7 +409,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     cc_fn := match(cc_info, .Some(mp) => mp.function_c_name.clone(), .None => String.from(""));
                     call := String.from("  ");
                     if(!is_void, {
-                      call.push_str("return ");
+                      call.push_string(if(is_call_once, `${return_str} __yo_once_r = `, String.from("return ")));
                     });
                     call.push_string(cc_fn);
                     call.push_str("((void*)&box->");
@@ -419,6 +422,25 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     });
                     call.push_str(");");
                     em.emit_declaration_string_line(call);
+                    if(is_call_once, {
+                      // The call consumed the Dyn: release the box here. A
+                      // payload closure typed `FnOnce(...)` with a capture
+                      // list already took its captures (its body moved or
+                      // dropped them), so the box must free its memory
+                      // without disposing the payload again: clear the
+                      // header's dispose (`dispose_fn` with the cycle GC,
+                      // the `type_id` dispatch tag without it). An `Fn`
+                      // payload's body only borrowed its captures, so the
+                      // box's ordinary dispose drops them.
+                      payload_owns := match(cc_info, .Some(mp) => is_fnonce_closure_fn(mp.closure_fid.clone()), .None => false);
+                      if(payload_owns, {
+                        em.emit_declaration_string_line(if(context.base.needs_cycle_gc, String.from("  box->header.dispose_fn = NULL;"), String.from("  box->header.type_id = 0;")));
+                      });
+                      em.emit_declaration_string_line(if(_dyn_data_is_atomic(data_type.clone()), String.from("  __yo_decr_rc_atomic((void*)box);"), String.from("  __yo_decr_rc((void*)box);")));
+                      if(!is_void, {
+                        em.emit_declaration_line("  return __yo_once_r;");
+                      });
+                    });
                   }, if(is_boxed && !is_some_type(resolve_some_type_to_concrete(impl_entry.concrete_type.clone())), {
                     // Gated on a RESOLVED inner: an unresolved-SomeT payload's
                     // Box field degenerates to `void*` in C, so the fat-pointer

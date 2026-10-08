@@ -1450,6 +1450,16 @@ the `inout` audit note.
 - In Generation A, `&f` to an `Impl(Fn)` parameter is still the address-of (V3b Generation A's rule for generic parameters): lend a closure bare, `apply(f, 1)`.
 - Not supported yet: a capture list on an `io.async` body (borrowing futures, §3.13 A2), and last-use ends of a freeze (decision 18's live ranges).
 
+## Call-once closures: `FnOnce(...) -> R`
+
+`plans/VALUES_BY_DEFAULT.md` decision 37, Generation A (this compiler; std's `Thread.spawn`/`io.async` signatures switch in Generation B, once the seed parses `FnOnce`):
+
+- An `FnOnce` call consumes the closure: a second call (or any later use) is E0901 pointing at the first call. A closure literal takes the trait of its slot, so `(f : Impl(FnOnce() -> R)) = ({ t }() => take(t))` is call-once.
+- Only a capture list's by-value entries are owned by an `FnOnce` body: it may move one out (`sink` argument, binding, tail), and the body drops the rest when the call ends. A move out of an implicit capture is E0913 ("captured implicitly"); a move out of a capture in an `Fn` closure is E0913 too.
+- `Fn` implies `FnOnce`: an `Fn` closure fills an `FnOnce` slot; an `FnOnce` value passed to an `Fn(...)` parameter is E0913.
+- Call it once from an API it ESCAPES into: `sink(f) : Impl(FnOnce(...))`. Calling through a borrowed parameter (`f : Impl(FnOnce(...))`) is E0901. A `sink` closure called on one `cond`/`match` arm must be moved on every arm (E0907, as for any move-only value): forward it, e.g. `cond(go => f(), true => ignore(f))`.
+- In Generation A every `match` binding borrows, so a bare `match` on a capture cannot move out yet (decision 37's N5 `match` shapes land with V3b).
+
 ## A `=>` closure never fills a bare `fn(...)` slot (E0605)
 
 A `fn(...) -> R` parameter or field is a C function pointer: it takes a named `fn` or a

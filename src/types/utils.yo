@@ -709,10 +709,30 @@ _nominal_declares_move_only :: (fn(ty : TypeValue) -> bool)(!_nominal_move_only_
 /// `_type_contains_rc_inner`. A reference type (and `Dyn`/`Iso`, which are
 /// cells too) stops the walk: it shares its payload, so it is copyable
 /// whatever it holds.
+/// A `Dyn(FnOnce(...))` (plans/VALUES_BY_DEFAULT.md decision 37): its call
+/// consumes it, so it is move-only although a `Dyn` is reference counted —
+/// two handles to one payload would run a call-once body twice.
+_is_dyn_fnonce :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .DynT(required_trait_types : rtt) => {
+      (i : usize) = usize(0);
+      while(i < rtt.len(), {
+        if(match(rtt.get(i), .Some(t) => match(t, .FnTraitT(base_name : b) => (b == "FnOnce"), _ => false), .None => false), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    _ => false
+  )
+);
 _type_is_move_only_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(
     (depth > u32(8)) => false,
+    _is_dyn_fnonce(ty) => true,
     is_rc_type(ty) => false,
     _nominal_declares_move_only(ty) => true,
     // A closure with a `mut` capture (decision 35): two copies of one
@@ -793,6 +813,9 @@ move_only_reason :: (fn(ty : TypeValue) -> Option(String))(
 );
 _move_only_reason_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(String))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  if(_is_dyn_fnonce(ty), {
+    return(Option(String).Some(`\`${type_to_string(ty)}\` is a call-once closure: its call consumes it, so a copy could call it twice`));
+  });
   if((depth > u32(8)) || is_rc_type(ty), {
     return(Option(String).None);
   });

@@ -62,6 +62,26 @@ is_closure_fn :: (fn(func_id : String) -> bool)(
     .None => false
   )
 );
+/// Closures whose body OWNS its captures: a capture-list closure typed against
+/// `FnOnce(...)` (plans/VALUES_BY_DEFAULT.md decision 37). Its call consumes
+/// the closure, so the body may move a by-value capture out, and it drops the
+/// captures it did not move when the call ends. Codegen reads this to keep the
+/// body's scope-end drops of capture fields, which an `Fn` body skips because
+/// its closure still owns them.
+(g_fnonce_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Mark a closure (by `func_id`) as owning its captures. Idempotent.
+mark_as_fnonce_closure_fn :: (fn(func_id : String) -> unit)({
+  g_fnonce_closure_fn_registry.insert(func_id, true);
+});
+/// True if the closure identified by `func_id` owns its captures (its body
+/// was typed against `FnOnce(...)` with a capture list).
+is_fnonce_closure_fn :: (fn(func_id : String) -> bool)(
+  match(
+    g_fnonce_closure_fn_registry.get(func_id.clone()),
+    .Some(_) => true,
+    .None => false
+  )
+);
 // ---------------------------------------------------------------------------
 // Closure capture info side-table (func_id → capture struct type + frame level)
 // ---------------------------------------------------------------------------
@@ -464,6 +484,8 @@ export(
   is_control_fn,
   mark_as_closure_fn,
   is_closure_fn,
+  mark_as_fnonce_closure_fn,
+  is_fnonce_closure_fn,
   ClosureCaptureInfo,
   register_closure_capture_info,
   get_closure_capture_info,

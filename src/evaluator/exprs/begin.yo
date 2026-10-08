@@ -5,6 +5,7 @@
 //!   collect_dup_calls_conservatively, evaluate_begin_expression
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ is_fnonce_closure_fn } :: import("../../function_value.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -35,6 +36,7 @@ pragma(Pragma.AllowUnsafe);
   BK_CTL,
   BK_UNSAFE_FN,
   BK_FN_TRAIT,
+  BK_FN_ONCE_TRAIT,
   ast_expr_is_fn_call
 } :: import("../../expr.yo");
 {
@@ -66,8 +68,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_trait_ptr_type,
   record_branch_consume
 } :: import("../../expr_info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating } :: import("../../env.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop } :: import("../../expr_info.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating, is_fnonce_capture_frame } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -768,7 +770,7 @@ _is_function_boundary_for_early_drop :: (fn(expr : AstExpr, _ctx : EvalContext) 
   match(
     expr,
     .FnCall(_, func, _, _, _) => if(
-      ast_expr_is_fn_call_of(func, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_TRAIT, Option(usize).None),
+      ast_expr_is_fn_call_of(func, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_ONCE_TRAIT, Option(usize).None),
       return(true),
       ()
     ),
@@ -791,7 +793,12 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
       });
       latest := match(vars.last(), .Some(v) => v, .None => return(()));
       match(latest.initialized_at_token, .None => return(()), .Some(_) => ());
-      if(_m3_token_is_at_or_before(init_tok, cleanup_point) && _m3_token_is_before(cleanup_point, consumed_tok), {
+      // A parameter is initialized at the function's entry, before every
+      // statement of its body; its binding token is synthetic and spells the
+      // module path the other way (`file://…`), so it cannot be ordered
+      // against a body token (AGENTS.md: never compare the two spellings).
+      init_ok := (latest.is_parameter || _m3_token_is_at_or_before(init_tok, cleanup_point));
+      if(init_ok && _m3_token_is_before(cleanup_point, consumed_tok), {
         existing := match(expr_info_early_return_only_deferred_drop_expressions(ei), .Some(l) => l, .None => ArrayList(AstExpr).new());
         (found : bool) = false;
         (fi : usize) = usize(0);
@@ -1335,13 +1342,18 @@ _optimize_dup_drop_pairs :: (
               while((ndi < dups.len()) && !nested_dup, {
                 match(
                   dups.get(ndi),
-                  .Some(nd) => match(
+                  // A dup into an `FnOnce` closure's capture struct feeds a
+                  // container that dies at its CALL, before the local's last
+                  // use: the same hazard (decision 37).
+                  .Some(nd) => if(is_call_once_capture_dup(ast_expr_id(nd)), {
+                    nested_dup = true;
+                  }, match(
                     expr_info_table_get(ctx.expr_info_table, ast_expr_id(nd)),
                     .Some(ndei) => if(ndei.env.frames.len() > (v.frame_level + usize(1)), {
                       nested_dup = true;
                     }),
                     .None => ()
-                  ),
+                  )),
                   .None => ()
                 );
                 ndi = (ndi + usize(1));
@@ -1727,6 +1739,19 @@ _audit_judge_implicit_copies :: (fn(frame : Frame, begin_args : ArrayList(AstExp
     i = (i + usize(1));
   });
 });
+/// The body being evaluated is that of a closure typed `FnOnce(...)` with a
+/// capture list (`is_fnonce_closure_fn`).
+_evaluating_fnonce_closure_body :: (fn(ctx : EvalContext) -> bool)(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(sub) => match(
+      sub.func_value,
+      .Some(fv) => match(fv, .FuncVal(fvd, _) => is_fnonce_closure_fn(fvd.*.func_id.clone()), _ => false),
+      .None => false
+    ),
+    .None => false
+  )
+);
 _schedule_scope_end_drops :: (
   fn(
     frame : Frame,
@@ -3125,6 +3150,73 @@ _evaluate_begin_expression_impl :: (
       .None => ()
     );
   });
+  // A closure typed `FnOnce(...)` owns its by-value captures (decision 37),
+  // which its capture-list frame binds just below the parameters frame: the
+  // call consumed the closure, so the body drops every capture it did not
+  // move, after the parameters. The frame is found by its registration, not
+  // by a fixed depth: a one-statement body is evaluated in place and pushes
+  // no frame of its own. Each scheduled drop is tagged so codegen keeps it
+  // (it skips every other drop of a capture name in a closure body).
+  if(is_evaluating_function_body_begin_block && _evaluating_fnonce_closure_body(ctx), {
+    (cfi : usize) = env.frames.len();
+    (cf_found : bool) = false;
+    while((cfi > usize(0)) && !cf_found && ((env.frames.len() - cfi) < usize(3)), {
+      cfi = (cfi - usize(1));
+      match(
+        env.frames.get(cfi),
+        .Some(cap_fr) => if(is_fnonce_capture_frame(cap_fr.id), {
+          cf_found = true;
+          match(
+            _schedule_scope_end_drops(cap_fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
+            .Some(cd_list) => {
+              (merged_caps : ArrayList(AstExpr)) = match(
+                scope_end_drops,
+                .Some(existing) => existing,
+                .None => ArrayList(AstExpr).new()
+              );
+              (cd_i : usize) = usize(0);
+              while(cd_i < cd_list.len(), {
+                match(
+                  cd_list.get(cd_i),
+                  .Some(cd) => {
+                    mark_fnonce_capture_drop(ast_expr_id(cd));
+                    merged_caps.push(cd);
+                  },
+                  .None => ()
+                );
+                cd_i = (cd_i + usize(1));
+              });
+              scope_end_drops = Option(ArrayList(AstExpr)).Some(merged_caps);
+            },
+            .None => ()
+          );
+          // The CONSUMED captures (a move on some paths) still need a drop on
+          // an exit that precedes the move: an early `return` or an effect
+          // escape — the parameters' treatment below, for the frame the body
+          // owns the same way.
+          (cci : usize) = usize(0);
+          while(cci < cap_fr.variables.len(), {
+            match(
+              cap_fr.variables.get(cci),
+              .Some(cv) => if(cv.consumed_at_token.is_some() && cv.is_owning_the_rc_value && _variable_can_need_drop_ignoring_consumed(cv), {
+                c_drop := evaluate_expression_raw(generate_expr_from_code(`___drop(${cv.name})`, exn), env, ctx, exn);
+                mark_fnonce_capture_drop(ast_expr_id(c_drop));
+                consumed_escape_drops.push(c_drop);
+                (cdai : usize) = usize(0);
+                while(cdai < begin_args.len(), {
+                  match(begin_args.get(cdai), .Some(carg) => _attach_early_return_only_drop_to_returns(carg, cv, c_drop, ctx), .None => ());
+                  cdai = (cdai + usize(1));
+                });
+              }),
+              .None => ()
+            );
+            cci = (cci + usize(1));
+          });
+        }),
+        .None => ()
+      );
+    });
+  });
   // M3 driver: attach early-return-only `___drop`s for CONSUMED (moved-out) owning
   // locals to each return/unwind preceding consumption. Runs
   // before pop_frame. Consumed vars are disjoint from the scope-end drop set.
@@ -3190,6 +3282,16 @@ _evaluate_begin_expression_impl :: (
                 p_drop_expr := generate_expr_from_code(p_drop_code, exn);
                 p_evaluated := evaluate_expression_raw(p_drop_expr, env, ctx, exn);
                 consumed_escape_drops.push(p_evaluated);
+                // An early `return` that precedes the parameter's move must
+                // release it too, as the M3 driver above does for locals: the
+                // scope-end list skips a consumed parameter, so nothing else
+                // drops it on that path
+                // (issues/fixed/an-early-return-skips-the-drop-of-an-owned-parameter.md).
+                (pdai : usize) = usize(0);
+                while(pdai < begin_args.len(), {
+                  match(begin_args.get(pdai), .Some(parg) => _attach_early_return_only_drop_to_returns(parg, pev, p_evaluated, ctx), .None => ());
+                  pdai = (pdai + usize(1));
+                });
               });
             },
             .None => ()

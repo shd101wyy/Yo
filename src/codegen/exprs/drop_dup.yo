@@ -24,7 +24,7 @@
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables } :: import("../../expr_info.yo");
+{ expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables, is_fnonce_capture_drop } :: import("../../expr_info.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
@@ -832,9 +832,13 @@ _dd_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
 /// (the id is shared; no begin wrapper is cloned), so an unfiltered
 /// expression-level flush emitted the own-param drop a SECOND time next to the
 /// function-level one — the use_and_sink double-free glibc caught in CI
-/// (tcache "unaligned chunk", tests/ref_field_borrow.test.yo).
+/// (tcache "unaligned chunk", tests/ref_field_borrow.test.yo). An `FnOnce`
+/// closure's capture drop (`is_fnonce_capture_drop`) is the same kind of
+/// function-scope drop: the body owns the capture as it owns a `sink`
+/// parameter, so it is emitted only at the function-level points too
+/// (plans/VALUES_BY_DEFAULT.md decision 37).
 _drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerationContext) -> bool)(
-  match(
+  is_fnonce_capture_drop(ast_expr_id(drop_expr)) || match(
     _dd_drop_target_atom(drop_expr),
     .Some(atom) => match(
       context.base.get_expr_info(atom),

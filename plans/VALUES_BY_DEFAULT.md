@@ -1988,6 +1988,34 @@ and in git, not a silent edit.
         error that names the moving line;
       - one test for each N5 shape: a move out, a bare `match` on a
         capture, a tail return of a capture, and `match(&x, …)`.
+    - **Generation A as built (amended 2026-10-07 by the maintainer).**
+      - **A body owns only a capture list's by-value entries.** A closure
+        typed `FnOnce(...)` with a capture list (`{ tx, msg }() =>
+        tx.send(msg)`) binds those entries as owning: a move consumes one,
+        and the body drops the rest when the call ends. Moving an IMPLICIT
+        capture out is E0913, whose help names the capture-list spelling. An
+        implicit capture is discovered while the body is evaluated and shares
+        the outer binding, so owning it would need a second body evaluation;
+        this can be widened later without changing any accepted program.
+      - **The trait comes from the slot, which the body is checked against.**
+        A closure literal always has an expected type, so its kind is the
+        slot's: against `Fn(...)` a move out of a capture is E0913 at the
+        moving line; against `FnOnce(...)` it is accepted. The scan of
+        step 1 is that check.
+      - **The consuming call.** `f()` on a value typed `FnOnce(...)` (an
+        `Impl` or `Dyn`) consumes `f`: a second call is E0901 pointing at the
+        first. Calling through a borrowed parameter is E0901 ("take it
+        `sink(f)`"). A `sink(f) : Impl(FnOnce(...))` parameter that the body
+        never calls is dropped by the callee. A move on some paths only is
+        E0907, as for every move-only value.
+      - **`Fn` implies `FnOnce`** in type compatibility; an `FnOnce` value
+        passed to an `Fn(...)` parameter is E0913.
+      - **N5's `match` shapes wait for V3b.** In Generation A every `match`
+        binding borrows (a plain scrutinee is by-value only after V3b's
+        flip), and `&x` is still the address-of, so a bare `match` on a
+        capture cannot move out and `match(&x, …)` has no marker meaning yet.
+        Their tests land with V3b Generation B. The move out, the tail
+        return and the binding are tested (`tests/fn_once.test.yo`).
 
 38. **Closure soundness rules: the 2026-10-06 audit.** Confirmed
     2026-10-06 by the maintainer. An adversarial audit of decisions 22, 23,

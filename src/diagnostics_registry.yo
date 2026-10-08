@@ -59,6 +59,7 @@ json :: import("std/encoding/json");
   E_BORROW_CONFLICT,
   E_LOCAL_BORROW_CONFLICT,
   E_LOCAL_BORROW_ESCAPES,
+  E_CLOSURE_MOVES_CAPTURE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -584,6 +585,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "get :: (fn() -> i32)({\n  x := i32(1);\n  imm(y) := x;\n  v := y;\n  return(v);\n});\nexport(get);\n",
       "`return(y)` names the borrow itself; `v := y` reads through it, and `v` owns the copy it gets.",
       "`return(y)` 指名的是借用本身；`v := y` 通过它读取，`v` 拥有它得到的副本。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CLOSURE_MOVES_CAPTURE,
+      "a closure moves a capture out where its call cannot consume it",
+      "闭包在其调用无法消耗它的地方移出了捕获",
+      "A closure body moves a by-value capture out, but the closure is typed `Fn(...)` (or passed where `Fn(...)` is required), or the capture is implicit.",
+      "闭包体移出了一个按值捕获，但该闭包的类型是 `Fn(...)`（或被传给要求 `Fn(...)` 的地方），或者该捕获是隐式的。",
+      "An `Fn(...)` call borrows the closure's captures so the closure can run again; moving one out would leave the next call reading moved storage. A closure that moves a capture out is called once: type it `FnOnce(...)` (decision 37), whose call consumes the closure, so its body owns its captures and drops the ones it does not move. `Fn` implies `FnOnce`, never the reverse: an `FnOnce` closure passed to an `Fn(...)` parameter is this error too. In Generation A the body owns only the by-value entries of a capture list (`{ t }() => take(t)`), so moving an implicit capture out is rejected with the capture-list spelling.",
+      "`Fn(...)` 调用借用闭包的捕获，以便闭包能再次运行；移出其中之一会让下一次调用读到已被移走的存储。移出捕获的闭包只会被调用一次：请把它的类型写成 `FnOnce(...)`（决策 37），其调用会消耗闭包，因此函数体拥有其捕获，并 drop 没有移出的那些。`Fn` 蕴含 `FnOnce`，反之不成立：把 `FnOnce` 闭包传给 `Fn(...)` 形参也是此错误。在第一代实现中，函数体只拥有捕获列表的按值条目（`{ t }() => take(t)`），因此移出隐式捕获会被拒绝，并给出捕获列表的写法。",
+      "Tok :: struct(n : i32);\nimpl(Tok, MoveOnly());\ntake :: (fn(sink(t) : Tok) -> i32)(t.n);\nmain :: (fn() -> unit)({\n  t := Tok(n : i32(5));\n  (f : Impl(Fn() -> i32)) = ({ t }() => take(t));\n  _r := f();\n});\nexport(main);\n",
+      "Tok :: struct(n : i32);\nimpl(Tok, MoveOnly());\ntake :: (fn(sink(t) : Tok) -> i32)(t.n);\nmain :: (fn() -> unit)({\n  t := Tok(n : i32(5));\n  (f : Impl(FnOnce() -> i32)) = ({ t }() => take(t));\n  _r := f();\n});\nexport(main);\n",
+      "Typed `Fn(...)`, the closure could be called again after `take(t)` moved its capture; typed `FnOnce(...)`, its one call consumes it and owns `t`.",
+      "类型为 `Fn(...)` 时，闭包在 `take(t)` 移走其捕获后仍可能再次被调用；类型为 `FnOnce(...)` 时，它唯一的一次调用会消耗它并拥有 `t`。"
     )
   );
   out.push(

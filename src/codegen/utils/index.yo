@@ -72,7 +72,7 @@ mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
 get_uses_tls :: (fn() -> bool)(g_uses_tls);
-{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution, scope_variables } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_types, extern_c_global_c_name, is_module_level_global, module_global_c_suffix, is_thread_local, some_resolution, scope_variables, is_fnonce_capture_drop } :: import("../../expr_info.yo");
 {
   AstExpr,
   ast_expr_is_address_of_call,
@@ -2107,10 +2107,16 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String)
   )
 );
 /// True if a deferred drop targets a variable captured by the current
-/// closure.
+/// closure: the closure, not its body, owns the capture. The one exception is
+/// a drop the evaluator scheduled for an `FnOnce` closure's own capture frame
+/// (`is_fnonce_capture_drop`): that body owns its captures and drops the ones
+/// it did not move (plans/VALUES_BY_DEFAULT.md decision 37).
 is_deferred_drop_for_closure_capture :: (
   fn(drop_expr : AstExpr, current_closure_captures : Option(ArrayList(String))) -> bool
 )({
+  if(is_fnonce_capture_drop(ast_expr_id(drop_expr)), {
+    return(false);
+  });
   target := get_deferred_drop_target_atom_name(drop_expr);
   match(
     target,

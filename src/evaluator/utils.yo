@@ -70,10 +70,12 @@ pragma(Pragma.AllowUnsafe);
   find_live_inout_borrowers,
   snapshot_env,
   UndoneMove,
-  variable_record_undone_move
+  variable_record_undone_move,
+  is_fn_capture_value_binding,
+  is_fnonce_capture_frame
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
-{ EvalContext, LoopBodyCtx, LoopFlowSnapshot, copy_trait_blockers_via_hook } :: import("./context.yo");
+{ EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
 {
   format_error_message,
@@ -85,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -93,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_iso_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type } :: import("../types/guards.yo");
-{ get_func_type, is_fn_ctfe_clone } :: import("../function_value.yo");
+{ get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
@@ -637,6 +639,139 @@ _owning_param_binding_for_capture_move :: (fn(env : Environment, name : String) 
   });
   Option(Variable).None
 });
+/// Decision 37 (plans/VALUES_BY_DEFAULT.md): the call `f(...)` of a closure
+/// typed `FnOnce(...)` takes it as `self`, so it CONSUMES the binding `v`
+/// that names it: a later use, a second call included, is E0901 pointing at
+/// this call. Inside a specialized body `v` is the non-owning shadow of a
+/// `sink(f) : Impl(FnOnce(...))` parameter, and the call consumes the owning
+/// binding the caller's transfer handed the closure to, as a capture's move
+/// does (`move_captured_explicit_copy_variable`). Storage the call cannot
+/// take the closure from is rejected: a borrowed parameter (a non-escaping
+/// API cannot take `FnOnce`), an `inout` binding, a module-level binding, and
+/// the by-value capture of a closure typed `Fn(...)` (E0913). A re-evaluation
+/// of the same call site is not a second call.
+consume_called_fnonce_closure :: (fn(callee : AstExpr, v : Variable, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  tok := ast_expr_token(callee);
+  same_site := match(
+    v.consumed_at_token,
+    .Some(moved_at) => ((moved_at.*.row == tok.row) && ((moved_at.*.column == tok.column) && (moved_at.*.module_path == tok.module_path))),
+    .None => false
+  );
+  if(same_site, {
+    return(());
+  });
+  if(_is_implicit_closure_capture(v, env, ctx), {
+    raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          tok,
+          `Cannot call \`${v.name}\` here: it is captured implicitly by this closure, and an \`FnOnce(...)\` call consumes the closure it calls, so it would be gone after this closure's first call.`,
+          Option(String).Some(`list it and type this closure \`FnOnce(...)\`: \`{ ${v.name} }(...) => ${v.name}()\``)
+        ),
+        E_CLOSURE_MOVES_CAPTURE
+      ),
+      ctx,
+      exn
+    );
+    return(());
+  });
+  owner := if(!v.is_owning_the_rc_value && v.is_parameter && !v.is_ref, _owning_param_binding_beside(env, v), Option(Variable).None);
+  // A closure whose captures hold nothing to release (plain data) is called
+  // through any binding harmlessly; one holding an RC or move-only value
+  // releases it in the call, so the binding must own the closure.
+  holds_owned := (type_contains_rc_type(v.ty) || type_requires_explicit_copy(v.ty));
+  what := cond(
+    v.is_module_level => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
+    v.is_ref => Option(String).Some(String.from("it is an `inout` binding, which names storage the caller owns")),
+    (v.is_parameter && !v.is_owning_the_rc_value && owner.is_none()) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value, `sink(f) : Impl(FnOnce(...))` (only an API the closure escapes into calls it once)")),
+    (!v.is_parameter && !v.is_owning_the_rc_value && holds_owned && !is_fn_capture_value_binding(v.id)) => Option(String).Some(String.from("it is borrowed from the value that holds it (a `match`/`for` binding): move the holder, or match a value you own")),
+    true => Option(String).None
+  );
+  match(
+    what,
+    .Some(w) => raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          tok,
+          `use of moved value: cannot call \`${v.name}\`: an \`FnOnce(...)\` call consumes the closure, and \`${v.name}\` cannot give it away: ${w}.`,
+          Option(String).Some(String.from("call an `Fn(...)` closure through a borrow; an `FnOnce(...)` closure is called once, by its owner"))
+        ),
+        E_USE_OF_MOVED_VALUE
+      ),
+      ctx,
+      exn
+    ),
+    .None => cond(
+      is_fn_capture_value_binding(v.id) => raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `Cannot call \`${v.name}\` here: it is a by-value capture of a closure typed \`Fn(...)\`, whose call borrows its captures, and an \`FnOnce(...)\` call consumes the closure it calls.`,
+            Option(String).Some(String.from("type the enclosing closure `FnOnce(...)`, so its body owns its captures"))
+          ),
+          E_CLOSURE_MOVES_CAPTURE
+        ),
+        ctx,
+        exn
+      ),
+      owner.is_some() => {
+        // Both moves are logged, so a `cond`/`match` join restores the
+        // shadow for a sibling arm as it does the owner.
+        o := match(owner, .Some(x) => x, .None => v);
+        _log_user_move(o, tok, env);
+        o.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+        _log_user_move(v, tok, env);
+        v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      },
+      true => set_expr_as_consumed(callee, env, false, ctx, exn)
+    )
+  );
+});
+/// The owning binding a specialized body's non-owning closure-parameter
+/// shadow `v` stands for: an owning, unconsumed parameter of the same name
+/// in the SAME frame as `v` (the re-bind and the caller's transfer bind into
+/// one callee frame). Restricted to that frame so a nested function's
+/// borrowed parameter never resolves to an unrelated outer `sink` parameter
+/// of the same name.
+_owning_param_binding_beside :: (fn(env : Environment, v : Variable) -> Option(Variable))({
+  (fi : usize) = env.frames.len();
+  while(fi > usize(0), {
+    fi = (fi - usize(1));
+    match(
+      env.frames.get(fi),
+      .Some(fr) => {
+        (has_v : bool) = false;
+        (vi : usize) = usize(0);
+        while(vi < fr.variables.len(), {
+          match(
+            fr.variables.get(vi),
+            .Some(fv) => if(fv.id == v.id, {
+              has_v = true;
+            }),
+            .None => ()
+          );
+          vi = (vi + usize(1));
+        });
+        if(has_v, {
+          (oi : usize) = usize(0);
+          while(oi < fr.variables.len(), {
+            match(
+              fr.variables.get(oi),
+              .Some(ov) => if((ov.id != v.id) && (ov.name == v.name) && ov.is_parameter && ov.is_owning_the_rc_value && (!ov.is_ref && !ov.is_module_level) && ov.consumed_at_token.is_none(), {
+                return(Option(Variable).Some(ov));
+              }),
+              .None => ()
+            );
+            oi = (oi + usize(1));
+          });
+          return(Option(Variable).None);
+        });
+      },
+      .None => ()
+    );
+  });
+  Option(Variable).None
+});
 move_captured_explicit_copy_variable :: (fn(v : Variable, tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
   match(
     v.consumed_at_token,
@@ -704,6 +839,104 @@ _throw_explicit_copy_violation :: (fn(rhs : AstExpr, ty : TypeValue, what : Stri
     exn
   );
 });
+/// E0913 for a move out of a by-value capture of a closure typed `Fn(...)`
+/// (plans/VALUES_BY_DEFAULT.md decision 37): an `Fn` call borrows the
+/// captures so the closure can run again, and a closure that moves one out is
+/// call-once. The error names the moving line; the fix is the `FnOnce(...)`
+/// type, whose call consumes the closure.
+_throw_fn_closure_moves_capture :: (fn(rhs : AstExpr, ty : TypeValue, ctx : EvalContext, exn : Exception) -> unit)({
+  name := _place_text(rhs);
+  msg := `Cannot move \`${name}\` out of the closure: it is a by-value capture, and the closure is typed \`Fn(...)\`, whose call borrows its captures so it can run again. A closure that moves a capture out is called once.`;
+  help := `type the closure \`FnOnce(...)\`: its call consumes the closure, whose body then owns its captures and may move \`${name}\` (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}) out`;
+  raise_flow_violation(
+    with_code(format_error_message_with_help(ast_expr_token(rhs), msg, Option(String).Some(help)), E_CLOSURE_MOVES_CAPTURE),
+    ctx,
+    exn
+  );
+});
+/// `v` is captured IMPLICITLY by the closure whose body is being evaluated:
+/// it is bound in a frame below the body's own frames, and not in a capture
+/// list's frame (an `Fn` closure's by-value entries are checked first; an
+/// `FnOnce` closure's, which the body owns, are excluded here).
+/// `io.async` bodies are excluded: their state machine owns its captures.
+_is_implicit_closure_capture :: (fn(v : Variable, env : Environment, ctx : EvalContext) -> bool)(
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(sub) => match(
+      sub.kind,
+      .FunctionBody => {
+        fid := match(sub.func_value, .Some(fv) => match(fv, .FuncVal(fvd, _) => fvd.*.func_id.clone(), _ => String.from("")), .None => String.from(""));
+        if((fid.len() == usize(0)) || !is_closure_fn(fid.clone()) || is_io_async_sm_closure(fid.clone()), {
+          return(false);
+        });
+        body_level := sub.eval_env.frame_count();
+        (fi : usize) = env.frames.len();
+        while(fi > usize(0), {
+          fi = (fi - usize(1));
+          match(
+            env.frames.get(fi),
+            .Some(fr) => {
+              (vi : usize) = usize(0);
+              while(vi < fr.variables.len(), {
+                match(
+                  fr.variables.get(vi),
+                  .Some(fv2) => if(fv2.id == v.id, {
+                    return((fi < body_level) && !is_fnonce_capture_frame(fr.id));
+                  }),
+                  .None => ()
+                );
+                vi = (vi + usize(1));
+              });
+            },
+            .None => ()
+          );
+        });
+        false
+      },
+      _ => false
+    ),
+    .None => false
+  )
+);
+/// `v` is the non-owning re-bind that shadows a `sink(f) : Impl(...)`
+/// closure parameter inside a SPECIALIZED body (calls/helper.yo's re-bind
+/// loop keeps it non-owning: an owning re-bind was a double release). The
+/// owning binding the caller's transfer handed the closure to sits in an
+/// outer frame (`_owning_param_binding_for_capture_move`); a move of the
+/// shadow — forwarding `f` to another `sink` parameter, storing it — moves
+/// THAT binding, so its scope-end drop is skipped. Both moves are logged for
+/// the `cond`/`match` joins. False (no move) when there is no such owner.
+/// (issues/fixed/forwarding-a-sink-closure-parameter-to-a-sink-parameter-is-rejected.md)
+_move_through_sink_shadow :: (fn(v : Variable, rhs : AstExpr, env : Environment) -> bool)({
+  if(!v.is_parameter || v.is_ref || v.is_module_level, {
+    return(false);
+  });
+  match(
+    _owning_param_binding_beside(env, v),
+    .Some(o) => {
+      tok := ast_expr_token(rhs);
+      _log_user_move(o, tok, env);
+      o.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      _log_user_move(v, tok, env);
+      v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      true
+    },
+    .None => false
+  )
+});
+/// E0913 for a move out of an implicit capture (Generation A of decision 37,
+/// as amended 2026-10-07): a closure body owns, and so may move out, only the
+/// by-value entries of a capture list, in a closure typed `FnOnce(...)`.
+_throw_implicit_capture_move :: (fn(rhs : AstExpr, ty : TypeValue, ctx : EvalContext, exn : Exception) -> unit)({
+  name := _place_text(rhs);
+  msg := `Cannot move \`${name}\` out of the closure: it is captured implicitly, and a closure body moves a capture out only from a capture list. A closure that moves a capture out is called once.`;
+  help := `list the capture and type the closure \`FnOnce(...)\`: \`{ ${name} }(...) => ...\`, whose call consumes the closure (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)})`;
+  raise_flow_violation(
+    with_code(format_error_message_with_help(ast_expr_token(rhs), msg, Option(String).Some(help)), E_CLOSURE_MOVES_CAPTURE),
+    ctx,
+    exn
+  );
+});
 /// The move of a value that is not implicitly copyable
 /// (`type_requires_explicit_copy`: today a move-only one) at a point where a
 /// copyable RC value would be dupped (`set_expr_as_needs_to_call_dup`): `:=`,
@@ -738,7 +971,10 @@ transfer_explicit_copy_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name 
       },
       v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
+      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, ei.ty, ctx, exn),
+      _is_implicit_closure_capture(v, ei.env, ctx) => _throw_implicit_capture_move(rhs, ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
+      _move_through_sink_shadow(v, rhs, ei.env) => (),
       true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
     )
   );
@@ -3320,7 +3556,7 @@ in_compile_time_fn_body :: (fn(ctx : EvalContext) -> bool)(
 export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
-export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, transfer_explicit_copy_value);
+export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, consume_called_fnonce_closure, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
 export(audit_copy_trait_enabled, audit_pending_copies_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
