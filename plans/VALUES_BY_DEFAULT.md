@@ -52,8 +52,8 @@ Progress:
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
   - V3's remaining async work (§3.13).
-- **Next:** the remaining Generation B sweeps (the V3b sweep and flip, the
-  `Copy` flip).
+- **Next:** the remaining Generation B sweeps (the V3b sweep and flip), and
+  decision 36's step 4, deleting `MoveOnly`.
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
