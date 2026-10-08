@@ -96,6 +96,15 @@ already the chunked default), finishing the 5b verifier-driven elision, a
 hoisted-walk lowering for the borrowed `for`, `Rc` write-assert elision by
 mutation summary, field reordering and PGO — sequenced around
 VALUES_BY_DEFAULT's phases.
+[`LANGUAGE_FEATURE_CANDIDATES`](backlog/LANGUAGE_FEATURE_CANDIDATES.md) is
+the 2026-10-08 parking lot of five checked candidates, none adopted: scoped
+parallel iteration as std (the `Sync` machinery is all landed; rayon-shaped
+borrowing is impossible by design — owned chunks or `Arc` sharing are the Yo
+shapes), a portable `std/simd` over clang/gcc vector extensions, pre-design
+of the parked stateful-call/borrow-mode-fields trigger, array-rest and
+str-prefix patterns whose tail bindings borrow, and pulling FV Phase V6
+(trait-method contracts, already designed) forward — plus the standing
+rejections table so nothing is re-proposed.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
