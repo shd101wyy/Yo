@@ -57,12 +57,27 @@ impl(
   where(T <: (Send, Acyclic)),
   // Spawn a new OS thread running the given closure.
   // The closure receives its own per-thread Io event loop.
-  spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self),
+  spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self),
   // Wait for the thread to complete (blocking) and take its result.
   // Panics on a second call.
   join : (fn(self : Self) -> T),
   is_joined : (fn(self : Self) -> bool)
 );
+```
+
+The body runs exactly once, so `spawn` takes it as `FnOnce` and owns it
+(`sink(cb)`). A closure with a capture list (`{ t }(io : Io) => ...`) may
+move a captured value out instead of cloning it, for example by handing it
+to a `sink` parameter or sending it over a channel (the value must be
+`Send`). Any capture it did not move is dropped when the body returns. An
+ordinary closure is accepted too, because `Fn` implies `FnOnce`.
+
+```rust
+Job :: struct(id : i32);
+run :: (fn(sink(j) : Job) -> i32)(j.id);
+job := Job(id : i32(7));
+t := Thread(i32).spawn({ job }(io : Io) => run(job)); // job moves into the thread, no clone
+n := t.join(); // 7
 ```
 
 ### Carrying a value out
@@ -138,7 +153,7 @@ ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 ThreadPool.num_threads : (fn(self : ThreadPool) -> usize);
 
 // Hand a task to the pool — a module-level function, not a method
-spawn : (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
+spawn : (fn(pool : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
 
 // Block until every task submitted so far has finished; the pool stays open
 ThreadPool.join_all : (fn(self : ThreadPool) -> unit);

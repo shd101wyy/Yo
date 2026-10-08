@@ -34,13 +34,24 @@ call.
 
 ## Fix
 
-When the consumed callee is not a closure that owns its captures (and is not a
-`Dyn`, whose call-once wrapper releases its box), `_consume_fnonce_callee`
-records a release of the callee for after the call, and
+When the consumed callee does not release itself, `_consume_fnonce_callee`
+(`src/evaluator/calls/function.yo`) builds a `___drop(<callee>)` and evaluates
+it before the consume (restoring the binding's `consumed_at_token`, so the drop
+does not itself count as a use of a moved value).
 `evaluate_function_call` appends it to the call's deferred drops
-(`_attach_fnonce_callee_release`), which codegen flushes right after the call.
-Whether the callee owns its captures is read from its concrete closure
-(`is_fnonce_closure_fn`), which a specialized body knows.
+(`_attach_fnonce_callee_release`), and codegen flushes it right after the call.
+A callee releases itself when it is a `Dyn` (its call-once wrapper frees the
+box), a closure that owns its captures (`is_fnonce_closure_fn`), or a value of
+such a closure's capture struct (`is_fnonce_capture_struct`), which a relay
+like `{ cb }() => cb()` sees once specialized.
+
+The drop is tagged (`mark_fnonce_post_call_release`, `src/expr_info.yo`). The
+post-call flush skips drops whose target is a parameter, and a closure body
+skips drops of its captures, both because the return points release those.
+Neither applies to this release: the parameter or capture was consumed by the
+call, so no return point releases it. Both filters exempt the tag
+(`_drop_target_is_parameter`, `src/codegen/exprs/drop_dup.yo`;
+`is_deferred_drop_for_closure_capture`, `src/codegen/utils/index.yo`).
 
 ## Verification
 

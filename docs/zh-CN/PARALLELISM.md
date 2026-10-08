@@ -57,11 +57,23 @@ impl(
   where(T <: (Send, Acyclic)),
   // 派生一个新的操作系统线程，运行给定的闭包。
   // 该闭包会获得自己的每线程 Io 事件循环。
-  spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self),
+  spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self),
   // 等待线程完成（阻塞），并取回它的结果。第二次调用会 panic。
   join : (fn(self : Self) -> T),
   is_joined : (fn(self : Self) -> bool)
 );
+```
+
+线程体只运行一次，所以 `spawn` 以 `FnOnce` 接收并拥有它（`sink(cb)`）。带捕获列表的闭包
+（`{ t }(io : Io) => ...`）可以把捕获的值移出，而不必克隆，例如交给一个 `sink` 参数，或通过
+Channel 发送（该值必须是 `Send`）。没有移出的捕获值在线程体返回时被释放。普通闭包同样可以传入，因为 `Fn` 蕴含 `FnOnce`。
+
+```rust
+Job :: struct(id : i32);
+run :: (fn(sink(j) : Job) -> i32)(j.id);
+job := Job(id : i32(7));
+t := Thread(i32).spawn({ job }(io : Io) => run(job)); // job 移入线程，无需克隆
+n := t.join(); // 7
 ```
 
 ### 把值带出线程
@@ -130,7 +142,7 @@ ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 ThreadPool.num_threads : (fn(self : ThreadPool) -> usize);
 
 // 向线程池提交任务——这是模块级函数，不是方法
-spawn : (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
+spawn : (fn(pool : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
 
 // 阻塞直到此前提交的所有任务完成；线程池保持开放
 ThreadPool.join_all : (fn(self : ThreadPool) -> unit);
