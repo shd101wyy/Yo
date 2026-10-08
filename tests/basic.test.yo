@@ -273,6 +273,8 @@ test("Test type auto derive Send", {
   MyBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(MyBox, Send) == false);
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
+  derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
   comptime_assert(Type.impls(GenericPoint(i32), Send) == true);
   comptime_assert(Type.impls(GenericPoint(MyBox), Send) == false);
 });
@@ -416,6 +418,8 @@ test("Test type auto derive Acyclic", {
   //
   // Generic struct: Acyclic depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
+  derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
   comptime_assert(Type.impls(GenericPoint(i32), Acyclic) == true);
   comptime_assert(Type.impls(GenericPoint(Node), Acyclic) == false);
   // Enum types
@@ -485,6 +489,8 @@ test("Test type auto derive Comptime", {
   comptime_assert(Type.impls(MyBox, Comptime) == false);
   // Generic struct: Comptime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
+  derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
   comptime_assert(Type.impls(GenericPoint(i32), Comptime) == true);
   comptime_assert(Type.impls(GenericPoint(MyBox), Comptime) == false);
   // Enum types with comptime-compatible fields are Comptime
@@ -642,6 +648,8 @@ test("Test type auto derive Runtime", {
   comptime_assert(Type.impls(MyBox, Runtime) == true);
   // Generic struct: Runtime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
+  derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
   comptime_assert(Type.impls(GenericPoint(i32), Runtime) == true);
   // Enum types with runtime-compatible fields are Runtime
   Direction :: enum(North, South, East, West);
@@ -1016,6 +1024,8 @@ test("Test 'struct'", {
     MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(
       struct(value : T)
     );
+    derive(generic(T : Type), where(T <: Clone), MyStruct(T), Clone);
+    derive(generic(T : Type), where(T <: Copy), MyStruct(T), Copy);
     impl(
       generic(T : Type),
       MyStruct(T),

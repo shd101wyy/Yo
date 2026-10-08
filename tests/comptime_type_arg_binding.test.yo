@@ -33,6 +33,8 @@ _Box :: (fn(comptime(T) : Type) -> comptime(Type))(
     v : T
   )
 );
+derive(generic(T : Type), where(T <: Clone), _Box(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _Box(T), Copy);
 _takes_box :: (fn(b : _Box(i32)) -> i32)(b.v);
 test("a generic bound only by the comptime type argument resolves", {
   a := _dflt(i32);

@@ -285,6 +285,8 @@ _bump :: (fn(inout(x) : i32) -> unit)({
   ()
 });
 _Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+derive(generic(T : Type), where(T <: Clone), _Wrap(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _Wrap(T), Copy);
 test("soundness: an inout call through a fn value mutates the argument", {
   (f : (fn(inout(x) : i32) -> unit)) = _bump;
   (v : i32) = i32(5);
@@ -481,6 +483,8 @@ test("soundness canary: a closure keeps the inner instantiation's parameter type
 // calling an `Impl(Fn(io : Io) -> T)` parameter inside a generic body typed the
 // result as an unresolved SomeT (undeclared symbol / clang type error).
 _IoCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(struct(v : T));
+derive(generic(T : Type), where(T <: Clone), _IoCell(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _IoCell(T), Copy);
 impl(
   generic(T : Type),
   where(T <: Send),
@@ -701,6 +705,8 @@ _P34A :: struct(x : i32);
 derive(_P34A, Copy, Clone);
 _P34B :: struct(x : i32);
 _P34Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+derive(generic(T : Type), where(T <: Clone), _P34Wrap(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _P34Wrap(T), Copy);
 impl(_P34A, show : (fn(self : Self) -> i32)(self.x + i32(100)));
 _P34T1 :: trait(t1 : (fn(self : Self) -> i32));
 _P34T2 :: trait(t2 : (fn(self : Self) -> i32));

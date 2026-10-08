@@ -27,6 +27,8 @@ ARD :: trait(
     )
 );
 Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+derive(generic(T : Type), where(T <: Clone), Wrap(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Wrap(T), Copy);
 // Generic implementor, EXPLICIT async bodies, `twice` awaits `Self.read` twice.
 impl(
   generic(T : Type),
@@ -68,6 +70,8 @@ impl(
 );
 // Two-type-argument generic implementor.
 Pair2 :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(struct(a : A, b : B));
+derive(generic(A : Type, B : Type), where(A <: Clone, B <: Clone), Pair2(A, B), Clone);
+derive(generic(A : Type, B : Type), where(A <: Copy, B <: Copy), Pair2(A, B), Copy);
 impl(
   generic(A : Type, B : Type),
   Pair2(A, B),

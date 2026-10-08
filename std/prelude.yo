@@ -9556,6 +9556,8 @@ derive(Allocator, Copy, Clone);
 derive(Ordering, Copy, Clone);
 derive(generic(T : Type), where(T <: Clone), Range(T), Clone);
 derive(generic(T : Type), where(T <: Copy), Range(T), Copy);
+derive(generic(T : Type), where(T <: Clone), RangeInclusive(T), Clone);
+derive(generic(T : Type), where(T <: Copy), RangeInclusive(T), Copy);
 derive(generic(T : Type), where(T <: Clone), Reverse(T), Clone);
 derive(generic(T : Type), where(T <: Copy), Reverse(T), Copy);
 /// Equality for `Result(T, E)` — variants must match and inner values must be equal.
@@ -10060,6 +10062,16 @@ _ArrayIter :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
     _back_taken : usize
   )
 );
+// Copy when its elements are (decision 36). Written out: a generic derive
+// cannot find `Array(T, N)`'s conditional impls under its own `where`
+// (issues/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md).
+impl(
+  generic(T : Type, N : usize),
+  where(T <: Copy),
+  _ArrayIter(T, N),
+  Clone(clone : (self -> Self(_arr : self._arr, _index : self._index, _back_taken : self._back_taken)))
+);
+impl(generic(T : Type, N : usize), where(T <: Copy), _ArrayIter(T, N), Copy());
 impl(
   generic(T : Type, N : usize),
   _ArrayIter(T, N),

@@ -92,6 +92,8 @@ test("Atomic object implements Acyclic", {
 /// Test that cycles through value-type struct intermediaries are detected
 test("Cycle through struct wrapper does not derive Acyclic", {
   Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+  derive(generic(T : Type), where(T <: Clone), Wrap(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), Wrap(T), Copy);
   CyclicNode :: atomic(ref(struct(data : i32, child : Option(Wrap(Self)))));
   // Wrap(i32) has no cycle — should be Acyclic
   comptime_assert(Type.impls(Wrap(i32), Acyclic), "Wrap(i32) should be Acyclic");
@@ -138,6 +140,8 @@ test("comptime_expect_error: Acyclic constraint rejects cyclic type", {
 /// Test that Acyclic constraint rejects cycle through struct wrapper
 test("comptime_expect_error: Acyclic constraint rejects struct-wrapped cycle", {
   Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+  derive(generic(T : Type), where(T <: Clone), Wrap(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), Wrap(T), Copy);
   CyclicNode :: atomic(ref(struct(data : i32, child : Option(Wrap(Self)))));
   AcyclicContainer :: (fn(comptime(T) : Type, where(T <: Acyclic)) -> comptime(Type))(
     struct(value : T)

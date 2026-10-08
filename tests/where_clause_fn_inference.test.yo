@@ -141,6 +141,8 @@ _wc_need_both :: (fn(generic(T : Type), x : T, where(T <: (_WcFoo, _WcBar))) -> 
   x.wc_foo() + x.wc_bar()
 );
 _WcBox :: (fn(comptime(T) : Type, where(T <: _WcBar)) -> comptime(Type))(struct(v : T));
+derive(generic(T : Type), where(T <: Clone), _WcBox(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _WcBox(T), Copy);
 _WcPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
 _wc_need_send :: (fn(generic(T : Type), x : T, where(T <: Send)) -> unit)(());
 _wc_fwd :: (fn(generic(U : Type), y : U) -> unit)(_wc_need_send(_WcPair(U)(a : y, b : y)));

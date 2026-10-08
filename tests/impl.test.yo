@@ -300,6 +300,8 @@ test("Test duplicate inherent method impl is rejected (different arity)", {
 // same defining site — that must stay legal (the loader's idempotent
 // re-registration works the same way).
 GenBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+derive(generic(T : Type), where(T <: Clone), GenBox(T), Clone);
+derive(generic(T : Type), where(T <: Copy), GenBox(T), Copy);
 impl(
   generic(T : Type),
   GenBox(T),
@@ -323,6 +325,8 @@ test("Test generic impl instantiated twice registers cleanly", {
 SdBox :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(value : T)
 );
+derive(generic(T : Type), where(T <: Clone), SdBox(T), Clone);
+derive(generic(T : Type), where(T <: Copy), SdBox(T), Copy);
 SdMake :: trait(
   sd_make : (fn() -> Self)
 );

@@ -93,6 +93,8 @@ read_to_end_free :: (
 // red case (the loop shape's binding is sm-hoisted, covered by the facet-2
 // slot store); both are pinned.
 Wrap :: (fn(comptime(R) : Type) -> comptime(Type))(struct(_inner : R));
+derive(generic(R : Type), where(R <: Clone), Wrap(R), Clone);
+derive(generic(R : Type), where(R <: Copy), Wrap(R), Copy);
 impl(
   generic(R : Type),
   where(R <: Reader),

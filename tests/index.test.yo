@@ -524,6 +524,8 @@ test("StrictPoint comptime Index propagates errors", {
 GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(x : T, y : T)
 );
+derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
 impl(
   generic(T),
   GenericPoint(T),
