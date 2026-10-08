@@ -114,6 +114,14 @@ pragma(Pragma.AllowUnsafe);
 // environment its `Copy` question is asked in, and the memo the trait-impl
 // epoch (`types/utils.yo`) invalidates.
 (g_flip_env : Option(Environment)) = Option(Environment).None;
+/// The targets of the `derive` being evaluated whose trait list includes
+/// `Copy` (keys from `type_key`). Inside that derive, the target counts as
+/// `Copy` for the flip: its `Clone` impl is registered before its `Copy`
+/// impl (which checks that `Clone` exists), and a derived `clone()` body
+/// copies the target (`Self(self.n.clone())` on a newtype is a copy of the
+/// place `self.n` once the `u32` clone expands to its receiver). The `Copy`
+/// impl registered right after still checks every part.
+(g_copy_pending_keys : ArrayList(String)) = ArrayList(String).new();
 (g_lacks_copy_memo : HashMap(String, bool)) = HashMap(String, bool).new();
 (g_lacks_copy_memo_epoch : u64) = u64(0);
 /// Register that the type `type_id` auto-derives the marker trait named
@@ -864,6 +872,17 @@ _copy_without_clone_msg :: (fn(target_type : TypeValue, env : Environment) -> Op
 set_flip_prelude_env :: (fn(env : Environment) -> unit)({
   g_flip_env = Option(Environment).Some(env);
 });
+/// Mark `ty` as the target of a `derive` that includes `Copy` (see
+/// `g_copy_pending_keys`).
+push_copy_pending :: (fn(ty : TypeValue) -> unit)({
+  g_copy_pending_keys.push(type_key(ty));
+});
+/// Forget every pending `Copy` derive target. Derives do not nest, so a
+/// derive clears the list on entry and on exit (and its guarded caller after
+/// a throw), and a failed derive leaves nothing behind.
+clear_copy_pending :: (fn() -> unit)({
+  g_copy_pending_keys.clear();
+});
 /// True when a value of the plain-data type `ty` is NOT implicitly copyable
 /// under decision 36's flip: it is not `Copy`. Compile-time-only types (their
 /// copies never reach run time), control-bound records (`Exception`, effect
@@ -887,6 +906,14 @@ type_lacks_copy_for_flip :: (fn(ty : TypeValue) -> bool)({
     g_lacks_copy_memo_epoch = trait_impl_epoch();
   });
   key := type_key(ty);
+  // Not memoized: the answer changes once the derive registers `Copy`.
+  (pi : usize) = usize(0);
+  while(pi < g_copy_pending_keys.len(), {
+    if(match(g_copy_pending_keys.get(pi), .Some(pk) => (pk == key), .None => false), {
+      return(false);
+    });
+    pi = (pi + usize(1));
+  });
   match(
     g_lacks_copy_memo.get(key.clone()),
     .Some(known) => {
@@ -2865,7 +2892,7 @@ export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_sync, type_implements_dispose, type_implements_acyclic);
 export(deref_target_type, copy_structural_parts);
-export(set_flip_prelude_env);
+export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
