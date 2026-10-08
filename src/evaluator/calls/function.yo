@@ -5294,8 +5294,31 @@ _fnonce_callee_releases_itself :: (fn(callee_info : ExprInfo) -> bool)({
 /// would read a moved value), exactly as the call machinery's own post-call
 /// drops are (`generate_deferred_drop_expressions`, calls/helper.yo).
 _record_fnonce_callee_release :: (fn(call : AstExpr, name : String, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  // The drop is a codegen artifact that runs after the call; evaluating it
+  // must not consume the callee before the call reads it. Snapshot the
+  // consumed state of every binding of the name (a `sink` parameter's
+  // non-owning shadow and the owning binding beside it) and restore it.
+  same_name := get_variables_from_env(env, name.clone());
+  saved := ArrayList(Option(Rc(Token))).new();
+  (si : usize) = usize(0);
+  while(si < same_name.len(), {
+    saved.push(match(same_name.get(si), .Some(sv) => sv.consumed_at_token, .None => Option(Rc(Token)).None));
+    si = (si + usize(1));
+  });
   drop_expr := generate_expr_from_code(`___drop(${name})`, exn);
-  g_fnonce_release_after_call.insert(ast_expr_id(call), evaluate_expression_raw(drop_expr, env, ctx, exn));
+  evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+  (ri : usize) = usize(0);
+  while(ri < same_name.len(), {
+    match(
+      same_name.get(ri),
+      .Some(rv) => {
+        rv.consumed_at_token = match(saved.get(ri), .Some(t) => t, .None => Option(Rc(Token)).None);
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  g_fnonce_release_after_call.insert(ast_expr_id(call), evaluated);
 });
 /// Append the post-call release `_consume_fnonce_callee` recorded for `call`
 /// to the deferred drops of `result`, the node its evaluation returned (it may
