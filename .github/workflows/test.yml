@@ -1155,19 +1155,73 @@ jobs:
       # the meaning of the suite. The four macOS/Windows targets run this
       # same invocation in `test-native` below, under the cross-emitted
       # tree-built compiler.
+      # The language suite runs in `test-suite`, sharded 4-way per leg, on this
+      # job's stage-2 binary (measured 2026-10-08: the suite step alone took 51
+      # min on ubuntu-latest and 70 min on ubuntu-24.04-arm, after 33-44 min of
+      # stage-1 + stage-2 builds). The builds stay here, once per leg.
+      - name: Upload stage 2 for the sharded suite
+        uses: actions/upload-artifact@v4
+        with:
+          name: yo-test-stage2-${{ matrix.os }}
+          path: /tmp/yo-stage2
+          retention-days: 1
+          if-no-files-found: error
+
+  # The Linux language suite, sharded: each leg's suite runs on the stage-2
+  # binary its `test` leg built, as 4 shards (`--shard i/n` stripes the sorted
+  # file list). Before, one `test` leg ran the whole suite after its builds:
+  # 51 min (ubuntu-latest) and 70 min (ubuntu-24.04-arm) of a 84-115 min job.
+  test-suite:
+    name: test suite (${{ matrix.os }}) shard ${{ matrix.shard }}/4
+    needs: [changes, tree-hygiene, test]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.os }}
+    # ~13-18 min of tests per shard; 90 still bounds a hang.
+    timeout-minutes: 90
+    env:
+      # Same as the `test` job.
+      YO_MAIN_STACK_MB: "4096"
+      YO_TEST_LEAK_VERDICT: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.changes.outputs.test_os) }}
+        shard: [0, 1, 2, 3]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install OpenSSL dev (for std/http in the suite)
+        run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
+
+      - name: Download this leg's stage 2
+        uses: actions/download-artifact@v8
+        with:
+          name: yo-test-stage2-${{ matrix.os }}
+          path: /tmp/yo-test-stage2
+
       - name: Run tests
         shell: bash
         run: |
-          # This job's matrix went Linux-only when the self-build moved off
-          # macOS/Windows (see the stage-1 note above), so the 2026-09-03
-          # Windows `--disable-sanitize` workaround
-          # (issues/fixed/windows-images-lost-libasan.md) has nothing left to
-          # gate here — ASan runs, as it always did on Linux.
-          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
+          chmod +x /tmp/yo-test-stage2/yo-stage2
+          S1=/tmp/yo-test-stage2/yo-stage2
+          # The binary is not under yo-out/<triple>/bin/, so pin std to the
+          # checkout (the `test` job does the same).
+          export YO_STD="$PWD/std"
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang --shard ${{ matrix.shard }}/4
           # Sibling and in-file tests under std/ — the private-member tests
           # (plans/reference/MEMBER_VISIBILITY.md): `yo test` collects
           # `std/**/*.test.yo` and any module with a top-level `test(...)`.
-          "$S1" test ./std --bail --verbose --c-compiler clang
+          # Small: once per leg, on shard 0.
+          if [ "${{ matrix.shard }}" = "0" ]; then
+            "$S1" test ./std --bail --verbose --c-compiler clang
+          fi
 
   # ---------------------------------------------------------------------
   # The four NON-LINUX release targets: full language suite per PR, under a
@@ -3009,6 +3063,7 @@ jobs:
       - guard-elision
       - verify-src
       - test
+      - test-suite
       - suite-candidate
       - chunked-gate
       - suite-cross-emit
