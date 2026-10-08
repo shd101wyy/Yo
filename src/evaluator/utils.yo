@@ -719,9 +719,9 @@ consume_called_fnonce_closure :: (fn(callee : AstExpr, v : Variable, env : Envir
         // shadow for a sibling arm as it does the owner.
         o := match(owner, .Some(x) => x, .None => v);
         _log_user_move(o, tok, env);
-        o.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+        o.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
         _log_user_move(v, tok, env);
-        v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+        v.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
       },
       true => set_expr_as_consumed(callee, env, false, ctx, exn)
     )
@@ -916,9 +916,9 @@ _move_through_sink_shadow :: (fn(v : Variable, rhs : AstExpr, env : Environment)
     .Some(o) => {
       tok := ast_expr_token(rhs);
       _log_user_move(o, tok, env);
-      o.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      o.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
       _log_user_move(v, tok, env);
-      v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      v.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
       true
     },
     .None => false
