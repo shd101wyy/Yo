@@ -117,6 +117,7 @@ pragma(Pragma.AllowUnsafe);
   register_func_type,
   mark_as_closure_fn,
   mark_as_fnonce_closure_fn,
+  mark_fnonce_capture_struct,
   ClosureCaptureInfo,
   register_closure_capture_info,
   get_closure_capture_info,
@@ -2803,6 +2804,7 @@ Result type: ${type_to_string(decl_result_ty)}`
     });
     cap_res := create_capture_type_and_value(Option(TypeValue).None, cvwv, env, tok);
     closure_capture_type = cap_res.capture_type;
+    _mark_fnonce_capture_struct_of(closure_owns_captures, closure_capture_type);
     // An `io.async` body escapes into its future, and a borrowing future
     // (§3.13 A2) has not landed: it may not capture a second-class value.
     if(ctx.is_inside_io_async_call, {
@@ -2875,6 +2877,7 @@ Result type: ${type_to_string(decl_result_ty)}`
         );
         if(prev_nf2 > cur_nf2, {
           closure_capture_type = Option(TypeValue).Some(prev_cci2.capture_type);
+          _mark_fnonce_capture_struct_of(closure_owns_captures, closure_capture_type);
         });
       },
       .None => ()
@@ -3056,5 +3059,13 @@ Result type: ${type_to_string(decl_result_ty)}`
     attach_temp_variable_to_expr(expr, true, ctx);
   });
   expr
+});
+/// Register a closure's capture struct as owning its captures (decision 37):
+/// an `FnOnce(...)` capture-list closure. Its consuming call then needs no
+/// release after it (`_fnonce_callee_releases_itself`, calls/function.yo).
+_mark_fnonce_capture_struct_of :: (fn(owns : bool, cap_ty : Option(TypeValue)) -> unit)({
+  if(owns, {
+    match(cap_ty, .Some(.Struct({ id : cs_id })) => mark_fnonce_capture_struct(cs_id), _ => ());
+  });
 });
 export(evaluate_anonymous_function_implementation);

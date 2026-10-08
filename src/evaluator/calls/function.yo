@@ -93,6 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
 { try_to_implement_closure_by_fn_module_type } :: import("./closure_type.yo");
@@ -135,7 +136,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, audit_borrow_marker_site, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
-{ get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
+{ get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
@@ -5191,7 +5192,7 @@ evaluate_function_call :: (
   call_mp := call_tok.module_path.clone();
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(call_mp, ctx.std_path.clone()), {
     std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
-    _attach_fnonce_callee_release(std_r, ctx);
+    _attach_fnonce_callee_release(expr, std_r, ctx);
     return(std_r);
   });
   out := ArrayList(AstExpr).new();
@@ -5203,7 +5204,7 @@ evaluate_function_call :: (
     },
     .None => {
       r := match(out.get(usize(0)), .Some(e) => e, .None => expr);
-      _attach_fnonce_callee_release(r, ctx);
+      _attach_fnonce_callee_release(expr, r, ctx);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(r, call_tok, ctx, exn);
       });
@@ -5261,7 +5262,7 @@ _local_borrow_note_call_site :: (fn(call : AstExpr, call_tok : Token, ctx : Eval
 /// a body whose drop pass ran without the move scheduled a drop of the
 /// consumed closure.
 /// Calls whose `FnOnce` callee must be released once after the call
-/// (call expr id → callee expr). An `FnOnce(...)` call consumes its callee, so
+/// (call expr id → its evaluated `___drop(<callee>)`). An `FnOnce(...)` call consumes its callee, so
 /// the callee's binding is never dropped at scope end. A closure whose body
 /// OWNS its captures (`FnOnce(...)` with a capture list) has dropped them by
 /// the time the call returns, but an `Fn` closure called through an
@@ -5280,15 +5281,30 @@ _fnonce_callee_releases_itself :: (fn(callee_info : ExprInfo) -> bool)({
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(callee_info.value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
-  match(fv_opt, .Some(fv) => match(fv, .FuncVal(fvd, _) => is_fnonce_closure_fn(fvd.*.func_id.clone()), _ => false), .None => false)
+  if(match(fv_opt, .Some(fv) => match(fv, .FuncVal(fvd, _) => is_fnonce_closure_fn(fvd.*.func_id.clone()), _ => false), .None => false), {
+    return(true);
+  });
+  // A local typed `Impl(FnOnce(...))` carries no function value; its type
+  // resolves to the closure's capture struct.
+  resolved := match(callee_info.ty, .SomeT({ resolution : sr }) => match(sr, .Some(c) => c, .None => callee_info.ty), _ => callee_info.ty);
+  match(resolved, .Struct({ id : cs_id }) => is_fnonce_capture_struct(cs_id), _ => false)
+});
+/// Record `___drop(<name>)` as the release to run after `call`. The drop is
+/// built and evaluated BEFORE the callee is consumed (evaluating it afterwards
+/// would read a moved value), exactly as the call machinery's own post-call
+/// drops are (`generate_deferred_drop_expressions`, calls/helper.yo).
+_record_fnonce_callee_release :: (fn(call : AstExpr, name : String, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  drop_expr := generate_expr_from_code(`___drop(${name})`, exn);
+  g_fnonce_release_after_call.insert(ast_expr_id(call), evaluate_expression_raw(drop_expr, env, ctx, exn));
 });
 /// Append the post-call release `_consume_fnonce_callee` recorded for `call`
-/// to the call's deferred drops, which codegen flushes right after the call.
-_attach_fnonce_callee_release :: (fn(call : AstExpr, ctx : EvalContext) -> unit)({
+/// to the deferred drops of `result`, the node its evaluation returned (it may
+/// be a rewrite of `call`), which codegen flushes right after the call.
+_attach_fnonce_callee_release :: (fn(call : AstExpr, result : AstExpr, ctx : EvalContext) -> unit)({
   match(
     g_fnonce_release_after_call.remove(ast_expr_id(call)),
     .Some(callee) => match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(call)),
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(result)),
       .Some(ci) => {
         drops := match(ci.deferred_drop_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
         drops.push(callee);
@@ -5354,18 +5370,18 @@ _consume_fnonce_callee :: (fn(callee : AstExpr, call : AstExpr, callee_info : Ex
       );
       return(());
     });
+    if(!_fnonce_callee_releases_itself(callee_info), {
+      _record_fnonce_callee_release(call, name.clone(), env, ctx, exn);
+    });
     if(v.consumed_at_token.is_none(), {
       v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(callee)));
     });
-    if(!_fnonce_callee_releases_itself(callee_info), {
-      g_fnonce_release_after_call.insert(ast_expr_id(call), callee);
-    });
     return(());
   });
-  consume_called_fnonce_closure(callee, v, env, ctx, exn);
   if(holds_owned && !_fnonce_callee_releases_itself(callee_info), {
-    g_fnonce_release_after_call.insert(ast_expr_id(call), callee);
+    _record_fnonce_callee_release(call, name.clone(), env, ctx, exn);
   });
+  consume_called_fnonce_closure(callee, v, env, ctx, exn);
 });
 _evaluate_function_call_unanchored :: (
   fn(
