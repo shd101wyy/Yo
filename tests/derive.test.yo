@@ -8,6 +8,8 @@
 // === Basic struct for testing ===
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point));
+// `Copy` first: the copies below need it, and a `derive` is ordered.
+derive(Point, Clone, Copy);
 // === Test derive Eq for struct ===
 test("derive Eq for struct", {
   p1 := Point(i32(1), i32(2));
@@ -49,7 +51,6 @@ test("derive Hash for struct", {
   assert(h1 != h3, "different points should likely have different hashes");
 });
 // === Test derive Clone for struct ===
-derive(Point, Clone, Copy);
 test("derive Clone for struct", {
   p1 := Point(i32(1), i32(2));
   p2 := p1.clone();
@@ -118,6 +119,8 @@ test("derive for struct with bool fields", {
 // === Test derive Eq for fieldless enum ===
 Direction :: enum(North, South, East, West);
 derive(Direction, Eq(Direction));
+// `Copy` first: the copies below need it, and a `derive` is ordered.
+derive(Direction, Clone, Copy);
 test("derive Eq for fieldless enum", {
   d1 := Direction.North;
   d2 := Direction.North;
@@ -135,7 +138,6 @@ test("derive Hash for fieldless enum", {
   assert(hash_one(d1) != hash_one(d3), "different directions should have different hashes");
 });
 // === Test derive Clone for fieldless enum ===
-derive(Direction, Clone, Copy);
 test("derive Clone for fieldless enum", {
   d1 := Direction.North;
   d2 := d1.clone();
