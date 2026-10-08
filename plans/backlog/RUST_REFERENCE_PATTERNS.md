@@ -1,8 +1,10 @@
 # Rust reference-in-structure patterns in post-VBD Yo
 
-**Status: ACTIVE** — a companion to
-[`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md), written 2026-10-08. It answers
-one question: **Rust stores borrows in data structures**
+**Status: BACKLOG** — a companion to
+[`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md), written 2026-10-08 and
+parked here on the maintainer's call (2026-10-08): it is a reference catalog,
+not an implementation plan — nothing here drives a phase. It answers one
+question: **Rust stores borrows in data structures**
 (`struct S<'a> { r: &'a T }`), **and Yo's borrows are second-class — what
 replaces each shape?**
 
@@ -17,7 +19,8 @@ marked and land with those phases. At V5 this document is the seed of the
 user-facing porting guide (`docs/en-US/` + `docs/zh-CN/`, linked from the
 plan's V5 docs list).
 
-Decision numbers (`D18`, `D39`, …) refer to `VALUES_BY_DEFAULT.md` §4.
+Decision numbers (`D18`, `D39`, …) refer to `VALUES_BY_DEFAULT.md` §4; bare
+`§`-references (`§3.10`, `§3.13 A2`) are that plan's sections.
 
 ---
 
@@ -92,9 +95,10 @@ re-derive:
 ```rust
 Doc :: struct(text : String);
 word_ranges :: (fn(imm(self) : Doc) -> ArrayList(Range(usize)))(...);   // Copy elements
-// use:
+// use — the view is re-derived at each step, never stored:
+ranges := doc.word_ranges();
 imm(d) := doc;
-for(ranges, mut(r) => { process(&d.text, r); });   // re-derived per step (V2b)
+for(ranges, r => { process(&d.text, r); });
 ```
 
 - `Range(usize)` is `Copy` (a conditional `derive` pair, D36's sweep), so the
@@ -247,9 +251,10 @@ Forest :: struct(nodes : ArrayList(Node));          // the one owner
 Node :: struct(value : i32, children : ArrayList(usize), parent : Option(usize));
 ```
 
-  `usize` children are `Copy`, never touch the collector, never pay a count,
-  and survive reallocation of nothing (the nodes never move inside the
-  `ArrayList` buffer — indices are re-derived, not pointers). Choose the arena
+  `usize` children are `Copy`, never touch the collector and never pay a
+  count; and an index survives its owner's buffer reallocation (a growing
+  `ArrayList` does move the nodes) because it is re-derived through the owner
+  at each use, not held as an address. Choose the arena
   when the graph is a closed world built in phases; choose `Rc` when nodes
   escape, are shared with callbacks, or the graph is open.
 
@@ -333,7 +338,7 @@ Decision 39 (amended) settles the whole area:
 ### 5.2 `iter_mut` — mutable iteration
 
 The borrowed `for` with a `mut` binding **is** `iter_mut`:
-`for(xs, mut(x) => { x += i32(1); })` — each element is an exclusive place
+`for(xs, mut(x) => { x = (x + i32(1)); })` — each element is an exclusive place
 into the container's storage, in-place, no copy (the pinned borrow flag makes
 invalidation a run-time panic). A stored `iter_mut` cursor is a `Range(usize)`
 plus `xs(i) = v` place writes, or `xs.with(i, body)` for one element.
@@ -353,8 +358,8 @@ D24). Pick by what the caller needs:
 
 | The caller needs | Return | Read/use |
 | --- | --- | --- |
-| to read one field now | the call itself borrows: `imm(v) := m(k)` — a local borrow, or `m(k).field` in place (V2b places) | free |
-| to mutate one entry | a non-escaping closure: `m.with(k, mut(v) => …)` (V2b) | free (inlines) |
+| to read one field now | the call itself borrows: `imm(v) := xs(i)` — a local borrow (V2b places), or `xs(i).field` in place | free |
+| to mutate one entry | a non-escaping closure: `xs.with(i, mut(v) => …)` (D20, V2b) | free (inlines) |
 | the value out | a copy: `get_cloned(i)` for `Copy` payloads, `.clone()` otherwise; or ownership: `take(i)`, `pop`, `remove` (D20) | the copy |
 | to hold it beside others | a handle: store `Rc(V)` values and return `Rc.clone(v)` | count bump |
 | to find it again later | the key/index: `Option(usize)` / the key (shape 3) | a lookup |
@@ -424,8 +429,8 @@ own `imm`/`mut` parameters. It cannot be spawned, stored or bound.
 shared.next(io)                    // shared : Rc(Stream)
 // the error names the fixes:
 f(imm(shared), io)                 // pass the handle; re-derive shared.*.next at each use
-own(stream, io)                    // own the value inside the task
-Arc(Mutex(S))                      // or guard shared mutable state
+// or move the stream into the task and own it there,
+// or share the mutable state as Arc(Mutex(S))
 ```
 
 A result several tasks need is awaited once and shared as `Rc(T)`, or moved
@@ -480,7 +485,7 @@ The rules that keep it honest: a raw pointer is neither `Send` nor `Sync`
 unless its type opts in (D38 E); the address contract is D40's (a cell or
 buffer's address is good until its free; an inline value's until it is moved
 or dropped); and the allocator-scope rules of
-[`EXPLICIT_ALLOCATORS.md`](reference/EXPLICIT_ALLOCATORS.md) apply. Porting
+[`EXPLICIT_ALLOCATORS.md`](../reference/EXPLICIT_ALLOCATORS.md) apply. Porting
 advice: exhaust §1–§10 first; reach for a pointer when a measurement names
 the spot (the `for` bounds check, one `Rc` in a hot loop), not before.
 
@@ -522,7 +527,8 @@ zero-cost in Yo the way its Rust form is.
 
 ## Maintenance
 
-This doc moves in lockstep with the plan's phases: when V1 step 2, V2b, V2c
-or V5 land, drop the corresponding "(V2b)"-style markers here; at V5, split
-it into the user-facing `docs/en-US/` + `docs/zh-CN/` porting guide and
-archive this file's status line.
+Parked in `backlog/` because it is a reference catalog, not an implementation
+plan. It still moves in lockstep with the plan's phases: when V1 step 2, V2b,
+V2c or V5 land, drop the corresponding "(V2b)"-style markers here; at V5,
+graduate it into the user-facing `docs/en-US/` + `docs/zh-CN/` porting guide
+and archive this file.
