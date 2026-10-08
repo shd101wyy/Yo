@@ -66,6 +66,10 @@ verifier-driven guard elision design, Phases 0–2 landed and Phase 3 open, is
 [`ASYNC_AWAIT_SITE_FUSION`](backlog/ASYNC_AWAIT_SITE_FUSION.md) is the
 state-machine plan's phase 7 design for std's single-await I/O wrappers
 (an immediately awaited wrapper runs in its caller's frame).
+[`PACKAGE_MANAGER_DISTRIBUTION`](backlog/PACKAGE_MANAGER_DISTRIBUTION.md) is
+the parked design for installing Yo through Homebrew, Scoop and the
+Linux/nix system package managers — built entirely on the existing release
+bundles, with per-channel start triggers instead of a schedule.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
