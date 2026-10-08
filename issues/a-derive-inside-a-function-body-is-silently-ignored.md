@@ -2,7 +2,7 @@
 
 **Severity:** S2: a valid program is rejected with a misleading error, and a derive the user wrote has no effect and no diagnostic. A function-local type cannot get `Clone`, `Eq`, `Copy` or any other derived impl.
 
-> Found 2026-10-08 while sweeping `derive(T, Copy, Clone)` for `plans/VALUES_BY_DEFAULT.md` decision 36 Generation B (`feat/vbd-copy-sweep`). The v0.2.54 seed behaves the same.
+> Found 2026-10-08 while sweeping `derive(T, Copy, Clone)` for `plans/VALUES_BY_DEFAULT.md` decision 36 Generation B (#1269). The v0.2.54 seed behaves the same.
 
 ## Reproducer
 

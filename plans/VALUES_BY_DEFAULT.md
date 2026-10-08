@@ -31,6 +31,8 @@ Progress:
   - decision 37's `FnOnce` with decision 38 C, Generation A (#1266;
     capture-list entries only, per the amendment; one S2 open: a macro
     that duplicates an `FnOnce` call calls it twice);
+  - decision 36 Generation B part 1, the `Copy` sweep and structural
+    `clone()` (#1269; the flip waits for the next seed);
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -3374,7 +3376,7 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
    `derive(T, Copy, Clone)` and `p.clone()`; a by-value argument of one is
    a move; an `imm`-only closure is `Copy` and second-class (decision 38 A).
 
-**Generation B as built, part 1: the sweep (2026-10-08, `feat/vbd-copy-sweep`).**
+**Generation B as built, part 1: the sweep (2026-10-08, #1269).**
 - **Measured again before the sweep** (`YO_AUDIT_COPY_TRAIT=1`, tree
   binary): `src/` 2,067 sites, `std/` 637, `tests/` 3,188, over about 180
   named types. The 2026-10-06 numbers were 2,039 / 640 / 3,106.

@@ -255,7 +255,7 @@ structural `Copy` and `Clone`, the raw-pointer clone clash, and the
   `derive(T, Clone, Copy)` (`Clone` first): the seed processes a derive's
   traits in order, so its supertrait check at `Copy` needs the `Clone` impl
   registered already.
-- **DONE 2026-10-08 (`feat/vbd-copy-sweep`): the sweep and structural
+- **DONE 2026-10-08 (#1269): the sweep and structural
   `clone()`.** See the plan's "Generation B as built, part 1".
 - **Next seed (once `SEED_VERSION` carries the sweep PR):** add
   `derive(Io, Copy, Clone)` to the prelude. `Io`'s derived `Clone` calls
