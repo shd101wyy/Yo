@@ -1152,7 +1152,7 @@ export(main);
 
 这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 或声明了 `MoveOnly` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；对是 `Clone` 但不是 `Copy` 的记录或闭包调用 `clone()` 暂不可用。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
 
-目前 `Copy` 会被检查，但还不是必需的：没有它的纯数据类型仍然会被隐式复制。[值默认计划](../../plans/VALUES_BY_DEFAULT.md)（决定 36）的下一步会把它变成规则：之后 `q := p` 会移动一个不是 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901。
+`Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。按值参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请把参数写成 `sink(...)`。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
 
 #### 只能移动的值
 
