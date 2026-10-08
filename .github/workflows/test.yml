@@ -1155,19 +1155,73 @@ jobs:
       # the meaning of the suite. The four macOS/Windows targets run this
       # same invocation in `test-native` below, under the cross-emitted
       # tree-built compiler.
+      # The language suite runs in `test-suite`, sharded 4-way per leg, on this
+      # job's stage-2 binary (measured 2026-10-08: the suite step alone took 51
+      # min on ubuntu-latest and 70 min on ubuntu-24.04-arm, after 33-44 min of
+      # stage-1 + stage-2 builds). The builds stay here, once per leg.
+      - name: Upload stage 2 for the sharded suite
+        uses: actions/upload-artifact@v4
+        with:
+          name: yo-test-stage2-${{ matrix.os }}
+          path: /tmp/yo-stage2
+          retention-days: 1
+          if-no-files-found: error
+
+  # The Linux language suite, sharded: each leg's suite runs on the stage-2
+  # binary its `test` leg built, as 4 shards (`--shard i/n` stripes the sorted
+  # file list). Before, one `test` leg ran the whole suite after its builds:
+  # 51 min (ubuntu-latest) and 70 min (ubuntu-24.04-arm) of a 84-115 min job.
+  test-suite:
+    name: test suite (${{ matrix.os }}) shard ${{ matrix.shard }}/4
+    needs: [changes, tree-hygiene, test]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.os }}
+    # ~13-18 min of tests per shard; 90 still bounds a hang.
+    timeout-minutes: 90
+    env:
+      # Same as the `test` job.
+      YO_MAIN_STACK_MB: "4096"
+      YO_TEST_LEAK_VERDICT: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.changes.outputs.test_os) }}
+        shard: [0, 1, 2, 3]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install OpenSSL dev (for std/http in the suite)
+        run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
+
+      - name: Download this leg's stage 2
+        uses: actions/download-artifact@v8
+        with:
+          name: yo-test-stage2-${{ matrix.os }}
+          path: /tmp/yo-test-stage2
+
       - name: Run tests
         shell: bash
         run: |
-          # This job's matrix went Linux-only when the self-build moved off
-          # macOS/Windows (see the stage-1 note above), so the 2026-09-03
-          # Windows `--disable-sanitize` workaround
-          # (issues/fixed/windows-images-lost-libasan.md) has nothing left to
-          # gate here — ASan runs, as it always did on Linux.
-          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
+          chmod +x /tmp/yo-test-stage2/yo-stage2
+          S1=/tmp/yo-test-stage2/yo-stage2
+          # The binary is not under yo-out/<triple>/bin/, so pin std to the
+          # checkout (the `test` job does the same).
+          export YO_STD="$PWD/std"
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang --shard ${{ matrix.shard }}/4
           # Sibling and in-file tests under std/ — the private-member tests
           # (plans/reference/MEMBER_VISIBILITY.md): `yo test` collects
           # `std/**/*.test.yo` and any module with a top-level `test(...)`.
-          "$S1" test ./std --bail --verbose --c-compiler clang
+          # Small: once per leg, on shard 0.
+          if [ "${{ matrix.shard }}" = "0" ]; then
+            "$S1" test ./std --bail --verbose --c-compiler clang
+          fi
 
   # ---------------------------------------------------------------------
   # The four NON-LINUX release targets: full language suite per PR, under a
@@ -1424,10 +1478,10 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Job NAME is `test (<os>)` on purpose: these four legs carry the required
-  # status-check contexts "test (macos-latest)" and "test (windows-latest)"
-  # (ruleset 13548862) that the `test` matrix carried before it went
-  # Linux-only — renaming them would silently drop two required checks.
+  # Job NAME is `test (<os>)`, the name the `test` matrix carried before it
+  # went Linux-only. Since 2026-10-06 the ruleset's only required check is
+  # `merge-gate` ("Merge gate (all checks)"), which `needs` this job, so a
+  # leg's name (and its shard suffix) can change freely.
   #
   # `!cancelled()` is LOAD-BEARING: with a plain `if`, an upstream cross-emit
   # failure would SKIP these legs, and a skipped required check SATISFIES the
@@ -1435,11 +1489,8 @@ jobs:
   # run (for code PRs) and fail fast in the artifact download when their C
   # never arrived.
   test-native:
-    # The shard suffix appears ONLY on sharded legs, so the two REQUIRED
-    # status contexts — `test (macos-latest)` and `test (windows-latest)` —
-    # keep their exact names and the ruleset needs no change. Sharding a
-    # REQUIRED leg would rename its context and must land in ruleset
-    # 13548862 in the same commit (see compiler-internal-tests' note).
+    # The shard suffix appears ONLY on sharded legs (all of them today). No
+    # leg is a required context any more: merge-gate needs the whole job.
     name: test (${{ matrix.os }})${{ matrix.shards && format(' shard {0}/{1}', matrix.shard, matrix.shards) || '' }}
     needs: [changes, tree-hygiene, suite-cross-emit]
     if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
@@ -1459,9 +1510,7 @@ jobs:
     # still catching a hang in a bounded time.
     #
     # windows-11-arm is ALSO sharded by this PR, so its per-shard cost drops far
-    # below the cap; windows-latest is deliberately NOT sharded (it is a REQUIRED
-    # status context and renaming it would remove a required check), so the cap
-    # is the only thing protecting it.
+    # below the cap.
     #
     # MEASURED 2026-10-05: windows-latest runs the suite under AddressSanitizer
     # again (armed through the choco LLVM clang,
@@ -1469,10 +1518,16 @@ jobs:
     # its cost: run 37292720878 needed 86 min to reach file 206 of 310, and
     # run 37338817036 was cancelled at the 120 min cap at ~file 256 — about
     # 145 min for the whole leg against the 54-58 min uninstrumented runs above.
-    # windows-latest therefore takes the 240 min budget the non-Windows legs
-    # have. A hang still fails in bounded time, which is all this cap is for.
-    # windows-11-arm keeps 120: it is sharded and still runs uninstrumented.
-    timeout-minutes: ${{ matrix.os == 'windows-11-arm' && 120 || 240 }}
+    # windows-latest therefore took the 240 min budget the non-Windows legs
+    # have.
+    #
+    # MEASURED 2026-10-08: the unsharded windows-latest leg took 105, 107, 131
+    # and 137 min on the last four develop batteries, the longest job in the
+    # battery, while the four windows-11-arm shards took 27-33 min each. It is
+    # now sharded 4-way like windows-11-arm (~35 min of tests per shard), and
+    # both Windows legs take 120: a ~3x margin per shard that still bounds a
+    # hang.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 120 || 240 }}
     env:
       YO_MAIN_STACK_MB: "4096"
       # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
@@ -1482,17 +1537,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # UNSHARDED — these two are REQUIRED status checks; their names are
-          # matched by string in the ruleset and must not change.
-          - os: macos-latest
-            target: macos-arm64
-          - os: windows-latest
-            target: windows-x64
+          # SHARDED 2-way: macos-latest took 37-60 min unsharded (measured
+          # 2026-10-08). Two, not four: GitHub runs a limited number of macOS
+          # jobs at once per account, and macos-26-intel's four shards already
+          # take most of them.
+          - { os: macos-latest, target: macos-arm64, shard: 0, shards: 2 }
+          - { os: macos-latest, target: macos-arm64, shard: 1, shards: 2 }
+          # SHARDED 4-way: under AddressSanitizer the whole corpus took
+          # 105-137 min on one runner (see timeout-minutes above).
+          - { os: windows-latest, target: windows-x64, shard: 0, shards: 4 }
+          - { os: windows-latest, target: windows-x64, shard: 1, shards: 4 }
+          - { os: windows-latest, target: windows-x64, shard: 2, shards: 4 }
+          - { os: windows-latest, target: windows-x64, shard: 3, shards: 4 }
           # SHARDED 4-way. These two are the long legs (macos-26-intel ~80 min,
           # windows-11-arm ~66 min) and windows-11-arm is the critical path:
           # suite-candidate 36m -> cross-emit 15m -> this 66m = 118m wall clock
-          # (measured, run 34932915472). Neither is a required context, so the
-          # rename costs no ruleset change. They CONSUME a cross-emitted
+          # (measured, run 34932915472). They CONSUME a cross-emitted
           # artifact and rebuild nothing, so shards are cheap — the same
           # argument that justified sharding compiler-internal-tests.
           - { os: macos-26-intel, target: macos-x64, shard: 0, shards: 4 }
@@ -1612,8 +1672,9 @@ jobs:
             *) TEST_SAN_FLAG="" ;;
           esac
           # `--shard i/n` stripes the SORTED file list, so the shards partition
-          # the corpus with no file dropped and no hardcoded map to rot. Empty
-          # for the unsharded (required-context) legs.
+          # the corpus with no file dropped and no hardcoded map to rot. Every
+          # test-native leg is sharded now; the empty case stays for a future
+          # unsharded leg.
           SHARD_FLAG=""
           if [ -n "${{ matrix.shards }}" ]; then
             SHARD_FLAG="--shard ${{ matrix.shard }}/${{ matrix.shards }}"
@@ -3002,6 +3063,7 @@ jobs:
       - guard-elision
       - verify-src
       - test
+      - test-suite
       - suite-candidate
       - chunked-gate
       - suite-cross-emit
