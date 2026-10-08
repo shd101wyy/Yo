@@ -529,10 +529,16 @@ jobs:
     needs: [changes, tree-hygiene]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    # ~45 min nominal (five tests/internal files, each compiling the compiler); a
-    # slow runner takes ~1.45x, so 60 cancelled a passing run
-    # (issues/fixed/the-formal-verification-job-runs-within-a-quarter-of-its-timeout.md).
-    timeout-minutes: 90
+    # Five tests/internal files, each compiling the compiler. The "~45 min
+    # nominal" this note used to give is stale: MEASURED 2026-10-08, the last
+    # three green develop runs took 85, 83 and 84 min, and run 37732698461 was
+    # cancelled at the 90 min cap inside `Verifier list-model tests` on both
+    # attempts (every step ~7% slower after #1269's derives; a 1.07x margin
+    # before that, the variance-cancel shape of
+    # issues/fixed/the-formal-verification-job-runs-within-a-quarter-of-its-timeout.md).
+    # 120 gives a 1.33x margin over the slowest measured run (~90 min) and
+    # still bounds a hang.
+    timeout-minutes: 120
     env:
       YO_TEST_Z3: "1"
       # discover_z3() resolves YO_Z3_PATH then the solvers cache — it never
