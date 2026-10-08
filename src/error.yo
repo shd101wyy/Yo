@@ -81,12 +81,33 @@ _span_of_token :: (fn(token : Token) -> Span)(
   )
 );
 /// The source line at the token's row ("" when the row is out of range).
+/// Scans to the row's newlines instead of splitting the whole input: every
+/// diagnostic builds one, including the many a trial evaluation swallows, and
+/// a split of the 10k-line prelude per message was 12% of a derive-heavy check
+/// (issues/derive-clone-costs-17-ms-per-type.md).
 _source_line_of_token :: (fn(token : Token) -> String)({
-  lines := token.input.split(String.from("\n"));
-  match(
-    lines.get(usize(token.row)),
-    .Some(line) => line,
-    .None => String.new()
+  input := token.input;
+  n := input.len();
+  (target : usize) = usize(token.row);
+  (row : usize) = usize(0);
+  (i : usize) = usize(0);
+  (start : usize) = usize(0);
+  while((row < target) && (i < n), {
+    if(input.byte_at(i) == u8(10), {
+      row = (row + usize(1));
+      start = (i + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  cond(
+    (row < target) => String.new(),
+    true => {
+      (end : usize) = start;
+      while((end < n) && (input.byte_at(end) != u8(10)), {
+        end = (end + usize(1));
+      });
+      input.substring(start, end)
+    }
   )
 });
 /// Wrap a static code constant as the classifier's return value.
