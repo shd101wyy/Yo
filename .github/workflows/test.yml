@@ -1435,8 +1435,8 @@ jobs:
   # run (for code PRs) and fail fast in the artifact download when their C
   # never arrived.
   test-native:
-    # The shard suffix appears ONLY on sharded legs. No leg is a required
-    # context any more: merge-gate needs the whole job.
+    # The shard suffix appears ONLY on sharded legs (all of them today). No
+    # leg is a required context any more: merge-gate needs the whole job.
     name: test (${{ matrix.os }})${{ matrix.shards && format(' shard {0}/{1}', matrix.shard, matrix.shards) || '' }}
     needs: [changes, tree-hygiene, suite-cross-emit]
     if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
@@ -1483,9 +1483,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # UNSHARDED: macos-latest takes 37-60 min.
-          - os: macos-latest
-            target: macos-arm64
+          # SHARDED 2-way: macos-latest took 37-60 min unsharded (measured
+          # 2026-10-08). Two, not four: GitHub runs a limited number of macOS
+          # jobs at once per account, and macos-26-intel's four shards already
+          # take most of them.
+          - { os: macos-latest, target: macos-arm64, shard: 0, shards: 2 }
+          - { os: macos-latest, target: macos-arm64, shard: 1, shards: 2 }
           # SHARDED 4-way: under AddressSanitizer the whole corpus took
           # 105-137 min on one runner (see timeout-minutes above).
           - { os: windows-latest, target: windows-x64, shard: 0, shards: 4 }
@@ -1615,8 +1618,9 @@ jobs:
             *) TEST_SAN_FLAG="" ;;
           esac
           # `--shard i/n` stripes the SORTED file list, so the shards partition
-          # the corpus with no file dropped and no hardcoded map to rot. Empty
-          # for the unsharded leg.
+          # the corpus with no file dropped and no hardcoded map to rot. Every
+          # test-native leg is sharded now; the empty case stays for a future
+          # unsharded leg.
           SHARD_FLAG=""
           if [ -n "${{ matrix.shards }}" ]; then
             SHARD_FLAG="--shard ${{ matrix.shard }}/${{ matrix.shards }}"
