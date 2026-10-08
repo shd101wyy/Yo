@@ -34,7 +34,8 @@
 //! via the `g_size_of_type_fn` / `g_alignment_of_type_fn` slots).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-import("std/fmt");
+{ eprintln } :: import("std/fmt");
+{ debug_knob } :: import("../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
@@ -823,6 +824,11 @@ trait_impl_epoch :: (fn() -> u64)(g_trait_impl_epoch);
 set_type_lacks_copy_fn :: (fn(f : (fn(ty : TypeValue) -> bool)) -> unit)({
   g_type_lacks_copy_fn = Option(fn(ty : TypeValue) -> bool).Some(f);
 });
+/// `YO_FLIP_REPORT=1`: the flip is off, and each plain-data type it would
+/// make explicit-copy is printed once (`[flip] <type>`) where a copy of it is
+/// decided, so one pass over a tree names every type its sweep still needs.
+(g_flip_report : bool) = debug_knob(`YO_FLIP_REPORT`).is_some();
+(g_flip_reported : HashMap(String, bool)) = HashMap(String, bool).new();
 _plain_data_lacks_copy :: (fn(ty_in : TypeValue) -> bool)({
   ty := match(
     ty_in,
@@ -840,13 +846,22 @@ _plain_data_lacks_copy :: (fn(ty_in : TypeValue) -> bool)({
   if(type_contains_rc_cell_or_move_only(ty), {
     return(false);
   });
-  match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false)
+  lacks := match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false);
+  if(lacks && g_flip_report, {
+    shown := type_to_string(ty);
+    if(g_flip_reported.get(shown.clone()).is_none(), {
+      eprintln(`[flip] ${shown}`);
+      _ := g_flip_reported.insert(shown, true);
+    });
+    return(false);
+  });
+  lacks
 });
 /// A nominal value struct or enum that is not `Copy` under the flip
 /// (`g_type_lacks_copy_fn`). Tuples, arrays and records are walked by
 /// `_type_contains_rc_inner` through their parts.
 _nominal_lacks_copy :: (fn(ty : TypeValue) -> bool)(
-  match(
+  !g_flip_report && match(
     ty,
     .Struct({ id : _ }) => match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false),
     .EnumT(_, _, _, _, _, _, _, _, _, _) => match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false),
