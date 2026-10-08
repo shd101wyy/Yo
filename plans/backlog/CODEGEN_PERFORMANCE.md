@@ -35,9 +35,22 @@ this plan attacks both:
 
 **Non-goals.** No direct LLVM backend: the portable-C identity is
 load-bearing ([`PORTABLE_C_DISTRIBUTION.md`](../reference/PORTABLE_C_DISTRIBUTION.md),
-the bootstrap chain), and after `restrict` + LTO + PGO clang *is* LLVM's
-optimizer for this C. No language-semantics change. No async-runtime work
-(the ASYNC plans own it; the runtime is already at measured libuv parity).
+the bootstrap chain — `yo.c` runs wherever any C compiler runs), and after
+`restrict` + LTO + PGO clang *is* LLVM's optimizer for this C
+(`plans/ROADMAP.md` lists the backend as a non-goal). Recorded 2026-10-08,
+this is a **reopen condition, not a flat no**: reopen only if, after CP1 and
+CP2 land, CP0's paired suite still shows a gap to Rust that is (a)
+persistent across releases, (b) attributable by profiling to metadata or
+lowering the C path cannot express — exact `noalias` without `restrict`'s
+UB-on-violation, per-construct aliasing facts, Yo-aware lowering of count
+and flag operations — and (c) worth more than it costs: an IR emitter owns
+per-triple ABI (raw IR does not inherit clang's calling-convention and
+struct-passing decisions), DWARF emission, and a doubled gate surface. If it
+ever reopens, the shape is an optional `--backend llvm` for release builds
+(`.ll` text, compiled by clang), with C staying canonical for bootstrap,
+portability and every gate. No language-semantics change. No async-runtime
+work (the ASYNC plans own it; the runtime is already at measured libuv
+parity).
 
 **Relationship to VALUES_BY_DEFAULT.** Every VBD phase reshapes the emitted
 C, so the measurement-gated work is sequenced around it (§5); nothing here
