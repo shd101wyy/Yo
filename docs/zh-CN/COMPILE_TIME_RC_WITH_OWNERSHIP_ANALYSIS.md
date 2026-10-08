@@ -156,7 +156,7 @@ assert(ref_count(b) == usize(1), "one owner");
 
 该计数反映编译器的 dup/drop 优化结果，被优化器抵消的复制不会体现出来；它用于唯一性检查（写时复制）和测试，而不是程序逻辑。
 
-`rc` 不是计数。它是一个普通的 prelude 函数，用来分配一个引用计数单元：`rc(v)` 取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的 `Rc(T)` 句柄。`Rc(T)` 是 Yo 的共享单元；它以前写作 `Box(T)`，该写法作为遗留别名在 prelude 中再保留一个版本。之后 `Box` 会作为唯一所有的单元重新出现（`plans/VALUES_BY_DEFAULT.md`，V1 第 2 步）。
+`rc` 不是计数。它是一个普通的 prelude 函数，用来分配一个引用计数单元：`rc(v)` 取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的 `Rc(T)` 句柄。`Rc(T)` 是 Yo 的共享单元；它以前写作 `Box(T)`。之后 `Box` 会作为唯一所有的单元重新出现（`plans/VALUES_BY_DEFAULT.md`，V1 第 2 步）。
 
 ```rust
 a := rc(i32(42));

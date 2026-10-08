@@ -243,7 +243,7 @@ export(unsafe);
 /// Send trait — a value of this type may be MOVED to another thread.
 ///
 /// The compiler derives it (plans/VALUES_BY_DEFAULT.md §3.8): a value is
-/// `Send` iff it reaches no non-atomic reference cell (`Rc`, `Box`, a
+/// `Send` iff it reaches no non-atomic reference cell (`Rc`, a
 /// `ref(struct(...))`), every component is `Send`, and it holds no raw
 /// pointer and no borrow. An atomic object is `Send` iff it is `Sync`, because
 /// its copies share one payload. Raw pointers are neither `Send` nor `Sync`
@@ -996,7 +996,7 @@ export(Clone);
 /// and `Option(T)` and `Result(T, E)` do when their payloads do. A tuple, an
 /// `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no
 /// declaration to annotate, so each is `Copy`, and `Clone`, when all its
-/// parts are. `Box`, `Rc`, `Arc`, `String`, the collections and `Dyn` never
+/// parts are. `Rc`, `Arc`, `String`, the collections and `Dyn` never
 /// are.
 ///
 /// Today every value type without an owned buffer is still copied
@@ -9677,72 +9677,6 @@ impl(
   )
 );
 export(Result);
-/// `Box(V)`: the old spelling of the shared, reference-counted cell, now `Rc(V)`
-/// (`plans/VALUES_BY_DEFAULT.md` §6 V1 step 1). Nothing in std, src or tests
-/// spells it. It stays defined for ONE seed only: the v0.2.54 seed compiles
-/// `src/` against this std and still synthesizes `box(...)` when `dyn(...)`
-/// auto-boxes a payload that is not an object. Generation B part 2 deletes
-/// `Box`/`box` once `SEED_VERSION` carries `Rc` as the canonical cell, and V1
-/// step 2 later reintroduces `Box` as the unique, uncounted cell.
-Box :: (fn(comptime(V) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      (*) : V
-    )
-  )
-);
-/// Allocate a value on the heap, returning a `Box(V)`.
-box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
-impl(
-  generic(T : Type),
-  Box(T),
-  Isolation(
-    can_isolate : (self -> (ref_count(self) == 1))
-  )
-);
-impl(
-  generic(T : Type),
-  where(T <: Hash),
-  Box(T),
-  Hash(
-    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
-  )
-);
-impl(
-  generic(T : Type),
-  where(T <: Eq(T)),
-  Box(T),
-  Eq(Box(T))(
-    // SAFETY: Box always holds a non-null pointer to Rc-managed
-    // storage; the deref is sound for as long as either operand
-    // is alive, which covers the duration of this comparison.
-    (==) : ((lhs, rhs) -> unsafe(lhs.* == rhs.*))
-  )
-);
-impl(
-  generic(T : Type),
-  where(T <: Clone),
-  Box(T),
-  Clone(
-    clone : (self -> box(self.*.clone()))
-  )
-);
-/// `Default` — a box holding `T`'s default, matching Rust's
-/// `impl<T: Default> Default for Box<T>`.
-impl(
-  generic(T : Type),
-  where(T <: Default),
-  Box(T),
-  Default(
-    default : (fn() -> Self)(
-      box((T <: Default).default())
-    )
-  )
-);
-export(
-  Box,
-  box
-);
 /// Rc — a heap-allocated, reference-counted cell for a single value: the
 /// shared, counted cell's name under plans/VALUES_BY_DEFAULT.md (§3.2,
 /// decision 1). Copying a handle shares one heap value and bumps its count,
@@ -9751,8 +9685,8 @@ export(
 ///
 /// `Rc(V)` is the canonical shared cell (V1 step 1, Generation B): the cell
 /// the compiler synthesizes (`dyn(v)` auto-boxes into `rc(v)`), and the one
-/// every std, src and test site spells. The legacy `Box(V)` above is a
-/// separate type with the same definition, kept for the seed only.
+/// every std, src and test site spells. Its old name, `Box`, is free again:
+/// V1 step 2 reintroduces `Box` as the unique, uncounted cell.
 ///
 /// ```yo
 /// a := rc(i32(42));
@@ -9805,8 +9739,8 @@ impl(
     (==) : ((lhs, rhs) -> unsafe(lhs.* == rhs.*))
   )
 );
-/// `Clone` — a new cell holding a clone of the payload, as `Box`'s does
-/// today (V2c's decision 17 makes an `Rc` clone a new handle).
+/// `Clone` — a new cell holding a clone of the payload, for now (V2c's
+/// decision 17 makes an `Rc` clone a new handle to the same cell).
 impl(
   generic(T : Type),
   where(T <: Clone),
@@ -9953,7 +9887,7 @@ export(Arc, arc);
 /// nested wrappers. A name both have is E0616 (decision 32): `Rc.clone(b)`
 /// is the `Rc`'s `clone`, `b.*.clone()` the payload's. `w.*` is the payload.
 ///
-/// Implemented by `Box`, `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
+/// Implemented by `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
 /// a compile error, so every auto-dereference goes through one of the
 /// prelude's cells.
 ///
@@ -9961,7 +9895,7 @@ export(Arc, arc);
 /// P :: struct(n : i32);
 /// b := rc(P(n : i32(1)));
 /// b.n = i32(2);              // writes b.*.n
-/// assert(b.n == i32(2), "read through the box");
+/// assert(b.n == i32(2), "read through the cell");
 /// ```
 Deref :: trait(
   id := "Deref",
@@ -9969,7 +9903,6 @@ Deref :: trait(
   Target : Type
 );
 export(Deref);
-impl(generic(T : Type), Box(T), Deref(Target : T));
 impl(generic(T : Type), Rc(T), Deref(Target : T));
 impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===

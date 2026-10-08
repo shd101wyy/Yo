@@ -326,3 +326,28 @@ test("FnOnce: an early return that moves nothing drops every capture", {
   };
   assert(g_once_disposed == (before + i32(2)), "both captures dropped on the return path");
 });
+
+// An `Fn` closure called through an `FnOnce(...)` slot: the call consumes the
+// closure, and its body only borrows its captures, so the call site releases
+// it once afterwards (issues/fixed/an-fn-closure-called-through-an-fnonce-parameter-leaks-its-captures.md).
+_run_fn_once :: (fn(sink(cb) : Impl(FnOnce() -> i32)) -> i32)(cb());
+_relay_fn_once :: (fn(sink(cb) : Impl(FnOnce() -> i32)) -> i32)({
+  (relay : Impl(FnOnce() -> i32)) = ({ cb }() => cb());
+  relay()
+});
+test("FnOnce: an Fn closure called through an FnOnce parameter releases its captures once", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(7));
+    assert(_run_fn_once(() => t.n) == i32(7), "the Fn body read its capture");
+  };
+  assert(g_once_disposed == (before + i32(1)), "the consumed Fn closure released t exactly once");
+});
+test("FnOnce: an Fn closure relayed by an FnOnce capture list releases its captures once", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(8));
+    assert(_relay_fn_once(() => t.n) == i32(8), "the relay called it");
+  };
+  assert(g_once_disposed == (before + i32(1)), "released exactly once, by the relay's call");
+});

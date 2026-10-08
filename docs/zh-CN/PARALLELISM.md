@@ -57,11 +57,23 @@ impl(
   where(T <: (Send, Acyclic)),
   // 派生一个新的操作系统线程，运行给定的闭包。
   // 该闭包会获得自己的每线程 Io 事件循环。
-  spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self),
+  spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self),
   // 等待线程完成（阻塞），并取回它的结果。第二次调用会 panic。
   join : (fn(self : Self) -> T),
   is_joined : (fn(self : Self) -> bool)
 );
+```
+
+线程体只运行一次，所以 `spawn` 以 `FnOnce` 接收并拥有它（`sink(cb)`）。带捕获列表的闭包
+（`{ t }(io : Io) => ...`）可以把捕获的值移出，而不必克隆，例如交给一个 `sink` 参数，或通过
+Channel 发送（该值必须是 `Send`）。没有移出的捕获值在线程体返回时被释放。普通闭包同样可以传入，因为 `Fn` 蕴含 `FnOnce`。
+
+```rust
+Job :: struct(id : i32);
+run :: (fn(sink(j) : Job) -> i32)(j.id);
+job := Job(id : i32(7));
+t := Thread(i32).spawn({ job }(io : Io) => run(job)); // job 移入线程，无需克隆
+n := t.join(); // 7
 ```
 
 ### 把值带出线程
@@ -130,7 +142,7 @@ ThreadPool.with_hardware_threads : (fn() -> ThreadPool);
 ThreadPool.num_threads : (fn(self : ThreadPool) -> usize);
 
 // 向线程池提交任务——这是模块级函数，不是方法
-spawn : (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit);
+spawn : (fn(pool : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit);
 
 // 阻塞直到此前提交的所有任务完成；线程池保持开放
 ThreadPool.join_all : (fn(self : ThreadPool) -> unit);
@@ -285,7 +297,7 @@ issues/fixed/a-closure-typed-slot-never-releases-its-captures.md）。异步任�
 
 只有实现了 `Send` 的类型才能被移动到另一个线程，只有实现了 `Sync` 的类型才能在线程之间共享（`Arc` 的载荷、模块级全局变量）；见 `THREAD_SAFETY.md` 的“Send 与 Sync 特质”：
 
-- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、字段全部为 Sync 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Dyn(Trait, Send)`（具体类型在 `dyn(...)` 处检查，其载荷使用原子引用计数：`dyn(v)` 用 `arc` 装箱值类型）、`Iso(T)`（见 `THREAD_SAFETY.md`），以及捕获值全部为 Send、且代码不触及任何非 Send 模块级全局变量的函数值（具名函数或闭包）—— 在编译器能看到该值的地方按值判断：派生闭包体、`Impl(Fn(...), Send)` 参数、泛型 `where(T <: Send)` 参数、被捕获的变量
+- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、字段全部为 Sync 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Dyn(Trait, Send)`（具体类型在 `dyn(...)` 处检查，其载荷使用原子引用计数：`dyn(v)` 用 `arc` 装箱值类型）、`Iso(T)`（见 `THREAD_SAFETY.md`），以及捕获值全部为 Send、且代码不触及任何非 Send 模块级全局变量的函数值（具名函数或闭包）—— 在编译器能看到该值的地方按值判断：派生闭包体、`Impl(Fn(...), Send)` 或 `Impl(FnOnce(...), Send)` 参数、泛型 `where(T <: Send)` 参数、被捕获的变量
 - **不可发送**：`ref(struct(...))` / `ref(enum(...))`（非原子引用计数：`ArrayList`、`Rc` 等，以及持有它们的值，如 `String`）、未选择加入的裸指针及持有裸指针的类型、约束中不含 `Send` 的 `Dyn(Trait)`、`Io`、`JoinHandle`、借用其捕获的闭包，捕获了上述任一值或触及非 Send 全局变量的函数值，以及在该处不知道其值的裸 `fn(...)` 类型（结构体字段、`Channel(fn() -> unit)` 的载荷）—— 见 `THREAD_SAFETY.md` 的“跨线程的函数与闭包”
 
 ```rust

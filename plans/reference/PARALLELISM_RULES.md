@@ -53,7 +53,7 @@ A module-level `name := value` or `(name : T) = value` binding is one static sha
 thread of the process. In a file without the pragma:
 
 - a closure bound to a `Send` closure type (a `Thread.spawn` body, a pool task, a
-  `spawn_blocking` callback — anything coerced to `Impl(Fn(...), Send)`) may not REACH a
+  `spawn_blocking` callback — anything coerced to `Impl(Fn(...), Send)` or `Impl(FnOnce(...), Send)`) may not REACH a
   module-level global whose type is not `Send`, directly or through any function it can call:
   a walk over the evaluated closure body and its statically resolved callees (memoized by
   function id and body; a verdict taken under a recursive call to a function still being walked

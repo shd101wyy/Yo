@@ -7,7 +7,7 @@
 //! right. What it USED to return was `module_value : UnitVal` with
 //! `module_type : Unit`, and that is not a description of anything: `yo doc`
 //! asks `is_module_type(module_type)` before it reads a single declaration, so
-//! `std/prelude.yo` — `Option`, `Result`, `Box`, `Io`, `JoinHandle`, every
+//! `std/prelude.yo` — `Option`, `Result`, `Rc`, `Io`, `JoinHandle`, every
 //! numeric type and every core trait — rendered as an empty page, and the core
 //! traits were never available to donate their method docs to the 454
 //! trait-impl methods across `std/`
@@ -18,7 +18,7 @@
 //!
 //! The labels alone were still not a description a DOC page can use: the
 //! value-derived namespace typed every fn-valued binding `unit` (a `FuncVal`
-//! carries no type), so `Option`, `Result`, `Box`, `Eq`, `Ord` and the whole
+//! carries no type), so `Option`, `Result`, `Rc`, `Eq`, `Ord` and the whole
 //! operator-trait family collapsed into `<fn(...)>` constants on the prelude
 //! page instead of rendering as type-functions and trait-functions
 //! (issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md). The outcome now
@@ -201,7 +201,7 @@ test("the doc builder renders the cached prelude's parameterised declarations", 
   trait_names := _doc_trait_names(doc);
   assert(type_names.contains(String.from("Option")), "Option documents as a type, not a constant");
   assert(type_names.contains(String.from("Result")), "Result documents as a type, not a constant");
-  assert(type_names.contains(String.from("Box")), "Box documents as a type, not a constant");
+  assert(type_names.contains(String.from("Rc")), "Rc documents as a type, not a constant");
   assert(trait_names.contains(String.from("Eq")), "Eq documents as a trait, not a constant");
   assert(trait_names.contains(String.from("Ord")), "Ord documents as a trait, not a constant");
   assert(trait_names.contains(String.from("Index")), "Index documents as a trait, not a constant");

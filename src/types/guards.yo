@@ -302,13 +302,12 @@ is_str_type :: (fn(t : TypeValue) -> bool)(
 // The prelude's shared, counted cell, by name
 // ---------------------------------------------------------------------------
 /// One spelling of the prelude's shared, counted cell: its type constructor
-/// (`Box`) and its value constructor (`box`).
+/// (`Rc`) and its value constructor (`rc`).
 SharedCellNames :: struct(type_name : str, constructor : str);
 /// The shared cell's CANONICAL spelling: the one the compiler synthesizes
 /// itself — the cell `dyn(...)` wraps around a payload that is not an object
-/// (`dyn(i32(1))` builds `rc(i32(1))`, `values/dyn.yo`). It was `Box`/`box` in
-/// Generation A; Generation B part 1 makes it `Rc`/`rc` (the v0.2.54 seed
-/// knows both names).
+/// (`dyn(i32(1))` builds `rc(i32(1))`, `values/dyn.yo`). It was `Box`/`box`
+/// until V1 step 1's Generation B made it `Rc`/`rc`.
 shared_cell_canonical_names :: (fn() -> SharedCellNames)(
   SharedCellNames(type_name : "Rc", constructor : "rc")
 );
@@ -320,21 +319,17 @@ shared_cell_canonical_names :: (fn() -> SharedCellNames)(
 /// plans/VALUES_BY_DEFAULT.md §6 V1 step 1 renames `Box` to `Rc`. It is
 /// seed-gated: the seed compiles `src/` against the tree's `std/`, so the
 /// compiler must know both names before std or src may spell `Rc`.
-/// Generation A accepted both. Generation B part 1 (this list) renamed every
-/// site and made `Rc` canonical; part 2, once `SEED_VERSION` carries part 1,
-/// deletes the `Box` row and the prelude `Box`/`box`, until V1 step 2
-/// reintroduces `Box` as the unique, uncounted cell (a separate type with no
-/// entry here).
+/// Generation A accepted both. Generation B part 1 renamed every site and
+/// made `Rc` canonical; part 2 deleted the `Box` row and the prelude
+/// `Box`/`box`, so the list holds `Rc` alone. V1 step 2 reintroduces `Box` as
+/// the unique, uncounted cell, a separate type with no entry here.
 shared_cell_names_at :: (fn(i : usize) -> Option(SharedCellNames))(
   cond(
     (i == usize(0)) => .Some(shared_cell_canonical_names()),
-    // The legacy spelling, accepted until Generation B part 2 deletes the
-    // prelude `Box`/`box` (the v0.2.54 seed still synthesizes `box`).
-    (i == usize(1)) => .Some(SharedCellNames(type_name : "Box", constructor : "box")),
     true => .None
   )
 );
-/// True if `name` is a type constructor name of the shared cell (`Box`, `Rc`).
+/// True if `name` is a type constructor name of the shared cell (`Rc`).
 is_shared_cell_type_name :: (fn(name : String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -352,8 +347,8 @@ is_shared_cell_type_name :: (fn(name : String) -> bool)({
   });
   found
 });
-/// The type constructor name a shared-cell VALUE constructor builds (`box` →
-/// `Box`, `rc` → `Rc`); `.None` for any other name.
+/// The type constructor name a shared-cell VALUE constructor builds (`rc` →
+/// `Rc`); `.None` for any other name.
 shared_cell_type_name_of_constructor :: (fn(fn_name : String) -> Option(String))({
   (i : usize) = usize(0);
   (out : Option(String)) = .None;
@@ -394,7 +389,7 @@ _is_shared_cell_instance_name :: (fn(name : String) -> bool)({
   });
   found
 });
-/// True if `t` is the prelude's shared cell (`Rc(T)`, or the legacy `Box(T)` — see
+/// True if `t` is the prelude's shared cell (`Rc(T)` — see
 /// `shared_cell_names_at`): a single-field reference-semantics Struct whose
 /// stamped name is a shared-cell instance name and whose only field is
 /// labeled `*`. Used by RC and downcast codegen, and by the pattern compiler,
@@ -786,7 +781,7 @@ is_function_specializable :: (fn(t : TypeValue) -> bool)(false);
 // ---------------------------------------------------------------------------
 //: a reference-semantics
 // struct with exactly one field labeled `*` whose typeName is a shared-cell
-// instance name (`Rc(T)`, `Box(T)`: `shared_cell_names_at`), or an `Arc` of a
+// instance name (`Rc(T)`: `shared_cell_names_at`), or an `Arc` of a
 // non-object.
 is_boxed_type :: (fn(t : TypeValue) -> bool)(
   if(
