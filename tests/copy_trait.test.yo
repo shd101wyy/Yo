@@ -290,7 +290,7 @@ test("Copy: a reference type, a tuple and a blanket type parameter cannot declar
 test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) gives T <: Clone", {
   comptime_assert(Type.impls(_CtPoint, Clone), "derive(_CtPoint, Copy, Clone)");
   comptime_assert(Type.impls(_CtPair(i32), Clone), "a generic Copy instance's derived Clone");
-  comptime_assert(!Type.impls(_CtPlain, Clone), "a type with neither has no clone()");
+  comptime_assert(!Type.impls(_CtNoClone, Clone), "a type with neither has no clone()");
   p := _CtPoint(x : i32(4), y : i32(5));
   q := p.clone();
   assert(q == p, "the derived clone is the copy");
