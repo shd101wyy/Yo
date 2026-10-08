@@ -294,9 +294,13 @@ tier-2 items above must not creep toward them:
   ([`../ROADMAP.md`](../ROADMAP.md) §Non-goals: "SMT solvers are the
   backend; Yo owns obligation generation").
 - **Runtime dependent types**
-  ([`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md)); ATS's
-  index notation was audited and rejected
-  ([`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) §4).
+  ([`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md)). The ATS
+  *notation* was audited and rejected — index sorts, `{n}` / `[n]`
+  binders, singleton types, constraint solving inside unification
+  ([`ATS_STYLE_INDEXED_TYPES.md`](ATS_STYLE_INDEXED_TYPES.md) §4) — but
+  the *substance* landed as the verifier's length-indexed collection
+  model (that doc's R1) and the lemma layer (its R2): the doc is DONE for
+  what it adopted, and §4 is the standing rejection of the rest.
 - **Mandatory termination** (D12 — partial correctness by default).
 - **Semantic preservation** — the emitted-C-means-what-Yo-means theorem
   needs a formal semantics of Yo and of C11 in a proof assistant
