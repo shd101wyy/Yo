@@ -532,3 +532,20 @@ plan. It still moves in lockstep with the plan's phases: when V1 step 2, V2b,
 V2c or V5 land, drop the corresponding "(V2b)"-style markers here; at V5,
 graduate it into the user-facing `docs/en-US/` + `docs/zh-CN/` porting guide
 and archive this file.
+
+**Deferred follow-up (recorded 2026-10-08): teach the five shapes in the
+toolchain, not only here.** Once V2b/V5 make the spellings real, fold §1's
+five shapes into the agent surface, so a model that "knows" the Rust pattern
+meets its replacement in the cheatsheet, not in a backlog doc:
+
+- `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md` first — it is
+  the skills' patterns home, and "I want to store a borrow" is a pattern;
+- the `yo-syntax` cheatsheet's ownership rows (which positions `imm`/`mut`
+  exist in, and that a borrow is never a field type);
+- the `yo context` pack's ownership section;
+
+following [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](../AGENT_KNOWLEDGE_CONSOLIDATION.md)'s
+one-home-per-fact rule — the skills carry the trigger and a pointer, this
+catalog (then `docs/`) holds the detail. Held until V2b/V5 on purpose: a
+cheatsheet that teaches spellings the current tree cannot compile sends
+agents to copy examples that fail.
