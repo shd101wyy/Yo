@@ -3416,11 +3416,12 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     `impl(T, Copy())` registers, and the answer sticks
     (`tests/copy_trait.test.yo`'s `_CtSeg`), while `Type.get_info(T)` on an
     abstract `T` cannot fold.
-  - **Function-local types cannot opt in yet.** A `derive` inside a
-    function body is a silent no-op
-    (`issues/a-derive-inside-a-function-body-is-silently-ignored.md`, S2), so
-    `Point1`, `Color`, `EvenNumber`, `Cell` and `Inner` in the language
-    tests stay non-`Copy` until it is fixed.
+  - **Function-local types could not opt in.** A `derive` inside a
+    function body was a silent no-op
+    (`issues/fixed/a-derive-inside-a-function-body-is-silently-ignored.md`,
+    S2; fixed 2026-10-08 in `fix/local-derive`), so `Point1`, `Color`,
+    `EvenNumber`, `Cell` and `Inner` in the language tests take their local
+    `derive(T, Copy, Clone)` with the flip.
   - **The `markdown_yo` dependency** has its own plain-data types
     (`ParentType`, `InlineType`, `InlineToken`, `AbbrEntry`, `Delimiter`,
     `LinkMarker`, `_SQEntry`). They need `derive(T, Copy, Clone)` upstream

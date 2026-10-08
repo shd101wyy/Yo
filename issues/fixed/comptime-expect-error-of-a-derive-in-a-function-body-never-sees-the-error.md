@@ -2,7 +2,7 @@
 
 **Severity:** S3 — a test written as `comptime_expect_error(derive(X, Trait), "...")` inside a `test(...)` body fails the whole batch with a confusing "the expression raised an error, but not the expected one"-shaped message (the no-error path echoes the expected text), because the derive never ran; nothing is silently accepted.
 
-Found 2026-10-06 while fixing the `feat/vbd-copy-trait` review findings: `tests/copy_trait.test.yo`'s "derive(T, Copy) alone is an error" case, written inside its `test(...)` body, failed the batch.
+**FIXED 2026-10-08** (same fix as `issues/fixed/a-derive-inside-a-function-body-is-silently-ignored.md`). Found 2026-10-06 while fixing the `feat/vbd-copy-trait` review findings: `tests/copy_trait.test.yo`'s "derive(T, Copy) alone is an error" case, written inside its `test(...)` body, failed the batch.
 
 ## Symptom
 
@@ -53,3 +53,23 @@ mode (the builtin already sets `set_propagate_def_time_errors(true)` around
 the argument), or make the no-error path's message name the skipped form
 ("a derive inside a function body is not evaluated; pin it at module
 level") instead of echoing the expected text.
+
+## Fix (2026-10-08)
+
+`evaluate_derive` (`src/evaluator/builtins/derive.yo`) no longer returns early
+outside an executing context. In a function body it runs with the flags a macro
+expansion uses (`is_executing` on, `is_validating_function_definition` and
+`is_analyzing_ctfe_capability` off), so the derive rule's comptime fold
+executes, under its own error handler (`_evaluate_derive_guarded`), so the flags
+are restored before an error propagates to the caller's handler. The generated
+impls are registered by site, so a body evaluated again (a trial, each
+specialization of a generic function) registers them once.
+
+## Verification
+
+`tests/derive.test.yo`, "Derives inside a function body": a local
+`derive(T, Eq(T), Clone)` used at run time; a local `derive(T, Copy, Clone)`
+whose copy is independent; a generic function with a local derive specialized
+at two types; `comptime_expect_error` of a local `derive(T, Copy)` and of a
+local derive over a `String` field. The file fails on the v0.2.54 seed (63
+failed) and passes with the fix (63 passed).

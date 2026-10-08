@@ -49,3 +49,23 @@ local type, and skip it on later re-evaluations of the same body (call-time
 specializations, trial re-runs) so the impls are not registered twice
 (E0612). The test lands with the fix: the reproducer above, plus a
 function-local `derive(T, Copy, Clone)` whose value is copied twice.
+
+## Fix (2026-10-08)
+
+`evaluate_derive` (`src/evaluator/builtins/derive.yo`) no longer returns early
+outside an executing context. In a function body it runs with the flags a macro
+expansion uses (`is_executing` on, `is_validating_function_definition` and
+`is_analyzing_ctfe_capability` off), so the derive rule's comptime fold
+executes, under its own error handler (`_evaluate_derive_guarded`), so the flags
+are restored before an error propagates to the caller's handler. The generated
+impls are registered by site, so a body evaluated again (a trial, each
+specialization of a generic function) registers them once.
+
+## Verification
+
+`tests/derive.test.yo`, "Derives inside a function body": a local
+`derive(T, Eq(T), Clone)` used at run time; a local `derive(T, Copy, Clone)`
+whose copy is independent; a generic function with a local derive specialized
+at two types; `comptime_expect_error` of a local `derive(T, Copy)` and of a
+local derive over a `String` field. The file fails on the v0.2.54 seed (63
+failed) and passes with the fix (63 passed).

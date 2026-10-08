@@ -885,3 +885,46 @@ test("a derived Clone over an ArrayList field deep-clones and stays independent 
   assert(h.rel.len() == usize(1), "the clone is a FRESH container, not an alias");
   assert(c.rel.len() == usize(2), "the clone's own new element is intact");
 });
+
+// ============================================================================
+// Derives inside a function body
+// ============================================================================
+// A derive runs at compile time wherever it appears, like the local type
+// declaration it follows. It used to be a silent no-op in a function body
+// (issues/fixed/a-derive-inside-a-function-body-is-silently-ignored.md), and
+// `comptime_expect_error(derive(...))` there never saw its error
+// (issues/fixed/comptime-expect-error-of-a-derive-in-a-function-body-never-sees-the-error.md).
+_LdBare :: struct(n : i32);
+_ld_sum_twice :: (fn(generic(T : Type), _x : T) -> i32)({
+  LdQ :: struct(n : i32);
+  derive(LdQ, Copy, Clone);
+  q := LdQ(n : i32(4));
+  r := q;
+  s := q.clone();
+  r.n + s.n
+});
+test("a derive in a function body registers its impls", {
+  LdP :: struct(x : i32, y : i32);
+  derive(LdP, Eq(LdP), Clone);
+  a := LdP(x : i32(1), y : i32(2));
+  b := a.clone();
+  assert(a == b, "the local Eq and Clone impls exist");
+});
+test("a local derive(T, Copy, Clone) makes independent copies", {
+  LdC :: struct(v : i32);
+  derive(LdC, Copy, Clone);
+  comptime_assert(Type.impls(LdC, Copy) && Type.impls(LdC, Clone), "local Copy and Clone");
+  a := LdC(v : i32(3));
+  b := a;
+  b.v = i32(9);
+  assert(a.v == i32(3), "the copy is independent");
+});
+test("a local derive in a generic body serves every specialization", {
+  assert(_ld_sum_twice(i32(1)) == i32(8), "T := i32");
+  assert(_ld_sum_twice(true) == i32(8), "T := bool: registered once, no conflicting impl");
+});
+test("a local derive's error reaches comptime_expect_error", {
+  comptime_expect_error(derive(_LdBare, Copy), "derive(_LdBare, Copy, Clone)");
+  LdS :: struct(s : String);
+  comptime_expect_error(derive(LdS, Copy, Clone), "its field `s` has type `String`");
+});
