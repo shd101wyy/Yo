@@ -10509,6 +10509,8 @@ impl(
 IterMap :: (fn(comptime(I) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
+derive(generic(I : Type, B : Type, F : Type), where(I <: Clone, F <: Clone), IterMap(I, B, F), Clone);
+derive(generic(I : Type, B : Type, F : Type), where(I <: Copy, F <: Copy), IterMap(I, B, F), Copy);
 impl(
   generic(I : Type, A : Type, B : Type, F : Type),
   where(I <: Iterator(Item := A), F <: (Fn(item : A) -> B)),
@@ -10537,6 +10539,8 @@ export(IterMap);
 IterFilter :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
+derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterFilter(I, F), Clone);
+derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterFilter(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
   where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
@@ -10577,6 +10581,8 @@ export(IterFilter);
 IterTake :: (fn(comptime(I) : Type) -> comptime(Type))(
   struct(_inner : I, _remaining : usize)
 );
+derive(generic(I : Type), where(I <: Clone), IterTake(I), Clone);
+derive(generic(I : Type), where(I <: Copy), IterTake(I), Copy);
 impl(
   generic(I : Type, A : Type),
   where(I <: Iterator(Item := A)),
@@ -10605,6 +10611,8 @@ export(IterTake);
 IterSkip :: (fn(comptime(I) : Type) -> comptime(Type))(
   struct(_inner : I, _to_skip : usize)
 );
+derive(generic(I : Type), where(I <: Clone), IterSkip(I), Clone);
+derive(generic(I : Type), where(I <: Copy), IterSkip(I), Copy);
 impl(
   generic(I : Type, A : Type),
   where(I <: Iterator(Item := A)),
@@ -10641,6 +10649,8 @@ export(IterSkip);
 IterEnumerate :: (fn(comptime(I) : Type) -> comptime(Type))(
   struct(_inner : I, _index : usize)
 );
+derive(generic(I : Type), where(I <: Clone), IterEnumerate(I), Clone);
+derive(generic(I : Type), where(I <: Copy), IterEnumerate(I), Copy);
 impl(
   generic(I : Type, A : Type),
   where(I <: Iterator(Item := A)),
@@ -10672,6 +10682,8 @@ export(IterEnumerate);
 IterZip :: (fn(comptime(I) : Type, comptime(J) : Type) -> comptime(Type))(
   struct(_left : I, _right : J)
 );
+derive(generic(I : Type, J : Type), where(I <: Clone, J <: Clone), IterZip(I, J), Clone);
+derive(generic(I : Type, J : Type), where(I <: Copy, J <: Copy), IterZip(I, J), Copy);
 impl(
   generic(I : Type, J : Type, A : Type, B : Type),
   where(I <: Iterator(Item := A), J <: Iterator(Item := B)),
@@ -10702,6 +10714,8 @@ export(IterZip);
 IterChain :: (fn(comptime(I) : Type, comptime(J) : Type) -> comptime(Type))(
   struct(_first : I, _second : J, _first_done : bool)
 );
+derive(generic(I : Type, J : Type), where(I <: Clone, J <: Clone), IterChain(I, J), Clone);
+derive(generic(I : Type, J : Type), where(I <: Copy, J <: Copy), IterChain(I, J), Copy);
 impl(
   generic(I : Type, J : Type, A : Type),
   where(I <: Iterator(Item := A), J <: Iterator(Item := A)),
@@ -10744,6 +10758,8 @@ export(IterChain);
 IterTakeWhile :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F, _done : bool)
 );
+derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterTakeWhile(I, F), Clone);
+derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterTakeWhile(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
   where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
@@ -10787,6 +10803,8 @@ export(IterTakeWhile);
 IterSkipWhile :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F, _skipping : bool)
 );
+derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterSkipWhile(I, F), Clone);
+derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterSkipWhile(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
   where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
@@ -10828,6 +10846,8 @@ export(IterSkipWhile);
 IterFilterMap :: (fn(comptime(I) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
+derive(generic(I : Type, B : Type, F : Type), where(I <: Clone, F <: Clone), IterFilterMap(I, B, F), Clone);
+derive(generic(I : Type, B : Type, F : Type), where(I <: Copy, F <: Copy), IterFilterMap(I, B, F), Copy);
 impl(
   generic(I : Type, A : Type, B : Type, F : Type),
   where(I <: Iterator(Item := A), F <: (Fn(item : A) -> Option(B))),
@@ -10910,6 +10930,8 @@ IterRev :: (fn(comptime(I) : Type) -> comptime(Type))(
     _inner : I
   )
 );
+derive(generic(I : Type), where(I <: Clone), IterRev(I), Clone);
+derive(generic(I : Type), where(I <: Copy), IterRev(I), Copy);
 impl(
   generic(I : Type, A : Type),
   where(I <: DoubleEndedIterator(Item := A)),
