@@ -122,6 +122,10 @@ pragma(Pragma.AllowUnsafe);
 /// place `self.n` once the `u32` clone expands to its receiver). The `Copy`
 /// impl registered right after still checks every part.
 (g_copy_pending_keys : ArrayList(String)) = ArrayList(String).new();
+/// Types whose flip answer is being computed: asking `Copy` of a type can ask
+/// `type_contains_rc_type` of it again (through its `Copy` impl's checks),
+/// which asks the flip; an in-progress type answers "not lacking" there.
+(g_lacks_copy_in_progress : ArrayList(String)) = ArrayList(String).new();
 (g_lacks_copy_memo : HashMap(String, bool)) = HashMap(String, bool).new();
 (g_lacks_copy_memo_epoch : u64) = u64(0);
 /// Register that the type `type_id` auto-derives the marker trait named
@@ -921,6 +925,14 @@ type_lacks_copy_for_flip :: (fn(ty : TypeValue) -> bool)({
     },
     .None => ()
   );
+  (ipi : usize) = usize(0);
+  while(ipi < g_lacks_copy_in_progress.len(), {
+    if(match(g_lacks_copy_in_progress.get(ipi), .Some(ik) => (ik == key), .None => false), {
+      return(false);
+    });
+    ipi = (ipi + usize(1));
+  });
+  g_lacks_copy_in_progress.push(key.clone());
   answer := cond(
     (type_is_comptime_only_full(ty, env) || type_is_control_bound(ty)) => false,
     true => match(
@@ -929,6 +941,7 @@ type_lacks_copy_for_flip :: (fn(ty : TypeValue) -> bool)({
       .None => false
     )
   );
+  _ := g_lacks_copy_in_progress.pop();
   // The query itself may force pending impls (and bump the epoch); record
   // the answer under the epoch it was computed at.
   if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {

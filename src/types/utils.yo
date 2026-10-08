@@ -837,11 +837,22 @@ _plain_data_lacks_copy :: (fn(ty_in : TypeValue) -> bool)({
     ),
     _ => ty_in
   );
-  if(type_contains_rc_type(ty), {
+  if(type_contains_rc_cell_or_move_only(ty), {
     return(false);
   });
   match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false)
 });
+/// A nominal value struct or enum that is not `Copy` under the flip
+/// (`g_type_lacks_copy_fn`). Tuples, arrays and records are walked by
+/// `_type_contains_rc_inner` through their parts.
+_nominal_lacks_copy :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Struct({ id : _ }) => match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false),
+    .EnumT(_, _, _, _, _, _, _, _, _, _) => match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false),
+    _ => false
+  )
+);
 type_requires_explicit_copy :: (fn(ty : TypeValue) -> bool)(type_is_move_only(ty) || _plain_data_lacks_copy(ty));
 /// Why `ty` is move-only, for the E0901 note: the declaring type and trait,
 /// reached through the component path ("`Holder` holds a move-only value in
@@ -936,7 +947,7 @@ _move_only_reason_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(String)
 ///
 /// Uses a depth limit instead of a checkedTypes set to prevent infinite
 /// recursion on self-referential types (e.g. recursive enums).
-_type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
+_type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32, flip : bool) -> bool)({
   // Resolve recursive-type SHELLS to their registered finals first — same
   // reasoning as get_size_of_type (fifth shell-consumption site). An empty
   // shell walks to `false`, and a specialization whose T binding is the
@@ -956,11 +967,17 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
     _nominal_declares_move_only(ty) => true,
     // A closure with a `mut` capture is move-only too (decision 35).
     _capture_struct_declares_mut(ty) => true,
+    // Decision 36's flip: a plain-data value type that is not `Copy` is
+    // copied only explicitly, so, like a move-only value, its owner is
+    // tracked (a call or constructor result transfers, a named local is
+    // consumed by a move). The value types reaching here are the nominal
+    // structs and enums (a `ref` one is `is_rc_type` above).
+    (flip && _nominal_lacks_copy(ty)) => true,
     true => match(
       ty,
       // Array — recurse on element type
       .Array(element : elem, length : _) =>
-        recur(elem, depth + u32(1)),
+        recur(elem, depth + u32(1), flip),
       // Tuple — check all field types
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
@@ -969,7 +986,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
           match(
             fields.get(i),
             .Some(ft) => {
-              if(recur(ft, depth + u32(1)), {
+              if(recur(ft, depth + u32(1), flip), {
                 found = true;
               });
             },
@@ -987,7 +1004,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
           match(
             fields.get(i),
             .Some(ft) => {
-              if(recur(ft, depth + u32(1)), {
+              if(recur(ft, depth + u32(1), flip), {
                 found = true;
               });
             },
@@ -1005,7 +1022,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
           match(
             fields.get(i),
             .Some(ft) => {
-              if(recur(ft, depth + u32(1)), {
+              if(recur(ft, depth + u32(1), flip), {
                 found = true;
               });
             },
@@ -1028,7 +1045,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
                 match(
                   v_fields.get(fi),
                   .Some(ft) => {
-                    if(recur(ft, depth + u32(1)), {
+                    if(recur(ft, depth + u32(1), flip), {
                       found = true;
                     });
                   },
@@ -1044,7 +1061,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
         found
       },
       // Iso — check child type
-      .IsoT(child : child) => recur(child, depth + u32(1)),
+      .IsoT(child : child) => recur(child, depth + u32(1), flip),
       // SomeT — follow the resolved concrete type if present; an unresolved
       // SomeType is treated as RC. The Future carve-out is already handled
       // by `is_rc_type(ty)` above (line ~307). Without this follow-through a
@@ -1054,7 +1071,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
       // over-release (issues/retired/yo-self-stage2-unwind-check-coverage.md).
       .SomeT({ required_trait_types : _, resolution : resolved }) => match(
         resolved,
-        .Some(concrete) => recur(concrete, depth + u32(1)),
+        .Some(concrete) => recur(concrete, depth + u32(1), flip),
         .None => true
       ),
       // Function — false (functions are not reference types)
@@ -1095,7 +1112,14 @@ type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
 /// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).
 /// Uses a depth limit to handle self-referential types safely.
 type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
-  _type_contains_rc_inner(ty, u32(0))
+  _type_contains_rc_inner(ty, u32(0), true)
+);
+/// `type_contains_rc_type` before decision 36's flip: an RC cell, `Dyn`,
+/// `Iso` or a move-only value, but not a plain-data value merely lacking
+/// `Copy`. What the flip's own predicate and the compile-time value of a temp
+/// are decided on.
+type_contains_rc_cell_or_move_only :: (fn(ty : TypeValue) -> bool)(
+  _type_contains_rc_inner(ty, u32(0), false)
 );
 /// Does a value of `ty` reach a NON-ATOMIC cell — a `ref(struct)`/`ref(enum)`
 /// that is not atomic (`Rc`, today's `Box`, `ArrayList`'s buffer cell, a user
@@ -3034,7 +3058,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, set_type_lacks_copy_fn, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
+export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);

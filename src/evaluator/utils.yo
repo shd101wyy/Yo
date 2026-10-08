@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
+{ type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -172,6 +172,10 @@ attach_temp_variable_to_expr :: (
       );
       // Only mark as owning if the effective type actually contains RC.
       _is_owning_rc := (is_owning_the_rc_value && type_contains_rc_type(effective_ty));
+      // A value whose owner is tracked only because decision 36's flip makes
+      // it explicit-copy (plain data, no cell) keeps its compile-time value:
+      // only a value holding a cell is runtime-only.
+      _holds_cell := (_is_owning_rc && type_contains_rc_cell_or_move_only(effective_ty));
       // Compute compile-time-only flag and value: owning RC vars are always runtime.
       // Runtime results are `Some(UnknownVal)` (NOT "no value"), so
       // "has an inlinable value" must read UnknownVal as NO value, or a
@@ -182,8 +186,8 @@ attach_temp_variable_to_expr :: (
         .Some(iv) => !is_unknown_val(iv),
         .None => false
       );
-      is_ctonly := cond(_is_owning_rc => false, true => has_inlinable_value);
-      var_value := cond(_is_owning_rc => Option(EvalValue).None, true => info.value);
+      is_ctonly := cond(_holds_cell => false, true => has_inlinable_value);
+      var_value := cond(_holds_cell => Option(EvalValue).None, true => info.value);
       expr_tok := ast_expr_token(expr);
       match(
         info.variable_name,
