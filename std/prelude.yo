@@ -11925,7 +11925,7 @@ impl(
   generic(I : Type),
   where(I <: Iterator),
   I,
-  into_iter : (fn(self : Self) -> Self)(self)
+  into_iter : (fn(sink(self) : Self) -> Self)(self)
 );
 impl(
   generic(I : Type),
@@ -11935,8 +11935,8 @@ impl(
   map : (
     fn(
       generic(A : Type, B : Type, F : Type),
-      self : Self,
-      f : F,
+      sink(self) : Self,
+      sink(f) : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> B))
     ) -> IterMap(Self, B, F)
   )(
@@ -11948,8 +11948,8 @@ impl(
   filter : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
-      f : F,
+      sink(self) : Self,
+      sink(f) : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> IterFilter(Self, F)
   )(
@@ -11959,7 +11959,7 @@ impl(
   take : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       n : usize,
       where(Self <: Iterator(Item := A))
     ) -> IterTake(Self)
@@ -11970,7 +11970,7 @@ impl(
   skip : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       n : usize,
       where(Self <: Iterator(Item := A))
     ) -> IterSkip(Self)
@@ -11981,7 +11981,7 @@ impl(
   enumerate : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       where(Self <: Iterator(Item := A))
     ) -> IterEnumerate(Self)
   )(
@@ -11991,8 +11991,8 @@ impl(
   zip : (
     fn(
       generic(A : Type, J : Type, B : Type),
-      self : Self,
-      other : J,
+      sink(self) : Self,
+      sink(other) : J,
       where(Self <: Iterator(Item := A), J <: Iterator(Item := B))
     ) -> IterZip(Self, J)
   )(
@@ -12002,7 +12002,7 @@ impl(
   fold : (
     fn(
       generic(A : Type, Acc : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       init : Acc,
       f : F,
       where(Self <: Iterator(Item := A), F <: (Fn(acc : Acc, item : A) -> Acc))
@@ -12027,7 +12027,7 @@ impl(
   for_each : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       f : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> unit))
     ) -> unit
@@ -12049,7 +12049,7 @@ impl(
   count : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       where(Self <: Iterator(Item := A))
     ) -> usize
   )({
@@ -12072,7 +12072,7 @@ impl(
   any : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       pred : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> bool
@@ -12102,7 +12102,7 @@ impl(
   all : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       pred : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> bool
@@ -12132,7 +12132,7 @@ impl(
   find : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       pred : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> Option(A)
@@ -12162,7 +12162,7 @@ impl(
   position : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       pred : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> Option(usize)
@@ -12195,7 +12195,7 @@ impl(
   last : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       where(Self <: Iterator(Item := A))
     ) -> Option(A)
   )({
@@ -12218,7 +12218,7 @@ impl(
   nth : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       n : usize,
       where(Self <: Iterator(Item := A))
     ) -> Option(A)
@@ -12251,7 +12251,7 @@ impl(
   sum : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       where(Self <: Iterator(Item := A), A <: (Add(A), Default))
     ) -> A
   )({
@@ -12274,7 +12274,7 @@ impl(
   min : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       where(Self <: Iterator(Item := A), A <: Ord(A))
     ) -> Option(A)
   )({
@@ -12304,7 +12304,7 @@ impl(
   max : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       where(Self <: Iterator(Item := A), A <: Ord(A))
     ) -> Option(A)
   )({
@@ -12334,8 +12334,8 @@ impl(
   chain : (
     fn(
       generic(A : Type, J : Type),
-      self : Self,
-      other : J,
+      sink(self) : Self,
+      sink(other) : J,
       where(Self <: Iterator(Item := A), J <: Iterator(Item := A))
     ) -> IterChain(Self, J)
   )(
@@ -12345,8 +12345,8 @@ impl(
   take_while : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
-      f : F,
+      sink(self) : Self,
+      sink(f) : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> IterTakeWhile(Self, F)
   )(
@@ -12356,8 +12356,8 @@ impl(
   skip_while : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
-      f : F,
+      sink(self) : Self,
+      sink(f) : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> IterSkipWhile(Self, F)
   )(
@@ -12367,8 +12367,8 @@ impl(
   filter_map : (
     fn(
       generic(A : Type, B : Type, F : Type),
-      self : Self,
-      f : F,
+      sink(self) : Self,
+      sink(f) : F,
       where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> Option(B)))
     ) -> IterFilterMap(Self, B, F)
   )(
@@ -12378,7 +12378,7 @@ impl(
   peekable : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       where(Self <: Iterator(Item := A))
     ) -> IterPeekable(Self, A)
   )(
@@ -12400,7 +12400,7 @@ impl(
   /// issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md.
   collect : (
     fn(
-      self : Self,
+      sink(self) : Self,
       comptime(C) : Type,
       where(C <: FromIterator)
     ) -> C
@@ -12438,7 +12438,7 @@ impl(
   /// ```yo
   /// (i32(0) .. i32(5)).rev().for_each(x => { out.push(x); });  // 4 3 2 1 0
   /// ```
-  rev : (fn(self : Self) -> IterRev(Self))(
+  rev : (fn(sink(self) : Self) -> IterRev(Self))(
     IterRev(Self)(_inner : self)
   )
 );

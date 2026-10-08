@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
-{ TypeValue, FuncMeta } :: import("../types/definitions.yo");
+{ TypeValue, FuncMeta, t_refine_inner } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -60,7 +60,8 @@ pragma(Pragma.AllowUnsafe);
   set_type_lacks_copy_fn,
   type_is_control_bound,
   bump_trait_impl_epoch,
-  trait_impl_epoch
+  trait_impl_epoch,
+  type_contains_some_type_deep
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -894,7 +895,17 @@ clear_copy_pending :: (fn() -> unit)({
 /// unions and C opaque types answer false and keep copying implicitly. The caller
 /// (`type_requires_explicit_copy`) has already excluded owned buffers and
 /// counted cells.
-type_lacks_copy_for_flip :: (fn(ty : TypeValue) -> bool)({
+type_lacks_copy_for_flip :: (fn(ty_in : TypeValue) -> bool)({
+  // A refinement `refine(T, p)` copies as its `T` (the erasure rule).
+  (ty : TypeValue) = ty_in;
+  while(match(ty, .RefineT(_, _) => true, _ => false), {
+    ty = t_refine_inner(ty);
+  });
+  // A type still mentioning a type variable is judged per instantiation (a
+  // generic body is evaluated again for each), as `type_is_move_only` does.
+  if(type_contains_some_type_deep(ty), {
+    return(false);
+  });
   env := match(
     g_flip_env,
     .Some(e) => e,
