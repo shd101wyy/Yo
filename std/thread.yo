@@ -57,14 +57,17 @@ extern(
   // (plans/VALUES_BY_DEFAULT.md decision 38 E) — so a move-only value could
   // never cross into the thread
   // (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
-  __yo_thread_spawn : (fn(own(cb) : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
+  // `FnOnce`: the spawned thread calls the relay exactly once
+  // (plans/VALUES_BY_DEFAULT.md decision 37), so a relay may move what it
+  // captured out of its body.
+  __yo_thread_spawn : (fn(own(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit),
   __yo_thread_detach : (fn(t : __yo_thread_t) -> unit)
 );
 extern(
   "Yo",
   // `own(cb)` for the same reason as `__yo_thread_spawn` above.
-  __yo_worker_spawn : (fn(own(cb) : Impl(Fn(io : Io) -> unit, Send)) -> unit),
+  __yo_worker_spawn : (fn(own(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit),
   __yo_worker_get_num_threads : (fn() -> usize),
   __yo_worker_set_num_threads : (fn(num : usize) -> unit)
 );
@@ -93,17 +96,20 @@ impl(
   where(T <: (Send, Acyclic)),
   /// Spawn a new OS thread running the given closure.
   /// The closure receives its own per-thread Io event loop.
-  /// `own(cb)`: the callback's capture struct is MOVED in. The relaying
-  /// closure below takes its own reference to it, so the one the caller handed
-  /// over has to be released here — without `own` it is orphaned and every
-  /// RC'd capture of every spawned callback leaks.
-  spawn : (fn(own(cb) : Impl(Fn(io : Io) -> T, Send)) -> Self)({
+  /// `sink(cb) : Impl(FnOnce(...), Send)` (plans/VALUES_BY_DEFAULT.md
+  /// decision 37): the callback is MOVED in and called exactly once, so it may
+  /// move what it captured out of its body (`{ tx, msg }(io : Io) =>
+  /// tx.send(msg)`). An `Fn` closure is accepted too. The relay below captures
+  /// it by value in a capture list and is itself `FnOnce`, so `cb(io)`
+  /// consumes it there and the spawn wrapper frees only the relay's struct.
+  spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self)({
     chan := Channel(T).new(usize(1));
-    sink := chan;
-    raw := __yo_thread_spawn((io : Io) => {
-      _ := sink.send(cb(io));
+    tx := chan;
+    (relay : Impl(FnOnce(io : Io) -> unit, Send)) = ({ cb, tx }(io : Io) => {
+      _ := tx.send(cb(io));
       ()
     });
+    raw := __yo_thread_spawn(relay);
     Self(handle : raw, _joined : false, _result : chan)
   }),
   /// Block the current thread until this thread completes, and return what its
@@ -300,11 +306,13 @@ _unlock_after_submission :: (fn(pool : ThreadPool, took : bool) -> unit)({
     true => ()
   );
 });
-/// `own(cb)`: the task closure is MOVED in. A plain `cb` borrowed a literal
-/// capturing a not-implicitly-copyable value, and a borrow capture is never
-/// `Send` (decision 38 E), so such a task could never be submitted
-/// (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
-spawn :: (fn(pool : ThreadPool, own(cb) : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
+/// `sink(cb) : Impl(FnOnce(...), Send)`: the task closure is MOVED in and run
+/// exactly once (plans/VALUES_BY_DEFAULT.md decision 37), so it may move its
+/// captures out; an `Fn` closure is accepted too. (A plain `cb` borrowed a
+/// literal capturing a not-implicitly-copyable value, and a borrow capture is
+/// never `Send`, decision 38 E:
+/// issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md.)
+spawn :: (fn(pool : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit)({
   // `_closed` is read and the task counted in UNDER the submission lock, so
   // `shutdown` (which sets `_closed` under the same lock, then drains) cannot
   // race a submission that already passed the check. The lock is held across
@@ -320,11 +328,12 @@ spawn :: (fn(pool : ThreadPool, own(cb) : Impl(Fn(io : Io) -> unit, Send)) -> un
   );
   tasks := pool._tasks;
   tasks.add(i32(1));
-  __yo_worker_spawn((io : Io) => {
+  (relay : Impl(FnOnce(io : Io) -> unit, Send)) = ({ cb, tasks }(io : Io) => {
     cb(io);
     tasks.done();
     ()
   });
+  __yo_worker_spawn(relay);
   _unlock_after_submission(pool, took);
 });
 /// Run a BLOCKING call on its own OS thread and await the result, without

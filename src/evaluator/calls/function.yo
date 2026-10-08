@@ -9,6 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 {
   AstExpr,
   ast_expr_token,
@@ -29,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -92,6 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
 { try_to_implement_closure_by_fn_module_type } :: import("./closure_type.yo");
@@ -134,7 +136,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, audit_borrow_marker_site, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
-{ get_func_type, register_func_type, is_control_fn, get_closure_body_type } :: import("../../function_value.yo");
+{ get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct } :: import("../../function_value.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
@@ -166,6 +168,8 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
+// Calls whose `FnOnce` callee is released after the call (`_consume_fnonce_callee`).
+(g_fnonce_release_after_call : HashMap(usize, AstExpr)) = HashMap(usize, AstExpr).new();
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
@@ -5187,7 +5191,9 @@ evaluate_function_call :: (
   call_tok := ast_expr_token(expr);
   call_mp := call_tok.module_path.clone();
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(call_mp, ctx.std_path.clone()), {
-    return(_evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn));
+    std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
+    _attach_fnonce_callee_release(expr, std_r, ctx);
+    return(std_r);
   });
   out := ArrayList(AstExpr).new();
   match(
@@ -5198,6 +5204,7 @@ evaluate_function_call :: (
     },
     .None => {
       r := match(out.get(usize(0)), .Some(e) => e, .None => expr);
+      _attach_fnonce_callee_release(expr, r, ctx);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(r, call_tok, ctx, exn);
       });
@@ -5254,7 +5261,89 @@ _local_borrow_note_call_site :: (fn(call : AstExpr, call_tok : Token, ctx : Eval
 /// binding lives in the body's own env (a specialized body's parameter), and
 /// a body whose drop pass ran without the move scheduled a drop of the
 /// consumed closure.
-_consume_fnonce_callee :: (fn(callee : AstExpr, callee_info : ExprInfo, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+/// Calls whose `FnOnce` callee must be released once after the call
+/// (call expr id → its evaluated `___drop(<callee>)`). An `FnOnce(...)` call consumes its callee, so
+/// the callee's binding is never dropped at scope end. A closure whose body
+/// OWNS its captures (`FnOnce(...)` with a capture list) has dropped them by
+/// the time the call returns, but an `Fn` closure called through an
+/// `FnOnce(...)` slot has a body that only borrows them: something has to
+/// release the closure, once, after the call
+/// (issues/fixed/an-fn-closure-called-through-an-fnonce-parameter-leaks-its-captures.md).
+/// True when `callee_info` names a concrete closure whose body owns its
+/// captures, or a `Dyn` (its call-once wrapper releases the box itself):
+/// then the call needs no release after it.
+_fnonce_callee_releases_itself :: (fn(callee_info : ExprInfo) -> bool)({
+  if(match(callee_info.ty, .DynT({ required_trait_types : _ }) => true, _ => false), {
+    return(true);
+  });
+  fv_opt := match(
+    expr_info_closure_function_value(callee_info),
+    .Some(fv) => Option(EvalValue).Some(fv),
+    .None => match(callee_info.value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+  );
+  if(match(fv_opt, .Some(fv) => match(fv, .FuncVal(fvd, _) => is_fnonce_closure_fn(fvd.*.func_id.clone()), _ => false), .None => false), {
+    return(true);
+  });
+  // A local typed `Impl(FnOnce(...))` carries no function value; its type
+  // resolves to the closure's capture struct.
+  resolved := match(callee_info.ty, .SomeT({ resolution : sr }) => match(sr, .Some(c) => c, .None => callee_info.ty), _ => callee_info.ty);
+  match(resolved, .Struct({ id : cs_id }) => is_fnonce_capture_struct(cs_id), _ => false)
+});
+/// Record `___drop(<name>)` as the release to run after `call`. The drop is
+/// built and evaluated BEFORE the callee is consumed (evaluating it afterwards
+/// would read a moved value), exactly as the call machinery's own post-call
+/// drops are (`generate_deferred_drop_expressions`, calls/helper.yo).
+_record_fnonce_callee_release :: (fn(call : AstExpr, name : String, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+  // The drop is a codegen artifact that runs after the call; evaluating it
+  // must not consume the callee before the call reads it. Snapshot the
+  // consumed state of every binding of the name (a `sink` parameter's
+  // non-owning shadow and the owning binding beside it) and restore it.
+  same_name := get_variables_from_env(env, name.clone());
+  saved := ArrayList(Option(Rc(Token))).new();
+  (si : usize) = usize(0);
+  while(si < same_name.len(), {
+    saved.push(match(same_name.get(si), .Some(sv) => sv.consumed_at_token, .None => Option(Rc(Token)).None));
+    si = (si + usize(1));
+  });
+  drop_expr := generate_expr_from_code(`___drop(${name})`, exn);
+  evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+  (ri : usize) = usize(0);
+  while(ri < same_name.len(), {
+    match(
+      same_name.get(ri),
+      .Some(rv) => {
+        rv.consumed_at_token = match(saved.get(ri), .Some(t) => t, .None => Option(Rc(Token)).None);
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  // Tagged as a post-call release: codegen emits it at the call's post-call
+  // flush even when the callee is a parameter (whose drops otherwise wait for
+  // the return points) or a capture of the enclosing closure (whose drops a
+  // closure body otherwise skips).
+  mark_fnonce_post_call_release(ast_expr_id(evaluated));
+  g_fnonce_release_after_call.insert(ast_expr_id(call), evaluated);
+});
+/// Append the post-call release `_consume_fnonce_callee` recorded for `call`
+/// to the deferred drops of `result`, the node its evaluation returned (it may
+/// be a rewrite of `call`), which codegen flushes right after the call.
+_attach_fnonce_callee_release :: (fn(call : AstExpr, result : AstExpr, ctx : EvalContext) -> unit)({
+  match(
+    g_fnonce_release_after_call.remove(ast_expr_id(call)),
+    .Some(callee) => match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(result)),
+      .Some(ci) => {
+        drops := match(ci.deferred_drop_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
+        drops.push(callee);
+        ci.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(drops);
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+});
+_consume_fnonce_callee :: (fn(callee : AstExpr, call : AstExpr, callee_info : ExprInfo, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
   is_once := match(
     extract_fn_trait_from_type(callee_info.ty),
     .Some(oft) => match(oft, .FnTraitT(base_name : ob) => (ob == "FnOnce"), _ => false),
@@ -5309,10 +5398,16 @@ _consume_fnonce_callee :: (fn(callee : AstExpr, callee_info : ExprInfo, env : En
       );
       return(());
     });
+    if(!_fnonce_callee_releases_itself(callee_info), {
+      _record_fnonce_callee_release(call, name.clone(), env, ctx, exn);
+    });
     if(v.consumed_at_token.is_none(), {
       v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(callee)));
     });
     return(());
+  });
+  if(holds_owned && !_fnonce_callee_releases_itself(callee_info), {
+    _record_fnonce_callee_release(call, name.clone(), env, ctx, exn);
   });
   consume_called_fnonce_closure(callee, v, env, ctx, exn);
 });
@@ -5903,7 +5998,7 @@ _evaluate_function_call_unanchored :: (
   callee_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_callee));
   match(
     callee_info_opt,
-    .Some(once_ci) => _consume_fnonce_callee(evaluated_callee, once_ci, env, ctx, exn),
+    .Some(once_ci) => _consume_fnonce_callee(evaluated_callee, expr, once_ci, env, ctx, exn),
     .None => ()
   );
   // Resolve this call's io-builtin marker at the dispatch choke point —

@@ -31,6 +31,9 @@ Progress:
   - decision 37's `FnOnce` with decision 38 C, Generation A (#1266;
     capture-list entries only, per the amendment; one S2 open: a macro
     that duplicates an `FnOnce` call calls it twice);
+  - decision 37's `FnOnce` Generation B, the `Thread.spawn` and
+    `ThreadPool` `spawn` signatures (the `io.async` slot waits for V3's
+    async work);
   - decision 36 Generation B part 1, the `Copy` sweep and structural
     `clone()` (#1269; the flip waits for the next seed);
   - V2a (#1204);
@@ -50,8 +53,7 @@ Progress:
 - **In progress:**
   - V3's remaining async work (§3.13).
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip, the
-  `Copy` flip), and after the next seed: `FnOnce` Generation B (the
-  `Thread.spawn`/`ThreadPool.spawn` signatures).
+  `Copy` flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -2027,6 +2029,32 @@ and in git, not a silent edit.
         capture cannot move out and `match(&x, …)` has no marker meaning yet.
         Their tests land with V3b Generation B. The move out, the tail
         return and the binding are tested (`tests/fn_once.test.yo`).
+    - **Generation B as built (2026-10-08).**
+      - **`Thread(T).spawn` and the pool's `spawn` take
+        `sink(cb) : Impl(FnOnce(io : Io) -> ..., Send)`** (`std/thread.yo`).
+        Their relays are capture-list `FnOnce` closures (`{ cb, tx }`), so
+        the user's body moves into the relay and is consumed by one call.
+      - **The spawn wrapper frees only the struct of a closure that owns its
+        captures** (`_generate_spawn_wrapper`,
+        `src/codegen/exprs/parallelism.yo`): an `FnOnce` capture-list body
+        already dropped what it did not move, so releasing the captures again
+        would be a double release. A borrowing (`Fn`) body's captures are
+        still released by the wrapper.
+      - **An `Fn` closure consumed through an `FnOnce` slot is released after
+        the call.** Generation A leaked its captures, since the consuming call
+        took away the binding's scope-end drop and the borrowing body drops
+        nothing (S2,
+        `issues/fixed/an-fn-closure-called-through-an-fnonce-parameter-leaks-its-captures.md`).
+        The call now carries a post-call `___drop(callee)` unless the callee
+        releases itself: a `Dyn`, a closure that owns its captures, or a value
+        of such a closure's capture struct.
+      - **Deferred:**
+        - the `io.async` body slot, which needs the async state machine to own
+          the body (V3's async work, §3.13);
+        - the test "a spawned closure sends a captured `String` with no
+          clone": `String` is not `Send` until it stops being reference
+          counted. The same move is tested with a `Send` struct
+          (`tests/thread.test.yo`).
 
 38. **Closure soundness rules: the 2026-10-06 audit.** Confirmed
     2026-10-06 by the maintainer. An adversarial audit of decisions 22, 23,

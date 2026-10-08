@@ -321,3 +321,33 @@ test("join_all waits for its own pool's tasks only", {
   _ := gate.send(true);
   b.join_all();
 });
+
+// `spawn(pool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send))`
+// (plans/VALUES_BY_DEFAULT.md decision 37, Generation B): a task runs once, so
+// a capture-list task may move a captured value out; it is disposed exactly
+// once, by its new owner.
+(g_pool_once_disposed : AtomicI32) = AtomicI32(i32(0));
+_PoolOnceTok :: struct(n : i32);
+impl(
+  _PoolOnceTok,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      _ := g_pool_once_disposed.fetch_add(i32(1), MemoryOrder.AcqRel);
+    })
+  )
+);
+_pool_take :: (fn(sink(t) : _PoolOnceTok) -> i32)(t.n);
+test("ThreadPool spawn: a call-once task moves its captured value out", {
+  if(arch == Arch.Wasm32, return(()));
+  before := g_pool_once_disposed.load(MemoryOrder.Acquire);
+  pool := ThreadPool.new(usize(2));
+  got := AtomicI32(i32(0));
+  t := _PoolOnceTok(n : i32(9));
+  spawn(pool, { t, got }(io : Io) => {
+    got.store(_pool_take(t), MemoryOrder.Release);
+    ()
+  });
+  pool.join_all();
+  assert(got.load(MemoryOrder.Acquire) == i32(9), "the task consumed t");
+  assert(g_pool_once_disposed.load(MemoryOrder.Acquire) == (before + i32(1)), "t was disposed once");
+});

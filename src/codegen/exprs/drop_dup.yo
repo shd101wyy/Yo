@@ -24,7 +24,7 @@
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables, is_fnonce_capture_drop } :: import("../../expr_info.yo");
+{ expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables, is_fnonce_capture_drop, is_fnonce_post_call_release } :: import("../../expr_info.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
@@ -838,17 +838,19 @@ _dd_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
 /// parameter, so it is emitted only at the function-level points too
 /// (plans/VALUES_BY_DEFAULT.md decision 37).
 _drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerationContext) -> bool)(
-  is_fnonce_capture_drop(ast_expr_id(drop_expr)) || match(
-    _dd_drop_target_atom(drop_expr),
-    .Some(atom) => match(
-      context.base.get_expr_info(atom),
-      .Some(aei) => {
-        vars := scope_variables(ast_expr_id(atom), aei.env, ast_expr_token(atom).value);
-        if(vars.len() == usize(0), false, match(vars.last(), .Some(v) => v.is_parameter, .None => false))
-      },
+  !is_fnonce_post_call_release(ast_expr_id(drop_expr)) && (
+    is_fnonce_capture_drop(ast_expr_id(drop_expr)) || match(
+      _dd_drop_target_atom(drop_expr),
+      .Some(atom) => match(
+        context.base.get_expr_info(atom),
+        .Some(aei) => {
+          vars := scope_variables(ast_expr_id(atom), aei.env, ast_expr_token(atom).value);
+          if(vars.len() == usize(0), false, match(vars.last(), .Some(v) => v.is_parameter, .None => false))
+        },
+        .None => false
+      ),
       .None => false
-    ),
-    .None => false
+    )
   )
 );
 /// Emit the evaluator-deferred drop expressions for `expr` (closure-capture and

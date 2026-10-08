@@ -27,7 +27,7 @@
 { is_unit_type, is_array_type, is_tuple_type, is_enum_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_type, type_requires_explicit_copy, is_value_nominal_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ get_func_type } :: import("../../function_value.yo");
+{ get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, get_variable_name_for_codegen_at, type_key, fresh_local_name, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, c_variant_member_name, can_optimize_as_nullable_pointer } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
@@ -423,7 +423,7 @@ _emit_capture_drop_lines :: (
 });
 /// Emit a spawn-wrapper function (RC cleanup for the heap-copied capture struct)
 /// to the declaration section and return its C name.
-_generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name : String, capture_type : TypeValue, runtime_args : String, context : FunctionGenerationContext) -> String)({
+_generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name : String, capture_type : TypeValue, runtime_args : String, closure_owns_captures : bool, context : FunctionGenerationContext) -> String)({
   // Phase 2: the wrapper is a file-scope fn — its name embeds the CLOSURE's
   // C name (unique per closure) plus a per-closure occurrence digit, so the
   // same closure spawned twice still gets distinct wrappers without the
@@ -448,7 +448,16 @@ _generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name
   call_line.push_str(");");
   em.emit_declaration_string_line(call_line);
   // Step 2-3: drop the capture struct (releases the thread's RC refs), free it.
-  // (consumed-capture NULLing omitted — see module doc.)
+  // (consumed-capture NULLing omitted — see module doc.) A closure typed
+  // `FnOnce(...)` with a capture list owns its by-value captures
+  // (plans/VALUES_BY_DEFAULT.md decision 37): its body moved some out and
+  // dropped the rest, so the wrapper frees only the struct, as the
+  // `Dyn(FnOnce)` call-once wrapper does (`functions/dyn.yo`).
+  if(closure_owns_captures, {
+    em.emit_declaration_string_line(String.from("  __yo_free(closure);"));
+    em.emit_declaration_string_line(String.from("}"));
+    return(wrapper_name);
+  });
   match(
     get_drop_function_for_type(capture_type, context),
     .Some(drop_fn) => {
@@ -517,7 +526,7 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
     match(mapped_opt, .Some(m) => m.closure_fid, .None => String.from(""))
   );
   runtime_args := _closure_runtime_arg_zeroinits(closure_fid, context);
-  wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, context);
+  wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, is_fnonce_closure_fn(closure_fid), context);
   // The capture-struct VALUE (the cb arg's variable, or its generated code).
   cb_code := _call_generate_expr(cb, indent.clone(), context);
   cb_var := match(cei.variable_name, .Some(vn) => get_variable_name_for_codegen_at(ast_expr_id(cb), vn, Option(Environment).Some(cei.env)), .None => cb_code);
