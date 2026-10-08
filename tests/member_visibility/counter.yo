@@ -15,6 +15,8 @@ impl(
 /// A GENERIC type: its methods reach callers through the generic-impl
 /// registry, whose candidates must carry the impl's declaring module.
 Cell :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_inner : T));
+derive(generic(T : Type), where(T <: Clone), Cell(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Cell(T), Copy);
 impl(
   generic(T : Type),
   Cell(T),

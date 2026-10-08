@@ -3508,6 +3508,7 @@ test("Test return of a hoisted local from an async body that awaits later", {
 // unconditionally while `codegen/exprs/match.ts` had always special-cased it.
 // ---------------------------------------------------------------------------
 Pick :: enum(First, Second, Neither);
+derive(Pick, Copy, Clone);
 test("Test await inside nested match arms under a payload-free scrutinee", {
   // The parameter is `rio`, not `io`: the test runner batches every test body
   // into one file that binds `io :: __yo_builtin_io` at top level, and Yo
@@ -3631,6 +3632,7 @@ test("Test an await result bound in two different match arms", {
 // See issues/fixed/async-sibling-arm-same-named-locals.md.
 // ---------------------------------------------------------------------------
 Shape :: enum(Exe, Lib);
+derive(Shape, Copy, Clone);
 test("Test same-named locals in sibling match arms of an async body", {
   describe := (fn(k : Shape, rio : Io) -> Impl(Future(String, Io)))(
     rio.async((aio : Io) => {
@@ -3734,6 +3736,7 @@ test("Test a match arm early-returning a freshly built value before an await", {
 // ---------------------------------------------------------------------------
 Task :: ref(struct(name : String));
 Job :: enum(Run, Doc);
+derive(Job, Copy, Clone);
 test("Test a reassignment in an awaitless nested arm beside an awaiting arm", {
   describe_job := (fn(k : Job, rio : Io) -> Impl(Future(String, Io)))(
     rio.async((aio : Io) => {
@@ -3821,6 +3824,7 @@ Cargo :: ref(
   )
 );
 CargoKind :: enum(A, B);
+derive(CargoKind, Copy, Clone);
 find_cargo :: (fn(tag : String) -> Option(Cargo))(
   Option(Cargo).Some(Cargo(label : tag, size : i32(7)))
 );

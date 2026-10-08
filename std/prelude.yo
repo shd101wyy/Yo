@@ -8679,10 +8679,13 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
         "",
         (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
           fname :: fields.get(fi).name;
+          // A `Copy` field's clone is its copy (decision 36), so the field is
+          // copied: a `fn` pointer or a closure has no `clone` method to call.
           // A `Deref` wrapper field (`Rc`, `Arc`) clones through its own
           // `Clone` impl by name: `self.f.clone()` would be decision 32's
           // wrapper/payload clash (E0616) when the payload is `Clone` too.
           part :: cond(
+            Type.impls(fields.get(fi).field_type, Copy) => __s2("self.", fname),
             Type.impls(fields.get(fi).field_type, Deref) => __s5("(typeof(self.", fname, ") <: Clone).clone(self.", fname, ")"),
             true => __s3("self.", fname, ".clone()")
           );
@@ -8733,6 +8736,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   part :: cond(
+                    Type.impls(v.fields.get(fi).field_type, Copy) => __s2("__v_", fname),
                     Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(typeof(__v_", fname, ") <: Clone).clone(__v_", fname, ")"),
                     true => __s3("__v_", fname, ".clone()")
                   );
@@ -9547,6 +9551,16 @@ impl(
 );
 /// `Result(T, E)` is `Copy` when both payloads are (decision 36).
 impl(generic(T : Type, E : Type), where(T <: Copy, E <: Copy), Result(T, E), Copy());
+// Types declared above the derive rules take `Copy` here: a `derive` is an
+// ordered statement, so it waits for the `Clone` and `Copy` rules and for
+// `Option`'s and `Result`'s `Clone` impls (`Allocator.ctx` is a `?*void`).
+derive(Pragma, Copy, Clone);
+derive(Allocator, Copy, Clone);
+derive(Ordering, Copy, Clone);
+derive(generic(T : Type), where(T <: Clone), Range(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Range(T), Copy);
+derive(generic(T : Type), where(T <: Clone), Reverse(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Reverse(T), Copy);
 /// Equality for `Result(T, E)` — variants must match and inner values must be equal.
 impl(
   generic(T : Type, E : Type),
@@ -10531,6 +10545,8 @@ export(for);
 IterPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(_0 : A, _1 : B)
 );
+derive(generic(A : Type, B : Type), where(A <: Clone, B <: Clone), IterPair(A, B), Clone);
+derive(generic(A : Type, B : Type), where(A <: Copy, B <: Copy), IterPair(A, B), Copy);
 export(IterPair);
 /// Zip two options into an option of a pair (plans/archive/STD_API_AUDIT.md D3.7;
 /// defined here because it needs `IterPair`).
@@ -12475,6 +12491,7 @@ FutureState :: enum(
   /// The future was aborted (e.g., via `unwind`).
   Aborted = -2
 );
+derive(FutureState, Copy, Clone);
 // SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
 // Aborted) with no heap allocations. It is trivially Send and Acyclic.
 impl(FutureState, Acyclic());
@@ -12528,6 +12545,7 @@ Io :: struct(
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
+derive(Io, Copy, Clone);
 // Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
 // is per-thread (per AGENTS.md). Sending Io across a thread boundary would
 // reference a scheduler on the wrong thread.

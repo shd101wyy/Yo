@@ -70,11 +70,17 @@ test("unit as an enum payload still works", {
 // ---------------------------------------------------------------------------
 _OnlyUnit :: struct(u : unit);
 _UnitFirst :: struct(u : unit, a : i32);
+derive(_UnitFirst, Copy, Clone);
 _UnitMid :: struct(a : i32, u : unit, b : i32);
+derive(_UnitMid, Copy, Clone);
 _UnitLast :: struct(a : i32, u : unit);
+derive(_UnitLast, Copy, Clone);
 _AllUnits :: struct(x : unit, y : unit, z : unit);
+derive(_AllUnits, Copy, Clone);
 _NestedUnit :: struct(a : i32, inner : _UnitLast, b : i32);
+derive(_NestedUnit, Copy, Clone);
 _AllUnitsWrapped :: struct(a : i32, inner : _AllUnits, b : i32);
+derive(_AllUnitsWrapped, Copy, Clone);
 _UnitTuple :: Tuple(i32, unit);
 _AllUnitTuple :: Tuple(unit, unit);
 _UnitPayloadEnum :: enum(A(a : i32, u : unit), B);
@@ -92,6 +98,7 @@ _SZ_UNIT_PAYLOAD_ENUM :: sizeof(_UnitPayloadEnum);
 _SZ_OPTION_UNIT :: sizeof(Option(unit));
 _SZ_UNIT_ARRAY :: sizeof(Array(unit, 16));
 _UnitOnlyPayloadEnum :: enum(A(u : unit), B);
+derive(_UnitOnlyPayloadEnum, Copy, Clone);
 _SZ_UNIT_ONLY_PAYLOAD_ENUM :: sizeof(_UnitOnlyPayloadEnum);
 _ALIGN_ONLY_UNIT :: alignof(_OnlyUnit);
 _ALIGN_UNIT_LAST :: alignof(_UnitLast);
@@ -332,6 +339,8 @@ test("a unit-typed constructor argument still runs for its side effects", {
 // must hold when the unit arrives through a type parameter, and an array of a
 // zero-sized element has no `data` member to construct, fill or index.
 _Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, n : i32));
+derive(generic(T : Type), where(T <: Clone), _Pair(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _Pair(T), Copy);
 _pair_x :: (fn(generic(T : Type), p : _Pair(T)) -> T)(p.x);
 _pair_n :: (fn(generic(T : Type), p : _Pair(T)) -> i32)(p.n);
 _mk_pair :: (fn(generic(T : Type), v : T, n : i32) -> _Pair(T))(_Pair(T)(x : v, n : n));
@@ -362,6 +371,7 @@ test("a generic struct at T = unit erases the field; Array(unit, N) constructs, 
 // trait-method path instead of the builtin-inline one.
 // See issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md.
 _EqUnitField :: struct(u : unit, n : i32);
+derive(_EqUnitField, Copy, Clone);
 derive(_EqUnitField, Eq(_EqUnitField));
 derive(_EqUnitField, Ord(_EqUnitField), Eq(_EqUnitField));
 test("unit operands compare through the prelude's Eq/Ord impls", {

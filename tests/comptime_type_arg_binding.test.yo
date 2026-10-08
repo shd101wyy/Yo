@@ -91,6 +91,7 @@ test("A comptime type argument holding a resolved Impl specializes", {
 // and its specialization calls the method of the call's own `_PhantomTag(i32)`.
 // issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md
 _PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
+derive(generic(K : Type), _PhantomTag(K), Copy, Clone);
 impl(generic(K : Type), _PhantomTag(K), code : (fn(self : Self) -> u8)(match(self, .A => u8(0), .B(n) => n)));
 _phantom_code :: (fn(comptime(K) : Type, t : _PhantomTag(K)) -> u8)(t.code());
 test("A method on a phantom generic enum resolves through a comptime type parameter", {

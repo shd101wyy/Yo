@@ -62,6 +62,7 @@ IpAddr :: enum(
   /// An IPv6 address represented as eight 16-bit segments.
   V6(segments : Array(u16, usize(8)))
 );
+derive(IpAddr, Copy, Clone);
 impl(
   IpAddr,
   /// Parse an IPv4 address from a dotted-decimal `String` (e.g. "127.0.0.1").
@@ -777,20 +778,6 @@ impl(
     )
   )
 );
-impl(
-  IpAddr,
-  Clone(
-    /// An `IpAddr` is a plain value — four octets or eight segments, no heap
-    /// — so cloning is a copy.
-    clone : (fn(inout(self) : Self) -> Self)(
-      match(
-        self,
-        .V4(a, b, c, d) => IpAddr.V4(a, b, c, d),
-        .V6(segs) => IpAddr.V6(segs)
-      )
-    )
-  )
-);
 export(IpAddr);
 // ============================================================================
 // SocketAddr
@@ -838,6 +825,7 @@ SocketAddr :: struct(
   /// The port number.
   port : u16
 );
+derive(SocketAddr, Copy, Clone);
 impl(
   SocketAddr,
   /// Create a new socket address from an IP and port.
@@ -975,14 +963,6 @@ impl(
       self.ip.hash(hasher);
       self.port.hash(hasher);
     })
-  )
-);
-impl(
-  SocketAddr,
-  Clone(
-    clone : (fn(inout(self) : Self) -> Self)(
-      Self(ip : self.ip.clone(), port : self.port)
-    )
   )
 );
 export(SocketAddr);

@@ -21,6 +21,7 @@
 { assert } :: import("std/assert");
 
 _Pair :: struct(lo : i32, hi : i32);
+derive(_Pair, Copy, Clone);
 _Trip :: struct(a : i64, b : i64, c : i64);
 
 _wrap :: (fn(generic(R : Type), f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
@@ -193,6 +194,7 @@ test("a future type as an enum payload declares the payload type first", {
 // (issues/fixed/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md).
 // ---------------------------------------------------------------------------
 _BareE :: enum(X, Y);
+derive(_BareE, Copy, Clone);
 _bare_future :: (fn(generic(T : Type), v : Option(T), io : Io) -> Impl(Future(Result(T, _BareE), Io)))({
   b := Rc(Option(T))(v);
   io.async((io : Io) => {

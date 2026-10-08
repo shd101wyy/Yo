@@ -324,6 +324,7 @@ SEND_OPT_PTR_I32 :: Type.impls(?*i32, Send);
 // constructed pattern carrying a `where` clause, and the one that regressed
 // before (`issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md`).
 SendWhereEqPoint :: struct(x : i32);
+derive(SendWhereEqPoint, Copy, Clone);
 impl(
   SendWhereEqPoint,
   Eq(SendWhereEqPoint)(
@@ -779,7 +780,9 @@ test("Test 'struct'", {
   // nomimal type
   {
     Point1 :: struct(x : i32, y : i32);
+    derive(Point1, Copy, Clone);
     Point2 :: struct(x : i32, y : i32);
+    derive(Point2, Copy, Clone);
     x := Point1(3, 4);
     (y : Point2) = _(5, 6);
     comptime_expect_error(
