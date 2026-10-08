@@ -498,3 +498,41 @@ test("concurrent directory iteration on three threads", {
   t2.join();
   t3.join();
 });
+
+// ============================================================================
+// FnOnce bodies (plans/VALUES_BY_DEFAULT.md decision 37, Generation B)
+// ============================================================================
+// `Thread.spawn` takes `sink(cb) : Impl(FnOnce(io : Io) -> T, Send)`: the body
+// runs once, so a capture-list body may move a captured value out instead of
+// cloning it. The atomic counter checks the value is disposed exactly once,
+// by whoever ends up owning it.
+(g_th_once_disposed : AtomicUsize) = AtomicUsize(usize(0));
+_ThOnceTok :: struct(n : i32);
+impl(
+  _ThOnceTok,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      _ := g_th_once_disposed.fetch_add(usize(1), MemoryOrder.AcqRel);
+    })
+  )
+);
+_th_take :: (fn(sink(t) : _ThOnceTok) -> i32)(t.n);
+test("Thread.spawn: a call-once body moves its captured value out", {
+  before := g_th_once_disposed.load(MemoryOrder.Acquire);
+  t := _ThOnceTok(n : i32(41));
+  th := Thread(i32).spawn({ t }(io : Io) => (_th_take(t) + i32(1)));
+  assert(th.join() == i32(42), "the body consumed t in the thread");
+  assert(g_th_once_disposed.load(MemoryOrder.Acquire) == (before + usize(1)), "t was disposed once, by _th_take");
+});
+test("Thread.spawn: a call-once body that moves nothing drops its captures once", {
+  before := g_th_once_disposed.load(MemoryOrder.Acquire);
+  t := _ThOnceTok(n : i32(7));
+  th := Thread(i32).spawn({ t }(io : Io) => t.n);
+  assert(th.join() == i32(7), "the body read t");
+  assert(g_th_once_disposed.load(MemoryOrder.Acquire) == (before + usize(1)), "the body's capture drop ran once, the wrapper's did not");
+});
+test("Thread.spawn: an Fn body is still accepted", {
+  k := i32(3);
+  th := Thread(i32).spawn((io : Io) => (k * i32(2)));
+  assert(th.join() == i32(6), "Fn implies FnOnce");
+});
