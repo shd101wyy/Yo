@@ -2853,9 +2853,12 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
       every handle reads the payload from its own thread; `Send` because the
       last handle may be dropped on any thread and the payload's `Dispose`
       runs there; `Acyclic` because an `Arc` cycle is never collected.
-    - The explicit `impl(Arc(T), Send())` is deleted. `Arc(T)`'s own `Send`
-      and `Sync` come from derivation: an atomic object is both when its
-      fields are `Sync`.
+    - `Arc(T)`'s own `Send` and `Sync` stay EXPLICIT impls under the same
+      bound. The plan said derivation would answer them, but the
+      atomic-object derivation asks the payload TYPE for `Sync`, and an
+      `Impl(Fn(...))` payload is `Sync` only by value (its captures). With
+      the impl deleted, `Arc(Impl(Fn() -> unit))` stopped being `Send`
+      (`tests/parallelism_soundness.test.yo`).
     - `RwLock(T)` takes `T <: (Send, Sync, Acyclic)` (concurrent read
       guards). Every `std/imm` element, key and value bound (`List`, `Vec`,
       `Map`, `Set`, `SortedMap`, `SortedSet`) gained `Sync`: their nodes are

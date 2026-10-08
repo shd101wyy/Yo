@@ -13,8 +13,9 @@ thread-shareable wrapper. Each bound has its own reason:
 - `Acyclic`: atomic reference counts are not cycle-collected, so an `Arc` cycle would never be
   freed.
 
-`Arc(T)` is itself `Send` and `Sync` by derivation: an atomic object is both when its fields are
-`Sync`. There is no hand-written `impl(Arc(T), Send())`.
+`Arc(T)` is itself `Send` and `Sync` under the same bound. The prelude states both impls
+explicitly: a closure payload (`Arc(Impl(Fn() -> unit))`) is `Sync` only by value, through its
+captures, which the type-level derivation cannot see.
 
 ## Current definition
 

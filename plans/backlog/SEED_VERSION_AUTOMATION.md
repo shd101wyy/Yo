@@ -215,8 +215,8 @@ miss `Sync`).
 - `Arc :: where(V <: (Send, Sync, Acyclic))` and the same bound on `arc`,
   per the 2026-10-07 amendment (this entry first said `(Sync, Acyclic)`):
   `Send` because the last handle may be dropped, and the payload disposed,
-  on any thread. The explicit `impl(Arc(T), Send())` is dropped; derivation
-  makes `Arc(T)` `Send` and `Sync`.
+  on any thread. `Arc(T)`'s `Send` and `Sync` impls stay explicit under that
+  bound: derivation cannot see a closure payload's captures.
 - `RwLock(T)` needs `T <: (Send, Sync, Acyclic)` (concurrent read guards).
 - Every `std/imm` element, key and value bound is `(Send, Sync, Acyclic)`
   (their nodes are shared by every version).

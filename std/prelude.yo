@@ -9928,8 +9928,12 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic)))
 // because the last handle may be dropped on any thread, and the payload's
 // `Dispose` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's
 // `Arc<T>: Send + Sync` needs `T: Send + Sync`); `Acyclic` because an `Arc`
-// cycle is never collected. `Arc(T)` itself is `Send` and `Sync` by
-// derivation: an atomic object is both when its fields are `Sync`.
+// cycle is never collected. `Arc(T)` is then `Send` and `Sync` itself. The
+// impls are explicit because the atomic-object derivation asks the payload
+// TYPE for `Sync`, and an `Impl(Fn(...))` payload answers only by value
+// (its captures), so `Arc(Impl(Fn() -> unit))` would not derive `Send`.
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Send());
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Sync());
 export(Arc, arc);
 /// === Deref ===
 /// Deref — marks a wrapper whose members forward to its payload `Target`

@@ -3863,7 +3863,7 @@ a compiler built-in; it is defined in `std/prelude.yo` as a thin
 `atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: (Send, Sync, Acyclic)`: `Sync` because every handle reads the payload
 from its own thread, `Send` because the last handle may be dropped (and the payload disposed) on
 any thread, and `Acyclic` because atomic RC is not cycle-collected. So it only wraps
-thread-shareable values, and `Arc(T)` is itself `Send` and `Sync` by derivation. Use `Arc(T)` when you want to share a single value.
+thread-shareable values, and `Arc(T)` is itself `Send` and `Sync` under that bound. Use `Arc(T)` when you want to share a single value.
 Use `atomic(ref(struct(...)))` when defining your own shared types.
 
 ```rust

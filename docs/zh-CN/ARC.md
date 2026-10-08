@@ -9,7 +9,7 @@
 - `Send`：最后一个句柄可能在任意线程上被释放，载荷的 `Dispose` 就在那个线程上运行（与 Rust 的 `Arc<T>: Send + Sync` 要求 `T: Send + Sync` 相同）。
 - `Acyclic`：原子引用计数不参与循环回收，`Arc` 形成的环永远不会被释放。
 
-`Arc(T)` 自身的 `Send` 和 `Sync` 来自自动派生：字段都是 `Sync` 的原子对象同时是 `Send` 和 `Sync`。不再有手写的 `impl(Arc(T), Send())`。
+在同样的约束下，`Arc(T)` 自身也是 `Send` 和 `Sync`。prelude 显式写出这两个 impl：闭包载荷（`Arc(Impl(Fn() -> unit))`）只能按值、通过它的捕获判断是否为 `Sync`，类型层面的派生看不到这些捕获。
 
 ## 当前定义
 
