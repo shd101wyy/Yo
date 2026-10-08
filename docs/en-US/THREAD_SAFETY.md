@@ -234,7 +234,7 @@ A module-level runtime binding (`name := init` or `(name : T) = init` outside an
 one static that every thread shares. In safe code:
 
 - a closure that runs on another thread (a `Thread.spawn` body, a pool task, a
-  `spawn_blocking` callback — anything bound to `Impl(Fn(...), Send)` or `Impl(Fn(...), Sync)`)
+  `spawn_blocking` callback — anything bound to `Impl(FnOnce(...), Send)`, `Impl(Fn(...), Send)` or `Impl(Fn(...), Sync)`)
   may not reach a global whose type is not `Sync`, directly or through any function it calls. A
   global is shared by every thread, so sharing is the question. A non-atomic
   reference-counted global (`ArrayList`, `String`, any `ref(struct)`) stays legal for the main

@@ -297,7 +297,7 @@ issues/fixed/a-closure-typed-slot-never-releases-its-captures.md）。异步任�
 
 只有实现了 `Send` 的类型才能被移动到另一个线程，只有实现了 `Sync` 的类型才能在线程之间共享（`Arc` 的载荷、模块级全局变量）；见 `THREAD_SAFETY.md` 的“Send 与 Sync 特质”：
 
-- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、字段全部为 Sync 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Dyn(Trait, Send)`（具体类型在 `dyn(...)` 处检查，其载荷使用原子引用计数：`dyn(v)` 用 `arc` 装箱值类型）、`Iso(T)`（见 `THREAD_SAFETY.md`），以及捕获值全部为 Send、且代码不触及任何非 Send 模块级全局变量的函数值（具名函数或闭包）—— 在编译器能看到该值的地方按值判断：派生闭包体、`Impl(Fn(...), Send)` 参数、泛型 `where(T <: Send)` 参数、被捕获的变量
+- **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、字段全部为 Sync 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Dyn(Trait, Send)`（具体类型在 `dyn(...)` 处检查，其载荷使用原子引用计数：`dyn(v)` 用 `arc` 装箱值类型）、`Iso(T)`（见 `THREAD_SAFETY.md`），以及捕获值全部为 Send、且代码不触及任何非 Send 模块级全局变量的函数值（具名函数或闭包）—— 在编译器能看到该值的地方按值判断：派生闭包体、`Impl(Fn(...), Send)` 或 `Impl(FnOnce(...), Send)` 参数、泛型 `where(T <: Send)` 参数、被捕获的变量
 - **不可发送**：`ref(struct(...))` / `ref(enum(...))`（非原子引用计数：`ArrayList`、`Rc` 等，以及持有它们的值，如 `String`）、未选择加入的裸指针及持有裸指针的类型、约束中不含 `Send` 的 `Dyn(Trait)`、`Io`、`JoinHandle`、借用其捕获的闭包，捕获了上述任一值或触及非 Send 全局变量的函数值，以及在该处不知道其值的裸 `fn(...)` 类型（结构体字段、`Channel(fn() -> unit)` 的载荷）—— 见 `THREAD_SAFETY.md` 的“跨线程的函数与闭包”
 
 ```rust
