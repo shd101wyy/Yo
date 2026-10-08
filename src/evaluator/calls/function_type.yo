@@ -128,6 +128,15 @@ _evaluated_measure_for_verify :: (fn(dm : AstExpr, env : Environment, ctx : Eval
 // capture-free-handler pattern — the handler cannot close over locals, so
 // the outcome rides a module global; reset before each clause).
 (g_pred_eval_failed : bool) = false;
+/// Definition sites whose diagnostics-only deferred trial ran clean (see the
+/// deferred-definition trial in `try_to_implement_function_by_function_type`).
+/// A compile-time function's body is cloned and re-evaluated on every call, so
+/// a `fn` literal inside it (a derive rule's fold callback) is re-defined on
+/// every call; re-running the same site's trial each time was a third of a
+/// derive-heavy check (issues/derive-clone-costs-17-ms-per-type.md). Keyed by
+/// the site, the function type and the printed body, since a macro expansion
+/// reuses its template's tokens with different bodies.
+(g_deferred_trial_clean : HashSet(String)) = HashSet(String).new();
 
 _reset_pred_eval_failed :: (fn() -> unit)({
   g_pred_eval_failed = false;
@@ -2113,7 +2122,13 @@ Result type: ${type_to_string(result_box)}`
           // below still runs only when the result mentions a type variable,
           // the case it was written for.
           dg_check_result := type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new());
-          {
+          // A trial kept only for its diagnostics (no result comparison, no
+          // binder stamps: it runs on a fresh-id clone and writes nothing a
+          // reader needs) that already ran clean for this exact definition
+          // is not re-run.
+          dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(result_box));
+          dg_memo_key := if(dg_memo_eligible, `${tok.module_path}:${tok.row}:${tok.column}|${type_to_string(function_type)}|${ast_expr_to_string(body_expr)}`, String.new());
+          if(!(dg_memo_eligible && g_deferred_trial_clean.contains(dg_memo_key)), {
             dg_where := match(
               expr,
               .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(dg_ft_box).to_string()),
@@ -2276,6 +2291,9 @@ Result type: ${type_to_string(result_box)}`
               });
             }, {
               clear_generic_trial_error(dg_site);
+              if(dg_memo_eligible, {
+                _ := g_deferred_trial_clean.insert(dg_memo_key.clone());
+              });
             });
             // A violation flagged by THIS trial must not leak into a later
             // definition's re-raise.
@@ -2377,7 +2395,7 @@ Result type: ${type_to_string(result_box)}`
                 .None => ()
               );
             });
-          };
+          });
         }
       );
       expr

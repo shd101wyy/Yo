@@ -103,6 +103,25 @@ test("format_error_message multibyte before the token aligns by rune column", {
   expected := `error: msg\n  --> m.yo:1:2\n  |\n1 | 你x := 1;\n  |  ^`;
   assert(s == expected, `rune-column caret, got:\n${s}`);
 });
+test("format_error_message's source line is the token's row at every edge", {
+  // The row's line is found by scanning to its newlines
+  // (issues/derive-clone-costs-17-ms-per-type.md); it must match what a
+  // split on "\n" gave: an empty line, the last line with and without a
+  // trailing newline, a CRLF line (the `\r` stays), and a row past the end.
+  line_at := (fn(input : String, row : usize) -> String)(
+    match(
+      format_error_message(make_token(`e.yo`, input, row, usize(0), `x`), `msg`).diagnostics.get(usize(0)),
+      .Some(d) => d.source_line,
+      .None => String.from("<none>")
+    )
+  );
+  assert(line_at(`a\n\nc`, usize(1)) == ``, `empty middle line`);
+  assert(line_at(`a\nb\nc`, usize(2)) == `c`, `last line, no trailing newline`);
+  assert(line_at(`a\nb\n`, usize(2)) == ``, `the empty line after a trailing newline`);
+  assert(line_at(`a\r\nb`, usize(0)) == `a\r`, `CRLF keeps the carriage return`);
+  assert(line_at(`a\nb`, usize(5)) == ``, `a row past the end is empty`);
+  assert(line_at(``, usize(0)) == ``, `empty input`);
+});
 // ─── format_error_messages: primary + note blocks ───────────────────────────
 test("format_error_messages: entry 0 is the error, later entries are notes (D6)", {
   tok1 := make_token(`b.yo`, `x y`, usize(0), usize(0), `x`);
