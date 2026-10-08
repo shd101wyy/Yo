@@ -31,7 +31,6 @@ doc.
 - [`VBD_HANDOVER_2026-10-06.md`](handover/VBD_HANDOVER_2026-10-06.md) — the 2026-10-06 handover of the VALUES_BY_DEFAULT campaign (in handover/): what landed since v0.2.52, the open PRs (#1200, #1231), the four pushed wave-2 Generation A branches and their known problems, the v0.2.53 release step, the Generation B queue, open bugs (an S1 cycle-collector resurrection UAF), and portable gate instructions.
 - [`VBD_HANDOVER_2026-10-07.md`](handover/VBD_HANDOVER_2026-10-07.md) — the 2026-10-07 handover: all five wave-2/S1 PRs and the CI-hygiene layer landed (v0.2.53/v0.2.54), the new merge machinery (merge-gate, tree-hygiene, batch-merge pattern), and the queue the next agent picks up (FnOnce, the Generation B tranche on the v0.2.54 seed, the later phases).
 - [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) — every declared type is a value; `ref(...)`/`atomic(...)` leave the language; sharing is spelled `Rc(T)`/`Arc(T)`. Amended 2026-10-05 (§0): unique ownership (Hylo's model) replaces copy-on-write: buffers and `Box` have one owner and no count, copies of buffer-owning values are explicit (`.clone()`), a last use moves, resources are move-only, `Send` is a move.
-- [`CODEGEN_PERFORMANCE.md`](CODEGEN_PERFORMANCE.md) — the static-code half of the performance story (the async half belongs to the ASYNC plans): CP0 a paired Yo/Rust/C bench suite plus the fixpoint wall-clock as macro-benchmark; CP1 lets clang see what Yo proved (`restrict` on exclusive parameters with UBSan canaries, LTO for release builds, a closure-inlining audit); CP2 stops paying checks the language subsumes (finish the 5b verifier-driven elision, lower the borrowed `for` to a hoisted walk, elide `Rc` write-asserts by mutation summary); CP3 field reordering and PGO. Sequenced around VALUES_BY_DEFAULT's phases.
 - [`ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](ATS_LESSONS_BEYOND_INDEXED_TYPES.md) — what else Yo takes from ATS beyond indexed types: the lemma layer, must-use results, an init proof token (fixes an S1 in `ArrayList.set_len`), spec-transparent pure functions, lexicographic `decreases`, the typestate idiom.
 - [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](AGENT_KNOWLEDGE_CONSOLIDATION.md) — one home per fact across the pack, the skills and the manuals: fix the cheatsheets' stale and self-contradicting rules, move unique facts into manuals, slim each skill to a trigger plus `yo context` pointers, make `yo skills install` prune, and compile documentation code blocks.
 - [`STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md) — `String` becomes a value (amended 2026-10-05: uniquely owned, not copy-on-write; S3 keeps its model-independent half): copies are independent whether or not the string was empty, mutators take `inout(self)`, and `as_bytes` splits into `to_bytes`/`into_bytes`. E0908 (write through a borrowed value) is extended to `inout` arguments and receivers, which finds the code that relied on shared writes, and the count-accuracy tests come first. The collections follow as the next campaign.
@@ -89,6 +88,14 @@ borrow (views into owned buffers, `Ctx<'a>` structs, guard objects,
 `Cow`, escaping closures, borrowing futures, `&'static`) mapped to its
 post-VBD Yo shape through five replacements — own, share with `Rc`/`Arc`,
 index, pass per call, re-derive — with the cost of each.
+[`CODEGEN_PERFORMANCE`](backlog/CODEGEN_PERFORMANCE.md) is the static-code
+half of the performance story (the async half belongs to the ASYNC plans),
+designed but not started: a paired Yo/Rust/C bench suite, `restrict` on
+exclusive parameters with UBSan canaries, an LTO-edges audit (ThinLTO is
+already the chunked default), finishing the 5b verifier-driven elision, a
+hoisted-walk lowering for the borrowed `for`, `Rc` write-assert elision by
+mutation summary, field reordering and PGO — sequenced around
+VALUES_BY_DEFAULT's phases.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and

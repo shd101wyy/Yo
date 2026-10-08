@@ -1,11 +1,13 @@
 # Generated-code performance: closing the gap to Rust
 
-**Status: ACTIVE — the static-code performance campaign.** Written 2026-10-08
+**Status: BACKLOG — designed and sequenced, not started.** Written 2026-10-08
 at the maintainer's request, alongside
-[`backlog/RUST_REFERENCE_PATTERNS.md`](backlog/RUST_REFERENCE_PATTERNS.md)'s
-§12. The async runtime's performance is owned by
-[`ASYNC_PERFORMANCE_HANDOVER.md`](handover/ASYNC_PERFORMANCE_HANDOVER.md) and
-[`ASYNC_STATE_MACHINE_GENERATION.md`](ASYNC_STATE_MACHINE_GENERATION.md);
+[`RUST_REFERENCE_PATTERNS.md`](RUST_REFERENCE_PATTERNS.md)'s §12, and parked
+here on the maintainer's call (2026-10-08): nothing drives a phase yet; CP0
+is the entry point when the campaign opens. The async runtime's performance
+is owned by
+[`ASYNC_PERFORMANCE_HANDOVER.md`](../handover/ASYNC_PERFORMANCE_HANDOVER.md)
+and [`ASYNC_STATE_MACHINE_GENERATION.md`](../ASYNC_STATE_MACHINE_GENERATION.md);
 this plan is the other half: **what the emitted C is worth at run time.**
 
 ## 0. The position
@@ -17,19 +19,22 @@ this plan attacks both:
 
 1. **What clang is allowed to see.** Rust tells LLVM `noalias` on every
    `&mut`; Yo lowers `mut(x) : T` to a plain `T*` and discards the
-   exclusivity it just proved. Nothing in the emitted C uses `restrict`
-   (measured 2026-10-08: zero occurrences in a fresh `yo compile` output),
-   no LTO is passed (the C invocation in `src/main.yo` and
-   `src/codegen/codegen_c.yo` assembles no `-flto`), and chunked emission
-   caps inlining at translation-unit scope — the same place Rust builds lose
-   their last percent without LTO.
+   exclusivity it just proved — nothing in the emitted C uses `restrict`
+   (measured 2026-10-08: zero occurrences in a fresh `yo compile` output).
+   Cross-translation-unit inlining is NOT a gap: chunked optimizing builds
+   already pass `-flto=thin` by default (`src/main.yo:4898`–`4917`,
+   [`CHUNKED_C_EMISSION.md`](../reference/CHUNKED_C_EMISSION.md) — MEASURED
+   on an N=4 self-build at `-O2`: 14.2% slower without it, 102.8s vs 90.0s
+   on `check ./src`, and the thin link slightly FASTER than single-file,
+   87.4s). The visibility gap that remains is aliasing metadata (CP1a) and
+   the audit edges of CP1b.
 2. **Checks the language could discharge itself.** Per-step bounds checks on
    index walks (decision 39 accepted them), the `Rc` write-site borrow assert
    (§3.10), container guards — each has a proof path that removes it: static
    exclusivity, the runtime pin, or the verifier.
 
 **Non-goals.** No direct LLVM backend: the portable-C identity is
-load-bearing ([`reference/PORTABLE_C_DISTRIBUTION.md`](reference/PORTABLE_C_DISTRIBUTION.md),
+load-bearing ([`PORTABLE_C_DISTRIBUTION.md`](../reference/PORTABLE_C_DISTRIBUTION.md),
 the bootstrap chain), and after `restrict` + LTO + PGO clang *is* LLVM's
 optimizer for this C. No language-semantics change. No async-runtime work
 (the ASYNC plans own it; the runtime is already at measured libuv parity).
@@ -104,18 +109,19 @@ A `-fno-`-style kill switch is not kept: the canaries are the contract.
 **Phase:** after the V3b Generation B flip (the `mut` spelling and the
 by-value default are then final, so the rule keys on the end-state modes).
 
-### CP1b. LTO for release builds
+### CP1b. LTO edges (an audit, not a build)
 
-Options, decided in the PR by measurement:
+ThinLTO is already the default for chunked `-O1+` builds (`--no-chunk-lto`
+opts out; wasm excluded), with the measured numbers in §0 — there is nothing
+to add for the common path, and single-file builds need no LTO (inlining is
+already intra-TU). What remains is small:
 
-- pass `-flto=thin` to the C compiler at `--optimize >= 2` (clang/gcc both
-  accept it; the `.o` chunk cache stays valid per-unit);
-- or a `--profile release` that collapses `--emit-chunks` to one translation
-  unit (maximum inlining, forfeits incremental compile — a build-profile
-  choice, not a default change).
-
-Either way the goal is rustc's `codegen-units=1 + LTO` posture for release
-artifacts while dev builds keep the chunked incremental loop.
+- the flag is clang-shaped: `-flto=thin` is not gcc's spelling (`-flto`),
+  and zig/msvc are their own stories — audit every supported C compiler in
+  the target matrix (`src/target.yo`) so a non-clang toolchain either gets
+  its own flag or a loud error, never a silently slower or broken link;
+- confirm the posture with CP0's per-compiler numbers and document it beside
+  [`CHUNKED_C_EMISSION.md`](../reference/CHUNKED_C_EMISSION.md)'s.
 
 ### CP1c. The closure-call audit
 
@@ -135,10 +141,10 @@ file's guards elide through `guard_site_is_proved` and the verifier's sited
 `index-in-bounds` obligations. What remains is owned by the backlog designs
 and lands as they say:
 
-- [`backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md`](backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md)
+- [`SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md`](SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md)
   — the std container's own trap elided at proved call sites (option A
   implemented on its branch per that doc; land or re-land it);
-- [`backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
+- [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`](SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
   — Phase 3, the general verifier-driven elision.
 
 This plan's only addition: the CP0 suite before/after, so the elision's
@@ -204,7 +210,7 @@ UBSan language suite. One PR per phase, or a stack with one battery.
 | Phase | Depends on | Can start |
 | --- | --- | --- |
 | CP0 | — | now |
-| CP1b (LTO) | CP0 for the number | now |
+| CP1b (LTO audit) | CP0 per-compiler numbers | now |
 | CP1c (closure audit) | CP0 | now |
 | CP1a (`restrict`) | V3b Generation B flip; UBSan canaries | after V3b |
 | CP2a (5b) | its own backlog designs | as designed |
@@ -218,8 +224,9 @@ UBSan language suite. One PR per phase, or a stack with one battery.
   the UBSan job and the alias stress tests are the only detectors, so the
   rule ships conservative (value-rooted `mut` first, the `Rc`-path rule only
   with the assert-ordering proof) and widens by measurement.
-- **LTO interacts with the chunk cache and build times**; keep dev builds
-  chunked and measure `yo build` wall clock in the PR.
+- **CP1b's audit must not regress the default.** ThinLTO's on-by-default is a
+  measured position (`CHUNKED_C_EMISSION.md`); any per-compiler change keeps
+  dev builds chunked and re-measures `yo build` wall clock in the PR.
 - **CP2b changes panic sites** (a growth attempt inside a value-rooted
   borrowed `for` becomes a compile error instead of a bounds error); the
   decision-39 test and its docs move with it — a dated amendment there, not
@@ -233,5 +240,3 @@ UBSan language suite. One PR per phase, or a stack with one battery.
 - Whether `imm` parameters may earn `restrict` where Stage-1 summaries prove
   an argument disjoint from every other alias in the call (a per-call proof,
   unlike CP1a's per-rule one).
-- Whether the release profile is LTO-by-default or opt-in (`--profile
-  release`), decided by CP1b's build-time measurements.
