@@ -2686,6 +2686,17 @@ mark_fnonce_capture_drop :: (fn(id : usize) -> unit)({
   _m := g_fnonce_capture_drop_ids.insert(id);
 });
 is_fnonce_capture_drop :: (fn(id : usize) -> bool)(g_fnonce_capture_drop_ids.contains(id));
+/// The `___drop(<callee>)` nodes released right after an `FnOnce(...)` call
+/// whose callee does not own its captures (an `Fn` closure in an `FnOnce`
+/// slot; `_record_fnonce_callee_release`, calls/function.yo). They are neither
+/// a parameter's scope-end drop nor a capture's: emitted at the post-call
+/// flush, whatever the callee is (a parameter, a capture of the enclosing
+/// closure).
+(g_fnonce_post_call_release_ids : HashSet(usize)) = HashSet(usize).new();
+mark_fnonce_post_call_release :: (fn(id : usize) -> unit)({
+  _m := g_fnonce_post_call_release_ids.insert(id);
+});
+is_fnonce_post_call_release :: (fn(id : usize) -> bool)(g_fnonce_post_call_release_ids.contains(id));
 // `YO_SPEC_REPORT=1` also counts evaluations per AST node id (the re-evaluation
 // multiplicity behind the exponential method-chain cost,
 // issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md). Read once at
@@ -2814,7 +2825,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
   });
 });
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
-export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated, mark_call_once_capture_dup, is_call_once_capture_dup, mark_fnonce_capture_drop, is_fnonce_capture_drop);
+export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated, mark_call_once_capture_dup, is_call_once_capture_dup, mark_fnonce_capture_drop, is_fnonce_capture_drop, mark_fnonce_post_call_release, is_fnonce_post_call_release);
 export(record_macro_expansion, lookup_macro_expansion);
 export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);
 export(trial_body_site, record_generic_trial_error, clear_generic_trial_error, lookup_generic_trial_error);
