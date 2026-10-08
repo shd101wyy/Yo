@@ -22,8 +22,8 @@ Progress:
   - V1 Generation A (#1186, #1188, #1191, #1207);
   - V1 step 1 Generation A, the `Rc` names (#1232);
   - V1 step 1 Generation B part 1, the `Box` → `Rc` rename with `Rc`
-    canonical (#1267; part 2 deletes the legacy `Box` after the next
-    seed);
+    canonical (#1267), and part 2, the legacy `Box`/`box` spelling
+    deleted;
   - decision 32 Generation B, the wrapper/payload clash is E0616
     (#1268; one gap open, see the decision's "as built");
   - the `Send`/`Sync` split, Generation B: sharing needs `Sync` (`Arc`,
@@ -50,8 +50,8 @@ Progress:
 - **In progress:**
   - V3's remaining async work (§3.13).
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip, the
-  `Copy` flip), and after the next seed: `Box` → `Rc` part 2 and `FnOnce`
-  Generation B (the `Thread.spawn`/`ThreadPool.spawn` signatures).
+  `Copy` flip), and after the next seed: `FnOnce` Generation B (the
+  `Thread.spawn`/`ThreadPool.spawn` signatures).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
