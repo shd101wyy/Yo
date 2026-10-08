@@ -1678,7 +1678,6 @@ test("Test explicit Future annotation with bundle effect struct", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
   Ctx :: struct(io : Io, raise : Raise, log : Log);
-  derive(Ctx, Copy, Clone);
   (raise : Raise) = (
     msg -> {
       return(i32(100));
@@ -1797,7 +1796,6 @@ test("Test unwind in async closure", {
   // types in async closures produce "No C function name found" errors.
   Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
-  derive(Ctx, Copy, Clone);
   {
     test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> unit)({
       (raise : Raise) =
@@ -1867,7 +1865,6 @@ test("Test JoinHandle await returns Some on success", {
 test("Test JoinHandle await returns None on unwind", {
   Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
-  derive(Ctx, Copy, Clone);
   task := io.async((ctx : Ctx) => {
     ctx.io.await(yield(ctx.io), ctx.io);
     ctx.raise(`aborting task`);
@@ -1889,7 +1886,6 @@ test("Test JoinHandle await returns None on unwind", {
 test("Test JoinHandle two tasks one escapes", {
   Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
-  derive(Ctx, Copy, Clone);
   task1 := io.async((ctx : Ctx) => {
     ctx.io.await(yield(ctx.io), ctx.io);
     ctx.raise(`task1 escapes`);
@@ -1923,7 +1919,6 @@ test("Test JoinHandle two tasks one escapes", {
 test("Test effect injection via io.await on sync future", {
   Log :: (fn(msg : String) -> unit);
   Ctx :: struct(io : Io, log : Log);
-  derive(Ctx, Copy, Clone);
   task := io.async((ctx : Ctx) => {
     ctx.log(`effect injected`);
   });
@@ -1944,7 +1939,6 @@ test("Test effect injection via io.await on sync future", {
 test("Test effect injection set-once via io.spawn then io.await", {
   Log :: (fn(msg : String) -> unit);
   Ctx :: struct(io : Io, log : Log);
-  derive(Ctx, Copy, Clone);
   task := io.async((ctx : Ctx) => {
     ctx.log(`spawn first`);
   });
@@ -1971,7 +1965,6 @@ test("Test effect injection set-once via io.spawn then io.await", {
 test("Test effect injection via io.await on SM future", {
   Log :: (fn(msg : String) -> unit);
   Ctx :: struct(io : Io, log : Log);
-  derive(Ctx, Copy, Clone);
   task := io.async((ctx : Ctx) => {
     ctx.log(`before yield`);
     ctx.io.await(yield(ctx.io), ctx.io);
@@ -2086,7 +2079,6 @@ test("Test mixed break and continue in Option match in async while loop", {
 test("Test effect resume inside async closure", {
   Raise :: (fn(msg : String) -> i32);
   Ctx :: struct(io : Io, raise : Raise);
-  derive(Ctx, Copy, Clone);
   task := io.async((ctx : Ctx) => {
     a := ctx.raise(`first`);
     ctx.io.await(yield(ctx.io), ctx.io);
@@ -2109,7 +2101,6 @@ test("Test effect resume inside async closure", {
 test("Test effect resume across multiple yields", {
   Raise :: (fn(msg : String) -> i32);
   Ctx :: struct(io : Io, raise : Raise);
-  derive(Ctx, Copy, Clone);
   counter := Rc(i32)(0);
   task := io.async((ctx : Ctx) => {
     a := ctx.raise(`before yield 1`);
@@ -2140,7 +2131,6 @@ test("Test two effects injected via io.await", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
   Ctx :: struct(io : Io, raise : Raise, log : Log);
-  derive(Ctx, Copy, Clone);
   task := io.async((ctx : Ctx) => {
     ctx.log(`hello`);
     result := ctx.raise(`fail`);
@@ -2168,7 +2158,6 @@ test("Test two effects injected via io.spawn", {
   Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
   Ctx :: struct(io : Io, raise : Raise, log : Log);
-  derive(Ctx, Copy, Clone);
   task := io.async((ctx : Ctx) => {
     ctx.log(`spawned`);
     ctx.io.await(yield(ctx.io), ctx.io);
@@ -2199,7 +2188,6 @@ test("Test two effects injected via io.spawn", {
 test("Test effect resume in async while loop", {
   GetValue :: (fn() -> i32);
   Ctx :: struct(io : Io, get_value : GetValue);
-  derive(Ctx, Copy, Clone);
   sum := Rc(i32)(0);
   counter := Rc(i32)(0);
   task := io.async((ctx : Ctx) => {
@@ -2227,7 +2215,6 @@ test("Test effect resume in async while loop", {
 test("Test effect resume in async while loop with break", {
   GetValue :: (fn() -> i32);
   Ctx :: struct(io : Io, get_value : GetValue);
-  derive(Ctx, Copy, Clone);
   sum := Rc(i32)(0);
   counter := Rc(i32)(0);
   task := io.async((ctx : Ctx) => {
@@ -2262,7 +2249,6 @@ test("Test effect resume in async while loop with break", {
 test("Test unwind via injected effect aborts future", {
   Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
-  derive(Ctx, Copy, Clone);
   test_unwind :: (fn(my_io : Io) -> i32)({
     task := my_io.async((ctx : Ctx) => {
       ctx.io.await(yield(ctx.io), ctx.io);
@@ -2289,7 +2275,6 @@ test("Test unwind via injected effect aborts future", {
 test("Test JoinHandle unwind via spawn-injected effect", {
   Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
-  derive(Ctx, Copy, Clone);
   task := io.async((ctx : Ctx) => {
     ctx.io.await(yield(ctx.io), ctx.io);
     ctx.raise(`aborting`);
@@ -2385,7 +2370,6 @@ test("Regression: async unwind RC no double-decrement UAF", {
   // again after the SM already self-decremented, causing a double-free.
   Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
-  derive(Ctx, Copy, Clone);
   test_and_check :: (fn(my_io : Io) -> i32)({
     task := my_io.async((ctx : Ctx) => {
       ctx.io.await(yield(ctx.io), ctx.io);
