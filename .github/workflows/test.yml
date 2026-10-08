@@ -1424,10 +1424,10 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # Job NAME is `test (<os>)` on purpose: these four legs carry the required
-  # status-check contexts "test (macos-latest)" and "test (windows-latest)"
-  # (ruleset 13548862) that the `test` matrix carried before it went
-  # Linux-only — renaming them would silently drop two required checks.
+  # Job NAME is `test (<os>)`, the name the `test` matrix carried before it
+  # went Linux-only. Since 2026-10-06 the ruleset's only required check is
+  # `merge-gate` ("Merge gate (all checks)"), which `needs` this job, so a
+  # leg's name (and its shard suffix) can change freely.
   #
   # `!cancelled()` is LOAD-BEARING: with a plain `if`, an upstream cross-emit
   # failure would SKIP these legs, and a skipped required check SATISFIES the
@@ -1435,11 +1435,8 @@ jobs:
   # run (for code PRs) and fail fast in the artifact download when their C
   # never arrived.
   test-native:
-    # The shard suffix appears ONLY on sharded legs, so the two REQUIRED
-    # status contexts — `test (macos-latest)` and `test (windows-latest)` —
-    # keep their exact names and the ruleset needs no change. Sharding a
-    # REQUIRED leg would rename its context and must land in ruleset
-    # 13548862 in the same commit (see compiler-internal-tests' note).
+    # The shard suffix appears ONLY on sharded legs. No leg is a required
+    # context any more: merge-gate needs the whole job.
     name: test (${{ matrix.os }})${{ matrix.shards && format(' shard {0}/{1}', matrix.shard, matrix.shards) || '' }}
     needs: [changes, tree-hygiene, suite-cross-emit]
     if: ${{ !cancelled() && needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true' }}
@@ -1459,9 +1456,7 @@ jobs:
     # still catching a hang in a bounded time.
     #
     # windows-11-arm is ALSO sharded by this PR, so its per-shard cost drops far
-    # below the cap; windows-latest is deliberately NOT sharded (it is a REQUIRED
-    # status context and renaming it would remove a required check), so the cap
-    # is the only thing protecting it.
+    # below the cap.
     #
     # MEASURED 2026-10-05: windows-latest runs the suite under AddressSanitizer
     # again (armed through the choco LLVM clang,
@@ -1469,10 +1464,16 @@ jobs:
     # its cost: run 37292720878 needed 86 min to reach file 206 of 310, and
     # run 37338817036 was cancelled at the 120 min cap at ~file 256 — about
     # 145 min for the whole leg against the 54-58 min uninstrumented runs above.
-    # windows-latest therefore takes the 240 min budget the non-Windows legs
-    # have. A hang still fails in bounded time, which is all this cap is for.
-    # windows-11-arm keeps 120: it is sharded and still runs uninstrumented.
-    timeout-minutes: ${{ matrix.os == 'windows-11-arm' && 120 || 240 }}
+    # windows-latest therefore took the 240 min budget the non-Windows legs
+    # have.
+    #
+    # MEASURED 2026-10-08: the unsharded windows-latest leg took 105, 107, 131
+    # and 137 min on the last four develop batteries, the longest job in the
+    # battery, while the four windows-11-arm shards took 27-33 min each. It is
+    # now sharded 4-way like windows-11-arm (~35 min of tests per shard), and
+    # both Windows legs take 120: a ~3x margin per shard that still bounds a
+    # hang.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 120 || 240 }}
     env:
       YO_MAIN_STACK_MB: "4096"
       # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
@@ -1482,17 +1483,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # UNSHARDED — these two are REQUIRED status checks; their names are
-          # matched by string in the ruleset and must not change.
+          # UNSHARDED: macos-latest takes 37-60 min.
           - os: macos-latest
             target: macos-arm64
-          - os: windows-latest
-            target: windows-x64
+          # SHARDED 4-way: under AddressSanitizer the whole corpus took
+          # 105-137 min on one runner (see timeout-minutes above).
+          - { os: windows-latest, target: windows-x64, shard: 0, shards: 4 }
+          - { os: windows-latest, target: windows-x64, shard: 1, shards: 4 }
+          - { os: windows-latest, target: windows-x64, shard: 2, shards: 4 }
+          - { os: windows-latest, target: windows-x64, shard: 3, shards: 4 }
           # SHARDED 4-way. These two are the long legs (macos-26-intel ~80 min,
           # windows-11-arm ~66 min) and windows-11-arm is the critical path:
           # suite-candidate 36m -> cross-emit 15m -> this 66m = 118m wall clock
-          # (measured, run 34932915472). Neither is a required context, so the
-          # rename costs no ruleset change. They CONSUME a cross-emitted
+          # (measured, run 34932915472). They CONSUME a cross-emitted
           # artifact and rebuild nothing, so shards are cheap — the same
           # argument that justified sharding compiler-internal-tests.
           - { os: macos-26-intel, target: macos-x64, shard: 0, shards: 4 }
@@ -1613,7 +1616,7 @@ jobs:
           esac
           # `--shard i/n` stripes the SORTED file list, so the shards partition
           # the corpus with no file dropped and no hardcoded map to rot. Empty
-          # for the unsharded (required-context) legs.
+          # for the unsharded leg.
           SHARD_FLAG=""
           if [ -n "${{ matrix.shards }}" ]; then
             SHARD_FLAG="--shard ${{ matrix.shard }}/${{ matrix.shards }}"
