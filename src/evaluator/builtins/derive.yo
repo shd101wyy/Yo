@@ -46,7 +46,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, primary_diagnostic_code, with_code_carried } :: import("../../error.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive_rule.yo");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
 // ---------------------------------------------------------------------------
 // Derive-impl failure channel
@@ -485,7 +485,35 @@ process_trait_arg :: (
 // Argument layout:
 //   derive([generic(...)], [where(...)], TargetType, [where(...)], Trait1, Trait2, ...)
 //
+// A derive runs at compile time wherever it appears. In a function body the
+// body is evaluated as runtime code (`is_executing` false, and
+// `is_validating_function_definition` true at definition time), so the derive
+// rule's comptime fold would never execute. The derive runs there with the
+// flags a macro expansion uses (`calls/function.yo`), under its own error
+// handler so the flags are restored before an error propagates. Its impls are
+// registered by site, so a body evaluated again (a trial, each specialization
+// of a generic function) registers them once
+// (issues/fixed/a-derive-inside-a-function-body-is-silently-ignored.md).
 // ---------------------------------------------------------------------------
+(g_derive_eval_err : ArrayList(AnyError)) = ArrayList(AnyError).new();
+_evaluate_derive_guarded :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    inout(out) : ArrayList(AstExpr)
+  ) -> unit
+)({
+  guard_exn := Exception(
+    throw : (
+      _d_err -> {
+        g_derive_eval_err.push(_d_err);
+        unwind(())
+      }
+    )
+  );
+  out.push(_evaluate_derive_executing(expr, env, ctx, guard_exn));
+});
 evaluate_derive :: (
   fn(
     expr : AstExpr,
@@ -494,14 +522,50 @@ evaluate_derive :: (
     exn : Exception
   ) -> AstExpr
 )({
-  tok := ast_expr_token(expr);
-  // Early return if not in executing context.
-  if(ctx.is_validating_function_definition || !ctx.is_executing, {
-    info := new_expr_info(env, t_unit());
-    info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-    return(expr);
+  if(ctx.is_executing && !ctx.is_validating_function_definition, {
+    return(_evaluate_derive_executing(expr, env, ctx, exn));
   });
+  old_validating := ctx.is_validating_function_definition;
+  old_analyzing := ctx.is_analyzing_ctfe_capability;
+  old_executing := ctx.is_executing;
+  ctx.is_validating_function_definition = false;
+  ctx.is_analyzing_ctfe_capability = false;
+  ctx.is_executing = true;
+  err_mark := g_derive_eval_err.len();
+  out := ArrayList(AstExpr).new();
+  _evaluate_derive_guarded(expr, env, ctx, out);
+  ctx.is_validating_function_definition = old_validating;
+  ctx.is_analyzing_ctfe_capability = old_analyzing;
+  ctx.is_executing = old_executing;
+  match(
+    out.get(usize(0)),
+    .Some(done) => done,
+    .None => {
+      if(g_derive_eval_err.len() > err_mark, {
+        match(
+          g_derive_eval_err.pop(),
+          .Some(d_err) => {
+            while(g_derive_eval_err.len() > err_mark, {
+              _ := g_derive_eval_err.pop();
+            });
+            exn.throw(d_err);
+          },
+          .None => ()
+        );
+      });
+      expr
+    }
+  )
+});
+_evaluate_derive_executing :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  tok := ast_expr_token(expr);
   // Extract arguments.
   args := match(
     expr,
