@@ -27,7 +27,10 @@ Progress:
   - decision 32 Generation B, the wrapper/payload clash is E0616
     (#1268; one gap open, see the decision's "as built");
   - the `Send`/`Sync` split, Generation B: sharing needs `Sync` (`Arc`,
-    `RwLock`, `std/imm`; `feat/vbd-sendsync-genb`);
+    `RwLock`, `std/imm`; #1268);
+  - decision 37's `FnOnce` with decision 38 C, Generation A (#1266;
+    capture-list entries only, per the amendment; one S2 open: a macro
+    that duplicates an `FnOnce` call calls it twice);
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -43,11 +46,10 @@ Progress:
     #1259 — scope-based liveness, Generation B refines it);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
-  - decision 37's `FnOnce` with decision 38 C, Generation A (not started;
-    the first item of `plans/handover/VBD_HANDOVER_2026-10-07.md`);
   - V3's remaining async work (§3.13).
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip, the
-  wave-2 halves), and `Box` → `Rc` part 2 after the next seed.
+  `Copy` flip), and after the next seed: `Box` → `Rc` part 2 and `FnOnce`
+  Generation B (the `Thread.spawn`/`ThreadPool.spawn` signatures).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -2848,7 +2850,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     `std/imm` element bounds become `Sync`, and the explicit `Arc(T)` `Send`
     impl goes. `Mutex`, `Channel` and `Thread.spawn` keep `Send`. The seed
     does not derive `Sync`, so no std bound may name it before then.
-  - **Generation B as built (2026-10-08, `feat/vbd-sendsync-genb`).**
+  - **Generation B as built (2026-10-08, #1268).**
     - `Arc` and `arc` take `T <: (Send, Sync, Acyclic)`. `Sync` because
       every handle reads the payload from its own thread; `Send` because the
       last handle may be dropped on any thread and the payload's `Dispose`

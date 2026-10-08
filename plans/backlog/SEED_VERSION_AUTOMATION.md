@@ -211,7 +211,7 @@ miss `Sync`).
   pragma'd impls: `Channel`, `Mutex`, `Waker`, `ImmString`, `imm.Vec`,
   `MapBranch`, `MapCollision`.
 
-**Generation B DONE 2026-10-08** (`feat/vbd-sendsync-genb`):
+**Generation B DONE 2026-10-08** (#1268):
 - `Arc :: where(V <: (Send, Sync, Acyclic))` and the same bound on `arc`,
   per the 2026-10-07 amendment (this entry first said `(Sync, Acyclic)`):
   `Send` because the last handle may be dropped, and the payload disposed,
