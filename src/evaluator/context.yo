@@ -95,6 +95,7 @@ FuncOrAsyncBlockKind :: enum(
   /// Evaluating a `test("...", { ... })` block body.
   TestBlock
 );
+derive(FuncOrAsyncBlockKind, Copy, Clone);
 /// Evaluation sub-context for a function body or async / test block.
 FuncOrAsyncBlockCtx :: ref(
   struct(
@@ -121,6 +122,7 @@ FuncOrAsyncBlockCtx :: ref(
 // Loop body context
 // ---------------------------------------------------------------------------
 LoopKind :: enum(While, For);
+derive(LoopKind, Copy, Clone);
 /// At one `break` or `continue` in a loop body: the variables declared outside
 /// the loop that the body has touched so far, and whether each is moved-from
 /// there. A variable not listed is still in its state from before the loop.
@@ -163,6 +165,7 @@ ExpectedTypeCtx :: ref(
 // ---------------------------------------------------------------------------
 /// Usage kind for a variable captured by a closure.
 CaptureUsage :: enum(Read, Write, Own);
+derive(CaptureUsage, Copy, Clone);
 /// Information about a variable captured from an outer scope inside a closure
 /// or async block.
 CapturedVarInfo :: ref(
@@ -1128,6 +1131,7 @@ hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
 // `Exception`, so the forcer reports failure as a message and the caller, which
 // has `exn` in scope, throws it).
 PendingDefState :: enum(Unforced, Forcing, Done, Failed);
+derive(PendingDefState, Copy, Clone);
 /// One deferred module-level statement.
 PendingDef :: ref(
   struct(
@@ -3096,6 +3100,7 @@ type_head_name_for_impl_forcing :: (fn(ty : TypeValue) -> String)({
 // The model lives here so the module walker's abort edge can truncate the
 // in-flight stack with the others; the evaluators live in values/impl.yo.
 ImplFieldState :: enum(Unforced, Forcing, Done, Failed);
+derive(ImplFieldState, Copy, Clone);
 ImplPendingField :: ref(
   struct(
     label : String,

@@ -9547,6 +9547,16 @@ impl(
 );
 /// `Result(T, E)` is `Copy` when both payloads are (decision 36).
 impl(generic(T : Type, E : Type), where(T <: Copy, E <: Copy), Result(T, E), Copy());
+// Types declared above the derive rules take `Copy` here: a `derive` is an
+// ordered statement, so it waits for the `Clone` and `Copy` rules and for
+// `Option`'s and `Result`'s `Clone` impls (`Allocator.ctx` is a `?*void`).
+derive(Pragma, Copy, Clone);
+derive(Allocator, Copy, Clone);
+derive(Ordering, Copy, Clone);
+derive(generic(T : Type), where(T <: Clone), Range(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Range(T), Copy);
+derive(generic(T : Type), where(T <: Clone), Reverse(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Reverse(T), Copy);
 /// Equality for `Result(T, E)` — variants must match and inner values must be equal.
 impl(
   generic(T : Type, E : Type),
@@ -10531,6 +10541,8 @@ export(for);
 IterPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(_0 : A, _1 : B)
 );
+derive(generic(A : Type, B : Type), where(A <: Clone, B <: Clone), IterPair(A, B), Clone);
+derive(generic(A : Type, B : Type), where(A <: Copy, B <: Copy), IterPair(A, B), Copy);
 export(IterPair);
 /// Zip two options into an option of a pair (plans/archive/STD_API_AUDIT.md D3.7;
 /// defined here because it needs `IterPair`).
@@ -12475,6 +12487,7 @@ FutureState :: enum(
   /// The future was aborted (e.g., via `unwind`).
   Aborted = -2
 );
+derive(FutureState, Copy, Clone);
 // SAFETY: FutureState is a plain enum of integer values (Cold, Running, Completed,
 // Aborted) with no heap allocations. It is trivially Send and Acyclic.
 impl(FutureState, Acyclic());

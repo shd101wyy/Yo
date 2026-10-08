@@ -104,8 +104,11 @@ pragma(Pragma.AllowUnsafe);
   impl_argument_unmet_trait_message,
   type_implements_future,
   resolve_assoc_type_for_target,
-  deref_target_type
+  deref_target_type,
+  copy_structural_parts,
+  type_implements_trait
 } :: import("../trait_checking.yo");
+{ get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { make_deref_expr } :: import("../exprs/property_access.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
 { try_to_implement_module_with_arguments_by_module_type } :: import("./record_type.yo");
@@ -659,6 +662,75 @@ _reject_private_construction :: (
     });
     i = (i + usize(1));
   });
+});
+/// `x.clone()` on a value that is `Copy` structurally (decision 36): a `fn`
+/// pointer, a closure whose captures are all `Copy`, or an anonymous record
+/// whose fields are. No impl can name these types (a closure's capture
+/// record and an anonymous record have no declaration, and no impl ranges
+/// over every `fn` signature), so the receiver lookup misses although
+/// `Type.impls(T, Clone)` holds. The clone of a `Copy` value is the copy, so
+/// the call expands to its receiver (`ExprInfo.macro_expansion`, recorded
+/// durably like the numeric conversions'): `g := f.clone()` is `g := f`, and
+/// the binding copies as it does for any read of `f`. A tuple or an array has
+/// the prelude's element-wise `Clone` impl and never misses. A record or a
+/// closure that is `Clone` but not `Copy` needs a field-wise clone, which
+/// this does not provide
+/// (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
+_try_structural_copy_clone :: (
+  fn(
+    expr : AstExpr,
+    callee : AstExpr,
+    arg_count : usize,
+    env : Environment,
+    ctx : EvalContext
+  ) -> Option(AstExpr)
+)({
+  if((arg_count != usize(0)) || !ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(AstExpr).None);
+  });
+  pargs := match(
+    callee,
+    .FnCall(_, _, pa, _, _) => pa,
+    _ => {
+      return(Option(AstExpr).None);
+    }
+  );
+  recv := match(
+    pargs.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      return(Option(AstExpr).None);
+    }
+  );
+  name_ok := match(pargs.get(usize(1)), .Some(n) => (ast_expr_token(n).value == "clone"), .None => false);
+  if(!name_ok, {
+    return(Option(AstExpr).None);
+  });
+  ri := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
+    .Some(i) => i,
+    .None => {
+      return(Option(AstExpr).None);
+    }
+  );
+  recv_ty := ri.ty;
+  if(is_pointer_type(recv_ty) || copy_structural_parts(recv_ty).is_none(), {
+    return(Option(AstExpr).None);
+  });
+  is_copy := match(
+    get_trait_type_from_env(env, String.from("Copy")),
+    .Some(copy_tt) => type_implements_trait(recv_ty, copy_tt, env).implemented,
+    .None => false
+  );
+  if(!is_copy, {
+    return(Option(AstExpr).None);
+  });
+  out_info := new_expr_info(env, recv_ty);
+  out_info.value = ri.value;
+  record_macro_expansion(ast_expr_id(expr), recv.clone());
+  expr_info_set_macro_expansion(out_info, Option(AstExpr).Some(recv));
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  Option(AstExpr).Some(expr)
 });
 _try_find_receiver_method :: (
   fn(
@@ -9437,6 +9509,13 @@ Fix: wrap the call:
             take_pending_impl_force_error(),
             .Some(impl_fail_msg) => {
               exn.throw(dyn(impl_fail_msg));
+            },
+            .None => ()
+          );
+          match(
+            _try_structural_copy_clone(expr, evaluated_callee, args.len(), callee_env, ctx),
+            .Some(sc_expr) => {
+              return(sc_expr);
             },
             .None => ()
           );

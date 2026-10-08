@@ -320,3 +320,42 @@ test("Copy: a hand-written Clone on a type Copy for every instantiation is an er
   comptime_expect_error(impl(_CtHandle, Copy()), "a hand-written Clone impl can only repeat it or contradict it");
   comptime_expect_error(impl(generic(T : Type), _CtTag(T), Copy()), "a hand-written Clone impl can only repeat it or contradict it");
 });
+
+// ============================================================================
+// Generation B: structural clone() and the derived clone of Copy fields
+// ============================================================================
+// A `fn` pointer, a closure whose captures are all `Copy` and an anonymous
+// record whose fields are, are `Copy` structurally. No impl can name them, so
+// `x.clone()` expands to the copy
+// (issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md).
+_ct_sclone :: (fn(generic(T : Type), x : T, where(T <: Clone)) -> T)(x.clone());
+test("Copy: a fn pointer, a Copy closure and a Copy anonymous record clone as the copy", {
+  f := _ct_seven;
+  g := f.clone();
+  assert(g() == i32(7), "a fn pointer's clone calls the same function");
+  k := i32(5);
+  (c : Impl(Fn() -> i32)) = (() => (k + i32(1)));
+  d := c.clone();
+  assert(d() == i32(6), "a closure of Copy captures clones as its copy");
+  r := _(a : i32(1), b : i32(2));
+  s := r.clone();
+  assert((s.a + s.b) == i32(3), "an anonymous record of Copy fields clones as its copy");
+});
+test("Copy: a where(T <: Clone) body clones a fn pointer and an anonymous record", {
+  h := _ct_sclone(_ct_seven);
+  assert(h() == i32(7), "T := fn() -> i32");
+  t := _ct_sclone(_(a : i32(4), b : true));
+  assert((t.a == i32(4)) && t.b, "T := the record type");
+});
+// A struct of `fn` pointers (the shape of the prelude's `Io`) derives `Copy`
+// and `Clone`: the derived clone's `self.get.clone()` is the structural clone.
+_CtOps :: struct(get : (fn() -> i32), n : i32);
+derive(_CtOps, Copy, Clone);
+test("Copy: a struct of fn pointers derives Copy and Clone", {
+  comptime_assert(Type.impls(_CtOps, Copy) && Type.impls(_CtOps, Clone), "derive(_CtOps, Copy, Clone)");
+  o := _CtOps(get : _ct_seven, n : i32(2));
+  p := o.clone();
+  q := o;
+  assert((p.get() + p.n) == i32(9), "the derived clone copies each field");
+  assert(q.get() == i32(7), "and the implicit copy agrees");
+});

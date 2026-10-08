@@ -65,6 +65,7 @@ extern(
 /// Log severity, ascending. `Off` disables all output — filtering against it
 /// drops every message, including `Error`.
 Level :: enum(Trace, Debug, Info, Warn, Error, Off);
+derive(Level, Copy, Clone);
 _level_value :: (fn(l : Level) -> i32)(
   match(
     l,
@@ -102,6 +103,7 @@ impl(
 export(Level);
 /// Where log lines are written.
 LogOutput :: enum(Stderr, Stdout);
+derive(LogOutput, Copy, Clone);
 export(LogOutput);
 /// A pluggable log destination — implement it to send records somewhere other
 /// than stdout/stderr (a file, a ring buffer, a test recorder, a network

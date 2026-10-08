@@ -8,6 +8,8 @@
 // === Basic struct for testing ===
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point));
+// `Copy` first: the copies below need it, and a `derive` is ordered.
+derive(Point, Clone, Copy);
 // === Test derive Eq for struct ===
 test("derive Eq for struct", {
   p1 := Point(i32(1), i32(2));
@@ -49,7 +51,6 @@ test("derive Hash for struct", {
   assert(h1 != h3, "different points should likely have different hashes");
 });
 // === Test derive Clone for struct ===
-derive(Point, Clone);
 test("derive Clone for struct", {
   p1 := Point(i32(1), i32(2));
   p2 := p1.clone();
@@ -84,7 +85,7 @@ test("derive ToString for struct", {
 });
 // === Test multiple derives in one call ===
 Color :: struct(r : i32, g : i32, b : i32);
-derive(Color, Eq(Color), Hash, Clone, Ord(Color), ToString);
+derive(Color, Eq(Color), Hash, Clone, Copy, Ord(Color), ToString);
 test("multiple derives in one call", {
   c1 := Color(i32(255), i32(0), i32(0));
   c2 := Color(i32(255), i32(0), i32(0));
@@ -118,6 +119,8 @@ test("derive for struct with bool fields", {
 // === Test derive Eq for fieldless enum ===
 Direction :: enum(North, South, East, West);
 derive(Direction, Eq(Direction));
+// `Copy` first: the copies below need it, and a `derive` is ordered.
+derive(Direction, Clone, Copy);
 test("derive Eq for fieldless enum", {
   d1 := Direction.North;
   d2 := Direction.North;
@@ -135,7 +138,6 @@ test("derive Hash for fieldless enum", {
   assert(hash_one(d1) != hash_one(d3), "different directions should have different hashes");
 });
 // === Test derive Clone for fieldless enum ===
-derive(Direction, Clone);
 test("derive Clone for fieldless enum", {
   d1 := Direction.North;
   d2 := d1.clone();
@@ -211,7 +213,7 @@ test("derive with explicit trait arg Eq(Type)", {
 });
 // Test: multiple explicit trait args
 Vec3 :: struct(x : i32, y : i32, z : i32);
-derive(Vec3, Eq(Vec3), Hash, Clone);
+derive(Vec3, Eq(Vec3), Hash, Clone, Copy);
 test("derive with multiple explicit trait args", {
   v1 := Vec3(i32(1), i32(2), i32(3));
   v2 := v1.clone();
@@ -351,6 +353,7 @@ test("derive_rule MyEq for mixed-type struct", {
 });
 // Test: derive_rule for fieldless enum
 DRColor :: enum(Red, Green, Blue);
+derive(DRColor, Copy, Clone);
 derive(DRColor, MyEq(DRColor));
 test("derive_rule MyEq for fieldless enum", {
   r := DRColor.Red;
@@ -407,6 +410,7 @@ test("built-in derive Eq for generic struct with generic/where", {
 // ============================================================
 // Every field takes its own type's default via `(FieldType <: Default).default()`.
 DefConfig :: struct(retries : i32, verbose : bool, ratio : f64);
+derive(DefConfig, Copy, Clone);
 derive(DefConfig, Eq(DefConfig), Default);
 test("derive Default for struct of primitives", {
   d := (DefConfig <: Default).default();
@@ -425,6 +429,7 @@ test("derive Default for empty struct", {
   assert((DefEmpty <: Default).default() == DefEmpty(), "a fieldless struct still gets a default");
 });
 DefInner :: struct(a : i32, b : usize);
+derive(DefInner, Copy, Clone);
 derive(DefInner, Eq(DefInner), Default);
 DefOuter :: struct(inner : DefInner, count : usize);
 derive(DefOuter, Eq(DefOuter), Default);
@@ -488,7 +493,7 @@ test("derive Default reaches a generic-instantiated field type", {
 // reported success.
 // issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md
 ArrBox :: struct(cells : Array(i32, 4), tag : i32);
-derive(ArrBox, Eq(ArrBox), Ord(ArrBox), Clone, Hash);
+derive(ArrBox, Eq(ArrBox), Ord(ArrBox), Clone, Copy, Hash);
 test("derive Eq over a fixed-size Array field", {
   a := ArrBox(Array(i32, 4)(1, 2, 3, 4), i32(7));
   b := ArrBox(Array(i32, 4)(1, 2, 3, 4), i32(7));
@@ -531,7 +536,7 @@ test("derive Hash over a fixed-size Array field agrees with Eq", {
 // An Array of a STRUCT type — the element's own derived impls are what the
 // array impls recurse into.
 ArrOfPoint :: struct(pts : Array(Point, 2));
-derive(ArrOfPoint, Eq(ArrOfPoint), Ord(ArrOfPoint), Clone, Hash);
+derive(ArrOfPoint, Eq(ArrOfPoint), Ord(ArrOfPoint), Clone, Copy, Hash);
 test("derive over an Array of a struct type", {
   a := ArrOfPoint(Array(Point, 2)(Point(i32(1), i32(2)), Point(i32(3), i32(4))));
   b := ArrOfPoint(Array(Point, 2)(Point(i32(1), i32(2)), Point(i32(3), i32(4))));
@@ -549,7 +554,7 @@ test("derive over an Array of a struct type", {
 // `Array(Array(i32, 2), 2)`, so the element type is itself an array and the
 // impls must recurse into their own specialization.
 Nested :: struct(grid : Array(Array(i32, 2), 2), name : i32);
-derive(Nested, Eq(Nested), Ord(Nested), Clone, Hash);
+derive(Nested, Eq(Nested), Ord(Nested), Clone, Copy, Hash);
 test("derive over an Array nested inside another aggregate", {
   a := Nested(
     Array(Array(i32, 2), 2)(Array(i32, 2)(1, 2), Array(i32, 2)(3, 4)),
@@ -577,9 +582,9 @@ test("derive over an Array nested inside another aggregate", {
 // (`Array(i32, 0)` — tests/array.test.yo), and every impl must degenerate
 // correctly: all empty arrays are equal, none is less than another.
 OneCell :: struct(cells : Array(i32, 1));
-derive(OneCell, Eq(OneCell), Ord(OneCell), Clone, Hash);
+derive(OneCell, Eq(OneCell), Ord(OneCell), Clone, Copy, Hash);
 NoCell :: struct(cells : Array(i32, 0), tag : i32);
-derive(NoCell, Eq(NoCell), Ord(NoCell), Clone, Hash);
+derive(NoCell, Eq(NoCell), Ord(NoCell), Clone, Copy, Hash);
 test("derive over an Array of length 1", {
   a := OneCell(Array(i32, 1)(5));
   b := OneCell(Array(i32, 1)(5));
@@ -622,7 +627,7 @@ test("derive Clone over an Array of owning elements deep-copies", {
 // An ENUM payload that is a fixed-size array — the exact shape of the filed
 // reproducer (`std/net`'s `IpAddr.V6(Array(u16, 8))`).
 IpLike :: enum(V4(a : u8), V6(segments : Array(u16, 8)));
-derive(IpLike, Eq(IpLike), Ord(IpLike), Clone, Hash);
+derive(IpLike, Eq(IpLike), Ord(IpLike), Clone, Copy, Hash);
 test("derive over an enum variant carrying a fixed-size Array", {
   s := Array(u16, 8)(u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(1));
   t := Array(u16, 8)(u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(2));
@@ -664,6 +669,7 @@ comptime_expect_error({
 });
 // Over-rejection canaries: every CURED spelling must still work.
 OrdWithEq :: struct(a : u8);
+derive(OrdWithEq, Copy, Clone);
 derive(OrdWithEq, Eq(OrdWithEq));
 derive(OrdWithEq, Ord(OrdWithEq));
 OrdCombined :: struct(a : u8);
@@ -710,7 +716,7 @@ comptime_expect_error({
 DeriveEmptyS :: struct();
 derive(DeriveEmptyS, Eq(DeriveEmptyS), Clone, Hash, ToString);
 DeriveUnitE :: enum(A, B);
-derive(DeriveUnitE, Eq(DeriveUnitE), Clone, Hash, ToString);
+derive(DeriveUnitE, Eq(DeriveUnitE), Clone, Copy, Hash, ToString);
 test("derive on a tuple, union or array is a comptime error; the smallest aggregates still derive", {
   assert(DeriveEmptyS() == DeriveEmptyS(), "unit struct Eq");
   assert(DeriveUnitE.A == DeriveUnitE.A, "unit enum Eq");
@@ -865,7 +871,7 @@ test("a derived Clone over a field whose Clone impl is registered below the deri
 // type deriving Clone the derive must WORK, deep-clone the container, and
 // give every construction a FRESH one (no aliasing with the original).
 _ListItem :: struct(a : usize);
-derive(_ListItem, Clone);
+derive(_ListItem, Clone, Copy);
 _Holder :: struct(x : usize, rel : ArrayList(_ListItem));
 derive(_Holder, Clone);
 test("a derived Clone over an ArrayList field deep-clones and stays independent of the original", {

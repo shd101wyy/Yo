@@ -12,6 +12,8 @@ mv :: import("./member_visibility/counter.yo");
 _Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(a : A, b : B)
 );
+derive(generic(A : Type, B : Type), where(A <: Clone, B <: Clone), _Pair(A, B), Clone);
+derive(generic(A : Type, B : Type), where(A <: Copy, B <: Copy), _Pair(A, B), Copy);
 impl(
   generic(A : Type, B : Type),
   _Pair(A, B),
@@ -29,6 +31,8 @@ _Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
     Empty
   )
 );
+derive(generic(T : Type), where(T <: Clone), _Tagged(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _Tagged(T), Copy);
 impl(
   generic(T : Type),
   _Tagged(T),

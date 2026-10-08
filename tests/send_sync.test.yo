@@ -21,6 +21,7 @@ imm_vec :: import("std/imm/vec");
 // The derivation, by reflection
 // ============================================================================
 SsPoint :: struct(x : i32, y : i32);
+derive(SsPoint, Copy, Clone);
 SsCell :: ref(struct(v : i32));
 SsSpeak :: trait(speak : (fn(self : Self) -> i32));
 SsDog :: struct(n : i32);
@@ -285,6 +286,7 @@ comptime_expect_error({
 // `SsNotSync` is plain data, so `Send`, with a negative `Sync` marker
 // (decision 38 E): it may move to another thread but never be read from two.
 SsNotSync :: struct(n : i32);
+derive(SsNotSync, Copy, Clone);
 impl(SsNotSync, !Sync());
 test("a negative Sync marker leaves a type Send", {
   comptime_assert(Type.impls(SsNotSync, Send), "plain data is Send");

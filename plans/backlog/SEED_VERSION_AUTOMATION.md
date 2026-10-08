@@ -255,7 +255,15 @@ structural `Copy` and `Clone`, the raw-pointer clone clash, and the
   `derive(T, Clone, Copy)` (`Clone` first): the seed processes a derive's
   traits in order, so its supertrait check at `Copy` needs the `Clone` impl
   registered already.
-- The flip: `type_requires_explicit_copy(T)` becomes `!(T <: Copy)`.
+- **DONE 2026-10-08 (#1269): the sweep and structural
+  `clone()`.** See the plan's "Generation B as built, part 1".
+- **Next seed (once `SEED_VERSION` carries the sweep PR):** add
+  `derive(Io, Copy, Clone)` to the prelude. `Io`'s derived `Clone` calls
+  `.clone()` on its `fn` fields, which only the structural `clone()` resolves.
+- The flip: `type_requires_explicit_copy(T)` becomes `!(T <: Copy)`, with
+  control-bound records, C opaque types and compile-time-only types outside
+  it; after the function-body `derive` fix and `markdown_yo`'s upstream
+  derives.
 - Delete `MoveOnly`.
 ## Seed-gated follow-up (2026-10-05): rename the shared cell `Box` to `Rc`
 

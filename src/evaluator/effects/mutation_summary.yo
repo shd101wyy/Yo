@@ -88,6 +88,7 @@
 /// miss and is walked afresh
 /// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
 _MsMemo :: struct(body_id : ExprId, mutates : bool);
+derive(_MsMemo, Copy, Clone);
 (g_ms_summary_by_fid : HashMap(String, _MsMemo)) = HashMap(String, _MsMemo).new();
 /// func_ids whose bodies are currently being walked (cycle guard).
 (g_ms_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
@@ -664,6 +665,7 @@ MSP_ROOTED :: u8(4);
 ///            RC-typed hop (another object), else the parameter's own storage
 ///   ROOTED — unknown: may alias parameter or global storage
 _MspRoot :: struct(kind : u8, param : usize, deep : bool);
+derive(_MspRoot, Copy, Clone);
 _msp_root :: (fn(kind : u8) -> _MspRoot)(_MspRoot(kind : kind, param : usize(0), deep : false));
 _msp_param_root :: (fn(i : usize, deep : bool) -> _MspRoot)(_MspRoot(kind : MSP_PARAM, param : i, deep : deep));
 _msp_root_same :: (fn(a : _MspRoot, b : _MspRoot) -> bool)((a.kind == b.kind) && (a.param == b.param) && (a.deep == b.deep));
@@ -3426,6 +3428,7 @@ _GrMemo :: struct(body_id : ExprId, reach : Option(String));
 (g_gr_depth : usize) = usize(0);
 (g_gr_low : Option(usize)) = Option(usize).None;
 _GrPend :: struct(body_id : ExprId, low : usize);
+derive(_GrPend, Copy, Clone);
 (g_gr_pending : HashMap(String, _GrPend)) = HashMap(String, _GrPend).new();
 (g_gr_pending_order : ArrayList(String)) = ArrayList(String).new();
 _gr_note_low :: (fn(d : usize) -> unit)({

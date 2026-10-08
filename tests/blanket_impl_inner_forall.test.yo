@@ -17,6 +17,8 @@ Wrap :: (fn(comptime(I) : Type, comptime(B) : Type) -> comptime(Type))(
     _tag : B
   )
 );
+derive(generic(I : Type, B : Type), where(I <: Clone, B <: Clone), Wrap(I, B), Clone);
+derive(generic(I : Type, B : Type), where(I <: Copy, B <: Copy), Wrap(I, B), Copy);
 // Method on Wrap that returns the tag.
 impl(
   generic(I : Type, B : Type),
