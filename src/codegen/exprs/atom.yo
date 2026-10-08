@@ -30,7 +30,7 @@
   fresh_local_name
 } :: import("../utils/index.yo");
 { deferred_drop_target_variable, _codegen_name_of_variables } :: import("../utils/index.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { sm_local_field_name, sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { Environment, get_variables_from_env, Variable } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
@@ -786,7 +786,7 @@ _sm_consuming_read :: (fn(expr : AstExpr, name : String, sm_code : String, conte
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
   is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && (ct.*.row == tok.row) && (ct.*.column == tok.column)), .None => false);
-  if(!is_move || !type_contains_rc_type(ei.ty), {
+  if(!is_move || !type_contains_rc_cell_or_move_only(ei.ty), {
     return(sm_code);
   });
   // The value leaves the slot where the line holding this read runs (the
