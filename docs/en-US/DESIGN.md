@@ -3272,9 +3272,8 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
 > about uniqueness.
 >
-> The cell used to be spelled `Box(V)` / `box(v)`. That spelling stays in the
-> prelude for one more release as a legacy alias (so the previous seed can
-> build the tree); do not write it. Values-by-default V1 step 2
+> The cell used to be spelled `Box(V)` / `box(v)`; that spelling is gone.
+> Values-by-default V1 step 2
 > (`plans/VALUES_BY_DEFAULT.md`) then reintroduces `Box` as a different,
 > uniquely owned, uncounted cell, like Rust's `Box<T>`.
 

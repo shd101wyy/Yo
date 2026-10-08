@@ -1319,8 +1319,7 @@ p2 := PtrVal(rc(EvalValue.IntLit(String.from("42"))), usize(0));
 ### `rc` is a prelude constructor; the count is `ref_count(x)`
 
 `rc(v)` allocates a reference-counted `Rc(T)` cell (the shared cell; the old
-spelling `Box(T)`/`box(v)` is a legacy alias removed in the next release, never
-write it); it does NOT read a count. Read the count with the `ref_count(x)` builtin. Like any
+spelling `Box(T)`/`box(v)` is gone); it does NOT read a count. Read the count with the `ref_count(x)` builtin. Like any
 prelude name, `rc` cannot be redefined, so a return code needs another name:
 
 ```rust
