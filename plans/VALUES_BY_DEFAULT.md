@@ -3503,6 +3503,16 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   `Copy`: its fields are read through the pointer, under the lock.
 - **Diagnostics.** The E0901 note for a flip-only type names
   `derive(T, Copy, Clone)` and `.clone()`.
+- **The gap until V3b: a collection of a non-`Copy` plain type.** std's
+  storing APIs take their value by-value (`push(value : T)`,
+  `insert(key : K, value : V)`, `Mutex.new(value : T)`), and a by-value
+  parameter borrows, so storing it copies. For a plain type without `Copy`
+  that copy is E0901 at the instantiation (with the std note at the user's
+  call), as `push` of a `Dispose` type already was. `sink` cannot fix it here:
+  a `sink` argument always moves, so `xs.push(s)` would consume an `Rc` or
+  `String` the caller keeps using today. V3b's flip makes plain parameters
+  owning, which closes it. Until then a plain element type takes
+  `derive(T, Copy, Clone)`.
 - **Steps 4 and 5.** The step-5 tests are in `tests/copy_trait.test.yo`.
   Deleting `MoveOnly` (step 4) is its own change.
 
