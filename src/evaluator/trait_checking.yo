@@ -60,8 +60,7 @@ pragma(Pragma.AllowUnsafe);
   set_type_lacks_copy_fn,
   type_is_control_bound,
   bump_trait_impl_epoch,
-  trait_impl_epoch,
-  type_contains_some_type_deep
+  trait_impl_epoch
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -903,7 +902,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : TypeValue) -> bool)({
   });
   // A type still mentioning a type variable is judged per instantiation (a
   // generic body is evaluated again for each), as `type_is_move_only` does.
-  if(type_contains_some_type_deep(ty), {
+  if(type_contains_some_type_for_codegen_param(ty, ArrayList(String).new()), {
     return(false);
   });
   env := match(
