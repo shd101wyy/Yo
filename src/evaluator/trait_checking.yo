@@ -1677,7 +1677,16 @@ type_implements_trait :: (
   // calling it from eval-phase trait checks poisoned the cfid registry and
   // split the whole imm-container family's C identities (measured
   // 2026-08-03: imm_map/imm_set/imm_sorted_*/linked_list all RED).
-  guard_key := _type_id_for_trait_check(target).concat(`:`).concat(_trait_type_id(trait_type));
+  // A generic enum instance keys by its id AND its type arguments, as the
+  // marker guard does: `Option(Option(i32))` built inside a generic body
+  // (`wrap(wrap(x))`) nests two `Option` instances under one def-era id, and
+  // an id-only key cut the inner `Option(i32) <: Copy` as recursion, so the
+  // outer read as not `Copy` (decision 36's flip rejected its copy;
+  // `_ww_thrice`, tests/generic_instantiation_compat.test.yo).
+  guard_key := cond(
+    is_enum_type(target) => enum_instance_node_id(target),
+    true => _type_id_for_trait_check(target)
+  ).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
   gn := g_trait_check_recursion_guard.len();
