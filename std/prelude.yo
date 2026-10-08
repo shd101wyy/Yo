@@ -9551,6 +9551,7 @@ impl(generic(T : Type, E : Type), where(T <: Copy, E <: Copy), Result(T, E), Cop
 // ordered statement, so it waits for the `Clone` and `Copy` rules and for
 // `Option`'s and `Result`'s `Clone` impls (`Allocator.ctx` is a `?*void`).
 derive(Pragma, Copy, Clone);
+derive(AllocatorVTable, Copy, Clone);
 derive(Allocator, Copy, Clone);
 derive(Ordering, Copy, Clone);
 derive(generic(T : Type), where(T <: Clone), Range(T), Clone);
@@ -9945,6 +9946,8 @@ MaybeUninit :: (fn(comptime(BaseType) : Type) -> comptime(Type))(
     value : BaseType
   )
 );
+derive(generic(T : Type), where(T <: Clone), MaybeUninit(T), Clone);
+derive(generic(T : Type), where(T <: Copy), MaybeUninit(T), Copy);
 impl(
   generic(BaseType : Type),
   MaybeUninit(BaseType),

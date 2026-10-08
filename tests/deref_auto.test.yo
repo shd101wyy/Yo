@@ -17,6 +17,7 @@ impl(
 );
 derive(_P, Clone);
 _Q :: struct(n : i32, arr : Array(i32, 2));
+derive(_Q, Copy, Clone);
 impl(
   _Q,
   get : (fn(self : Self) -> i32)(self.n),
@@ -32,6 +33,7 @@ _read_n :: (fn(generic(T : Type), x : T) -> i32)(x.n);
 _take :: (fn(v : i32) -> i32)(v + i32(1));
 // A payload field holding a function, called through the wrapper.
 _H :: struct(f : (fn(x : i32) -> i32));
+derive(_H, Copy, Clone);
 // A user type may not implement `Deref` (concrete or generic impl).
 _UserWrap :: struct(v : i32);
 _UserGen :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));

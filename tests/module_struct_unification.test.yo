@@ -43,6 +43,7 @@ test("Phase 4c: migrated struct effect record resume", {
   Logger :: struct(
     log : (fn(msg : String) -> unit)
   );
+  derive(Logger, Copy, Clone);
   shout :: (fn(msg : String, l : Logger) -> unit)(
     l.log(msg)
   );
@@ -85,6 +86,7 @@ test("Baseline: given/using round-trip with resume (struct)", {
   Logger :: struct(
     log : (fn(msg : String) -> unit)
   );
+  derive(Logger, Copy, Clone);
   shout :: (fn(msg : String, l : Logger) -> unit)(
     l.log(msg)
   );
@@ -178,6 +180,7 @@ test("Phase 1: comptime-only struct fields are erased from C layout", {
     tag :: "configured-counter",
     next : (fn() -> i32)
   );
+  derive(ConfiguredCounter, Copy, Clone);
   comptime_assert(Type.impls(ConfiguredCounter, Runtime), "mixed struct is runtime");
   make_counter :: (fn() -> ConfiguredCounter)(
     ConfiguredCounter(next : (() -> i32(42)))

@@ -70,6 +70,7 @@ describe :: (fn(generic(T : Type), v : T, c : Color) -> String)(
   )
 );
 Color :: enum(Red, Blue);
+derive(Color, Copy, Clone);
 test("enum used above its definition inside a generic fn body", {
   assert(describe(i32(1), Color.Blue) == "blue", "blue");
 });
@@ -101,7 +102,9 @@ test("static method from an impl below the caller", {
 // block 2 below references block 1 in source order only.
 twice_then_thrice :: (fn(c : Counter) -> i32)(c.twice_incremented() + c.thrice_incremented());
 Counter :: struct(v : i32);
+derive(Counter, Copy, Clone);
 Wrapper :: struct(c : Counter);
+derive(Wrapper, Copy, Clone);
 impl(Wrapper, total : (fn(self : Self) -> i32)(self.c.incremented() + self.c.thrice_incremented()));
 impl(
   Counter,
@@ -134,6 +137,7 @@ test("export of a definition that appears after the export", {
 // read from `ArrayList(Self)` is the declaration's nameless final, so the
 // operator miss forced no impl: E0610 on `a(i) != b(i)`.
 Tree :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
+derive(Tree, Copy, Clone);
 _kids_eq :: (fn(a : ArrayList(Tree), b : ArrayList(Tree)) -> bool)({
   if(a.len() != b.len(), {
     return(false);

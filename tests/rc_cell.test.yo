@@ -10,6 +10,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 Counter :: struct(n : i32, items : ArrayList(i32));
+derive(Counter, Copy, Clone);
 impl(
   Counter,
   bump : (fn(inout(self) : Self, by : i32) -> i32)({
@@ -26,6 +27,7 @@ Probe :: trait(
 );
 impl(i32, Probe(value : (self -> self.*)));
 Square :: struct(side : i32);
+derive(Square, Copy, Clone);
 impl(Square, Probe(value : (self -> (self.side * self.side))));
 probe :: (fn(p : Dyn(Probe)) -> i32)(p.value());
 /// A comptime function that builds the cell type: the instance is minted by a

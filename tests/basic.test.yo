@@ -753,6 +753,7 @@ test("Test 'struct'", {
     // compile-time value and stays legal.
     dbl :: (fn(v : i32) -> i32)(v + i32(1));
     FnHolder :: struct(n : i32, (f : (fn(v : i32) -> i32)) ?= dbl);
+    derive(FnHolder, Copy, Clone);
     fh := FnHolder(n : i32(2));
     assert(fh.f(i32(5)) == i32(6), "a function VALUE default on an fn-typed field stays legal");
   };
@@ -844,6 +845,7 @@ test("Test 'struct'", {
       (height : i32) ?= 600,
       (visible : bool) ?= true
     );
+    derive(Config, Copy, Clone);
     // all defaults
     c1 := Config(name : 1);
     assert(c1.name == 1);
@@ -882,6 +884,7 @@ test("Test 'struct'", {
       (b : i32) ?= 20,
       (c : i32) ?= 30
     );
+    derive(Opts, Copy, Clone);
     o1 := Opts();
     assert(o1.a == 10);
     assert(o1.b == 20);
@@ -906,6 +909,7 @@ test("Test 'struct'", {
   // struct default field values — expression defaults
   {
     Base :: struct((x : i32) ?= (3 + 4));
+    derive(Base, Copy, Clone);
     b := Base();
     assert(b.x == 7);
     b2 := Base(x : 99);
@@ -918,6 +922,7 @@ test("Test 'struct'", {
       (b : i32) ?= 100,
       (c : i32) ?= 200
     );
+    derive(Triple, Copy, Clone);
     t1 := Triple(1);
     assert(t1.a == 1);
     assert(t1.b == 100);
@@ -935,6 +940,7 @@ test("Test 'struct'", {
   {
     {
       SomeStruct :: struct(x : i32, y : bool);
+      derive(SomeStruct, Copy, Clone);
       Complex :: Tuple(s : SomeStruct);
       x := SomeStruct(1, true);
       (y : SomeStruct) = _(1, false);
@@ -948,6 +954,7 @@ test("Test 'struct'", {
     };
     {
       Complex :: struct(x : Tuple(i32, bool), y : i32);
+      derive(Complex, Copy, Clone);
       (c : Complex) = _((3, true), 4);
       assert(c.x.0 == 3);
       assert(c.x.1 == true);
@@ -955,6 +962,7 @@ test("Test 'struct'", {
     };
     {
       SomeStruct :: struct(x : i32, y : bool);
+      derive(SomeStruct, Copy, Clone);
       Complex0 :: Tuple(SomeStruct);
       Complex :: Tuple(Complex0);
       (c : SomeStruct) = _(3, false);
@@ -976,6 +984,7 @@ test("Test 'struct'", {
     Withdraw :: struct(
       balance : i32
     );
+    derive(Withdraw, Copy, Clone);
     impl(
       Withdraw,
       withdraw : (fn(self : *Self, amount : i32) -> i32)(
@@ -1091,6 +1100,7 @@ test("Test 'enum'", {
         x : enum(Level2(value : i32))
       )
     );
+    derive(NestedEnum, Copy, Clone);
     n := NestedEnum.Level1(.Level2(3));
     (n2 : NestedEnum) = .Level1(.Level2(3));
   };
@@ -2478,6 +2488,7 @@ test("match arm struct literal with `return` in field name", {
     break_flag : bool,
     continue_flag : bool
   );
+  derive(ControlFlowFlags, Copy, Clone);
   ControlFlowKind :: enum(Return, Escape, Break, Continue);
   control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)(
     match(
@@ -2533,7 +2544,9 @@ test("locals named after Windows macros survive codegen", {
 // variant payload field or a closure capture.
 { yo_hm_ub_name } :: c_include("\"header_macro_names.h\"", yo_hm_ub_name : (fn() -> int));
 HeaderMacroNamed :: struct(EOF : i32, BUFSIZ : i32, ub_name : i32);
+derive(HeaderMacroNamed, Copy, Clone);
 HeaderMacroPayload :: enum(Code(ub_name : i32, EOF : i32), Empty);
+derive(HeaderMacroPayload, Copy, Clone);
 HeaderMacroObject :: ref(struct(yo_hm_count : i32, obj : i32));
 _header_macro_param :: (fn(EOF : i32, FILENAME_MAX : i32, ub_name : i32) -> i32)(EOF + FILENAME_MAX + ub_name);
 test("locals, parameters and fields named after header macros are plain names", {
@@ -2562,7 +2575,9 @@ LowAlignPayload :: enum(
   Small(a : u8, b : u8, c : u8, d : u8),
   Wide(segments : Array(u16, 8))
 );
+derive(LowAlignPayload, Copy, Clone);
 TagPadded :: struct(inner : LowAlignPayload, tail : u16);
+derive(TagPadded, Copy, Clone);
 test("enum tag participates in alignment and struct tail padding", {
   // issues/fixed/enum-alignment-ignores-tag-heap-corruption.md: the C tag is
   // int-typed (4-aligned), so the enum aligns to 4 even though its payloads

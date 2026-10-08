@@ -7,6 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { Error, Exception } :: import("std/error");
 { ToString } :: import("std/fmt");
 P :: struct(x : i32, y : i32);
+derive(P, Copy, Clone);
 // ---------- Test 1: forward call within a single impl block ----------
 //
 // `caller` references `callee` which is defined later in the same impl.
@@ -55,6 +56,7 @@ MyErr :: ref(struct(msg : String));
 impl(MyErr, ToString(to_string : (self -> `my err`)));
 impl(MyErr, Error());
 R :: struct(v : i32);
+derive(R, Copy, Clone);
 impl(
   R,
   outer : (fn(self : *Self, exn : Exception) -> i32)(
@@ -157,6 +159,7 @@ test("no duplicate function emission for shell + orphan", {
 // pending-field forcing that replaced the shell pre-pass
 // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §10 "P3 as landed").
 Chain :: struct(base : i32);
+derive(Chain, Copy, Clone);
 impl(
   Chain,
   a : (fn(self : Chain) -> i32)(self.b() + i32(1)),

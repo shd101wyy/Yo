@@ -5,6 +5,7 @@
 // Both coexist with positional destructuring and partial curly destructuring.
 import("std/fmt");
 Shape :: enum(Circle(r : i32), Rectangle(w : i32, h : i32), Dot);
+derive(Shape, Copy, Clone);
 test("bare .Variant binds nothing for multi-field variants", {
   kind :: (fn(s : Shape) -> i32)(
     match(
@@ -119,6 +120,7 @@ test("literal payload on a comptime-known scrutinee", {
 });
 // --- P0 (plans/reference/MATCH_PATTERN_MATCHING.md §6): the #661 gaps and audit rows.
 Reading2 :: enum(Code(v : i32), Flag2(v : bool));
+derive(Reading2, Copy, Clone);
 test("negative integer literal payload discriminates (#661 gap 3)", {
   pick :: (fn(r : Reading2) -> i32)(
     match(

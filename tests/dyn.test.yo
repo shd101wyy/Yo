@@ -441,6 +441,7 @@ test("Test dyn rejects a type that implements none of the Dyn's traits", {
   comptime_expect_error(use_test_dyn(dyn(NoImpls())));
   // The same hole through the AUTO-BOX path: a value enum with no impls at all.
   NoImplsValue :: enum(Boom);
+  derive(NoImplsValue, Copy, Clone);
   comptime_expect_error(use_test_dyn(dyn(NoImplsValue.Boom)));
 });
 test("Test dyn rejects a type that satisfies only PART of the Dyn's traits", {
@@ -449,6 +450,7 @@ test("Test dyn rejects a type that satisfies only PART of the Dyn's traits", {
   // to be accepted and dispatched — symptom 2, the silent one: `source` resolved
   // to the trait's `?=` default, so the program ran and printed plausible text.
   ToStringOnly :: enum(Boom);
+  derive(ToStringOnly, Copy, Clone);
   impl(ToStringOnly, ToString(to_string : (self -> `boom`)));
   comptime_expect_error({
     (e : AnyError) = dyn(ToStringOnly.Boom);
@@ -473,6 +475,7 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   // A VALUE enum goes through the auto-box path, so the bound must be decided on
   // the UNBOXED concrete rather than on `Rc(ValErr)`.
   ValErr :: enum(Boom, Bust);
+  derive(ValErr, Copy, Clone);
   impl(
     ValErr,
     ToString(
@@ -619,6 +622,7 @@ test("Dyn: upcast of an AnyError to its ToString supertrait", {
   assert(ts.to_string() == String.from("bad"), "the supertrait's slot");
 });
 _UpErr :: enum(Bad);
+derive(_UpErr, Copy, Clone);
 impl(_UpErr, ToString(to_string : (self -> String.from("bad"))));
 impl(_UpErr, Error());
 test("Dyn: an upcast cannot add a trait, and dyn() of a Dyn is rejected", {

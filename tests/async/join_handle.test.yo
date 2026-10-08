@@ -239,6 +239,7 @@ test("aborting a task leaves a named future that someone else started running", 
 // (issues/fixed/a-user-method-named-await-is-lowered-as-join-handle-await-and-ices.md).
 // ---------------------------------------------------------------------------
 _Awaitable :: struct(v : i32);
+derive(_Awaitable, Copy, Clone);
 impl(_Awaitable, await : (fn(self : Self, io : Io) -> i32)(self.v + i32(1)));
 test("a user method named await compiles and runs as a method", {
   t := _Awaitable(v : i32(5));

@@ -8,6 +8,7 @@ import("std/fmt");
 { rune, String } :: import("std/string");
 // === Custom struct for testing Index trait ===
 MyArray :: struct(data0 : i32, data1 : i32, data2 : i32);
+derive(MyArray, Copy, Clone);
 impl(
   MyArray,
   Index(usize)(
@@ -484,6 +485,7 @@ test("Point comptime Index mutation", {
   comptime_assert(p2(usize(1)) == i32(4), "p2(1) should still be 4");
 });
 StrictPoint :: struct(x : i32, y : i32);
+derive(StrictPoint, Copy, Clone);
 impl(
   StrictPoint,
   Index(usize)(
@@ -574,6 +576,7 @@ test("GenericPoint comptime Index mutation", {
 // Note: Can't impl Index directly on built-in Tuple types (orphan rule).
 // Using a struct wrapper to test tuple-style positional indexing.
 Pair :: struct(first : i32, second : i32);
+derive(Pair, Copy, Clone);
 impl(
   Pair,
   Index(usize)(

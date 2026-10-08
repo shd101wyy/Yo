@@ -1167,6 +1167,7 @@ _KEY_SIGN :: u64(9223372036854775808);
 /// range differs between targets: past the keys there is always a value that
 /// only a catch-all arm matches, so no set of ranges covers them (as in Rust).
 _IntDomain :: struct(lo : u64, hi : u64, signed : bool, unbounded : bool);
+derive(_IntDomain, Copy, Clone);
 _int_domain :: (fn(ty : TypeValue) -> Option(_IntDomain))(
   match(
     get_integer_type_range(ty),
@@ -1203,6 +1204,7 @@ _int_key :: (fn(v : EvalValue, d : _IntDomain) -> Option(u64))(
 /// (`NotInt`), one that matches no value of the domain (`Empty`), or the
 /// closed key interval it matches, clipped to the domain.
 _IvHead :: enum(NotInt, Empty, Iv(lo : u64, hi : u64));
+derive(_IvHead, Copy, Clone);
 _iv_of_keys :: (fn(l : u64, h : u64, d : _IntDomain) -> _IvHead)({
   lo := cond((l < d.lo) => d.lo, true => l);
   hi := cond((h > d.hi) => d.hi, true => h);

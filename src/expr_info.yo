@@ -144,6 +144,7 @@ path_collection_conflicts_with_path_collection :: (
 /// Discriminator for control-flow flag operations.
 ControlFlowKind :: enum(Return, Unwind, Break, Continue);
 derive(ControlFlowKind, Clone, Eq(ControlFlowKind), ToString);
+derive(ControlFlowKind, Copy);
 // ---------------------------------------------------------------------------
 // ControlFlowFlags
 // ---------------------------------------------------------------------------
@@ -1961,6 +1962,7 @@ some_resolution :: (fn(t : TypeValue) -> Option(TypeValue))(
 /// or loop left the variable in (so an enclosing arm or loop reads one net
 /// effect instead of its inner paths' events).
 FlowEventKind :: enum(Assign, Consume, Join);
+derive(FlowEventKind, Copy, Clone);
 BranchInitRecord :: ref(
   struct(
     var_id : usize,

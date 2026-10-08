@@ -5,6 +5,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { atomic_bool, atomic_load } :: import("std/libc/stdatomic");
 _Flagged :: struct(lock : atomic_bool, n : i32);
+derive(_Flagged, Copy, Clone);
 test("atomic_bool(bool) converts a literal", {
   f := _Flagged(lock : atomic_bool(true), n : i32(1));
   assert(unsafe(atomic_load(&f.lock)) == true, "literal true");

@@ -3676,6 +3676,7 @@ LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 local_borrows_active :: (fn() -> bool)(g_local_borrows.len() > usize(0));
 /// The lengths a begin block restores when it ends (`local_borrows_truncate`).
 LocalBorrowMark :: struct(borrows : usize, patterns : usize);
+derive(LocalBorrowMark, Copy, Clone);
 local_borrows_mark :: (fn() -> LocalBorrowMark)(LocalBorrowMark(borrows : g_local_borrows.len(), patterns : g_local_borrow_patterns.len()));
 local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
   while(g_local_borrows.len() > mark.borrows, {

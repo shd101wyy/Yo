@@ -890,8 +890,8 @@ clear_copy_pending :: (fn() -> unit)({
 /// True when a value of the plain-data type `ty` is NOT implicitly copyable
 /// under decision 36's flip: it is not `Copy`. Compile-time-only types (their
 /// copies never reach run time), control-bound records (`Exception`, effect
-/// records: a `ctl` handler cannot be `Clone`, so it can never be `Copy`) and
-/// C opaque types answer false and keep copying implicitly. The caller
+/// records: a `ctl` handler cannot be `Clone`, so it can never be `Copy`),
+/// unions and C opaque types answer false and keep copying implicitly. The caller
 /// (`type_requires_explicit_copy`) has already excluded owned buffers and
 /// counted cells.
 type_lacks_copy_for_flip :: (fn(ty : TypeValue) -> bool)({
@@ -902,7 +902,9 @@ type_lacks_copy_for_flip :: (fn(ty : TypeValue) -> bool)({
       return(false);
     }
   );
-  if(is_some_type(ty) || match(ty, .ExternOpaqueT(_, _) => true, _ => false), {
+  // A `union` copies its raw bits, as in C, and `derive` cannot give it
+  // `Copy`, so it keeps copying implicitly, like a C opaque type.
+  if(is_some_type(ty) || match(ty, .ExternOpaqueT(_, _) => true, .Union(name : _, field_labels : _, field_types : _) => true, _ => false), {
     return(false);
   });
   if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {

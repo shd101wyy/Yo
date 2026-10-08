@@ -25,7 +25,9 @@ import("std/fmt");
 // str is static: store, return, reassign freely — no flow constraints.
 // ---------------------------------------------------------------------------
 StrHolder :: struct(name : str);
+derive(StrHolder, Copy, Clone);
 NestedStrHolder :: struct(inner : StrHolder);
+derive(NestedStrHolder, Copy, Clone);
 return_str_field :: (fn(h : StrHolder) -> str)(h.name);
 return_str_literal :: (fn() -> str)("static backing");
 return_str_from_branch :: (

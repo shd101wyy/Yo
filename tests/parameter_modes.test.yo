@@ -23,6 +23,7 @@ _pm_push_seven :: (fn(mut(xs) : ArrayList(i32)) -> unit)({
 });
 _PmHolder :: struct(items : ArrayList(i32), n : i32);
 _PmCounter :: struct(n : i32);
+derive(_PmCounter, Copy, Clone);
 impl(
   _PmCounter,
   get : (fn(imm(self) : Self) -> i32)(self.n),
@@ -136,6 +137,7 @@ test("a marker that does not fit the parameter is an error", {
 // `bool`, so it has a vtable slot; a by-value impl is reached through it
 // (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
 _PmFlag :: struct(on : bool);
+derive(_PmFlag, Copy, Clone);
 impl(_PmFlag, LogicalNot((!) : (fn(self : Self) -> bool)(!self.on)));
 test("Dyn(LogicalNot) over a by-value operator impl", {
   (d : Dyn(LogicalNot)) = dyn(_PmFlag(on : true));
