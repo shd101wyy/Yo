@@ -3,12 +3,18 @@
 `Arc(T)` 用于通过原子引用计数共享单个值的所有权。它**不再是编译器内置类型**。
 在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为一个薄包装的
 `atomic(ref(struct(...)))`，因此 `Arc` 与 `arc(...)` 会通过 prelude 自动可用。
-`Arc(T)` 本身要求 `T <: Send`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。
+`Arc(T)` 本身要求 `T <: (Send, Sync, Acyclic)`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。每个约束各有原因：
+
+- `Sync`：每个句柄都在自己的线程上读取载荷。
+- `Send`：最后一个句柄可能在任意线程上被释放，载荷的 `Dispose` 就在那个线程上运行（与 Rust 的 `Arc<T>: Send + Sync` 要求 `T: Send + Sync` 相同）。
+- `Acyclic`：原子引用计数不参与循环回收，`Arc` 形成的环永远不会被释放。
+
+在同样的约束下，`Arc(T)` 自身也是 `Send` 和 `Sync`。prelude 显式写出这两个 impl：闭包载荷（`Arc(Impl(Fn() -> unit))`）只能按值、通过它的捕获判断是否为 `Sync`，类型层面的派生看不到这些捕获。
 
 ## 当前定义
 
 ```rust
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -18,7 +24,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
   )
 );
 
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(
   Arc(V)(value)
 );
 ```
@@ -28,8 +34,8 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Ar
 - 当你想在**线程或闭包之间共享一个现有值**时，使用 `Arc(T)`。
 - 当你要定义**自己的共享类型**时，使用 `atomic(ref(struct(...)))`。
 - 当你想要**转移**而不是共享所有权时，使用 `Iso(T)`。
-- `Arc(T)` 只接受实现了 `Send` 的子类型；普通 `ref(struct(...))` 并不满足这个条件。
-- 对函数值（闭包或具名函数）调用 `arc(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
+- `Arc(T)` 只接受同时实现了 `Send` 和 `Sync` 的子类型；普通 `ref(struct(...))` 两者都不满足。是 `Send` 但不是 `Sync` 的类型（用 `impl(T, !(Sync()))` 退出 `Sync` 的类型）应放进 `Mutex(T)`，由它串行化访问。
+- 对函数值（闭包或具名函数）调用 `arc(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 且 `Sync` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
 
 许多标准库类型已经不再需要额外的 `Arc(...)` 包装。例如 `std/sync`
 原语和 `std/imm` 集合本身就基于 `atomic(ref(struct(...)))` 实现，可以直接跨线程共享。

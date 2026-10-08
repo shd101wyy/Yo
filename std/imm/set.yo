@@ -4,7 +4,7 @@
 //! nodes for thread-safe structural sharing. All mutations return new sets,
 //! leaving the original unchanged.
 //!
-//! Elements must implement `Eq`, `Hash`, and `Send`.
+//! Elements must implement `Eq`, `Hash`, `Send` and `Sync`.
 //!
 //! ## Examples
 //!
@@ -42,14 +42,14 @@ pragma(Pragma.AllowUnsafe);
 /// Persistent immutable hash set backed by a HAMT.
 ///
 /// Wraps `Map(T, bool)` internally. The bool values are always `true`.
-Set :: (fn(comptime(T) : Type, where(T <: (Eq(T), Hash, Send, Acyclic))) -> comptime(Type))(
+Set :: (fn(comptime(T) : Type, where(T <: (Eq(T), Hash, Send, Sync, Acyclic))) -> comptime(Type))(
   struct(_inner : Map(T, bool))
 );
 // O7: nesting support — see Map's impl.
-impl(generic(T : Type), where(T <: (Eq(T), Hash, Send, Acyclic)), Set(T), Acyclic());
+impl(generic(T : Type), where(T <: (Eq(T), Hash, Send, Sync, Acyclic)), Set(T), Acyclic());
 impl(
   generic(T : Type),
-  where(T <: (Eq(T), Hash, Send, Acyclic)),
+  where(T <: (Eq(T), Hash, Send, Sync, Acyclic)),
   Set(T),
   /// Create an empty set.
   new : (fn() -> Self)(
@@ -201,7 +201,7 @@ impl(
 );
 impl(
   generic(T : Type),
-  where(T <: (Eq(T), Hash, Send, Acyclic)),
+  where(T <: (Eq(T), Hash, Send, Sync, Acyclic)),
   Set(T),
   Eq(Set(T))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)(
@@ -213,7 +213,7 @@ impl(
 /// `IntoIterator` for the cost note.
 impl(
   generic(T : Type),
-  where(T <: (Eq(T), Hash, Send, Acyclic)),
+  where(T <: (Eq(T), Hash, Send, Sync, Acyclic)),
   Set(T),
   IntoIterator(
     Item : T,
@@ -226,7 +226,7 @@ impl(
 /// `Default` — the empty set.
 impl(
   generic(T : Type),
-  where(T <: (Eq(T), Hash, Send, Acyclic)),
+  where(T <: (Eq(T), Hash, Send, Sync, Acyclic)),
   Set(T),
   Default(
     default : (fn() -> Self)(

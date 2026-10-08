@@ -267,9 +267,9 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   assert(_ct_clone_copy(p) == p, "a where(T <: Copy) body calls clone()");
   assert(_ct_clone_copy(i32(3)) == i32(3), "at a prelude Copy type");
   assert(_ct_clone_copy((i32(1), true)).0 == i32(1), "at a tuple, Copy structurally and Clone by the prelude's tuple impl");
-  // `box` takes its argument `own`, so it moves: box a clone, not `p`.
+  // `rc` takes its argument `own`, so it moves: wrap a clone, not `p`.
   b := rc(p.clone());
-  assert(b.clone().* == p, "Rc.clone reaches the payload's clone");
+  assert(Rc.clone(b).* == p, "Rc.clone reaches the payload's clone");
   u := _CtUser(at : p);
   assert(u.moved() == p, "clone() inside another type's method");
   s := "abc";

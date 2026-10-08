@@ -14,6 +14,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
+{ RwLock } :: import("std/sync/rwlock");
+imm_vec :: import("std/imm/vec");
 
 // ============================================================================
 // The derivation, by reflection
@@ -276,3 +278,49 @@ test("^ refuses a value whose cell is aliased", {
 comptime_expect_error({
   _SsIsoPoint :: Iso(SsPoint);
 }, "reaches none");
+
+// ============================================================================
+// Generation B: sharing needs Sync (plans/VALUES_BY_DEFAULT.md §3.8)
+// ============================================================================
+// `SsNotSync` is plain data, so `Send`, with a negative `Sync` marker
+// (decision 38 E): it may move to another thread but never be read from two.
+SsNotSync :: struct(n : i32);
+impl(SsNotSync, !Sync());
+test("a negative Sync marker leaves a type Send", {
+  comptime_assert(Type.impls(SsNotSync, Send), "plain data is Send");
+  comptime_assert(!Type.impls(SsNotSync, Sync), "the marker removes Sync");
+});
+// Every `Arc` handle reads the payload from its own thread: `Arc(T)` needs
+// `T <: (Send, Sync)`.
+comptime_expect_error({
+  _arc_not_sync :: (fn() -> unit)({
+    _a := arc(SsNotSync(n : i32(1)));
+  });
+  _arc_not_sync();
+}, "Sync");
+// `RwLock` hands out concurrent read guards: `T <: (Send, Sync)`.
+comptime_expect_error({
+  _rwlock_not_sync :: (fn() -> unit)({
+    _l := RwLock(SsNotSync).new(SsNotSync(n : i32(1)));
+  });
+  _rwlock_not_sync();
+}, "Sync");
+// `std/imm` nodes are shared by every version: elements need `Sync`.
+comptime_expect_error({
+  _imm_not_sync :: (fn() -> unit)({
+    _v := imm_vec.Vec(SsNotSync).new();
+  });
+  _imm_not_sync();
+}, "Sync");
+// Over-rejection canaries: a `Mutex` serializes access and a `Channel` moves
+// its payload, so both keep `T <: Send` and take the non-`Sync` type.
+test("Mutex and Channel take a Send type that is not Sync", {
+  _m := Mutex(SsNotSync).new(SsNotSync(n : i32(2)));
+  ch := Channel(SsNotSync).new(usize(1));
+  _sent := ch.send(SsNotSync(n : i32(5)));
+  match(
+    ch.recv(),
+    .Some(v) => assert(v.n == i32(5), "the payload moved through"),
+    .None => assert(false, "a value was sent")
+  );
+});

@@ -9,12 +9,12 @@ per-module API surface, prefer the generated `yo doc` output (locally or from CI
 
 ## Shared properties
 
-| Property                | Detail                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| **Persistent**          | Old versions remain valid after insert/update/remove-style operations.         |
-| **Thread-safe sharing** | Backing nodes use `atomic(ref(struct(...)))` and atomic reference counting.    |
-| **`Send`-constrained**  | Collection type constructors require `Send` element/value types.               |
-| **Acyclic by design**   | The data structures are trees/lists/tries and do not rely on cycle collection. |
+| Property                | Detail                                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Persistent**          | Old versions remain valid after insert/update/remove-style operations.                                                |
+| **Thread-safe sharing** | Backing nodes use `atomic(ref(struct(...)))` and atomic reference counting.                                           |
+| **`Send` + `Sync`**     | Element, key and value types must be `Send` and `Sync`: nodes are shared by every version and released on any thread. |
+| **Acyclic by design**   | The data structures are trees/lists/tries and do not rely on cycle collection.                                        |
 
 ## Collection overview
 
@@ -93,14 +93,14 @@ create new nodes — existing nodes are never mutated. To express this guarantee
 internal node types declare a **manual `Acyclic` impl**:
 
 ```rust
-ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+ListNode :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(ref(struct(_value : T, _next : Option(Self))))
 );
-impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), ListNode(T), Acyclic());
 ```
 
 This is analogous to Rust's `unsafe impl Send` — the programmer asserts a safety
-property the compiler cannot verify structurally. The `Send` constraint on `atomic
+property the compiler cannot verify structurally. The `Sync` constraint on `atomic
 object` fields is enforced as a hard error; `Acyclic` is auto-derived when possible
 and manually declared otherwise.
 

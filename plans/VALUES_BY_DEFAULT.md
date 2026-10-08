@@ -24,6 +24,13 @@ Progress:
   - V1 step 1 Generation B part 1, the `Box` → `Rc` rename with `Rc`
     canonical (#1267; part 2 deletes the legacy `Box` after the next
     seed);
+  - decision 32 Generation B, the wrapper/payload clash is E0616
+    (#1268; one gap open, see the decision's "as built");
+  - the `Send`/`Sync` split, Generation B: sharing needs `Sync` (`Arc`,
+    `RwLock`, `std/imm`; #1268);
+  - decision 37's `FnOnce` with decision 38 C, Generation A (#1266;
+    capture-list entries only, per the amendment; one S2 open: a macro
+    that duplicates an `FnOnce` call calls it twice);
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -39,11 +46,10 @@ Progress:
     #1259 — scope-based liveness, Generation B refines it);
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
-  - decision 37's `FnOnce` with decision 38 C, Generation A (not started;
-    the first item of `plans/handover/VBD_HANDOVER_2026-10-07.md`);
   - V3's remaining async work (§3.13).
-- **Next:** the v0.2.54 seed, then the Generation B sweeps (the Box→Rc
-  rename, decision 32's clash error, the V3b sweep and flip).
+- **Next:** the remaining Generation B sweeps (the V3b sweep and flip, the
+  `Copy` flip), and after the next seed: `Box` → `Rc` part 2 and `FnOnce`
+  Generation B (the `Thread.spawn`/`ThreadPool.spawn` signatures).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -2583,6 +2589,31 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     of a `T <: Trait` call.
   - Box handles copy implicitly until V2c, so `.clone()` on one is rare
     today; V2c's `Rc.clone(w)` sites (decision 17) are the sweep's bulk.
+- **Generation B as built (2026-10-08, #1268).**
+  - **The code is E0616**, the existing "a method name has two readings"
+    code (two traits' `get`), widened in the registry. Its message names
+    both spellings, `Rc.clone(w)` and `w.*.clone(...)`.
+  - **`yo fix` applies `Rc.clone(w)`.** That is the meaning the call had
+    when the wrapper's member won, so the repair changes no behavior. It is
+    offered when the receiver is a plain identifier and the source reads
+    `w.m(` on one row; otherwise the message alone names both spellings.
+  - **Both hooks.** A method on both sides is caught in
+    `_reject_wrapper_payload_clash` (`calls/function.yo`), on the resolved
+    hit. A wrapper method against a payload FIELD is caught in callee
+    position in `evaluate_property_access`. The payload side searches its
+    own auto-dereference chain (`Rc(Arc(T))` reaches `T`).
+  - **Trait-bound calls are exempt.** The check is off while a generic
+    function or impl is specialized, the same gate as `match`'s GADT
+    exactness. **Gap:** this also exempts a generic body that writes
+    `w : Rc(T)`. The specialized body cannot tell a written wrapper from a
+    substituted one
+    (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`, S3).
+  - **`derive(Clone)`** spells a `Deref` field's clone
+    `(typeof(self.f) <: Clone).clone(self.f)` (struct fields and enum
+    variant fields), so the six derive-generated sites need no user edit.
+  - **Sites rewritten:** `tests/deref_auto.test.yo` (the "own members win"
+    test became the clash test) and `tests/rc_cell.test.yo`; `src/` and
+    `std/` had none.
 
 **Step 1: rename every `Box(` to `Rc(` and `box(` to `rc(`** in `src/`,
 `std/`, `tests/`, docs and skills.
@@ -2819,6 +2850,29 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     `std/imm` element bounds become `Sync`, and the explicit `Arc(T)` `Send`
     impl goes. `Mutex`, `Channel` and `Thread.spawn` keep `Send`. The seed
     does not derive `Sync`, so no std bound may name it before then.
+  - **Generation B as built (2026-10-08, #1268).**
+    - `Arc` and `arc` take `T <: (Send, Sync, Acyclic)`. `Sync` because
+      every handle reads the payload from its own thread; `Send` because the
+      last handle may be dropped on any thread and the payload's `Dispose`
+      runs there; `Acyclic` because an `Arc` cycle is never collected.
+    - `Arc(T)`'s own `Send` and `Sync` stay EXPLICIT impls under the same
+      bound. The plan said derivation would answer them, but the
+      atomic-object derivation asks the payload TYPE for `Sync`, and an
+      `Impl(Fn(...))` payload is `Sync` only by value (its captures). With
+      the impl deleted, `Arc(Impl(Fn() -> unit))` stopped being `Send`
+      (`tests/parallelism_soundness.test.yo`).
+    - `RwLock(T)` takes `T <: (Send, Sync, Acyclic)` (concurrent read
+      guards). Every `std/imm` element, key and value bound (`List`, `Vec`,
+      `Map`, `Set`, `SortedMap`, `SortedSet`) gained `Sync`: their nodes are
+      shared by every version and released on any thread.
+    - Unchanged: `Mutex(T)` and `Channel`/`Sender`/`Receiver` keep
+      `T <: (Send, Acyclic)`; `Thread`/`Thread.spawn`/`ThreadPool`/`spawn`
+      keep `Impl(Fn, Send)` and a `T <: Send` result.
+    - `String` and `ArrayList` stay neither `Send` nor `Sync` until V2b, so
+      `Channel(String)` still waits for V2b.
+    - **Tests** (`tests/send_sync.test.yo`): a `Send`-but-not-`Sync` type
+      (plain data with `impl(T, !(Sync()))`) is rejected by `arc`, `RwLock`
+      and `imm.Vec`, and accepted by `Mutex` and `Channel`.
 - **`Iso(T)`'s bound widens to "reaches a non-atomic cell" — landed
   (feat/vbd-send-sync).** `type_reaches_non_atomic_cell`
   (`src/types/utils.yo`) is the bound at `Iso(T)` and `__yo_iso_unique`. A

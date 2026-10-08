@@ -50,7 +50,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ suggest_name } :: import("../../diagnostics.yo");
+{ suggest_name, E_AMBIGUOUS_METHOD } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
@@ -1804,7 +1804,33 @@ Raw pointer operations may dereference invalid memory.`
                   rewritten := recur(expr, env_in, ctx, exn);
                   unmark_node_preevaluated(obj_id);
                   return(rewritten);
-                }),
+                }, if(!(ctx.currently_specializing_function.is_some() || ctx.is_evaluating_generic_impl_specialization), {
+                  // Decision 32: a callee `w.m` where the wrapper has a
+                  // METHOD `m` and its payload a FIELD `m` (a function-typed
+                  // field is callable) has two readings. The wrapper's
+                  // method used to win silently. Off inside a specialized
+                  // generic body, as `calls/function.yo`'s
+                  // `_reject_wrapper_payload_clash` is.
+                  obj_shown := ast_expr_to_string(object_expr);
+                  wrapper_s := type_to_string(base_ty);
+                  ctor := match(
+                    wrapper_s.index_of(`(`),
+                    .Some(pidx) => wrapper_s.substring(usize(0), pidx),
+                    .None => wrapper_s.clone()
+                  );
+                  exn.throw(
+                    dyn(
+                      with_code(
+                        format_error_message(
+                          ast_expr_token(property_expr),
+                          `"${label_str}" is a method of ${wrapper_s} and a field of its payload, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32).\nWrite ${ctor}.${label_str}(${obj_shown}, ...) for the ${ctor}'s own ${label_str}, or ${obj_shown}.*.${label_str}(...) to call the payload's field.`
+                        ),
+                        E_AMBIGUOUS_METHOD
+                      )
+                    )
+                  );
+                  return(expr);
+                })),
                 .Err(innermost) => if(!pa_is_callee, {
                   exn.throw(
                     dyn(

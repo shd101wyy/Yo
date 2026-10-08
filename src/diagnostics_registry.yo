@@ -815,12 +815,12 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   out.push(
     _mk_explain(
       E_AMBIGUOUS_METHOD,
-      "two traits supply a method of the same name",
-      "两个 trait 提供了同名方法",
-      "Two traits both supply a method with this name, and nothing says which one is meant.",
-      "两个 trait 都提供了这个名字的方法，而代码没有说明指的是哪一个。",
-      "When a type implements two traits that both declare `get`, an unqualified `x.get()` could mean either, and which impl ran used to depend on the order the impls were registered. Name the trait with the qualified form `(T <: Trait).get(x)`, or call it inside a function whose `where(T <: Trait)` bound selects one. A type's own inherent method is never ambiguous with a trait method. A `Dyn` calls its methods through a vtable by name, so a `Dyn` may not carry two traits that both declare a method it can call under one name at all: keep only one of the two traits in the `Dyn`, or rename one of the methods.",
-      "当一个类型实现了两个都声明了 `get` 的 trait 时，不加限定的 `x.get()` 可能指其中任何一个，以前实际运行哪个 impl 取决于 impl 的注册顺序。请用限定形式 `(T <: Trait).get(x)` 指明 trait，或在由 `where(T <: Trait)` 约束选定其一的函数中调用。类型自身的固有方法永远不会与 trait 方法产生歧义。`Dyn` 通过 vtable 按名字调用方法，因此一个 `Dyn` 根本不能同时带有两个都声明了同名可调用方法的 trait：请在 `Dyn` 中只保留其中一个 trait，或者给其中一个方法改名。",
+      "a method name has two readings",
+      "一个方法名有两种解读",
+      "Two traits, or a wrapper and its payload, both supply a member with this name, and nothing says which one is meant.",
+      "两个 trait，或者一个包装类型和它的载荷，都提供了这个名字的成员，而代码没有说明指的是哪一个。",
+      "When a type implements two traits that both declare `get`, an unqualified `x.get()` could mean either, and which impl ran used to depend on the order the impls were registered. Name the trait with the qualified form `(T <: Trait).get(x)`, or call it inside a function whose `where(T <: Trait)` bound selects one. A type's own inherent method is never ambiguous with a trait method. A `Dyn` calls its methods through a vtable by name, so a `Dyn` may not carry two traits that both declare a method it can call under one name at all: keep only one of the two traits in the `Dyn`, or rename one of the methods. A `Deref` wrapper (`Rc`, `Arc`) forwards a member it lacks to its payload, so when the wrapper and its payload both have the member, `w.clone()` could mean the wrapper's or the payload's: write `Rc.clone(w)` for the wrapper's own member, or `w.*.clone()` for the payload's. `yo fix` rewrites the call to `Rc.clone(w)`, the meaning it had before this was an error.",
+      "当一个类型实现了两个都声明了 `get` 的 trait 时，不加限定的 `x.get()` 可能指其中任何一个，以前实际运行哪个 impl 取决于 impl 的注册顺序。请用限定形式 `(T <: Trait).get(x)` 指明 trait，或在由 `where(T <: Trait)` 约束选定其一的函数中调用。类型自身的固有方法永远不会与 trait 方法产生歧义。`Dyn` 通过 vtable 按名字调用方法，因此一个 `Dyn` 根本不能同时带有两个都声明了同名可调用方法的 trait：请在 `Dyn` 中只保留其中一个 trait，或者给其中一个方法改名。`Deref` 包装类型（`Rc`、`Arc`）会把自身没有的成员转发给载荷，因此当包装类型和载荷都有这个成员时，`w.clone()` 既可能指包装类型的成员，也可能指载荷的：用 `Rc.clone(w)` 调用包装类型自己的成员，用 `w.*.clone()` 调用载荷的。`yo fix` 会把调用改写为 `Rc.clone(w)`，即它在成为错误之前的含义。",
       "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get : (fn(self : Self) -> i32));\nf :: (fn(d : Dyn(A, B)) -> i32)(i32(0));\n",
       "A :: trait(get : (fn(self : Self) -> i32));\nB :: trait(get_b : (fn(self : Self) -> i32));\nf :: (fn(d : Dyn(A, B)) -> i32)(i32(0));\n",
       "`A` and `B` both give `Dyn(A, B)` a `get` slot; renaming `B`'s method removes the clash.",

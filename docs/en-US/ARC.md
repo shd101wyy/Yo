@@ -4,13 +4,23 @@
 It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
 in `std/prelude.yo` as a thin `atomic(ref(struct(...)))` wrapper, so `Arc` and
 `arc(...)` are available everywhere through the prelude. `Arc(T)` itself requires
-`T <: (Send, Acyclic)`, which keeps `Arc` from laundering non-thread-safe values into a
-thread-shareable wrapper.
+`T <: (Send, Sync, Acyclic)`, which keeps `Arc` from laundering non-thread-safe values into a
+thread-shareable wrapper. Each bound has its own reason:
+
+- `Sync`: every handle reads the payload from its own thread.
+- `Send`: the last handle may be dropped on any thread, and the payload's `Dispose` runs there
+  (as Rust's `Arc<T>: Send + Sync` needs `T: Send + Sync`).
+- `Acyclic`: atomic reference counts are not cycle-collected, so an `Arc` cycle would never be
+  freed.
+
+`Arc(T)` is itself `Send` and `Sync` under the same bound. The prelude states both impls
+explicitly: a closure payload (`Arc(Impl(Fn() -> unit))`) is `Sync` only by value, through its
+captures, which the type-level derivation cannot see.
 
 ## Current definition
 
 ```rust
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -20,7 +30,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
   )
 );
 
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(
   Arc(V)(value)
 );
 ```
@@ -30,9 +40,12 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Ar
 - Use `Arc(T)` when you want to share **one existing value** across threads or closures.
 - Use `atomic(ref(struct(...)))` when you are defining your **own shared type**.
 - Use `Iso(T)` when ownership should be **transferred**, not shared.
-- `Arc(T)` only accepts `Send` child types. A regular `ref(struct(...))` value is not enough.
+- `Arc(T)` only accepts child types that are both `Send` and `Sync`. A regular
+  `ref(struct(...))` value is neither. A type that is `Send` but not `Sync` (one that opts out
+  with `impl(T, !(Sync()))`) goes in a `Mutex(T)` instead, which serializes access.
 - `arc(f)` of a function value (a closure or a named function) is judged by the value: what it
-  captures and what its code reaches must be `Send` (rules D4 and D9, `THREAD_SAFETY.md`).
+  captures and what its code reaches must be `Send` and `Sync` (rules D4 and D9,
+  `THREAD_SAFETY.md`).
 
 Many standard-library types no longer need an extra `Arc(...)` wrapper. For
 example, `std/sync` primitives and `std/imm` collections are already implemented

@@ -40,6 +40,8 @@ Raw :: struct(p : ?(*(u8)));
 
 原子对象的所有副本共享同一个载荷，所以只有当该载荷是 `Sync` 时它才是 `Send`。`Mutex(T)` 是一个例外，恰好印证了这条规则：它一次只把 `T` 交给一个线程，所以只要 `T` 是 `Send`，它就是 `Sync`。
 
+标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)`、`RwLock(T)`（并发的读守卫）以及每个 `std/imm` 的元素、键和值类型都要求 `T <: (Send, Sync, Acyclic)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: (Send, Acyclic)`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
+
 `String` 和各集合类型目前还不是 `Send`：它们的缓冲区现在是一个共享的、非原子计数的单元，留在发送线程上的副本会在计数上产生竞争。一旦它们的缓冲区变为唯一所有（`plans/VALUES_BY_DEFAULT.md` V2b），移动一个值就是交出它唯一的所有者，`Channel(String)` 无需修改编译器即可工作。在那之前，请使用 `Iso`（见下文）或 `std/imm` 中的类型。
 
 ### 手动 Send 与 Sync 实现需要 Pragma
@@ -193,7 +195,7 @@ Thread(i32).spawn(io => counter);             // 错误：……但另一个线�
 
 - **派生与任务闭包体**：直接写进 `Send` 位置的闭包字面量（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调）在书写处检查。
 - **传入的函数值**：传给 `Impl(Fn(...), Send)` 参数的具名函数或闭包在调用处判断。
-- **泛型约束**：绑定到 `where(T <: Send)` 参数的函数同样判断：`arc(f)`、`Channel(typeof(f))`、泛型的 `g(f)`。
+- **泛型约束**：绑定到 `where(T <: Send)` 或 `where(T <: Sync)` 参数的函数同样判断：`arc(f)`（两者都判断）、`Channel(typeof(f))`、泛型的 `g(f)`。
 - **被捕获的函数**：被另一个线程的闭包捕获的闭包，按被捕获的值判断。
 - **`Sync` 位置**：`Impl(Fn(...), Sync)` 参数对 `Sync` 做同样的检查：捕获了 `Rc` 的闭包不是 `Sync`，代码触及非 `Sync` 全局变量的闭包也不是。
 

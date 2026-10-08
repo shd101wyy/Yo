@@ -132,7 +132,10 @@ the receiver. A seed without the feature reports it as E0610, so `src/` and
 - Tests use it (`tests/unapplied_constructor_method.test.yo`); `src/` and
   `std/` do not.
 
-**Generation B** (once `SEED_VERSION` carries Generation A):
+**Generation B DONE 2026-10-08** (#1268; as built in the
+plan's decision 32). It needed only the v0.2.54 seed: `src/` and `std/` had no
+clashing site, and the derive rule's new spelling is one the seed already
+evaluates. As planned:
 - `w.m` where both the wrapper and its payload have `m` becomes an error
   naming `Box.clone(w)` and `w.*.clone()`, in `evaluate_property_access`
   and `_try_find_receiver_method`.
@@ -208,18 +211,26 @@ miss `Sync`).
   pragma'd impls: `Channel`, `Mutex`, `Waker`, `ImmString`, `imm.Vec`,
   `MapBranch`, `MapCollision`.
 
-**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
-- `Arc :: where(V <: (Sync, Acyclic))`, `arc`'s bound and its `Deref`/`Send`
-  impls (`Arc(T)` is `Send` and `Sync` for `T <: Sync`); drop the explicit
-  `impl(Arc(T), Send())`, which derivation now answers.
-- `Mutex`/`RwLock`/`Channel`/`Sender`/`Receiver`: `T <: Send` stays on
-  `Mutex`/`Channel`; `RwLock(T)` needs `T <: (Send, Sync)`.
-- `Thread(T)`/`Thread.spawn`/`spawn_blocking`/`spawn(pool, …)` keep
-  `Impl(Fn, Send)`; their result `T` keeps `Send`. Moving a move-only capture
+**Generation B DONE 2026-10-08** (#1268):
+- `Arc :: where(V <: (Send, Sync, Acyclic))` and the same bound on `arc`,
+  per the 2026-10-07 amendment (this entry first said `(Sync, Acyclic)`):
+  `Send` because the last handle may be dropped, and the payload disposed,
+  on any thread. `Arc(T)`'s `Send` and `Sync` impls stay explicit under that
+  bound: derivation cannot see a closure payload's captures.
+- `RwLock(T)` needs `T <: (Send, Sync, Acyclic)` (concurrent read guards).
+- Every `std/imm` element, key and value bound is `(Send, Sync, Acyclic)`
+  (their nodes are shared by every version).
+- Unchanged: `Mutex`/`Channel`/`Sender`/`Receiver` keep `T <: (Send, Acyclic)`;
+  `Thread(T)`/`Thread.spawn`/`spawn_blocking`/`spawn(pool, …)` keep
+  `Impl(Fn, Send)` and their result `T <: Send`. Moving a move-only capture
   into them is DONE - the externs take `own(cb)` and the lowering moves
   (`issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md`).
-- The `std/imm` element bounds become `Sync` (their nodes are shared).
-- `docs/en-US/PARALLELISM.md` signatures, both languages.
+- Docs updated in both languages (`ARC.md`, `THREAD_SAFETY.md`,
+  `IMMUTABLE_COLLECTIONS.md`, `DESIGN.md`; `CYCLE_COLLECTION.md` in en-US,
+  whose zh-CN text states no bound). `PARALLELISM.md` names no
+  `Arc`/`RwLock`/`std/imm` bound and is unchanged.
+- Tests: `tests/send_sync.test.yo` rejects a `Send`-but-not-`Sync` type in
+  `arc`, `RwLock` and `imm.Vec`, and accepts it in `Mutex` and `Channel`.
 
 ## Seed-gated follow-up (2026-10-06): decision 36's `Copy` flip
 

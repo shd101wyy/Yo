@@ -1,0 +1,9 @@
+# `yo fix` applies decision 32's repair for a wrapper/payload member clash
+# (plans/VALUES_BY_DEFAULT.md decision 32, Generation B): `b.clone()` on an
+# `Rc(i32)` has two readings, the Rc's own clone and the payload's
+# (`b.*.clone()`), so it is E0616. The wrapper's member used to win, so the
+# repair rewrites the call to the spelling that keeps that meaning,
+# `Rc.clone(b)`. The expected_tree pins the rewritten file; rc is 0 because
+# the second pass then evaluates it.
+stdout_keep=^fix:
+timeout=180

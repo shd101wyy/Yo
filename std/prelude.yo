@@ -8679,7 +8679,13 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
         "",
         (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
           fname :: fields.get(fi).name;
-          part :: __s3("self.", fname, ".clone()");
+          // A `Deref` wrapper field (`Rc`, `Arc`) clones through its own
+          // `Clone` impl by name: `self.f.clone()` would be decision 32's
+          // wrapper/payload clash (E0616) when the payload is `Clone` too.
+          part :: cond(
+            Type.impls(fields.get(fi).field_type, Deref) => __s5("(typeof(self.", fname, ") <: Clone).clone(self.", fname, ")"),
+            true => __s3("self.", fname, ".clone()")
+          );
           cond(
             (a == "") => part,
             true => __s3(a, ", ", part)
@@ -8726,9 +8732,13 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 "",
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
+                  part :: cond(
+                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(typeof(__v_", fname, ") <: Clone).clone(__v_", fname, ")"),
+                    true => __s3("__v_", fname, ".clone()")
+                  );
                   cond(
-                    (a == "") => __s3("__v_", fname, ".clone()"),
-                    true => __s4(a, ", __v_", fname, ".clone()")
+                    (a == "") => part,
+                    true => __s3(a, ", ", part)
                   )
                 })
               );
@@ -9903,7 +9913,7 @@ export(^);
 /// a := arc(i32(42));
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -9913,19 +9923,25 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))(
   )
 );
 /// Allocate a value inside an Arc, returning an `Arc(V)`.
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))(Arc(V)(value));
-// SAFETY: Arc(T) is an atomic reference-counted wrapper. It is Send when
-// the inner T is Send (all fields of the atomic-object must be Send per
-// auto-derive) and Acyclic (prevents permanent leaks from Arc cycles).
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Send());
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(Arc(V)(value));
+// `Sync` because every handle reads the payload from its own thread; `Send`
+// because the last handle may be dropped on any thread, and the payload's
+// `Dispose` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's
+// `Arc<T>: Send + Sync` needs `T: Send + Sync`); `Acyclic` because an `Arc`
+// cycle is never collected. `Arc(T)` is then `Send` and `Sync` itself. The
+// impls are explicit because the atomic-object derivation asks the payload
+// TYPE for `Sync`, and an `Impl(Fn(...))` payload answers only by value
+// (its captures), so `Arc(Impl(Fn() -> unit))` would not derive `Send`.
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Send());
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Sync());
 export(Arc, arc);
 /// === Deref ===
 /// Deref — marks a wrapper whose members forward to its payload `Target`
 /// (auto-dereference, plans/VALUES_BY_DEFAULT.md §3.3). Nothing is called at
 /// run time: `w.field` and `w.method()` on a `Deref` type whose own members
 /// lack that name mean `w.*.field` and `w.*.method()`, recursively through
-/// nested wrappers, and the wrapper's own members always win (`b.clone()` is
-/// the `Rc`'s `clone`). `w.*` names the payload place.
+/// nested wrappers. A name both have is E0616 (decision 32): `Rc.clone(b)`
+/// is the `Rc`'s `clone`, `b.*.clone()` the payload's. `w.*` is the payload.
 ///
 /// Implemented by `Box`, `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
 /// a compile error, so every auto-dereference goes through one of the
@@ -9945,7 +9961,7 @@ Deref :: trait(
 export(Deref);
 impl(generic(T : Type), Box(T), Deref(Target : T));
 impl(generic(T : Type), Rc(T), Deref(Target : T));
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Arc(T), Deref(Target : T));
+impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===
 extern(
   "Yo",

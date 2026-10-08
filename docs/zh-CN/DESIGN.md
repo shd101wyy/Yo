@@ -3194,8 +3194,12 @@ pp := rc(rc(Point(x : 1, y : 2)));
 assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
 ```
 
-- **包装器自身的成员优先。** `p.clone()` 是 `Rc` 的 `clone`（得到一个新的
-  `Rc`），而不是载荷的；`p.*` 永远就是载荷本身。
+- **两者都有的名字是错误（E0616）。** `Point` 派生了 `Clone`，`Rc` 也实现了
+  `Clone`，因此 `p.clone()` 两种含义都有可能。用 `Rc.clone(p)` 调用 `Rc`
+  自己的 `clone`（得到一个新的 `Rc`），用 `p.*.clone()` 调用载荷的（得到一个
+  `Point`）；`yo fix` 会把调用改写为 `Rc.clone(p)`。只有一方拥有的名字无需
+  选择，`p.*` 永远就是载荷本身。泛型函数体中的调用，例如
+  `where(T <: Clone)` 下的 `x.clone()`，即使 `T` 是 `Rc` 也是约束提供的方法。
 - **位置。** 转发得到的字段是一个位置：`p.x = v` 以及 `inout(self)` 调用
   （如 `p.items.push(v)`）都写入载荷。在没有 `pragma(Pragma.AllowUnsafe)`
   的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `inout(self)` 的
@@ -3206,8 +3210,7 @@ assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
   ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
   field "z" either.``（E0406；方法则为 E0610）。
 - **被调用位置。** `p.items(i)` 对载荷的 `items` 进行索引，`p.f(x)` 调用载荷中
-  保存函数的字段。包装器自身的方法仍然优先，因此查找顺序为：包装器字段、包装器
-  方法、载荷字段、载荷方法。
+  保存函数的字段。包装器的方法与载荷的同名字段同样是 E0616。
 
 ### Rc 与赋值
 
@@ -3690,7 +3693,10 @@ export(main);
 
 `Arc(T)` 提供**共享所有权**并使用原子引用计数。它不再是编译器内置类型，
 而是在 `std/prelude.yo` 中被定义为一个薄包装的 `atomic(ref(struct(...)))`。
-`Arc(T)` 要求 `T <: Send`，因此它只包装可安全跨线程共享的值。
+`Arc(T)` 要求 `T <: (Send, Sync, Acyclic)`：要求 `Sync`，是因为每个句柄都在自己的线程上读取载荷；
+要求 `Send`，是因为最后一个句柄可能在任意线程上被释放（载荷也在那里被销毁）；要求 `Acyclic`，
+是因为原子引用计数不参与循环回收。因此它只包装可安全跨线程共享的值，在该约束下 `Arc(T)` 自身
+也是 `Send` 和 `Sync`。
 当你想共享单个值时使用 `Arc(T)`；当你想定义自己的共享类型时使用
 `atomic(ref(struct(...)))`。
 
