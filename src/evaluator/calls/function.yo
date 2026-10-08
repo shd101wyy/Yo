@@ -635,11 +635,11 @@ _try_find_receiver_method :: (
   });
   if(hits.len() == usize(0), {
     // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): a `Deref` wrapper
-    // (`Box`, `Arc`) without the method forwards the call to its payload —
+    // (`Rc`, `Arc`) without the method forwards the call to its payload —
     // retry with the receiver `w.*`, recursively through nested wrappers.
     // Reached only after the wrapper's own lookup (and its lazy-impl force)
     // missed, so the wrapper's members always win (`b.clone()` stays the
-    // Box's). On a hit the callee's receiver argument is replaced IN PLACE by
+    // Rc's). On a hit the callee's receiver argument is replaced IN PLACE by
     // the `w.*` chain, so the call is the explicit `w.*.m(...)` to every later
     // reader (codegen, the inout/D3/E0908 root walks); on a miss the callee
     // is left as written for the E0610 message.
@@ -719,7 +719,7 @@ _instance_constructor_fid :: (fn(ty : TypeValue) -> String)(
 );
 /// A method called through an UNAPPLIED generic type constructor,
 /// `G.m(x, ...)` (plans/VALUES_BY_DEFAULT.md decision 32: `Rc.clone(w)`,
-/// `Box.clone(b)`), infers `G`'s arguments from the receiver, as Rust infers
+/// `Rc.clone(b)`), infers `G`'s arguments from the receiver, as Rust infers
 /// `Rc::clone`'s `T`. The receiver of a static call is its first argument, so
 /// `x`'s own type must be an instantiation `G(A, ...)` of `G`; that
 /// instantiation IS the type the method is looked up on, so the ExprInfo of
@@ -730,7 +730,7 @@ _instance_constructor_fid :: (fn(ty : TypeValue) -> String)(
 /// (resetting its ExprInfo to the constructor) and infers again, as the
 /// written `G(A, ...)` receiver is re-evaluated per specialization. The match
 /// is by constructor identity, never a search through payloads, so it is
-/// unambiguous: an `Rc(Box(T))` argument is an `Rc` instance and not a `Box`
+/// unambiguous: an `Rc(Arc(T))` argument is an `Rc` instance and not an `Arc`
 /// one. A constructor whose body applies another (an alias
 /// `IntPair(B) := Pair(i32, B)`, a partial application `Pair(i32, _)`) is a
 /// constructor of its own: its instances are the other constructor's.
@@ -2476,10 +2476,10 @@ _fv_synthesize_arg_into :: (fn(declared_pt : TypeValue, scratch_env : Environmen
 ///   throwing "Cannot unify i32 and str" when specializing println/print
 ///   (Gap-6). A comptime TYPE arg is a `Type` value, not comptime_str, so this
 ///   only catches string-literal value args.
-/// - comptime_int/float literal args lower the same way: `box(1)` must infer
+/// - comptime_int/float literal args lower the same way: `rc(1)` must infer
 ///   `T = i32`, not `T = comptime_int` — the C mapping hides the difference
 ///   until a trait dispatch inside the instantiated impl differs:
-///   Box(comptime_int)'s `Eq` resolved to `__yo_comptime_int_eq`, a
+///   Rc(comptime_int)'s `Eq` resolved to `__yo_comptime_int_eq`, a
 ///   comptime-only builtin that can never be emitted (the prelude Box test;
 ///   issues/repros/box-eq-comptime-int-forall-leak.yo). GATED on the matched
 ///   param being RUNTIME: a `comptime(v) : T` param binds T to the RAW
@@ -2487,8 +2487,8 @@ _fv_synthesize_arg_into :: (fn(declared_pt : TypeValue, scratch_env : Environmen
 ///   inside comptime-fn bodies (tests/comptime.test.yo regression).
 /// - A closure/fn (or unit under def-eval) argument prefers the
 ///   EXPECTED-RETURN-resolved param type when that is an Impl SomeT:
-///   `box((x) => ...)` with expected `Box(Impl(Fn...))` binds `V` to that
-///   SomeT (arg-driven V := <fn type>/unit produced `Box(fn(...))`/`Box(unit)`
+///   `rc((x) => ...)` with expected `Rc(Impl(Fn...))` binds `V` to that
+///   SomeT (arg-driven V := <fn type>/unit produced `Rc(fn(...))`/`Rc(unit)`
 ///   with a void*/void payload — the Dyn(Fn) family).
 _funcval_infer_forall_ty :: (fn(arg_ty : TypeValue, exp_pt : TypeValue, param_is_ct : bool, env : Environment) -> TypeValue)(
   cond(
@@ -3949,10 +3949,10 @@ _evaluate_funcval_runtime_call :: (
   // the substitution just stamped (iter_filter_closure: all three arms'
   // returns collapsed onto one C record while each specialized callee
   // returned its own).
-  // Recursive-instantiation era repair (the Box(Self)+Clone duplicate-struct
+  // Recursive-instantiation era repair (the Rc(Self)+Clone duplicate-struct
   // class, issues/fixed/yo-self-unsubstituted-type-param-emits-duplicate-struct.md):
   // when the DECLARED return is a nominal instantiation whose type_arguments
-  // carry SomeTs (`fn(forall(V), ...) -> Box(V)`), the s_ret substitution above
+  // carry SomeTs (`fn(forall(V), ...) -> Rc(V)`), the s_ret substitution above
   // rewrites the def-era instance IN PLACE — for a RECURSIVE payload the
   // substituted copy renders a structurally DIFFERENT type_key than the ctor
   // memo's canonical instance (measured: `left:R#gs_…` vs `left:R#struct_…`),
@@ -4009,9 +4009,9 @@ _evaluate_funcval_runtime_call :: (
           // ONE C type while each specialized callee returned its own).
           // The resolution-chain arm is admitted ONLY for the pre-existing
           // triggers: on an era_suspect-ONLY run the substituted result was
-          // already SomeT-free (`box(closure)`'s Box(<capture struct>) via
+          // already SomeT-free (`rc(closure)`'s Rc(<capture struct>) via
           // the declared-param bridge), and the re-eval resolves `V` by NAME
-          // to the SHARED Impl-Fn wrapper — adopting that Box(wrapper)
+          // to the SHARED Impl-Fn wrapper — adopting that Rc(wrapper)
           // clobbered the per-call capture identity and leaked raw type_keys
           // into dyn wrapper C names (`__yo_wrap_unknown_R#gs_…`, the
           // fn/closure gate C-compile break). Era repair only ever needs the
@@ -4036,13 +4036,13 @@ _evaluate_funcval_runtime_call :: (
           // ...and the arm is restricted to a hkt_ty that IS a SomeT, which is
           // what the justification above actually describes: an async return
           // `Impl(Future(i32) Io)` is ONE SomeT, an existential wrapper. A type
-          // that merely CONTAINS one — `Box( : (Fn(i32) -> i32))` — is the
+          // that merely CONTAINS one — `Rc( : (Fn(i32) -> i32))` — is the
           // hazard the era_suspect note two paragraphs up already records
-          // ("adopting that Box(wrapper) clobbered the per-call capture
+          // ("adopting that Rc(wrapper) clobbered the per-call capture
           // identity"), and it reaches C as a second struct for a type that
           // already has one: the function then takes its signature from
-          // `Box( : (Fn…))` and its body's constructor from
-          // `Box(<capture struct>)`, which is "incompatible pointer types
+          // `Rc( : (Fn…))` and its body's constructor from
+          // `Rc(<capture struct>)`, which is "incompatible pointer types
           // returning ..." — a warning on every platform and a hard ERROR on
           // the one CI leg running clang 22. Bisected to THIS line (#619; its
           // parent #611 emits 3 Box structs and no warning, it emits 5 and 2).
@@ -4520,11 +4520,11 @@ _evaluate_funcval_runtime_call :: (
     // Never REGRESS the registered return: create_specialized's declared-
     // param bridge (helper.yo) can concretize a return this arm cannot —
     // box's `V` binds to the Impl-Fn wrapper SomeT, so the fa_bound subst
-    // above leaves `Box(V)` generic while the registered spec return is
+    // above leaves `Rc(V)` generic while the registered spec return is
     // already the concrete capture-struct instantiation. Overriding with
     // the LESS-resolved return re-marks the spec hard-generic and
     // should_skip_function_codegen drops its emission (the cluster-B
-    // dyn(box(closure)) FTT). Override only when this arm's return is at
+    // dyn(rc(closure)) FTT). Override only when this arm's return is at
     // least as resolved as the registered one.
     base_ret_somes := match(
       base_spec_ty,
@@ -4758,8 +4758,8 @@ _d6_callee_is_by_name :: (fn(func_expr : AstExpr, ctx : EvalContext) -> bool)({
 /// neither a field nor a method `m`.
 _no_method_message :: (fn(func_expr : AstExpr, ctx : EvalContext) -> String)({
   dot_args := match(func_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-  // A static call's receiver is a type VALUE (`String.nope(s)`, `Box.nope(b)`
-  // once decision 32 inferred `Box(i32)`): name that type, not `Type`.
+  // A static call's receiver is a type VALUE (`String.nope(s)`, `Rc.nope(b)`
+  // once decision 32 inferred `Rc(i32)`): name that type, not `Type`.
   recv_ty_str := match(
     dot_args.get(usize(0)),
     .Some(recv) => match(
@@ -5079,7 +5079,7 @@ _consume_fnonce_callee :: (fn(callee : AstExpr, callee_info : ExprInfo, env : En
       return(());
     });
     if(v.consumed_at_token.is_none(), {
-      v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(callee)));
+      v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(callee)));
     });
     return(());
   });
@@ -6695,7 +6695,7 @@ Fix: wrap the call:
               ArrayList(TypeValue).new(),
               ArrayList(TypeValue).new(),
               pa_res,
-              box(
+              rc(
                 FuncMeta(
                   forall_labels : ArrayList(String).new(),
                   param_labels : pa_new_labels,
@@ -6718,7 +6718,7 @@ Fix: wrap the call:
             register_func_type(pa_fid.clone(), pa_new_ty);
             register_func_param_comptime(pa_fid.clone(), pa_new_ct);
             pa_fv := EvalValue.FuncVal(
-              box(
+              rc(
                 FuncValData(
                   forall_names : ArrayList(String).new(),
                   params : pa_new_labels,
@@ -6962,7 +6962,7 @@ Fix: wrap the call:
         // `.Variant`-shorthand argument whose declared parameter type is a
         // generic (e.g. `value : V` in `box`) can resolve its concrete enum type
         // in the loop below. Without this, `(.Atom(...))` with expected
-        // `Box(Tree)` left `.Atom` with no expected enum type → "Failed to
+        // `Rc(Tree)` left `.Atom` with no expected enum type → "Failed to
         // infer enum variant type".
         fv_func_type := fv_callee_ty;
         fv_has_explicit_forall := fv_forall_arg_exprs.is_some();
@@ -7687,7 +7687,7 @@ Fix: wrap the call:
         recur_tok := ast_expr_token(expr);
         _fr := fresh_env.push_frame(false);
         fv_for_recur := EvalValue.FuncVal(
-          box(
+          rc(
             FuncValData(
               forall_names : forall_names,
               params : param_names,
@@ -7983,7 +7983,7 @@ Fix: wrap the call:
           // is evaluated against THIS binding, so every `own` param of every
           // such function lost its scope-end drop while the body's store still
           // emitted the balancing `___dup` — a net +1 per call. The prelude's
-          // `box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value))`
+          // `box :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value))`
           // is the highest-traffic instance: `dyn(x)` boxes a value type
           // through it, so every `Dyn` payload and every `AnyError` carrying a
           // String/struct/enum leaked

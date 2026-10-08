@@ -1,7 +1,7 @@
 //! evaluator/calls/iso — evaluate_iso_type_call and evaluate_iso_value_call.
 //!
-//! `evaluate_iso_type_call`  — evaluates `Iso(Box(T))` to produce the Iso type value.
-//! `evaluate_iso_value_call` — evaluates `Iso(Box(T))(x)` to wrap a value in an Iso.
+//! `evaluate_iso_type_call`  — evaluates `Iso(Rc(T))` to produce the Iso type value.
+//! `evaluate_iso_value_call` — evaluates `Iso(Rc(T))(x)` to wrap a value in an Iso.
 //!
 //! Note: `addRcFunctionsToIsoType` is not yet implemented (same status as
 //! `addRcFunctionsToDynType` in dyn.yo — deferred, returns env unchanged).
@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 { E_VARIABLE_NOT_FOUND } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 /// True if struct type `t` has a dereference field labeled `*` (the
-/// pointed-to-value field of a Box/Arc wrapper).
+/// pointed-to-value field of an Rc/Arc wrapper).
 _struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
   match(
     t,
@@ -56,7 +56,7 @@ _struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
-/// Evaluate an Iso type-constructor call, e.g. `Iso(Box(i32))`.
+/// Evaluate an Iso type-constructor call, e.g. `Iso(Rc(i32))`.
 ///
 ///
 ///
@@ -266,7 +266,7 @@ evaluate_iso_type_call :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Iso(Arc(T)) is not allowed.\n  - To send an Arc handle across a thread, send the Arc directly — the spawn closure already consumes it. Iso adds nothing.\n  - If you want unique-owned heap data, use Iso(Box(T)) or Iso(...your struct...).`
+          `Iso(Arc(T)) is not allowed.\n  - To send an Arc handle across a thread, send the Arc directly — the spawn closure already consumes it. Iso adds nothing.\n  - If you want unique-owned heap data, use Iso(Rc(T)) or Iso(...your struct...).`
         )
       )
     );
@@ -401,7 +401,7 @@ _find_rc_aliases :: (fn(env : Environment, owner_id : String) -> ArrayList(Strin
   });
   result
 });
-/// Evaluate an Iso value-constructor call, e.g. `Iso(Box(i32))(x)`.
+/// Evaluate an Iso value-constructor call, e.g. `Iso(Rc(i32))(x)`.
 ///
 ///
 ///

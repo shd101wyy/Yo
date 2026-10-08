@@ -86,7 +86,7 @@ broken :: (fn(p : Point) -> unit)({
 
 **规则：** 参数**不可重新赋值**，以防止所有权状态变更。
 
-按值参数借用其值：它的存储是调用方值的一份副本，字段写入只改变这份副本。若字段的旧值含有 RC 数据（`String`、集合、`Box` 等），则不能通过它写入，因为写入会释放调用方仍持有的数据（E0908）。`match` 或 `for` 的绑定同理；把这样的位置传给被调用方可能写入的 `inout` 形参也一样，包括在其上调用 `push_str` 这类 `inout(self)` 方法：写入只会落在借用的副本上。只读的 `inout(self)` 方法（`clone`、`to_string`）和索引仍然允许。请把参数声明为 `own(p) : T` 或 `inout(p) : T`，或先把它复制到一个局部变量：
+按值参数借用其值：它的存储是调用方值的一份副本，字段写入只改变这份副本。若字段的旧值含有 RC 数据（`String`、集合、`Rc` 等），则不能通过它写入，因为写入会释放调用方仍持有的数据（E0908）。`match` 或 `for` 的绑定同理；把这样的位置传给被调用方可能写入的 `inout` 形参也一样，包括在其上调用 `push_str` 这类 `inout(self)` 方法：写入只会落在借用的副本上。只读的 `inout(self)` 方法（`clone`、`to_string`）和索引仍然允许。请把参数声明为 `own(p) : T` 或 `inout(p) : T`，或先把它复制到一个局部变量：
 
 ```rust
 Named :: struct(s : String, n : i32);
@@ -110,20 +110,20 @@ rename :: (fn(p : Named) -> Named)({
 - 如果实参仅是**借用/非拥有**的（例如借用的参数），编译器会插入 `___dup` 以创建一个拥有所有权的临时值传入被调用函数，同时原始绑定仍会被**消费**（变为不可用），以保证 `own()` 调用的线性/消费语义。
 
 ```rust
-consume :: (fn(own(box) : Box(i32)) -> unit)({
+consume :: (fn(own(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box 在函数末尾被 drop
 });
 
-b := box(42); // b 拥有所有权
+b := rc(42); // b 拥有所有权
 consume(b); // 此后 b 不可再使用
-call_consume :: (fn(p : Box(i32)) -> unit)({
+call_consume :: (fn(p : Rc(i32)) -> unit)({
   // p 默认借用
   consume(p); // 编译器插入 ___dup(p) 以满足 own(box)
   // p 在此处不可使用（已被 own() 调用移动/消费）
 });
 
-call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit)({
+call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
   // p 默认借用
   p2 := p; // 编译器插入 ___dup(p)；p2 拥有所有权
   consume(p2); // p2 被消费
@@ -150,13 +150,13 @@ Point(x : i32(3), y : i32(4)); // temp_var 拥有 Point(x: i32(3), y: i32(4))，
 内建函数 `ref_count(x)` 返回 `x` 所持有单元当前的引用计数，类型为 `usize`。对值类型（普通 `struct`、整数）它总是 `1`，在编译期即可确定。原子计数的句柄（`Arc(T)`、`atomic(ref(...))`、`Iso`）用原子加载读取。
 
 ```rust
-b := Box(i32)(3);
+b := Rc(i32)(3);
 assert(ref_count(b) == usize(1), "one owner");
 ```
 
 该计数反映编译器的 dup/drop 优化结果，被优化器抵消的复制不会体现出来；它用于唯一性检查（写时复制）和测试，而不是程序逻辑。
 
-`rc` 不是计数。它是一个普通的 prelude 函数，用来分配一个引用计数单元：`rc(v)` 取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的 `Rc(T)` 句柄。`Rc(T)` 的定义和行为与现在的 `Box(T)` 相同（Yo 的 `Box` 本身就是引用计数的）；今后共享单元的名字是 `Rc`，而 `Box` 将成为唯一所有的单元（`plans/VALUES_BY_DEFAULT.md`）。
+`rc` 不是计数。它是一个普通的 prelude 函数，用来分配一个引用计数单元：`rc(v)` 取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的 `Rc(T)` 句柄。`Rc(T)` 是 Yo 的共享单元；它以前写作 `Box(T)`，该写法作为遗留别名在 prelude 中再保留一个版本。之后 `Box` 会作为唯一所有的单元重新出现（`plans/VALUES_BY_DEFAULT.md`，V1 第 2 步）。
 
 ```rust
 a := rc(i32(42));
@@ -201,9 +201,9 @@ use_point(point); // 不调用 ___dup，p 借用 point
 **关键问题**：不经过生命周期分析的朴素借用会导致释放后使用（use-after-free）错误！
 
 ```rust
-x := box(12); // x 拥有 box(12)，RC = 1
+x := rc(12); // x 拥有 rc(12)，RC = 1
 {
-  y := box(13); // y 拥有 box(13)，RC = 1
+  y := rc(13); // y 拥有 rc(13)，RC = 1
   x = y; // 如果 x 只是从 y 借用的话就危险了...
   // 内层作用域结束
   ___drop(y); // RC = 0，内存释放
@@ -217,16 +217,16 @@ printf("%d\n", x.*); // BUG：x 会指向已释放的内存！
 使用我们的模型（赋值始终拥有所有权）：
 
 ```rust
-x := box(12); // x 拥有 box(12)，RC = 1
+x := rc(12); // x 拥有 rc(12)，RC = 1
 {
-  y := box(13); // y 拥有 box(13)，RC = 1
+  y := rc(13); // y 拥有 rc(13)，RC = 1
   x = y; // ___dup(y)，___drop(旧 x)，x 拥有新值
-  // box(13)：RC = 2；旧 box(12)：RC = 0，已释放
-  ___drop(y); // box(13)：RC = 1
+  // rc(13)：RC = 2；旧 rc(12)：RC = 0，已释放
+  ___drop(y); // rc(13)：RC = 1
 };
 
-printf("%d\n", x.*); // ✅ 安全：x 拥有 box(13)，RC = 1
-___drop(x); // box(13)：RC = 0，已释放
+printf("%d\n", x.*); // ✅ 安全：x 拥有 rc(13)，RC = 1
+___drop(x); // rc(13)：RC = 0，已释放
 ```
 
 ## 我们的方案：简洁的所有权模型与优化
@@ -241,9 +241,9 @@ Yo 优先保证**安全性和简洁性**，同时为优化留有空间：
 **示例——简洁且安全：**
 
 ```rust
-x := box(12);
+x := rc(12);
 {
-  y := box(13);
+  y := rc(13);
   x = y; // 始终安全：___dup(y)，___drop(旧 x)
 };
 printf("%d\n", x.*); // 始终有效：x 拥有一个有效引用
@@ -338,7 +338,7 @@ create :: (fn() -> Point)({
 **begin 块：**
 
 ```rust
-x := box(1);
+x := rc(1);
 y := {
   ();
   x // 从 begin 块返回时调用 ___dup(x)
@@ -349,13 +349,13 @@ y := {
 **match 表达式：**
 
 ```rust
-optional := Option(Box(i32)).Some(box(42)); // optional 拥有所有权
+optional := Option(Rc(i32)).Some(rc(42)); // optional 拥有所有权
 x := match(
   optional,
   // 这里的 `value` 是借用的，不拥有所有权
   // 此处插入 ___dup(value)
   .Some(value) => value,
-  .None => box(0)
+  .None => rc(0)
 );
 ```
 
@@ -384,17 +384,17 @@ x := match(
 **`own()` 参数获取所有权（可能时移动，否则 dup）：**
 
 ```rust
-consume :: (fn(own(box) : Box(i32)) -> unit)({
+consume :: (fn(own(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box 在函数末尾被 drop
 });
 
-b := box(42); // b 拥有所有权
+b := rc(42); // b 拥有所有权
 consume(b); // b 被消费
 // 此后 b 不可再使用
 // 如果实参是借用/非拥有的，编译器会插入 ___dup。
 // 示例：借用的参数传递给 own() 参数。
-call_consume :: (fn(p : Box(i32)) -> unit)({
+call_consume :: (fn(p : Rc(i32)) -> unit)({
   consume(p); // 插入 ___dup(p)；p 被消费（此后不可使用）
 });
 ```

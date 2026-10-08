@@ -305,7 +305,7 @@ evaluate_struct_type :: (
   // before this check the cycle surfaced only as the C compiler's "field has
   // incomplete type" (issues/fixed/recursive-type-definitions-have-no-indirection-check.md).
   // `ref(struct(...))` and `atomic(ref(...))` are exempt (pointer-sized), and
-  // the walker cuts paths through Box/ArrayList/ref/pointer fields
+  // the walker cuts paths through Rc/ArrayList/ref/pointer fields
   // (`_type_is_ref_indirection`). Run on the PATCHED types: the shell shares
   // the final's struct_id, so a `Self` field is already the root either way.
   if(!(is_reference_semantics || is_atomic_rc), {
@@ -318,7 +318,7 @@ evaluate_struct_type :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `recursive value struct: field '${vc_label}' contains the struct itself by value (a path with no reference indirection) — a plain 'struct(...)' would have infinite size. Make it 'ref(struct(...))', or route the recursion through a reference type (ArrayList, Box, Option of a ref).`
+              `recursive value struct: field '${vc_label}' contains the struct itself by value (a path with no reference indirection) — a plain 'struct(...)' would have infinite size. Make it 'ref(struct(...))', or route the recursion through a reference type (ArrayList, Rc, Option of a ref).`
             )
           )
         );
@@ -371,7 +371,7 @@ evaluate_struct_type :: (
   });
   // Validate the struct can exist in at least ONE evaluation context —
   // mixed comptime-only + runtime-only fields (`x : comptime_int, y :
-  // Box(i32)`) have empty availability. Without this check the invalid
+  // Rc(i32)`) have empty availability. Without this check the invalid
   // definition was ACCEPTED and comptime_expect_error's
   // no-error check hollowed the arm (basic arm 24). Structural field scan
   // (see fields_have_incompatible_contexts) — the registry-based check

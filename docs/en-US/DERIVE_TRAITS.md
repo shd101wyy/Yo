@@ -187,7 +187,7 @@ Each field type in the struct or enum must already implement the trait being der
 
 ## Recursive types
 
-A type can derive through a field that names the type itself, such as `ArrayList(Self)` or `Box(Self)`. The derived method reaches the inner values through the container's own impl: `Node`'s derived `==` below compares `children` with `ArrayList(Node)`'s `==`, which calls `Node`'s `==` again.
+A type can derive through a field that names the type itself, such as `ArrayList(Self)` or `Rc(Self)`. The derived method reaches the inner values through the container's own impl: `Node`'s derived `==` below compares `children` with `ArrayList(Node)`'s `==`, which calls `Node`'s `==` again.
 
 ```rust
 { ArrayList } :: import("std/collections/array_list");
@@ -211,7 +211,7 @@ export(main);
 
 The requirement above applies to the container as well. `ArrayList` implements `Eq`, `Clone` and `ToString` but not `Hash`, `Ord` or `Debug`, so those three cannot be derived for `Node`: `Ord` and `Debug` fail at the `derive` line, while `Hash` is accepted there and fails at the first `hash` call (`No method "hash" on ArrayList(Self)`).
 
-`Clone` on this shape is an open bug. For a value `enum` with a payload-less variant and an `ArrayList(Self)` field, `derive(Node, Clone)` passes `yo check` and then fails in the C compiler with `unknown type name` (`issues/derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`). The same derive works on a `ref(enum(...))`, on an enum whose every variant carries a payload, and through `Box(Self)`. Copying a `Node` already shares its `children` list by handle, so most code needs no `Clone` here.
+`Clone` on this shape is an open bug. For a value `enum` with a payload-less variant and an `ArrayList(Self)` field, `derive(Node, Clone)` passes `yo check` and then fails in the C compiler with `unknown type name` (`issues/derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`). The same derive works on a `ref(enum(...))`, on an enum whose every variant carries a payload, and through `Rc(Self)`. Copying a `Node` already shares its `children` list by handle, so most code needs no `Clone` here.
 
 ## `derive_rule` — User-Registrable Derive Rules
 

@@ -41,7 +41,7 @@ test("Test JoinHandle state while suspended", {
 // 3. abort() of a suspended task: await returns .None
 // ---------------------------------------------------------------------------
 test("Test JoinHandle abort returns None", {
-  ran := Box(bool)(false);
+  ran := Rc(bool)(false);
   fut := io.async((io : Io) => {
     io.await(sleep(u64(50)), io);
     ran.* = true;
@@ -60,7 +60,7 @@ test("Test JoinHandle abort returns None", {
 //    through the state switch).
 // ---------------------------------------------------------------------------
 test("Test aborted task pending completion is safe", {
-  ran2 := Box(bool)(false);
+  ran2 := Rc(bool)(false);
   fut := io.async((io : Io) => {
     io.await(sleep(u64(10)), io);
     ran2.* = true;
@@ -199,7 +199,7 @@ test("abort of a directly spawned raw IoFuture stays Aborted after the operation
   assert(h.await(io).is_none(), "await reads .None");
 });
 test("aborting a task aborts the named child future its await started", {
-  ran := Box(bool)(false);
+  ran := Rc(bool)(false);
   child := io.async((io : Io) => {
     io.await(sleep(u64(50)), io);
     ran.* = true;
@@ -218,7 +218,7 @@ test("aborting a task aborts the named child future its await started", {
   assert(hp.await(io).is_none(), "the parent reads .None");
 });
 test("aborting a task leaves a named future that someone else started running", {
-  ran := Box(bool)(false);
+  ran := Rc(bool)(false);
   shared := io.async((io : Io) => {
     io.await(sleep(u64(20)), io);
     ran.* = true;

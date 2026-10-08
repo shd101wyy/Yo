@@ -55,8 +55,8 @@ r := ^w;                       // .None: `shared` still reaches w.items
 The cost is one walk over the value's graph, once per hand-off, on the sending thread.
 
 **`T` must be a non-atomic reference object** (a `ref(struct)`, a `ref(enum)`, `ArrayList`,
-`HashMap`, `Box`, ...). `Iso(i32)` or `Iso(SomeValueStruct)` is a compile error — a value is
-copied on send, so pass it directly (or `Box` it). `Iso(Arc(T))`, `Iso(<atomic object>)` and
+`HashMap`, `Rc`, ...). `Iso(i32)` or `Iso(SomeValueStruct)` is a compile error — a value is
+copied on send, so pass it directly (or wrap it in an `Rc`). `Iso(Arc(T))`, `Iso(<atomic object>)` and
 `Iso(Iso(T))` are compile errors too: those are already sendable as they are.
 
 **Every function value the graph can hold must be `Send`** (rule D9). Isolation proves the graph
@@ -143,7 +143,7 @@ main :: (fn() -> unit)({
 ## Example: rejected at construction
 
 ```rust
-x := box(i32(42));
+x := rc(i32(42));
 y := x;
 iso := ^x;                     // COMPILE ERROR: cannot isolate x, also owned by y
 ```

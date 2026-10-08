@@ -1,6 +1,6 @@
 ---
 applyTo: "**/*.yo, std/**"
-description: "Use when making design decisions about the Yo language, writing std library code, or working with Yo types. Covers type conventions, rune, Box, str vs String, Pointer, SomeType, and platform-specific code."
+description: "Use when making design decisions about the Yo language, writing std library code, or working with Yo types. Covers type conventions, rune, Rc, str vs String, Pointer, SomeType, and platform-specific code."
 ---
 
 # Yo Language Design Decisions
@@ -32,15 +32,15 @@ Always use `Self` to refer to the type being defined inside `struct(...)`, `ref(
 // CORRECT — Self for recursive references:
 TypeValue :: enum(
   IntType(bits : u8),
-  PointerType(pointee : Box(Self)),
-  ArrayType(element : Box(Self), length : usize)
+  PointerType(pointee : Rc(Self)),
+  ArrayType(element : Rc(Self), length : usize)
 );
 
 // WRONG — TypeValue not available inside its own enum:
 TypeValue :: enum(
   IntType(bits : u8),
-  PointerType(pointee : Box(TypeValue)),
-  ArrayType(element : Box(TypeValue), length : usize)
+  PointerType(pointee : Rc(TypeValue)),
+  ArrayType(element : Rc(TypeValue), length : usize)
 );
 ```
 
@@ -85,39 +85,42 @@ Use `recur(args)` only when calling the type constructor with **different** type
 - **`replace` replaces EVERY occurrence** (D10, `plans/archive/STD_API_STABILIZATION.md` §2, 2026-09-07): `String.replace` and `ImmString.replace` are Rust's `str::replace`. `replacen(pattern, new, count)` is the bounded form, and `replace_first` (= `replacen(..., usize(1))`) is the pre-D10 meaning, kept deprecated for one release; `replace_all` stays one release as a deprecated synonym of `replace`. **`Regex.replace(haystack, rep)` — the method ON a `Regex` — still replaces the FIRST match**, because that is the Rust regex crate's shape (`Regex::replace` vs `Regex::replace_all`); it is `String.replace(re, rep)` (the `Pattern` dispatch) that replaces all. Before the flip, four compiler call sites already assumed replace-all and were silently wrong — see `issues/fixed/string-replace-first-only-broke-compiler-callers.md`.
 - Use `println` or `print` function from `std/fmt` to print instead of `printf`. You can pass template string or any value whose type implements `ToString` trait to both `println` and `print`.
 
-## Box and box
+## Rc and rc
 
 Implemented in `prelude.yo`:
 
 ```rust
-Box :: (fn(comptime(V) : Type) -> comptime(Type))
+Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(struct(
     (*) : V
   ))
-;
-box :: (fn(generic(V : Type), value : V) -> Box(V))
-  Box(V)(value)
-;
+);
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
+
+`Box(V)` / `box(v)` remain in the prelude as a legacy alias of the same cell for one
+more release only (the v0.2.54 seed builds the tree with them); never write them.
+Generation B part 2 deletes them, and V1 step 2 later reintroduces `Box` as a
+different, uniquely owned, uncounted cell (Rust's `Box<T>`).
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,
 not automatically as a pointer dereference; pointer dereference still applies
 when the receiver itself has pointer type.
 
-**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Box`, `Rc` and `Arc` implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers; the wrapper's own members win (`b.clone()` is Box's). Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
+**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Rc` and `Arc` (and the legacy `Box` alias) implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers; the wrapper's own members win (`b.clone()` is Rc's). Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
 
 `ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
 an atomic load for `Arc`/`atomic(ref(...))`/`Iso`); it is the only count builtin
 (`BF_REF_COUNT`). `rc` is an ordinary prelude function, the cell constructor
-(`rc(v)` returns an `Rc(T)`). **`Rc(T)` and `Box(T)` are two prelude types with
-the same definition and impls** (VALUES_BY_DEFAULT §6 V1 step 1, Generation A):
-`Rc` is the shared cell's V1 name, and Generation B renames every `Box` site to it.
+(`rc(v)` returns an `Rc(T)`). **`Rc(T)` is the canonical shared cell**
+(VALUES_BY_DEFAULT §6 V1 step 1, Generation B part 1 renamed every site to it); the
+legacy `Box(T)` keeps the same definition and impls until part 2 deletes it.
 The compiler recognises the shared cell BY NAME in a few places (the instance-name
 stamp in `comptime_fn.yo`, `is_box_type`/`is_boxed_type`, `dyn(<ctor>(<closure>))`);
 every such check reads the one list `shared_cell_names_at` (`src/types/guards.yo`),
 never a literal `"Box"`. `dyn(v)` on a non-object still synthesizes the canonical
-`box(v)` (`shared_cell_canonical_names`). As a prelude name it cannot be redefined: a module-level or local
+`rc(v)` (`shared_cell_canonical_names`). As a prelude name it cannot be redefined: a module-level or local
 binding named `rc` is a shadowing error, while a parameter or a match-pattern binding
 named `rc` shadows it in its scope. `ref_count` is not in
 `is_reserved_builtin_binding_name`: the `markdown_yo` dependency binds a local

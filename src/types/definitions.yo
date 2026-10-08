@@ -22,7 +22,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 /// Non-recursive ("meta") fields of a function type, factored out of the
-/// `TypeValue.Func` variant and stored behind a `Box` (P2 memory: the inline
+/// `TypeValue.Func` variant and stored behind an `Rc` (P2 memory: the inline
 /// Func variant set `sizeof(TypeValue)` to ~150 B — wasted in every small-type
 /// inline copy across millions of `Variable.ty` / `ExprInfo` fields). These
 /// fields reference only `String`/`bool`/`Option(String)` — NOT `Self` — so the
@@ -157,7 +157,7 @@ TypeValue :: ref(
     /// and where-clause constraint types.
     /// Self-typed (recursive) fields stay inline; the non-recursive metadata
     /// (labels, ref/own/variadic/extern/control flags) lives in `meta`
-    /// (`Box(FuncMeta)`) so this variant no longer sets `sizeof(TypeValue)` to
+    /// (`Rc(FuncMeta)`) so this variant no longer sets `sizeof(TypeValue)` to
     /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
     /// parallel to the label arrays in `meta`; `result` is the return type.
     Func(
@@ -166,7 +166,7 @@ TypeValue :: ref(
       implicit_types : ArrayList(Self),
       where_types : ArrayList(Self),
       result : Self,
-      meta : Box(FuncMeta),
+      meta : Rc(FuncMeta),
       /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
       /// poor man's Option(Self) since Self-typed Options are unavailable in
       /// a variant position).
@@ -430,7 +430,7 @@ t_refine_inner :: (fn(t : TypeValue) -> TypeValue)(
 // such field is itself an RC handle (or an RC `ArrayList` of them), so passing the
 // matched binding straight through bumps a refcount instead of deep-copying. Only
 // the non-`TypeValue` scalar/label fields (`String`, `ArrayList(String)`,
-// `ArrayList(usize)`, `ArrayList(i64)`, `ArrayList(bool)`, and `Box(FuncMeta)`) are
+// `ArrayList(usize)`, `ArrayList(i64)`, `ArrayList(bool)`, and `Rc(FuncMeta)`) are
 // `.clone()`d (cheap, terminating).
 //
 // This is REQUIRED, not just an optimization: a deep clone would recurse forever.

@@ -107,8 +107,8 @@ test("reference-semantics payloads bound through a nested pattern", {
   assert(total(Pair.Two(Option(String).None, 4)) == usize(4));
   assert(total(Pair.Zero) == usize(0));
 });
-List :: ref(enum(Nil, Cons(head : i32, tail : Box(Self))));
-test("a nested variant pattern through a Box payload", {
+List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
+test("a nested variant pattern through an Rc payload", {
   f :: (fn(l : List) -> i32)(
     match(
       l,
@@ -117,12 +117,12 @@ test("a nested variant pattern through a Box payload", {
       .Nil => i32(0)
     )
   );
-  assert(f(List.Cons(1, box(List.Cons(2, box(List.Nil))))) == i32(2));
-  assert(f(List.Cons(3, box(List.Nil))) == i32(3));
+  assert(f(List.Cons(1, rc(List.Cons(2, rc(List.Nil))))) == i32(2));
+  assert(f(List.Cons(3, rc(List.Nil))) == i32(3));
   assert(f(List.Nil) == i32(0));
 });
-test("two levels through Box payloads", {
-  sum_boxed :: (fn(b : Box(List)) -> i32)(
+test("two levels through Rc payloads", {
+  sum_boxed :: (fn(b : Rc(List)) -> i32)(
     match(
       b,
       .Cons(h, _) => h,
@@ -137,12 +137,12 @@ test("two levels through Box payloads", {
       .Nil => i32(-1)
     )
   );
-  assert(g(List.Cons(1, box(List.Cons(2, box(List.Cons(3, box(List.Nil))))))) == i32(3));
-  assert(g(List.Cons(9, box(List.Cons(8, box(List.Nil))))) == i32(8));
+  assert(g(List.Cons(1, rc(List.Cons(2, rc(List.Cons(3, rc(List.Nil))))))) == i32(3));
+  assert(g(List.Cons(9, rc(List.Cons(8, rc(List.Nil))))) == i32(8));
   assert(g(List.Nil) == i32(-1));
 });
-test("a literal sub-pattern through a Box payload", {
-  Cell :: enum(Value(v : Box(i32)), Empty);
+test("a literal sub-pattern through an Rc payload", {
+  Cell :: enum(Value(v : Rc(i32)), Empty);
   h :: (fn(c : Cell) -> i32)(
     match(
       c,
@@ -151,11 +151,11 @@ test("a literal sub-pattern through a Box payload", {
       .Empty => i32(0)
     )
   );
-  assert(h(Cell.Value(box(i32(42)))) == i32(1));
-  assert(h(Cell.Value(box(i32(7)))) == i32(2));
+  assert(h(Cell.Value(rc(i32(42)))) == i32(1));
+  assert(h(Cell.Value(rc(i32(7)))) == i32(2));
   assert(h(Cell.Empty) == i32(0));
 });
-test("an or-pattern through a Box payload", {
+test("an or-pattern through an Rc payload", {
   k :: (fn(l : List) -> i32)(
     match(
       l,
@@ -165,11 +165,11 @@ test("an or-pattern through a Box payload", {
     )
   );
   assert(k(List.Nil) == i32(0));
-  assert(k(List.Cons(0, box(List.Nil))) == i32(0));
-  assert(k(List.Cons(5, box(List.Nil))) == i32(5));
+  assert(k(List.Cons(0, rc(List.Nil))) == i32(0));
+  assert(k(List.Cons(5, rc(List.Nil))) == i32(5));
 });
-test("whole-value binding of the Box position still binds the Box", {
-  inner_kind :: (fn(b : Box(List)) -> i32)(
+test("whole-value binding of the Rc position still binds the Rc", {
+  inner_kind :: (fn(b : Rc(List)) -> i32)(
     match(
       b.*,
       (rest := .Nil) => i32(100),
@@ -183,18 +183,18 @@ test("whole-value binding of the Box position still binds the Box", {
       .Nil => i32(0)
     )
   );
-  assert(m(List.Cons(2, box(List.Nil))) == i32(100));
-  assert(m(List.Cons(1, box(List.Cons(9, box(List.Nil))))) == i32(101));
+  assert(m(List.Cons(2, rc(List.Nil))) == i32(100));
+  assert(m(List.Cons(1, rc(List.Cons(9, rc(List.Nil))))) == i32(101));
   assert(m(List.Nil) == i32(0));
 });
-test("a Box scrutinee takes nested patterns directly", {
-  n :: (fn(b : Box(List)) -> i32)(
+test("an Rc scrutinee takes nested patterns directly", {
+  n :: (fn(b : Rc(List)) -> i32)(
     match(
       b,
       .Cons(h, _) => h,
       .Nil => i32(-1)
     )
   );
-  assert(n(box(List.Cons(7, box(List.Nil)))) == i32(7));
-  assert(n(box(List.Nil)) == i32(-1));
+  assert(n(rc(List.Cons(7, rc(List.Nil)))) == i32(7));
+  assert(n(rc(List.Nil)) == i32(-1));
 });

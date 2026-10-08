@@ -116,12 +116,12 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [闭包捕获语义](#闭包捕获语义)
   - [闭包类型限制](#闭包类型限制)
   - [闭包与引用语义类型](#闭包与引用语义类型)
-- [Box 和装箱](#box-和装箱)
-  - [Box 类型](#box-类型)
+- [Rc 和引用计数单元](#rc-和引用计数单元)
+  - [Rc 类型](#rc-类型)
   - [使用示例](#使用示例)
-  - [Box 与赋值](#box-与赋值)
-  - [Box 与引用计数](#box-与引用计数)
-  - [何时使用 Box](#何时使用-box)
+  - [Rc 与赋值](#rc-与赋值)
+  - [Rc 与引用计数](#rc-与引用计数)
+  - [何时使用 Rc](#何时使用-rc)
 - [Impl 类型](#impl-类型)
   - [基本用法](#基本用法)
   - [Impl 作为返回类型](#impl-作为返回类型)
@@ -949,7 +949,7 @@ p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
 
 #### 通过类型调用方法
 
-方法也可以在它的类型上调用，此时接收者作为第一个实参：`Point.distance_from_origin(p)` 就是 `p.distance_from_origin()`。泛型类型也可以这样调用，既可以写出类型实参（`Box(i32).clone(b)`），也可以省略（`Box.clone(b)`）。省略时，类型实参从第一个实参推断，而它本身必须是该类型构造器的一个实例，就像 Rust 推断 `Rc::clone(&w)` 的 `T` 一样。这对任何泛型 struct 或 enum 都适用，不限于 prelude 的包装类型。
+方法也可以在它的类型上调用，此时接收者作为第一个实参：`Point.distance_from_origin(p)` 就是 `p.distance_from_origin()`。泛型类型也可以这样调用，既可以写出类型实参（`Rc(i32).clone(b)`），也可以省略（`Rc.clone(b)`）。省略时，类型实参从第一个实参推断，而它本身必须是该类型构造器的一个实例，就像 Rust 推断 `Rc::clone(&w)` 的 `T` 一样。这对任何泛型 struct 或 enum 都适用，不限于 prelude 的包装类型。
 
 静态方法（没有 `self` 的方法）没有可供推断的接收者，所以必须写出类型实参：`Pair(i32, bool).make(...)`。调用结果被期望的类型也不会提供它们。在这种情况下省略类型实参，或者第一个实参不是该构造器的实例，都会报 E0613，错误信息会给出该实参的类型。
 
@@ -1150,13 +1150,13 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 或声明了 `MoveOnly` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。`Box`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
+这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 或声明了 `MoveOnly` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
 
 目前 `Copy` 会被检查，但还不是必需的：没有它的纯数据类型仍然会被隐式复制。[值默认计划](../../plans/VALUES_BY_DEFAULT.md)（决定 36）的下一步会把它变成规则：之后 `q := p` 会移动一个不是 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901。
 
 #### 只能移动的值
 
-资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Dispose`，或声明了 `impl(T, MoveOnly())` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Box`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Dispose` 在计数归零时运行一次。
+资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Dispose`，或声明了 `impl(T, MoveOnly())` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Rc`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Dispose` 在计数归零时运行一次。
 
 ```rust
 { println } :: import("std/fmt");
@@ -1304,7 +1304,7 @@ pragma(Pragma.AllowUnsafe); // 仅为让 sizeof 能写出指针类型
 
 sz_opt :: sizeof(Option(*i32)); // == sizeof(*i32) —— 就是指针本身
 sz_str :: sizeof(String);       // == sizeof(*u8)   —— 就是句柄本身
-Tree :: enum(Empty, Node(child : Box(Self)));
+Tree :: enum(Empty, Node(child : Rc(Self)));
 sz_tree :: sizeof(Tree);        // == sizeof(*u8)   —— NULL 即 Empty
 ```
 
@@ -2377,7 +2377,7 @@ command :: (fn(s : String) -> i32)(
 ```
 
 元组被匹配值按元素逐个接受子模式；结构体被匹配值接受带标签的子模式
-（裸字段名即绑定该字段；未列出的字段匹配任意值）。`Box(T)` 载荷会被隐式
+（裸字段名即绑定该字段；未列出的字段匹配任意值）。`Rc(T)` 载荷会被隐式
 穿透 —— 子模式匹配的是 `T`：
 
 ```rust
@@ -2398,8 +2398,8 @@ origin_only :: (fn(p : Point) -> bool)(
   )
 );
 
-// 穿过 Box 的递归枚举：tail 处的子模式匹配内层的 List。
-List :: ref(enum(Nil, Cons(head : i32, tail : Box(Self))));
+// 穿过 Rc 的递归枚举：tail 处的子模式匹配内层的 List。
+List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
 second :: (fn(l : List) -> i32)(
   match(
     l,
@@ -2605,7 +2605,7 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 - **存放在映射或 `Option` 字段里的列表要先取出、修改、再存回：**
   `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
   l.push(x); m.insert(k, l);`，或者先 `self.f.take()`，再 `self.f = .Some(l)`。
-- **两个持有者有意共享的列表用 `Box`：** `Box(ArrayList(T))`，通过
+- **两个持有者有意共享的列表用 `Rc`：** `Rc(ArrayList(T))`，通过
   `b.*.push(x)` 写入。闭包和 `io.async` 体按值捕获，所以往列表里记录内容的闭包
   要这样共享（或者返回这个列表）。
 
@@ -2617,7 +2617,7 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 
 `YO_AUDIT_IMPLICIT_COPY=1 yo check <path>` 会列出唯一所有权下需要显式写出的拷贝
 （`plans/VALUES_BY_DEFAULT.md` §6 第 1 项）。每一行 `[implicit-copy]` 是对拥有堆数据的值
-（`String`、集合、`Box`、`Arc`、`Dyn` 或 `ref` 对象）的一次存储、绑定、返回、
+（`String`、集合、`Rc`、`Arc`、`Dyn` 或 `ref` 对象）的一次存储、绑定、返回、
 拥有型实参或闭包捕获，而它的来源之后仍然存活：借用的参数、字段读取、`match` 或
 `for` 绑定，或之后还会被读取的局部变量。最后一次使用的局部变量是移动，不会列出。
 
@@ -2943,7 +2943,7 @@ test_capture :: (fn() -> unit)({
   counter := i32(0);
 
   // 引用语义类型 — 按引用捕获
-  data := Box(i32)(i32(42));
+  data := Rc(i32)(i32(42));
 
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
@@ -3111,36 +3111,39 @@ test :: (fn() -> unit)({
 
 更多示例请参阅 [closure.test.yo](../tests/closure.test.yo)。
 
-## Box 和装箱
+## Rc 和引用计数单元
 
-Yo 提供了 `Box` 和 `box` 用于将值类型堆分配并自动进行引用计数。
+Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计数。
 
-### Box 类型
+### Rc 类型
 
-> **⚠️ `Box` 对应 Rust 的 `Rc`，而不是 Rust 的 `Box`。** Rust 的 `Box<T>` 是唯一
-> 所有者——传递即移动，克隆即深拷贝。Yo 的 `Box(T)` 是 `ref` 类型：复制句柄会
+> **⚠️ `Rc` 对应 Rust 的 `Rc`，而不是 Rust 的 `Box`。** Rust 的 `Box<T>` 是唯一
+> 所有者——传递即移动，克隆即深拷贝。Yo 的 `Rc(T)` 是 `ref` 类型：复制句柄会
 > **共享同一个堆上的值并增加引用计数**，与 Rust 的 `Rc<T>` 完全一致。
 >
 > ```rust
-> a := box(i32(42));
+> a := rc(i32(42));
 > b := a;                    // 第二个句柄，而不是值的副本
 > consume(b.* = i32(7));
 > assert((a.* == i32(7)), "a 和 b 指向同一个值");
 > ```
 >
-> 这个名字会保留到「默认值语义」V1（`plans/VALUES_BY_DEFAULT.md`）：届时该类型改名为
-> `Rc`，并引入唯一所有的 `Box`。在此之前，引用计数是 Yo **通用**的对象模型，
-> 并非某个容器的可选策略：每个 `ref(struct(...))` 都是引用计数的，`Box` 只是其中
-> 单字段的特例。
+> 引用计数是 Yo **通用**的对象模型，并非某个容器的可选策略：每个
+> `ref(struct(...))` 都是引用计数的，`Rc` 只是其中单字段的特例。
 >
-> 实际影响：共享是隐式的；`Box` 形成的环若不打破就会泄漏（Rust 的 `Box` 根本无法
+> 实际影响：共享是隐式的；`Rc` 形成的环若不打破就会泄漏（Rust 的 `Box` 根本无法
 > 形成环）；用 `ref_count(b)` / `Iso` 来询问唯一性。
+>
+> 这个单元以前写作 `Box(V)` / `box(v)`。该写法作为遗留别名在 prelude 中再保留一个
+> 版本（以便上一个种子编译器能构建本仓库）；不要再使用它。之后「默认值语义」V1 第 2 步
+> （`plans/VALUES_BY_DEFAULT.md`）会重新引入 `Box`，作为另一种唯一所有、不计数的单元，
+> 类似 Rust 的 `Box<T>`。
 
-`Box(T)` 是一个泛型引用语义类型，可以包装任何值类型：
+`Rc(T)` 是一个泛型引用语义类型，可以包装任何值类型：
 
 ```rust
-// Box 定义在 std/prelude.yo 中
-Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+// Rc 定义在 std/prelude.yo 中
+Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
       (*) : V
@@ -3148,13 +3151,8 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
   )
 );
 
-// box 函数创建一个 Box
-box :: (fn(generic(V : Type), value : V) -> Box(V))(
-  Box(V)(value)
-);
-// rc 是同一个构造函数，名称是 `Box` 改名为 `Rc` 之后计数单元将使用的名称
-// （plans/VALUES_BY_DEFAULT.md）
-rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+// rc 分配一个新单元，其 ref_count 为 1
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 `rc` 是构造函数，不是计数：计数是 `ref_count(x)`。
@@ -3162,25 +3160,25 @@ rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 ### 使用示例
 
 ```rust
-// 装箱一个基本值
-i := box(42); // i: Box(i32)
+// 包装一个基本值
+i := rc(42); // i: Rc(i32)
 assert(i.* == 42); // 使用 .* 解引用
-// 装箱一个结构体
+// 包装一个结构体
 Point :: struct(x : i32, y : i32);
-p := box(Point(x : 3, y : 4)); // p: Box(Point)
+p := rc(Point(x : 3, y : 4)); // p: Rc(Point)
 assert(p.*.x == 3);
 
-// 使用显式类型的 Box
-b := Box(i32)(100); // 等同于 box(100)
-// 修改装箱的值
-m := box(10);
+// 使用显式类型的 Rc
+b := Rc(i32)(100); // 等同于 rc(100)
+// 修改包装的值
+m := rc(10);
 m.* = 20;
 assert(m.* == 20);
 ```
 
 ### 自动解引用
 
-`Box` 和 `Arc` 实现了 prelude 中的 `Deref` 标记 trait
+`Rc` 和 `Arc` 实现了 prelude 中的 `Deref` 标记 trait
 （`Deref :: trait(Target : Type)`，`Target` 即载荷类型）。对 `Deref` 类型，
 包装器自身没有的字段或方法会到载荷上查找：`w.field` 即 `w.*.field`，
 `w.method()` 即 `w.*.method()`。
@@ -3188,50 +3186,50 @@ assert(m.* == 20);
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
-p := box(Point(x : 3, y : 4));
+p := rc(Point(x : 3, y : 4));
 assert(p.x == 3);          // p.*.x
 p.x = 5;                   // 是一个位置：写入 p.*.x
 assert(p.norm1() == 9);    // p.*.norm1()
-pp := box(box(Point(x : 1, y : 2)));
+pp := rc(rc(Point(x : 1, y : 2)));
 assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
 ```
 
-- **包装器自身的成员优先。** `p.clone()` 是 `Box` 的 `clone`（得到一个新的
-  `Box`），而不是载荷的；`p.*` 永远就是载荷本身。
+- **包装器自身的成员优先。** `p.clone()` 是 `Rc` 的 `clone`（得到一个新的
+  `Rc`），而不是载荷的；`p.*` 永远就是载荷本身。
 - **位置。** 转发得到的字段是一个位置：`p.x = v` 以及 `inout(self)` 调用
   （如 `p.items.push(v)`）都写入载荷。在没有 `pragma(Pragma.AllowUnsafe)`
   的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `inout(self)` 的
   `a.bump()`）：请通过 `Mutex` 或原子类型修改 `Arc` 的载荷。
-- **只有 `Box` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
+- **只有 `Rc` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
   编译错误：用户自定义的包装器应通过自己的字段和方法暴露载荷。
 - 当包装器和载荷都没有这个名字时，错误信息会说明这一点：
-  ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
+  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
   field "z" either.``（E0406；方法则为 E0610）。
 - **被调用位置。** `p.items(i)` 对载荷的 `items` 进行索引，`p.f(x)` 调用载荷中
   保存函数的字段。包装器自身的方法仍然优先，因此查找顺序为：包装器字段、包装器
   方法、载荷字段、载荷方法。
 
-### Box 与赋值
+### Rc 与赋值
 
 ```rust
-test("Box assignment behavior", {
-  x := box(1);
-  y := (x = box(2)); // y 获得旧值
-  assert(x.* == 2); // x 现在指向新的 Box
-  assert(y.* == 1); // y 持有旧的 Box
+test("Rc assignment behavior", {
+  x := rc(1);
+  y := (x = rc(2)); // y 获得旧值
+  assert(x.* == 2); // x 现在指向新的 Rc
+  assert(y.* == 1); // y 持有旧的 Rc
 });
 ```
 
-### Box 与引用计数
+### Rc 与引用计数
 
-`Box(T)` 是引用语义类型，因此使用自动引用计数：
+`Rc(T)` 是引用语义类型，因此使用自动引用计数：
 
 ```rust
-test("Box reference counting", {
-  original := box(42);
+test("Rc reference counting", {
+  original := rc(42);
   copy := original; // 引用计数递增
   another := copy; // 引用计数递增
-  // 三者都指向同一个 Box
+  // 三者都指向同一个 Rc
   assert(original.* == 42);
   original.* = 100;
   assert(copy.* == 100); // 共享的！
@@ -3241,22 +3239,22 @@ test("Box reference counting", {
 });
 ```
 
-### 何时使用 Box
+### 何时使用 Rc
 
 - **堆分配**：当你需要将值类型放在堆上时
 - **共享可变性**：对同一可变值的多个引用
-- **动态分发**：将值类型装箱以便与 `Dyn` 一起使用
+- **动态分发**：将值类型包装起来以便与 `Dyn` 一起使用（对值类型调用 `dyn(v)` 会自动完成这一步：把 `v` 包装成 `rc(v)`）
 - **递归类型**：打破类型定义中的循环
 
 ```rust
 // 动态分发需要引用语义类型
 impl(i32, SomeTrait(...));
 
-// 值类型必须装箱才能用于 Dyn
+// 值类型通过 Rc 才能用于 Dyn
 use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
 
-// 将 i32 装箱以用于 Dyn
-use_dyn(dyn(box(i32(42))));
+// 将 i32 包装进 Rc 以用于 Dyn
+use_dyn(dyn(rc(i32(42))));
 ```
 
 ## Impl 类型
@@ -3991,7 +3989,7 @@ impl(
 );
 
 test("Object disposal", {
-  // Box 在作用域结束时自动释放
+  // MyBox 在作用域结束时自动释放
   b := MyBox(42);
   assert(b.* == 42);
   b.* = 100;

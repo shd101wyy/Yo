@@ -142,7 +142,7 @@ IsoTypeInfo :: ref(
 );
 /// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
 /// is the DynT; `concrete_type` is the user type; `data_type` is what is
-/// stored in Dyn.data (object/Box); `trait_values` are the TraitVal evidence
+/// stored in Dyn.data (object/Rc); `trait_values` are the TraitVal evidence
 /// values in trait order.
 DynImplEntry :: ref(
   struct(
@@ -306,7 +306,7 @@ CodeGenContext :: ref(
     /// deferred-drop survived) — emitting `__yo_decr_rc(undeclared_temp)` is an
     /// undeclared-identifier error. Temp names are globally unique, so this
     /// accumulates across functions without needing a per-function reset.
-    declared_c_var_names : Box(HashSet(String)),
+    declared_c_var_names : Rc(HashSet(String)),
     /// Block-scope stack of declared C var names (named locals + temps), encoded
     /// as a flat list with `"{"` sentinels at block boundaries, maintained by the
     /// emitter (`_emitter_track_scope`) during function-body emission. Read ONLY by
@@ -315,7 +315,7 @@ CodeGenContext :: ref(
     /// before AND still in scope). This is the block-scope-aware C-emission-order
     /// signal that the flat set and source-token heuristics could not provide. See
     /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
-    declared_scopes : Box(ArrayList(String)),
+    declared_scopes : Rc(ArrayList(String)),
     /// Resolved concrete capture-struct type id → its generated closure impl fn.
     /// Populated at closure construction; read at closure call sites to emit
     /// `fn(&(cb), args)`.
@@ -406,8 +406,8 @@ impl(
       next_dispose_type_id : usize(1),
       sm_pool_ids : HashMap(String, usize).new(),
       dispose_thunks : HashSet(String).new(),
-      declared_c_var_names : box(HashSet(String).new()),
-      declared_scopes : box(ArrayList(String).new()),
+      declared_c_var_names : rc(HashSet(String).new()),
+      declared_scopes : rc(ArrayList(String).new()),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
       type_key_aliases : HashMap(String, String).new(),
       chunk_mode : false,
@@ -1645,7 +1645,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     // passed by opaque pointer; field/method access casts at use).
     .SomeT({ id : sid, name : snm }) => match(
       // Prefer the PER-OBJECT resolved concrete (survives clone/substitute/
-      // intern — the id-keyed global misses when ids re-mint, e.g. the Box
+      // intern — the id-keyed global misses when ids re-mint, e.g. the Rc
       // CTFE's cloned field SomeT in the Dyn(Fn) family). Global as fallback.
       // The cycle guard (g_gts_some_stack above) demotes a REVISITED SomeT
       // to the unresolved fallback instead of recursing forever.
@@ -1816,7 +1816,7 @@ get_variable_type_string :: (
   result
 });
 /// Record `c_name` as a C declaration of the current function
-/// (`declared_c_var_names`). The set is a `Box` because the emitter holds the
+/// (`declared_c_var_names`). The set is an `Rc` because the emitter holds the
 /// same set (`Emitter.declared_ref`) and writes it too.
 declare_c_var_name :: (fn(context : CodeGenContext, c_name : String) -> unit)({
   names := context.declared_c_var_names;

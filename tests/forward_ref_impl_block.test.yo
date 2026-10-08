@@ -129,16 +129,16 @@ test("mutual recursion with effect params (specialization-cycle)", {
 // Reproduces with multiple methods in one impl, an RC-typed return, and
 // multiple call sites (so the orphan and shell are both reachable from the
 // codegen walk).
-QQ :: ref(struct(data : Box(i32)));
+QQ :: ref(struct(data : Rc(i32)));
 impl(
   QQ,
   new : (fn(val : i32) -> Self)(
-    Self(data : box(val))
+    Self(data : rc(val))
   ),
-  get_implicit : (fn(self : Self) -> Box(i32))(
+  get_implicit : (fn(self : Self) -> Rc(i32))(
     self.data
   ),
-  get_explicit : (fn(self : Self) -> Box(i32))({
+  get_explicit : (fn(self : Self) -> Rc(i32))({
     return(self.data);
   })
 );

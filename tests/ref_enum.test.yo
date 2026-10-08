@@ -19,12 +19,12 @@ Wrap :: ref(enum(Empty, Has(s : String)));
 // RECONSTRUCTS the ref-enum (`fn(t) -> Self`), e.g. `nest_rebuild` below — a
 // merely-reducing recursion (`tree_sum -> i32`) does not trip it.
 Nest :: ref(enum(Tip(n : i32), One(inner : Self), Many(items : ArrayList(Self))));
-// A VALUE enum (self-recursive via `Box(Self)`) that holds the recursive
+// A VALUE enum (self-recursive via `Rc(Self)`) that holds the recursive
 // ref-enum `Nest` as a field — like the compiler's own `EvalValue` holding a
 // `TypeValue`. Regression guard for the RC-cycle analysis bug: analyzing such a
 // type walked `Nest`'s `Self` variant fields with no visited guard → infinite
 // recursion. (The struct path was guarded; the enum path was not.)
-Holder :: enum(Plain(n : i32), Boxed(b : Box(Self), t : Nest));
+Holder :: enum(Plain(n : i32), Boxed(b : Rc(Self), t : Nest));
 
 // `ref`/`atomic` wrap inline struct/enum literals only.
 comptime_expect_error(bad_ref_named :: ref(Shape));
@@ -142,7 +142,7 @@ test("value-enum holding a recursive ref(enum) field (RC-cycle analysis)", {
   // Building/using a value-enum whose field is the recursive ref-enum `Nest`
   // runs the RC-cycle analysis over `Nest`'s `Self` variant fields — which used
   // to recurse forever (the enum walk had no visited guard).
-  h := Holder.Boxed(b : box(Holder.Plain(n : i32(1))), t : Nest.Tip(n : i32(9)));
+  h := Holder.Boxed(b : rc(Holder.Plain(n : i32(1))), t : Nest.Tip(n : i32(9)));
   match(
     h,
     .Boxed(_, t) => {

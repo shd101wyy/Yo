@@ -6,7 +6,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { yield } :: import("std/async");
 Point :: struct(x : i32, y : i32);
-Wrapper :: struct(v : Box(i32));
+Wrapper :: struct(v : Rc(i32));
 test("Test 'ref_count' function", {
   // Value type
   {
@@ -18,7 +18,7 @@ test("Test 'ref_count' function", {
   };
   // Reference type
   {
-    b1 := Box(i32)(3);
+    b1 := Rc(i32)(3);
     assert(ref_count(b1) == 1, "ref_count(b1) == 1");
     {
       b2 := b1; // Yo performs dup/drop cancellation here.
@@ -37,7 +37,7 @@ test("Test 'ref_count' function", {
   };
   // Value type containing reference type
   {
-    w1 := Wrapper(Box(i32)(5));
+    w1 := Wrapper(Rc(i32)(5));
     assert(ref_count(w1) == 1, "ref_count(w1) == 1");
     assert(ref_count(w1.v) == 1, "ref_count(w1.v) == 1");
     w2 := w1;
@@ -50,20 +50,20 @@ test("Test 'ref_count' function", {
 test("Test explicit return and implicit return", {
   Foo :: ref(
     struct(
-      data : Box(i32)
+      data : Rc(i32)
     )
   );
   impl(
     Foo,
     new : (fn(val : i32) -> Self)(
-      Self(data : box(val))
+      Self(data : rc(val))
     ),
     // This should generate a dup call
-    get_data_implicit : (fn(self : Self) -> Box(i32))(
+    get_data_implicit : (fn(self : Self) -> Rc(i32))(
       self.data
     ),
     // THIS WORKS:
-    get_data_explicit : (fn(self : Self) -> Box(i32))({
+    get_data_explicit : (fn(self : Self) -> Rc(i32))({
       return(self.data);
     })
   );
@@ -76,26 +76,26 @@ test("Test explicit return and implicit return", {
 test("Test Rc in different data structures", {
   // Anonymous struct
   {
-    x := Box(i32)(3);
+    x := Rc(i32)(3);
     y := { x };
     z := { y };
     assert(x.* == 3, "x.* == 3");
     assert(y.x.* == 3, "y.x.* == 3");
     assert(z.y.x.* == 3, "z.y.x.* == 3");
-    y.x = Box(i32)(4);
+    y.x = Rc(i32)(4);
     assert(y.x.* == 4, "y.x.* == 4");
     assert(z.y.x.* == 3, "z.y.x.* == 3");
   };
   // Nested boxes
   {
-    x := box(3);
-    y := box(x);
-    z := box(y);
-    z.* = box(box(10));
+    x := rc(3);
+    y := rc(x);
+    z := rc(y);
+    z.* = rc(rc(10));
   };
   // Array containing Rc
   {
-    x := Box(i32)(3);
+    x := Rc(i32)(3);
     y := [x,];
     z := [y,];
     m := [z,];
@@ -108,12 +108,12 @@ test("Test Rc in different data structures", {
   };
   // Tuple containing Rc
   {
-    x := Box(i32)(3);
+    x := Rc(i32)(3);
     y := (x,);
     z := (y,);
     m := (z,);
     n := (m,);
-    z.0 = (box(10),);
+    z.0 = (rc(10),);
     assert(x.* == 3, "x.* == 3");
     assert(y.0.* == 3, "y.0.* == 3");
     assert(z.0.0.* == 10, "z.0.0.* == 10");
@@ -123,7 +123,7 @@ test("Test Rc in different data structures", {
 });
 test("Test Rc with Iso", {
   {
-    x := box(123);
+    x := rc(123);
     z := ^x;
     match(
       z,
@@ -132,7 +132,7 @@ test("Test Rc with Iso", {
     );
   };
   {
-    x := box(123);
+    x := rc(123);
     y := { x };
     z := ^x;
     match(
@@ -203,7 +203,7 @@ test("Test inline enum construction as match subject - no phantom drop", {
 test("Test array index access - no RC leak for inline use", {
   // Inline access: y(0).* should NOT dup (no ownership transfer)
   {
-    x := Box(i32)(42);
+    x := Rc(i32)(42);
     y := [x,];
     assert(y(0).* == 42, "inline y(0).* should read without leak");
     assert(y(0).* == 42, "second inline y(0).* should also not leak");
@@ -211,7 +211,7 @@ test("Test array index access - no RC leak for inline use", {
   };
   // Assigned access: tmp := y(0) should dup exactly once
   {
-    x := Box(i32)(7);
+    x := Rc(i32)(7);
     y := [x,];
     tmp := y(0);
     assert(tmp.* == 7, "assigned y(0) should work");
@@ -220,9 +220,9 @@ test("Test array index access - no RC leak for inline use", {
   };
   // Multi-element array with inline access
   {
-    a := Box(i32)(10);
-    b := Box(i32)(20);
-    c := Box(i32)(30);
+    a := Rc(i32)(10);
+    b := Rc(i32)(20);
+    c := Rc(i32)(30);
     arr := [a, b, c,];
     assert(arr(0).* == 10, "arr(0).* == 10");
     assert(arr(1).* == 20, "arr(1).* == 20");
@@ -230,27 +230,27 @@ test("Test array index access - no RC leak for inline use", {
   };
   // Nested array access with inline use
   {
-    x := Box(i32)(99);
+    x := Rc(i32)(99);
     inner := [x,];
     outer := [inner,];
     assert(outer(0)(0).* == 99, "nested inline access should not leak");
   };
   // Array index used as function argument
   {
-    identity :: (fn(b : Box(i32)) -> Box(i32))(b);
-    x := Box(i32)(55);
+    identity :: (fn(b : Rc(i32)) -> Rc(i32))(b);
+    x := Rc(i32)(55);
     y := [x,];
     result := identity(y(0));
     assert(result.* == 55, "array index as fn arg should dup correctly");
   };
 });
 test("Test ArrayList index access - no RC leak", {
-  // ArrayList of Box(i32) - inline access
+  // ArrayList of Rc(i32) - inline access
   {
-    list := ArrayList(Box(i32)).new();
-    list.push(Box(i32)(100));
-    list.push(Box(i32)(200));
-    list.push(Box(i32)(300));
+    list := ArrayList(Rc(i32)).new();
+    list.push(Rc(i32)(100));
+    list.push(Rc(i32)(200));
+    list.push(Rc(i32)(300));
     assert(list(usize(0)).* == 100, "list(0).* == 100");
     assert(list(usize(1)).* == 200, "list(1).* == 200");
     assert(list(usize(2)).* == 300, "list(2).* == 300");
@@ -258,10 +258,10 @@ test("Test ArrayList index access - no RC leak", {
     assert(list(usize(0)).* == 100, "repeated list(0).* should not leak");
     assert(list(usize(0)).* == 100, "third list(0).* should not leak");
   };
-  // ArrayList of Box(i32) - assigned access
+  // ArrayList of Rc(i32) - assigned access
   {
-    list := ArrayList(Box(i32)).new();
-    list.push(Box(i32)(42));
+    list := ArrayList(Rc(i32)).new();
+    list.push(Rc(i32)(42));
     elem := list(usize(0));
     assert(elem.* == 42, "assigned elem.* should work");
   };
@@ -313,22 +313,22 @@ test("Test array of objects - no RC leak", {
 test("Test array index in expressions - no RC leak", {
   // Array index inside comparison
   {
-    x := Box(i32)(10);
-    y := Box(i32)(10);
+    x := Rc(i32)(10);
+    y := Rc(i32)(10);
     arr := [x, y,];
     assert(arr(0).* == arr(1).*, "comparing array elements inline");
   };
   // Array index inside arithmetic
   {
-    a := Box(i32)(5);
-    b := Box(i32)(3);
+    a := Rc(i32)(5);
+    b := Rc(i32)(3);
     arr := [a, b,];
     sum := (arr(0).* + arr(1).*);
     assert(sum == 8, "sum of array elements via inline access");
   };
   // Array index used in cond
   {
-    x := Box(i32)(42);
+    x := Rc(i32)(42);
     arr := [x,];
     result := cond(
       (arr(0).* > 0) => true,
@@ -338,7 +338,7 @@ test("Test array index in expressions - no RC leak", {
   };
   // Deeply nested inline access
   {
-    x := Box(i32)(1);
+    x := Rc(i32)(1);
     a := [x,];
     b := [a,];
     c := [b,];
@@ -686,17 +686,17 @@ test("Bare discard-statement fn body compiles and drops the discarded value", {
 // reassigning `w.b` in a LOOP freed the old box mid-call (the loop cannot
 // defer the old-value drop across iterations) — the borrowed parameter then
 // read a RECYCLED allocation (printed 101, the newest box, instead of 42).
-AliasWrap :: ref(struct(b : Box(i32)));
-alias_poke_loop :: (fn(w : AliasWrap, borrowed : Box(i32)) -> unit)({
+AliasWrap :: ref(struct(b : Rc(i32)));
+alias_poke_loop :: (fn(w : AliasWrap, borrowed : Rc(i32)) -> unit)({
   (i : i32) = i32(0);
   while(runtime(i < i32(2)), {
-    w.b = box(i32(100) + i);
+    w.b = rc(i32(100) + i);
     i = (i + i32(1));
   });
   assert(borrowed.* == i32(42), "borrowed projection reads the pre-mutation value");
 });
 test("borrowed projection argument survives aliased container mutation", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   b0 := w.b;
   assert(ref_count(b0) == 2, "w.b + b0 before the call");
   {
@@ -723,14 +723,14 @@ test("borrowed projection argument survives aliased container mutation", {
 // the call the box's rc stays 2 (w.b + b0), not 3. The non-generic callee
 // exercises the mark-time skip; the generic one exercises the
 // post-specialization unmark.
-stage1_read_borrow :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)(
+stage1_read_borrow :: (fn(w : AliasWrap, borrowed : Rc(i32)) -> usize)(
   ref_count(borrowed)
 );
 stage1_rc_of :: (fn(generic(T : Type), borrowed : T) -> usize)(
   ref_count(borrowed)
 );
 test("read-only callee elides the Stage-0 borrowed-projection dup", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   b0 := w.b;
   assert(ref_count(b0) == 2, "w.b + b0 before the calls");
   assert(
@@ -751,17 +751,17 @@ test("read-only callee elides the Stage-0 borrowed-projection dup", {
 // right-hand side, and wrongly reports the caller read-only. That would elide
 // the Stage-0 dup and reopen the aliasing hole this whole arc closes.
 stage1_poke :: (fn(w : AliasWrap, seed : i32) -> i32)({
-  w.b = box(i32(100) + seed);
+  w.b = rc(i32(100) + seed);
   w.b.*
 });
 // The mutating call sits on the RHS of a REASSIGNMENT statement.
-stage1_sneaky :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+stage1_sneaky :: (fn(w : AliasWrap, borrowed : Rc(i32), seed : i32) -> i32)({
   (t : i32) = i32(0);
   t = stage1_poke(w, seed);
   borrowed.* + (t - t)
 });
 // Control: the same mutation behind a `:=` declaration.
-stage1_honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
+stage1_honest :: (fn(w : AliasWrap, borrowed : Rc(i32), seed : i32) -> i32)({
   t := stage1_poke(w, seed);
   borrowed.* + (t - t)
 });
@@ -772,12 +772,12 @@ stage1_honest :: (fn(w : AliasWrap, borrowed : Box(i32), seed : i32) -> i32)({
 // initializer slot — and every array of RC elements failed to compile. The
 // array-LITERAL form already guarded correctly, so the two must agree.
 test("arrays of RC elements build at runtime, constructor and literal alike", {
-  b1 := box(i32(42));
-  lit := [b1, box(i32(7)),];
+  b1 := rc(i32(42));
+  lit := [b1, rc(i32(7)),];
   assert(lit(0).* == i32(42), "literal element 0");
   assert(lit(1).* == i32(7), "literal element 1");
-  b2 := box(i32(42));
-  ctor := Array(Box(i32), 2)(b2, box(i32(7)));
+  b2 := rc(i32(42));
+  ctor := Array(Rc(i32), 2)(b2, rc(i32(7)));
   assert(ctor(0).* == i32(42), "constructor element 0");
   assert(ctor(1).* == i32(7), "constructor element 1");
   // The two forms must not diverge in ownership either.
@@ -798,17 +798,17 @@ test("arrays of RC elements build at runtime, constructor and literal alike", {
 // allocation) instead of 42. A fixed-size Array is the shape that
 // discriminates — ArrayList index reads go through the Index trait and yield
 // an OWNING temp, so they were already safe at +0.
-Stage0Arr :: ref(struct(a : Array(Box(i32), 2)));
-stage0_poke_index :: (fn(h : Stage0Arr, borrowed : Box(i32)) -> i32)({
+Stage0Arr :: ref(struct(a : Array(Rc(i32), 2)));
+stage0_poke_index :: (fn(h : Stage0Arr, borrowed : Rc(i32)) -> i32)({
   (i : i32) = i32(0);
   while(runtime(i < i32(2)), {
-    h.a(0) = box(i32(100) + i);
+    h.a(0) = rc(i32(100) + i);
     i = (i + i32(1));
   });
   borrowed.*
 });
 test("an INDEXED borrowed argument is protected like a field projection", {
-  h := Stage0Arr(a : Array(Box(i32), 2)(box(i32(42)), box(i32(7))));
+  h := Stage0Arr(a : Array(Rc(i32), 2)(rc(i32(42)), rc(i32(7))));
   assert(
     stage0_poke_index(h, h.a(0)) == i32(42),
     "an element read is a place into container storage too"
@@ -833,7 +833,7 @@ test("an INDEXED borrowed argument is protected like a field projection", {
 // not consume its operand, so the scope-end drop decrements a second time —
 // so no valid program exercises it and it gets no test; the classification
 // rule still lists it, documented in mutation-summary.ts.
-stage1_drop_owned :: (fn(own(h) : Box(i32), borrowed : Box(i32)) -> usize)({
+stage1_drop_owned :: (fn(own(h) : Rc(i32), borrowed : Rc(i32)) -> usize)({
   ___drop(h);
   ref_count(borrowed)
 });
@@ -842,22 +842,22 @@ stage1_drop_owned :: (fn(own(h) : Box(i32), borrowed : Box(i32)) -> usize)({
 Stage1Rec :: struct(_d : i32);
 impl(
   Stage1Rec,
-  even : (fn(w : AliasWrap, borrowed : Box(i32), n : i32) -> i32)(
+  even : (fn(w : AliasWrap, borrowed : Rc(i32), n : i32) -> i32)(
     cond(
       (n == i32(0)) => borrowed.*,
       true => Stage1Rec.odd(w, borrowed, n - i32(1))
     )
   ),
-  odd : (fn(w : AliasWrap, borrowed : Box(i32), n : i32) -> i32)({
-    w.b = box(i32(777));
+  odd : (fn(w : AliasWrap, borrowed : Rc(i32), n : i32) -> i32)({
+    w.b = rc(i32(777));
     Stage1Rec.even(w, borrowed, n - i32(1))
   })
 );
 // The mutation is inside an immediately-invoked closure — the walk skips
 // function DEFINITIONS, so it must still catch the CALL.
-stage1_closure :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
+stage1_closure :: (fn(w : AliasWrap, borrowed : Rc(i32)) -> i32)({
   f := (fn(ww : AliasWrap) -> i32)({
-    ww.b = box(i32(888));
+    ww.b = rc(i32(888));
     i32(0)
   });
   z := f(w);
@@ -865,21 +865,21 @@ stage1_closure :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
 });
 // The mutation sits in a runtime-selected cond arm, then a match arm — the
 // walk must not let arm-skipping (`caseExecuted`) hide a live branch.
-stage1_cond_arm :: (fn(w : AliasWrap, borrowed : Box(i32), go : bool) -> i32)({
+stage1_cond_arm :: (fn(w : AliasWrap, borrowed : Rc(i32), go : bool) -> i32)({
   cond(
     (go == true) => {
-      w.b = box(i32(555));
+      w.b = rc(i32(555));
       i32(0)
     },
     true => i32(0)
   );
   borrowed.*
 });
-stage1_match_arm :: (fn(w : AliasWrap, borrowed : Box(i32), o : Option(i32)) -> i32)({
+stage1_match_arm :: (fn(w : AliasWrap, borrowed : Rc(i32), o : Option(i32)) -> i32)({
   match(
     o,
     .Some(_) => {
-      w.b = box(i32(666));
+      w.b = rc(i32(666));
       ()
     },
     .None => ()
@@ -888,12 +888,12 @@ stage1_match_arm :: (fn(w : AliasWrap, borrowed : Box(i32), o : Option(i32)) -> 
 });
 // Transitivity: the mutation is three calls deep.
 stage1_deep3 :: (fn(w : AliasWrap) -> unit)({
-  w.b = box(i32(333));
+  w.b = rc(i32(333));
 });
 stage1_deep2 :: (fn(w : AliasWrap) -> unit)(
   stage1_deep3(w)
 );
-stage1_deep1 :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
+stage1_deep1 :: (fn(w : AliasWrap, borrowed : Rc(i32)) -> i32)({
   stage1_deep2(w);
   borrowed.*
 });
@@ -901,33 +901,33 @@ stage1_deep1 :: (fn(w : AliasWrap, borrowed : Box(i32)) -> i32)({
 // (printf takes no callback and is not the runtime/allocator family) must
 // STILL be read-only, so the +1 is elided. If this starts failing, the
 // extern rule has become too broad and Stage 1 is losing its benefit.
-stage1_benign_extern :: (fn(w : AliasWrap, borrowed : Box(i32)) -> usize)({
+stage1_benign_extern :: (fn(w : AliasWrap, borrowed : Rc(i32)) -> usize)({
   unsafe(printf(""));
   ref_count(borrowed)
 });
 test("mutation inside a runtime cond arm keeps the borrow alive", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   assert(
     stage1_cond_arm(w, w.b, true) == i32(42),
     "a live cond arm's mutation must count"
   );
 });
 test("mutation inside a match arm keeps the borrow alive", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   assert(
     stage1_match_arm(w, w.b, Option(i32).Some(i32(1))) == i32(42),
     "a live match arm's mutation must count"
   );
 });
 test("mutation three calls deep keeps the borrow alive", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   assert(
     stage1_deep1(w, w.b) == i32(42),
     "the summary must be transitive through the call graph"
   );
 });
 test("a benign extern does not defeat the read-only elision", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   b0 := w.b;
   assert(ref_count(b0) == 2, "w.b + b0 before the call");
   assert(
@@ -936,7 +936,7 @@ test("a benign extern does not defeat the read-only elision", {
   );
 });
 test("a callee containing an explicit ___drop keeps the borrow alive", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   // rc during the call: the container's 1, the own-param's dup, and the
   // Stage-0 borrow dup = 3; `___drop(h)` consumes the own-param's, leaving
   // 2. A 1 here would mean the borrow dup was elided — i.e. a callee that
@@ -949,28 +949,28 @@ test("a callee containing an explicit ___drop keeps the borrow alive", {
   assert(w.b.* == i32(42), "the container's own handle is still valid");
 });
 test("mutation on a mutual-recursion back edge keeps the borrow alive", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   assert(
     Stage1Rec.even(w, w.b, i32(2)) == i32(42),
     "cycle-guard optimism must not hide the back edge's mutation"
   );
 });
 test("mutation inside an invoked closure keeps the borrow alive", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   assert(
     stage1_closure(w, w.b) == i32(42),
     "skipping closure DEFINITIONS must not skip the closure CALL"
   );
 });
 test("statement-hidden mutation keeps the borrowed-projection dup", {
-  w := AliasWrap(b : box(i32(42)));
+  w := AliasWrap(b : rc(i32(42)));
   // The callee reassigns `w.b`, dropping the 42-box's container reference.
   // Without the caller's Stage-0 +1 the borrow would read recycled memory.
   assert(
     stage1_sneaky(w, w.b, i32(0)) == i32(42),
     "borrow survives a mutation hidden behind a reassignment statement"
   );
-  w2 := AliasWrap(b : box(i32(42)));
+  w2 := AliasWrap(b : rc(i32(42)));
   assert(
     stage1_honest(w2, w2.b, i32(0)) == i32(42),
     "borrow survives a mutation behind a declaration"
@@ -1040,12 +1040,12 @@ test("reassigning after aliasing disposes both objects exactly once", {
 // the caller transferred in. The callee-side binding was not marked owning, so
 // the scope-end drop was never scheduled while the body's store still emitted
 // the balancing `___dup` — a net +1 per call. The prelude's
-// `box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value))` is
+// `box :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value))` is
 // the highest-traffic instance: the boxed value kept a second reference that
 // nobody owned, so it could never reach zero.
 test("box takes ownership of its argument without retaining an extra reference", {
-  h := Box(i32)(7);
-  b := box(h);
+  h := Rc(i32)(7);
+  b := rc(h);
   assert(ref_count(b.*) == 1, "the box holds the only reference to its value");
 });
 // The class is wider than `box`: EVERY `own` parameter of a generic function
@@ -1565,7 +1565,7 @@ test("a borrowed value is changed through an owned copy", {
 // never read 1 while two copies are alive. The dup/drop optimizer never cancels
 // a value-with-RC pair ("both copies need their own drop"), unlike the
 // reference-type alias above that legitimately shares one count.
-_CowLike :: struct(b : Box(i32), n : i32);
+_CowLike :: struct(b : Rc(i32), n : i32);
 _cow_task :: (fn(w : _CowLike, io : Io) -> Impl(Future(usize, Io)))(
   io.async((io : Io) => {
     io.await(yield(io), io);
@@ -1577,7 +1577,7 @@ _cow_local_copy :: (fn(w : _CowLike) -> usize)({
   ref_count(q.b)
 });
 test("ref_count: copies of a value holding RC data are counted in every position (COW S2)", {
-  w := _CowLike(b : box(i32(7)), n : i32(1));
+  w := _CowLike(b : rc(i32(7)), n : i32(1));
   assert(ref_count(w.b) == usize(1), "alone");
   {
     w2 := w;
@@ -1711,7 +1711,7 @@ test("a receiver projection outlives a method that replaces it", {
 });
 // `ref_count(x)` reads the count of the cell `x` holds, in every shape
 // (plans/VALUES_BY_DEFAULT.md V1 step 0): 1 for a value, the live count for a
-// `ref` struct, a `Box`, an `Arc` (read atomically) and a collection handle.
+// `ref` struct, an `Rc`, an `Arc` (read atomically) and a collection handle.
 RcNode :: ref(struct(v : i32));
 test("ref_count(x) reads the count of every cell shape", {
   // A value: 1, at compile time.
@@ -1729,8 +1729,8 @@ test("ref_count(x) reads the count of every cell shape", {
     };
   };
   assert(ref_count(n1) == usize(1), "ref_count(n1) == 1 after the copies died");
-  // Box
-  b1 := Box(i32)(3);
+  // Rc
+  b1 := Rc(i32)(3);
   {
     b2 := b1;
     {

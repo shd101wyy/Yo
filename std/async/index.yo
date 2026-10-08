@@ -288,7 +288,7 @@ derive(
 timeout :: (
   fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), Io))
 )({
-  ms := Box(u64)(u64(limit.as_millis()));
+  ms := Rc(u64)(u64(limit.as_millis()));
   io.async((io : Io) => {
     // The deadline is a spawned TASK, not a bare io-timer future: a raw
     // `IoFuture` local would be auto-dropped at scope end while the backend

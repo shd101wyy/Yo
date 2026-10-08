@@ -184,7 +184,7 @@ _stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) ->
       .FuncVal(__fvm8, cv) => if(
         __fvm8.*.forall_names.len() > usize(0),
         v,
-        EvalValue.FuncVal(box(FuncValData(forall_names : names.clone(), params : __fvm8.*.params, param_type_names : __fvm8.*.param_type_names, evidence_params : __fvm8.*.evidence_params, body : __fvm8.*.body, cap_names : __fvm8.*.cap_names, cap_tys : __fvm8.*.cap_tys, func_id : __fvm8.*.func_id, env_key : __fvm8.*.env_key)), cv)
+        EvalValue.FuncVal(rc(FuncValData(forall_names : names.clone(), params : __fvm8.*.params, param_type_names : __fvm8.*.param_type_names, evidence_params : __fvm8.*.evidence_params, body : __fvm8.*.body, cap_names : __fvm8.*.cap_names, cap_tys : __fvm8.*.cap_tys, func_id : __fvm8.*.func_id, env_key : __fvm8.*.env_key)), cv)
       ),
       _ => v
     )
@@ -341,7 +341,7 @@ set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 /// a circular import; trait_checking.yo re-exports thin wrappers.
 ///
 /// Used to handle recursive types — e.g. `derive(TreeNode, Clone)`
-/// where `Box(TreeNode)` Clone-impl validation needs to see
+/// where `Rc(TreeNode)` Clone-impl validation needs to see
 /// `TreeNode <: Clone` even though the impl hasn't been formally
 /// registered yet.
 (_currently_registering_concrete_impls : HashMap(String, bool)) =
@@ -382,7 +382,7 @@ get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
 /// Base-trait key for the GENERIC-impl registry: the trait constructor's
 /// funcId when the trait came from a comptime fn (`Eq(K)` → Eq's fid), else
 /// the trait's own key. Per-instantiation
-/// trait ids (`Eq(Box(T))` vs `Eq(Box(i32))`) must land in
+/// trait ids (`Eq(Rc(T))` vs `Eq(Rc(i32))`) must land in
 /// ONE registry bucket, keyed by the constructor. Everything id-keyed
 /// (negative impls, concrete registrations) keeps `get_trait_key` (the
 /// per-instantiation `id`).
@@ -863,7 +863,7 @@ _root_shape_name :: (fn(t : TypeValue) -> String)(
   )
 );
 /// The base identifier of a (possibly generic-suffixed) type name:
-/// `Box(i32)` → `Box`, `HashMap(K, V)` → `HashMap`, `Foo` → `Foo`.
+/// `Rc(i32)` → `Rc`, `HashMap(K, V)` → `HashMap`, `Foo` → `Foo`.
 _root_shape_base_name :: (fn(name : String) -> String)(
   match(
     name.index_of(`(`),
@@ -883,8 +883,8 @@ _root_shapes_could_match :: (fn(pattern : TypeValue, concrete : TypeValue) -> bo
   });
   // Same concrete class — extra exactness for the cheap cases. Compare BASE
   // names only (the segment before a type-argument suffix): a generic
-  // pattern's struct is named after its instantiation site — `Box(T)` — while
-  // a concrete receiver is `Box(i32)`; exact equality would reject every
+  // pattern's struct is named after its instantiation site — `Rc(T)` — while
+  // a concrete receiver is `Rc(i32)`; exact equality would reject every
   // specific-generic-pattern impl before synthesis ever ran (synthesis is
   // the real match — base-name comparison keeps this a pure PRE-filter).
   if((pc == i32(1)) || (pc == i32(2)), {
@@ -1798,7 +1798,7 @@ _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : Option(TypeValue), tok : 
 /// produced substituted in, name the same trait instantiation as `concrete`?
 /// Traits carry no argument list, so the instantiations are compared by
 /// member: every member of `concrete` must exist in the generic trait with a
-/// compatible type (`Eq(str)` vs `Eq(Box(T))` differ in `(==)`'s `rhs`).
+/// compatible type (`Eq(str)` vs `Eq(Rc(T))` differ in `(==)`'s `rhs`).
 _trait_instances_agree :: (fn(entry : GenericImplEntry, bindings : ArrayList(TypeValue), concrete : TypeValue) -> bool)({
   ta_s := subst_new();
   (ta_i : usize) = usize(0);
@@ -2277,7 +2277,7 @@ _inject_forall_captures :: (
               register_funcval_cap_slices(ifc_env_key, cap_slices_with_list(ifc_prefix, new_cvars));
             });
             // Flat names/types only when not aligned (see above).
-            injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
+            injected := EvalValue.FuncVal(rc(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
             owned_keys_record(g_ifc_memo_owned, memo_key.clone());
             g_ifc_memo.insert(memo_key, injected);
             Option(EvalValue).Some(injected)
@@ -3142,7 +3142,7 @@ _retype_with_value_param_labels :: (fn(ty : TypeValue, fv : EvalValue) -> TypeVa
         rw_its,
         rw_wts,
         rw_res,
-        box(
+        rc(
           FuncMeta(
             forall_labels : rw_m.*.forall_labels,
             param_labels : fv_params,
@@ -3373,7 +3373,7 @@ _materialize_default_body :: (
   // Clone and the caller still needs the registered one). Same pattern as
   // anonymous_function.yo's `body_ctx_func_val`.
   body_ctx_fv := EvalValue.FuncVal(
-    box(
+    rc(
       FuncValData(
         forall_names : ArrayList(String).new(),
         params : ArrayList(String).new(),
@@ -3432,7 +3432,7 @@ _with_receiver_mode_of :: (fn(actual : TypeValue, expected : TypeValue) -> TypeV
           });
           m.param_is_ref = refs;
           m.param_is_owning = owns;
-          TypeValue.Func(afts, apts, aits, awts, aret, box(m), avts)
+          TypeValue.Func(afts, apts, aits, awts, aret, rc(m), avts)
         },
         true => actual
       ),
@@ -4817,7 +4817,7 @@ evaluate_module_value :: (
   );
   receiver_type_id := type_id_or_empty(receiver_ty);
   // Pre-register each trait name in this impl so that recursive types
-  // (e.g. `TreeNode :: enum(Branch(left : Box(Self)))` with
+  // (e.g. `TreeNode :: enum(Branch(left : Rc(Self)))` with
   // `derive(TreeNode, Clone)`) can find their own Clone impl while
   // the function body is being validated: collect each trait name, mark
   // it, run field eval, unmark on the way out.
@@ -5141,8 +5141,8 @@ evaluate_module_value :: (
         // (evaluate_impl_field_list).
         // A member body that calls back into this trait's own methods on the
         // receiver (recursive types: `TreeNode :: enum(..., Branch(left :
-        // Box(Self), ...))` + `derive(TreeNode, Clone)` — validating the
-        // derived clone specializes `Box(TreeNode).clone`, whose body calls
+        // Rc(Self), ...))` + `derive(TreeNode, Clone)` — validating the
+        // derived clone specializes `Rc(TreeNode).clone`, whose body calls
         // `TreeNode.clone`) must resolve the method TYPE from the trait
         // signature while the real FuncVal is still being evaluated. Without
         // it the lookup misses, the call degrades to the non-Func unit
@@ -5330,7 +5330,7 @@ evaluate_module_value :: (
                           d_fresh_id := stable_func_id(String.from("fn_"), d_tok.module_path, usize(d_tok.row), usize(d_tok.column));
                           d_body_clone := clone_expr_fresh_ids(d_fvd.*.body);
                           d_fresh := EvalValue.FuncVal(
-                            box(
+                            rc(
                               FuncValData(
                                 forall_names : d_fvd.*.forall_names,
                                 params : d_fvd.*.params,
@@ -5464,7 +5464,7 @@ evaluate_module_value :: (
                           cond(
                             (d_out.len() > usize(0)) => d_fresh,
                             true => EvalValue.FuncVal(
-                              box(
+                              rc(
                                 FuncValData(
                                   forall_names : d_fvd.*.forall_names,
                                   params : d_fvd.*.params,

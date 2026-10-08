@@ -66,7 +66,7 @@ Yo 的 async 使用**代数效应**和 `Io` 效应类型。异步任务是**惰�
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   // 惰性创建——两个任务都尚未启动
   task1 := io.async((io : Io) => {
@@ -1210,7 +1210,7 @@ r2 := handle2.await(io);
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   task1 := io.async((io : Io) => {
     counter.* = (counter.* + 1);
@@ -1242,7 +1242,7 @@ export(main);
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   task1 := io.async((io : Io) => {
     counter.* = (counter.* + 1);
@@ -1432,7 +1432,7 @@ handle.await(io);
 
 ### 已知限制
 
-1. **效应处理器不是闭包** — 处理器函数是独立的 C 函数，无法捕获外部作用域的变量。请通过显式参数或 `Box` 传递状态。参见 `docs/en-US/ALGEBRAIC_EFFECTS.md`。
+1. **效应处理器不是闭包** — 处理器函数是独立的 C 函数，无法捕获外部作用域的变量。请通过显式参数或 `Rc` 传递状态。参见 `docs/en-US/ALGEBRAIC_EFFECTS.md`。
 
 本文档早期版本列出的限制——异步中的三参数 `while`、二元表达式作为异步返回值，以及一个从未有过 issue 记录、也无法复现的"异步 unwind 引用计数双重递减"——都已不存在。参见 `issues/fixed/async-while-3arg-form.md` 和 `issues/fixed/async-sm-result-type-binary-expr.md`。
 

@@ -6,8 +6,8 @@ pragma(Pragma.AllowUnsafe);
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 test("Test basic Iso related functions", {
   {
-    x := Box(i32)(42);
-    i1 := Iso(Box(i32))(x);
+    x := Rc(i32)(42);
+    i1 := Iso(Rc(i32))(x);
     i2 := i1;
     i3 := i1;
     comptime_expect_error(y := x, "use of moved value: `x`");
@@ -16,12 +16,12 @@ test("Test basic Iso related functions", {
     assert(e1.* == 42);
   };
   {
-    x := Box(i32)(99);
-    result := Result(Box(i32), i32).Ok(x);
+    x := Rc(i32)(99);
+    result := Result(Rc(i32), i32).Ok(x);
     match(
       result,
       .Ok(v) => {
-        comptime_expect_error(Iso(Box(i32))(v), "Cannot isolate variable v because it does not own its RC value");
+        comptime_expect_error(Iso(Rc(i32))(v), "Cannot isolate variable v because it does not own its RC value");
       },
       .Err(_) => {
         panic("Unexpected Err");
@@ -30,8 +30,8 @@ test("Test basic Iso related functions", {
   };
 });
 test("Test Iso dispose inner value when not extracted", {
-  x := Box(i32)(12);
-  isolated := Option(Iso(Box(i32))).Some(Iso(Box(i32))(x));
+  x := Rc(i32)(12);
+  isolated := Option(Iso(Rc(i32))).Some(Iso(Rc(i32))(x));
   comptime_expect_error(y := x, "use of moved value: `x`");
   match(
     isolated,
@@ -45,7 +45,7 @@ test("Test Iso dispose inner value when not extracted", {
   return(());
 });
 test("Test ^ operator for constructing Iso value", {
-  x := Box(i32)(99);
+  x := Rc(i32)(99);
   isolated := ^x;
   comptime_expect_error(y := x, "use of moved value: `x`");
   match(
@@ -66,8 +66,8 @@ test("Test ^ operator for constructing Iso value", {
 // (issues/fixed/rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md). The
 // value oracle is the join; the race itself is the TSan job's to catch.
 test("ref_count() of an Iso handle copied into a spawned thread reads the atomic count", {
-  x := Box(i32)(42);
-  i1 := Iso(Box(i32))(x);
+  x := Rc(i32)(42);
+  i1 := Iso(Rc(i32))(x);
   t := Thread(unit).spawn((io : Io) => {
     _i2 := i1;
     ()

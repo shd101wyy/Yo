@@ -140,7 +140,7 @@ test("Copy: the prelude's scalars, str, unit, raw pointers, Option and Result im
   comptime_assert(!Type.impls(Result(i32, String), Copy), "Result with a String error is not");
   comptime_assert(!Type.impls(String, Copy), "String owns a buffer");
   comptime_assert(!Type.impls(ArrayList(i32), Copy), "a collection is never Copy");
-  comptime_assert(!Type.impls(Box(i32), Copy), "Box is never Copy");
+  comptime_assert(!Type.impls(Rc(i32), Copy), "Rc is never Copy");
   comptime_assert(!Type.impls(Dyn(Clone), Copy), "Dyn is never Copy");
   comptime_assert(Type.impls(i8, Clone) && Type.impls(u64, Clone) && Type.impls(usize, Clone) && Type.impls(f64, Clone), "the integers and floats are Clone");
   comptime_assert(Type.impls(bool, Clone) && Type.impls(char, Clone) && Type.impls(longdouble, Clone) && Type.impls(unit, Clone), "bool, char, the C numbers and unit are Clone");
@@ -268,8 +268,8 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   assert(_ct_clone_copy(i32(3)) == i32(3), "at a prelude Copy type");
   assert(_ct_clone_copy((i32(1), true)).0 == i32(1), "at a tuple, Copy structurally and Clone by the prelude's tuple impl");
   // `box` takes its argument `own`, so it moves: box a clone, not `p`.
-  b := box(p.clone());
-  assert(b.clone().* == p, "Box.clone reaches the payload's clone");
+  b := rc(p.clone());
+  assert(b.clone().* == p, "Rc.clone reaches the payload's clone");
   u := _CtUser(at : p);
   assert(u.moved() == p, "clone() inside another type's method");
   s := "abc";

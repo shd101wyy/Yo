@@ -270,11 +270,23 @@ to the seed:
   `rc(v)` returns `Rc(V)`. The seed lowers both, since no std or src code
   constructs or matches an `Rc`.
 
-**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
-- The mechanical rename of every `Box(`/`box(` site in `src/`, `std/`,
-  `tests/`, docs and skills (counts in VALUES_BY_DEFAULT §6 V1 step 1).
-- Delete the prelude `Box`/`box`, and make `Rc`/`rc` canonical.
-- Delete the `Box` row from `shared_cell_names_at`.
+**Generation B, split in two (amended 2026-10-07).** Deleting the prelude
+`Box`/`box` in the same change as the rename is not seed-safe. The seed
+compiles `src/` against the tree's `std/`, and the v0.2.54 seed's canonical
+cell is still `Box`/`box`. Every `dyn(<non-object>)` it lowers (`std/` and
+`src/` have about 1,600 `dyn(` sites) synthesizes a `box(...)` call that has
+to resolve in the tree's prelude.
+
+- **Part 1 (#1267, on the v0.2.54 seed):**
+  - the mechanical rename of every `Box(`/`box(`/`Box.` site in `src/`,
+    `std/` and `tests/` (1,173 sites in 141 files), plus docs and skills;
+  - `Rc`/`rc` canonical (`shared_cell_canonical_names`), with `Box` as the
+    second row of `shared_cell_names_at`;
+  - the prelude `Box`/`box` kept, documented as the legacy spelling held for
+    the seed.
+- **Part 2 (once `SEED_VERSION` ≥ the release carrying part 1):**
+  - delete the prelude `Box`/`box`;
+  - delete the `Box` row from `shared_cell_names_at`.
 
 ## Seed-gated follow-up (2026-10-06): local borrows (VALUES_BY_DEFAULT V3)
 

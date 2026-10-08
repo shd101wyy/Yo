@@ -13,7 +13,7 @@ import("std/string");
 
 MyExpr :: enum(
   Lit(value : i32),
-  Add(lhs : Box(Self), rhs : Box(Self)),
+  Add(lhs : Rc(Self), rhs : Rc(Self)),
   List(items : ArrayList(Self))
 );
 
@@ -49,7 +49,7 @@ main :: (fn() -> unit)({
   items := ArrayList(MyExpr).new();
   items.push(MyExpr.Lit(i32(10)));
   items.push(MyExpr.Lit(i32(20)));
-  items.push(MyExpr.Add(box(MyExpr.Lit(i32(3))), box(MyExpr.Lit(i32(4)))));
+  items.push(MyExpr.Add(rc(MyExpr.Lit(i32(3))), rc(MyExpr.Lit(i32(4)))));
   e := MyExpr.List(items);
   v := eval(&e);
   println(`v=${v.to_string()}`);

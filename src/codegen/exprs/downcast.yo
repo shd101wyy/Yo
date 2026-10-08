@@ -10,7 +10,7 @@
 //!
 //! - a REFERENCE-struct target IS the object pointer — cast + `__yo_incr_rc`;
 //! - a VALUE/newtype target was auto-boxed at `dyn()` creation — read the value
-//!   out of the Box found in `dyn_impls` (`wasBoxed`; the
+//!   out of the Rc found in `dyn_impls` (`wasBoxed`; the
 //!   old note calling this branch unreachable predates
 //!   `issues/fixed/yo-self-downcast-value-type.md`);
 //! - a VALUE target with NO `dyn_impls` entry for this (Dyn, target) pair — no
@@ -68,12 +68,12 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   // Extraction. A REFERENCE-struct target is stored directly as the object
   // pointer — cast + incr_rc (the Dyn also holds a reference). A VALUE/newtype
   // target (e.g. `String`, a value enum) is BOXED at dyn creation:
-  // `dyn.data` points to a Box struct `{ header; <value> }` (a ref struct), so
+  // `dyn.data` points to an Rc struct `{ header; <value> }` (a ref struct), so
   // casting the pointer straight to the value STRUCT is invalid C
   // ("used type … where arithmetic or pointer type is required"). Extract the
-  // boxed value via the Box's value field and dup it (the Box keeps its copy).
+  // boxed value via the Rc's value field and dup it (the Rc keeps its copy).
   // Value types ARE boxed into dyns (the dyn_impl records
-  // concrete=<value>, data=Box(<value>)), so this branch — once called
+  // concrete=<value>, data=Rc(<value>)), so this branch — once called
   // "unreachable" — is in fact the live path
   // for a value target. See issues/fixed/yo-self-downcast-value-type.md.
   // `dyn_impls` is the WHOLE-PROGRAM registry of `dyn()` creation sites, filled
@@ -94,8 +94,8 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
     o.push_str(".vtable))");
     o
   }, {
-    // Value/newtype target: find the Box in the dyn_impls (same dyn, concrete ==
-    // target), then extract `((Box*)data)->valueField`.
+    // Value/newtype target: find the Rc in the dyn_impls (same dyn, concrete ==
+    // target), then extract `((Rc*)data)->valueField`.
     tkey := type_key(target_type);
     dyn_tkey := type_key(dyn_ei.ty);
     (box_opt : Option(TypeValue)) = Option(TypeValue).None;
@@ -134,7 +134,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
         extract.push_string(dyn_code.clone());
         extract.push_str(".data)->");
         extract.push_string(field_c);
-        // Dup the extracted value (the Box retains its copy).
+        // Dup the extracted value (the Rc retains its copy).
         match(
           get_dup_function_for_type(target_type, context),
           .Some(dupfn) => {

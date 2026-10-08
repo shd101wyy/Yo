@@ -392,7 +392,7 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
     },
     .EnumT({ id, variant_fields : vfs }) => {
       // Resolve a leaked recursive-enum SELF-SHELL to its final so the shell and
-      // its final share ONE C type key (else a `Box(Self)` field two levels deep
+      // its final share ONE C type key (else a `Rc(Self)` field two levels deep
       // keys/emits a separate empty `..._self_shell` enum — "use of empty enum").
       // Passthrough for any non-shell enum. See
       // issues/.../recursive-enum-self-shell.md.
@@ -636,9 +636,9 @@ _type_key_at :: (fn(t : TypeValue, depth : usize) -> String)(
     // Tuple: key by the RECURSED keys of the field types (labels included for
     // record-tuples), NOT by `type_to_string`. Tuples are structural — the
     // render fallback embedded the EVALUATOR's type-argument spelling, so
-    // `Tuple(0 : Box(V))` (a signature rendered before `V` resolved) and
-    // `Tuple(0 : Box(i32))` minted TWO C types for one layout (both fields
-    // `__yo_t18*` — the SAME Box instance) and `z._0 = (…){…}` failed to
+    // `Tuple(0 : Rc(V))` (a signature rendered before `V` resolved) and
+    // `Tuple(0 : Rc(i32))` minted TWO C types for one layout (both fields
+    // `__yo_t18*` — the SAME Rc instance) and `z._0 = (…){…}` failed to
     // C-compile (tests/rc.test.yo "Rc in different data structures", rc
     // layer 2 in the Gap-6 ledger). Per-field recursion inherits the struct
     // arm's instantiation merging, so layout-identical tuples share one key.

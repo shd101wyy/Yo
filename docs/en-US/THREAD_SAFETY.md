@@ -23,7 +23,7 @@ Both are derived for structs, enums, unions, tuples and arrays:
 | ------------------------------------------------------------- | ------------------------- | ------------------------- |
 | a primitive (`i32`, `bool`, `f64`, `str`, …)                  | yes                       | yes                       |
 | a struct, enum, union, tuple or array                         | iff every field is `Send` | iff every field is `Sync` |
-| a non-atomic cell (`Rc(T)`, `Box(T)`, any `ref(struct(...))`) | no                        | no                        |
+| a non-atomic cell (`Rc(T)`, the legacy `Box(T)`, any `ref(struct(...))`) | no                        | no                        |
 | an atomic object (`Arc(T)`, `atomic(ref(struct(...)))`)       | iff every field is `Sync` | iff every field is `Sync` |
 | a raw pointer `*(T)`                                          | no                        | no                        |
 | `Dyn(Trait)`                                                  | only as `Dyn(Trait, Send)`| only as `Dyn(Trait, Sync)`|
@@ -317,7 +317,7 @@ reaches a non-atomic cell — a plain `ref(struct)` graph, or a struct holding a
 for that is uniqueness — at the moment of use, at most one thread holds the inner value.
 
 ```rust
-data := box(MyData(...));
+data := rc(MyData(...));
 match(
   ^data,                        // '^' constructs the Iso; .None if `data` is not unique
   .Some(iso) => Thread(unit).spawn(io => {
@@ -354,7 +354,7 @@ User code **cannot** access `mutex._value` or `mutex._handle` — the compiler r
 
 Same-directory access is allowed — `std/sync/` files access each other's `_`-prefixed internals.
 
-Non-`_`-prefixed fields (like `arc.*`, `box.*`) are readable but not writable in safe code (see Atomic Field Mutation above).
+Non-`_`-prefixed fields (like `arc.*`) are readable but not writable in safe code (see Atomic Field Mutation above).
 
 ## Trust Boundary
 

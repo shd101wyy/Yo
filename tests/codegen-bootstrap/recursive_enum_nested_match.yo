@@ -1,4 +1,4 @@
-// Regression: matching TWO levels deep into a recursive enum (a `Box(Self)`
+// Regression: matching TWO levels deep into a recursive enum (a `Rc(Self)`
 // field). The enum self-shell patch resolves only ONE level of self-nesting;
 // the second-level `child.*` deref surfaces the raw empty-variant shell, so the
 // match evaluator must resolve it via resolve_enum_shell before reading variants
@@ -7,7 +7,7 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 
-Tree :: enum(Leaf, Node(child : Box(Self)));
+Tree :: enum(Leaf, Node(child : Rc(Self)));
 
 classify :: (fn(t : Tree) -> String)(
   match(
@@ -19,7 +19,7 @@ classify :: (fn(t : Tree) -> String)(
 
 main :: (fn() -> unit)({
   println(classify(Tree.Leaf));
-  println(classify(Tree.Node(child : box(Tree.Leaf))));
-  println(classify(Tree.Node(child : box(Tree.Node(child : box(Tree.Leaf))))));
+  println(classify(Tree.Node(child : rc(Tree.Leaf))));
+  println(classify(Tree.Node(child : rc(Tree.Node(child : rc(Tree.Leaf))))));
 });
 export(main);

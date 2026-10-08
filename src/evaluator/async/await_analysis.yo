@@ -324,7 +324,7 @@ detect_await_expr_ :: (
         },
         .Some(t) => t
       );
-      // Extract the result type T from FutureTraitT(output: Box(T))
+      // Extract the result type T from FutureTraitT(output: Rc(T))
       result_type := match(
         future_module_type.clone(),
         .FutureTraitT(output : output_box) => output_box,
@@ -382,9 +382,9 @@ analyze_await_points :: (
   ) -> AwaitAnalysisResult
 )({
   // Side-channel: stores async-specific fields for each await suspension point.
-  // A `Box`: the detector closure and this function hold the same map on
+  // An `Rc`: the detector closure and this function hold the same map on
   // purpose, and a closure captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
-  await_extras := box(HashMap(String, AwaitPointExtra).new());
+  await_extras := rc(HashMap(String, AwaitPointExtra).new());
   result := analyze_suspension_points(
     body.clone(),
     get_info,
@@ -496,8 +496,8 @@ analyze_await_points :: (
       kind : CapturedVariableKind.Local,
       is_owning_the_same_rc_value_as : match(
         sv.is_owning_the_same_rc_value_as,
-        .Some(owner_sv) => Option(Box(CapturedVariable)).Some(box(CapturedVariable(base : owner_sv.*, kind : CapturedVariableKind.Local, is_owning_the_same_rc_value_as : Option(Box(CapturedVariable)).None))),
-        .None => Option(Box(CapturedVariable)).None
+        .Some(owner_sv) => Option(Rc(CapturedVariable)).Some(rc(CapturedVariable(base : owner_sv.*, kind : CapturedVariableKind.Local, is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None))),
+        .None => Option(Rc(CapturedVariable)).None
       )
     );
     captured_variables.push(cv);
@@ -592,12 +592,12 @@ collect_variable_bindings_ :: (
                                               name : var_name.clone(),
                                               ty : var_type.clone(),
                                               is_owning_the_same_rc_value_as :
-                                                Option(Box(SuspensionCapturedVariable)).None,
+                                                Option(Rc(SuspensionCapturedVariable)).None,
                                               decl_site : `${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
                                             ),
                                             kind : CapturedVariableKind.Local,
                                             is_owning_the_same_rc_value_as :
-                                              Option(Box(CapturedVariable)).None
+                                              Option(Rc(CapturedVariable)).None
                                           );
                                           variables.push(cv);
                                           seen.insert(variable.id.to_string(), true);

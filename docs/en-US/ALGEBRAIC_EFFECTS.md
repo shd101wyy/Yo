@@ -311,7 +311,7 @@ locally installed.
      install frame.
    - **Module-level binding type** — module scope outlives every call
      frame.
-   - **`Box(T)` / `Arc(T)` / any heap-allocating type constructor** —
+   - **`Rc(T)` / `Arc(T)` / any heap-allocating type constructor** —
      heap outlives every stack frame.
    - **Closure capture type** (covered by rule 4).
    - **Pointer pointee type** — `*(Raise)` is rejected so a handler
@@ -366,8 +366,8 @@ top_handler :: (raise : Raise) = ((msg) -> { unwind(i32(0)); });
 // ❌ Pointer to a handler — could write through to outer storage.
 P :: *(Raise);  // rejected
 
-// ❌ Storing in a Box — heap outlives the install frame.
-b := box((msg) -> { unwind(i32(0)); });
+// ❌ Storing in an Rc — heap outlives the install frame.
+b := rc((msg) -> { unwind(i32(0)); });
 
 // ❌ Closure capturing a handler — closure escapes; handler with it.
 (r : Raise) = ((msg) -> { unwind(i32(0)); });
@@ -453,7 +453,7 @@ If a handler needs state, pass it explicitly:
 
 - take it as an argument to the effect function, so the caller supplies it at
   the `ctl` call site; or
-- allocate a `Box` outside the handler and pass its address in.
+- allocate an `Rc` outside the handler and pass its address in.
 
 (`.github/instructions/c-codegen.instructions.md` § "Handler functions are
 standalone, not closures" is the implementation-side statement of the same rule.)

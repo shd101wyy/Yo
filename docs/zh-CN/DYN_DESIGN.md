@@ -16,8 +16,8 @@ use_id :: (fn(value : Dyn(Id)) -> unit) { x := value.id(); };
 
 main :: (fn() -> unit) {
   // 值类型必须装箱
-  use_id(dyn(box(42)));
-  use_id(dyn(box(true)));
+  use_id(dyn(rc(42)));
+  use_id(dyn(rc(true)));
 
   // 引用语义类型可以直接使用
   point := Point(x: 3, y: 4);
@@ -47,11 +47,11 @@ typedef struct {
 
 ### 2. 数据存储（引用语义类型约束）
 
-`data` 字段**必须**指向引用语义类型（引用计数类型）。值类型必须用 `Box(T)` 包装。
+`data` 字段**必须**指向引用语义类型（引用计数类型）。值类型必须用 `Rc(T)` 包装。
 
 ```c
-// 对于值类型 — 必须使用 Box(T)
-Box_i32* boxed = /* box(42) */;  // Box(i32) 是引用语义类型
+// 对于值类型 — 必须使用 Rc(T)
+Box_i32* boxed = /* rc(42) */;  // Rc(i32) 是引用语义类型
 void* data = boxed;               // 存储 Box 指针
 
 // 对于引用语义类型 — 直接使用
@@ -59,19 +59,17 @@ Point* point = /* Point(3, 4) */;  // Point 是引用语义类型
 void* data = point;                // 存储 Point 指针
 ```
 
-**Box 类型定义：**
+**Rc 类型定义：**
 
 ```rust
-Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
       (*) : V
     )
   )
 );
-box :: (fn(generic(V : Type), value : V) -> Box(V))(
-  Box(V)(value)
-);
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 **为什么有此约束？**
@@ -93,7 +91,7 @@ typedef struct {
 **包装函数：**
 
 - **引用语义类型**：直接类型转换（无需包装函数）
-- **装箱的值类型**：生成包装函数，在调用 impl 前先解包 `Box(T)`
+- **装箱的值类型**：生成包装函数，在调用 impl 前先解包 `Rc(T)`
 
 ## 对象安全约束（遵循 Rust）
 
@@ -130,7 +128,7 @@ d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a
 
 ## dyn(...) 的引用语义类型要求
 
-**规则**：`dyn(value)` 要求 `value` 具有**引用语义类型**（指向引用计数数据的指针）。如果是值类型，则会自动进行 `box` 装箱。
+**规则**：`dyn(value)` 要求 `value` 具有**引用语义类型**（指向引用计数数据的指针）。如果是值类型，则会自动包装成 `rc(value)`。
 
 **原因**：`Dyn` 中的 `data` 字段必须指向引用计数的内存。这确保了安全的内存管理，而无需为 `Dyn` 本身添加 ref_header。
 
@@ -138,21 +136,21 @@ d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a
 
 ```rust
 // 值类型必须装箱
-dyn(box(42)); // OK：box(42) 返回 Box(i32)，这是一个引用语义类型
-dyn(box(true)); // OK：box(true) 返回 Box(bool)
+dyn(rc(42)); // OK：rc(42) 返回 Rc(i32)，这是一个引用语义类型
+dyn(rc(true)); // OK：rc(true) 返回 Rc(bool)
 // 引用语义类型可以直接使用
 point := Point(x : 3, y : 4); // point : Point，Point 是引用语义类型
 dyn(point); // OK：point 是引用语义类型
 // 直接传值会自动装箱
-dyn(42); // 42 自动变为 box(42)
-dyn(true); // true 自动变为 box(true)
+dyn(42); // 42 自动变为 rc(42)
+dyn(true); // true 自动变为 rc(true)
 ```
 
-**`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `arc` 而不是 `box` 装箱值类型。非原子的引用载荷是错误：
+**`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `arc` 而不是 `rc` 装箱值类型。非原子的引用载荷是错误：
 
 ```rust
 (d : Dyn(Fn() -> unit, Send)) = dyn(k);       // OK：k 用 arc 装箱
-(e : Dyn(Fn() -> unit, Send)) = dyn(box(k));  // 错误：其载荷必须是原子引用计数的
+(e : Dyn(Fn() -> unit, Send)) = dyn(rc(k));  // 错误：其载荷必须是原子引用计数的
 ```
 
 ### 4. 静态虚表和包装函数
@@ -165,13 +163,13 @@ int32_t fn_i32_id(int32_t* self) {
   return *self;
 }
 
-// 解包 Box(i32) 的包装函数
+// 解包 Rc(i32) 的包装函数
 int32_t wrapper_Box_i32_id(void* self_ptr) {
   Box_i32* box = (Box_i32*)self_ptr;
   return fn_i32_id(&box->value);  // 提取值，调用原始方法
 }
 
-// dyn(box(i32)) 的静态虚表
+// dyn(rc(i32)) 的静态虚表
 static const __yo_dyn_trait_Id_vtable __yo_vtable_Box_i32_Id = {
   .id = wrapper_Box_i32_id  // 指向包装函数
 };
@@ -196,14 +194,14 @@ static const __yo_dyn_trait_Printer_vtable __yo_vtable_Point_Printer = {
 构造 `Dyn` 时，值必须是引用语义类型。`Dyn` 结构体在栈上创建，并存储数据指针。
 
 ```c
-// 对于 dyn(box(42))：
-Box_i32* boxed = /* box(42) 的结果 */;  // 已经 RC = 1
+// 对于 dyn(rc(42))：
+Box_i32* boxed = /* rc(42) 的结果 */;  // 已经 RC = 1
 
 __yo_dyn_trait_id result = {
   .data = boxed,
   .vtable = &__yo_vtable_Box_i32_Id
 };
-// 注意：此处不执行 dup，所有权从 box(42) 转移到 dyn
+// 注意：此处不执行 dup，所有权从 rc(42) 转移到 dyn
 ```
 
 ```c
@@ -267,9 +265,9 @@ if(downcast(animal, Dog).is_some(), {
 **结果是被拥有的。** `Dyn` 只持有引用计数数据，所以成功的 downcast 会增加引用计数并
 返回一个被拥有的引用：`Dyn` 保留自己那一份，两者各自独立释放。
 
-**值类型会从盒子里取出来。** `dyn(42)` 会自动装箱（见
+**值类型会从单元里取出来。** `dyn(42)` 会自动装箱（见
 [dyn(...) 的引用语义类型要求](#dyn-的引用语义类型要求)），所以 `dyn.data` 指向的是
-一个 `Box` 结构而不是值本身。downcast 到值类型或 newtype 目标时，会从那个盒子里把值
+一个 `Rc` 单元而不是值本身。downcast 到值类型或 newtype 目标时，会从那个单元里把值
 读出来并 dup——把 `data` 直接转成值结构体连合法的 C 都算不上。
 
 **永远不可能成功的 downcast 是编译期的 `.None`。** 编译器知道程序中每一个
@@ -334,15 +332,15 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 **要点：**
 
 - 无需类型特定的 dup/drop — `data` 始终是引用语义类型指针
-- `data` 引用语义类型的 dispose 函数负责清理（无论是 Box 还是普通引用语义类型）
+- `data` 引用语义类型的 dispose 函数负责清理（无论是 `Rc` 单元还是普通引用语义类型）
 - `Dyn` 本身从不在堆上分配，因此不需要 dispose 函数
 
 ## 设计总结
 
 1. **`Dyn` 是值类型**：简单结构体 `{ void* data, vtable* }`，无 ref_header
 2. **`data` 必须是引用语义类型**：确保数据始终是引用计数的
-3. **值类型使用 `box()`**：`dyn(box(42))` 将值包装在 `Box(T)` 引用语义类型中
+3. **值类型使用 `rc()`**：`dyn(rc(42))` 将值包装在 `Rc(T)` 引用语义类型中
 4. **引用语义类型直接使用**：`dyn(Point(3, 4))` 直接使用 Point 指针
-5. **Box 的包装函数**：生成的包装函数在调用 impl 方法前先解包 `Box(T)`
+5. **Rc 的包装函数**：生成的包装函数在调用 impl 方法前先解包 `Rc(T)`
 6. **简单的引用计数**：只有 `data` 是引用计数的，`Dyn` 结构体按值复制
 7. **Dup/Drop 函数**：标准函数，对 `data` 指针执行 dup/drop 操作

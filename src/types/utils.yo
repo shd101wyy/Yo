@@ -314,7 +314,7 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
     _ => ()
   );
   // A pointer's availability follows its POINTEE
-  // (`*(comptime_int)` is comptime-only, `*(Box(i32))` is runtime-only,
+  // (`*(comptime_int)` is comptime-only, `*(Rc(i32))` is runtime-only,
   // `*(i32)` is both — tests/basic arms 10/11). The nominal-id trait
   // registry cannot key pointers (type_id_or_empty has no Pointer case),
   // so a registry-only lookup would return false and
@@ -1579,7 +1579,7 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
     // implements Fn or Future — or carries a per-object resolved concrete —
     // is CONCRETE at codegen time (closures lower to their capture struct /
     // FnTraitT; futures to state-machine structs). Without this carve-out the
-    // contains-SomeT gates skip emitting Box(Impl(Fn)) constructors and drop
+    // contains-SomeT gates skip emitting Rc(Impl(Fn)) constructors and drop
     // Impl(Fn)-typed capture fields (the get_info cluster).
     .SomeT({ required_trait_types : cst_rtt, resolution : cst_rc }) => cond(
       cst_rc.is_some() => false,
@@ -1918,7 +1918,7 @@ fields_have_incompatible_contexts :: (fn(fts : ArrayList(TypeValue)) -> bool)({
     (ft : TypeValue) = match(fts.get(fi), .Some(t) => t, .None => TypeValue.Unit);
     fi = (fi + usize(1));
     // A pointer field classifies by its POINTEE (`*(Self)` / `*(i32)` are
-    // both-context; `*(Box(i32))` is runtime-only — tests/basic arm 10's
+    // both-context; `*(Rc(i32))` is runtime-only — tests/basic arm 10's
     // SelfRecursive structs). Unwrap before classifying.
     (fo_hops : usize) = usize(0);
     while(match(ft, .Pointer(_) => (fo_hops < usize(8)), _ => false), {
@@ -1926,7 +1926,7 @@ fields_have_incompatible_contexts :: (fn(fts : ArrayList(TypeValue)) -> bool)({
       fo_hops = (fo_hops + usize(1));
     });
     // A reference-semantics struct (object type) is runtime-only REGARDLESS
-    // of its type parameters (`Box(i32)` instances still carry internal
+    // of its type parameters (`Rc(i32)` instances still carry internal
     // SomeTs from the generic decl, so this must run BEFORE the generic
     // skip below).
     (rt_only : bool) = match(
@@ -3276,7 +3276,7 @@ unknown_field_code :: (fn(base_ty : TypeValue) -> str)(
   cond(is_module_type(base_ty) => E_MODULE_FIELD_NOT_FOUND, true => E_FIELD_NOT_FOUND)
 );
 /// The sentence E0406/E0610 add when auto-dereference also misses
-/// (plans/VALUES_BY_DEFAULT.md §3.3): `` `b` is a Box(P); its payload P has
+/// (plans/VALUES_BY_DEFAULT.md §3.3): `` `b` is an Rc(P); its payload P has
 /// no field "x" either.`` — `payload_ty` is the innermost payload the
 /// auto-dereference reached, `what` is `field` or `field or method`.
 deref_miss_note :: (fn(wrapper_text : String, wrapper_ty : TypeValue, payload_ty : TypeValue, what : str, label : String) -> String)(

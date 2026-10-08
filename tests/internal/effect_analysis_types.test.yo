@@ -102,27 +102,27 @@ test("EffectCapturedVariable base fields accessible", {
       id : String.from("v0"),
       name : String.from("counter"),
       ty : t_unit(),
-      is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
       decl_site : String.from("")
     ),
-    is_owning_the_same_rc_value_as : Option(Box(EffectCapturedVariable)).None
+    is_owning_the_same_rc_value_as : Option(Rc(EffectCapturedVariable)).None
   );
   assert(cv.base.id == "v0", "id");
   assert(cv.base.name == "counter", "name");
   has_alias := match(cv.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(!has_alias, "no alias");
 });
-test("EffectCapturedVariable self-referential field (Box(Self))", {
-  inner := Box(EffectCapturedVariable)(
+test("EffectCapturedVariable self-referential field (Rc(Self))", {
+  inner := Rc(EffectCapturedVariable)(
     EffectCapturedVariable(
       base : SuspensionCapturedVariable(
         id : String.from("v1"),
         name : String.from("inner"),
         ty : t_unit(),
-        is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+        is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
         decl_site : String.from("")
       ),
-      is_owning_the_same_rc_value_as : Option(Box(EffectCapturedVariable)).None
+      is_owning_the_same_rc_value_as : Option(Rc(EffectCapturedVariable)).None
     )
   );
   outer := EffectCapturedVariable(
@@ -130,10 +130,10 @@ test("EffectCapturedVariable self-referential field (Box(Self))", {
       id : String.from("v2"),
       name : String.from("outer"),
       ty : t_unit(),
-      is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
+      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
       decl_site : String.from("")
     ),
-    is_owning_the_same_rc_value_as : Option(Box(EffectCapturedVariable)).Some(inner)
+    is_owning_the_same_rc_value_as : Option(Rc(EffectCapturedVariable)).Some(inner)
   );
   has_alias := match(outer.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(has_alias, "outer has alias");

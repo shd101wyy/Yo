@@ -878,9 +878,9 @@ test("soundness: a value struct cannot reach itself by value", {
     ()
   }, "recursive value struct");
   // Reference indirection keeps the working shapes working: a ref struct may
-  // name itself through Option(Self) (pointer-sized), and a Box cuts the path.
+  // name itself through Option(Self) (pointer-sized), and an Rc cuts the path.
   _ok_ref :: ref(struct(n : i64, memo : Option(Self)));
-  _ok_box :: struct(n : i64, next : Option(Box(Self)));
+  _ok_box :: struct(n : i64, next : Option(Rc(Self)));
   comptime_assert(true, "the indirect forms still check");
 });
 // issues/fixed/option-self-field-on-environment-splits-into-two-c-types.md:

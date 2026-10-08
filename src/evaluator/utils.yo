@@ -533,7 +533,7 @@ move_only_help :: (fn(name : String, ty : TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), pass it \`inout\`, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
+      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), pass it \`inout\`, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
     ),
     .None => cond(
       type_requires_explicit_copy(ty) => Option(String).Some(
@@ -550,7 +550,7 @@ move_only_type_help :: (fn(ty : TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a by-value parameter, pass it \`inout\`, move its whole owner, or share it through a reference type (\`Box\`, \`Arc\`, a \`ref(struct(...))\`).`
+      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a by-value parameter, pass it \`inout\`, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => cond(
       type_requires_explicit_copy(ty) => Option(String).Some(
@@ -719,9 +719,9 @@ consume_called_fnonce_closure :: (fn(callee : AstExpr, v : Variable, env : Envir
         // shadow for a sibling arm as it does the owner.
         o := match(owner, .Some(x) => x, .None => v);
         _log_user_move(o, tok, env);
-        o.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+        o.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
         _log_user_move(v, tok, env);
-        v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+        v.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
       },
       true => set_expr_as_consumed(callee, env, false, ctx, exn)
     )
@@ -800,12 +800,12 @@ move_captured_explicit_copy_variable :: (fn(v : Variable, tok : Token, env : Env
         .None => v
       );
       _log_user_move(moved, tok, env);
-      moved.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      moved.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
       // Mark the shadow too, so a re-evaluation of the same site against the
       // same bindings takes the `same_site` branch instead of finding every
       // owning binding consumed and raising E0901.
       if(owner.is_some(), {
-        v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+        v.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
       });
     }
   );
@@ -916,9 +916,9 @@ _move_through_sink_shadow :: (fn(v : Variable, rhs : AstExpr, env : Environment)
     .Some(o) => {
       tok := ast_expr_token(rhs);
       _log_user_move(o, tok, env);
-      o.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      o.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
       _log_user_move(v, tok, env);
-      v.consumed_at_token = Option(Box(Token)).Some(box(tok.clone()));
+      v.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
       true
     },
     .None => false
@@ -958,7 +958,7 @@ transfer_explicit_copy_value :: (fn(rhs : AstExpr, ei : ExprInfo, variable_name 
       is_temp_variable_name(ei.env.module_path, variable_name) => {
         if(v.is_owning_the_rc_value, {
           if(v.consumed_at_token.is_none(), {
-            v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+            v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(rhs)));
           });
         }, {
           what := cond(
@@ -1456,13 +1456,13 @@ set_expr_as_consumed :: (
             // full-env scan on the hot consumed-marking path (see consume.yo).
             .None => {
               _log_user_move(v, ast_expr_token(expr), env);
-              v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
+              v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(expr)));
             },
             .Some(consumed_tok) => cond(
               // Allowed to re-consume — overwrite the consumption point.
               allow_consume_again => {
                 _log_user_move(v, ast_expr_token(expr), env);
-                v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(expr)));
+                v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(expr)));
               },
               // Step 4: throw `use of moved value`.
               true => {
@@ -1613,7 +1613,7 @@ _implicit_copy_via :: (fn(inner : Option(String)) -> String)(
   )
 );
 /// The audit category of an RC-bearing type: `String`, a collection's name,
-/// `Box`, `Arc`, `Dyn`, `closure`, `ref-object` (a `ref` struct/enum with an
+/// `Rc`, `Arc`, `Dyn`, `closure`, `ref-object` (a `ref` struct/enum with an
 /// RC-bearing field; V5 makes it an `Rc`), `ref-object(plain)` (a `ref`
 /// type whose fields are all plain data), or `via:<category>` for a value
 /// aggregate (`Option(String)`, a tuple, a value struct) holding one.
@@ -1633,12 +1633,12 @@ _implicit_copy_category_at :: (fn(ty : TypeValue, depth : u32) -> String)({
     return(String.from("Arc"));
   });
   if(is_box_type(t), {
-    return(String.from("Box"));
+    return(String.from("Rc"));
   });
   match(
     t,
     // By the PRINTED name: an instantiation (`ArrayList(i32)`) carries an
-    // empty `name` (only `Box(...)` is stamped) and renders through the
+    // empty `name` (only `Rc(...)` is stamped) and renders through the
     // display-name side table (types/string.yo).
     .Struct({ field_types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => match(
       _implicit_copy_collection_name(display.clone()),
@@ -2028,7 +2028,7 @@ set_expr_as_needs_to_call_dup :: (
             find_variable_in_env(ei.env, variable_name),
             .Some(v) => {
               if(v.is_owning_the_rc_value && v.consumed_at_token.is_none(), {
-                v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+                v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(rhs)));
               });
               // Non-owning RC temp (e.g. index-trait result): codegen does not
               // dup inline for these, so fall through to generate the dup.
@@ -2056,7 +2056,7 @@ set_expr_as_needs_to_call_dup :: (
             .Some(v) => {
               if(v.is_owning_the_rc_value, {
                 if(v.consumed_at_token.is_none(), {
-                  v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+                  v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(rhs)));
                 });
                 return(());
               });
@@ -2091,7 +2091,7 @@ set_expr_as_needs_to_call_dup :: (
           if(dvars.len() > usize(0), {
             dv := match(dvars.last(), .Some(x) => x, .None => make_err_variable(ei.env));
             if(dv.consumed_at_token.is_none(), {
-              dv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_dup)));
+              dv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(evaluated_dup)));
             });
           });
         }
@@ -2218,7 +2218,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           match(
             reg_var,
             .Some(rv) => {
-              rv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(rhs)));
+              rv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(rhs)));
             },
             .None => ()
           );
@@ -2389,7 +2389,7 @@ consume_case_body_temp_var :: (
       v := match(vars.last(), .Some(x) => x, .None => make_err_variable(env));
       if(v.consumed_at_token.is_none(), {
         // Variable is an RC object; mutation is in-place and visible through env.
-        v.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(evaluated_body)));
+        v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(evaluated_body)));
       });
     }
   );
@@ -2438,7 +2438,7 @@ reset_sibling_flow_state :: (fn(env : Environment, prev_arm : Option(AstExpr)) -
         .Some(v) => {
           match(prev_arm, .Some(pa) => _keep_undone_move(v, r.before_consumed, pa), .None => ());
           v.initialized_at_token = r.before_init;
-          v.consumed_at_token = match(r.before_consumed, .Some(bc) => Option(Box(Token)).Some(box(bc)), .None => Option(Box(Token)).None);
+          v.consumed_at_token = match(r.before_consumed, .Some(bc) => Option(Rc(Token)).Some(rc(bc)), .None => Option(Rc(Token)).None);
         },
         .None => ()
       ),
@@ -2642,7 +2642,7 @@ check_loop_flow :: (
           });
           final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
           if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
-            v.consumed_at_token = match(final, .Some(ft) => Option(Box(Token)).Some(box(ft)), .None => Option(Box(Token)).None);
+            v.consumed_at_token = match(final, .Some(ft) => Option(Rc(Token)).Some(rc(ft)), .None => Option(Rc(Token)).None);
           });
           record_flow_event(v.id, TypeValue.Unit, Option(TypeValue).None, FlowEventKind.Join, v.token, r.before_init, pre, v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc.*), .None => Option(Token).None));
         }),
@@ -3091,7 +3091,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               });
               // The joined state is decided below from the pre-branch state.
               base_var.initialized_at_token = flow_pre_init;
-              base_var.consumed_at_token = match(flow_pre_consumed, .Some(pc) => Option(Box(Token)).Some(box(pc)), .None => Option(Box(Token)).None);
+              base_var.consumed_at_token = match(flow_pre_consumed, .Some(pc) => Option(Rc(Token)).Some(rc(pc)), .None => Option(Rc(Token)).None);
             },
             .None => ()
           );
@@ -3166,7 +3166,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                 match(
                   base_var.consumed_at_token,
                   .None => {
-                    base_var.consumed_at_token = Option(Box(Token)).Some(box(ct.clone()));
+                    base_var.consumed_at_token = Option(Rc(Token)).Some(rc(ct.clone()));
                   },
                   .Some(_) => ()
                 );
@@ -3197,7 +3197,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               match(
                 first_tok,
                 .Some(t) => {
-                  base_var.consumed_at_token = Option(Box(Token)).Some(box(t.clone()));
+                  base_var.consumed_at_token = Option(Rc(Token)).Some(rc(t.clone()));
                 },
                 .None => ()
               );
@@ -3257,7 +3257,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
           });
           if(all_owning && !base_var.is_owning_the_rc_value, {
             base_var.is_owning_the_rc_value = true;
-            base_var.is_owning_the_same_rc_value_as = Option(Box(Variable)).None;
+            base_var.is_owning_the_same_rc_value_as = Option(Rc(Variable)).None;
           });
           // Partial ownership → error
           if(any_owning && !all_owning && !base_var.is_owning_the_rc_value, {
@@ -3295,7 +3295,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             new_id := generate_variable_id(env.module_path, var_name);
             base_var.id = new_id;
             base_var.value = value_cell_of(Option(EvalValue).None);
-            base_var.is_owning_the_same_rc_value_as = Option(Box(Variable)).None;
+            base_var.is_owning_the_same_rc_value_as = Option(Rc(Variable)).None;
           });
           var_j = (var_j + usize(1));
         });
@@ -4179,7 +4179,7 @@ local_borrow_note_await :: (fn(tok : Token, ctx : EvalContext, exn : Exception) 
     match(
       g_local_borrows.get(i),
       .Some(info) => if((info.crosses_cell || info.module_root) && _lb_live_at(info, tok), {
-        why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc`, `Box` or a `ref` object)");
+        why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc` or a `ref` object)");
         entries := ArrayList(TokenAndError).new();
         entries.push(
           TokenAndError(

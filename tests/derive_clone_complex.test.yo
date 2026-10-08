@@ -55,11 +55,11 @@ test("derive Clone for struct with Option field (None)", {
   match(c.maybe, .Some(_) => assert(false, "should be None"), .None => ());
   assert(!c.required, "bool cloned");
 });
-// ===== 5. Struct with Box(T) field =====
-Boxed :: struct(inner : Box(i32), label : String);
+// ===== 5. Struct with Rc(T) field =====
+Boxed :: struct(inner : Rc(i32), label : String);
 derive(Boxed, Clone);
-test("derive Clone for struct with Box field", {
-  orig := Boxed(inner : box(i32(55)), label : `boxed`);
+test("derive Clone for struct with Rc field", {
+  orig := Boxed(inner : rc(i32(55)), label : `boxed`);
   c := orig.clone();
   assert(c.inner.* == i32(55), "box content cloned");
   assert(c.label == `boxed`, "label cloned");
@@ -88,11 +88,11 @@ test("derive Clone for enum with data variants (Nothing)", {
   c := orig.clone();
   match(c, .Nothing => (), .Just(_) => assert(false, "wrong variant"));
 });
-// ===== 8. Enum with Box/String/ArrayList variant fields =====
+// ===== 8. Enum with Rc/String/ArrayList variant fields =====
 RichVariant :: enum(
   Empty,
   WithString(s : String),
-  WithBox(b : Box(i32)),
+  WithBox(b : Rc(i32)),
   WithList(items : ArrayList(String))
 );
 derive(RichVariant, Clone);
@@ -105,8 +105,8 @@ test("derive Clone for enum with String variant", {
     _ => assert(false, "wrong variant")
   );
 });
-test("derive Clone for enum with Box variant", {
-  orig := RichVariant.WithBox(box(i32(42)));
+test("derive Clone for enum with Rc variant", {
+  orig := RichVariant.WithBox(rc(i32(42)));
   c := orig.clone();
   match(
     c,
@@ -130,16 +130,16 @@ test("derive Clone for enum with ArrayList variant", {
     _ => assert(false, "wrong variant")
   );
 });
-// ===== 9. Recursive type: Expr containing Box(Self) =====
+// ===== 9. Recursive type: Expr containing Rc(Self) =====
 TreeNode :: enum(
   Leaf(value : i32),
-  Branch(left : Box(Self), right : Box(Self))
+  Branch(left : Rc(Self), right : Rc(Self))
 );
 derive(TreeNode, Clone);
-test("derive Clone for recursive enum with Box(Self)", {
+test("derive Clone for recursive enum with Rc(Self)", {
   leaf_a := TreeNode.Leaf(i32(1));
   leaf_b := TreeNode.Leaf(i32(2));
-  branch := TreeNode.Branch(left : box(leaf_a), right : box(leaf_b));
+  branch := TreeNode.Branch(left : rc(leaf_a), right : rc(leaf_b));
   c := branch.clone();
   match(
     c,
@@ -158,17 +158,17 @@ test("derive Clone for recursive enum with Box(Self)", {
     .Leaf(_) => assert(false, "expected branch")
   );
 });
-// ===== 9b. Recursive STRUCT with Option(Box(Self)) =====
+// ===== 9b. Recursive STRUCT with Option(Rc(Self)) =====
 // The struct half of the recursive-instantiation era-split class
 // (issues/fixed/yo-self-unsubstituted-type-param-emits-duplicate-struct.md): the
 // enum shape above compiled with duplicate Box C structs (incompatible
 // pointers), the struct shape failed C compilation outright. Both are one
 // bug — never enum-specific.
-LinkNode :: struct(v : i32, next : Option(Box(Self)));
+LinkNode :: struct(v : i32, next : Option(Rc(Self)));
 derive(LinkNode, Clone);
-test("derive Clone for recursive struct with Option(Box(Self))", {
-  tail_n := LinkNode(v : i32(2), next : Option(Box(LinkNode)).None);
-  head := LinkNode(v : i32(1), next : Option(Box(LinkNode)).Some(box(tail_n)));
+test("derive Clone for recursive struct with Option(Rc(Self))", {
+  tail_n := LinkNode(v : i32(2), next : Option(Rc(LinkNode)).None);
+  head := LinkNode(v : i32(1), next : Option(Rc(LinkNode)).Some(rc(tail_n)));
   c := head.clone();
   assert(c.v == i32(1), "head v");
   match(

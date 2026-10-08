@@ -16,8 +16,8 @@ use_id :: (fn(value : Dyn(Id)) -> unit) { x := value.id(); };
 
 main :: (fn() -> unit) {
   // Value types must be boxed
-  use_id(dyn(box(42)));
-  use_id(dyn(box(true)));
+  use_id(dyn(rc(42)));
+  use_id(dyn(rc(true)));
 
   // Reference-semantics types can be used directly
   point := Point(x: 3, y: 4);
@@ -50,11 +50,11 @@ typedef struct {
 
 ### 2. Data Storage (Reference-Semantics Type Constraint)
 
-The `data` field **must** point to an reference-semantics type (reference counted). Value types must be wrapped in `Box(T)`.
+The `data` field **must** point to an reference-semantics type (reference counted). Value types must be wrapped in `Rc(T)`.
 
 ```c
-// For value types - MUST use Box(T)
-Box_i32* boxed = /* box(42) */;  // Box(i32) is an reference-semantics type
+// For value types - MUST use Rc(T)
+Box_i32* boxed = /* rc(42) */;  // Rc(i32) is an reference-semantics type
 void* data = boxed;               // Store Box pointer
 
 // For reference-semantics types - use directly
@@ -62,19 +62,17 @@ Point* point = /* Point(3, 4) */;  // Point is an reference-semantics type
 void* data = point;                // Store Point pointer
 ```
 
-**Box Type Definition:**
+**Rc Type Definition:**
 
 ```rust
-Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
       (*) : V
     )
   )
 );
-box :: (fn(generic(V : Type), value : V) -> Box(V))(
-  Box(V)(value)
-);
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 **Why this constraint?**
@@ -96,7 +94,7 @@ typedef struct {
 **Wrapper Functions:**
 
 - **Reference-semantics types**: Use direct casts (no wrapper needed)
-- **Boxed value types**: Generate wrappers to unwrap `Box(T)` before calling impl
+- **Boxed value types**: Generate wrappers to unwrap `Rc(T)` before calling impl
 
 ## Object-Safety Constraint (Following Rust)
 
@@ -146,7 +144,7 @@ written: `d.get()` could not say which trait's method it means.
 
 ## Reference-Semantics Type Requirement for dyn(...)
 
-**Rule**: `dyn(value)` requires `value` to have an **reference-semantics type** (pointer to RC'd data). If it's a value type then it will be auto `box`ed.
+**Rule**: `dyn(value)` requires `value` to have an **reference-semantics type** (pointer to RC'd data). If it's a value type then it is automatically wrapped in `rc(value)`.
 
 **Rationale**: The `data` field in `Dyn` must point to reference-counted memory. This ensures safe memory management without adding a ref_header to `Dyn` itself.
 
@@ -154,24 +152,24 @@ written: `d.get()` could not say which trait's method it means.
 
 ```rust
 // Value types must be boxed
-dyn(box(42)); // OK: box(42) returns Box(i32), which is an reference-semantics type
-dyn(box(true)); // OK: box(true) returns Box(bool)
+dyn(rc(42)); // OK: rc(42) returns Rc(i32), which is an reference-semantics type
+dyn(rc(true)); // OK: rc(true) returns Rc(bool)
 // Reference-semantics types can be used directly
 point := Point(x : 3, y : 4); // point : Point, Point is reference-semantics type
 dyn(point); // OK: point is an reference-semantics type
 // Direct value will be automatically boxed
-dyn(42); // 42 becomes box(42) automatically
-dyn(true); // true becomes box(true) automatically
+dyn(42); // 42 becomes rc(42) automatically
+dyn(true); // true becomes rc(true) automatically
 ```
 
 **A `Send` Dyn's payload is atomic.** Every copy of a `Dyn(Trait, Send)` may live on another
 thread and retains and releases the same `data` object from there, so its count must be atomic.
-For a `Send` target, `dyn(v)` of a value type boxes it with `arc`, not `box`. A non-atomic
+For a `Send` target, `dyn(v)` of a value type boxes it with `arc`, not `rc`. A non-atomic
 reference payload is an error:
 
 ```rust
 (d : Dyn(Fn() -> unit, Send)) = dyn(k);       // OK: k is boxed with arc
-(e : Dyn(Fn() -> unit, Send)) = dyn(box(k));  // error: its payload must be atomically reference counted
+(e : Dyn(Fn() -> unit, Send)) = dyn(rc(k));  // error: its payload must be atomically reference counted
 ```
 
 ### 4. Static Vtables and Wrappers
@@ -184,13 +182,13 @@ int32_t fn_i32_id(int32_t* self) {
   return *self;
 }
 
-// Wrapper to unwrap Box(i32)
+// Wrapper to unwrap Rc(i32)
 int32_t wrapper_Box_i32_id(void* self_ptr) {
   Box_i32* box = (Box_i32*)self_ptr;
   return fn_i32_id(&box->value);  // Extract value, call original
 }
 
-// Static vtable for dyn(box(i32))
+// Static vtable for dyn(rc(i32))
 static const __yo_dyn_trait_Id_vtable __yo_vtable_Box_i32_Id = {
   .id = wrapper_Box_i32_id  // Points to wrapper
 };
@@ -215,14 +213,14 @@ static const __yo_dyn_trait_Printer_vtable __yo_vtable_Point_Printer = {
 When constructing a `Dyn`, the value must be an reference-semantics type. The `Dyn` struct is created on the stack and stores the data pointer.
 
 ```c
-// For dyn(box(42)):
-Box_i32* boxed = /* result of box(42) */;  // Already has RC = 1
+// For dyn(rc(42)):
+Box_i32* boxed = /* result of rc(42) */;  // Already has RC = 1
 
 __yo_dyn_trait_id result = {
   .data = boxed,
   .vtable = &__yo_vtable_Box_i32_Id
 };
-// Note: No dup here, ownership transfers from box(42) to dyn
+// Note: No dup here, ownership transfers from rc(42) to dyn
 ```
 
 ```c
@@ -289,10 +287,10 @@ string comparison and no RTTI table.
 successful downcast increments the refcount and hands back an owned reference:
 the `Dyn` keeps its own, and the two are dropped independently.
 
-**Value types come out of their box.** `dyn(42)` auto-boxes (see
+**Value types come out of their cell.** `dyn(42)` auto-boxes (see
 [Reference-Semantics Type Requirement](#reference-semantics-type-requirement-for-dyn)),
-so `dyn.data` points at a `Box` struct rather than at the value. A downcast to a
-value or newtype target reads the value out of that box and dups it — casting
+so `dyn.data` points at an `Rc` cell rather than at the value. A downcast to a
+value or newtype target reads the value out of that cell and dups it — casting
 `data` straight to the value struct would not even be valid C.
 
 **A downcast that can never succeed is a compile-time `.None`.** The compiler
@@ -369,15 +367,15 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 **Key Points:**
 
 - No type-specific dup/drop needed - `data` is always an object pointer
-- The `data` object's dispose function handles cleanup (Box or regular object)
+- The `data` object's dispose function handles cleanup (an `Rc` cell or a regular object)
 - `Dyn` itself is never heap-allocated, so no dispose function needed
 
 ## Summary of Design
 
 1. **`Dyn` is a value type**: Simple struct with `{ void* data, vtable* }`, no ref_header
 2. **`data` must be reference-semantics type**: Enforces that data is always reference counted
-3. **Value types use `box()`**: `dyn(box(42))` wraps value in `Box(T)` reference-semantics type
+3. **Value types use `rc()`**: `dyn(rc(42))` wraps value in `Rc(T)` reference-semantics type
 4. **Reference-semantics types direct**: `dyn(Point(3, 4))` uses Point pointer directly
-5. **Wrappers for Box**: Generated wrappers unwrap `Box(T)` before calling impl methods
+5. **Wrappers for Rc**: Generated wrappers unwrap `Rc(T)` before calling impl methods
 6. **Simple RC**: Only `data` is reference counted, `Dyn` struct is copied by value
 7. **Dup/Drop functions**: Standard functions that dup/drop the `data` pointer

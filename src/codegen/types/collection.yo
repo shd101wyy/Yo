@@ -198,8 +198,8 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   // shell or the final is reached first. With the type_key shell-resolve above,
   // references to the shell also key to the final. Passthrough for non-shells.
   // Same for STRUCT self-shells (empty-fields struct sharing the final's id,
-  // struct.yo:76-95): a `ref(struct(... : Option(Box(Self))))` field carries
-  // `Box(shell)`; if the shell reaches collection first, its EMPTY field list
+  // struct.yo:76-95): a `ref(struct(... : Option(Rc(Self))))` field carries
+  // `Rc(shell)`; if the shell reaches collection first, its EMPTY field list
   // registers the C struct decl under the same type_key as the final, and the
   // final is then deduped away — emitting `struct { header; }` with no members.
   type := resolve_struct_shell(resolve_enum_shell(type_in));
@@ -457,7 +457,7 @@ _collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit
 /// typedef calls get_type_string(T) and REQUIRES `T` registered. The main
 /// collection reaches `T` only via the container's generated dup/drop bodies; for
 /// the async/effect-codegen value types whose dup/drop involve recursive members
-/// (AstExpr / Box(Self) self-shells), that path does NOT fire in the self-compile,
+/// (AstExpr / Rc(Self) self-shells), that path does NOT fire in the self-compile,
 /// leaving e.g. `MapEntry(usize, WhileLoopInfo)` unregistered → "type not collected
 /// before lowering" panic. Running as a SEPARATE pass (not inline in collect_type)
 /// leaves the MAIN collection ORDER untouched, so it cannot perturb the

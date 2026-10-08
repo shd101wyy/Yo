@@ -571,7 +571,7 @@ _frame_status :: (fn(data : ArrayList(u8), kind : MessageKind) -> _FrameStatus)(
 /// previous message on this connection, and on return holds whatever this call
 /// read past THIS message. One list per connection, reused across its
 /// messages; pass a fresh empty one for a connection that is used once. It is
-/// a `Box` because the caller and the returned future hold the same list on
+/// an `Rc` because the caller and the returned future hold the same list on
 /// purpose (plans/VALUES_BY_DEFAULT.md §3.13).
 ///
 /// This is what makes connection reuse safe. A single `read` can return bytes
@@ -584,7 +584,7 @@ read_http_message_buffered :: (
     stream : R,
     max_bytes : usize,
     kind : MessageKind,
-    carry : Box(ArrayList(u8)),
+    carry : Rc(ArrayList(u8)),
     io : Io,
     where(R <: Reader)
   ) -> Impl(Future(Result(String, HttpError), IoExn))
@@ -765,7 +765,7 @@ read_http_message :: (
   fn(generic(R : Type), stream : R, max_bytes : usize, kind : MessageKind, io : Io, where(R <: Reader)) ->
     Impl(Future(Result(String, HttpError), IoExn))
 )(
-  read_http_message_buffered(stream, max_bytes, kind, box(ArrayList(u8).new()), io)
+  read_http_message_buffered(stream, max_bytes, kind, rc(ArrayList(u8).new()), io)
 );
 export(
   MessageKind,

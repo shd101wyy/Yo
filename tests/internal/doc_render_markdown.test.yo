@@ -146,7 +146,7 @@ make_module_ :: (fn() -> DocModule)({
     types : types,
     traits : traits,
     constants : consts,
-    submodules : ArrayList(Box(DocModule)).new()
+    submodules : ArrayList(Rc(DocModule)).new()
   )
 });
 make_model_ :: (fn() -> DocModel)({
@@ -587,7 +587,7 @@ test("renderModuleMd: renders empty module without content sections", {
     types : ArrayList(DocType).new(),
     traits : ArrayList(DocTrait).new(),
     constants : ArrayList(DocConstant).new(),
-    submodules : ArrayList(Box(DocModule)).new()
+    submodules : ArrayList(Rc(DocModule)).new()
   );
   md := render_module_md(m);
   assert(md.contains(`# empty`), "heading");

@@ -116,12 +116,12 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Closure Capture Semantics](#closure-capture-semantics)
   - [Closure Type Restrictions](#closure-type-restrictions)
   - [Closures with Reference-Semantics Types](#closures-with-reference-semantics-types)
-- [Box and Boxing](#box-and-boxing)
-  - [Box Type](#box-type)
+- [Rc and Reference-Counted Cells](#rc-and-reference-counted-cells)
+  - [Rc Type](#rc-type)
   - [Usage Examples](#usage-examples)
-  - [Box with Assignments](#box-with-assignments)
-  - [Box and Reference Counting](#box-and-reference-counting)
-  - [When to Use Box](#when-to-use-box)
+  - [Rc with Assignments](#rc-with-assignments)
+  - [Rc and Reference Counting](#rc-and-reference-counting)
+  - [When to Use Rc](#when-to-use-rc)
 - [Impl Types](#impl-types)
   - [Basic Usage](#basic-usage)
   - [Impl as Return Type](#impl-as-return-type)
@@ -978,7 +978,7 @@ p.set_x(10); // No `&(p)` required — the compiler inserts it
 
 #### Calling a method through its type
 
-A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Box(i32).clone(b)`) or without them (`Box.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. This works for any generic struct or enum, not only the prelude's wrappers.
+A method can also be called on its type, with the receiver as the first argument: `Point.distance_from_origin(p)` is `p.distance_from_origin()`. A generic type is called the same way, either with its type arguments written (`Rc(i32).clone(b)`) or without them (`Rc.clone(b)`). Without them, the type arguments are inferred from the first argument, which must itself be an instance of that type constructor, as Rust infers `Rc::clone(&w)`'s `T`. This works for any generic struct or enum, not only the prelude's wrappers.
 
 A static method (one with no `self`) has no receiver to infer from, so its type arguments are written out: `Pair(i32, bool).make(...)`. The type the call's result is expected to have does not supply them either. Leaving them out there, or passing a first argument that is not an instance of the constructor, is E0613, and the message names the argument's type.
 
@@ -1181,13 +1181,13 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` or declares `MoveOnly` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. `Box`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
+The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` or declares `MoveOnly` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
 
 Today `Copy` is checked but not yet required: a plain-data type without it is still copied implicitly. The next step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 36) makes it the rule, after which `q := p` moves a `Point` that is not `Copy`, and a later use of `p` is E0901.
 
 #### Move-only values
 
-A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is **move-only**, and so is every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Box`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.
+A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose`, or declares `impl(T, MoveOnly())`, is **move-only**, and so is every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Rc`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.
 
 ```rust
 { println } :: import("std/fmt");
@@ -1338,7 +1338,7 @@ pragma(Pragma.AllowUnsafe); // only so sizeof may name a pointer type
 
 sz_opt :: sizeof(Option(*i32)); // == sizeof(*i32) — the pointer itself
 sz_str :: sizeof(String);       // == sizeof(*u8)   — the handle itself
-Tree :: enum(Empty, Node(child : Box(Self)));
+Tree :: enum(Empty, Node(child : Rc(Self)));
 sz_tree :: sizeof(Tree);        // == sizeof(*u8)   — NULL is Empty
 ```
 
@@ -2454,7 +2454,7 @@ command :: (fn(s : String) -> i32)(
 
 A tuple scrutinee takes one sub-pattern per element; a struct scrutinee takes
 labeled sub-patterns (a bare field name binds that field; unlisted fields
-match anything). A `Box(T)` payload is looked through implicitly — the
+match anything). A `Rc(T)` payload is looked through implicitly — the
 sub-pattern matches `T`:
 
 ```rust
@@ -2475,8 +2475,8 @@ origin_only :: (fn(p : Point) -> bool)(
   )
 );
 
-// A recursive enum through Box: the tail pattern matches the inner List.
-List :: ref(enum(Nil, Cons(head : i32, tail : Box(Self))));
+// A recursive enum through Rc: the tail pattern matches the inner List.
+List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
 second :: (fn(l : List) -> i32)(
   match(
     l,
@@ -2716,7 +2716,7 @@ reaches the original. That changes when they become uniquely owned values
   back:** `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
   l.push(x); m.insert(k, l);`, or `self.f.take()` followed by
   `self.f = .Some(l)`.
-- **A list two owners hold on purpose is a `Box`:** `Box(ArrayList(T))`, written
+- **A list two owners hold on purpose is an `Rc`:** `Rc(ArrayList(T))`, written
   through `b.*.push(x)`. A closure or an `io.async` body captures by value, so a
   closure that records into a list shares it this way (or returns the list).
 
@@ -2730,7 +2730,7 @@ mutation summary could not be resolved and the write is assumed, and
 `YO_AUDIT_IMPLICIT_COPY=1 yo check <path>` lists the copies unique ownership
 would make explicit (`plans/VALUES_BY_DEFAULT.md` §6, item 1). Each
 `[implicit-copy]` line is a store, binding, return, owning argument or capture
-of a value that owns heap data (a `String`, a collection, a `Box`, `Arc`,
+of a value that owns heap data (a `String`, a collection, an `Rc`, `Arc`,
 `Dyn` or `ref` object) whose source stays alive: a borrowed parameter, a field
 read, a `match` or `for` binding, or a local that is read again afterwards. A
 local used for the last time is a move and is not listed.
@@ -3057,7 +3057,7 @@ test_capture :: (fn() -> unit)({
   counter := i32(0);
 
   // Reference-semantics type - captured by reference
-  data := Box(i32)(i32(42));
+  data := Rc(i32)(i32(42));
 
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
@@ -3246,39 +3246,43 @@ test :: (fn() -> unit)({
 
 For more examples, see [closure.test.yo](../tests/closure.test.yo).
 
-## Box and Boxing
+## Rc and Reference-Counted Cells
 
-Yo provides `Box` and `box` for heap-allocating value types with automatic reference counting.
+Yo provides `Rc` and `rc` for heap-allocating value types with automatic reference counting.
 
-### Box Type
+### Rc Type
 
-> **⚠️ `Box` is Rust's `Rc`, not Rust's `Box`.** Rust's `Box<T>` is a unique
-> owner — passing it moves, cloning it deep-copies. Yo's `Box(T)` is a `ref`
+> **⚠️ `Rc` is Rust's `Rc`, not Rust's `Box`.** Rust's `Box<T>` is a unique
+> owner — passing it moves, cloning it deep-copies. Yo's `Rc(T)` is a `ref`
 > type: copying the handle **shares one heap value and bumps a reference
 > count**, exactly like Rust's `Rc<T>`.
 >
 > ```rust
-> a := box(i32(42));
+> a := rc(i32(42));
 > b := a;                    // a second handle, NOT a copy of the value
 > consume(b.* = i32(7));
 > assert((a.* == i32(7)), "a and b name the SAME value");
 > ```
 >
-> The name stays until values-by-default V1 (`plans/VALUES_BY_DEFAULT.md`)
-> renames this type to `Rc` and introduces a uniquely owned `Box`. Until
-> then reference counting is Yo's *universal* object model, not one
-> container's opt-in policy: every `ref(struct(...))` is reference counted,
-> and `Box` is simply the one-field case.
+> Reference counting is Yo's *universal* object model, not one container's
+> opt-in policy: every `ref(struct(...))` is reference counted, and `Rc` is
+> simply the one-field case.
 >
-> What this means in practice: sharing is silent, a `Box` cycle leaks unless
+> What this means in practice: sharing is silent, an `Rc` cycle leaks unless
 > broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
 > about uniqueness.
+>
+> The cell used to be spelled `Box(V)` / `box(v)`. That spelling stays in the
+> prelude for one more release as a legacy alias (so the previous seed can
+> build the tree); do not write it. Values-by-default V1 step 2
+> (`plans/VALUES_BY_DEFAULT.md`) then reintroduces `Box` as a different,
+> uniquely owned, uncounted cell, like Rust's `Box<T>`.
 
-`Box(T)` is a generic reference-semantics type that wraps any value type:
+`Rc(T)` is a generic reference-semantics type that wraps any value type:
 
 ```rust
-// Box is defined in std/prelude.yo
-Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+// Rc is defined in std/prelude.yo
+Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
       (*) : V
@@ -3286,13 +3290,8 @@ Box :: (fn(comptime(V) : Type) -> comptime(Type))(
   )
 );
 
-// box function creates a Box
-box :: (fn(generic(V : Type), value : V) -> Box(V))(
-  Box(V)(value)
-);
-// rc is the same constructor under the name the counted cell will carry
-// once `Box` is renamed `Rc` (plans/VALUES_BY_DEFAULT.md)
-rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
+// rc allocates a fresh cell whose ref_count is 1
+rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 `rc` is the constructor, not the count: the count is `ref_count(x)`.
@@ -3300,25 +3299,25 @@ rc :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value));
 ### Usage Examples
 
 ```rust
-// Box a primitive value
-i := box(42); // i: Box(i32)
+// Wrap a primitive value
+i := rc(42); // i: Rc(i32)
 assert(i.* == 42); // Dereference with .*
-// Box a struct
+// Wrap a struct
 Point :: struct(x : i32, y : i32);
-p := box(Point(x : 3, y : 4)); // p: Box(Point)
+p := rc(Point(x : 3, y : 4)); // p: Rc(Point)
 assert(p.*.x == 3);
 
-// Box with explicit type
-b := Box(i32)(100); // Same as box(100)
-// Modify boxed value
-m := box(10);
+// Rc with explicit type
+b := Rc(i32)(100); // Same as rc(100)
+// Modify the wrapped value
+m := rc(10);
 m.* = 20;
 assert(m.* == 20);
 ```
 
 ### Auto-dereference
 
-`Box` and `Arc` implement the prelude's `Deref` marker trait
+`Rc` and `Arc` implement the prelude's `Deref` marker trait
 (`Deref :: trait(Target : Type)`, `Target` is the payload). On a `Deref`
 type, a field or method the wrapper does not have is looked up on the
 payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
@@ -3326,53 +3325,53 @@ payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
 ```rust
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
-p := box(Point(x : 3, y : 4));
+p := rc(Point(x : 3, y : 4));
 assert(p.x == 3);          // p.*.x
 p.x = 5;                   // a place: writes p.*.x
 assert(p.norm1() == 9);    // p.*.norm1()
-pp := box(box(Point(x : 1, y : 2)));
+pp := rc(rc(Point(x : 1, y : 2)));
 assert(pp.y == 2);         // nested wrappers: pp.*.*.y
 ```
 
-- **The wrapper's own members come first.** `p.clone()` is `Box`'s `clone`
-  (a new `Box`), not the payload's; `p.*` is always the payload itself.
+- **The wrapper's own members come first.** `p.clone()` is `Rc`'s `clone`
+  (a new `Rc`), not the payload's; `p.*` is always the payload itself.
 - **Places.** A forwarded field is a place: `p.x = v` and an `inout(self)`
   call such as `p.items.push(v)` write the payload. In a file without
   `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is still rejected
   (`a.n = v`, `a.bump()` with `inout(self)`): mutate an `Arc`'s payload
   through a `Mutex` or an atomic.
-- **Only `Box` and `Arc` implement `Deref`.** `impl(MyWrapper, Deref(...))`
+- **Only `Rc` and `Arc` implement `Deref`.** `impl(MyWrapper, Deref(...))`
   is a compile error: a user wrapper exposes its payload through its own
   fields and methods.
 - When neither the wrapper nor its payload has the name, the error says so:
-  ``No field "z" on Box(Point). `p` is a Box(Point); its payload Point has no
+  ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
   field "z" either.`` (E0406; E0610 for a method).
 - **Callee position.** `p.items(i)` indexes the payload's `items`, and
   `p.f(x)` calls a payload field that holds a function. The wrapper's own
   methods still come first, so the order is wrapper field, wrapper method,
   payload field, then payload method.
 
-### Box with Assignments
+### Rc with Assignments
 
 ```rust
-test("Box assignment behavior", {
-  x := box(1);
-  y := (x = box(2)); // y gets the old value
-  assert(x.* == 2); // x now points to new Box
-  assert(y.* == 1); // y has the old Box
+test("Rc assignment behavior", {
+  x := rc(1);
+  y := (x = rc(2)); // y gets the old value
+  assert(x.* == 2); // x now points to the new Rc
+  assert(y.* == 1); // y has the old Rc
 });
 ```
 
-### Box and Reference Counting
+### Rc and Reference Counting
 
-`Box(T)` is an reference-semantics type, so it uses automatic reference counting:
+`Rc(T)` is an reference-semantics type, so it uses automatic reference counting:
 
 ```rust
-test("Box reference counting", {
-  original := box(42);
+test("Rc reference counting", {
+  original := rc(42);
   copy := original; // RC increment
   another := copy; // RC increment
-  // All three point to the same Box
+  // All three point to the same Rc
   assert(original.* == 42);
   original.* = 100;
   assert(copy.* == 100); // Shared!
@@ -3382,22 +3381,22 @@ test("Box reference counting", {
 });
 ```
 
-### When to Use Box
+### When to Use Rc
 
 - **Heap allocation**: When you need a value type on the heap
 - **Shared mutability**: Multiple references to the same mutable value
-- **Dynamic dispatch**: Boxing value types for use with `Dyn`
+- **Dynamic dispatch**: Wrapping value types for use with `Dyn` (`dyn(v)` on a value type does this for you: it wraps `v` in `rc(v)`)
 - **Recursive types**: Breaking cycles in type definitions
 
 ```rust
 // Dynamic dispatch requires reference-semantics types
 impl(i32, SomeTrait(...));
 
-// Value types must be boxed for Dyn
+// Value types reach Dyn through an Rc
 use_dyn :: (fn(value : Dyn(SomeTrait)) -> unit)({ ... });
 
-// Box the i32 for use with Dyn
-use_dyn(dyn(box(i32(42))));
+// Wrap the i32 in an Rc for use with Dyn
+use_dyn(dyn(rc(i32(42))));
 ```
 
 ## Impl Types
@@ -4162,7 +4161,7 @@ impl(
 );
 
 test("Object disposal", {
-  // Box is automatically disposed at end of scope
+  // MyBox is automatically disposed at end of scope
   b := MyBox(42);
   assert(b.* == 42);
   b.* = 100;

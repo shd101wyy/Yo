@@ -3326,7 +3326,7 @@ _msp_arg_base_var :: (fn(arg : AstExpr, table : ExprInfoTable) -> Option(Variabl
 /// Does `v` (or a same-frame alias it shares its count with) belong to the
 /// borrowed set?
 _msp_var_is_borrowed :: (fn(v : Variable, borrowed_ids : ArrayList(usize)) -> bool)({
-  (cur : Option(Box(Variable))) = Option(Box(Variable)).Some(box(v));
+  (cur : Option(Rc(Variable))) = Option(Rc(Variable)).Some(rc(v));
   (hops : usize) = usize(0);
   while(cur.is_some() && (hops < usize(64)), {
     match(

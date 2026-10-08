@@ -94,7 +94,7 @@ broken :: (fn(p : Point) -> unit)({
 
 A by-value parameter borrows its value: its storage is a copy of the caller's, and a field
 write changes only that copy. A field whose old value holds RC data (a `String`, a
-collection, a `Box`, …) cannot be written through it, because the write would release data
+collection, an `Rc`, …) cannot be written through it, because the write would release data
 the caller still holds (E0908). The same holds for a `match` or `for` binding, and for
 passing such a place to an `inout` parameter the callee may write, including calling an
 `inout(self)` method such as `push_str` on it: the write would land in the borrowed copy
@@ -123,20 +123,20 @@ Use `own()` to transfer ownership to a function parameter.
 - If the argument is only **borrowed / non-owning** (e.g. a borrowed parameter), the compiler inserts `___dup` to materialize an owned temporary for the callee, and the original binding is still **consumed** (becomes unusable) to keep `own()` calls linear/consuming.
 
 ```rust
-consume :: (fn(own(box) : Box(i32)) -> unit)({
+consume :: (fn(own(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box is dropped at end of function
 });
 
-b := box(42); // b owns
+b := rc(42); // b owns
 consume(b); // b cannot be used after this point
-call_consume :: (fn(p : Box(i32)) -> unit)({
+call_consume :: (fn(p : Rc(i32)) -> unit)({
   // p borrows by default
   consume(p); // compiler inserts ___dup(p) to satisfy own(box)
   // p is NOT usable here (moved/consumed by the own() call)
 });
 
-call_consume_but_keep_using :: (fn(p : Box(i32)) -> unit)({
+call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
   // p borrows by default
   p2 := p; // compiler inserts ___dup(p); p2 owns
   consume(p2); // p2 is consumed
@@ -163,13 +163,13 @@ Point(x : i32(3), y : i32(4)); // temp_var owns the Point(x: i32(3), y: i32(4)),
 The builtin `ref_count(x)` returns the current reference count of the cell `x` holds, as a `usize`. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. Atomically counted handles (`Arc(T)`, `atomic(ref(...))`, `Iso`) are read with an atomic load.
 
 ```rust
-b := Box(i32)(3);
+b := Rc(i32)(3);
 assert(ref_count(b) == usize(1), "one owner");
 ```
 
 The count reflects the compiler's dup/drop optimizations, so a copy the optimizer cancelled does not show up; it is meant for uniqueness checks (copy-on-write) and tests, not program logic.
 
-`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns an `Rc(T)` handle whose `ref_count` is `1`. `Rc(T)` has the same definition and behaviour as today's `Box(T)` (Yo's `Box` is already reference counted); `Rc` is the shared cell's name going forward, and `Box` will become a uniquely owned cell (`plans/VALUES_BY_DEFAULT.md`).
+`rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns an `Rc(T)` handle whose `ref_count` is `1`. `Rc(T)` is Yo's shared cell; it used to be spelled `Box(T)`, which stays in the prelude as a legacy alias for one more release. `Box` will later return as a uniquely owned cell (`plans/VALUES_BY_DEFAULT.md`, V1 step 2).
 
 ```rust
 a := rc(i32(42));
@@ -214,9 +214,9 @@ use_point(point); // No ___dup, p borrows point
 **Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
 
 ```rust
-x := box(12); // x owns box(12), RC = 1
+x := rc(12); // x owns rc(12), RC = 1
 {
-  y := box(13); // y owns box(13), RC = 1
+  y := rc(13); // y owns rc(13), RC = 1
   x = y; // DANGER if x just borrows from y...
   // End of inner scope
   ___drop(y); // RC = 0, memory freed
@@ -230,16 +230,16 @@ printf("%d\n", x.*); // BUG: x would point to freed memory!
 With our model (assignments always own):
 
 ```rust
-x := box(12); // x owns box(12), RC = 1
+x := rc(12); // x owns rc(12), RC = 1
 {
-  y := box(13); // y owns box(13), RC = 1
+  y := rc(13); // y owns rc(13), RC = 1
   x = y; // ___dup(y), ___drop(old x), x owns new value
-  // box(13): RC = 2; old box(12): RC = 0, freed
-  ___drop(y); // box(13): RC = 1
+  // rc(13): RC = 2; old rc(12): RC = 0, freed
+  ___drop(y); // rc(13): RC = 1
 };
 
-printf("%d\n", x.*); // ✅ Safe: x owns box(13), RC = 1
-___drop(x); // box(13): RC = 0, freed
+printf("%d\n", x.*); // ✅ Safe: x owns rc(13), RC = 1
+___drop(x); // rc(13): RC = 0, freed
 ```
 
 ## Our Approach: Simple Ownership with Optimization
@@ -254,9 +254,9 @@ Yo prioritizes **safety and simplicity** with a path to optimization:
 **Example - simple and safe:**
 
 ```rust
-x := box(12);
+x := rc(12);
 {
-  y := box(13);
+  y := rc(13);
   x = y; // Always safe: ___dup(y), ___drop(old x)
 };
 printf("%d\n", x.*); // Always works: x owns a valid reference
@@ -355,7 +355,7 @@ create :: (fn() -> Point)({
 **Begin blocks:**
 
 ```rust
-x := box(1);
+x := rc(1);
 y := {
   ();
   x // ___dup(x) when returning from begin block
@@ -366,13 +366,13 @@ y := {
 **Match expressions:**
 
 ```rust
-optional := Option(Box(i32)).Some(box(42)); // optional owns
+optional := Option(Rc(i32)).Some(rc(42)); // optional owns
 x := match(
   optional,
   // `value` here is borrowed, not owned
   // ___dup(value) inserted here
   .Some(value) => value,
-  .None => box(0)
+  .None => rc(0)
 );
 ```
 
@@ -404,17 +404,17 @@ executes unconditionally on every path that reaches the scope end**. The optimiz
 **`own()` parameters take ownership (move if possible, otherwise dup):**
 
 ```rust
-consume :: (fn(own(box) : Box(i32)) -> unit)({
+consume :: (fn(own(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box is dropped at end of function
 });
 
-b := box(42); // b owns
+b := rc(42); // b owns
 consume(b); // b is consumed
 // b cannot be used after this point
 // If the argument is borrowed/non-owning, the compiler inserts ___dup.
 // Example: borrowed parameter passing to an own() parameter.
-call_consume :: (fn(p : Box(i32)) -> unit)({
+call_consume :: (fn(p : Rc(i32)) -> unit)({
   consume(p); // inserts ___dup(p); p is consumed (not usable after this)
 });
 ```

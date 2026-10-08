@@ -1,5 +1,5 @@
 // Regression: a plain FIELD READ of an RC-payload value enum
-// (`h.slot` : Option(Box(Tok)) feeding `.is_some()`) must dup the payload
+// (`h.slot` : Option(Rc(Tok)) feeding `.is_some()`) must dup the payload
 // when the read materializes an owning temp — the temp's cleanup drops the
 // payload, so a dup-less read is net −1 on the FIELD's box per check.
 // Stage-2's merge_and_check_envs `base_var.consumed_at_token.is_some()`
@@ -13,7 +13,7 @@
 Tok :: ref(struct(text : String));
 derive(Tok, Clone);
 
-Holder :: ref(struct(slot : Option(Box(Tok))));
+Holder :: ref(struct(slot : Option(Rc(Tok))));
 
 has :: (fn(h : Holder, flag : bool) -> bool)(
   // The read must sit on the RHS of a short-circuit `&&` — the crashing
@@ -24,7 +24,7 @@ has :: (fn(h : Holder, flag : bool) -> bool)(
 
 main :: (fn() -> unit)({
   t := Tok(text : String.from("alpha"));
-  h := Holder(slot : Option(Box(Tok)).Some(box(t.clone())));
+  h := Holder(slot : Option(Rc(Tok)).Some(rc(t.clone())));
   (i : usize) = usize(0);
   while(i < usize(6), {
     if(has(h, true), {

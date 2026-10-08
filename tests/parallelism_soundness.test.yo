@@ -329,8 +329,8 @@ comptime_expect_error({
 // D2 (Phase 2): the raw constructor is not available in safe code.
 comptime_expect_error({
   _d2_raw_iso_constructor :: (fn() -> unit)({
-    b := box(i32(1));
-    _i := Iso(Box(i32))(b);
+    b := rc(i32(1));
+    _i := Iso(Rc(i32))(b);
   });
   _d2_raw_iso_constructor();
 });
@@ -339,12 +339,12 @@ comptime_expect_error({
   _D2Scalar :: Iso(i32);
 });
 // Canary: `^` constructs an Iso in safe code.
-test("D2 canary: ^ isolates a uniquely owned Box in safe code", {
-  b := box(i32(7));
+test("D2 canary: ^ isolates a uniquely owned Rc in safe code", {
+  b := rc(i32(7));
   match(
     ^b,
     .Some(i) => assert(i.extract().* == i32(7), "the value came through"),
-    .None => assert(false, "a fresh Box is uniquely owned")
+    .None => assert(false, "a fresh Rc is uniquely owned")
   );
 });
 // ============================================================================
@@ -543,7 +543,7 @@ comptime_expect_error({
 });
 // A `Dyn(..., Send)` shares its data object across threads, so the object is
 // counted atomically: `dyn(...)` boxes a closure with `arc`, and an explicit
-// non-atomic `box(...)` payload is rejected
+// non-atomic `rc(...)` payload is rejected
 // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
 comptime_expect_error({
   _dsend_box :: (fn() -> unit)({
@@ -553,7 +553,7 @@ comptime_expect_error({
         ();
       }
     );
-    (d : Dyn(Fn() -> unit, Send)) = dyn(box(k));
+    (d : Dyn(Fn() -> unit, Send)) = dyn(rc(k));
     d;
   });
   _dsend_box();

@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { AstExpr, exprs_are_equal } :: import("./expr.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("./types/compatibility.yo");
 /// Non-`Self`-referencing fields of `EvalValue.FuncVal`, factored out and stored
-/// behind a `Box` (P2 memory). These reference only `String`/`AstExpr`/`TypeValue`
+/// behind an `Rc` (P2 memory). These reference only `String`/`AstExpr`/`TypeValue`
 /// (NOT `Self`/`EvalValue`), so the struct is defined BEFORE `EvalValue` (no
 /// forward-reference dance). Only `cap_vals : ArrayList(Self)` stays inline.
 FuncValData :: struct(
@@ -90,11 +90,11 @@ EvalValue :: ref(
     /// parameters. At call time these are bound from explicit `name` args
     /// (which evaluate to the named value from the caller's env).
     /// `cap_vals` (closure capture VALUES) stays inline — it is `ArrayList(Self)`
-    /// (recursive). All other fields live in `data : Box(FuncValData)` (P2: the
+    /// (recursive). All other fields live in `data : Rc(FuncValData)` (P2: the
     /// inline 9-handle variant set sizeof(EvalValue) ~80 B, wasted in every inline
     /// Option(EvalValue) / nested ArrayList(EvalValue) copy).
     FuncVal(
-      data : Box(FuncValData),
+      data : Rc(FuncValData),
       cap_vals : ArrayList(Self)
     ),
     /// Control-flow signal emitted by a `return(expr)` statement.
@@ -147,10 +147,10 @@ EvalValue :: ref(
     ArrayVal(elements : ArrayList(Self)),
     /// A compile-time slice into an array.
     ///
-    /// `source` is a `Box(EvalValue)` wrapping an `ArrayVal`.
+    /// `source` is a `Rc(EvalValue)` wrapping an `ArrayVal`.
     /// `start_idx` (inclusive) and `end_idx` (exclusive) delimit the view.
     ///
-    /// Note: the `Box` design preserves the backing-array reference concept
+    /// Note: the `Rc` design preserves the backing-array reference concept
     /// for pointer semantics but does not yet implement full mutable aliasing.
     ///
     /// A compile-time pointer to a value.

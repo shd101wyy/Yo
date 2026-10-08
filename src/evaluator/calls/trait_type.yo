@@ -299,9 +299,9 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Extend the receiver type's trait methods BEFORE evaluating member
   // expressions. A member body
   // that calls back into this impl's own methods (recursive types:
-  // `TreeNode :: enum(..., Branch(left : Box(Self), ...))` +
+  // `TreeNode :: enum(..., Branch(left : Rc(Self), ...))` +
   // `derive(TreeNode, Clone)` — validating the derived clone specializes
-  // `Box(TreeNode).clone`, whose body calls `TreeNode.clone`) must find the
+  // `Rc(TreeNode).clone`, whose body calls `TreeNode.clone`) must find the
   // method TYPE from the trait signature while the real `FuncVal` is still
   // being evaluated. Each function-typed field carries the receiver via
   // `MethodEntry.self_type`.

@@ -1473,7 +1473,7 @@ _optimize_dup_drop_pairs :: (
                       .None => ()
                     );
                   });
-                  v.consumed_at_token = Option(Box(Token)).Some(box(consume_tok));
+                  v.consumed_at_token = Option(Rc(Token)).Some(rc(consume_tok));
                 });
               });
             }),
@@ -3052,7 +3052,7 @@ _evaluate_begin_expression_impl :: (
                 if(!is_temp_variable_name(env.module_path, rv.name), {
                   record_branch_consume(rv.id, ast_expr_token(last_expr), rv.initialized_at_token, Option(Token).None);
                 });
-                rv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(last_expr)));
+                rv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(last_expr)));
               }, {
                 // Borrow/outer-frame share: balancing dup.
                 set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn, "return");

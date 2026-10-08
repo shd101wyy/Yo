@@ -68,7 +68,7 @@ Yo's async uses **algebraic effects** with the `Io` effect type. Async tasks are
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   // Lazy creation — neither task starts yet
   task1 := io.async((io : Io) => {
@@ -1256,7 +1256,7 @@ r2 := handle2.await(io);
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   task1 := io.async((io : Io) => {
     counter.* = (counter.* + 1);
@@ -1288,7 +1288,7 @@ export(main);
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Box(i32)(0);
+  counter := Rc(i32)(0);
 
   task1 := io.async((io : Io) => {
     counter.* = (counter.* + 1);
@@ -1508,7 +1508,7 @@ parameters via `e : E`, and callers inject handlers at `io.await` or
 
 1. **Effect handlers are not closures** — handler functions are standalone C
    functions and cannot capture variables from the enclosing scope. Pass state
-   via explicit parameters or `Box`. See `docs/en-US/ALGEBRAIC_EFFECTS.md`.
+   via explicit parameters or an `Rc`. See `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
 Limitations listed in earlier revisions of this document — the 3-argument
 `while` in async, a binary expression as an async return value, and an

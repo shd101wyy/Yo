@@ -37,7 +37,7 @@ it freezes its place:
 - while a `mut` borrow is live, they are not accessed at all except through
   the borrow;
 - **sibling fields stay free**: `mut(a) := p.x; mut(b) := p.y;` is accepted;
-- below a reference cell (`Box`, `Rc`, `Arc`, a `ref` object) **the cell is
+- below a reference cell (`Rc`, `Arc`, a `ref` object) **the cell is
   the unit**, because other handles reach it: `mut(a) := h.n; mut(b) := h.s;`
   is rejected;
 - a loop that uses the borrow keeps it live for the whole loop (the next
@@ -68,11 +68,11 @@ that enters a reference cell:
 
 ```rust
 append :: (fn(mut(list) : List, v : i32) -> unit)({
-  mut(cur) := list.head; // Option(Box(Node))
+  mut(cur) := list.head; // Option(Rc(Node))
   while(cur.is_some(), {
     match(cur, .Some(n) => { mut(cur) = n.next; }, .None => ());
   });
-  cur = .Some(box(Node(value : v, next : .None))); // writes the tail slot
+  cur = .Some(rc(Node(value : v, next : .None))); // writes the tail slot
 });
 ```
 
@@ -110,10 +110,10 @@ The argument passed to an `inout` parameter is a simple lvalue **place**:
   borrowed storage. The recipe is one line: bind the object to a local
   first (`b := a.b`) — the local handle pins it naturally;
 - an **indexed element** (`xs(i)`) or a chain through an **intermediate
-  object** (including a `Box` deref `b.*`, since `Box` is an ordinary
+  object** (including an `Rc` deref `b.*`, since `Rc` is an ordinary
   object and `*` is just a field) is a pointer into a heap object's
   storage; it may be an `inout` argument only when the callee cannot reach
-  that object — passing the container/box (or an alias), indexing a
+  that object — passing the container/cell (or an alias), indexing a
   module-level container, or passing **any other object/closure
   argument** that could hold a handle to it, is rejected (growth or
   reassignment could free the storage under the reference). Element-only

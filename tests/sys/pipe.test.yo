@@ -122,8 +122,8 @@ test("two concurrent async reads on one pipe end both complete", {
       buf_a := (*u8)(buf_a_uninit.as_ptr());
       buf_b_uninit := MaybeUninit(Array(u8, usize(8))).new();
       buf_b := (*u8)(buf_b_uninit.as_ptr());
-      read_a := Box(i32)(-99);
-      read_b := Box(i32)(-99);
+      read_a := Rc(i32)(-99);
+      read_b := Rc(i32)(-99);
       task_a := io.async((io : Io) => {
         n := io.await(file.read(read_fd, buf_a, u32(8), u64(0)), io);
         read_a.* = n;

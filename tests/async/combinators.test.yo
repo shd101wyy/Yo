@@ -13,8 +13,8 @@ pragma(Pragma.AllowUnsafe);
 
 /// A task that sleeps `ms` then returns `value`.
 sleepy :: (fn(value : i32, ms : u64, io : Io) -> Impl(Future(i32, Io)))({
-  v := Box(i32)(value);
-  m := Box(u64)(ms);
+  v := Rc(i32)(value);
+  m := Rc(u64)(ms);
   io.async((io : Io) => {
     io.await(sleep(m.*), io);
     return(v.*);
@@ -143,7 +143,7 @@ test("Test timeout distinguishes an aborted task from an elapsed deadline", {
 // 7. timeout — deadline aborts the task
 // ---------------------------------------------------------------------------
 test("Test timeout aborts on deadline", {
-  ran := Box(bool)(false);
+  ran := Rc(bool)(false);
   fut := io.async((io : Io) => {
     io.await(sleep(u64(100)), io);
     ran.* = true;
@@ -210,7 +210,7 @@ test("Test any_first is None when every handle was aborted", {
 // ---------------------------------------------------------------------------
 /// Spawns `n` sleepy workers inside a task and joins them one by one.
 join_in_task :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))({
-  count := Box(i32)(n);
+  count := Rc(i32)(n);
   io.async((io : Io) => {
     handles := ArrayList(JoinHandle(i32)).new();
     (k : i32) = i32(0);
@@ -336,7 +336,7 @@ test("Test any inside a task skips an aborted handle", {
   assert(r == i32(1), "any resolves to the completing handle's index from inside a task");
 });
 test("Test aborting the joining task leaves the joined task running", {
-  done := Box(bool)(false);
+  done := Rc(bool)(false);
   worker := io.async((io : Io) => {
     io.await(sleep(u64(20)), io);
     done.* = true;
@@ -729,7 +729,7 @@ impl(
   )
 );
 test("Test for_await suspends its task between items", {
-  ticks := Box(i32)(0);
+  ticks := Rc(i32)(0);
   seen := ArrayList(i32).new();
   t := Ticker(_n : i32(3));
   task := io.async((io : Io) => {
@@ -766,7 +766,7 @@ test("Stream.for_each releases what its body closure captures", {
   before := g_fe_disposed;
   {
     t := _FeThing(n : i32(2));
-    total := Box(i32)(0);
+    total := Rc(i32)(0);
     io.await(
       Countdown(_n : i32(3)).for_each(x => {
         total.* = (total.* + (x * t.n));

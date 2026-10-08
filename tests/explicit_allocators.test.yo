@@ -51,7 +51,7 @@ test("ref enum variants, box, arc and dyn boxes are placed by the scope", {
   {
     s := arena.scoped(() => _Shape.Square(side : i32(5)));
     assert(arena.live_blocks() == usize(1), "enum variant");
-    b := arena.scoped(() => box(i32(9)));
+    b := arena.scoped(() => rc(i32(9)));
     assert(b.* == i32(9), "box value");
     assert(arena.live_blocks() == usize(2), "box");
     a := arena.scoped(() => arc(i32(11)));
@@ -68,7 +68,7 @@ test("ref enum variants, box, arc and dyn boxes are placed by the scope", {
 test("An Iso built in the scope is released into the arena on another thread", {
   arena := _arena();
   {
-    iso := arena.scoped(() => Iso(Box(i32))(box(i32(21))));
+    iso := arena.scoped(() => Iso(Rc(i32))(rc(i32(21))));
     assert(arena.live_blocks() == usize(2), `the Iso and its payload: ${arena.live_blocks()}`);
     t := Thread(unit).spawn(io => {
       v := iso.extract();

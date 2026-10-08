@@ -311,7 +311,7 @@ implement `Sync` can be shared between threads (an `Arc` payload, a module-level
   compiler can see it: a spawn body, an `Impl(Fn(...), Send)` argument, a generic
   `where(T <: Send)` argument, a captured variable
 - **Not Sendable**: `ref(struct(...))` / `ref(enum(...))` (non-atomic RC: `ArrayList`,
-  `Box`, ..., and values holding one, such as `String`), raw pointers and types holding one
+  `Rc`, ..., and values holding one, such as `String`), raw pointers and types holding one
   unless they opt in, `Dyn(Trait)` without `Send` in its bound, `Io`, `JoinHandle`, closures
   that borrow their captures,
   function values capturing any of those or reaching a non-Send global, and a bare
