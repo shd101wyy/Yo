@@ -3419,7 +3419,7 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   - **Function-local types could not opt in.** A `derive` inside a
     function body was a silent no-op
     (`issues/fixed/a-derive-inside-a-function-body-is-silently-ignored.md`,
-    S2; fixed 2026-10-08 in `fix/local-derive`), so `Point1`, `Color`,
+    S2; fixed 2026-10-08 in #1270), so `Point1`, `Color`,
     `EvenNumber`, `Cell` and `Inner` in the language tests take their local
     `derive(T, Copy, Clone)` with the flip.
   - **The `markdown_yo` dependency** has its own plain-data types
