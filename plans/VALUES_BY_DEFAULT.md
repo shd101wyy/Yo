@@ -35,7 +35,7 @@ Progress:
     `ThreadPool` `spawn` signatures (the `io.async` slot waits for V3's
     async work);
   - decision 36 Generation B part 1, the `Copy` sweep and structural
-    `clone()` (#1269), and part 2, the flip;
+    `clone()` (#1269), part 2, the flip, and part 3, `MoveOnly` deleted;
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -52,8 +52,7 @@ Progress:
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
   - V3's remaining async work (§3.13).
-- **Next:** the remaining Generation B sweeps (the V3b sweep and flip), and
-  decision 36's step 4, deleting `MoveOnly`.
+- **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -3513,8 +3512,24 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
   `String` the caller keeps using today. V3b's flip makes plain parameters
   owning, which closes it. Until then a plain element type takes
   `derive(T, Copy, Clone)`.
-- **Steps 4 and 5.** The step-5 tests are in `tests/copy_trait.test.yo`.
-  Deleting `MoveOnly` (step 4) is its own change.
+- **Step 5.** Its tests are in `tests/copy_trait.test.yo`.
+
+**Generation B as built, part 3: `MoveOnly` deleted (2026-10-09).**
+- The prelude marker is gone, along with every compiler arm that read it
+  (the marker list, the structural `MoveOnly` rule in `type_implements_trait`,
+  the receiver-kind gate, the `!(MoveOnly)` rejection, the declaration
+  registry's second trait name).
+- Move-only is now a `Dispose` value type, or a value aggregate holding one
+  (the existing derivation, `type_is_move_only`), or a plain value type that
+  is neither `Copy` nor `Clone`. A token that must stay unique declares
+  neither. The E0901 note calls the second kind move-only ("neither `Copy`
+  nor `Clone`") and offers no `.clone()` (`type_lacks_clone`, a hook the trait
+  checker installs).
+- Tests assert `Copy`/`Clone` facts in place of `Type.impls(T, MoveOnly)`.
+  The rewrite found that a conditional `Clone` impl answers yes for a type
+  argument without `Clone`
+  (`issues/a-conditional-clone-impl-answers-yes-for-a-type-argument-without-clone.md`,
+  S2, predates decision 36).
 
 ### V2: the collections become values
 
