@@ -780,7 +780,9 @@ test("Test 'struct'", {
   // nomimal type
   {
     Point1 :: struct(x : i32, y : i32);
+    derive(Point1, Copy, Clone);
     Point2 :: struct(x : i32, y : i32);
+    derive(Point2, Copy, Clone);
     x := Point1(3, 4);
     (y : Point2) = _(5, 6);
     comptime_expect_error(
@@ -1033,6 +1035,7 @@ test("Test 'struct'", {
 test("Test 'enum'", {
   {
     Color :: enum(Red, Green, Blue);
+    derive(Color, Copy, Clone);
     (r : Color) = Color.Red;
     r2 := Color.Blue;
     Shape :: enum(
@@ -1099,6 +1102,7 @@ test("Test 'enum'", {
       Green = 6,
       Blue = 9
     );
+    derive(Color, Copy, Clone);
     Shape :: enum(
       Circle(radius : i32) = 2,
       Square(side : i32) = 4,
@@ -1301,6 +1305,7 @@ test("Test 'cond'", {
 });
 test("Test 'match'", {
   Color :: enum(Red, Green, Blue);
+  derive(Color, Copy, Clone);
   color_to_i32 :: (fn(color : Color) -> i32)(
     match(
       color,

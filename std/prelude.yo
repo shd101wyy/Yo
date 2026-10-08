@@ -12477,6 +12477,11 @@ Io :: struct(
 // Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
 // is per-thread (per AGENTS.md). Sending Io across a thread boundary would
 // reference a scheduler on the wrong thread.
+// `Io` is plain data (four `fn` values), so it is `Copy`: decision 36's flip
+// makes every plain-data type without `Copy` explicit-copy. Its derived
+// `Clone` calls `.clone()` on `fn` fields, which the structural clone
+// resolves (it needed a seed carrying #1269).
+derive(Io, Copy, Clone);
 impl(Io, !Send());
 impl(Io, !Sync());
 export(Io);

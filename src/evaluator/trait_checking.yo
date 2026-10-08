@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
   is_reference_enum_type,
   is_primitive_type
 } :: import("../types/guards.yo");
-{ enum_instance_node_id } :: import("../types/type_key.yo");
+{ enum_instance_node_id, type_key } :: import("../types/type_key.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -56,7 +56,11 @@ pragma(Pragma.AllowUnsafe);
   move_only_declarations_exist,
   is_value_nominal_type,
   set_move_only_nominal_fn,
-  MoveOnlyNominalFn
+  MoveOnlyNominalFn,
+  set_type_lacks_copy_fn,
+  type_is_control_bound,
+  bump_trait_impl_epoch,
+  trait_impl_epoch
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -106,6 +110,12 @@ pragma(Pragma.AllowUnsafe);
 /// registry, which was unqueryable because trait values are nameless.
 (g_type_trait_registry : HashMap(String, ArrayList(TypeValue))) =
   HashMap(String, ArrayList(TypeValue)).new();
+// Decision 36's flip state (`type_lacks_copy_for_flip` below): the prelude
+// environment its `Copy` question is asked in, and the memo the trait-impl
+// epoch (`types/utils.yo`) invalidates.
+(g_flip_env : Option(Environment)) = Option(Environment).None;
+(g_lacks_copy_memo : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_lacks_copy_memo_epoch : u64) = u64(0);
 /// Register that the type `type_id` auto-derives the marker trait named
 /// `trait_name`, resolved to its canonical env trait VALUE. If the trait isn't in
 /// scope yet (rare — e.g. a struct defined before the marker trait), skip
@@ -131,6 +141,7 @@ register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit
   list := match(g_type_trait_registry.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(trait_ty);
   g_type_trait_registry.insert(type_id, list);
+  bump_trait_impl_epoch();
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
 /// `base_name` for Fn/Future traits.
@@ -844,6 +855,62 @@ _copy_without_clone_msg :: (fn(target_type : TypeValue, env : Environment) -> Op
 /// - the parts of a tuple, array, closure or anonymous record;
 /// - a C opaque type, by name.
 ///
+// ---------------------------------------------------------------------------
+// Decision 36's flip: a plain-data type that is not `Copy` is explicit-copy
+// ---------------------------------------------------------------------------
+/// The environment the flip's `Copy` question is asked in: the cached prelude
+/// environment (set by `module_manager.yo` once the prelude is loaded). `Copy`
+/// and its impls are global; the environment only resolves the trait name.
+set_flip_prelude_env :: (fn(env : Environment) -> unit)({
+  g_flip_env = Option(Environment).Some(env);
+});
+/// True when a value of the plain-data type `ty` is NOT implicitly copyable
+/// under decision 36's flip: it is not `Copy`. Compile-time-only types (their
+/// copies never reach run time), control-bound records (`Exception`, effect
+/// records: a `ctl` handler cannot be `Clone`, so it can never be `Copy`) and
+/// C opaque types answer false and keep copying implicitly. The caller
+/// (`type_requires_explicit_copy`) has already excluded owned buffers and
+/// counted cells.
+type_lacks_copy_for_flip :: (fn(ty : TypeValue) -> bool)({
+  env := match(
+    g_flip_env,
+    .Some(e) => e,
+    .None => {
+      return(false);
+    }
+  );
+  if(is_some_type(ty) || match(ty, .ExternOpaqueT(_, _) => true, _ => false), {
+    return(false);
+  });
+  if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
+    g_lacks_copy_memo.clear();
+    g_lacks_copy_memo_epoch = trait_impl_epoch();
+  });
+  key := type_key(ty);
+  match(
+    g_lacks_copy_memo.get(key.clone()),
+    .Some(known) => {
+      return(known);
+    },
+    .None => ()
+  );
+  answer := cond(
+    (type_is_comptime_only_full(ty, env) || type_is_control_bound(ty)) => false,
+    true => match(
+      get_trait_type_from_env(env, String.from("Copy")),
+      .Some(copy_tt) => !type_implements_trait(ty, copy_tt, env).implemented,
+      .None => false
+    )
+  );
+  // The query itself may force pending impls (and bump the epoch); record
+  // the answer under the epoch it was computed at.
+  if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
+    g_lacks_copy_memo.clear();
+    g_lacks_copy_memo_epoch = trait_impl_epoch();
+  });
+  g_lacks_copy_memo.insert(key, answer);
+  answer
+});
 /// Empty when `ty` is `Copy`, and for a compile-time-only type: its copies
 /// never reach run time.
 copy_trait_blockers :: (fn(ty : TypeValue, env : Environment) -> ArrayList(String))({
@@ -2783,6 +2850,7 @@ _trait_checking_init := (fn() -> bool)({
   set_receiver_kind_trait_fn(receiver_kind_trait_violation_msg);
   set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
   set_copy_trait_blockers_fn(copy_trait_blockers);
+  set_type_lacks_copy_fn(type_lacks_copy_for_flip);
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();
@@ -2797,6 +2865,7 @@ export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_sync, type_implements_dispose, type_implements_acyclic);
 export(deref_target_type, copy_structural_parts);
+export(set_flip_prelude_env);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);

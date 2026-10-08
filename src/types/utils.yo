@@ -799,11 +799,50 @@ type_is_move_only :: (fn(ty : TypeValue) -> bool)(
 /// move-only). The move points, use-after-move (E0901), flow joins, the
 /// no-partial-moves rule and closure-capture moves all key on this predicate;
 /// only "may it be copied with `.clone()`" and the `Dispose` rule key on
-/// `type_is_move_only`, its strict sub-case. Today it holds exactly for
-/// move-only types: the explicit-copy kind (a value owning a buffer: `String`,
-/// the collections, a value `Box`, `Dyn`) joins in its own, separately
-/// measured migration.
-type_requires_explicit_copy :: (fn(ty : TypeValue) -> bool)(type_is_move_only(ty));
+/// `type_is_move_only`, its strict sub-case. It holds for move-only types and,
+/// since decision 36's flip, for a plain-data type that is not `Copy`. A
+/// value owning a buffer (`String`, the collections, `Dyn`) joins in V2b's
+/// own, separately measured migration.
+/// Decision 36's flip (plans/VALUES_BY_DEFAULT.md, Generation B): a
+/// plain-data type (no owned buffer, no counted cell) that is not `Copy` is
+/// explicit-copy too. The `Copy` question needs the trait registry and an
+/// environment, which this module cannot reach, so `trait_checking.yo`
+/// installs it (`type_lacks_copy_for_flip`, memoized there). Compile-time-only,
+/// control-bound and C-opaque types answer false: their copies stay implicit.
+(g_type_lacks_copy_fn : Option(fn(ty : TypeValue) -> bool)) = Option(fn(ty : TypeValue) -> bool).None;
+/// Bumped on every trait-impl registration (`register_type_trait_value`,
+/// `register_generic_impl`). A "not `Copy`" answer is only as good as the
+/// impls registered when it was given (an impl placed later in a module
+/// registers after a copy was first judged), so the flip's memo
+/// (`type_lacks_copy_for_flip`) is dropped whenever this moves.
+(g_trait_impl_epoch : u64) = u64(0);
+bump_trait_impl_epoch :: (fn() -> unit)({
+  g_trait_impl_epoch = (g_trait_impl_epoch + u64(1));
+});
+trait_impl_epoch :: (fn() -> u64)(g_trait_impl_epoch);
+set_type_lacks_copy_fn :: (fn(f : (fn(ty : TypeValue) -> bool)) -> unit)({
+  g_type_lacks_copy_fn = Option(fn(ty : TypeValue) -> bool).Some(f);
+});
+_plain_data_lacks_copy :: (fn(ty_in : TypeValue) -> bool)({
+  ty := match(
+    ty_in,
+    .SomeT({ resolution : sr }) => match(
+      sr,
+      .Some(c) => c,
+      .None => {
+        // A generic parameter is judged where it is bound (a generic body is
+        // re-evaluated per instantiation), as `type_is_move_only` does.
+        return(false);
+      }
+    ),
+    _ => ty_in
+  );
+  if(type_contains_rc_type(ty), {
+    return(false);
+  });
+  match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false)
+});
+type_requires_explicit_copy :: (fn(ty : TypeValue) -> bool)(type_is_move_only(ty) || _plain_data_lacks_copy(ty));
 /// Why `ty` is move-only, for the E0901 note: the declaring type and trait,
 /// reached through the component path ("`Holder` holds a move-only value in
 /// its field `fd` (`Fd`): `Fd` implements Dispose"). `.None` when it is not
@@ -2995,7 +3034,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
+export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, set_type_lacks_copy_fn, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);
