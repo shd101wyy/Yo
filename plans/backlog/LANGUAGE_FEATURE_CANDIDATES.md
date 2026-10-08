@@ -1,8 +1,8 @@
 # Language feature candidates (2026-10-08)
 
-**Status: BACKLOG — five candidates, none adopted.** Proposed 2026-10-08 in a
+**Status: BACKLOG — six candidates, none adopted.** Proposed 2026-10-08 in a
 design conversation with the maintainer ("what other language features would
-you suggest?"), the same session as
+you suggest?", then SoA), the same session as
 [`RUST_REFERENCE_PATTERNS.md`](RUST_REFERENCE_PATTERNS.md) and
 [`CODEGEN_PERFORMANCE.md`](CODEGEN_PERFORMANCE.md). Every candidate was
 checked against what exists in `std/`/`src/`, what is already designed in a
@@ -161,7 +161,72 @@ boundary — where most real contracts live and where `Dyn(Trait)` dispatch is
 currently unverifiable. It is also the item on this list no other systems
 language has.
 
-## 6. Maintenance
+## 6. `Soa(T)` — a comptime-generated columnar container (std, not a keyword)
+
+**What.** Structure-of-arrays storage generated at compile time from an
+element struct's fields — the Zig `std.MultiArrayList` model — not a
+Jai-style `SOA[]` layout keyword and not an automatic compiler transform
+(both hide layout; a hidden transform breaks the readable-C identity and
+pointer reasoning). The columns are public fields; the wrapper owns exactly
+the operations that must stay consistent.
+
+**The ground, checked 2026-10-08.** The reflection surface exposes struct
+fields (`TypeInfo`'s `fields : ComptimeList(TypeFieldInfo)`,
+`plans/reference/TYPE_REFLECTION.md`), and the derive system is precedent
+for comptime codegen over fields — the container is writable today with no
+language change. The place machinery its row access needs arrives with V2b
+(below).
+
+```rust
+// sketch
+Particle :: struct(x : f32, y : f32, vx : f32, vy : f32, alive : bool);
+parts : Soa(Particle);                              // one column ArrayList per field
+parts.push(Particle(...));                          // scatters into the columns
+parts.with(i, mut(p) => { p.vx = (p.vx + ax); });   // a row: sibling element places of one root
+for(parts.vx, mut(v) => { ... });                   // the hot loop: a flat, contiguous column
+```
+
+**Why it fits — three convergences.**
+
+- **A row is sibling places, not a new borrow kind.** A row *looks* like a
+  multi-root borrow (one logical entity spread across N buffers), but the
+  container is one value root and its columns are sibling fields, so
+  decision 18's sibling rule already gives `with(i, …)` the right
+  exclusivity: two fields of one row coexist; two borrows into one column
+  conflict. Zero new language rules — a VBD dividend (it needs V2b's
+  element places, decision 18's `mut(e) := xs(i)`).
+- **It is where this file's other items meet.** The arena shape of
+  `RUST_REFERENCE_PATTERNS.md` §4.1 (`usize` ids) is half an ECS by
+  construction; candidate 2's `std/simd` eats contiguous columns directly;
+  `CODEGEN_PERFORMANCE.md` CP1a's `restrict` loves single-column loops;
+  candidate 1's parallel iteration splits cleanly over column index ranges.
+- **The verifier can own the invariant.** What hand-rolled SoA corrupts is
+  the length invariant (`len` equal across columns). The wrapper's methods
+  maintain it, and a field-equality invariant over a struct is `std/spec`
+  territory — a *verified* `Soa(T)` is something neither Rust's `soa_derive`
+  nor Jai's `SOA` offers, and a small flagship for the roadmap's "humane
+  verified systems programming".
+
+**Design notes.** Column access is the generated field itself (`parts.vx`
+*is* the column — public, so the cost shape stays visible); row iteration
+lowers to a hoisted walk like `CODEGEN_PERFORMANCE.md` CP2b's (one bounds
+check hoisted per loop, not N per row — safe-mode per-column checks would
+otherwise eat the cache win); deletion is swap-back across every column, in
+the wrapper, once. ECS proper (archetypes, sparse sets, queries) is a
+package on top of `Soa(T)` + indices + `Sync` iteration, not std — Bevy and
+flecs are libraries in Rust too.
+
+**Perf honesty.** SoA wins where hot loops touch few fields across many
+entities (2–10× in the ISPC/Jai literature) and loses on random
+whole-entity access and scatter-heavy insert; public columns keep that
+trade visible rather than hidden in a transform.
+
+**Open questions.** Whether v1 ships minimal (`push`/`with`/`len`/columns)
+or with `sort_by`/gather helpers; the interaction with candidate 4 (a
+gathered row is a normal struct value once copied out, so patterns compose);
+whether the verifier invariant lands with the container or after it.
+
+## 7. Maintenance
 
 This file is the parking lot. A candidate that is adopted becomes its own
 plan (active or backlog with a design), and its line here turns into the
