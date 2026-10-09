@@ -547,6 +547,11 @@ bounds, plus a wider `Send` for the transfer points. D1, D2, D4 and D9 of
 
 ### 3.9 `std/imm/` becomes a separate package
 
+> **Superseded 2026-10-09 (maintainer decision):** `std/imm/` was deleted
+> outright, with its `tests/imm_*` files, `tests/codegen-bootstrap/imm_map_entries_shell.yo`
+> and `docs/*/IMMUTABLE_COLLECTIONS.md`, to be revisited later. V5 no longer
+> moves it anywhere; the text below records the earlier plan.
+
 `std/imm/` (`string`, `list`, `vec`, `map`, `set`, `sorted_map`,
 `sorted_set`; 4,300 lines) is the atomically counted, immutable,
 structurally shared family.
@@ -898,7 +903,8 @@ and in git, not a silent edit.
    walk.
 9. **`std/imm/` becomes a separate package at V5** (§3.9). Revised
    2026-10-05 by the maintainer: its role is persistence alone, and nothing
-   in std or the compiler depends on it.
+   in std or the compiler depends on it. **Superseded 2026-10-09:** the
+   maintainer deleted `std/imm/` (to be revisited), so V5 no longer moves it.
 10. **Phase order:** V1, V3, V3b, V2, V4, V5. V3 comes before V2 so
     that the move-only machinery is mature before the collections need
     the general predicate.
@@ -3721,12 +3727,14 @@ stage-2 RSS):
   - the wrappers and buffer cells move onto `__yo_cell`/`__yo_atomic_cell`
     (each wrapper's only field becomes the private `_cell`, so
     `Box(T)(…)` outside the prelude is E0405);
-  - `std/imm` moves onto atomic cells and out of std, into its own
+  - ~~`std/imm` moves onto atomic cells and out of std, into its own
     repository (§3.9), vendored under `vendor/` and built and tested in CI
     like `vendor/markdown_yo`. Its `tests/imm_*` files and
     `docs/*/IMMUTABLE_COLLECTIONS.md` go with it, and DESIGN, STRINGS,
     ARC, CYCLE_COLLECTION, MEMORY_SAFETY and the syntax cheatsheet point to
-    the package;
+    the package~~ — dropped 2026-10-09: the maintainer deleted `std/imm`
+    and its tests and docs outright (to be revisited), so there is nothing
+    left to move;
   - the tests migrate (~150 declarations in 68 files):
     `tests/ref_struct.test.yo`, `tests/ref_enum.test.yo` and
     `tests/atomic_object.test.yo` become the `Rc`/`Box`/`Arc` test files.
@@ -3745,7 +3753,7 @@ stage-2 RSS):
     Reference-Semantics Types);
   - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (rescoped,
     §3.14), CYCLE_COLLECTION, ISOLATED, ARC, THREAD_SAFETY, PARALLELISM,
-    IMMUTABLE_COLLECTIONS (moves to the package), DYN_DESIGN, STRINGS, TYPE_REFLECTION and
+    DYN_DESIGN, STRINGS, TYPE_REFLECTION and
     DERIVE_TRAITS;
   - the instruction files, the three skills (re-record the seven skill-tree
     goldens) and the pack (`yo context`);

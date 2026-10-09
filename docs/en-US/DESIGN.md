@@ -2540,8 +2540,6 @@ NOT immutable: `push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`,
 `clear`, `truncate`, `insert_str`, `insert`, `remove` and `pop` take
 `inout(self)` and mutate in place. Operators like `+` still produce a new string.
 
-For an immutable, atomically reference-counted string that is safe to share across
-threads, see `std/imm/string`, whose "modification" methods all return a new value.
 For a mutable builder that several owners share, use `StringBuilder`, a
 reference-semantics type.
 

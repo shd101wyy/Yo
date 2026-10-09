@@ -2,7 +2,7 @@
 
 **Severity:** S1 — `dedup` leaks every RC element per call (0 of 3 disposed) — unbounded, via the own-param defect
 
-**Status:** OPEN — **but the diagnosis below is WRONG, and the leak is not a
+**Status:** RETIRED 2026-10-09 (`std/imm` deleted). Was OPEN — **but the diagnosis below is WRONG, and the leak is not a
 `std` bug.** Re-measured 2026-09-14; see "Correction" at the end. The real
 cause is a compiler defect,
 `issues/own-param-leaks-when-a-conditional-return-is-not-taken.md`, and this
@@ -152,3 +152,7 @@ a control that removes the accused mechanism and checks whether the symptom
 survives. That control took one `sed` and one recompile. The same lesson as the
 two wrong expected-value tables found elsewhere in this clean-up pass: the
 artefact under test cannot supply its own oracle.
+
+## Retired 2026-10-09
+
+`std/imm` was deleted by the maintainer's decision (revisit later), so `imm.Vec.dedup` no longer exists. The compiler defect this doc's correction names, `issues/own-param-leaks-when-a-conditional-return-is-not-taken.md`, is tracked on its own.

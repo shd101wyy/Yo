@@ -9,7 +9,6 @@ pragma(Pragma.AllowUnsafe);
 { DEFAULT_KEY_0, SipHasher13, Fnv1aHasher, DefaultHasher, hash_one, hash_one_with_keys } :: import("std/hash");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ ImmString } :: import("std/imm/string");
 { ArrayList } :: import("std/collections/array_list");
 // key bytes 00 01 .. 0f as two little-endian u64s
 K0 :: u64(506097522914230528);
@@ -140,11 +139,9 @@ test("hash_one: primitives feed their width; equal values agree", {
   assert(hash_one(true) != hash_one(false), "bools differ");
   assert(hash_one(hash_one(u8(1))) == hash_one(hash_one(u8(1))), "deterministic");
 });
-test("String and ImmString: bytes then 0xFF, prefix-free", {
+test("String: bytes then 0xFF, prefix-free", {
   s := String.from("hello");
   assert(hash_one(s) == u64(16156531084128653017), "\"hello\" + 0xFF");
-  im := ImmString.from("hello");
-  assert(hash_one(im) == hash_one(s), "ImmString hashes like String");
   ab := String.from("ab");
   c := String.from("c");
   a := String.from("a");

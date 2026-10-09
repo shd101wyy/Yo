@@ -26,7 +26,7 @@ The single `Send` marker meant "may be shared across threads". It is split, as i
   and it reaches no non-atomic cell. An atomic object is `Send` iff it is `Sync`, because its
   copies share one payload; `Mutex(T)` is `Sync` for `T <: Send`.
 - **Raw pointers** are neither, unless a type opts in with `impl(T, Send())` / `impl(T, Sync())`
-  under the pragma (std: `Channel`, `Mutex`, `Waker`, `ImmString`, the `std/imm` nodes). The
+  under the pragma (std: `Channel`, `Mutex`, `Waker`; `ImmString` and the `std/imm` nodes did too until std/imm was removed 2026-10-09 (maintainer decision); revisit later). The
   atomic-object field check is not run in a pragma'd file, where the opt-in is the audit.
 - **`Dyn(Trait)`** is either only through an explicit bound. `dyn(v)` into `Dyn(Trait, Send)`
   checks `v` for `Send`, and for `Sync` too while a `Dyn`'s copies share its payload.

@@ -19,7 +19,7 @@ That is the rule. It is enforced by removing UB-capable constructs from the user
 Everything you'd expect from a modern general-purpose language:
 
 - **Value types.** `i32`, `bool`, `str` (a view of STATIC string bytes — immortal backing), structs, enums, tuples, `Array(T, N)`.
-- **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `LinkedList(T)`, `String`, immutable variants in `std/imm/*`.
+- **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `LinkedList(T)`, `String`.
 - **Shared ownership.** Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (single-threaded Rc) — `Arc(T)` (atomic Rc for cross-thread sharing), `Iso(T)` (ownership transfer).
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
 - **Closures and higher-order functions** over safe types.
@@ -146,7 +146,7 @@ p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // placed in the arena
 xs := ArrayList(i32).new_in(arena.allocator()); // the buffer lives in the arena
 ```
 
-- **Placement follows the scope.** `with_allocator(a, f)` (and `arena.scoped(f)`, the same call) makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `rc`, `arc`, `dyn` boxes, `Iso` values, the state machines of tasks created there, and the buffers of the `imm` collections. The runtime's own bookkeeping stays on the global allocator. The mutable containers follow the scope too: `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and the types built on them (`HashSet`, `StringBuilder`, `String`) created inside the scope keep their buffers in `a`, and every growth of a buffer stays with the allocator it was created in. Outside a scope, or to pick an allocator explicitly, use `new_in` / `with_capacity_in`.
+- **Placement follows the scope.** `with_allocator(a, f)` (and `arena.scoped(f)`, the same call) makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `rc`, `arc`, `dyn` boxes, `Iso` values and the state machines of tasks created there. The runtime's own bookkeeping stays on the global allocator. The mutable containers follow the scope too: `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and the types built on them (`HashSet`, `StringBuilder`, `String`) created inside the scope keep their buffers in `a`, and every growth of a buffer stays with the allocator it was created in. Outside a scope, or to pick an allocator explicitly, use `new_in` / `with_capacity_in`.
 - **A task keeps its scope.** A task created inside `with_allocator` resumes with the same scope after every suspension, whichever scope is current when the event loop resumes it. A spawned thread starts on the global allocator; pass `arena.allocator()` into the spawn body and call `with_allocator` there.
 - **An arena cannot die under a live block.** `Arena.deinit()` (also run when the last `Arena` handle goes away) **panics** while any block is still live: `Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`. In Zig this is a use-after-free; in Yo it is a defined, loud failure. An allocation from a deinit arena through a stale `Allocator` copy panics too. The arena's bookkeeping is never freed, so the stale copy reaches a flagged state, not freed memory.
 - **Process-lifetime arenas call `abandon()`.** It stops tracking and never releases the region, and `deinit` becomes a no-op. Use it for startup tables and interners.

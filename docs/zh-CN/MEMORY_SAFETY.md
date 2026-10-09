@@ -19,7 +19,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 任何你期望一个现代通用语言提供的能力：
 
 - **值类型。** `i32`、`bool`、`str`（指向**静态**字符串字节的视图 —— 背后存储永生）、struct、enum、tuple、`Array(T, N)`。
-- **堆管理的集合。** `ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)`、`LinkedList(T)`、`String`，以及 `std/imm/*` 中的不可变版本。
+- **堆管理的集合。** `ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)`、`LinkedList(T)`、`String`。
 - **共享所有权。** 引用语义类型（`ref(struct(...))`/`ref(enum(...))`，单线程 Rc）、`Arc(T)`（跨线程共享的原子 Rc）、`Iso(T)`（所有权转移）。
 - **和类型 / Option / Result 类型。** `Option(T)`、`Result(T, E)`，以及你自定义的 `enum`。
 - **闭包和高阶函数** —— 在安全类型上。
@@ -146,7 +146,7 @@ p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // 放在 arena 里
 xs := ArrayList(i32).new_in(arena.allocator()); // 缓冲区在 arena 里
 ```
 
-- **放置跟随作用域。** `with_allocator(a, f)`（以及等价的 `arena.scoped(f)`）在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`rc`、`arc`、`dyn` 盒子、`Iso` 值、在其中创建的任务状态机，以及 `imm` 集合的缓冲区。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。
+- **放置跟随作用域。** `with_allocator(a, f)`（以及等价的 `arena.scoped(f)`）在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`rc`、`arc`、`dyn` 盒子、`Iso` 值，以及在其中创建的任务状态机。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。
 - **任务保留自己的作用域。** 在 `with_allocator` 里创建的任务每次挂起后恢复时都使用同一个作用域，与事件循环恢复它时的当前作用域无关。新生成的线程从全局分配器开始；把 `arena.allocator()` 传进 spawn 体，并在那里调用 `with_allocator`。
 - **arena 不会在活跃块之下死亡。** 只要还有活跃块，`Arena.deinit()`（最后一个 `Arena` 句柄消失时也会调用）就会 **panic**：`Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`。在 Zig 中这是释放后使用；在 Yo 中它是确定的、显式的失败。通过过期的 `Allocator` 副本从已 deinit 的 arena 分配同样会 panic。arena 的簿记从不释放，所以过期副本访问到的是一个带标记的状态，而不是已释放的内存。
 - **进程生命周期的 arena 调用 `abandon()`。** 它停止跟踪并且永不释放区域，此后 `deinit` 不做任何事。适用于启动表和字符串驻留表。

@@ -5,9 +5,9 @@
 //! `push_byte` / `push_rune` / `insert` / `insert_str` / `remove` / `pop` /
 //! `truncate` / `reserve` / `clear` take `inout(self)` and change the value in
 //! place. Everything else (the operators, `trim*`, `to_*case`, `replace*`,
-//! `substring`, …) returns a new string. For an immutable, atomically
-//! reference-counted string that is safe to share across threads, use
-//! `std/imm/string`. An empty `String` allocates nothing.
+//! `substring`, …) returns a new string. For a mutable text buffer that
+//! several owners share, use `StringBuilder` (a reference-semantics type).
+//! An empty `String` allocates nothing.
 //!
 //! ## Every index is a BYTE offset
 //!
@@ -88,9 +88,8 @@ _release_bytes :: (fn(own(_b) : ArrayList(u8)) -> unit)(());
 /// (`t := s`) still shares a non-empty buffer; VALUES_BY_DEFAULT V2b makes it
 /// a move or an error naming `clone()` (plans/STRING_VALUE_SEMANTICS.md §0).
 /// The bytes are copied (`to_bytes`) or moved (`into_bytes`), never lent.
-/// Operators such as `+` return a new string. For an immutable, atomically
-/// reference-counted string that is safe to share across threads, see
-/// `std/imm/string`.
+/// Operators such as `+` return a new string. For a mutable text buffer that
+/// several owners share, see `StringBuilder` (a reference-semantics type).
 ///
 /// Empty strings use zero allocation (represented as `Option.None` internally).
 String :: newtype(

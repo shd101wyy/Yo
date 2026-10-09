@@ -82,7 +82,7 @@ points to `std/imm/string` for sharing.
 | `str` | borrowed, read-only bytes (literals, views) | a view |
 | **`String`** | **mutable text value** | **independent copies; the buffer is shared until one copy writes (copy-on-write)** |
 | `StringBuilder` | shared mutable builder (`ref`) | reference |
-| `std/imm/string` | immutable, atomically counted, crosses threads | shared, never mutated |
+| `std/imm/string` (removed 2026-10-09, maintainer decision; revisit later) | immutable, atomically counted, crosses threads | shared, never mutated |
 
 `String` behaves like `i32` or `Array(T, N)`: after `t := s`, nothing done to
 `t` is visible through `s`, and the reverse holds too, whether or not `s`
@@ -302,6 +302,7 @@ which its O(1) `clone()` relied on. S1 is a `src/` change.
   until their own campaign (§7).
 - `str` literals and `str` parameters.
 - `std/imm/string`: still the type for sharing text across threads.
+  (std/imm was removed 2026-10-09 by maintainer decision; revisit later.)
   `String`'s count stays non-atomic, and `String` stays non-`Send` wherever
   it is today.
 

@@ -1929,9 +1929,7 @@ boundary first. `index_of` / `starts_with` / `ends_with` never panic: a
 valid-UTF-8 needle simply cannot match at a continuation byte, so a mid-rune
 argument answers `false` / `.None`.
 
-**The rune vocabulary** (`std/string/string.yo`; the same names exist on
-`std/imm/string.yo`, whose `len()` and `at()` are byte-based the same way
-since D4 PR 4). The shape is Rust's exactly: byte slicing + iterators for
+**The rune vocabulary** (`std/string/string.yo`). The shape is Rust's exactly: byte slicing + iterators for
 rune work; there is no char-indexed slicing and no second length method
 (`bytes_len`/`char_len`/`char_substring`/`truncate_chars` were all removed
 2026-08-26):
