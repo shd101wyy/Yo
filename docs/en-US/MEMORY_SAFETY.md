@@ -29,7 +29,7 @@ Everything you'd expect from a modern general-purpose language:
 
 This is the default user experience. No pragma needed, no `&()` annotations, no `*(T)` types, no `unsafe(...)` wraps:
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 
 main :: (fn() -> unit)({
@@ -71,7 +71,7 @@ The principle: **anything that could let a user write UB is gated.** If the user
 
 `.unwrap()`, `.expect(...)`, `.unwrap_err()`, and `.expect_err(...)` on an `Option`/`Result` are **compile errors in safe files**. The receiver's type already says "this might fail"; the call throws that information away and aborts the program on the failure case. Handle the failure instead:
 
-```rust
+```yo
 // COMPILE ERROR — the None case is unhandled:
 best := scores.max().unwrap();
 
@@ -91,7 +91,7 @@ Exempt: `tests/*.test.yo` (a failed unwrap fails the test loudly — the test do
 
 The pattern C/Rust solve with `&mut T` is solved in safe Yo with a parameter modifier:
 
-```rust
+```yo
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
@@ -134,7 +134,7 @@ The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don
 
 An explicit allocator decides **where** a block lives. Reference counting still decides **when** it dies. An object placed in an arena is released the moment its last reference goes away, exactly like any other object, and the release is routed back to the allocator that made it. A block cannot outlive its bookkeeping, and there is no way to free it into the wrong allocator.
 
-```rust
+```yo
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
@@ -159,7 +159,7 @@ Calling `Allocator.alloc` / `free` directly hands out raw pointers, so it needs 
 
 When you genuinely need raw pointers — binding a C library, writing a custom allocator, implementing a new collection — opt into unsafe-capable mode with a one-line declaration at the top of the file:
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 
 // In this file you can now use *(T), &(x), unsafe(...), asm(...),
@@ -170,7 +170,7 @@ Opt-in is **per file**, not per function or per block. The granularity is delibe
 
 Within a privileged file you still write the operations explicitly:
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 { memcpy } :: import("std/libc/string");
 
@@ -210,7 +210,7 @@ Operations that are NOT gated (addresses are just data; moving them around doesn
 
 When you write `unsafe(...)`, you're claiming a specific contract holds. Document it:
 
-```rust
+```yo
 match(
   self._ptr,
   // SAFETY: idx has been bounds-checked above (idx < self._length);
@@ -277,7 +277,7 @@ User code cannot declare `extern(...)` or `c_include(...)`. To call a C function
 
 Both declaration forms evaluate to a module value — bind it, select or rename members, or take the glob; a bare declaration statement is the glob. See [FFI.md](FFI.md).
 
-```rust
+```yo
 // my_ffi.yo
 pragma(Pragma.AllowUnsafe);
 
@@ -302,7 +302,7 @@ compute :: (fn(input : i32) -> i32)(unsafe(mylib_compute(input)));
 
 Then in the consuming safe file:
 
-```rust
+```yo
 // main.yo  (no pragma)
 { init, compute } :: import("./my_ffi");
 
@@ -321,7 +321,7 @@ Same workflow as writing FFI bindings in Swift or Go.
 
 **Integer overflow in `+`, `-`, `*`, and unary negation ABORTS with a diagnostic** — it never wraps silently and it is never undefined behavior. The same holds for division/remainder by zero (including `MIN / -1`) and for shift counts at or beyond the operand's width. Every message carries the source location; the abort is deterministic at every optimization level.
 
-```rust
+```yo
 x := i32(2147483647); // i32 max
 y := (x + i32(1)); // aborts: "integer addition overflow (at file:line:col)"
 ```
@@ -330,7 +330,7 @@ This is the runtime match of comptime's behavior, which already rejects overflow
 
 **Arithmetic that wraps BY DESIGN** — hash mixing, sequence counters, checksums — uses the explicit wrapping methods:
 
-```rust
+```yo
 h := state.wrapping_add(v); // two's-complement wrap, never traps
 h := state.wrapping_mul(prime);
 d := state.wrapping_sub(inc);

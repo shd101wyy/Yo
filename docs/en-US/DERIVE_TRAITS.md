@@ -6,7 +6,7 @@ Every derivable trait in `std` is **self-hosted** — the derive rules are writt
 
 ## Basic Usage
 
-```rust
+```yo
 { ToString } :: import("std/fmt"); // the ToString derive rule lives in std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
@@ -27,7 +27,7 @@ export(main);
 
 Generates structural equality comparison. Two values are equal if all their fields are equal. Requires explicit type argument: `Eq(Type)`.
 
-```rust
+```yo
 Color :: struct(r : u8, g : u8, b : u8);
 derive(Color, Eq(Color));
 
@@ -37,7 +37,7 @@ assert(Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0)), "same color
 
 For enums, equality checks the variant tag first, then compares fields if the variants match:
 
-```rust
+```yo
 Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
 derive(Shape, Eq(Shape));
 
@@ -48,7 +48,7 @@ assert(.Circle(i32(5)) == .Circle(i32(5)), "same circle");
 
 Generates `hash(self, hasher)` — the Rust-style `Hash` method that feeds a value's identity into any `Hasher`. A struct feeds every field in declaration order; an enum feeds its variant index (as `u64`) and then that variant's fields. The algorithm is the hasher's business: `HashMap`/`HashSet` drive SipHash-1-3 (`std/hash`'s `DefaultHasher`), and `hash_one(value)` hashes a single value with it.
 
-```rust
+```yo
 { hash_one, DefaultHasher } :: import("std/hash");
 derive(Point, Hash);
 // Point now implements the Hash trait
@@ -65,7 +65,7 @@ Equal values (by the derived `Eq`) feed identical bytes, so they hash alike unde
 
 Generates a clone method that creates a deep copy by cloning each field.
 
-```rust
+```yo
 derive(Point, Clone);
 
 p := Point(i32(1), i32(2));
@@ -76,7 +76,7 @@ p2 := p.clone();
 
 Generates lexicographic ordering by comparing fields left-to-right. Requires explicit type argument: `Ord(Type)`. For enums, variants are ordered by their discriminant, then by field values.
 
-```rust
+```yo
 derive(Point, Ord(Point));
 
 p1 := Point(i32(1), i32(2));
@@ -88,7 +88,7 @@ assert(p1 < p2, "p1 < p2");
 
 Generates a string representation. Structs produce `TypeName(field1, field2, ...)` format. Enums produce `TypeName.Variant` or `TypeName.Variant(field1, ...)` format.
 
-```rust
+```yo
 derive(Point, ToString);
 
 p := Point(i32(1), i32(2));
@@ -99,7 +99,7 @@ p := Point(i32(1), i32(2));
 
 Generates a value with every field set to its own type's default. **Structs only** — an enum has no canonical default variant, so write that impl by hand.
 
-```rust
+```yo
 Config :: struct(retries : i32, verbose : bool, name : String);
 derive(Config, Default);
 
@@ -115,7 +115,7 @@ Pairs with `Option.unwrap_or_default` and `Result.unwrap_or_default`.
 
 Generates the same structural render as `ToString` — `TypeName(field1, field2, …)` for structs, `TypeName.Variant(…)` for enums — but under the `Debug` trait's `debug_string`, so a type can have a *developer* render and a *user-facing* `to_string` at the same time.
 
-```rust
+```yo
 derive(Point, Debug);
 
 p := Point(i32(1), i32(2));
@@ -128,7 +128,7 @@ That split is the point: `derive(ToString)` produces a structural render, which 
 
 Generates `ToString` **and** `Error` from one message per variant — `thiserror`'s `#[error("…")]`, in the syntax Yo already has. **Enums only**: a struct error has exactly one message, so write that `ToString` impl by hand.
 
-```rust
+```yo
 JsonError :: enum(
   UnexpectedChar(ch : u8, pos : usize),
   UnexpectedEnd,
@@ -159,7 +159,7 @@ Registered by `std/encoding/json`. `derive(T, ToJson)` generates a `JsonValue` e
 
 You can derive multiple traits in a single call using variadic comptime parameters:
 
-```rust
+```yo
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 ```
 
@@ -169,7 +169,7 @@ This is equivalent to calling `derive` separately for each trait.
 
 All standard derives work with enums, including enums with fields:
 
-```rust
+```yo
 // Fieldless enum
 Direction :: enum(North, South, East, West);
 derive(Direction, Eq(Direction), Hash, Clone, Ord(Direction), ToString);
@@ -189,7 +189,7 @@ Each field type in the struct or enum must already implement the trait being der
 
 A type can derive through a field that names the type itself, such as `ArrayList(Self)` or `Rc(Self)`. The derived method reaches the inner values through the container's own impl: `Node`'s derived `==` below compares `children` with `ArrayList(Node)`'s `==`, which calls `Node`'s `==` again.
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 { println, ToString } :: import("std/fmt");
 
@@ -221,7 +221,7 @@ The requirement above applies to the container as well. `ArrayList` implements `
 
 A derive rule is a comptime function with signature:
 
-```rust
+```yo
 fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
 ```
 
@@ -233,7 +233,7 @@ The function returns an `Expr` (via `quote` or `.to_expr()`) representing the `i
 
 ### Example: Struct Equality
 
-```rust
+```yo
 // Define a custom equality trait
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
@@ -291,13 +291,14 @@ derive(Point, MyEq(Point));
 
 For fieldless enums, use `Type.map_variants` to generate match branches:
 
-```rust
+```yo
 info.is_enum() => {
   match_branches :: Type.map_variants(
     T,
     (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
       quote(
-        .(#(variant.name.to_expr())) => match(other,
+        .(#(variant.name.to_expr())) => match(
+          other,
           .(#(variant.name.to_expr())) => true,
           _ => false
         )
@@ -312,7 +313,7 @@ info.is_enum() => {
 
 Derive rules work with generic types using `generic` and `where`:
 
-```rust
+```yo
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );

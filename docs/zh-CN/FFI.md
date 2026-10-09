@@ -15,7 +15,7 @@ Yo 通过两种声明形式访问 C。两者都是特权操作——文件需要
 `import("...")` 产生的值同类。它的成员不会自动进入作用域；你要像对待 import 一样，
 绑定这个模块，或者解构它：
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 
 // 绑定模块，逐个限定访问。
@@ -45,7 +45,7 @@ n := unsafe(c_strlen((*char)("hello")));
 当 `c_include(...)` 或 `extern(...)` 作为语句出现——在文件顶层，或作为块中的一行——它是其
 glob 解构的语法糖：
 
-```rust
+```yo
 c_include("<stdlib.h>", abs : (fn(x : int) -> int));
 // 完全等价于
 { ... } :: c_include("<stdlib.h>", abs : (fn(x : int) -> int));
@@ -58,7 +58,7 @@ c_include("<stdlib.h>", abs : (fn(x : int) -> int));
 因为这些名字是通过绑定进入作用域的，禁止遮蔽规则对它们同样适用：声明的名字如果在作用域中
 已经可见，就是错误，无论谁先谁后。
 
-```rust
+```yo
 abs :: (fn(x : i32) -> i32)(x);
 c_include("<stdlib.h>", abs : (fn(x : int) -> int));
 // error: Variable "abs" is already defined here (variable shadowing is not allowed)
@@ -76,7 +76,7 @@ c_include("<stdlib.h>", abs : (fn(x : int) -> int));
 
 `std/libc/*` 按头文件逐个包装了常用头文件，所以大多数程序不需要自己写 `c_include`：
 
-```rust
+```yo
 { strlen, memcpy } :: import("std/libc/string");
 fcntl :: import("std/libc/fcntl"); // fcntl.open、fcntl.O_RDONLY
 ```
@@ -86,7 +86,7 @@ fcntl :: import("std/libc/fcntl"); // fcntl.open、fcntl.O_RDONLY
 不透明的 `Name : Type` 字段会降低为拼写为 `Name` 的 C 类型。当 C 拼写不是合法的 Yo 标识符
 （`struct stat`、`struct timespec`）时，用 `c_type` 显式给出：
 
-```rust
+```yo
 { stat_buf, stat } :: c_include(
   "<sys/stat.h>",
   stat_buf : c_type("struct stat"),

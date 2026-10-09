@@ -40,7 +40,7 @@ asm(template, operands..., options...)
 
 ### Quick Examples
 
-```rust
+```yo
 // No-op — no operands, no return
 asm("nop");
 
@@ -105,7 +105,7 @@ Modifiers control **which sub-register name** is emitted for a placeholder. This
 
 **Example:**
 
-```rust
+```yo
 result := asm(
   "movzx {out}, {in:l}",
   // Use 8-bit low name of {in}
@@ -131,7 +131,7 @@ result := asm(
 
 Use `\n` or `;` to separate instructions within a single template:
 
-```rust
+```yo
 asm(
   "push {val}\npop {out}",
   in("val", reg, x),
@@ -159,7 +159,7 @@ in(name?, constraint, value)
 | `constraint` | register class or `comptime_str` | Where to place the value              |
 | `value`      | expression                          | Yo expression providing the input     |
 
-```rust
+```yo
 // Named input
 asm("int {vec}", in("vec", imm, u8(0x80)));
 
@@ -186,7 +186,7 @@ out(name?, constraint, Type)
 
 The `Type` is a Yo type (not a value) — `asm` returns this type.
 
-```rust
+```yo
 // Single output
 count := asm(
   "popcnt {out}, {in}",
@@ -213,7 +213,7 @@ inout(name?, constraint, value)
 
 The output type is inferred from the input expression's type.
 
-```rust
+```yo
 (x : i32) = i32(42);
 result := asm(
   "add {val}, {addend}",
@@ -231,7 +231,7 @@ Like `out`, but the compiler may **reuse** the output register for an input oper
 lateout(name?, constraint, Type)
 ```
 
-```rust
+```yo
 result := asm(
   "compute {out}, {a}, {b}",
   lateout("out", reg, u64),
@@ -261,7 +261,7 @@ const_val(name?, value)
 | `name`    | `comptime_str` (optional) | Operand name for `{name}` in template             |
 | `value`   | comptime expression          | Must evaluate to a compile-time integer or string |
 
-```rust
+```yo
 // Inline a syscall number as an immediate
 asm(
   "mov rax, {num}\nsyscall",
@@ -300,7 +300,7 @@ sym(name?, symbol)
 | `name`    | `comptime_str` (optional) | Operand name for `{name}` in template |
 | `symbol`  | extern function or global    | The symbol whose address to reference |
 
-```rust
+```yo
 extern(
   "c",
   memcpy : (fn(dest : *u8, src : *u8, n : usize) -> *u8)
@@ -327,7 +327,7 @@ __asm__ __volatile__ ("call %[func]" :: [func] "i" (memcpy), ... : /* clobbers *
 
 Use `_` as the output target to **clobber a specific register** without binding the result. This is essential when an instruction writes to a register you don't need:
 
-```rust
+```yo
 // CPUID: we only need eax and ecx, discard ebx and edx
 (out_eax, out_ecx) := asm(
   "cpuid",
@@ -394,7 +394,7 @@ These are architecture-independent names that Yo maps to the correct GCC constra
 
 Use a specific register by passing its name as a `comptime_str`:
 
-```rust
+```yo
 // x86_64 specific registers
 asm(
   "syscall",
@@ -433,7 +433,7 @@ Supported explicit register names per architecture:
 
 For advanced use, pass a raw GCC constraint string (prefixed with `=` or `+` automatically for outputs):
 
-```rust
+```yo
 asm(
   "divq {divisor}",
   inout(raw("a"), lo),
@@ -466,7 +466,7 @@ Special clobber values:
 | `"memory"` | Assembly reads/writes memory not specified in operands |
 | `"cc"`     | Assembly modifies the condition/status flags           |
 
-```rust
+```yo
 asm(
   "lock; xadd {old}, ({ptr})",
   out("old", reg, i32),
@@ -477,7 +477,7 @@ asm(
 
 Multiple clobbers can be passed as separate arguments or in a single call:
 
-```rust
+```yo
 clobber("memory", "cc"); // multiple in one call
 clobber("memory");
 clobber("cc"); // separate calls — equivalent
@@ -517,7 +517,7 @@ asm_options(option1, option2, ...)
 | `volatile`        | Always emit, never optimize away (default) | `__volatile__`                  |
 | `noreturn`        | Assembly block never returns               | marks code after as unreachable |
 
-```rust
+```yo
 // Pure computation — optimizer can move/eliminate
 tsc := asm(
   "rdtsc",
@@ -533,7 +533,7 @@ tsc := asm(
 
 When `noreturn` is specified, the assembly block **never returns** to the following code. The compiler treats subsequent code as unreachable. No output operands are allowed with `noreturn`.
 
-```rust
+```yo
 // Custom halt/trap
 asm("ud2", asm_options(noreturn));
 
@@ -558,7 +558,7 @@ The return type of an `asm` with `noreturn` is `noreturn` (Yo's bottom type), si
 
 For readability, multiple `comptime_str` arguments at the start of `asm` are **joined with `\n`**. This avoids manual `\n` in long templates:
 
-```rust
+```yo
 // Multiple strings — each becomes one instruction line
 asm(
   "push {val}",
@@ -588,7 +588,7 @@ The parser collects consecutive `comptime_str` arguments until it encounters a n
 
 When the last argument to `out` / `lateout` is a **type**, the output becomes part of the `asm` return value:
 
-```rust
+```yo
 // Single return-value output
 result := asm("rdtsc", out("eax", u32));
 // result : u32
@@ -617,7 +617,7 @@ result := asm("rdtsc", out("eax", u32));
 
 When the last argument to `out` / `lateout` is a **variable**, the assembly writes directly to that variable. This is essential for initializing uninitialized variables:
 
-```rust
+```yo
 // Declare uninitialized variables
 lo : u32;
 hi : u32;
@@ -645,7 +645,7 @@ Since Yo does not allow variable shadowing, there is no ambiguity between type n
 
 The evaluator marks variable-target outputs as **initialized** after the `asm` expression. Before the `asm`, using the variable is a compile-time error:
 
-```rust
+```yo
 x : i32;
 // print(x);  // ERROR: variable 'x' is not initialized
 asm("mov {0}, $42", out(reg, x));
@@ -659,7 +659,7 @@ print(x); // OK: x is now initialized by asm
 
 Variable-target and return-value outputs can coexist:
 
-```rust
+```yo
 remainder : u64;
 
 quotient := asm(
@@ -679,7 +679,7 @@ quotient := asm(
 
 **Yo source:**
 
-```rust
+```yo
 lo : u32;
 hi : u32;
 asm("rdtsc", out("eax", lo), out("edx", hi));
@@ -733,7 +733,7 @@ Yo template placeholders are transformed to GCC operand references:
 
 **Yo source:**
 
-```rust
+```yo
 (lo, hi) := asm(
   "rdtsc",
   out("lo", "eax", u32),
@@ -759,7 +759,7 @@ __asm__ __volatile__ (
 
 **Yo source:**
 
-```rust
+```yo
 result := asm(
   "add {val}, {addend}",
   inout("val", reg, x),
@@ -785,7 +785,7 @@ __asm__ __volatile__ (
 
 **Yo source:**
 
-```rust
+```yo
 asm("mfence", clobber("memory"));
 ```
 
@@ -799,7 +799,7 @@ __asm__ __volatile__ ("mfence" ::: "memory");
 
 **Yo source:**
 
-```rust
+```yo
 result := asm(
   "mov {out}, {in}",
   out("out", reg, u64),
@@ -828,7 +828,7 @@ __asm__ __volatile__ (
 
 For assembly that lives **outside** any function (data sections, function prologues, linker directives), use `global_asm`:
 
-```rust
+```yo
 global_asm(".section .note.GNU-stack,\"\",@progbits");
 
 global_asm(
@@ -880,7 +880,7 @@ For MSVC x86, the `__asm {}` syntax is different enough that we do not attempt a
 
 Use Yo's compile-time platform/arch detection to gate architecture-specific assembly:
 
-```rust
+```yo
 platform :: __yo_process_platform();
 arch :: __yo_process_arch();
 
@@ -960,7 +960,7 @@ The compile-time validation catches structural errors (bad template, wrong types
 
 ### 12.1. x86_64 Syscall (Linux write)
 
-```rust
+```yo
 sys_write :: (fn(fd : u64, buf : *u8, len : u64) -> i64)(
   asm(
     "syscall",
@@ -978,7 +978,7 @@ sys_write :: (fn(fd : u64, buf : *u8, len : u64) -> i64)(
 
 ### 12.2. Atomic Compare-and-Swap (x86_64)
 
-```rust
+```yo
 cas :: (fn(ptr : *i32, expected : i32, desired : i32) -> tuple(i32, bool))({
   prev := asm(
     "lock cmpxchg {ptr_mem}, {desired}",
@@ -994,7 +994,7 @@ cas :: (fn(ptr : *i32, expected : i32, desired : i32) -> tuple(i32, bool))({
 
 ### 12.3. ARM64 Memory Barrier
 
-```rust
+```yo
 dmb_ish :: (fn() -> unit)(
   asm("dmb ish", clobber("memory"))
 );
@@ -1002,7 +1002,7 @@ dmb_ish :: (fn() -> unit)(
 
 ### 12.4. CPUID (x86_64)
 
-```rust
+```yo
 CpuidResult :: struct(eax : u32, ebx : u32, ecx : u32, edx : u32);
 
 cpuid :: (fn(leaf : u32, subleaf : u32) -> CpuidResult)({
@@ -1019,7 +1019,7 @@ cpuid :: (fn(leaf : u32, subleaf : u32) -> CpuidResult)({
 
 ### 12.5. Spin-Wait Hint
 
-```rust
+```yo
 spin_hint :: (fn() -> unit)(
   cond(
     (arch == Arch.X86_64) => asm("pause"),
@@ -1031,7 +1031,7 @@ spin_hint :: (fn() -> unit)(
 
 ### 12.6. Read Performance Counter (Cross-Platform)
 
-```rust
+```yo
 perf_counter :: (fn() -> u64)(
   cond(
     (arch == Arch.X86_64) => {
@@ -1056,7 +1056,7 @@ perf_counter :: (fn() -> u64)(
 
 ### 12.7. Byte Swap
 
-```rust
+```yo
 bswap32 :: (fn(value : u32) -> u32)(
   cond(
     (arch == Arch.X86_64) =>
@@ -1091,7 +1091,7 @@ bswap32 :: (fn(value : u32) -> u32)(
 
 A standard library module providing portable wrappers for common intrinsics:
 
-```rust
+```yo
 // std/arch/x86_64.yo
 { ... } :: import("std/arch/x86_64");
 
@@ -1103,7 +1103,7 @@ tsc := rdtsc(); // wraps asm("rdtsc", ...)
 
 Map common `asm` patterns to MSVC `__intrin.h` intrinsics automatically:
 
-```rust
+```yo
 // On GCC/Clang: emits inline asm
 // On MSVC: emits __rdtsc() intrinsic call
 tsc := rdtsc();
@@ -1113,7 +1113,7 @@ tsc := rdtsc();
 
 Allow defining entire functions in assembly (beyond `global_asm`):
 
-```rust
+```yo ignore
 // Potential future syntax
 naked_fn :: asm_fn(fn(a: u64, b: u64) -> u64,
   "add rax, rdi, rsi\n"

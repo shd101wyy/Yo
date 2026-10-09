@@ -40,7 +40,7 @@ asm(template, operands..., options...)
 
 ### 快速示例
 
-```rust
+```yo
 // 空操作 — 无操作数，无返回值
 asm("nop");
 
@@ -105,7 +105,7 @@ asm("", clobber("memory"));
 
 **示例：**
 
-```rust
+```yo
 result := asm(
   "movzx {out}, {in:l}",
   // 使用 {in} 的 8 位低字节名称
@@ -131,7 +131,7 @@ result := asm(
 
 使用 `\n` 或 `;` 在单个模板中分隔指令：
 
-```rust
+```yo
 asm(
   "push {val}\npop {out}",
   in("val", reg, x),
@@ -159,7 +159,7 @@ in(name?, constraint, value)
 | `constraint` | 寄存器类或 `comptime_str` | 值的存放位置                      |
 | `value`      | 表达式                       | 提供输入的 Yo 表达式              |
 
-```rust
+```yo
 // 命名输入
 asm("int {vec}", in("vec", imm, u8(0x80)));
 
@@ -186,7 +186,7 @@ out(name?, constraint, Type)
 
 `Type` 是 Yo 类型（而非值）— `asm` 返回此类型。
 
-```rust
+```yo
 // 单个输出
 count := asm(
   "popcnt {out}, {in}",
@@ -213,7 +213,7 @@ inout(name?, constraint, value)
 
 输出类型从输入表达式的类型推断。
 
-```rust
+```yo
 (x : i32) = i32(42);
 result := asm(
   "add {val}, {addend}",
@@ -231,7 +231,7 @@ result := asm(
 lateout(name?, constraint, Type)
 ```
 
-```rust
+```yo
 result := asm(
   "compute {out}, {a}, {b}",
   lateout("out", reg, u64),
@@ -261,7 +261,7 @@ const_val(name?, value)
 | `name`  | `comptime_str`（可选） | `{name}` 在模板中引用的操作数名称 |
 | `value` | 编译期表达式              | 必须求值为编译期整数或字符串      |
 
-```rust
+```yo
 // 将系统调用号作为立即数内联
 asm(
   "mov rax, {num}\nsyscall",
@@ -300,7 +300,7 @@ sym(name?, symbol)
 | `name`   | `comptime_str`（可选） | `{name}` 在模板中引用的操作数名称 |
 | `symbol` | 外部函数或全局变量        | 要引用地址的符号                  |
 
-```rust
+```yo
 extern(
   "c",
   memcpy : (fn(dest : *u8, src : *u8, n : usize) -> *u8)
@@ -327,7 +327,7 @@ __asm__ __volatile__ ("call %[func]" :: [func] "i" (memcpy), ... : /* clobbers *
 
 使用 `_` 作为输出目标来**标记特定寄存器为被破坏**而不绑定结果。当指令写入一个你不需要的寄存器时，这是必不可少的：
 
-```rust
+```yo
 // CPUID：我们只需要 eax 和 ecx，丢弃 ebx 和 edx
 (out_eax, out_ecx) := asm(
   "cpuid",
@@ -394,7 +394,7 @@ __asm__ __volatile__ (
 
 通过将寄存器名作为 `comptime_str` 传入来使用特定寄存器：
 
-```rust
+```yo
 // x86_64 特定寄存器
 asm(
   "syscall",
@@ -433,7 +433,7 @@ asm(
 
 对于高级用法，可以传入原始 GCC 约束字符串（输出操作数会自动添加 `=` 或 `+` 前缀）：
 
-```rust
+```yo
 asm(
   "divq {divisor}",
   inout(raw("a"), lo),
@@ -466,7 +466,7 @@ clobber(register_or_special...)
 | `"memory"` | 汇编读写了未在操作数中指定的内存 |
 | `"cc"`     | 汇编修改了条件/状态标志位        |
 
-```rust
+```yo
 asm(
   "lock; xadd {old}, ({ptr})",
   out("old", reg, i32),
@@ -477,7 +477,7 @@ asm(
 
 多个 clobber 可以作为单独的参数传递，也可以在一次调用中传递：
 
-```rust
+```yo
 clobber("memory", "cc"); // 一次调用中传递多个
 clobber("memory");
 clobber("cc"); // 分开调用 — 效果等同
@@ -517,7 +517,7 @@ asm_options(option1, option2, ...)
 | `volatile`        | 始终输出，不可优化消除（默认） | `__volatile__`                |
 | `noreturn`        | 汇编块永不返回                 | 将后续代码标记为不可达        |
 
-```rust
+```yo
 // 纯计算 — 优化器可移动/消除
 tsc := asm(
   "rdtsc",
@@ -533,7 +533,7 @@ tsc := asm(
 
 当指定 `noreturn` 时，汇编块**永不返回**到后续代码。编译器将后续代码视为不可达。`noreturn` 不允许与输出操作数同时使用。
 
-```rust
+```yo
 // 自定义停机/陷阱
 asm("ud2", asm_options(noreturn));
 
@@ -558,7 +558,7 @@ __builtin_unreachable();  // 告知优化器此处不可达
 
 为了提高可读性，`asm` 开头的多个 `comptime_str` 参数会被**用 `\n` 连接**。这避免了在长模板中手动添加 `\n`：
 
-```rust
+```yo
 // 多个字符串 — 每个变成一行指令
 asm(
   "push {val}",
@@ -588,7 +588,7 @@ asm(
 
 当 `out` / `lateout` 的最后一个参数是**类型**时，输出成为 `asm` 返回值的一部分：
 
-```rust
+```yo
 // 单个返回值输出
 result := asm("rdtsc", out("eax", u32));
 // result : u32
@@ -617,7 +617,7 @@ result := asm("rdtsc", out("eax", u32));
 
 当 `out` / `lateout` 的最后一个参数是**变量**时，汇编直接写入该变量。这对于初始化未初始化变量至关重要：
 
-```rust
+```yo
 // 声明未初始化变量
 lo : u32;
 hi : u32;
@@ -645,7 +645,7 @@ total := ((u64(hi) << u64(32)) | u64(lo));
 
 求值器在 `asm` 表达式之后将变量目标输出标记为**已初始化**。在 `asm` 之前使用该变量是编译期错误：
 
-```rust
+```yo
 x : i32;
 // print(x);  // 错误：变量 'x' 未初始化
 asm("mov {0}, $42", out(reg, x));
@@ -659,7 +659,7 @@ print(x); // 正常：x 已被 asm 初始化
 
 变量目标输出和返回值输出可以共存：
 
-```rust
+```yo
 remainder : u64;
 
 quotient := asm(
@@ -679,7 +679,7 @@ quotient := asm(
 
 **Yo 源码：**
 
-```rust
+```yo
 lo : u32;
 hi : u32;
 asm("rdtsc", out("eax", lo), out("edx", hi));
@@ -733,7 +733,7 @@ Yo 模板占位符被转换为 GCC 操作数引用：
 
 **Yo 源码：**
 
-```rust
+```yo
 (lo, hi) := asm(
   "rdtsc",
   out("lo", "eax", u32),
@@ -759,7 +759,7 @@ __asm__ __volatile__ (
 
 **Yo 源码：**
 
-```rust
+```yo
 result := asm(
   "add {val}, {addend}",
   inout("val", reg, x),
@@ -785,7 +785,7 @@ __asm__ __volatile__ (
 
 **Yo 源码：**
 
-```rust
+```yo
 asm("mfence", clobber("memory"));
 ```
 
@@ -799,7 +799,7 @@ __asm__ __volatile__ ("mfence" ::: "memory");
 
 **Yo 源码：**
 
-```rust
+```yo
 result := asm(
   "mov {out}, {in}",
   out("out", reg, u64),
@@ -828,7 +828,7 @@ __asm__ __volatile__ (
 
 对于存在于**函数之外**的汇编（数据段、函数前导代码、链接器指令），使用 `global_asm`：
 
-```rust
+```yo
 global_asm(".section .note.GNU-stack,\"\",@progbits");
 
 global_asm(
@@ -880,7 +880,7 @@ MSVC x64 **不支持**内联汇编。当目标为 MSVC 时：
 
 使用 Yo 的编译期平台/架构检测来对特定架构的汇编进行条件选择：
 
-```rust
+```yo
 platform :: __yo_process_platform();
 arch :: __yo_process_arch();
 
@@ -960,7 +960,7 @@ Yo 没有 `unsafe` 块。内联汇编天生是不安全的 — 它可以破坏�
 
 ### 12.1. x86_64 系统调用（Linux write）
 
-```rust
+```yo
 sys_write :: (fn(fd : u64, buf : *u8, len : u64) -> i64)(
   asm(
     "syscall",
@@ -978,7 +978,7 @@ sys_write :: (fn(fd : u64, buf : *u8, len : u64) -> i64)(
 
 ### 12.2. 原子比较并交换（x86_64）
 
-```rust
+```yo
 cas :: (fn(ptr : *i32, expected : i32, desired : i32) -> tuple(i32, bool))({
   prev := asm(
     "lock cmpxchg {ptr_mem}, {desired}",
@@ -994,7 +994,7 @@ cas :: (fn(ptr : *i32, expected : i32, desired : i32) -> tuple(i32, bool))({
 
 ### 12.3. ARM64 内存屏障
 
-```rust
+```yo
 dmb_ish :: (fn() -> unit)(
   asm("dmb ish", clobber("memory"))
 );
@@ -1002,7 +1002,7 @@ dmb_ish :: (fn() -> unit)(
 
 ### 12.4. CPUID（x86_64）
 
-```rust
+```yo
 CpuidResult :: struct(eax : u32, ebx : u32, ecx : u32, edx : u32);
 
 cpuid :: (fn(leaf : u32, subleaf : u32) -> CpuidResult)({
@@ -1019,7 +1019,7 @@ cpuid :: (fn(leaf : u32, subleaf : u32) -> CpuidResult)({
 
 ### 12.5. 自旋等待提示
 
-```rust
+```yo
 spin_hint :: (fn() -> unit)(
   cond(
     (arch == Arch.X86_64) => asm("pause"),
@@ -1031,7 +1031,7 @@ spin_hint :: (fn() -> unit)(
 
 ### 12.6. 读取性能计数器（跨平台）
 
-```rust
+```yo
 perf_counter :: (fn() -> u64)(
   cond(
     (arch == Arch.X86_64) => {
@@ -1056,7 +1056,7 @@ perf_counter :: (fn() -> u64)(
 
 ### 12.7. 字节交换
 
-```rust
+```yo
 bswap32 :: (fn(value : u32) -> u32)(
   cond(
     (arch == Arch.X86_64) =>
@@ -1091,7 +1091,7 @@ bswap32 :: (fn(value : u32) -> u32)(
 
 提供常见内置指令可移植包装器的标准库模块：
 
-```rust
+```yo
 // std/arch/x86_64.yo
 { ... } :: import("std/arch/x86_64");
 
@@ -1103,7 +1103,7 @@ tsc := rdtsc(); // 包装 asm("rdtsc", ...)
 
 自动将常见 `asm` 模式映射为 MSVC `__intrin.h` 内置函数：
 
-```rust
+```yo
 // 在 GCC/Clang 上：输出内联汇编
 // 在 MSVC 上：输出 __rdtsc() 内置函数调用
 tsc := rdtsc();
@@ -1113,7 +1113,7 @@ tsc := rdtsc();
 
 允许完整地用汇编定义函数（超越 `global_asm`）：
 
-```rust
+```yo ignore
 // 可能的未来语法
 naked_fn :: asm_fn(fn(a: u64, b: u64) -> u64,
   "add rax, rdi, rsi\n"

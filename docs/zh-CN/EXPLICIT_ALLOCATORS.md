@@ -37,7 +37,7 @@ arena，统计某个库的每一次分配，或者给一个子系统单独的内
 
 ## 快速上手
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
@@ -178,7 +178,7 @@ arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的�
 **作用域是按线程的。** 新建的线程从全局分配器开始，即使它是在作用域内创建的。要在
 线程中使用 arena，把它的 `Allocator` 值传进去，再在那里打开作用域：
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
@@ -191,7 +191,7 @@ main :: (fn() -> unit)({
   a := arena.allocator(); // `Allocator` 是 `Send`；`Arena` 句柄不是
   t := Thread(i32).spawn(io => {
     p := with_allocator(a, () => Point(x : i32(1), y : i32(2)));
-    (p.x + p.y)
+    p.x + p.y
   });
   println(`${t.join()}`);
 });
@@ -210,7 +210,7 @@ export(main);
 分配器是一个上下文指针加一张包含三个函数的表。这两个类型都在 prelude 中，无需导入；
 它们的方法（`Allocator.global()`、`alloc`、`free` 等）由 `std/allocator` 提供：
 
-```rust
+```yo
 AllocatorVTable :: struct(
   alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
   realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
@@ -233,7 +233,7 @@ Allocator :: struct(ctx : ?*void, vtable : *AllocatorVTable);
 
 一个转发给全局分配器的计数分配器：
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
 { GlobalAllocator, with_allocator } :: import("std/allocator");

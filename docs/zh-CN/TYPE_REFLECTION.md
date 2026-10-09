@@ -4,7 +4,7 @@ Yo 通过 `TypeInfo` 枚举和 `Type.get_info()` 提供编译时类型反射。�
 
 ## 基本用法
 
-```rust
+```yo
 info :: Type.get_info(i32);
 comptime_assert(info.is_primitive(), "i32 is primitive");
 comptime_assert(info.is_integer(), "i32 is an integer");
@@ -20,7 +20,7 @@ comptime_assert(info2.is_struct(), "Point is a struct");
 
 `TypeInfo` 是一个编译时枚举，包含无字段变体和复合变体：
 
-```rust
+```yo
 TypeInfo :: enum(
   // === 原始类型（无字段）===
   Unit,
@@ -84,7 +84,7 @@ TypeInfo :: enum(
 
 `TypeInfo` 提供类型分类的守卫方法：
 
-```rust
+```yo ignore
 info :: Type.get_info(i32);
 
 // 结构守卫
@@ -113,7 +113,7 @@ info.is_comptime()   // ComptimeInt, ComptimeFloat, ComptimeStr, ComptimeList, E
 
 ### 数组
 
-```rust
+```yo
 Arr3 :: [i32 ; 3];
 info :: Type.get_info(Arr3);
 
@@ -126,7 +126,7 @@ comptime_assert(len == 3, "length is 3");
 
 ### 结构体
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 info :: Type.get_info(Point);
 
@@ -143,7 +143,7 @@ comptime_assert(is_struct_kind, "Point is a regular struct");
 
 ### 枚举
 
-```rust
+```yo
 Color :: enum(Red, Green, Blue);
 info :: Type.get_info(Color);
 
@@ -153,7 +153,7 @@ comptime_assert(variant_count == usize(3), "Color has 3 variants");
 
 ### 函数
 
-```rust
+```yo
 FnType :: (fn(x : i32, y : i32) -> bool);
 info :: Type.get_info(FnType);
 
@@ -170,7 +170,7 @@ comptime_assert(ret_is_bool, "returns bool");
 
 ### 指针
 
-```rust
+```yo
 PtrI32 :: *i32;
 info :: Type.get_info(PtrI32);
 
@@ -184,7 +184,7 @@ comptime_assert(__yo_are_types_compatible(pointee, i32), "pointee is i32");
 
 表示结构体、联合体、元组或模块中的字段：
 
-```rust
+```yo
 TypeFieldInfo :: struct(
   name : comptime_str,
   field_type : Type
@@ -195,7 +195,7 @@ TypeFieldInfo :: struct(
 
 表示枚举变体：
 
-```rust
+```yo
 VariantInfo :: struct(
   name : comptime_str,
   fields : ComptimeList(TypeFieldInfo),
@@ -211,7 +211,7 @@ VariantInfo :: struct(
 
 区分结构体类型：
 
-```rust
+```yo
 StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
@@ -224,7 +224,7 @@ StructKind :: enum(Struct, Object, AtomicObject, NewType);
 
 丰富的函数类型元数据：
 
-```rust
+```yo
 FunctionInfo :: struct(
   params : ComptimeList(ParamInfo),
   return_type : Type,
@@ -238,7 +238,7 @@ FunctionInfo :: struct(
 
 函数参数元数据：
 
-```rust
+```yo
 ParamInfo :: struct(
   name : comptime_str,
   param_type : Type,
@@ -252,7 +252,7 @@ ParamInfo :: struct(
 
 Forall 类型参数：
 
-```rust
+```yo
 ForallParamInfo :: struct(
   name : comptime_str,
   param_type : Type
@@ -263,7 +263,7 @@ ForallParamInfo :: struct(
 
 Using/效果参数：
 
-```rust
+```yo
 ImplicitParamInfo :: struct(
   name : comptime_str,
   param_type : Type
@@ -274,7 +274,7 @@ ImplicitParamInfo :: struct(
 
 轻量级特征引用：
 
-```rust
+```yo
 TraitInfo :: struct(
   trait_type : Type
 );
@@ -284,7 +284,7 @@ TraitInfo :: struct(
 
 特征字段元数据：
 
-```rust
+```yo
 TraitFieldInfo :: struct(
   name : comptime_str,
   field_type : Type,
@@ -296,7 +296,7 @@ TraitFieldInfo :: struct(
 
 区分特征类型：
 
-```rust
+```yo
 TraitKind :: enum(
   Future(child : Type, effects : ComptimeList(TraitInfo)),
   Fn(call : FunctionInfo),
@@ -308,7 +308,7 @@ TraitKind :: enum(
 
 使用 `match` 对 `TypeInfo` 进行编译时类型分发：
 
-```rust
+```yo
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   match(
     Type.get_info(T),
@@ -329,7 +329,7 @@ comptime_assert(describe(Point) == "struct type", "Point description");
 
 `TypeInfo` 专为 `derive_rule` 设计，实现强大的编译时代码生成：
 
-```rust
+```yo
 // 在 derive 规则中使用 TypeInfo 检查类型种类（派生规则是返回
 // comptime(Expr) 的普通 comptime 函数 —— 不是宏）
 derive_rule(
@@ -365,7 +365,7 @@ derive_rule(
 
 ### 类型相等 vs 类型兼容
 
-```rust
+```yo
 // Type.eq — 精确匹配，名义类型
 comptime_assert(Type.eq(i32, i32), "same type");
 
@@ -388,7 +388,7 @@ comptime_assert(Type.neq(A, B), "different definitions, not equal");
 
 结果与程序中此前问过哪些问题无关。
 
-```rust
+```yo
 comptime_assert(Type.eq(struct(x : i32), struct(x : i32)), "two anonymous records with the same fields");
 comptime_assert(Type.neq(struct(x : i32), A), "an anonymous record is not A");
 comptime_assert(Type.is_compatible_with(struct(x : i32), A), "but it flows into A");
@@ -398,7 +398,7 @@ comptime_assert(Type.is_compatible_with(struct(x : i32), A), "but it flows into 
 
 将结构体的每个字段映射为 `Expr`，并用二元运算符组合：
 
-```rust
+```yo
 // 示例：为所有字段生成相等检查
 eq_body :: Type.join_fields(
   Point,
@@ -413,7 +413,7 @@ eq_body :: Type.join_fields(
 
 将枚举的每个变体映射为 `Expr`，返回 `ComptimeList(Expr)`：
 
-```rust
+```yo
 branches :: Type.map_variants(
   Color,
   (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(

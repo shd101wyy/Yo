@@ -30,7 +30,7 @@ per-module API surface, prefer the generated `yo doc` output (locally or from CI
 
 ## Quick start
 
-```rust
+```yo
 { List } :: import("std/imm/list");
 { Map } :: import("std/imm/map");
 { SortedSet } :: import("std/imm/sorted_set");
@@ -92,7 +92,7 @@ Immutable collections can **never** form cycles at runtime because all operation
 create new nodes — existing nodes are never mutated. To express this guarantee, the
 internal node types declare a **manual `Acyclic` impl**:
 
-```rust
+```yo
 ListNode :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(ref(struct(_value : T, _next : Option(Self))))
 );
@@ -114,7 +114,7 @@ parameters on mutation methods (`push`, `set`, `pop`, `concat`, `reverse`,
 
 Mutation methods take ownership of `self` instead of borrowing:
 
-```rust
+```yo
 push : (fn(own(self) : Self, val : T) -> Self)
 ```
 
@@ -127,7 +127,7 @@ Inside the method, `ref_count(self) == usize(1)` is checked:
 
 ### Usage pattern
 
-```rust
+```yo
 { Vec } :: import("std/imm/vec");
 
 // Normal usage — each push is O(1) because v is unique:

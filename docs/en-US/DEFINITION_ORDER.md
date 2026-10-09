@@ -7,7 +7,7 @@ callee, a function above the type it returns, mutual recursion between free
 functions, a free function that calls a method or trait default whose `impl`
 sits at the end of the file.
 
-```rust
+```yo
 // caller above callee
 call_later :: (fn(n : i32) -> i32)(later_helper(n) * i32(2));
 later_helper :: (fn(n : i32) -> i32)(n + i32(1));
@@ -124,7 +124,7 @@ definition in the source
 Sibling methods of one `impl(...)` block may call each other in any order
 through `self.method(...)` or `Self.method(...)`:
 
-```rust
+```yo
 N :: struct(value : i32);
 impl(
   N,

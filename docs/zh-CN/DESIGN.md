@@ -232,7 +232,7 @@ diff 中能一眼读懂的代码。设计的关键杠杆是**显式性** —— 
 
 ## Hello World
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
@@ -246,7 +246,7 @@ export(main);
 因此从 `main` 返回的值无处可去 —— 过去它会被计算然后被静默丢弃。请用 `std/process` 的
 `exit(code)` 设置进程退出状态：
 
-```rust
+```yo
 { exit } :: import("std/process");
 
 main :: (fn() -> unit)({
@@ -299,15 +299,15 @@ yo fmt --check             # 只检查格式，不写入变更
 
 同一条规则还会去掉另外两类括号：包住整个调用参数的括号（`f((a + b))` 变为 `f(a + b)`，因为调用自身的括号已经完成了分组），以及包住单个前缀运算符操作数的括号（`-(x)` 变为 `-x`，`!(done)` 变为 `!done`）。以下括号会保留：加括号的右操作数（`a + (b + c)`）、前缀运算符的复合操作数（`-(x + x)`、`!(a > b)`）、分隔两个不同运算符的括号（`(a * b) + c`），以及 `:=` 或 `=` 右侧二元表达式外的括号——E0003 要求必须有它。`yo fmt` 从不添加括号，所以 E0003 需要的括号要自己写。格式化前后对比：
 
-```rust
+```yo
 // 格式化前
-s1 := (((a - b) - c) - x);
+s1 := (a - b - c - x);
 s2 := (a + (b + c));
-s3 := f((a + b));
-s4 := -(x);
+s3 := f(a + b);
+s4 := -x;
 s5 := -(x + x);
 s6 := ((a * b) + c);
-ok := !(done);
+ok := !done;
 
 // `yo fmt` 之后
 s1 := (a - b - c - x);
@@ -321,7 +321,7 @@ ok := !done;
 
 ## 语法
 
-```rust
+```yo
 // 注释使用 `//` 或 `/* */`
 /*
   支持嵌套注释
@@ -472,7 +472,7 @@ begin(
 - 自动循环检测和回收
 - 线程亲和性以提升性能（对象留在创建它的线程上）
 
-```rust
+```yo
 // 值类型 - 栈分配，复制语义
 Point :: struct(x : i32, y : i32);
 p1 := Point(x : 3, y : 4);
@@ -491,7 +491,7 @@ s2 := s1; // s2 和 s1 指向同一个对象（引用计数）
 
 Yo 中的变量使用 `:=`（运行时）或 `::`（编译期）声明。
 
-```rust
+```yo
 // "comptime" 在这里表示编译期已知
 x := 5; // x: i32，运行时变量
 y :: 5; // y: comptime_int，编译期变量
@@ -535,12 +535,12 @@ z := 16;
 
 Yo 不允许变量遮蔽，以避免混淆
 
-```rust
+```yo
 x := 1;
 x := 2; // 错误：x 已经被声明过
 ```
 
-```rust
+```yo
 x := 1;
 {
   x := 2; // 错误：x 已经被声明过
@@ -549,7 +549,7 @@ x := 1;
 
 在不同的块作用域中可以使用相同的变量名：
 
-```rust
+```yo
 {
   x := 1;
 };
@@ -562,7 +562,7 @@ x := 1;
 
 当调用函数只是为了副作用、不需要返回值时，请直接写成裸表达式语句，不要绑定到丢弃名：
 
-```rust
+```yo
 // 推荐：
 unsafe(unistd.close(fd));
 
@@ -574,7 +574,7 @@ _ := unsafe(unistd.close(fd));
 
 ### 类型推断
 
-```rust
+```yo
 // String 的字节存放在堆上，由引用计数的缓冲区持有
 (my_string : String) = String.from("Hello, world"); // 字节在堆上分配
 my_string_2 := my_string; // 目前副本与原值共享缓冲区；my_string.clone() 才是独立的副本
@@ -594,7 +594,7 @@ _(name, age) := p; // name : String, age : i32
 
 #### 未初始化变量
 
-```rust
+```yo
 x : i32; // x : i32，未初始化
 // 编译器会阻止使用未初始化的变量。
 println(x); // 编译错误：x 未初始化。
@@ -607,15 +607,15 @@ x = 1; // x : i32，已初始化
 带类型的绑定、赋值、实参、结构体或枚举字段、返回值、`cond`/`match` 汇合后的分支，或 `T(x)` 转换——时，它才取得该类型，
 并且其值必须放得下：
 
-```rust
-(a : u8) = 255;        // 正确
-(b : u8) = 300;        // error[E1102]: the literal 300 does not fit in u8 (0..=255)
-(c : i8) = -128;       // 正确
+```yo
+(a : u8) = 255; // 正确
+(b : u8) = 300; // error[E1102]: the literal 300 does not fit in u8 (0..=255)
+(c : i8) = -128; // 正确
 (d : u8) = (200 + 100); // error[E1102]: the compile-time value 300 does not fit in u8
 k :: 3;
-(e : u8) = k;          // 正确：comptime_int 常量取得槽位的类型
-f := u8(300);          // error[E1102]
-g := u8(i32(300));     // 正确：两个带类型整数之间的转换按定义截断（g == 44）
+(e : u8) = k; // 正确：comptime_int 常量取得槽位的类型
+f := u8(300); // error[E1102]
+g := u8(i32(300)); // 正确：两个带类型整数之间的转换按定义截断（g == 44）
 ```
 
 没有槽位时，`comptime_int` 在成为运行时值时默认取 `i32`（`comptime_float` 取 `f64`）。在 `cond` 或 `match` 中，
@@ -627,7 +627,7 @@ comptime 分支无论顺序如何都会在其具体兄弟分支的类型处汇�
 
 模块级的 `::` 定义与 `impl(...)` 注册与顺序无关：函数可以调用文件中稍后定义的函数、以自己的名字递归、或使用 `impl` 位于其下方的方法。import、`open`、pragma 与运行期全局变量仍保持源码顺序。参见[定义顺序](./DEFINITION_ORDER.md)。
 
-```rust
+```yo
 // 带显式类型的函数声明
 // 函数类型写作 fn(args...) -> return_type
 add :: (fn(x : i32, y : i32) -> i32)(
@@ -667,10 +667,12 @@ p2 := BoolPoint(x : true, y : false);
 
 `fn(inout(x) : i32) -> unit`、`fn(sink(x) : String) -> usize` 和 `fn(x : i32) -> unit` 是三个不同的类型：`inout` 参数按引用传递，`sink` 参数被移动进被调函数，普通参数是借用。`sink` 参数会消耗其实参：调用方的绑定在调用处结束。`own(x)` 是 `sink(x)` 的旧写法；在下一个版本之后的一次统一替换删除它之前，它仍被接受，并且表示同一个类型。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
 
-```rust
-bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
+```yo
+bump :: (fn(inout(x) : i32) -> unit)({
+  x = (x + i32(1));
+});
 (f : (fn(inout(x) : i32) -> unit)) = bump; // 可以
-(g : (fn(x : i32) -> unit)) = bump;        // 错误：Incompatible types
+(g : (fn(x : i32) -> unit)) = bump; // 错误：Incompatible types
 ```
 
 唯一的例外是 `impl` 成员的接收者：trait 中声明为 `inout(self) : Self` 的方法可以用 `self : Self` 实现，因为每个调用点都会按 impl 自己的签名适配。
@@ -679,7 +681,7 @@ bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
 
 Yo 中的命名参数必须按照函数签名中定义的顺序提供：
 
-```rust
+```yo
 add :: (fn(x : i32, y : i32) -> i32)(x + y);
 
 add(3, 4); // OK：位置参数
@@ -692,11 +694,11 @@ add(y : 4, x : 3); // 错误：命名参数必须按顺序（x 在 y 之前）
 
 `never` 是不会正常结束的表达式的类型：`__yo_panic(...)`，或调用一个声明为 `-> never` 的函数。它可以流入任何类型，因此一个发散的分支适配其他分支产生的任何类型；除 `never` 本身外，没有类型能流入 `never`：
 
-```rust
+```yo
 die :: (fn(msg : str) -> never)(__yo_panic(msg));
 
 pick :: (fn(flag : bool) -> i64)({
-  x := cond(flag => i32(3), true => die("unreachable"));  // x : i32
+  x := cond(flag => i32(3), true => die("unreachable")); // x : i32
   i64(x)
 });
 ```
@@ -709,7 +711,7 @@ pick :: (fn(flag : bool) -> i64)({
 
 默认参数值可以使用 `?=` 语法定义：
 
-```rust
+```yo
 create_user :: (fn(name : String, (age : i32) ?= i32(18)) -> User)(
   User(name : name, age : age)
 );
@@ -720,7 +722,7 @@ create_user(name : `Bob`, age : i32(30)); // 显式指定 age
 
 默认值必须是**编译期已知的值**：编译器在函数定义处记录一次，每当调用省略该参数时就传入这个值。判断标准是整个值是否已知，而不是参数的类型是什么：
 
-```rust
+```yo ignore
 (n : i32) ?= i32(18)                    // ✅ 字面量
 (alloc : Option(Allocator)) ?= .None    // ✅ 无负载的变体：只有标签，是常量
 (alloc : Allocator) ?= Allocator.global() // ❌ 含有全局变量的地址，链接时才确定
@@ -731,15 +733,16 @@ create_user(name : `Bob`, age : i32(30)); // 显式指定 age
 
 如果自然的默认值需要运行时计算，就把默认值设为 `.None`，在函数体里再决定。这样省略的参数读作“未提供”，而不是某个哨兵值：
 
-```rust
+```yo
 greet :: (fn(name : str, (greeting : Option(String)) ?= .None) -> String)(
-  match(greeting,
+  match(
+    greeting,
     .Some(g) => `${g}, ${name}`,
     .None => `Hello, ${name}`
   )
 );
 
-greet("Ada");                                      // "Hello, Ada"
+greet("Ada"); // "Hello, Ada"
 greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
 ```
 
@@ -749,7 +752,7 @@ greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
 
 你可以使用 `generic` 来定义泛型函数：
 
-```rust
+```yo
 identity :: (fn(generic(T : Type), arg : T) -> T)(arg);
 
 x := identity(12); // 类型推断：x: i32
@@ -761,45 +764,45 @@ y := identity(true); // 类型推断：y: bool
 
 在一次调用中，一个类型参数只代表**一个**类型，由调用的实参共同决定，与实参顺序无关：
 
-```rust
+```yo
 pair_same :: (fn(generic(A : Type), x : A, y : A) -> A)(x);
-pair_same(i32(3), i32(4));          // A = i32
+pair_same(i32(3), i32(4)); // A = i32
 pair_same(String.from("a"), i32(2)); // E0601：A 由实参 1 得到 String，由实参 2 得到 i32
 
 apply :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
-apply((x) => (x + i32(1)), i32(3)); // 4 —— 闭包在 `v` 确定 T = i32 之后才检查
-apply((x) => true, i32(3));         // E0604：闭包体是 bool，而 T 是 i32
+apply(x => (x + i32(1)), i32(3)); // 4 —— 闭包在 `v` 确定 T = i32 之后才检查
+apply(x => true, i32(3)); // E0604：闭包体是 bool，而 T 是 i32
 ```
 
 闭包（`=>`）或函数字面量（`->`）实参最后检查，对照的是其他实参已经解出的参数类型。只出现在结果中的类型参数由期望类型确定；没有期望类型时报 E0613：
 
-```rust
+```yo
 mk :: (fn(generic(T : Type)) -> Option(T))(.None);
-(x : Option(i32)) = mk();  // 由类型标注得到 T = i32
-y := mk(generic(bool));    // 显式给出 T = bool
-z := mk();                 // E0613：无法推断 T
+(x : Option(i32)) = mk(); // 由类型标注得到 T = i32
+y := mk(generic(bool)); // 显式给出 T = bool
+z := mk(); // E0613：无法推断 T
 ```
 
 `comptime(x) : T` 参数按其**值**特化，因此实参必须在编译期已知——字面量、`::` 常量或 comptime 函数的结果。
 运行时值是错误：
 
-```rust
+```yo
 scale :: (fn(comptime(factor) : i32, x : i32) -> i32)(factor * x);
-scale(3, n);               // 正确
-scale(i32.default(), n);   // error[E1101]: Parameter `factor` is `comptime` and requires a compile-time argument
+scale(3, n); // 正确
+scale(i32.default(), n); // error[E1101]: Parameter `factor` is `comptime` and requires a compile-time argument
 ```
 
 ### 类型约束
 
 你可以使用 `where` 子句在泛型参数上添加类型约束：
 
-```rust
+```yo
 add :: (fn(generic(T : Type), x : T, y : T, where(T <: Add(T))) -> T)(x + y);
 ```
 
 `where` 子句可以指定多个约束：
 
-```rust
+```yo
 compare_and_add :: (
   fn(
     generic(T : Type),
@@ -820,11 +823,11 @@ compare_and_add :: (
 也可以在该参数上调用 blanket 组合子（`fold`、`map`、`collect` 等）。约束可以提到它所约束的参数本身
 （`A <: Add(A)`），这个约束会在 `A` 绑定之后检查：
 
-```rust
+```yo
 sum :: (fn(generic(I : Type, A : Type), it : I, zero : A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
   it.fold(zero, (acc, x) => (acc + x))
 );
-total := sum(list.into_iter(), i32(0));   // A = i32
+total := sum(list.into_iter(), i32(0)); // A = i32
 ```
 
 只由 `Fn` 约束的结果确定的参数（`where(F <: (Fn(item : A) -> J))` 中的 `J`）从闭包实参的函数体类型绑定。
@@ -835,7 +838,7 @@ Iterator: its associated type Item is String, not i32.`
 
 当一个类型实现了多个定义了同名方法的 trait 时，`where` 子句约束决定使用哪个 trait 的方法：
 
-```rust
+```yo
 T1 :: trait(get_number : (fn(self : Self) -> i32));
 T2 :: trait(get_number : (fn(self : Self) -> i32));
 
@@ -862,7 +865,7 @@ use_t2(point); // 20
 
 多参数类型构造器可以使用 `_` 作为占位符进行偏应用。这会创建一个参数更少的新类型构造器：
 
-```rust
+```yo
 // Result 的 kind 是：(Type, Type) -> Type
 // 偏应用固定一个参数：
 IntResult :: Result(_, i32); // kind: Type -> Type
@@ -874,7 +877,7 @@ StrOkResult :: Result(str, _); // kind: Type -> Type
 
 偏应用**仅**适用于编译期函数（返回类型为 `comptime` 的函数），不能用于运行时函数。
 
-```rust
+```yo
 // 类型构造器（返回 comptime(Type)）：
 IntResult :: Result(_, i32); // kind: Type -> Type
 // 编译期值函数（返回 comptime(i32)、comptime(bool) 等）：
@@ -885,7 +888,7 @@ result :: add1(i32(2)); // 3
 
 偏应用的类型构造器可以作为 HKT generic 参数使用：
 
-```rust
+```yo
 IntResult :: Result(_, i32);
 // IntResult 的 kind 是 Type -> Type，所以可以传递给 F : (Type -> Type)
 ```
@@ -899,7 +902,7 @@ Yo 支持**类型方法** —— 在类型 trait 中定义的方法。
 1. 在类型自身 trait 中定义的方法
 2. 来自已实现 trait 的方法
 
-```rust
+```yo
 // 定义一个带方法的类型
 Point :: struct(
   x : i32,
@@ -934,7 +937,7 @@ p2.move_by(5, 10); // `inout(self)` 在 C 中降为 `Self*` — 编译器自动�
 `inout(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
 所以调用方代码看起来就是普通的值传递语法：
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 impl(
   Point,
@@ -955,7 +958,7 @@ p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
 
 接收者可以像其他实参一样带标签（`Pair.first(self : p)`），构造器也可以带模块限定（`m.Pair.first(p)`）。匹配依据的是构造器的身份，所以函数体应用了另一个构造器的构造器是一个独立的构造器：对于别名 `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` 或偏应用 `Pair(i32, _)`，以 `IntPair(u8)` 构造的值是 `Pair(i32, u8)`，`Pair.first(q)` 和 `IntPair(u8).first(q)` 都接受它，而 `IntPair.first(q)` 会报 E0613。
 
-```rust
+```yo
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(a : A, b : B)
 );
@@ -967,9 +970,9 @@ impl(
 );
 
 p := Pair(i32, bool).make(i32(1), true); // 静态方法：写出类型实参
-a := Pair.first(p);                      // 从 `p` 推断 A := i32、B := bool
+a := Pair.first(p); // 从 `p` 推断 A := i32、B := bool
 w := rc(i32(5));
-c := Rc.clone(w);                        // 即 Rc(i32).clone(w)
+c := Rc.clone(w); // 即 Rc(i32).clone(w)
 ```
 
 #### 关联常量
@@ -978,7 +981,7 @@ c := Rc.clone(w);                        // 即 Rc(i32).clone(w)
 
 声明为 **trait 成员**的常量还可以出现在签名的类型位置，例如作为 `Array` 的长度，无论是直接投影还是参与计算；这个投影会针对每次实例化分别求值。固有（inherent）常量目前还不能用在这个位置（`issues/an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`），所以 prelude 把 `to_be_bytes` 所用的长度 `BYTES` 放在 `ByteWidth` trait 里声明。
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 Grid :: struct(w : i32, h : i32);
@@ -1007,7 +1010,7 @@ export(main);
 
 名称以 `_` 开头的结构体字段或 impl 方法是**私有的**，并由编译器强制执行。这样的成员只能在声明该类型（或该 impl）的模块以及该模块的**同目录兄弟模块**中读取、写入、调用、构造或解构。其余成员都是公开的。没有新的关键字：下划线约定*就是*可见性规则。
 
-```rust
+```yo
 // counter.yo
 Counter :: struct(_count : i32, label : String);
 impl(
@@ -1048,7 +1051,7 @@ Counter(_count : i32(9), label : c.label); // error[E0405]: Cannot construct Cou
 
 `::` 函数按名字调用自身或同一模块的其他函数，这就是普通递归，不需要特殊形式：
 
-```rust
+```yo
 fact :: (fn(n : i32) -> i32)(
   cond(
     (n <= i32(1)) => i32(1),
@@ -1061,11 +1064,12 @@ fact :: (fn(n : i32) -> i32)(
 lambda 中，`recur` 指代该 lambda，而不是外层函数。`recur` 是一次普通调用，
 不做尾调用优化。
 
-```rust
+```yo
 (fn(x : u32, acc : u32) -> u32)(
-  if(x == 1,
-    then: acc,
-    else:
+  if(
+    x == 1,
+    then : acc,
+    else :
       recur(x - 1, acc * x)
   )
 );
@@ -1079,7 +1083,7 @@ Yo 使用**引用语义类型**，配合[编译期引用计数与所有权和生
 
 引用语义类型是堆分配的类型，带有自动引用计数：
 
-```rust
+```yo
 // 定义一个引用语义类型
 MyString :: ref(
   struct(
@@ -1119,7 +1123,7 @@ s3 := s2; // RC = 3
 
 引用计数决定对象何时释放，显式分配器决定它放在哪里。`with_allocator(a, f)`（`std/allocator`）把 `f` 运行期间创建的每个引用语义对象放在分配器 `a` 中，包括在其中创建的容器的缓冲区；`new_in` 用于显式指定分配器：
 
-```rust
+```yo
 { Arena } :: import("std/arena");
 Point :: ref(struct(x : i32, y : i32));
 
@@ -1134,7 +1138,7 @@ p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
 
 `Copy` 是 prelude 中的标记 trait，表示一个值的复制就是按位复制。它要求 `Clone`，与 Rust 的 `Copy: Clone` 一样：这个 trait 声明为 `Copy :: trait(where(Self <: Clone))`，所以每个 `Copy` impl 旁边都需要一个 `Clone` impl，而 `where(T <: Copy)` 让泛型函数体可以调用 `x.clone()`。整数、浮点数、`bool`、`char`、`unit`、`str` 视图和裸指针两者都实现；`Option(T)` 与 `Result(T, E)` 在载荷实现它们时也实现。具名类型通过 `derive(T, Copy, Clone)` 选择加入，泛型类型则加上 `where` 约束：
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 
@@ -1144,8 +1148,8 @@ derive(generic(T : Type), where(T <: Copy), Pair(T), Copy);
 
 main :: (fn() -> unit)({
   p := Point(x : i32(1), y : i32(2));
-  q := p;           // 复制：`p` 仍然可用
-  r := p.clone();   // 派生的 clone；对 Copy 类型来说就是复制
+  q := p; // 复制：`p` 仍然可用
+  r := p.clone(); // 派生的 clone；对 Copy 类型来说就是复制
 });
 export(main);
 ```
@@ -1158,22 +1162,25 @@ export(main);
 
 资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Dispose` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），既不是 `Copy` 也不是 `Clone` 的纯值类型也是（必须保持唯一的令牌不需要 `Dispose`：两者都不声明即可），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Rc`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Dispose` 在计数归零时运行一次。
 
-```rust
+```yo
 { println } :: import("std/fmt");
 Fd :: struct(n : i32);
-impl(Fd, Dispose(
-  dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // 真实的实现会关闭这个描述符
-));
+impl(
+  Fd,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // 真实的实现会关闭这个描述符
+  )
+);
 
-peek :: (fn(f : Fd) -> i32)(f.n);        // 按值参数是借用：不复制
-keep :: (fn(sink(f) : Fd) -> unit)(());  // sink 参数把值移动进来
+peek :: (fn(f : Fd) -> i32)(f.n); // 按值参数是借用：不复制
+keep :: (fn(sink(f) : Fd) -> unit)(()); // sink 参数把值移动进来
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
-  n := peek(a);    // 借用；`a` 仍可使用
-  b := a;          // 把 `a` 移动到 `b`
+  n := peek(a); // 借用；`a` 仍可使用
+  b := a; // 把 `a` 移动到 `b`
   // a.n           // E0901：使用了被移动的值：`a`
-  keep(b);         // 移动 `b`；`keep` 返回时把它 dispose
+  keep(b); // 移动 `b`；`keep` 返回时把它 dispose
 });
 export(main);
 ```
@@ -1186,7 +1193,7 @@ export(main);
 
 Yo 使用指针 (`*(T)`) 进行直接内存访问，类似 C。对原始指针的解引用、算术运算等危险操作需要显式 `unsafe(...)` 包装 — 详见下文 [内存安全](#内存安全)。
 
-```rust
+```yo
 // 指针类型：*(T)
 x := 1;
 y := 2;
@@ -1207,7 +1214,7 @@ swap(&x, &y); // 传入 x 和 y 的指针
 
 ### 指针操作
 
-```rust
+```yo
 // 使用 & 运算符创建指针
 x := 42;
 ptr := &x; // ptr: *(i32)
@@ -1228,7 +1235,7 @@ float_ptr := (*f32)(ptr); // 将指针转换为 *(f32)
 
 指针算术使用方法 — `p.add(n)`、`p.sub(n)`、`p.offset_from(q)` — 需要 `unsafe(...)` 包装；指针比较使用普通运算符（`==`、`!=`、`<`、`<=`、`>`、`>=`，经由 `*(T)` 上的 `Eq`/`Ord` impl）并保持安全 — 比较地址本身不会破坏内存安全。注意 `*(T) ==` 比较的是地址（同一性），而引用语义类型通过各自的 `Eq` impl 比较值。
 
-```rust
+```yo
 test("Pointer arithmetic", {
   x := 12;
   p := &x;
@@ -1266,7 +1273,7 @@ test("Pointer arithmetic", {
 
 `consume` 告诉编译器你正在初始化内存，而不是覆盖已有的值。这可以防止尝试 drop 未初始化的内存：
 
-```rust
+```yo
 // 不使用 consume - 错误：尝试 drop 未初始化的值
 ptr.* = some_value; // 危险！
 // 使用 consume - OK：初始化，不 drop
@@ -1279,7 +1286,7 @@ consume(ptr.* = some_value);
 
 Yo 使用 `Option(*(T))` 来表示可空指针：
 
-```rust
+```yo
 // malloc 返回 Option(*(T))
 some_ptr := malloc(size_of(i32));
 match(
@@ -1299,13 +1306,13 @@ match(
 
 当 `T` 是裸指针**或**引用语义句柄（`ref(struct(...))` / `ref(enum(...))`，包括每个 `String` —— 它的字节存放在一个句柄 `Option` 的 newtype 之后）时，`Option(T)` 直接编译为裸指针，用 `NULL` 表示 `.None`。同样的 niche 优化也适用于「一个无字段变体 + 一个单字段句柄载荷」的二变体枚举。没有 tag 字、没有额外填充：`size_of` 就是指针本身的大小，对这类值的 `match` 编译为一次 NULL 判断。
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe); // 仅为让 size_of 能写出指针类型
 
 sz_opt :: size_of(Option(*i32)); // == size_of(*i32) —— 就是指针本身
-sz_str :: size_of(String);       // == size_of(*u8)   —— 就是句柄本身
+sz_str :: size_of(String); // == size_of(*u8)   —— 就是句柄本身
 Tree :: enum(Empty, Node(child : Rc(Self)));
-sz_tree :: size_of(Tree);        // == size_of(*u8)   —— NULL 即 Empty
+sz_tree :: size_of(Tree); // == size_of(*u8)   —— NULL 即 Empty
 ```
 
 ### 内存安全
@@ -1320,7 +1327,7 @@ Yo 的安全模型是分层的（设计计划见 [plans/reference/MEMORY_SAFETY.
 
 `unsafe(...)` 是一个普通的内建函数调用，接受一个表达式作为参数。它纯粹是编译时标记 — 在代码生成阶段会被还原为其内部表达式，没有运行时开销。
 
-```rust
+```yo
 // 指针解引用需要 unsafe：
 read :: (fn(p : *i32) -> i32)(unsafe(p.*));
 
@@ -1348,7 +1355,7 @@ write_and_read :: (fn(p : *i32, v : i32) -> i32)(
 
 如需一目了然地审计，运行 `yo unsafe-report`（或 `yo unsafe-report ./std` 仅扫描标准库）。它列出每一处 `unsafe(...)` 站点、`asm(...)` 块、`extern(...)` 声明以及声明 pragma 的文件，带 `file:line:col` 跳转格式以方便编辑器查看。`--json` 标志输出机器可读格式，便于 CI 集成。
 
-```rust
+```yo
 // 没有 pragma 的文件 — `unsafe(...)` 被拒绝：
 main :: (fn() -> unit)({
   x := i32(42);
@@ -1371,7 +1378,7 @@ main :: (fn() -> unit)({
 
 要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与 `sink(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
 
-```rust
+```yo
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
@@ -1398,7 +1405,7 @@ main :: (fn() -> unit)({
 
 `inout(...)` 不能与 `sink(...)`（相反的调用约定）或 `comptime`/`generic`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
 
-```rust
+```yo
 double :: (fn(inout(n) : i32) -> unit)({
   n = (n + n);
 });
@@ -1413,7 +1420,7 @@ double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
 
 Yo 通过引用计数自动管理引用语义类型的内存。当对象的引用计数降为零时，它会被自动释放。
 
-```rust
+```yo
 test :: (fn() -> unit)({
   x := String.from("World!"); // RC = 1
   // ... 使用 x ...
@@ -1426,7 +1433,7 @@ test :: (fn() -> unit)({
 
 元组定义为不同类型元素的序列，用逗号分隔，括号包围。
 
-```rust
+```yo
 my_unit := (); // my_unit: unit.
 my_i32_tuple := 12; // my_i32_tuple: i32
 // 需要额外的逗号才能构成元组
@@ -1450,7 +1457,7 @@ MyTuple :: (
 
 ## 数组与区间
 
-```rust
+```yo
 i32_array := [i32 ; _](1, 2, 3); // i32_array: [i32; 3]
 // 对应 C 代码：int i32_array[3] = {1, 2, 3};
 i32_array.len(); // 3，编译期已知
@@ -1471,7 +1478,7 @@ Yo 中不存在指向堆的切片类型。可能在底层缓冲区被释放后�
 
 ### 使用 `..` 的区间
 
-```rust
+```yo
 list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
@@ -1495,7 +1502,7 @@ Yo 中的数组自带一些实用方法：
 
 创建一个用指定值填充的数组：
 
-```rust
+```yo
 // `fill` 要求一个编译期已知的实参（它定义在 `where(T <: Comptime)` 之下，
 // 接受 `comptime(val)`），但它的结果是一个运行时值——用 `:=` 绑定
 // （`::` 会被拒绝："Got runtime value"）。
@@ -1507,7 +1514,7 @@ ones := Array(i32, 5).fill(1); // [1,1,1,1,1]
 
 获取数组的长度：
 
-```rust
+```yo
 arr :: [1, 2, 3, 4, 5];
 len := arr.len(); // 5（运行时读取；长度也在类型里）
 // 适用于泛型数组
@@ -1519,7 +1526,7 @@ generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T ; n]) -> us
 
 Yo 可以使用 `_` 来推断数组长度：
 
-```rust
+```yo
 // 从初始化器推断长度
 arr1 :: Array(i32, _)(1, 2, 3); // Array(i32, 3)
 arr2 :: [i32 ; _](10, 20, 30, 40); // Array(i32, 4)
@@ -1536,7 +1543,7 @@ nested :: Array(Array(i32, _), _)(
 
 **限制**：不能在没有初始化的变量绑定中使用 `_`：
 
-```rust
+```yo
 // 错误：无法推断长度
 arr : Array(i32, _); // 不允许！
 arr = [1, 2, 3];
@@ -1549,7 +1556,7 @@ arr := Array(i32, _)(1, 2, 3); // OK
 
 数组是值类型，赋值时会复制：
 
-```rust
+```yo
 // 创建数组
 arr1 := [i32(1), i32(2), i32(3)];
 arr2 := arr1; // arr2 是 arr1 的副本
@@ -1588,7 +1595,7 @@ assert(arr2(usize(0)) == i32(10), "arr2 已修改");
 
 ### cond
 
-```rust
+```yo
 use_cond :: (fn(x : i32) -> unit)(
   cond(
     (x == 1) => println("x is 1"),
@@ -1610,7 +1617,7 @@ async 状态机）看到的是真正的 `cond` 节点。prelude 中仍保留等�
 作为语义规范以及动态构造 AST 的回退路径（参见 `std/prelude.yo` 与
 `plans/reference/MACRO_POLICY.md`）：
 
-```rust
+```yo ignore
 // prelude.yo 中的定义（规范/回退 —— 正常情况下在解析阶段脱糖）
 if :: (fn(
         quote(condition): Expr,
@@ -1646,7 +1653,7 @@ main :: (fn() -> unit)({
 `while(condition, do: body)` 或
 `while(condition, steps, do: body)`
 
-```rust
+```yo
 factorial :: (fn(n : i32) -> i32)({
   result := 1;
   i := 1;
@@ -1671,7 +1678,7 @@ factorial2 :: (fn(n : i32) -> i32)({
 
 `Iterator` trait 定义了一个值序列。它有一个关联类型 `Item` 和一个 `next` 方法，返回 `Option(Self.Item)`：
 
-```rust
+```yo
 Iterator :: trait(
   Item : Type,
   next : (fn(inout(self) : Self) -> Option(Self.Item))
@@ -1680,7 +1687,7 @@ Iterator :: trait(
 
 要为一个类型实现 `Iterator`，需要提供 `Item` 类型和一个 `next` 函数：
 
-```rust
+```yo
 Counter :: struct(_current : i32, _max : i32);
 
 impl(
@@ -1703,7 +1710,7 @@ impl(
 
 `IntoIterator` trait 将集合转换为迭代器。它有一个 `where` 子句，约束 `IntoIter` 关联类型必须实现具有匹配 `Item` 类型的 `Iterator`：
 
-```rust
+```yo
 IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
@@ -1714,7 +1721,7 @@ IntoIterator :: trait(
 
 `for` 宏提供了迭代的语法糖。它在循环中调用 `.next()` 并对 `Option` 进行模式匹配：
 
-```rust
+```yo
 // for 循环语法
 for(iter_expr, variable => {
   // 循环体
@@ -1723,7 +1730,7 @@ for(iter_expr, variable => {
 
 `for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(coll, inout(x) => body)`，或索引循环 + 索引写：
 
-```rust
+```yo
 // 值形式 — 每个 `x` 按值产出。
 list := ArrayList(i32).new();
 list.push(i32(10));
@@ -1754,7 +1761,7 @@ while(i < usize(3), {
 
 借用形式 `for(coll, inout(x) => body)` 把每个元素原地交给循环体：给 `x` 赋值即写入该元素。循环会固定（pin）集合并持有它的运行时借用标志，因此在元素被借用期间，循环体不能让集合增长或缩短（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
 
-```rust
+```yo
 xs := ArrayList(i32).new();
 xs.push(i32(1));
 for(xs, inout(x) => {
@@ -1779,7 +1786,7 @@ ADT 还有一些优化。例如，如果 ADT 只有一个变体，`tag` 字段�
 
 此外，如果只有一个变体且只有一个字段，将直接使用字段类型而不是将其包装在记录中。这类似于 Haskell 中的 [newtype](https://wiki.haskell.org/Newtype)。
 
-```rust
+```yo
 Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Some(value : T),
@@ -1827,7 +1834,7 @@ Yo 通过**编译期函数类型作为 Kind**来支持高阶类型。像 `Option
 
 声明一个具有函数类型 Kind 的 generic 参数来接受类型构造器：
 
-```rust
+```yo
 // F 是一个类型构造器（kind: Type → Type）
 identity :: (
   fn(
@@ -1848,7 +1855,7 @@ inferred := identity(x); // 由实参得到 F = Option，A = i32
 
 定义以类型构造器为参数的 Trait：
 
-```rust
+```yo
 // Functor trait —— F 是一个类型构造器
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
@@ -1879,7 +1886,7 @@ result := x.map(generic(i32), (fn(a : i32) -> i32)(a + i32(1)));
 
 #### 使用 HKT where 子句的泛型函数
 
-```rust
+```yo
 do_map :: (
   fn(
     generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
@@ -1900,7 +1907,7 @@ result := do_map(generic(Option, i32, i32), x, (fn(a : i32) -> i32)(a * i32(2)))
 
 GADTs 扩展了枚举类型，允许每个构造器通过 `-> recur(Type1, ...)` 指定其返回的精确类型参数实例化：
 
-```rust
+```yo
 Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     IntVal(i : i32) -> recur(i32),
@@ -1914,7 +1921,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 对 GADT 值进行模式匹配时，类型系统会在每个分支中细化类型变量：
 
-```rust
+```yo
 eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(
     v,
@@ -1934,7 +1941,7 @@ result := eval_value(v); // result : i32 = 42
 
 当匹配具有具体类型的 GADT 值时，不可达的变体会从穷尽性检查中排除：
 
-```rust
+```yo
 // Value(i32) 只能是 IntVal 或 PairVal
 // BoolVal 不可达（它返回 Value(bool)，而不是 Value(i32)）
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
@@ -1956,7 +1963,7 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
 
 #### 多参数 GADTs
 
-```rust
+```yo
 MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   enum(
     MkIntBool(x : i32, y : bool) -> recur(i32, bool),
@@ -1975,7 +1982,7 @@ my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
 
 #### 带自定义判别值的 GADTs
 
-```rust
+```yo
 Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     (TagInt(i : i32) -> recur(i32)) = 10,
@@ -1986,7 +1993,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 #### 混合 GADT 和普通变体
 
-```rust
+```yo
 MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     MInt(i : i32) -> recur(i32),
@@ -2000,7 +2007,7 @@ GADTs 具有与普通枚举相同的运行时表示——所有类型细化都�
 
 ## C struct
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 
 my_point := Point(
@@ -2032,7 +2039,7 @@ struct Point {
 
 **语法：**
 
-```rust
+```yo
 newtype(
   // 只有一个字段
   field_name : FieldType
@@ -2041,7 +2048,7 @@ newtype(
 
 **示例：**（见 `std/string/rune.yo`）：
 
-```rust
+```yo
 rune :: newtype(
   c : u32
 );
@@ -2074,7 +2081,7 @@ impl(
 
 **内存布局：**
 
-```rust
+```yo
 UserId :: newtype(value : i32);
 // size_of(UserId) == size_of(i32)
 // 对应 C 代码：就是一个 i32，运行时没有结构体包装
@@ -2086,7 +2093,7 @@ UserId :: newtype(value : i32);
 字段引用的幻影 comptime 参数，再让函数只接受它需要的状态。状态不对的调用是类型
 错误（E0601）。
 
-```rust
+```yo
 Open :: struct();
 Closed :: struct();
 Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
@@ -2120,7 +2127,7 @@ std 的 `File` 与套接字则在运行时保存状态：它们按设计是共�
 
 ## C union
 
-```rust
+```yo
 MyNumber :: union(
   i : i32,
   j : f32
@@ -2142,7 +2149,7 @@ union MyNumber {
 
 与 ADT 相同，但所有变体都没有字段。
 
-```rust
+```yo
 State :: enum(
   Working,
   Failed
@@ -2165,7 +2172,7 @@ Trait 定义了一组可以为类型实现的函数和类型集合。它们的�
 
 Trait 被定义为一个返回 `Trait` 类型的函数，其中包含字段定义。
 
-```rust
+```yo
 // 定义一个 trait（类似于 Rust 中的 trait）
 Summary :: trait(
   summarize : (fn(inout(self) : Self) -> String)
@@ -2221,7 +2228,7 @@ notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)
 
 没有 `self` 参数的 trait 方法就是静态方法。可以在实现了该 trait 的类型上调用（`Point.make(...)`），也可以在受该 trait 约束的类型参数上调用（`T.make(...)`）。构造器风格的 trait 就是这样写的，`FromJson` 的 `from_json(v)` 即是一例。
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 // 没有 `self` 的 trait 方法是静态（构造器风格）方法。
@@ -2248,7 +2255,7 @@ export(main);
 
 trait 要先声明关联类型，再声明引用它的成员（先写 `Item : Type`，再写 `next : (fn(...) -> Option(Self.Item))`）。它的 `where` 子句可以借助自身的投影去约束**另一个**类型，`IntoIterator` 的 `where(Self.IntoIter <: Iterator(Item := Self.Item))` 就是如此。但不能把 `Self` 本身的关联类型绑定到 `Self` 自己的投影上：
 
-```rust
+```yo
 Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
 
 // 错误：Expected type for associated type constraint "Item", got: (Self.Item)
@@ -2261,7 +2268,7 @@ Peekable :: trait(
 
 下面两种写法都可以：
 
-```rust
+```yo
 Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
 
 // 约束 `Self`，但不绑定它的关联类型……
@@ -2293,7 +2300,7 @@ Yo 没有特化，更具体的 impl 不会覆盖更一般的 impl；在此规则
 
 编译器会对模式匹配进行穷尽性检查。
 
-```rust
+```yo
 Coin :: enum(
   Penny,
   Nickel,
@@ -2349,7 +2356,7 @@ area :: (fn(shape : Shape) -> i32)(
 | 具名结构体 | `Point(x : 0, y)`、`Person(name : "alice")` | 带标签或裸字段名，可部分匹配（未列出的字段匹配任意值） |
 | 匿名结构体 | `{x : 0, y}` | 用于结构体位置，与变体的花括号形式相同 |
 
-```rust
+```yo
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
   match(
     r,
@@ -2380,7 +2387,7 @@ command :: (fn(s : String) -> i32)(
 （裸字段名即绑定该字段；未列出的字段匹配任意值）。`Rc(T)` 载荷会被隐式
 穿透 —— 子模式匹配的是 `T`：
 
-```rust
+```yo
 axis :: (fn(t : Tuple(i32, i32)) -> i32)(
   match(
     t,
@@ -2425,7 +2432,7 @@ second :: (fn(l : List) -> i32)(
 
 ### 字符串字面量作为 `str` 或 C 字符串指针
 
-```rust
+```yo
 s := "Hello"; // s : str —— 字符串字面量就是内建的静态字符串视图 `str`。
 (s2 : *u8) = "Hi"; // 可以显式声明一个 C 字符串指针。
 s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
@@ -2442,7 +2449,7 @@ s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 ——它的所有"修改"方法都返回新值。若需要由多个所有者共享的可变构建器，请使用
 引用语义类型 `StringBuilder`。
 
-```rust
+```yo
 s := String.new();
 s2 := String.from("Hello World!");
 s3 := (s + s2); // 创建一个新字符串。
@@ -2475,7 +2482,7 @@ s3 := (s + s2); // 创建一个新字符串。
 - **结构体字段**通过它的位置写入：在 `inout(p)` 形参或局部变量上写
   `p.name.push_str("!")`。
 
-```rust
+```yo
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -2529,7 +2536,7 @@ export(main);
 
 模板字符串的工作方式类似于 JavaScript 的模板字面量，允许你使用 `${}` 语法在字符串中嵌入表达式。`${}` 内的值必须实现 `ToString` trait 才能被转换为 `String`。
 
-```rust
+```yo
 name := "Alice";
 age := 16;
 greeting := `Hello, ${name}!, age: ${age}`;
@@ -2547,7 +2554,7 @@ align := "<" | ">" | "^"
 kind  := "x" | "X" | "b" | "o"
 ```
 
-```rust
+```yo
 name := `ada`;
 n := i32(255);
 pi := f64(3.14159);
@@ -2567,10 +2574,10 @@ pi := f64(3.14159);
 
 数字支持全部部分：符号、进制与补零，以及宽度、填充、对齐与截断。文本、`bool`、`Option`、`Result`、`ArrayList` 以及其他实现了 `ToString` 的 std 类型通过 `Format` 的默认成员支持宽度、填充、对齐与截断。由于没有一揽子 impl（见上文“一致性”），自定义类型用一行代码接入：
 
-```rust
+```yo
 impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
 impl(Point, Format());
-`[${Point(x : i32(1), y : i32(2)):>8}]`   // "[  (1, 2)]"
+`[${Point(x : i32(1), y : i32(2)):>8}]` // "[  (1, 2)]"
 ```
 
 说明符与表达式之间以冒号分隔，且**冒号前不能有空格**。带空格的冒号不会被拆分，因此插值中
@@ -2625,7 +2632,7 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 
 支持自动扩容的动态数组。
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 
 // 创建新的 ArrayList
@@ -2670,7 +2677,7 @@ list.shrink_to_fit();
 
 键值对哈希映射。
 
-```rust
+```yo
 { HashMap } :: import("std/collections/hash_map");
 
 // 创建新的 HashMap
@@ -2725,7 +2732,7 @@ map.clear();
 
 用于唯一值的哈希集合。
 
-```rust
+```yo
 { HashSet } :: import("std/collections/hash_set");
 
 // 创建新的 HashSet
@@ -2795,7 +2802,7 @@ cond(
 
 双向链表。
 
-```rust
+```yo
 { LinkedList } :: import("std/collections/linked_list");
 
 // 创建新的 LinkedList
@@ -2893,7 +2900,7 @@ Yo 支持闭包（捕获其所在环境的匿名函数）。
 
 1. **使用 `Impl(Fn(...))`** — 显式闭包类型：
 
-```rust
+```yo
 test_closure :: (fn() -> unit)({
   x := 1;
 
@@ -2914,7 +2921,7 @@ test_closure :: (fn() -> unit)({
 
 2. **使用 `ClosureType({...})`** — 从类型创建闭包值：
 
-```rust
+```yo
 test_closure :: (fn() -> unit)({
   x := 1;
 
@@ -2937,7 +2944,7 @@ test_closure :: (fn() -> unit)({
 - **引用语义类型**（引用计数类型）按引用捕获
 - 被捕获的变量保持其可变性
 
-```rust
+```yo
 test_capture :: (fn() -> unit)({
   // 值类型 — 按值捕获
   counter := i32(0);
@@ -2964,13 +2971,13 @@ test_capture :: (fn() -> unit)({
 闭包可以在形参之前用一个记录字面量列出它的捕获
 （`plans/VALUES_BY_DEFAULT.md` 决策 35 与 38）：
 
-```rust
+```yo
 k := i32(3);
 w := i32(10);
 z := i32(0);
 (h : Impl(Fn(m : i32) -> i32)) = ({ k, imm(w), mut(z) }(m : i32) => {
-  z = (z + m);           // 通过借用写入调用方的 `z`
-  ((k + w) + z)
+  z = (z + m); // 通过借用写入调用方的 `z`
+  k + w + z
 });
 (g : Impl(Fn() -> usize)) = ({ n : s.len(), imm(name) : &s }() => (n + name.len()));
 count := i32(0);
@@ -3006,17 +3013,17 @@ count := i32(0);
 `FnOnce(...) -> R` 是调用时会消耗闭包本身的闭包 trait（`plans/VALUES_BY_DEFAULT.md`
 决策 37）。带捕获列表、类型为 `FnOnce(...)` 的闭包拥有其按值捕获，因此函数体可以把其中之一移出：
 
-```rust
+```yo
 take :: (fn(sink(t) : Token) -> i32)(t.n);
 t := Token(n : i32(5));
-(send : Impl(FnOnce() -> i32)) = ({ t }() => take(t));   // 把 `t` 移出，不做复制
-send();                                                  // 消耗 `send`
+(send : Impl(FnOnce() -> i32)) = ({ t }() => take(t)); // 把 `t` 移出，不做复制
+send(); // 消耗 `send`
 // send();                                               // E0901：`send` 已被上面的调用移走
 
 run_once :: (fn(sink(f) : Impl(FnOnce() -> i32)) -> i32)(f());
 k := i32(3);
 (add : Impl(Fn() -> i32)) = ({ k }() => k);
-run_once(add);                                           // `Fn` 也能用于一次调用
+run_once(add); // `Fn` 也能用于一次调用
 ```
 
 - **调用会消耗闭包。** 第二次调用或之后的任何使用都是 E0901，并指向第一次调用。调用结束时，函数体会
@@ -3036,7 +3043,7 @@ run_once(add);                                           // `Fn` 也能用于一
 
 每个闭包都有唯一的类型，即使它们看起来完全相同：
 
-```rust
+```yo
 // 这将失败 — 每个闭包都有不同的类型
 test_error :: (fn() -> unit)({
   closure : Impl(Fn(y : i32) -> i32);
@@ -3058,25 +3065,25 @@ test_error :: (fn() -> unit)({
 闭包永远不是裸函数指针。声明为 `fn(...) -> R` 的参数或字段只能容纳具名函数或不捕获任何变量的 `->` 字面量；
 `=>` 闭包需要能携带闭包的类型：
 
-```rust
+```yo
 takes_ptr :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)(f(v));
 takes_fn :: (fn(f : Impl(Fn(a : i32) -> i32), v : i32) -> i32)(f(v));
 k := i32(10);
-takes_ptr(double, 5);            // 正确：具名函数
-takes_ptr((y) => (y + k), 5);    // error[E0605]: a closure (`=>`) cannot be used where the function-pointer type ... is expected
-takes_fn((y) => (y + k), 5);     // 正确
+takes_ptr(double, 5); // 正确：具名函数
+takes_ptr(y => (y + k), 5); // error[E0605]: a closure (`=>`) cannot be used where the function-pointer type ... is expected
+takes_fn(y => (y + k), 5); // 正确
 ```
 
 闭包的函数体会与它所传入的 `Fn(...) -> R` 的返回类型做比较：`takes_fn(x => true, 5)` 是 E0604。
 
 闭包的类型可以用来实例化容器。`ArrayList(type_of(k))` 保存 `k` 的副本；两个闭包的列表是两种类型，因此一个闭包不能放进另一个闭包的列表：
 
-```rust
+```yo
 (k1 : Impl(Fn() -> unit)) = (() => println(a));
 (k2 : Impl(Fn() -> unit)) = (() => println(s));
 l1 := ArrayList(type_of(k1)).new();
-l1.push(k1);    // OK
-l1.push(k2);    // 错误：k2 是另一种闭包类型
+l1.push(k1); // OK
+l1.push(k2); // 错误：k2 是另一种闭包类型
 ```
 
 要把不同的闭包放进同一个集合，请将它们存为 `Dyn(Fn(...))`。
@@ -3085,7 +3092,7 @@ l1.push(k2);    // 错误：k2 是另一种闭包类型
 
 闭包可以与引用语义类型无缝配合使用：
 
-```rust
+```yo
 MyBox :: ref(
   struct(
     (*) : i32
@@ -3121,7 +3128,7 @@ Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计�
 > 所有者——传递即移动，克隆即深拷贝。Yo 的 `Rc(T)` 是 `ref` 类型：复制句柄会
 > **共享同一个堆上的值并增加引用计数**，与 Rust 的 `Rc<T>` 完全一致。
 >
-> ```rust
+> ```yo
 > a := rc(i32(42));
 > b := a;                    // 第二个句柄，而不是值的副本
 > consume(b.* = i32(7));
@@ -3140,7 +3147,7 @@ Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计�
 
 `Rc(T)` 是一个泛型引用语义类型，可以包装任何值类型：
 
-```rust
+```yo
 // Rc 定义在 std/prelude.yo 中
 Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
@@ -3158,7 +3165,7 @@ rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 
 ### 使用示例
 
-```rust
+```yo
 // 包装一个基本值
 i := rc(42); // i: Rc(i32)
 assert(i.* == 42); // 使用 .* 解引用
@@ -3182,15 +3189,15 @@ assert(m.* == 20);
 包装器自身没有的字段或方法会到载荷上查找：`w.field` 即 `w.*.field`，
 `w.method()` 即 `w.*.method()`。
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
 p := rc(Point(x : 3, y : 4));
-assert(p.x == 3);          // p.*.x
-p.x = 5;                   // 是一个位置：写入 p.*.x
-assert(p.norm1() == 9);    // p.*.norm1()
+assert(p.x == 3); // p.*.x
+p.x = 5; // 是一个位置：写入 p.*.x
+assert(p.norm1() == 9); // p.*.norm1()
 pp := rc(rc(Point(x : 1, y : 2)));
-assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
+assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
 ```
 
 - **两者都有的名字是错误（E0616）。** `Point` 派生了 `Clone`，`Rc` 也实现了
@@ -3213,7 +3220,7 @@ assert(pp.y == 2);         // 嵌套包装器：pp.*.*.y
 
 ### Rc 与赋值
 
-```rust
+```yo
 test("Rc assignment behavior", {
   x := rc(1);
   y := (x = rc(2)); // y 获得旧值
@@ -3226,7 +3233,7 @@ test("Rc assignment behavior", {
 
 `Rc(T)` 是引用语义类型，因此使用自动引用计数：
 
-```rust
+```yo
 test("Rc reference counting", {
   original := rc(42);
   copy := original; // 引用计数递增
@@ -3248,7 +3255,7 @@ test("Rc reference counting", {
 - **动态分发**：将值类型包装起来以便与 `Dyn` 一起使用（对值类型调用 `dyn(v)` 会自动完成这一步：把 `v` 包装成 `rc(v)`）
 - **递归类型**：打破类型定义中的循环
 
-```rust
+```yo
 // 动态分发需要引用语义类型
 impl(i32, SomeTrait(...));
 
@@ -3265,7 +3272,7 @@ use_dyn(dyn(rc(i32(42))));
 
 ### 基本用法
 
-```rust
+```yo
 // 定义一个 trait
 Id :: trait(
   id : (fn(self : Self) -> Self)
@@ -3303,7 +3310,7 @@ result := use_id(42); // 打印 "i32: 42"，返回 42
 
 `Impl` 可以在返回类型中用于静态分发：
 
-```rust
+```yo
 RetI32 :: trait(
   return_i32 : (fn(inout(self) : Self) -> i32)
 );
@@ -3320,7 +3327,7 @@ get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
 
 ### Impl 与多个 Trait
 
-```rust
+```yo
 Speak :: trait(
   speak : (fn(self : Self) -> unit)
 );
@@ -3363,7 +3370,7 @@ Yo 中的 `Dyn` 类型是引用计数的，与其他引用语义类型一样，�
 
 ### 示例
 
-```rust
+```yo
 Speak :: trait(
   speak : (fn(self : Self) -> i32)
 );
@@ -3425,7 +3432,7 @@ main :: (fn() -> unit)({
 
 ### 打包形式：`Dyn(Trait)`
 
-```rust
+```yo
 Shape :: trait(area : (fn(self : Self) -> f64));
 
 // 异构列表：每个元素的具体类型已经消失，只剩 `Shape`。
@@ -3441,7 +3448,7 @@ trait 必须是对象安全的（`self` 在首位、签名中没有其他 `Self`
 
 ### 不透明形式：`Impl(Trait)` 与闭包
 
-```rust
+```yo
 // 调用方写不出闭包的类型；编译器却精确地知道它。
 make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
 ```
@@ -3453,7 +3460,7 @@ make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
 
 ### 不支持：存在型枚举构造器
 
-```rust
+```yo
 // 不支持：`T` 由构造器而不是枚举绑定。
 Showable :: enum(
   Wrap(generic(T : Type), value : T, show : (fn(v : T) -> String))
@@ -3472,7 +3479,7 @@ Showable :: enum(
 - **Impl**：静态分发，编译时多态，无运行时开销
 - **Dyn**：动态分发，运行时多态，需要引用语义类型
 
-```rust
+```yo
 // Impl — 静态分发（单态化）
 use_impl :: (fn(generic(T : Type), value : T, where(T <: SomeTrait)) -> unit)({
   value.method(); // 静态分发
@@ -3517,7 +3524,7 @@ Yo 提供了两种错误处理方式：
 
 `Result` 类型是一个代数数据类型，用于可能失败的函数：
 
-```rust
+```yo
 // 定义一个错误类型
 DivisionError :: enum(
   DivideByZero,
@@ -3549,7 +3556,7 @@ match(
 
 标准库定义了用于动态错误处理的 `Error` trait 和 `AnyError` 类型：
 
-```rust
+```yo
 { Error, AnyError } :: import("std/error");
 
 // Error trait 要求实现 ToString。`derive(Error)` 只需按声明顺序为每个变体
@@ -3587,7 +3594,7 @@ match(
 是一个 `ctl(...) -> ret` 处理器 — 调用 `unwind(...)` 会丢弃续延，
 从外围函数返回：
 
-```rust
+```yo
 { Exception } :: import("std/error");
 
 safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
@@ -3621,7 +3628,7 @@ throw 点各自选定的类型变量，所以处理器只能 `unwind`、发散�
 `ResumableException(ResumeType)` 用于可恢复异常处理。当处理器调用
 `return` 时，它会以恢复值恢复续延：
 
-```rust
+```yo
 { ResumableException } :: import("std/error");
 
 safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
@@ -3650,7 +3657,7 @@ result2 := safe_divide(10, 0, exn); // 处理器以 0 恢复续延，result2 = 0
 
 Yo 使用**基于状态机转换的 async/await** 实现高效的**单线程并发**。异步任务是**惰性的** — 它们在被显式等待或加入之前不会开始执行。
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
@@ -3699,7 +3706,7 @@ export(main);
 当你想共享单个值时使用 `Arc(T)`；当你想定义自己的共享类型时使用
 `atomic(ref(struct(...)))`。
 
-```rust
+```yo
 // 使用 arc() 辅助函数创建
 shared := arc(i32(42));
 
@@ -3724,7 +3731,7 @@ assert(shared.* == i32(42), "main still sees shared value");
 
 ## 模块的导入和导出
 
-```rust
+```yo
 // module1.yo
 test :: (fn() -> unit)({
   println("Hello, world!");
@@ -3742,7 +3749,7 @@ Option :: (fn(comptime(T) : Type) -> comptime(Type))(
 export(Option);
 ```
 
-```rust
+```yo
 { ... } :: import("./test.yo"); // 从 test.yo 导入所有内容
 test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 Test 命名空间
 { test } :: import("./test.yo"); // 从 test.yo 导入 test 函数
@@ -3754,7 +3761,7 @@ test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 T
 
 每个导入的名字都是一个绑定，所以"禁止变量遮蔽"的规则同样适用于导入：同一个名字绑定两次是错误（`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`），无论是两行都写了这个名字，还是 `{ ... }` 通配导入已经引入了它。同一路径写多行导入没有问题，只要每行绑定的名字不同；同一个名字也可以换个新名字再导入一次：
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 { ArrayListIter } :: import("std/collections/array_list"); // 可以：名字不同
 { ArrayList : List } :: import("std/collections/array_list"); // 可以：绑定为新名字
@@ -3774,7 +3781,7 @@ impl，所以调用它们的模块要导入 `std/fmt`（任意一个绑定即可
 
 匿名模块使用 `impl` 关键字后跟一个 `begin` 块来定义：
 
-```rust
+```yo
 my_module :: impl({
   my_function :: (fn() -> unit)({
     println("Hello from my_module!");
@@ -3789,7 +3796,7 @@ Yo 支持在模块顶层（文件作用域）定义可变的运行时变量。�
 
 支持两种语法：
 
-```rust
+```yo
 // := 初始化
 counter := i32(0);
 
@@ -3799,7 +3806,7 @@ counter := i32(0);
 
 同一模块中定义的函数可以读写这些变量：
 
-```rust
+```yo
 inc :: (fn() -> unit)({
   counter = (counter + i32(1));
 });
@@ -3808,11 +3815,11 @@ inc :: (fn() -> unit)({
 **限制：**
 
 - 模块作用域不允许仅有类型注解而无初始化的声明：
-  ```rust
-  a : i32;  // ❌ 错误：应使用 `a := i32(0);` 或 `(a : i32) = i32(0);`
+  ```yo
+  a : i32; // ❌ 错误：应使用 `a := i32(0);` 或 `(a : i32) = i32(0);`
   ```
 - `impl` 块内不允许可变运行时变量（`:=` 或 `(x : T) = val`）。请使用 `::` 定义编译时常量：
-  ```rust
+  ```yo ignore
   m :: impl {
     b := i32(13);  // ❌ 错误：impl 块内不允许
     b :: 13;       // ✅ 正确：编译时常量
@@ -3843,7 +3850,7 @@ Yo 内置了通过 `test` 关键字使用的测试框架。
 
 ### 基本测试语法
 
-```rust
+```yo
 test("Test description", {
   // 测试代码
   x := (1 + 1);
@@ -3885,7 +3892,7 @@ $ yo test ./tests --json
 
 #### 运行时断言
 
-```rust
+```yo
 test("Runtime assertions", {
   x := 42;
 
@@ -3905,7 +3912,7 @@ test("Runtime assertions", {
 
 使用 `comptime_assert` 进行编译时验证：
 
-```rust
+```yo
 test("Compile-time assertions", {
   // 这些在编译期间检查
   comptime_assert((2 + 2) == 4);
@@ -3922,7 +3929,7 @@ test("Compile-time assertions", {
 
 验证某些代码会产生编译时错误：
 
-```rust
+```yo
 test("Expected compile errors", {
   // 预期错误但不指定具体消息
   comptime_expect_error({
@@ -3949,7 +3956,7 @@ test("Expected compile errors", {
 
 在同一文件中组织相关测试：
 
-```rust
+```yo
 // arithmetic.test.yo
 test("Addition", {
   assert((1 + 1) == 2);
@@ -3976,7 +3983,7 @@ test("Division", {
 
 测试清理和释放：
 
-```rust
+```yo
 MyBox :: ref(
   struct(
     (*) : i32
@@ -4021,7 +4028,7 @@ Yo 测试文件通常使用 `.test.yo` 扩展名：
 `unquote` 只能在 `quote` 中使用。
 `unquote_splicing` 只能在 `quote` 中使用，用于将值展开到 AST 中。
 
-```rust
+```yo
 x :: quote(2); // comptime(x) : Expr
 list :: quote((1, unquote(x), 3)); // 元组 (1, 2, 3)
 list2 :: quote((1, x, 3)); // 元组 (1, x, 3)
@@ -4048,7 +4055,7 @@ AST 不经求值直接绑定）和 `-> unquote(Expr)` 返回类型（返回的 A
 pragma；在 comptime 函数中操作引用的 `Expr` 值（`derive_rule` 使用的机
 制）同样不需要。
 
-```rust
+```yo
 pragma(Pragma.AllowMacroDef);
 
 // 自定义宏示例 —— 惰性求值 body 的 `unless`
@@ -4062,7 +4069,7 @@ unless :: (fn(quote(condition) : Expr, quote(do) : Expr) -> unquote(Expr))(
 prelude 的 `if` 宏是标准示例（当前编译器在解析阶段将 `if(...)` 调用脱糖
 为 `cond(...)`，该定义作为规范/回退保留）：
 
-```rust
+```yo
 if :: (
   fn(
     quote(condition) : Expr,
@@ -4097,7 +4104,7 @@ Yo 支持类似 Rust `#[derive(...)]` 的自动特征派生，但使用函数调
 
 五个特征具有内置派生支持：`Eq`、`Hash`、`Clone`、`Ord` 和 `ToString`。它们适用于结构体和枚举：
 
-```rust
+```yo
 { ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
@@ -4119,7 +4126,7 @@ export(main);
 造 `impl` 块，由 `derive` 内建函数显式求值（因此不需要
 `Pragma.AllowMacroDef`）：
 
-```rust
+```yo
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(my_eq : (fn(self : Self, other : Rhs) -> bool))
 );
@@ -4150,7 +4157,7 @@ derive(Point, MyEq(Point)); // 使用注册的 derive_rule
 
 Yo 通过 `TypeInfo` 枚举和 `Type.get_info()` 提供编译时类型反射。与简单的类型标签系统不同，`TypeInfo` 携带丰富的结构元数据——结构体字段、枚举变体、函数参数等。
 
-```rust
+```yo
 info :: Type.get_info(i32);
 comptime_assert(info.is_primitive(), "i32 is primitive");
 comptime_assert(info.is_integer(), "i32 is an integer");
@@ -4161,7 +4168,7 @@ comptime_assert(info2.is_struct(), "Point is a struct");
 
 复合变体携带可通过 `match` 提取的元数据：
 
-```rust
+```yo
 // 提取数组元素类型和长度
 arr_info :: Type.get_info([i32 ; 3]);
 elem :: match(arr_info, .Array(e, _) => e, _ => unit);
@@ -4200,7 +4207,7 @@ Yo 拥有强大的编译时求值能力。你可以在编译时执行计算、�
 
 使用 `::` 声明的变量是编译时常量：
 
-```rust
+```yo
 // 编译时整数
 x :: 42; // comptime_int
 y :: (x + 10); // comptime_int = 52
@@ -4221,7 +4228,7 @@ result :: factorial(5); // 编译时计算：120
 
 所有基本运算都可以在编译时执行：
 
-```rust
+```yo
 // 整数运算
 a :: 100;
 b :: 25;
@@ -4250,7 +4257,7 @@ not_result :: not(flag1); // false
 
 具有编译时已知长度的数组：
 
-```rust
+```yo
 // 推断长度
 arr :: [1, 2, 3, 4, 5]; // Array(i32, 5)
 len := arr.len(); // 5（运行时读取；长度也在类型里）
@@ -4268,7 +4275,7 @@ int_array := create_array(i32, 5, 42); // [42,42,42,42,42]
 
 使用 `comptime_assert` 验证编译时条件：
 
-```rust
+```yo
 test("Compile-time assertions", {
   // 这些在编译时检查
   comptime_assert((2 + 2) == 4);
@@ -4285,7 +4292,7 @@ test("Compile-time assertions", {
 
 测试代码是否会产生编译时错误：
 
-```rust
+```yo
 test("Expected compile errors", {
   // 验证此代码会产生错误
   comptime_expect_error(
@@ -4305,7 +4312,7 @@ test("Expected compile errors", {
 
 理解事物何时发生：
 
-```rust
+```yo
 // 编译时：使用 :: 或 comptime(...) 声明
 COMPT_VALUE :: 42; // 编译时计算
 ComptimeType :: i32; // 编译时选择类型
@@ -4345,7 +4352,7 @@ Yo 提供了 `asm()` 和 `global_asm()` 内置函数用于嵌入内联汇编，�
 - **破坏声明和选项**：`clobber("memory")`、`asm_options(volatile, noreturn)`
 - **多架构支持**：x86_64 和 aarch64
 
-````rust
+````yo
 ```yo
 // 简单示例：将立即数移入寄存器
 result := asm(

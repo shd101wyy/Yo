@@ -19,7 +19,7 @@ captures, which the type-level derivation cannot see.
 
 ## Current definition
 
-```rust
+```yo
 Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
@@ -59,7 +59,7 @@ need a single wrapped value.
 
 ### Creating an Arc
 
-```rust
+```yo
 value := arc(i32(42));
 same := Arc(i32)(i32(42));
 ```
@@ -68,7 +68,7 @@ same := Arc(i32)(i32(42));
 
 Access the inner value with `.*`, which yields borrowed access:
 
-```rust
+```yo
 value := arc(i32(42));
 copied := value.*;
 assert(copied == i32(42), "inner value is 42");
@@ -78,7 +78,7 @@ assert(copied == i32(42), "inner value is 42");
 
 Copying an `Arc` increments the reference count and keeps sharing the same value:
 
-```rust
+```yo
 a := arc(i32(42));
 b := a;
 c := b;
@@ -89,7 +89,7 @@ assert(b.* == c.*, "same shared value");
 
 ### Cross-thread sharing
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 
 shared := arc(i32(42));

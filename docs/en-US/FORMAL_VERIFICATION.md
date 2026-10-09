@@ -24,7 +24,7 @@ Contracts are builtin calls in the function signature. The return value
 is named by the label in `-> (name : T)` — there is no magic `result`
 identifier.
 
-```rust
+```yo
 abs_i32 :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
   if(x < i32(0), i32(0) - x, x)
 );
@@ -61,7 +61,7 @@ against each other at impl registration:
 | `trait.requires ⇒ impl.requires` | contravariant | a dispatch caller proves only the trait's precondition, so the impl may weaken it but never strengthen |
 | `impl.ensures ⇒ trait.ensures` | covariant | the trait's promise is the floor, so the impl may strengthen it but never weaken |
 
-```rust
+```yo
 ClampBound :: trait(
   get : (
     fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i)) -> (result : i32)
@@ -108,7 +108,7 @@ generic's own definition the predicates cannot be evaluated — operators
 over the type variable have no comptime impl — so the caller-side
 evaluation is what gives the verifier typed predicate nodes).
 
-```rust
+```yo
 pick :: (
   fn(generic(T : Type), flag : bool, a : T, b : T, ensures((result == a) || (result == b))) -> (result : T)
 )(if(flag, a, b));
@@ -131,7 +131,7 @@ A `while` loop is verified through an invariant. `invariant(...)` is the
 loop body's first statement and takes comma-separated predicates;
 `decreases(M)` may follow it with one measure:
 
-```rust
+```yo
 pragma(Pragma.Verify);
 
 sum_to :: (
@@ -191,7 +191,7 @@ recursive call must lower `M1`, or keep `M1` and lower `M2`, and so on.
 Every component must be a non-negative integer on entry. It proves recursions
 no single measure can, such as a call that lowers `i` while it resets `j`:
 
-```rust
+```yo
 walk :: (fn(i : u32, j : u32, decreases(i, j)) -> u32)(
   cond(
     ((i == u32(0)) && (j == u32(0))) => u32(0),
@@ -214,7 +214,7 @@ measure — one shared well-founded domain (lexicographic measures included, whe
 cliques are derived automatically from the task set's call graph, so an
 edge without a decrease (passing `n` unchanged) is refuted:
 
-```rust
+```yo
 is_even :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
   if(n == i32(0), true, is_odd(n - i32(1)))
 );
@@ -230,7 +230,7 @@ as "two lists that agree on `[0, n)` have the same members there", stays
 `unknown` until you prove it once as a **lemma**: a `ghost_fn` that returns
 `unit` and carries an `ensures` (ATS's `prfun`).
 
-```rust
+```yo
 member :: ghost_fn(
   (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
     cond(
@@ -277,10 +277,14 @@ recurses. Its `requires` is not checked at a call: its SMT reading is total.
 `seq_of(xs)` is an `ArrayList(T)`'s elements as a ghost Seq. `seq_append`,
 `seq_len` and `seq_nth` work on it, so ATS's `append` property is one line:
 
-```rust
+```yo
 append :: (
-  fn(a : ArrayList(i32), b : ArrayList(i32), requires((a.len() + b.len()) >= a.len()),
-     ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))) -> (r : ArrayList(i32))
+  fn(
+    a : ArrayList(i32),
+    b : ArrayList(i32),
+    requires((a.len() + b.len()) >= a.len()),
+    ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))
+  ) -> (r : ArrayList(i32))
 )({ ... });
 ```
 
@@ -303,7 +307,7 @@ index. A leading `invariant(...)` in the body is the loop's, and
 `produced(xs)` in it names the elements consumed so far: `xs` cut at that
 index, as in Creusot. The copy loop needs no index of its own:
 
-```rust
+```yo
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
@@ -334,7 +338,7 @@ type, so a body that mutates one of two parameters of the same list type is
 a subset error: a caller could pass one list as both. `requires(distinct(a, b))`
 rules that out:
 
-```rust
+```yo ignore
 append_all :: (
   fn(src : ArrayList(i32), dst : ArrayList(i32),
      requires(distinct(src, dst), (dst.len() + src.len()) >= dst.len()),
@@ -389,7 +393,7 @@ rides the function's signature. The predicate is a one-parameter
 every call site **proves** a `refine#N` obligation for the argument it
 passes:
 
-```rust
+```yo
 non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
 
 // No manual `requires` needed: the divisor obligation proves from the
@@ -414,7 +418,7 @@ predicates by spelling the predicate ghost INSIDE the alias body — the
 alias's comptime parameters are in scope at ghost creation, so each
 `NonZero(i32)` evaluation creates a fully concrete predicate:
 
-```rust
+```yo
 NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
 ```
 
@@ -467,7 +471,7 @@ A contract lives in the function it constrains, which means the code's author
 also owns its specification. A **law** is the other half: a claim written
 *about* code, in a file the implementation does not touch.
 
-```rust
+```yo
 pragma(Pragma.Verify);
 
 { abs_value } :: import("./math.yo");
@@ -634,7 +638,7 @@ every function:
 Index bounds join them as slices enter the subset. This catches the
 classic bounds/divide-by-zero bug class on completely unannotated code:
 
-```rust
+```yo
 // No contracts — and still a compile-time error: y = 0 divides by zero.
 divide_bugged :: (fn(x : i32, y : i32) -> (r : i32))(x / y);
 ```

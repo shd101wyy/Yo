@@ -14,7 +14,7 @@ Patterns for building Yo libraries as WebAssembly modules and consuming them fro
 
 Export C-compatible functions that operate on linear memory:
 
-```rust
+```yo
 // src/wasm_api.yo
 pragma(Pragma.AllowUnsafe); // raw pointers across the boundary
 
@@ -22,20 +22,21 @@ pragma(Pragma.AllowUnsafe); // raw pointers across the boundary
 { GlobalAllocator } :: import("std/allocator");
 
 // Allocate WASM memory for the caller (`.None` = NULL on failure)
-wasm_alloc :: (fn(size : usize) -> ?*(u8))(
-  match(unsafe(GlobalAllocator.malloc(size)),
-    .Some(p) => .Some((*(u8))(p)),
+wasm_alloc :: (fn(size : usize) -> ?*u8)(
+  match(
+    unsafe(GlobalAllocator.malloc(size)),
+    .Some(p) => .Some((*u8)(p)),
     .None => .None
   )
 );
 
 // Free WASM memory
-wasm_free :: (fn(ptr : *(u8)) -> unit)(
-  unsafe(GlobalAllocator.free(.Some((*(void))(ptr))))
+wasm_free :: (fn(ptr : *u8) -> unit)(
+  unsafe(GlobalAllocator.free(.Some((*void)(ptr))))
 );
 
 // Process input and return result pointer + length
-render :: (fn(input_ptr : *(u8), input_len : usize, flags : i32) -> *(u8))({
+render :: (fn(input_ptr : *u8, input_len : usize, flags : i32) -> *u8)({
   (input : str) = str.from_raw_parts(input_ptr, input_len);
   // ... process input ...
   result := do_work(input);
@@ -59,7 +60,7 @@ Key rules:
 
 Pass multiple boolean options as a single `i32` using bit flags:
 
-```rust
+```yo
 // Each option is a power of 2
 // bit 0 = 1   : feature_a
 // bit 1 = 2   : feature_b
@@ -94,15 +95,15 @@ function buildFlags(options) {
 The `Executable` struct accepts: `name`, `root`, `target`, `optimize`, `allocator`, `sanitize`, `emit_c_to`, `emit_chunks`, `heap_size`.
 Emscripten-specific flags go in `add_c_flags(...)` after creating the step.
 
-```rust
+```yo
 build :: import("std/build");
 
 wasm_api :: build.executable({
-  name: "my_lib_wasm_api",
-  root: "./src/wasm_api.yo",
-  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
-  optimize: build.Optimize.ReleaseSmall,
-  allocator: build.AllocatorKind.System
+  name : "my_lib_wasm_api",
+  root : "./src/wasm_api.yo",
+  target : build.CompilationTarget.Wasm32_Unknown_Emscripten,
+  optimize : build.Optimize.ReleaseSmall,
+  allocator : build.AllocatorKind.System
 });
 wasm_api.add_c_flags("-O3 -flto -mbulk-memory -sALLOW_MEMORY_GROWTH -sENVIRONMENT=web,node -sMODULARIZE=1 -sEXPORT_NAME=createModule -sEXPORTED_FUNCTIONS=_wasm_alloc,_wasm_free,_render -sEXPORTED_RUNTIME_METHODS=HEAPU8");
 

@@ -4,7 +4,7 @@
 
 ## 概述
 
-```rust
+```yo
 // 内置数组和自定义类型使用相同的语法：
 (arr : [i32 ; 3]) = [i32(10), i32(20), i32(30)];
 v := arr(usize(1)); // 20
@@ -17,7 +17,7 @@ v := list(usize(0)); // 42
 
 `Index` 特征在 prelude 中定义，所有 Yo 程序都可以使用：
 
-```rust
+```yo
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -32,7 +32,7 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 
 `index` 方法返回 `*(Output)`（指针），在值上下文中会自动解引用。这种设计使得读写操作都可以通过同一个特征实现：
 
-```rust
+```yo
 // 读取：自动解引用
 v := collection(idx); // 调用 index(collection, idx).*
 // 写入：使用调用语法赋值（推荐）
@@ -45,7 +45,7 @@ p := &collection(idx); // 调用 index(collection, idx)，不解引用
 
 ### 基本实现
 
-```rust
+```yo
 MyArray :: struct(data0 : i32, data1 : i32, data2 : i32);
 
 impl(
@@ -73,7 +73,7 @@ assert(arr(usize(1)) == i32(20), "应该是 20");
 
 对于泛型类型如 `ArrayList(T)`，在 impl 中使用 `generic`：
 
-```rust
+```yo
 impl(
   generic(T : Type),
   ArrayList(T),
@@ -110,7 +110,7 @@ T* result = Index_index(&collection, idx);  // ← 直接指针
 
 这对正确性至关重要——指针保持有效并直接指向集合的存储空间。你可以用它进行修改：
 
-```rust
+```yo
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(100));
 
@@ -123,7 +123,7 @@ assert(list(usize(0)) == i32(999), "应该是 999");
 
 数组和切片支持基于范围的切片操作，使用 `..`（不包含结尾）和 `..=`（包含结尾）：
 
-```rust
+```yo
 (arr : [i32 ; 5]) = [i32(10), i32(20), i32(30), i32(40), i32(50)];
 
 // 不包含结尾的范围：索引 1, 2, 3 处的元素
@@ -143,7 +143,7 @@ assert(sub.len() == usize(2), "子切片长度为 2");
 
 `..` 和 `..=` 运算符产生 `Range(usize)` 和 `RangeInclusive(usize)` 类型，这些类型在 prelude 中定义：
 
-```rust
+```yo
 Range :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );
@@ -170,7 +170,7 @@ RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 索引表达式可以无缝地与运算符配合使用。结果在传递给运算符之前自动解引用：
 
-```rust
+```yo
 (arr : [i32 ; 3]) = [i32(10), i32(20), i32(30)];
 
 // 比较
@@ -188,7 +188,7 @@ assert(sum == i32(30), "与 + 配合使用");
 
 ### ArrayList(T) — `Index(usize)`
 
-```rust
+```yo
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 v := list(usize(0)); // 42
@@ -197,7 +197,7 @@ v := list(usize(0)); // 42
 
 ### HashMap(K, V) — `Index(K)`
 
-```rust
+```yo
 (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
 map.insert(i32(1), i32(100));
 v := map(i32(1)); // 100
@@ -209,7 +209,7 @@ v := map(i32(1)); // 100
 
 ### BTreeMap(K, V) — `Index(K)`
 
-```rust
+```yo
 (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
 map.insert(i32(5), i32(500));
 v := map(i32(5)); // 500
@@ -221,7 +221,7 @@ v := map(i32(5)); // 500
 
 ### Deque(T) — `Index(usize)`
 
-```rust
+```yo
 (d : Deque(i32)) = Deque(i32).new();
 d.push_back(i32(10));
 d.push_back(i32(20));
@@ -235,7 +235,7 @@ O(1) 随机访问，正确处理环形缓冲区回绕。
 
 `String` 不实现 `Index`，所以运行期的 `s(i)` 是 E0606（"s is not callable"）。请改用具名方法读取字节：
 
-```rust
+```yo
 (s : String) = `Hello`;
 b := s.byte_at(usize(0)); // u8(72) — 字节级访问（'H'）；越界时 panic
 c := s.get_byte(usize(9)); // .None — 带检查的形式
@@ -247,7 +247,7 @@ c := s.get_byte(usize(9)); // .None — 带检查的形式
 
 通过 Index 特征的越界访问会在运行时导致 **panic**。这与 Rust 的行为一致。如需返回 `Option(T)` 的安全访问，请使用 `ArrayList` 的 `get` 方法：
 
-```rust
+```yo
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 

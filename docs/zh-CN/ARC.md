@@ -13,7 +13,7 @@
 
 ## 当前定义
 
-```rust
+```yo
 Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
@@ -47,7 +47,7 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic)))
 
 ### 创建 Arc
 
-```rust
+```yo
 value := arc(i32(42));
 same := Arc(i32)(i32(42));
 ```
@@ -56,7 +56,7 @@ same := Arc(i32)(i32(42));
 
 通过 `.*` 访问内部值，它返回借用访问：
 
-```rust
+```yo
 value := arc(i32(42));
 copied := value.*;
 assert(copied == i32(42), "inner value is 42");
@@ -66,7 +66,7 @@ assert(copied == i32(42), "inner value is 42");
 
 复制 `Arc` 会递增引用计数，并继续共享同一份底层值：
 
-```rust
+```yo
 a := arc(i32(42));
 b := a;
 c := b;
@@ -77,7 +77,7 @@ assert(b.* == c.*, "same shared value");
 
 ### 跨线程共享
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 
 shared := arc(i32(42));

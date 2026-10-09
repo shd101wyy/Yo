@@ -10,7 +10,7 @@ GADTs 扩展了 Yo 的枚举类型，允许每个构造器指定其返回的类�
 
 每个 GADT 构造器使用 `-> recur(Type1, Type2, ...)` 在字段列表之后指定其返回类型：
 
-```rust
+```yo
 Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     IntVal(i : i32) -> recur(i32),
@@ -26,7 +26,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 ### 多参数 GADTs
 
-```rust
+```yo
 MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   enum(
     MkIntBool(x : i32, y : bool) -> recur(i32, bool),
@@ -39,7 +39,7 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
 
 自定义判别值和 GADT 返回类型可以共存：
 
-```rust
+```yo
 Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     (TagInt(i : i32) -> recur(i32)) = 10,
@@ -52,7 +52,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 部分变体可以有 GADT 注解，其余保持无约束：
 
-```rust
+```yo
 MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     MInt(i : i32) -> recur(i32),
@@ -66,7 +66,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 GADT 的核心特性：对 GADT 值进行模式匹配时，类型系统会在每个分支中细化类型变量。
 
-```rust
+```yo
 eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(
     v,
@@ -89,7 +89,7 @@ result := eval_value(v); // result : i32 = 42
 
 当匹配具有具体类型的 GADT 值时，类型系统会过滤掉不可达的变体：
 
-```rust
+```yo
 // Value(i32) 只能是 IntVal 或 PairVal
 // BoolVal 不可达（它返回 Value(bool)，而不是 Value(i32)）
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
@@ -107,16 +107,16 @@ eval_int_only :: (fn(v : Value(i32)) -> i32)(
 GADT（以及任何泛型枚举）的类型参数属于其类型本身，即使没有任何变体负载提到它们。`Value(i32)` 与
 `Value(bool)` 的负载形状完全相同，但仍是两个不同的类型：
 
-```rust
+```yo
 x := Value(i32).IntVal(i32(77));
-(y : Value(bool)) = x;  // error[E0601]: Incompatible types（Value(bool) 与 Value(i32)）
+(y : Value(bool)) = x; // error[E0601]: Incompatible types（Value(bool) 与 Value(i32)）
 ```
 
 一个变体只能构造其 `-> recur(...)` 索引所指的实例。通过其他实例来构造它是类型错误，无论是完整写法还是简写：
 
-```rust
-Value(i32).BoolVal(true);         // error[E0601]: GADT variant "BoolVal" is declared
-                                  // `-> recur(bool)`, so it cannot construct a Value(i32)
+```yo
+Value(i32).BoolVal(true); // error[E0601]: GADT variant "BoolVal" is declared
+// `-> recur(bool)`, so it cannot construct a Value(i32)
 (v : Value(i32)) = .BoolVal(true); // 同样的错误
 (w : Value(bool)) = .BoolVal(true); // 正确
 ```

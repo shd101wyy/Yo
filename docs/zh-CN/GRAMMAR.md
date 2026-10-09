@@ -254,7 +254,7 @@ ParameterLabel ::=
   | 'quote' '(' Identifier ')'  ;; 宏参数（接收 AST）
 ```
 
-```rust
+```yo
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ ... });
 sink :: (fn(own(victim) : Holder) -> unit)({ ... });
 ```
@@ -298,10 +298,8 @@ Separator ::= ',' | ';'
    - 非法：`obj . field`、`obj .field`
    - 合法（方法链）：
 
-   ```rust
-   n := list
-     .len()
-     .to_string();
+   ```yo
+   n := list.len().to_string();
    ```
 
    - 非法：以点结尾的行（`list.` 在行尾，`.len()` 在下一行）

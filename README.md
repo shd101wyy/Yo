@@ -172,7 +172,7 @@ my-project/
 
 `src/main.yo`:
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
@@ -226,7 +226,7 @@ Check the [./tests](./tests/) and [./std](./std/) folders for more code examples
 
 ### Hello World
 
-```rust
+```yo
 // main.yo
 { println } :: import("std/fmt");
 

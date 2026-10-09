@@ -70,7 +70,7 @@ The rules that keep a JavaScript caller from leaking or double-freeing:
 
 Here is a complete library that follows them:
 
-```rust
+```yo
 // src/wasm_api.yo
 //! `transform`: bytes in, freshly allocated bytes out.
 pragma(Pragma.AllowUnsafe);
@@ -150,7 +150,7 @@ copying, so a function can use the `str` API on them. The view is only as
 valid as the buffer behind it: use it during the call, and copy it
 (`String.from(view)`) if anything must outlive the call.
 
-```rust
+```yo
 //! Borrow the caller's bytes as a `str` for the length of one call.
 pragma(Pragma.AllowUnsafe);
 
@@ -198,7 +198,7 @@ yo compile src/wasm_api.yo --target wasm32-unknown-emscripten --optimize 2 \
 The same artifact as a `build.yo` step (the fields and the output-format rule
 are in [BUILD_SYSTEM.md](./BUILD_SYSTEM.md)):
 
-```rust
+```yo
 build :: import("std/build");
 
 wasm_api :: build.executable({
@@ -369,7 +369,7 @@ AddressSanitizer reports a bad pointer at its source; a wasm build has no
 sanitizer (`--sanitize` is ignored when the C compiler is `emcc`). A native
 smoke test calls the API the way JavaScript will:
 
-```rust
+```yo
 // src/smoke.yo
 //! Native smoke test for the WASM API: run it under AddressSanitizer first.
 pragma(Pragma.AllowUnsafe);

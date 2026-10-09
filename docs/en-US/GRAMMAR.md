@@ -270,7 +270,7 @@ ParameterLabel ::=
   | 'quote' '(' Identifier ')'  ;; macro parameter (receives the AST)
 ```
 
-```rust
+```yo
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ ... });
 sink :: (fn(own(victim) : Holder) -> unit)({ ... });
 ```
@@ -317,10 +317,8 @@ Separator ::= ',' | ';'
    - Invalid: `obj . field`, `obj .field`
    - Valid (chaining):
 
-   ```rust
-   n := list
-     .len()
-     .to_string();
+   ```yo
+   n := list.len().to_string();
    ```
 
    - Invalid: a line ending in a dot (`list.` at end of line, `.len()` on

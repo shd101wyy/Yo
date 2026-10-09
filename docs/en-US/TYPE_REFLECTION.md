@@ -4,7 +4,7 @@ Yo provides compile-time type reflection through the `TypeInfo` enum and `Type.g
 
 ## Basic Usage
 
-```rust
+```yo
 info :: Type.get_info(i32);
 comptime_assert(info.is_primitive(), "i32 is primitive");
 comptime_assert(info.is_integer(), "i32 is an integer");
@@ -20,7 +20,7 @@ comptime_assert(info2.is_struct(), "Point is a struct");
 
 `TypeInfo` is a compile-time enum with both fieldless and compound variants:
 
-```rust
+```yo
 TypeInfo :: enum(
   // === Primitives (fieldless) ===
   Unit,
@@ -84,7 +84,7 @@ TypeInfo :: enum(
 
 `TypeInfo` provides guard methods for type classification:
 
-```rust
+```yo ignore
 info :: Type.get_info(i32);
 
 // Structural guards
@@ -113,7 +113,7 @@ Use `match` to extract metadata from compound variants:
 
 ### Array
 
-```rust
+```yo
 Arr3 :: [i32 ; 3];
 info :: Type.get_info(Arr3);
 
@@ -126,7 +126,7 @@ comptime_assert(len == 3, "length is 3");
 
 ### Struct
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 info :: Type.get_info(Point);
 
@@ -143,7 +143,7 @@ comptime_assert(is_struct_kind, "Point is a regular struct");
 
 ### Enum
 
-```rust
+```yo
 Color :: enum(Red, Green, Blue);
 info :: Type.get_info(Color);
 
@@ -153,7 +153,7 @@ comptime_assert(variant_count == usize(3), "Color has 3 variants");
 
 ### Function
 
-```rust
+```yo
 FnType :: (fn(x : i32, y : i32) -> bool);
 info :: Type.get_info(FnType);
 
@@ -170,7 +170,7 @@ comptime_assert(ret_is_bool, "returns bool");
 
 ### Pointer
 
-```rust
+```yo
 PtrI32 :: *i32;
 info :: Type.get_info(PtrI32);
 
@@ -184,7 +184,7 @@ comptime_assert(__yo_are_types_compatible(pointee, i32), "pointee is i32");
 
 Represents a field in a struct, union, tuple, or module:
 
-```rust
+```yo
 TypeFieldInfo :: struct(
   name : comptime_str,
   field_type : Type
@@ -195,7 +195,7 @@ TypeFieldInfo :: struct(
 
 Represents an enum variant:
 
-```rust
+```yo
 VariantInfo :: struct(
   name : comptime_str,
   fields : ComptimeList(TypeFieldInfo),
@@ -211,7 +211,7 @@ The `fields` list contains `TypeFieldInfo` entries for each variant field. Use `
 
 Discriminates struct flavors:
 
-```rust
+```yo
 StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
@@ -224,7 +224,7 @@ StructKind :: enum(Struct, Object, AtomicObject, NewType);
 
 Rich function type metadata:
 
-```rust
+```yo
 FunctionInfo :: struct(
   params : ComptimeList(ParamInfo),
   return_type : Type,
@@ -238,7 +238,7 @@ FunctionInfo :: struct(
 
 Function parameter metadata:
 
-```rust
+```yo
 ParamInfo :: struct(
   name : comptime_str,
   param_type : Type,
@@ -252,7 +252,7 @@ ParamInfo :: struct(
 
 Forall type parameter:
 
-```rust
+```yo
 ForallParamInfo :: struct(
   name : comptime_str,
   param_type : Type
@@ -263,7 +263,7 @@ ForallParamInfo :: struct(
 
 Using/effect parameter:
 
-```rust
+```yo
 ImplicitParamInfo :: struct(
   name : comptime_str,
   param_type : Type
@@ -274,7 +274,7 @@ ImplicitParamInfo :: struct(
 
 Lightweight trait reference:
 
-```rust
+```yo
 TraitInfo :: struct(
   trait_type : Type
 );
@@ -284,7 +284,7 @@ TraitInfo :: struct(
 
 Trait field metadata:
 
-```rust
+```yo
 TraitFieldInfo :: struct(
   name : comptime_str,
   field_type : Type,
@@ -296,7 +296,7 @@ TraitFieldInfo :: struct(
 
 Discriminates trait flavors:
 
-```rust
+```yo
 TraitKind :: enum(
   Future(child : Type, effects : ComptimeList(TraitInfo)),
   Fn(call : FunctionInfo),
@@ -308,7 +308,7 @@ TraitKind :: enum(
 
 Use `match` on `TypeInfo` for compile-time type dispatch:
 
-```rust
+```yo
 describe :: (fn(comptime(T) : Type) -> comptime(comptime_str))(
   match(
     Type.get_info(T),
@@ -329,7 +329,7 @@ comptime_assert(describe(Point) == "struct type", "Point description");
 
 `TypeInfo` is designed to work with `derive_rule` for powerful compile-time code generation:
 
-```rust
+```yo
 // Using TypeInfo to check type kind in a derive rule (a derive rule is a
 // plain comptime function returning comptime(Expr) — not a macro)
 derive_rule(
@@ -365,7 +365,7 @@ The `Type` type provides static methods for compile-time type analysis:
 
 ### Type Equality vs Compatibility
 
-```rust
+```yo
 // Type.eq — exact match, nominal typing
 comptime_assert(Type.eq(i32, i32), "same type");
 
@@ -388,7 +388,7 @@ What counts as the same type:
 
 The answers do not depend on which questions were asked earlier in the program.
 
-```rust
+```yo
 comptime_assert(Type.eq(struct(x : i32), struct(x : i32)), "two anonymous records with the same fields");
 comptime_assert(Type.neq(struct(x : i32), A), "an anonymous record is not A");
 comptime_assert(Type.is_compatible_with(struct(x : i32), A), "but it flows into A");
@@ -398,7 +398,7 @@ comptime_assert(Type.is_compatible_with(struct(x : i32), A), "but it flows into 
 
 Map each field of a struct to an `Expr` and combine them with a binary operator:
 
-```rust
+```yo
 // Example: generate equality check for all fields
 eq_body :: Type.join_fields(
   Point,
@@ -413,7 +413,7 @@ eq_body :: Type.join_fields(
 
 Map each variant of an enum to an `Expr`, returning `ComptimeList(Expr)`:
 
-```rust
+```yo
 branches :: Type.map_variants(
   Color,
   (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(

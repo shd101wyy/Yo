@@ -5,7 +5,7 @@
 之前、函数写在它返回的类型之前、自由函数之间的相互递归、自由函数调用一个
 `impl` 位于文件末尾的方法或 trait 默认实现。
 
-```rust
+```yo
 // 调用者在被调用者之前
 call_later :: (fn(n : i32) -> i32)(later_helper(n) * i32(2));
 later_helper :: (fn(n : i32) -> i32)(n + i32(1));
@@ -110,7 +110,7 @@ definition in the source
 同一个 `impl(...)` 块内的兄弟方法可以通过 `self.method(...)` 或 `Self.method(...)`
 以任意顺序互相调用：
 
-```rust
+```yo
 N :: struct(value : i32);
 impl(
   N,

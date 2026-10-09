@@ -61,7 +61,7 @@ void* data = point;                // 存储 Point 指针
 
 **Rc 类型定义：**
 
-```rust
+```yo
 Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
@@ -108,11 +108,11 @@ typedef struct {
 
 只有这些方法拥有 vtable 槽位。trait 仍可以声明其他方法，也可以构造它的 `Dyn` 并使用可调用的方法；通过 `Dyn` 调用其他方法会在调用处报错 E0614（`yo explain E0614`）：
 
-```rust
+```yo
 Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));
 (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));
-d.speak();   // OK：`Self` 只作为接收者
-d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
+d.speak(); // OK：`Self` 只作为接收者
+d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
 基于 trait 约束的一揽子固有方法（`impl(generic(E), where(E <: Named), E, shout : ...)`）同样接受 `Dyn(Named)` 接收者。它不是 trait 成员，没有 vtable 槽位：这个调用是对该方法（针对 `Dyn` 特化）的普通调用，而方法内部的 `self.name()` 通过 vtable 分派。
@@ -134,7 +134,7 @@ d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a
 
 **示例：**
 
-```rust
+```yo
 // 值类型必须装箱
 dyn(rc(42)); // OK：rc(42) 返回 Rc(i32)，这是一个引用语义类型
 dyn(rc(true)); // OK：rc(true) 返回 Rc(bool)
@@ -148,9 +148,9 @@ dyn(true); // true 自动变为 rc(true)
 
 **`Send` Dyn 的载荷是原子的。** `Dyn(Trait, Send)` 的每个副本都可能位于另一个线程，并在那里 retain 和 release 同一个 `data` 对象，因此其引用计数必须是原子的。对于 `Send` 目标，`dyn(v)` 用 `arc` 而不是 `rc` 装箱值类型。非原子的引用载荷是错误：
 
-```rust
-(d : Dyn(Fn() -> unit, Send)) = dyn(k);       // OK：k 用 arc 装箱
-(e : Dyn(Fn() -> unit, Send)) = dyn(rc(k));  // 错误：其载荷必须是原子引用计数的
+```yo
+(d : Dyn(Fn() -> unit, Send)) = dyn(k); // OK：k 用 arc 装箱
+(e : Dyn(Fn() -> unit, Send)) = dyn(rc(k)); // 错误：其载荷必须是原子引用计数的
 ```
 
 ### 4. 静态虚表和包装函数
@@ -231,7 +231,7 @@ value.vtable->print(value.data);
 
 `Dyn` 擦除了具体类型，而 `downcast` 是把它取回来的方式：
 
-```rust
+```yo
 downcast(dyn_value, T) -> Option(T)
 ```
 
@@ -239,7 +239,7 @@ downcast(dyn_value, T) -> Option(T)
 就是用它实现的。两个参数的形式是固定的：第一个必须是 `Dyn` 类型，第二个必须是一个
 **类型**（在编译期求值，所以 `T` 永远不是运行时值）。
 
-```rust
+```yo
 Animal :: trait(speak : (fn(self : Self) -> unit));
 // ... impl(Cat, Animal(...)); impl(Dog, Animal(...));
 animal := dyn(Cat.new());
@@ -283,9 +283,9 @@ panic，那就是 `downcast(v, T).unwrap()`，写在调用点上因此是可见�
 
 `upcast` 把同一个载荷放到 trait 更少的 `Dyn` 后面：
 
-```rust
+```yo
 (both : Dyn(Speak, Run)) = dyn(Dog());
-(s : Dyn(Speak)) = upcast(both, Dyn(Speak));   // Dyn(Speak)
+(s : Dyn(Speak)) = upcast(both, Dyn(Speak)); // Dyn(Speak)
 (e : AnyError) = dyn(ParseError.Bad);
 (t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError 是 Dyn(Error, ToString)
 ```

@@ -12,7 +12,7 @@ These are baseline syntax rules for portable Yo code.
 
 ## Common declaration forms
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 app_name :: "yo-demo";
@@ -40,7 +40,7 @@ export(main);
 | Begin block       | `{ x := i32(1); x }`         | `{ x := i32(1), x }`         |
 | Struct literal    | `{ name : "yo", ok : true }` | `{ name : "yo"; ok : true }` |
 
-```rust
+```yo
 result := cond(
   ready => .Ok(()),
   true => .Err(`not ready`)
@@ -48,7 +48,7 @@ result := cond(
 
 total := {
   base := i32(40);
-  (base + i32(2))
+  base + i32(2)
 };
 ```
 
@@ -60,14 +60,15 @@ In struct literals, keep spaces around `:` and parenthesize infix field values: 
 
 ## Control flow
 
-```rust
+```yo
 value := cond(
   (x < i32(0)) => i32(-1),
   (x == i32(0)) => i32(0),
   true => i32(1)
 );
 
-label := match(token,
+label := match(
+  token,
   .Identifier(name) => name,
   .Number(_) => "number",
   .Eof => "eof"
@@ -118,10 +119,10 @@ Key rules:
 
 ## Calls, operators, and whitespace
 
-```rust
+```yo
 sum := add(i32(1), i32(2));
 flag := ((a > b) && (b > c));
-masked := ((A | B) | C);
+masked := (A | B | C);
 ```
 
 - Calls require immediate parentheses: `func(arg1, arg2)`
@@ -161,14 +162,15 @@ masked := ((A | B) | C);
 
 ## Functions and methods
 
-```rust
+```yo
 double :: (fn(x : i32) -> i32)(
-  (x * i32(2))
+  x * i32(2)
 );
 
 Counter :: struct(current : i32);
 
-impl(Counter,
+impl(
+  Counter,
   next : (fn(self : Self) -> i32)({
     self.current = (self.current + i32(1));
     self.current
@@ -192,16 +194,18 @@ impl(Counter,
 
 ### Named arguments and default values
 
-```rust
-create_user :: (fn(
-  name : String,
-  (age : i32) ?= 18
-) -> User)(
-  User(name: name, age: age)
+```yo
+create_user :: (
+  fn(
+    name : String,
+    (age : i32) ?= 18
+  ) -> User
+)(
+  User(name : name, age : age)
 );
 
-create_user(name: `Alice`);
-create_user(name: `Bob`, age: 30);
+create_user(name : `Alice`);
+create_user(name : `Bob`, age : 30);
 ```
 
 - Named arguments must keep the same order as the definition
@@ -209,7 +213,7 @@ create_user(name: `Bob`, age: 30);
 
 ### Effect parameters (explicit)
 
-```rust
+```yo
 Raise :: (ctl(msg : String) -> i32);
 
 safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
@@ -221,9 +225,11 @@ safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
 
 caller :: (fn() -> i32)({
   // Handler value bound to a local. Lambdas on the RHS of `=` need outer parens.
-  (raise : Raise) = ((msg) -> {
-    unwind(i32(0));
-  });
+  (raise : Raise) = (
+    msg -> {
+      unwind(i32(0));
+    }
+  );
 
   safe_divide(i32(10), i32(0), raise)
 });
@@ -237,8 +243,8 @@ caller :: (fn() -> i32)({
 
 ### Closures and anonymous functions
 
-```rust
-(closure : Impl(Fn(x : i32) -> i32)) = ((x) => (x + i32(1)));
+```yo
+(closure : Impl(Fn(x : i32) -> i32)) = (x => (x + i32(1)));
 
 result := closure(i32(5));
 
@@ -266,7 +272,7 @@ A renaming import is `{ export_name : local_name } :: import("mod")`. The
 the tree were migrated away from it on 2026-09-16, so do not write `_(` in
 source.
 
-```rust
+```yo
 { Parser } :: import("./parser.yo");
 parser_module :: import("./parser.yo");
 
@@ -282,14 +288,15 @@ parser_module :: import("./parser.yo");
 
 ## Enums and pattern matching
 
-```rust
+```yo
 Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(None, Some(value : T))
 );
 
 (value : Option(i32)) = .Some(i32(42));
 
-text := match(value,
+text := match(
+  value,
   .Some(inner) => "present",
   .None => "missing"
 );
@@ -311,24 +318,23 @@ text := match(value,
 
 Three destructuring shapes for arms (mix freely across arms):
 
-```rust
+```yo
 Shape :: enum(
   Circle(radius : i32),
   Rectangle(width : i32, height : i32),
   Triangle(base : i32, height : i32, label : str)
 );
 
-match(s,
+match(
+  s,
   // ✅ Preferred — curly shorthand names only the fields you use.
-  .Triangle({base, height: h})  => (base * h),
-
+  .Triangle({ base, height : h }) => (base * h),
   // Also OK — labeled (label : var) pairs; order-free, partial matches OK.
-  .Circle(radius: r)             => (r * r),
-
+  .Circle(radius : r) => (r * r),
   // ⚠️ Avoid for 2+ field variants — positional with `_` is brittle when
   //    a field is added and harder to read (each `_` requires counting).
   //    OK when the variant has one field, or when every field is named.
-  .Rectangle(w, h)               => (w * h)
+  .Rectangle(w, h) => (w * h)
 )
 ```
 
@@ -338,10 +344,11 @@ Curly `{a, b: c}` is sugar for `(a: a, b: c)` — order-free, supports partial m
 
 **Bind-nothing forms** (match a variant, ignore ALL its fields):
 
-```rust
-match(s,
-  .Circle           => 0,   // bare `.Variant` — allowed even when it has fields
-  .Rectangle({})    => 1    // empty curly — the zero case of partial curly
+```yo
+match(
+  s,
+  .Circle => 0, // bare `.Variant` — allowed even when it has fields
+  .Rectangle({}) => 1 // empty curly — the zero case of partial curly
 )
 ```
 
@@ -354,7 +361,7 @@ permissive than Rust). `tests/match_bind_nothing.test.yo` is the spec.
 
 ## Generics and compile-time
 
-```rust
+```yo
 identity :: (fn(generic(T : Type), value : T) -> T)(value);
 
 max :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(i32))(
@@ -373,7 +380,7 @@ show :: (fn(generic(T : Type), value : T, where(T <: ToString)) -> unit)(
 
 ## Exports
 
-```rust
+```yo
 main :: (fn() -> unit)(());
 export(main);
 
@@ -393,7 +400,7 @@ export(
 
 ## Static and dynamic dispatch types
 
-```rust
+```yo
 show :: (fn(value : Impl(ToString)) -> unit)(
   println(value)
 );
@@ -431,8 +438,8 @@ directory to test the rejection (`tests/member_visibility.test.yo`).
 
 ## `main` returns `unit`
 
-```rust
-main :: (fn() -> unit)({ ... });        // the only legal result type
+```yo
+main :: (fn() -> unit)({ ... }); // the only legal result type
 main :: (fn(io : Io) -> unit)({ ... }); // effect params are fine
 export(main);
 ```
@@ -445,11 +452,11 @@ pass/fail through its exit code hollow. Set a status with `exit(code)` from
 
 ## Recursion and loops
 
-```rust
+```yo
 factorial :: (fn(n : i32) -> i32)(
   cond(
     (n <= i32(1)) => i32(1),
-    true => (n * recur((n - i32(1))))
+    true => (n * recur(n - i32(1)))
   )
 );
 
@@ -459,7 +466,7 @@ while(true, {
 });
 
 // Compile-time loop unrolling — requires comptime() modifier
-while(comptime((i < 10)), {
+while(comptime(i < 10), {
   // body evaluated/unrolled at compile time
 });
 
@@ -467,11 +474,11 @@ while(comptime((i < 10)), {
 // .into_iter()). ref(struct(...)) elements are handles: mutating
 // them in the body mutates the element in place. A value element
 // (String, struct, ...) is borrowed: writing its RC data is E0908.
-for(list, (x) => {
+for(list, x => {
   process(x);
 });
 for(names, inout(s) => {
-  s.push_str("!");            // borrowed form: String element written in place
+  s.push_str("!"); // borrowed form: String element written in place
 });
 
 // In-place struct/scalar element mutation: index loop + index writes.
@@ -483,7 +490,7 @@ while(i < list.len(), {
 
 // Combinator chains (.map / .filter / .into_iter / etc.) yield
 // computed values; pass them as the first arg:
-for(list.into_iter().map((x) => (x + i32(1))), (y) => println(y));
+for(list.into_iter().map(x => (x + i32(1))), y => println(y));
 ```
 
 - A `::` function recurses by calling its own name (mutual recursion works too); `recur(...)` names the enclosing function literal, for anonymous functions
@@ -497,7 +504,7 @@ for(list.into_iter().map((x) => (x + i32(1))), (y) => println(y));
 
 ## Return and branch safety
 
-```rust
+```yo ignore
 // WRONG — paren-less return is invalid:
 match(opt,
   .Some(v) => return v,
@@ -531,7 +538,7 @@ get_value :: (fn(opt : Option(i32)) -> i32)(
 
 ## String concatenation pitfall
 
-```rust
+```yo
 // Literal + literal folds at compile time:
 a := String.from("line1\n" + "line2\n");
 
@@ -546,7 +553,7 @@ d := String.from("hi ").concat(name);
 
 ## Iterator and for loop
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 
 list := ArrayList(i32).new();
@@ -554,7 +561,7 @@ list.push(i32(10));
 list.push(i32(20));
 
 // Value form — implicit .into_iter(). The borrowed `inout(x)` form is below.
-for(list, (value) => {
+for(list, value => {
   println(value);
 });
 
@@ -573,14 +580,16 @@ while(i < list.len(), {
 
 ## Testing
 
-```rust
+```yo
 test("Addition works", {
-  assert(((i32(1) + i32(1)) == i32(2)), "1+1 should be 2");
+  assert((i32(1) + i32(1)) == i32(2), "1+1 should be 2");
 });
 
 test("Compile-time check", {
   comptime_assert((2 + 2) == 4);
-  comptime_expect_error({ x :: (1 / 0); });
+  comptime_expect_error({
+    x :: (1 / 0);
+  });
 });
 
 test("Async test", {
@@ -606,9 +615,11 @@ test("Async test", {
   therefore still no gate; pin such a result with a **module-level `::` binding
   observed by a runtime `assert`** — the binding folds at comptime and the
   runtime assert sees what the folder produced:
-  ```rust
-  _DIV :: (u64.MAX / u64(2));            // folded at comptime
-  test("…", { assert(_DIV == u64(9223372036854775807), `folded to ${_DIV}`); });
+  ```yo
+  _DIV :: (u64.MAX / u64(2)); // folded at comptime
+  test("…", {
+    assert(_DIV == u64(9223372036854775807), `folded to ${_DIV}`);
+  });
   ```
   Always verify a new test goes RED on a compiler without your fix; that is
   the only way to know the gate is real.
@@ -627,7 +638,7 @@ pragma) these lower to runtime `assert(...)` (runtime fns) or
 `pragma(Pragma.Verify);` the pinned-Z3 SMT verifier proves them at
 compile time — see `docs/en-US/FORMAL_VERIFICATION.md`.
 
-```rust
+```yo
 // requires/ensures are SIGNATURE clauses, after params and where(...).
 // ENFORCED order: generic, params, where, requires, ensures — a clause
 // out of order is a syntax error ("X appears after Y").
@@ -642,14 +653,17 @@ divide :: (
 // old(expr) = entry-time value. Unlabeled returns cannot be named in
 // ensures; referencing an unbound name there appends a "label the return"
 // hint to the error.
-increment :: (fn(inout(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
+increment :: (fn(inout(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({
+  n = (n + i32(1));
+});
 
 // invariant(...) must be the FIRST statement of a while body.
 // NOTE: do NOT wrap the condition in runtime(...) — while conditions are
 // runtime by default, so `while(runtime(i < n), …)` is redundant; use `while(i < n, …)`.
 while(i < n, {
   invariant(i <= n, acc >= i32(0));
-  i = (i + i32(1)); acc = (acc + i);
+  i = (i + i32(1));
+  acc = (acc + i);
 });
 
 // ghost binding vs ghost function (SEPARATE builtins):
@@ -672,11 +686,11 @@ is_pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
   `outside-subset` outcome instead of an error — contract your fn
   (or `assumed()` it) to make its subset failures loud.
 
-```rust
+```yo
 // A raw-pointer body cannot be walked — declare the contracts assumed.
 get :: (
   fn(self : Self, index : usize, requires(index < self.len()), assumed()) -> (result : Option(T))
-)(/* raw-pointer reads */);
+)( /* raw-pointer reads */);
 ```
   **`assumed` passes a plain `yo verify` run** — that is what makes
   gradual adoption possible, and it also means a green run is NOT
@@ -696,7 +710,7 @@ get :: (
   a law that will not prove is usually telling you the contract is weaker
   than you thought.
 
-```rust
+```yo
 // spec/math_laws.yo — the claims; the implementation does not touch this file.
 pragma(Pragma.Verify);
 { abs_value } :: import("../src/math.yo");
@@ -727,7 +741,7 @@ abs_doubles_nonneg :: law(
   NAMED alias — `NonZeroI32 :: refine(i32, non_zero)` then
   `d : NonZeroI32` (the alias binds the refinement type itself).
 
-```rust
+```yo
 non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
 safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
 ```
@@ -744,7 +758,7 @@ safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / de
   contract-guard operators); the two-step form below is still the
   battle-tested spelling:
 
-```rust
+```yo
 ClampBound :: trait(
   get : (fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i)) -> (result : i32))
 );
@@ -779,7 +793,7 @@ impl(i32, ClampBound(get : get_impl));
   so every `NonZero(i32)` evaluation creates a fully concrete predicate.
   That alias-body shape is the generic-refinement pattern:
 
-```rust
+```yo
 NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
 NzI32 :: NonZero(i32);
 safe_div :: (fn(num : i32, denom : NzI32) -> i32)(i32(100) / denom);
@@ -818,7 +832,7 @@ literal (`` dyn(`… ${x}`) `` is a `String`).
 
 ### `impl(...)` requires a trailing semicolon
 
-```rust
+```yo ignore
 // WRONG — "Invalid function call on type" at runtime:
 impl(MyType,
   get : (fn(self : Self) -> i32)(self.x)
@@ -845,7 +859,7 @@ the NAMED-local drop path, which is a different path from `_`'s temp.
 
 ### `___` discard variable cannot appear twice in the same scope
 
-```rust
+```yo
 // WRONG — shadowing of ___ is not allowed:
 ___ := foo();
 ___ := bar();
@@ -883,20 +897,23 @@ A literal in a payload position COMPARES (`.BoolVal(true)` matches only a true
 payload; `.IntLit("42")` compares the string). The full set, each infix form
 in its own parentheses:
 
-```rust
-match(v,
-  .Ok(.Some(x)) => x,                       // nested variants, any depth
+```yo
+match(
+  v,
+  .Ok(.Some(x)) => x, // nested variants, any depth
   .Ok(.None) => i32(0),
   (.Err(.Timeout) | .Err(.Closed)) => i32(-1), // or-patterns on variants
-  .Err(other) => match(other, _ => i32(-2))    // identifier binds
+  .Err(other) => match(other, _ => i32(-2)) // identifier binds
 );
-match(n,
-  (0..10) => "small", (10..=99) => "medium",   // ranges (compile-time bounds)
-  (v && (v < i32(0))) => "negative",           // guard sees the binding
-  (big := 100) => "exactly a hundred",         // whole-value binding
-  _ => "large"                                 // usize/isize, floats and strings need this arm; fixed-width ints are intervals
+match(
+  n,
+  (0 .. 10) => "small",
+  (10 ..= 99) => "medium", // ranges (compile-time bounds)
+  (v && (v < i32(0))) => "negative", // guard sees the binding
+  (big := 100) => "exactly a hundred", // whole-value binding
+  _ => "large" // usize/isize, floats and strings need this arm; fixed-width ints are intervals
 );
-match(s, "compile" => 1, ("check" | "fmt") => 2, _ => 0);   // str / String scrutinee
+match(s, "compile" => 1, ("check" | "fmt") => 2, _ => 0); // str / String scrutinee
 ```
 
 - A bare identifier binds, UNLESS a `::` constant of that name holding a
@@ -918,7 +935,7 @@ inside contract clauses (`requires` / `ensures` / `invariant`), `ghost(...)`
 bindings, and `ghost_fn` bodies — they have no runtime semantics, so ordinary
 code using them is a compile error. Each binder is `(name : Type)`:
 
-```rust
+```yo ignore
 // A quantified post-condition (the SMT side is a real forall):
 ensures(forall(k : i32, (k <= i32(0)) ==> (k < result)))
 
@@ -936,7 +953,7 @@ ASCII-spelling hint. Note the INTERNAL identifiers (`forall_labels`,
 
 `[expr]` without a trailing comma **is a parse error** — the old slice-type form was removed along with the builtin Slice type (`plans/archive/SLICE_REWORK.md`); the parser rejects `[expr]` and `[T;]` and points at `RawSlice(T)`. To create a 1-element array value, add a trailing comma:
 
-```rust
+```yo ignore
 // WRONG — removed slice-type form, now a parse error:
 arr := [i32(42)];
 
@@ -951,19 +968,20 @@ This also applies inside source strings in proto-evaluator tests.
 
 ### ArrayList indexing uses call syntax
 
-```rust
+```yo
 list := ArrayList(i32).new();
 list.push(i32(42));
 
-val := list(usize(0));         // → i32  (value copy via Index trait)
-list(usize(0)) = i32(99);      // mutate in place directly
+val := list(usize(0)); // → i32  (value copy via Index trait)
+list(usize(0)) = i32(99); // mutate in place directly
 
 // When you need the pointer explicitly:
-ptr := &(list(usize(0)));      // → *(i32)
-ptr.* = i32(99);               // also works
+ptr := &list(usize(0)); // → *(i32)
+ptr.* = i32(99); // also works
 
 // Safe access (returns Option(T)):
-match(list.get(usize(0)),
+match(
+  list.get(usize(0)),
   .Some(v) => println(`${v}`),
   .None => ()
 );
@@ -977,11 +995,11 @@ match(list.get(usize(0)),
 **Don't write `(&(X)).index(i).*` or `X.get(i).unwrap()` when you mean
 `X(i)`.** Use the call-syntax form everywhere it works:
 
-```rust
+```yo
 // ✗ Verbose, scans like raw-pointer code (and requires the file's
 //   pragma(Pragma.AllowUnsafe); because `.*` is gated):
-(&(self.field)).index(i).* = value;
-elem := (&(self.field)).index(i).*;
+(&self.field).index(i).* = value;
+elem := (&self.field).index(i).*;
 v := list.get(usize(0)).unwrap();
 
 // ✓ Same semantics, no `.*`, no pragma needed:
@@ -996,11 +1014,11 @@ panics on out-of-bounds identically to `.unwrap()` on `.get(...)`.
 
 ### Named fields preferred for `struct`/`ref(struct(...))` constructors
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 
 // PREFERRED — named fields (robust to field insertion, self-documenting):
-p := Point(x: i32(1), y: i32(2));
+p := Point(x : i32(1), y : i32(2));
 
 // ALSO VALID — positional construction (same call, field order):
 q := Point(i32(1), i32(2));
@@ -1012,13 +1030,13 @@ Enum variant construction is positional (no field names needed).
 
 `HashMap`, `ArrayList`, and other `ref(struct(...))` / `ref(enum(...))` types are reference-counted. Passing them by value shares the underlying data — mutations are visible to all holders.
 
-```rust
+```yo
 // DO NOT use pointer params for RC reference-semantics values:
 // WRONG: fn(m : *(HashMap(String, V))) — will cause greedy & issues at call site
 // CORRECT: fn(m : HashMap(String, V)) — pass by value, mutations propagate via RC
 
 process_map :: (fn(m : HashMap(String, i32)) -> unit)({
-  m.insert(String.from("key"), i32(42));  // mutation visible to caller
+  m.insert(String.from("key"), i32(42)); // mutation visible to caller
 });
 
 counts := HashMap(String, i32).new();
@@ -1030,7 +1048,7 @@ process_map(counts);
 
 `clone()` is a `String`'s independent copy (`plans/STRING_VALUE_SEMANTICS.md` §0): it copies the bytes, empty or not. A plain copy still shares a non-empty buffer until VALUES_BY_DEFAULT V2b, so write only through a clone. A by-value `String` parameter BORROWS the caller's value, so writing it (`push_str`, passing it to an `inout` parameter) is **E0908**. Before String S1 this compiled and the write was silently lost when the string was empty — an emitter buffer once vanished from the chunked-C output that way, with only a far-downstream `unknown type name` as the symptom. This is the opposite of `ArrayList`/`HashMap`/`HashSet` (RC `ref` types, until `plans/VALUES_BY_DEFAULT.md` V2), where mutations through a by-value parameter DO propagate.
 
-```rust
+```yo ignore
 // E0908 — a by-value parameter borrows the caller's string:
 split :: (fn(text : String, hdr_out : String, body_out : String) -> unit)({
   hdr_out.push_str("...");   // error[E0908]
@@ -1065,10 +1083,14 @@ A `String` read out of an `ArrayList(String)` (`x := xs(i)`, a `for` value bindi
 
 Since 2026-09-05 (`docs/en-US/DEFINITION_ORDER.md`, `plans/reference/LAZY_TOPLEVEL_BINDINGS.md`) a module-level `name :: <definition>` may reference any other `::` definition of the same module regardless of position, and an `impl(T, ...)` may sit below the code that uses its methods or trait defaults. Bare-name self-recursion and mutual recursion between free functions work; `export(...)` may name a later definition.
 
-```rust
+```yo
 // fine anywhere — tests/, std/ and src/ alike (the seed carries the feature since the first release after v0.2.24):
-caller :: (fn() -> unit)({ helper(); });
-helper :: (fn() -> unit)({ println("hi"); });
+caller :: (fn() -> unit)({
+  helper();
+});
+helper :: (fn() -> unit)({
+  println("hi");
+});
 fact :: (fn(n : i32) -> i32)(cond((n <= 1) => 1, true => (n * fact(n - 1))));
 ```
 
@@ -1107,16 +1129,16 @@ other swallowed definition-time errors when that ICE still appears
 
 Yo does not support named tuple field types in the syntax `(name : Type, ...)`. Use a named struct instead:
 
-```rust
+```yo
 // WRONG — "Labelled field is not allowed in tuple value":
 get_range :: (fn(ty : TypeValue) -> Option((min : i64, max : u64)))(
-  .Some((min: i64(-128), max: u64(127)))
+  .Some((min : i64(-128), max : u64(127)))
 );
 
 // CORRECT — define a named struct:
 Range :: ref(struct(min : i64, max : u64));
 get_range :: (fn(ty : TypeValue) -> Option(Range))(
-  .Some({min: i64(-128), max: u64(127)})
+  .Some({ min : i64(-128), max : u64(127) })
 );
 ```
 
@@ -1126,31 +1148,36 @@ Named fields work in struct/ref(struct(...)) constructors `{min: ..., max: ...}`
 
 Comparing `Option(T)` with `== .None` or `== .Some(...)` fails when the inner type `T` lacks a derived `Eq` implementation or when `.None` is type-ambiguous. Always use the method API:
 
-```rust
+```yo
 // WRONG — "No matching call found with arguments: r == .None":
-assert((r == .None), "should be None");
+assert(r == .None, "should be None");
 
 // CORRECT — use .is_none() / .is_some() / .unwrap() (unwrap is legal in *.test.yo only; E0611 elsewhere):
 assert(r.is_none(), "should be None");
 assert(r.is_some(), "should be Some");
-assert((r.unwrap() == expected_value), "value check");
+assert(r.unwrap() == expected_value, "value check");
 
 // Also fine in match:
-match(r,
-  .Some(v) => assert((v == expected_value), "value check"),
-  .None    => assert(false, "unexpected None")
+match(
+  r,
+  .Some(v) => assert(v == expected_value, "value check"),
+  .None => assert(false, "unexpected None")
 );
 ```
 
 Bare unary `!` binds one postfix expression (Rule 1, 2026-08-21) — both
 spellings are valid, and `yo fmt` rewrites the call form to the bare one:
 
-```rust
+```yo
 // Canonical:
-if(!cond, { do_thing(); });
+if(!cond, {
+  do_thing();
+});
 
 // Also valid; `yo fmt` turns it into `!cond`:
-if(!(cond), { do_thing(); });
+if(!cond, {
+  do_thing();
+});
 ```
 
 ### `unwind` requires a nested-function context
@@ -1159,26 +1186,29 @@ if(!(cond), { do_thing(); });
 `ctl(...) -> R` value being called. It is only valid inside the body of a
 `ctl(...) -> R` value (an effect handler).
 
-```rust
+```yo
 Raise :: (ctl(msg : String) -> i32);
 
 caller :: (fn() -> i32)({
   // The handler is a `ctl` value bound in `caller`. `unwind` exits `caller`.
-  (raise : Raise) = ((msg) -> {
-    eprintln(msg);
-    unwind(i32(-1));
-  });
-  safe_divide(i32(10), i32(0), raise)  // call site: handler is passed explicitly
+  (raise : Raise) = (
+    msg -> {
+      eprintln(msg);
+      unwind(i32(-1));
+    }
+  );
+  safe_divide(i32(10), i32(0), raise) // call site: handler is passed explicitly
 });
 
 // WRONG — `unwind` in a regular `fn` body (no install frame here) is rejected.
 bad :: (fn() -> unit)({
-  unwind(());  // ERROR: unwind requires a ctl(...) body
+  unwind(()); // ERROR: unwind requires a ctl(...) body
 });
 
 // WRONG — capturing a `ctl` value into a closure is rejected (closures escape).
-make_closure :: (fn(raise : Raise) -> Impl(Fn() -> unit))(
-  () => { raise(`x`); }  // ERROR: closure captures a control-bound value
+make_closure :: (fn(raise : Raise) -> Impl(Fn() -> unit))(() => {
+  raise(`x`);
+} // ERROR: closure captures a control-bound value
 );
 ```
 
@@ -1190,17 +1220,17 @@ current `fn`.
 
 Function parameters are **NOT reassignable**. To reassign, declare a mutable local:
 
-```rust
+```yo
 // WRONG — cannot reassign parameter 'env':
 my_fn :: (fn(env : Environment) -> Environment)({
-  env = other_env;  // ERROR: "cannot reassign itself"
+  env = other_env; // ERROR: "cannot reassign itself"
   env
 });
 
 // CORRECT — create a mutable local copy:
 my_fn :: (fn(init_env : Environment) -> Environment)({
   (env : Environment) = init_env;
-  env = other_env;  // OK — reassigning local variable
+  env = other_env; // OK — reassigning local variable
   env
 });
 ```
@@ -1214,13 +1244,13 @@ but cannot rebind the variable (`env = other_env`).
 method-chain results (the historical `*(Self)`-overload ambiguity no
 longer reproduces; verified 2026-06):
 
-```rust
-name := token.value.clone();            // OK
+```yo
+name := token.value.clone(); // OK
 ```
 
 ### Template strings produce `String`, literals are `str`
 
-```rust
+```yo
 // Template string `` `...` `` → String
 // String literal "..." → str
 ```
@@ -1281,11 +1311,12 @@ arm silently becomes a comparison and (if no other arm covers the rest) the
 match is rejected as non-exhaustive with a witness naming the constant's
 value.
 
-```rust
+```yo
 LIMIT :: i32(10);
-match(n,
-  LIMIT => "at the limit",   // COMPARES against 10 — not a binding
-  other => "other"           // binds; no `::` constant named `other`
+match(
+  n,
+  LIMIT => "at the limit", // COMPARES against 10 — not a binding
+  other => "other" // binds; no `::` constant named `other`
 );
 ```
 
@@ -1294,7 +1325,7 @@ match(n,
 The `+` operator does not accept mixed `String`/`str` operands.
 **Always use template strings** for concatenation:
 
-```rust
+```yo
 // ❌ Type error
 result := (parts + ", ");
 result := (parts + item);
@@ -1306,10 +1337,10 @@ result := `${parts}${item}`;
 
 ### `rc(val)` is a move — cannot wrap the same value twice
 
-```rust
+```yo
 // ❌ Move error: target is moved by first rc(target)
 p1 := PtrVal(rc(target), usize(0));
-p2 := PtrVal(rc(target), usize(0));  // ERROR: target already moved
+p2 := PtrVal(rc(target), usize(0)); // ERROR: target already moved
 
 // ✅ Create separate instances
 p1 := PtrVal(rc(EvalValue.IntLit(String.from("42"))), usize(0));
@@ -1322,7 +1353,7 @@ p2 := PtrVal(rc(EvalValue.IntLit(String.from("42"))), usize(0));
 spelling `Box(T)`/`box(v)` is gone); it does NOT read a count. Read the count with the `ref_count(x)` builtin. Like any
 prelude name, `rc` cannot be redefined, so a return code needs another name:
 
-```rust
+```yo
 // ❌ shadowing error: "rc" is the prelude's constructor
 rc := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
 // ✅
@@ -1339,7 +1370,7 @@ A function defined as `name :: (fn(args) -> T)(body)` may call `name` inside
 `body`. `recur(...)` names the enclosing function literal, so it is the form
 for an anonymous function (and inside an `io.async` lambda it names the lambda):
 
-```rust
+```yo
 fact :: (fn(n : i32) -> i32)(
   cond(
     (n <= i32(1)) => i32(1),
@@ -1348,7 +1379,7 @@ fact :: (fn(n : i32) -> i32)(
 );
 
 f := (fn(x : u32, acc : u32) -> u32)(
-  if(x == 1, then: acc, else: recur(x - 1, acc * x))
+  if(x == 1, then : acc, else : recur(x - 1, acc * x))
 );
 ```
 
@@ -1359,7 +1390,7 @@ The rule is uniform and decided (2026-09-16,
 `::` / `:=` / `=`, and a `match` payload pattern all read braces the same way,
 so patterns and literals can never disagree. No leading dot, no comma tax.
 
-```rust
+```yo ignore
 // ❌ Parsed as struct literal `{ match(...) }`
 fn :: (fn() -> T)({ match(x, arms) })
 
@@ -1389,9 +1420,9 @@ An `impl` may declare a plain value member beside its methods, and that member
 is readable off the TYPE — including off a generic type parameter inside a
 blanket impl. `MIN`/`MAX`/`BITS` on the integer types are exactly this:
 
-```rust
+```yo
 impl(u8, MIN : u8(0), MAX : u8(255), BITS : u32(8));
-impl(usize, BITS : _USIZE_BITS);          // a comptime-computed value is fine
+impl(usize, BITS : _USIZE_BITS); // a comptime-computed value is fine
 
 impl(
   generic(T : Type),
@@ -1400,7 +1431,7 @@ impl(
   // T.BITS is what makes a WIDTH-dependent method writable ONCE instead of
   // ten times.
   checked_shl : (fn(self : T, n : u32) -> Option(T))(
-    cond((n >= T.BITS) => Option(T).None, true => Option(T).Some((self << T(n))))
+    cond((n >= T.BITS) => Option(T).None, true => Option(T).Some(self << T(n)))
   )
 );
 ```
@@ -1409,10 +1440,10 @@ Pair it with an associated TYPE when a method's RESULT depends on the receiver
 type — `T.Unsigned` from a `UnsignedCounterpart(Unsigned : Type)` trait is how
 `unsigned_abs` and the ten bit batteries became single blanket impls:
 
-```rust
+```yo
 UnsignedCounterpart :: trait(id := "UnsignedCounterpart", Unsigned : Type);
 impl(i8, UnsignedCounterpart(Unsigned : u8));
-impl(u8, UnsignedCounterpart(Unsigned : u8));   // an unsigned type names ITSELF
+impl(u8, UnsignedCounterpart(Unsigned : u8)); // an unsigned type names ITSELF
 
 impl(
   generic(T : Type),
@@ -1466,7 +1497,7 @@ A trait may name its own associated type in a METHOD signature (`Self.Item`),
 but it may not use that projection as the VALUE of an associated-type
 constraint in its where clause:
 
-```rust
+```yo
 // ❌ Error: Expected type for associated type constraint "Item", got: (Self.Item)
 DoubleEndedIterator :: trait(
   Item : Type,
@@ -1515,16 +1546,24 @@ definition (def-time evaluated), NOT a closure — its body fails with
 closures (`(a) -> expr`, `(a) => { ... }`) capture; typed fn literals do
 not. Hoist the fn to module level and pass the state as parameters:
 
-```rust
+```yo
 // ❌ inner fn cannot see `out` from the enclosing fn's scope
 outer :: (fn(out : ArrayList(i32)) -> unit)({
-  push_twice := (fn(v : i32) -> unit)({ out.push(v); out.push(v); });
+  push_twice := (fn(v : i32) -> unit)({
+    out.push(v);
+    out.push(v);
+  });
   push_twice(i32(1));
 });
 
 // ✅ module-level helper takes the state explicitly
-_push_twice :: (fn(v : i32, out : ArrayList(i32)) -> unit)({ out.push(v); out.push(v); });
-outer :: (fn(out : ArrayList(i32)) -> unit)({ _push_twice(i32(1), out); });
+_push_twice :: (fn(v : i32, out : ArrayList(i32)) -> unit)({
+  out.push(v);
+  out.push(v);
+});
+outer :: (fn(out : ArrayList(i32)) -> unit)({
+  _push_twice(i32(1), out);
+});
 ```
 
 ### Writing derive rules (outside the prelude works)
@@ -1559,8 +1598,8 @@ which otherwise surfaces as the misleading
 Templates nest inside `${...}` (`` `outer ${`inner ${x}`} end` `` works), but a
 backtick in the template's TEXT closes it. Write `` \` `` for a literal backtick:
 
-```rust
-println(`a \`quoted\` name`);   // a `quoted` name
+```yo
+println(`a \`quoted\` name`); // a `quoted` name
 ```
 
 #### The same trap inside EMITTED C — including in its comments
@@ -1570,7 +1609,7 @@ backtick ANYWHERE in that text ends the string — a `${...}` interpolation is n
 required. Writing Markdown-style `` `identifier` `` in a C comment (a very
 natural habit when the comment cites a Yo name) is enough:
 
-```rust
+```yo ignore
 em.emit_declaration_string_line(
   `// this runtime writes `{0}` into the handle    ← ❌ the 2nd backtick ends the
    #define __YO_THREAD_HANDLE_IS_NULL(t) ((t) == 0)`  //   string; the rest is
@@ -1589,12 +1628,12 @@ directly in front of an interpolation, where the backslash is swallowed AND the
 `${...}` is emitted as literal text. No error, no warning — you only see it in
 the printed string.
 
-```rust
+```yo
 n := usize(7);
-println(`A: ${n}`);    // A: 7
-println(`B: \\${n}`);   // B: ${n}   ❌ backslash eaten, interpolation dead
-println(`C: \\ ${n}`);  // C: \ 7    ✅ any character in between is fine
-println(`D: \\x${n}`);  // D: \x7    ✅
+println(`A: ${n}`); // A: 7
+println(`B: \\${n}`); // B: ${n}   ❌ backslash eaten, interpolation dead
+println(`C: \\ ${n}`); // C: \ 7    ✅ any character in between is fine
+println(`D: \\x${n}`); // D: \x7    ✅
 ```
 
 Cause: the lexer encodes "escaped dollar" as the two characters `\$`, which is
@@ -1614,7 +1653,7 @@ with a separator variable.
 
 String fields (and fields of other RC-holding types) of structs can be passed directly to `ArrayList.push()` — the RC bump happens automatically:
 
-```rust
+```yo
 names.push(param.name);
 ```
 
@@ -1630,7 +1669,7 @@ A leading-dot variant infers its enum from the expected type (a typed binding,
 a parameter, a return position). With none, `v := .Some(x);` fails with
 `Failed to infer enum variant type`:
 
-```rust
+```yo
 // ❌ No expected type
 val := .Some(x);
 
@@ -1646,7 +1685,7 @@ chain of ONE operator left-associates at every operand count (fixed
 2026-10-01 — before, four or more spliced one level too high, see
 `issues/fixed/same-operator-chain-of-four-or-more-is-not-left-associative.md`):
 
-```rust
+```yo ignore
 // ✅ Three same-operator operands — fine:
 if ((is_tuple_type(ty) || is_struct_type(ty) || is_union_type(ty)), ...)
 
@@ -1659,7 +1698,7 @@ x := (a - b - c - d); // (((a - b) - c) - d)
 Having two `:: import("path")` lines importing from the same file causes a compile error.
 Always merge them into a single destructuring import:
 
-```rust
+```yo
 // ❌ Two imports from the same path
 { Foo } :: import("../../mod.yo");
 { Bar } :: import("../../mod.yo");
@@ -1673,14 +1712,17 @@ Always merge them into a single destructuring import:
 `match` supports nested destructuring (`.Some(.TypeVal(x))`) since 2026-09-19;
 the two-stage form below still works.
 
-```rust
+```yo
 // Both are fine:
-match(opt_value,
+match(
+  opt_value,
   .Some(.TypeVal(box)) => { ... },
   _ => { ... }
 );
-match(opt_value,
-  .Some(v) => match(v,
+match(
+  opt_value,
+  .Some(v) => match(
+    v,
     .TypeVal(box) => { ... },
     _ => { ... }
   ),
@@ -1694,7 +1736,7 @@ When using `match(opt, .Some(x) => match(x, ...), ...)`, the outer match
 needs its own `.None` arm. The inner match's `_ =>` wildcard does NOT cover
 the outer match's `.None` variant.
 
-```rust
+```yo ignore
 // WRONG — outer match missing .None:
 match(opt_callee_value,
   .Some(cv) => match(cv,
@@ -1723,7 +1765,7 @@ count parentheses carefully:
 - The outer match closes with its own `)`
 - Only then does `});` close the function body
 
-```rust
+```yo ignore
 // Correct structure:
 match(outer_val,
   .Some(x) => match(x,
@@ -1742,7 +1784,7 @@ is one arm. The two-level form is still valid; every release since v0.2.39
 carries the nested forms, and `src/`/`std/` adopted them in the 2026-09-30
 waves — prefer the nested spelling.
 
-```rust
+```yo ignore
 // One arm, nested:
 match(v.get(usize(0)),
   .Some(.IntLit(n)) => assert(n == "3", "ok"),
@@ -1760,12 +1802,12 @@ match(v.get(usize(0)),
 
 In the proto-evaluator source strings (`evaluate_module_body`), `ExprVal.get_callee()` on a FnCall returns the callee `ExprVal` directly — NOT wrapped in an `Option` EnumVal. Chaining `.is_some()` fails with SIGABRT because `is_some()` requires an `EnumVal` receiver.
 
-```rust
+```yo
 // ❌ SIGABRT — get_callee() returns ExprVal, not Option(EnumVal)
 result := quote(foo(i64(1))).get_callee().is_some();
 
 // ✅ Chain .is_atom() or .is_fn_call() on the returned ExprVal
-result := quote(foo(i64(1))).get_callee().is_atom();   // true: callee "foo" is an atom
+result := quote(foo(i64(1))).get_callee().is_atom(); // true: callee "foo" is an atom
 result := quote(foo(i64(1))).get_callee().is_fn_call(); // false: callee "foo" is not a fn call
 ```
 
@@ -2013,10 +2055,11 @@ value — `out.pop()` returns an `Option` — mismatches a `()` sibling arm
 ("Incompatible types in match branches"). Discard it into a binding first
 (one `___` per block — redeclaring `___` in the same scope is an error):
 
-```rust
-match(xs.get(i),
+```yo
+match(
+  xs.get(i),
   .Some(x) => {
-    ___ := out.pop();   // block value is the binding: unit
+    ___ := out.pop(); // block value is the binding: unit
   },
   .None => ()
 );

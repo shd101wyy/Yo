@@ -37,7 +37,7 @@ Yo uses a simplified ownership model with clear rules:
 
 Both `:=` (initialization) and `=` (reassignment) make the LHS **own** the value:
 
-```rust
+```yo
 x := Point(x : i32(3), y : i32(4)); // the constructor's result moves into x, RC = 1
 y := x; // ___dup(x), y owns, RC = 2
 z = y; // ___dup(y), ___drop(old z), z owns, RC = 3
@@ -50,7 +50,7 @@ z = y; // ___dup(y), ___drop(old z), z owns, RC = 3
 
 Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
 
-```rust
+```yo
 print_point :: (fn(p : Point) -> unit)({
   printf("(%d, %d)", p.x, p.y); // Just reading, no RC overhead
 });
@@ -63,7 +63,7 @@ print_point(point); // No ___dup at call site, p borrows point
 
 **Destructuring also borrows:**
 
-```rust
+```yo
 // Destructuring assignment borrows
 { x, y } := point; // x and y borrow from point, no dup
 // Match destructuring borrows
@@ -79,7 +79,7 @@ match(
 
 You can mutate **through** a parameter (modify fields), but cannot **reassign** the parameter itself:
 
-```rust
+```yo
 move_point :: (fn(p : Point, dx : i32, dy : i32) -> unit)({
   p.x = (p.x + dx); // ✅ OK: Mutating field through parameter
   p.y = (p.y + dy); // ✅ OK: Mutating field through parameter
@@ -101,7 +101,7 @@ passing such a place to an `inout` parameter the callee may write, including cal
 alone. Read-only `inout(self)` methods (`clone`, `to_string`) and indexing stay allowed.
 Take the parameter as `own(p) : T` or `inout(p) : T`, or copy it into a local first:
 
-```rust
+```yo
 Named :: struct(s : String, n : i32);
 rename :: (fn(p : Named) -> Named)({
   p.n = (p.n + i32(1)); // ✅ OK: no RC data in the old value
@@ -122,7 +122,7 @@ Use `own()` to transfer ownership to a function parameter.
 - If the argument already **owns** the GC value, the call **moves** ownership into the callee (the caller binding becomes consumed).
 - If the argument is only **borrowed / non-owning** (e.g. a borrowed parameter), the compiler inserts `___dup` to materialize an owned temporary for the callee, and the original binding is still **consumed** (becomes unusable) to keep `own()` calls linear/consuming.
 
-```rust
+```yo
 consume :: (fn(own(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box is dropped at end of function
@@ -152,7 +152,7 @@ call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
 
 Each heap allocated ARC value starts with a single owner. Its reference counter starts at 1.
 
-```rust
+```yo
 Point :: ref(struct(x : i32, y : i32));
 
 Point(x : i32(3), y : i32(4)); // temp_var owns the Point(x: i32(3), y: i32(4)), RC = 1
@@ -162,7 +162,7 @@ Point(x : i32(3), y : i32(4)); // temp_var owns the Point(x: i32(3), y: i32(4)),
 
 The builtin `ref_count(x)` returns the current reference count of the cell `x` holds, as a `usize`. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. Atomically counted handles (`Arc(T)`, `atomic(ref(...))`, `Iso`) are read with an atomic load.
 
-```rust
+```yo
 b := Rc(i32)(3);
 assert(ref_count(b) == usize(1), "one owner");
 ```
@@ -171,7 +171,7 @@ The count reflects the compiler's dup/drop optimizations, so a copy the optimize
 
 `rc` is not the count. It is an ordinary prelude function that allocates a reference-counted cell: `rc(v)` takes ownership of `v` and returns an `Rc(T)` handle whose `ref_count` is `1`. `Rc(T)` is Yo's shared cell; it used to be spelled `Box(T)`. `Box` will later return as a uniquely owned cell (`plans/VALUES_BY_DEFAULT.md`, V1 step 2).
 
-```rust
+```yo
 a := rc(i32(42));
 assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 ```
@@ -182,14 +182,14 @@ Like every prelude name, `rc` cannot be redefined: a module-level or local defin
 
 A fresh value moves into its first binding; initializing from a named variable calls `___dup` to create a new owner:
 
-```rust
+```yo
 p1 := Point(x : i32(3), y : i32(4)); // the constructor's result moves into p1, RC = 1
 p2 := p1; // ___dup(p1), p2 is a second owner, RC = 2
 ```
 
 When an owned variable goes out of scope, we automatically call `___drop` on it:
 
-```rust
+```yo
 p1 := Point(x : i32(3), y : i32(4)); // p1 owns, RC = 1
 // End of scope
 ___drop(p1); // RC = 0, memory freed
@@ -199,7 +199,7 @@ ___drop(p1); // RC = 0, memory freed
 
 Function parameters do not increment the reference count:
 
-```rust
+```yo
 use_point :: (fn(p : Point) -> unit)({
   printf("(%d, %d)", p.x, p.y); // p borrows, no RC change
 });
@@ -213,7 +213,7 @@ use_point(point); // No ___dup, p borrows point
 
 **Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
 
-```rust
+```yo
 x := rc(12); // x owns rc(12), RC = 1
 {
   y := rc(13); // y owns rc(13), RC = 1
@@ -229,7 +229,7 @@ printf("%d\n", x.*); // BUG: x would point to freed memory!
 
 With our model (assignments always own):
 
-```rust
+```yo
 x := rc(12); // x owns rc(12), RC = 1
 {
   y := rc(13); // y owns rc(13), RC = 1
@@ -253,7 +253,7 @@ Yo prioritizes **safety and simplicity** with a path to optimization:
 
 **Example - simple and safe:**
 
-```rust
+```yo
 x := rc(12);
 {
   y := rc(13);
@@ -304,7 +304,7 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 
 **Always call `___dup` on the RHS when assigning ARC values:**
 
-```rust
+```yo
 p1 := Point(x : i32(3), y : i32(4)); // the result moves into p1 (no dup)
 p2 := Point(5, 6); // moves into p2
 p2 = p1; // ___dup(p1), ___drop(old p2), p2 shares p1's value
@@ -315,7 +315,7 @@ ___drop(p1); // Decrement RC
 
 **Field/index assignment also calls `___dup`:**
 
-```rust
+```yo
 data.point = p1; // ___dup(p1), storing into data structure
 arr(0) = p1; // ___dup(p1), storing into array
 ```
@@ -324,7 +324,7 @@ arr(0) = p1; // ___dup(p1), storing into array
 
 **Always call `___dup` when passing to struct/enum/array constructors:**
 
-```rust
+```yo
 p1 := Point(x : i32(3), y : i32(4)); // p1 owns
 data := Data(p1); // ___dup(p1), data owns a copy
 arr := [p1,]; // ___dup(p1), array owns a copy
@@ -335,7 +335,7 @@ result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
 
 **Call `___dup` when returning a borrowed parameter:**
 
-```rust
+```yo
 identity :: (fn(p : Point) -> Point)({
   // p borrows (parameter)
   return(p); // ___dup(p), return value owns a copy
@@ -354,7 +354,7 @@ create :: (fn() -> Point)({
 
 **Begin blocks:**
 
-```rust
+```yo
 x := rc(1);
 y := {
   ();
@@ -365,7 +365,7 @@ y := {
 
 **Match expressions:**
 
-```rust
+```yo
 optional := Option(Rc(i32)).Some(rc(42)); // optional owns
 x := match(
   optional,
@@ -403,7 +403,7 @@ executes unconditionally on every path that reaches the scope end**. The optimiz
 
 **`own()` parameters take ownership (move if possible, otherwise dup):**
 
-```rust
+```yo
 consume :: (fn(own(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box is dropped at end of function
@@ -423,7 +423,7 @@ call_consume :: (fn(p : Rc(i32)) -> unit)({
 
 **No `___dup` when passing to borrowed parameters (parameters without `own()`):**
 
-```rust
+```yo
 print_point :: (fn(p : Point) -> unit)({
   // p borrows (no own keyword)
   printf("(%d, %d)", p.x, p.y);
@@ -435,7 +435,7 @@ print_point(point); // No ___dup! p borrows point
 
 **Destructuring in match expressions also borrows:**
 
-```rust
+```yo
 match(
   optional,
   .Some(value) => {
@@ -453,7 +453,7 @@ In loops, assignments follow the same "always own" rule:
 
 ### Example: Linked List Traversal
 
-```rust
+```yo
 current_opt := self.head; // ___dup(self.head), current_opt owns
 while(true, {
   match(

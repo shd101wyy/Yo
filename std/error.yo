@@ -78,11 +78,14 @@ __derive_error_head :: (fn(comptime(v) : VariantInfo) -> comptime(comptime_str))
 /// `thiserror`'s `#[error("…")]`, in the syntax Yo already has.
 ///
 /// ```yo
-/// derive(JsonError, Error(
-///   .UnexpectedChar => `unexpected character at position ${pos}`,
-///   .UnexpectedEnd  => `unexpected end of input`,
-///   .Other          => `JSON error: ${msg}`
-/// ));
+/// derive(
+///   JsonError,
+///   Error(
+///     .UnexpectedChar => `unexpected character at position ${pos}`,
+///     .UnexpectedEnd => `unexpected end of input`,
+///     .Other => `JSON error: ${msg}`
+///   )
+/// );
 /// ```
 ///
 /// **The calling file must have `ToString` in scope.** The rule splices an
@@ -204,7 +207,7 @@ impl(
 ///
 /// ```yo
 /// e := Context.new(`while loading the config`, dyn(io_err));
-/// println(e.to_string());   // while loading the config: no such file
+/// println(e.to_string()); // while loading the config: no such file
 /// ```
 Context :: struct(
   /// What was being attempted.
@@ -269,7 +272,7 @@ export(ResumableException);
 /// ```yo
 /// { root_cause } :: import("std/error");
 /// e := dyn(Context.new(`while loading the config`, dyn(io_err)));
-/// println(root_cause(e).to_string());   // the io error, not the context
+/// println(root_cause(e).to_string()); // the io error, not the context
 /// ```
 ///
 /// Spelled with `match` rather than `Option` methods deliberately: the result
@@ -302,7 +305,7 @@ export(root_cause);
 /// `source()` in turn, ending when one reports `.None`. So a chain always has
 /// at least one link.
 ///
-/// ```rust
+/// ```yo
 /// { error_chain } :: import("std/error");
 ///
 /// (e : AnyError) = dyn(Context.new(`while loading config`, io_err));
@@ -310,7 +313,15 @@ export(root_cause);
 /// it := error_chain(e);
 /// (going : bool) = true;
 /// while(runtime(going), {
-///   match(it.next(), .Some(link) => { n = (n + usize(1)); }, .None => { going = false; });
+///   match(
+///     it.next(),
+///     .Some(link) => {
+///       n = (n + usize(1));
+///     },
+///     .None => {
+///       going = false;
+///     }
+///   );
 /// });
 /// ```
 ///

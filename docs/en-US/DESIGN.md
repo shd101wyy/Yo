@@ -233,7 +233,7 @@ The **Yo** language is inspired by the following programming languages and absor
 
 ## Hello World
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
@@ -248,7 +248,7 @@ program body runs on a worker thread for its large stack, so a value returned
 from `main` would have nowhere to go — it used to be computed and silently
 discarded. Set a process exit status with `exit(code)` from `std/process`:
 
-```rust
+```yo
 { exit } :: import("std/process");
 
 main :: (fn() -> unit)({
@@ -306,15 +306,15 @@ When `yo fmt` would change a file, it first parses the original: a parse failure
 
 The same rule removes two more kinds of group: parentheses around a whole call argument (`f((a + b))` becomes `f(a + b)`, because the call's own parentheses already group it) and around a bare prefix operand (`-(x)` becomes `-x`, `!(done)` becomes `!done`). It keeps a parenthesized right operand (`a + (b + c)`), a prefix operator's compound operand (`-(x + x)`, `!(a > b)`), the parentheses between two different operators (`(a * b) + c`), and the group around a binary right-hand side of `:=` or `=`, which E0003 requires. `yo fmt` never adds parentheses, so write the E0003 ones yourself. Before and after:
 
-```rust
+```yo
 // before
-s1 := (((a - b) - c) - x);
+s1 := (a - b - c - x);
 s2 := (a + (b + c));
-s3 := f((a + b));
-s4 := -(x);
+s3 := f(a + b);
+s4 := -x;
 s5 := -(x + x);
 s6 := ((a * b) + c);
-ok := !(done);
+ok := !done;
 
 // after `yo fmt`
 s1 := (a - b - c - x);
@@ -328,7 +328,7 @@ ok := !done;
 
 ## Syntax
 
-```rust
+```yo
 // Comment is using `//` or `/* */`
 /*
   Nested comments are supported
@@ -485,7 +485,7 @@ A type can have the following **Kind**:
 - Automatic cycle detection and collection
 - Thread-affinity for performance (objects stay on the thread that created them)
 
-```rust
+```yo
 // Value type - stack-allocated, copied
 Point :: struct(x : i32, y : i32);
 p1 := Point(x : 3, y : 4);
@@ -504,7 +504,7 @@ s2 := s1; // s2 and s1 point to the same object (reference counted)
 
 Variables in Yo are declared with `:=` (runtime) or `::` (compile-time).
 
-```rust
+```yo
 // "comptime" here means compile-time known
 x := 5; // x: i32, runtime variable
 y :: 5; // y: comptime_int, compile-time variable
@@ -548,12 +548,12 @@ All variables are mutable by default.
 
 Yo disallows variable shadowing to avoid confusion
 
-```rust
+```yo
 x := 1;
 x := 2; // Error: x is already declared
 ```
 
-```rust
+```yo
 x := 1;
 {
   x := 2; // Error: x is already declared
@@ -562,7 +562,7 @@ x := 1;
 
 Variables can be shadowed in different block scopes:
 
-```rust
+```yo
 {
   x := 1;
 };
@@ -575,7 +575,7 @@ Variables can be shadowed in different block scopes:
 
 When you call a function only for its side effect and do not need its result, write the call as a bare expression statement — do not bind it to a discard name:
 
-```rust
+```yo
 // Preferred:
 unsafe(unistd.close(fd));
 
@@ -587,7 +587,7 @@ _ := unsafe(unistd.close(fd));
 
 ### Type inference
 
-```rust
+```yo
 // String's bytes live on the heap, behind a reference-counted buffer
 (my_string : String) = String.from("Hello, world"); // Heap-allocated bytes
 my_string_2 := my_string; // Today a copy shares the buffer; my_string.clone() is an independent copy
@@ -607,7 +607,7 @@ _(name, age) := p; // name : String, age : i32
 
 #### Uninitialized variable
 
-```rust
+```yo
 x : i32; // x : i32, uninitialized
 // Compiler prevents using uninitialized variable.
 println(x); // Compiler Error: x is uninitialized.
@@ -621,15 +621,15 @@ which is unbounded. It takes a fixed-width type only when it enters a slot of th
 typed binding, an assignment, an argument, a struct or enum field, a return value, a joined
 `cond`/`match` arm, or a `T(x)` conversion — and it must fit that type:
 
-```rust
-(a : u8) = 255;        // OK
-(b : u8) = 300;        // error[E1102]: the literal 300 does not fit in u8 (0..=255)
-(c : i8) = -128;       // OK
+```yo
+(a : u8) = 255; // OK
+(b : u8) = 300; // error[E1102]: the literal 300 does not fit in u8 (0..=255)
+(c : i8) = -128; // OK
 (d : u8) = (200 + 100); // error[E1102]: the compile-time value 300 does not fit in u8
 k :: 3;
-(e : u8) = k;          // OK: a comptime_int constant takes the slot's type
-f := u8(300);          // error[E1102]
-g := u8(i32(300));     // OK: a conversion between TYPED integers truncates (g == 44)
+(e : u8) = k; // OK: a comptime_int constant takes the slot's type
+f := u8(300); // error[E1102]
+g := u8(i32(300)); // OK: a conversion between TYPED integers truncates (g == 44)
 ```
 
 With no slot, a `comptime_int` defaults to `i32` (and a `comptime_float` to `f64`) when it becomes
@@ -642,7 +642,7 @@ Functions are declared using the `::` operator for compile-time definitions or `
 
 Module-level `::` definitions and `impl(...)` registrations are order-independent: a function may call one defined later in the file, reference itself by name, or use a method whose `impl` appears below it. Imports, `open`, pragmas and runtime globals stay in source order. See [Definition Order](./DEFINITION_ORDER.md).
 
-```rust
+```yo
 // Function declaration with explicit type
 // function type is written as fn(args...) -> return_type
 add :: (fn(x : i32, y : i32) -> i32)(
@@ -682,10 +682,12 @@ p2 := BoolPoint(x : true, y : false);
 
 `fn(inout(x) : i32) -> unit`, `fn(sink(x) : String) -> usize` and `fn(x : i32) -> unit` are three different types: an `inout` parameter is passed by reference, a `sink` parameter is moved into the callee, and a plain parameter is borrowed. A `sink` parameter consumes its argument: the caller's binding ends at the call. `own(x)` is the old spelling of `sink(x)`; it is still accepted, and spells the same type, until a sweep after the next release removes it. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
 
-```rust
-bump :: (fn(inout(x) : i32) -> unit)({ x = (x + i32(1)); });
+```yo
+bump :: (fn(inout(x) : i32) -> unit)({
+  x = (x + i32(1));
+});
 (f : (fn(inout(x) : i32) -> unit)) = bump; // OK
-(g : (fn(x : i32) -> unit)) = bump;        // Error: Incompatible types
+(g : (fn(x : i32) -> unit)) = bump; // Error: Incompatible types
 ```
 
 The one exception is the receiver of an `impl` member: a trait method declared with `inout(self) : Self` may be implemented with `self : Self`, because each call site adapts to the impl's own signature.
@@ -694,7 +696,7 @@ The one exception is the receiver of an `impl` member: a trait method declared w
 
 Named arguments in Yo must be provided in the same order as they are defined in the function signature:
 
-```rust
+```yo
 add :: (fn(x : i32, y : i32) -> i32)(x + y);
 
 add(3, 4); // OK: Positional arguments
@@ -707,11 +709,11 @@ add(y : 4, x : 3); // Error: Named arguments must be in order (x before y)
 
 `never` is the type of an expression that does not complete: `__yo_panic(...)`, or a call to a function declared `-> never`. It flows into every type, so a diverging arm fits whatever the other arms produce, and nothing else flows into `never`:
 
-```rust
+```yo
 die :: (fn(msg : str) -> never)(__yo_panic(msg));
 
 pick :: (fn(flag : bool) -> i64)({
-  x := cond(flag => i32(3), true => die("unreachable"));  // x : i32
+  x := cond(flag => i32(3), true => die("unreachable")); // x : i32
   i64(x)
 });
 ```
@@ -724,7 +726,7 @@ The standard library's terminators are `-> never`: `std/assert`'s `panic`, `std/
 
 Default parameter values can be defined using `?=` syntax:
 
-```rust
+```yo
 create_user :: (fn(name : String, (age : i32) ?= i32(18)) -> User)(
   User(name : name, age : age)
 );
@@ -738,7 +740,7 @@ once, where the function is defined, and passes that value whenever the
 argument is omitted. What counts is whether the whole value is known, not
 what the parameter's type is:
 
-```rust
+```yo ignore
 (n : i32) ?= i32(18)                    // ✅ a literal
 (alloc : Option(Allocator)) ?= .None    // ✅ a payload-free variant: only its tag, a constant
 (alloc : Allocator) ?= Allocator.global() // ❌ holds the address of a global, fixed only at link time
@@ -753,15 +755,16 @@ When the natural default needs runtime work, default to `.None` and decide in
 the body. An omitted argument then reads as "not given" instead of as a
 sentinel value:
 
-```rust
+```yo
 greet :: (fn(name : str, (greeting : Option(String)) ?= .None) -> String)(
-  match(greeting,
+  match(
+    greeting,
     .Some(g) => `${g}, ${name}`,
     .None => `Hello, ${name}`
   )
 );
 
-greet("Ada");                                      // "Hello, Ada"
+greet("Ada"); // "Hello, Ada"
 greet("Ada", greeting : .Some(String.from("Hi"))); // "Hi, Ada"
 ```
 
@@ -772,7 +775,7 @@ The caller writes `.Some(...)` explicitly: a `T` is not wrapped into
 
 You can use `generic` to define generic functions:
 
-```rust
+```yo
 identity :: (fn(generic(T : Type), arg : T) -> T)(arg);
 
 x := identity(12); // Type inferred: x: i32
@@ -786,48 +789,48 @@ the first call).
 A type parameter stands for ONE type in a call, and the call's arguments, not their order,
 decide it:
 
-```rust
+```yo
 pair_same :: (fn(generic(A : Type), x : A, y : A) -> A)(x);
-pair_same(i32(3), i32(4));          // A = i32
+pair_same(i32(3), i32(4)); // A = i32
 pair_same(String.from("a"), i32(2)); // E0601: A is String from argument 1 but i32 from argument 2
 
 apply :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
-apply((x) => (x + i32(1)), i32(3)); // 4 — the closure is checked after `v` fixed T = i32
-apply((x) => true, i32(3));         // E0604: the closure's body is bool, T is i32
+apply(x => (x + i32(1)), i32(3)); // 4 — the closure is checked after `v` fixed T = i32
+apply(x => true, i32(3)); // E0604: the closure's body is bool, T is i32
 ```
 
 A closure (`=>`) or function literal (`->`) argument is checked last, against the parameter type
 the other arguments solved. A type parameter that appears only in the result is fixed by the
 expected type; with none it is E0613:
 
-```rust
+```yo
 mk :: (fn(generic(T : Type)) -> Option(T))(.None);
-(x : Option(i32)) = mk();  // T = i32 from the annotation
-y := mk(generic(bool));    // T = bool, explicitly
-z := mk();                 // E0613: cannot infer T
+(x : Option(i32)) = mk(); // T = i32 from the annotation
+y := mk(generic(bool)); // T = bool, explicitly
+z := mk(); // E0613: cannot infer T
 ```
 
 A `comptime(x) : T` parameter is specialized on its VALUE, so its argument must be known at
 compile time — a literal, a `::` constant or the result of a comptime function. A runtime value is
 an error:
 
-```rust
+```yo
 scale :: (fn(comptime(factor) : i32, x : i32) -> i32)(factor * x);
-scale(3, n);               // OK
-scale(i32.default(), n);   // error[E1101]: Parameter `factor` is `comptime` and requires a compile-time argument
+scale(3, n); // OK
+scale(i32.default(), n); // error[E1101]: Parameter `factor` is `comptime` and requires a compile-time argument
 ```
 
 ### Type constraints
 
 You can use `where` clause to add type constraints on generic parameters:
 
-```rust
+```yo
 add :: (fn(generic(T : Type), x : T, y : T, where(T <: Add(T))) -> T)(x + y);
 ```
 
 `where` clause can specify multiple constraints:
 
-```rust
+```yo
 compare_and_add :: (
   fn(
     generic(T : Type),
@@ -849,11 +852,11 @@ argument's `Iterator` impl, so the body can use it, and the blanket combinators 
 `collect`, ...) can be called on the parameter. A bound may mention the parameter it constrains
 (`A <: Add(A)`); it is checked once `A` is bound:
 
-```rust
+```yo
 sum :: (fn(generic(I : Type, A : Type), it : I, zero : A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
   it.fold(zero, (acc, x) => (acc + x))
 );
-total := sum(list.into_iter(), i32(0));   // A = i32
+total := sum(list.into_iter(), i32(0)); // A = i32
 ```
 
 A parameter fixed only by an `Fn` bound's result (`J` in `where(F <: (Fn(item : A) -> J))`) is
@@ -865,7 +868,7 @@ associated type Item is String, not i32.`
 
 When a type implements multiple traits that define methods with the same name, `where` clause constraints determine which trait's method is used:
 
-```rust
+```yo
 T1 :: trait(get_number : (fn(self : Self) -> i32));
 T2 :: trait(get_number : (fn(self : Self) -> i32));
 
@@ -892,7 +895,7 @@ use_t2(point); // 20
 
 Multi-parameter type constructors can be partially applied using `_` as a placeholder. This creates a new type constructor with reduced arity:
 
-```rust
+```yo
 // Result has kind: (Type, Type) -> Type
 // Partial application fixes one parameter:
 IntResult :: Result(_, i32); // kind: Type -> Type
@@ -904,7 +907,7 @@ StrOkResult :: Result(str, _); // kind: Type -> Type
 
 Partial application works **only** on comptime functions (functions whose return type is `comptime`). It cannot be used on runtime functions.
 
-```rust
+```yo
 // Type constructors (return comptime(Type)):
 IntResult :: Result(_, i32); // kind: Type -> Type
 // Comptime value functions (return comptime(i32), comptime(bool), etc.):
@@ -915,7 +918,7 @@ result :: add1(i32(2)); // 3
 
 Partially applied type constructors can be used as HKT generic arguments:
 
-```rust
+```yo
 IntResult :: Result(_, i32);
 // IntResult has kind: Type -> Type, so it can be passed where F : (Type -> Type)
 ```
@@ -929,7 +932,7 @@ Yo supports **type methods** - methods defined within the type's trait.
 1. Methods defined in the type's own trait
 2. Methods from implemented traits
 
-```rust
+```yo
 // Define a type with methods in its trait
 Point :: struct(
   x : i32,
@@ -963,7 +966,7 @@ p2.move_by(5, 10); // `inout(self)` lowers to `Self*` — &(p2) is taken automat
 
 `inout(name) : T` parameters lower to `T*` in C. At call sites, Yo automatically takes the address of the matching argument, so callers see plain value-call syntax:
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 impl(
   Point,
@@ -984,7 +987,7 @@ A static method (one with no `self`) has no receiver to infer from, so its type 
 
 The receiver may be labeled like any argument (`Pair.first(self : p)`), and the constructor may be module-qualified (`m.Pair.first(p)`). The match is by constructor identity, so a constructor whose body applies another one is a constructor of its own: for an alias `IntPair :: (fn(comptime(B) : Type) -> comptime(Type))(Pair(i32, B))` or a partial application `Pair(i32, _)`, a value built as `IntPair(u8)` is a `Pair(i32, u8)`, which `Pair.first(q)` and `IntPair(u8).first(q)` accept and `IntPair.first(q)` rejects with E0613.
 
-```rust
+```yo
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(a : A, b : B)
 );
@@ -996,9 +999,9 @@ impl(
 );
 
 p := Pair(i32, bool).make(i32(1), true); // static: type arguments written
-a := Pair.first(p);                      // A := i32, B := bool, from `p`
+a := Pair.first(p); // A := i32, B := bool, from `p`
 w := rc(i32(5));
-c := Rc.clone(w);                        // Rc(i32).clone(w)
+c := Rc.clone(w); // Rc(i32).clone(w)
 ```
 
 #### Associated constants
@@ -1007,7 +1010,7 @@ An `impl` may declare a plain value member beside its methods. It is read off th
 
 A constant declared as a TRAIT member can also appear in a type position of a signature, such as an `Array` length, computed or bare; the projection is resolved for each instantiation. An inherent constant does not resolve in that position yet (`issues/an-inherent-associated-constant-does-not-resolve-as-an-array-length.md`), which is why the prelude declares `BYTES`, the length behind `to_be_bytes`, through its `ByteWidth` trait.
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 Grid :: struct(w : i32, h : i32);
@@ -1036,7 +1039,7 @@ export(main);
 
 A struct field or impl method whose name starts with `_` is **private**, and the compiler enforces it. Such a member can be read, written, called, constructed or destructured only from the module that declares the type (or the impl) and from that module's **same-directory siblings**. Everything else is public. There is no keyword: the underscore convention *is* the visibility rule.
 
-```rust
+```yo
 // counter.yo
 Counter :: struct(_count : i32, label : String);
 impl(
@@ -1078,7 +1081,7 @@ Run `yo explain E0405` for the diagnostic.
 A `::` function calls itself, or another function of its module, by name;
 this is ordinary recursion and needs no special form:
 
-```rust
+```yo
 fact :: (fn(n : i32) -> i32)(
   cond(
     (n <= i32(1)) => i32(1),
@@ -1092,11 +1095,12 @@ function, which has no name to call. Inside an `io.async` lambda, `recur`
 names the lambda, not the outer function. `recur` is an ordinary call:
 no tail-call optimization is applied.
 
-```rust
+```yo
 (fn(x : u32, acc : u32) -> u32)(
-  if(x == 1,
-    then: acc,
-    else:
+  if(
+    x == 1,
+    then : acc,
+    else :
       recur(x - 1, acc * x)
   )
 );
@@ -1110,7 +1114,7 @@ Yo uses **reference-semantics types** with [Compile-time Reference Counting with
 
 Reference-semantics types are heap-allocated types with automatic reference counting:
 
-```rust
+```yo
 // Define a reference-semantics type
 MyString :: ref(
   struct(
@@ -1150,7 +1154,7 @@ See [COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md](./COMPILE_TIME_RC_WITH_OWNERSHI
 
 RC decides when an object dies; an explicit allocator decides where it lives. `with_allocator(a, f)` (`std/allocator`) places every reference-semantics object created while `f` runs in allocator `a`, including the buffers of containers built there; `new_in` names an allocator explicitly:
 
-```rust
+```yo
 { Arena } :: import("std/arena");
 Point :: ref(struct(x : i32, y : i32));
 
@@ -1165,7 +1169,7 @@ No new keyword is involved: `Point(...)` is the same constructor call in both pl
 
 `Copy` is the prelude marker for a value whose copy is a bitwise copy. It requires `Clone`, as Rust's `Copy: Clone` does: the trait is declared `Copy :: trait(where(Self <: Clone))`, so every `Copy` impl needs a `Clone` impl beside it, and `where(T <: Copy)` lets a generic body call `x.clone()`. The integers, floats, `bool`, `char`, `unit`, `str` views and raw pointers implement both, and so do `Option(T)` and `Result(T, E)` when their payloads do. A named type opts in with `derive(T, Copy, Clone)`, and a generic one with a `where` bound:
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 
@@ -1175,8 +1179,8 @@ derive(generic(T : Type), where(T <: Copy), Pair(T), Copy);
 
 main :: (fn() -> unit)({
   p := Point(x : i32(1), y : i32(2));
-  q := p;           // a copy: `p` stays usable
-  r := p.clone();   // the derived clone, which for a Copy type is the copy
+  q := p; // a copy: `p` stays usable
+  r := p.clone(); // the derived clone, which for a Copy type is the copy
 });
 export(main);
 ```
@@ -1189,22 +1193,25 @@ The impl is checked. A `Clone` impl must cover the same instantiations, and the 
 
 A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose` is **move-only**, and so is a plain value type that is neither `Copy` nor `Clone` (a token that must stay unique needs no `Dispose`: declare neither), and every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Rc`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.
 
-```rust
+```yo
 { println } :: import("std/fmt");
 Fd :: struct(n : i32);
-impl(Fd, Dispose(
-  dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // a real one would close the descriptor
-));
+impl(
+  Fd,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // a real one would close the descriptor
+  )
+);
 
-peek :: (fn(f : Fd) -> i32)(f.n);        // a by-value parameter borrows: no copy
-keep :: (fn(sink(f) : Fd) -> unit)(());  // a sink parameter moves the value in
+peek :: (fn(f : Fd) -> i32)(f.n); // a by-value parameter borrows: no copy
+keep :: (fn(sink(f) : Fd) -> unit)(()); // a sink parameter moves the value in
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
-  n := peek(a);    // borrowed; `a` is still usable
-  b := a;          // moves `a` into `b`
+  n := peek(a); // borrowed; `a` is still usable
+  b := a; // moves `a` into `b`
   // a.n           // E0901: use of moved value: `a`
-  keep(b);         // moves `b`; `keep` disposes it when it returns
+  keep(b); // moves `b`; `keep` disposes it when it returns
 });
 export(main);
 ```
@@ -1217,7 +1224,7 @@ A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copi
 
 Yo uses pointers (`*(T)`) for direct memory access, similar to C. Operations that dereference or do arithmetic on raw pointers require an explicit `unsafe(...)` wrap — see [Memory Safety](#memory-safety) below.
 
-```rust
+```yo
 // Pointer type: *(T)
 x := 1;
 y := 2;
@@ -1238,7 +1245,7 @@ For day-to-day in-place mutation, prefer the `inout(name) : T` parameter form (s
 
 ### Pointer Operations
 
-```rust
+```yo
 // Create pointer with & operator
 x := 42;
 ptr := &x; // ptr: *(i32)
@@ -1259,7 +1266,7 @@ float_ptr := (*f32)(ptr); // Cast pointer to *(f32)
 
 Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics types compare VALUES via their own `Eq` impls.
 
-```rust
+```yo
 test("Pointer arithmetic", {
   x := 12;
   p := &x;
@@ -1299,7 +1306,7 @@ Comparison (ordinary operators via `Eq`/`Ord` on `*(T)`, safe):
 
 `consume` tells the compiler that you're initializing memory, not overwriting an existing value. This prevents attempting to drop uninitialized memory:
 
-```rust
+```yo
 // Without consume - Error: tries to drop uninitialized value
 ptr.* = some_value; // Danger!
 // With consume - OK: initialization, no drop
@@ -1312,7 +1319,7 @@ For more pointer examples, see [ptr.test.yo](../tests/ptr.test.yo).
 
 Yo uses `Option(*(T))` for nullable pointers:
 
-```rust
+```yo
 // malloc returns Option(*(void)) — it is NOT generic, so cast before use.
 some_ptr := malloc(size_of(i32));
 match(
@@ -1333,13 +1340,13 @@ match(
 
 `Option(T)` where `T` is a raw pointer OR a reference-semantics handle (`ref(struct(...))` / `ref(enum(...))`, including every `String`, whose bytes live behind an `Option` of a handle newtype) lowers to the bare pointer, with `NULL` as `.None`. The same niche applies to any two-variant enum with one fieldless variant and one single-field handle payload. There is no tag word and no extra padding: `size_of` is the pointer's own, and a `match` on such a value compiles to a NULL test.
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe); // only so size_of may name a pointer type
 
 sz_opt :: size_of(Option(*i32)); // == size_of(*i32) — the pointer itself
-sz_str :: size_of(String);       // == size_of(*u8)   — the handle itself
+sz_str :: size_of(String); // == size_of(*u8)   — the handle itself
 Tree :: enum(Empty, Node(child : Rc(Self)));
-sz_tree :: size_of(Tree);        // == size_of(*u8)   — NULL is Empty
+sz_tree :: size_of(Tree); // == size_of(*u8)   — NULL is Empty
 ```
 
 ### Memory Safety
@@ -1354,7 +1361,7 @@ Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.
 
 `unsafe(...)` is a regular builtin call that takes exactly one expression. It is purely a compile-time marker — at codegen time it lowers to its inner expression, no runtime cost.
 
-```rust
+```yo
 // Pointer deref requires unsafe:
 read :: (fn(p : *i32) -> i32)(unsafe(p.*));
 
@@ -1382,7 +1389,7 @@ The unsafe surface is greppable: every `unsafe(` token marks a place where raw m
 
 For an at-a-glance audit, run `yo unsafe-report` (or `yo unsafe-report ./std` for stdlib alone). It lists every `unsafe(...)` site, `asm(...)` block, `extern(...)` declaration, and pragma-declaring file, with `file:line:col` jumps for editors. The `--json` flag emits machine-readable output for CI integrations.
 
-```rust
+```yo
 // File without pragma — `unsafe(...)` is rejected:
 main :: (fn() -> unit)({
   x := i32(42);
@@ -1405,7 +1412,7 @@ main :: (fn() -> unit)({
 
 For in-place mutation without raw pointers, use the `inout(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to `sink(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `inout(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
 
-```rust
+```yo
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
@@ -1432,7 +1439,7 @@ main :: (fn() -> unit)({
 
 `inout(...)` cannot be combined with `sink(...)` (opposite calling conventions) or with `comptime`/`generic` (`inout` is runtime-only). For chained calls, passing an `inout`-param through to another function's `inout`-param works as expected:
 
-```rust
+```yo
 double :: (fn(inout(n) : i32) -> unit)({
   n = (n + n);
 });
@@ -1447,7 +1454,7 @@ double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
 
 Yo automatically manages memory for reference-semantics types through reference counting. When an object's reference count reaches zero, it is automatically freed.
 
-```rust
+```yo
 test :: (fn() -> unit)({
   x := String.from("World!"); // RC = 1
   // ... use x ...
@@ -1460,7 +1467,7 @@ test :: (fn() -> unit)({
 
 A tuple is defined as a sequence of elements of different types, separated by commas and enclosed in parentheses.
 
-```rust
+```yo
 my_unit := (); // my_unit: unit.
 my_i32_tuple := 12; // my_i32_tuple: i32
 // Needs extra comma to make it a tuple
@@ -1493,7 +1500,7 @@ MyTuple :: (
 
 ## Array & Ranges
 
-```rust
+```yo
 i32_array := [i32 ; _](1, 2, 3); // i32_array: [i32; 3]
 // In C: int i32_array[3] = {1, 2, 3};
 i32_array.len(); // 3, compile-time known
@@ -1516,7 +1523,7 @@ the underlying buffer is freed are excluded by construction:
 
 ### Range with `..`
 
-```rust
+```yo
 list := ArrayList(i32).new();
 list.push(i32(1));
 list.push(i32(2));
@@ -1540,7 +1547,7 @@ Arrays in Yo come with useful methods:
 
 Create an array filled with a value:
 
-```rust
+```yo
 // `fill` requires a COMPILE-TIME value argument (it is defined under
 // `where(T <: Comptime)` and takes a `comptime(val)`), but its RESULT is a
 // runtime value — bind it with `:=` (`::` is rejected: "Got runtime value").
@@ -1552,7 +1559,7 @@ ones := Array(i32, 5).fill(1); // [1,1,1,1,1]
 
 Get the length of an array:
 
-```rust
+```yo
 arr :: [1, 2, 3, 4, 5];
 len := arr.len(); // 5 (a runtime value; the length is in the TYPE, reachable
 //    at compile time via Type.get_info([i32; 5]) -> .Array(_, n))
@@ -1564,7 +1571,7 @@ generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T ; n]) -> us
 
 Yo can infer array lengths using `_`:
 
-```rust
+```yo
 // Infer length from initializer
 arr1 :: Array(i32, _)(1, 2, 3); // Array(i32, 3)
 arr2 :: [i32 ; _](10, 20, 30, 40); // Array(i32, 4)
@@ -1581,7 +1588,7 @@ nested :: Array(Array(i32, _), _)(
 
 **Restriction**: Cannot use `_` in variable bindings without initialization:
 
-```rust
+```yo
 // Error: Cannot infer length
 arr : Array(i32, _); // Not allowed!
 arr = [1, 2, 3];
@@ -1594,7 +1601,7 @@ arr := Array(i32, _)(1, 2, 3); // OK
 
 Arrays are value types and are copied on assignment:
 
-```rust
+```yo
 // Create arrays
 arr1 := [i32(1), i32(2), i32(3)];
 arr2 := arr1; // arr2 is a copy of arr1
@@ -1639,7 +1646,7 @@ the full rules, including the `unwrap` ban.
 
 ### cond
 
-```rust
+```yo
 use_cond :: (fn(x : i32) -> unit)(
   cond(
     (x == 1) => println("x is 1"),
@@ -1662,7 +1669,7 @@ prelude still carries the equivalent macro definition as the
 specification and as a fallback for dynamically constructed ASTs (see
 `std/prelude.yo` and `plans/reference/MACRO_POLICY.md`):
 
-```rust
+```yo
 // Definition in prelude.yo (spec/fallback — normally desugared at parse time)
 if :: (
   fn(
@@ -1703,7 +1710,7 @@ main :: (fn() -> unit)({
 `while(condition, body)` or
 `while(condition, step, body)`
 
-```rust
+```yo
 factorial :: (fn(n : i32) -> i32)({
   result := 1;
   i := 1;
@@ -1728,7 +1735,7 @@ factorial2 :: (fn(n : i32) -> i32)({
 
 The `Iterator` trait defines a sequence of values. It has an associated type `Item` and a `next` method that returns `Option(Self.Item)`:
 
-```rust
+```yo
 Iterator :: trait(
   Item : Type,
   next : (fn(inout(self) : Self) -> Option(Self.Item))
@@ -1737,7 +1744,7 @@ Iterator :: trait(
 
 To implement `Iterator` for a type, provide the `Item` type and a `next` function:
 
-```rust
+```yo
 Counter :: struct(_current : i32, _max : i32);
 
 impl(
@@ -1760,7 +1767,7 @@ impl(
 
 The `IntoIterator` trait converts a collection into an iterator. It has a `where` clause that constrains the `IntoIter` associated type to implement `Iterator` with the matching `Item` type:
 
-```rust
+```yo
 IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
@@ -1771,7 +1778,7 @@ IntoIterator :: trait(
 
 The `for` macro provides syntactic sugar for iterating. It calls `.next()` in a loop and pattern-matches on `Option`:
 
-```rust
+```yo
 // for loop syntax
 for(iter_expr, variable => {
   // body
@@ -1780,7 +1787,7 @@ for(iter_expr, variable => {
 
 The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(coll, inout(x) => body)` below, or an index loop with index writes:
 
-```rust
+```yo
 // Value form — each `x` is yielded by value.
 list := ArrayList(i32).new();
 list.push(i32(10));
@@ -1811,7 +1818,7 @@ Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, et
 
 The borrow form `for(coll, inout(x) => body)` hands the body each element in place: assigning to `x` writes the element. The loop pins the collection and holds its runtime borrow flag, so the body cannot grow or shrink it while an element is borrowed (see [FLOWABILITY.md](./FLOWABILITY.md)).
 
-```rust
+```yo
 xs := ArrayList(i32).new();
 xs.push(i32(1));
 for(xs, inout(x) => {
@@ -1837,7 +1844,7 @@ There is also some optimization on the ADT. For example, if the ADT has only one
 
 In addition, if there is only one variant with one field, the field type will be used directly instead of wrapping it in a record. This is like the [newtype](https://wiki.haskell.org/Newtype) in Haskell.
 
-```rust
+```yo
 Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Some(value : T),
@@ -1885,7 +1892,7 @@ Yo supports higher-kinded types through **comptime function types as kinds**. Ty
 
 Declare a generic parameter with a function-type kind to accept type constructors:
 
-```rust
+```yo
 // F is a type constructor (kind: Type → Type)
 identity :: (
   fn(
@@ -1908,7 +1915,7 @@ then the same `Option(i32)` a direct call would build.
 
 Define traits parameterized by type constructors:
 
-```rust
+```yo
 // Functor trait — F is a type constructor
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
@@ -1939,7 +1946,7 @@ result := x.map(generic(i32), (fn(a : i32) -> i32)(a + i32(1)));
 
 #### Generic functions with HKT where clauses
 
-```rust
+```yo
 do_map :: (
   fn(
     generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
@@ -1960,7 +1967,7 @@ result := do_map(generic(Option, i32, i32), x, (fn(a : i32) -> i32)(a * i32(2)))
 
 GADTs extend enum types by allowing each constructor to specify the exact type parameter instantiation it returns, using `-> recur(Type1, ...)`:
 
-```rust
+```yo
 Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     IntVal(i : i32) -> recur(i32),
@@ -1974,7 +1981,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 When pattern matching on a GADT value, the type system refines type variables in each branch:
 
-```rust
+```yo
 eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(
     v,
@@ -1994,7 +2001,7 @@ result := eval_value(v); // result : i32 = 42
 
 When matching a GADT value with a concrete type, unreachable variants are excluded from exhaustiveness checking:
 
-```rust
+```yo
 // Value(i32) can only be IntVal or PairVal
 // BoolVal is unreachable (it returns Value(bool), not Value(i32))
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
@@ -2020,7 +2027,7 @@ shapes, and a variant constructs only the instantiation its `-> recur(...)` inde
 
 #### Multi-parameter GADTs
 
-```rust
+```yo
 MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   enum(
     MkIntBool(x : i32, y : bool) -> recur(i32, bool),
@@ -2039,7 +2046,7 @@ my_fst :: (fn(generic(A : Type, B : Type), p : MyPair(A, B)) -> A)(
 
 #### GADTs with custom discriminants
 
-```rust
+```yo
 Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     (TagInt(i : i32) -> recur(i32)) = 10,
@@ -2050,7 +2057,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 #### Mixed GADT and regular variants
 
-```rust
+```yo
 MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     MInt(i : i32) -> recur(i32),
@@ -2064,7 +2071,7 @@ GADTs have the same runtime representation as regular enums — all type refinem
 
 ## C struct
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 
 my_point := Point(
@@ -2096,7 +2103,7 @@ The `newtype` keyword defines a struct with a single field along with methods, c
 
 **Syntax:**
 
-```rust
+```yo
 newtype(
   // Only one field
   field_name : FieldType
@@ -2105,7 +2112,7 @@ newtype(
 
 **Example:** (see `std/string/rune.yo`):
 
-```rust
+```yo
 rune :: newtype(
   char : u32
 );
@@ -2138,7 +2145,7 @@ impl(
 
 **Memory layout:**
 
-```rust
+```yo
 UserId :: newtype(value : i32);
 // size_of(UserId) == size_of(i32)
 // In C: just an i32, no struct wrapper at runtime
@@ -2151,7 +2158,7 @@ A protocol state can live in a type, as in ATS's indexed resources
 functions that accept only the state they need. A wrong-state call is a type
 error (E0601).
 
-```rust
+```yo
 Open :: struct();
 Closed :: struct();
 Handle :: (fn(comptime(S) : Type) -> comptime(Type))(ref(struct(fd : i32)));
@@ -2188,7 +2195,7 @@ shared RC handles by design.
 
 ## C union
 
-```rust
+```yo
 MyNumber :: union(
   i : i32,
   j : f32
@@ -2210,7 +2217,7 @@ union MyNumber {
 
 It's the same as the ADT, but all variants have no fields.
 
-```rust
+```yo
 State :: enum(
   Working,
   Failed
@@ -2233,7 +2240,7 @@ Traits define collections of functions and types that can be implemented for typ
 
 A trait is defined as a function that returns a `Trait` type containing field definitions.
 
-```rust
+```yo
 // Define a trait (like a trait in Rust)
 Summary :: trait(
   summarize : (fn(inout(self) : Self) -> String)
@@ -2289,7 +2296,7 @@ notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)
 
 A trait method with no `self` parameter is a static method. Call it on an implementing type (`Point.make(...)`), or on a type parameter the trait constrains (`T.make(...)`). Constructor-style traits are written this way; `FromJson`'s `from_json(v)` is one.
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 // A trait method without `self` is a static (constructor-style) method.
@@ -2316,7 +2323,7 @@ export(main);
 
 A trait declares an associated type before the members that name it (`Item : Type` first, then `next : (fn(...) -> Option(Self.Item))`). Its `where` clause may use its own projections to constrain a DIFFERENT type, as `IntoIterator` does with `where(Self.IntoIter <: Iterator(Item := Self.Item))`. It may not bind an associated type of `Self` itself to one of `Self`'s own projections:
 
-```rust
+```yo
 Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
 
 // error: Expected type for associated type constraint "Item", got: (Self.Item)
@@ -2329,7 +2336,7 @@ Peekable :: trait(
 
 Both of these are accepted:
 
-```rust
+```yo
 Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
 
 // Constrain `Self` without binding its associated type...
@@ -2367,7 +2374,7 @@ do not overlap are fine.
 
 The compiler performs exhaustive checking on pattern matching.
 
-```rust
+```yo
 Coin :: enum(
   Penny,
   Nickel,
@@ -2425,7 +2432,7 @@ parentheses.
 | named struct | `Point(x : 0, y)`, `Person(name : "alice")` | labeled or bare-field, partial (unlisted fields match anything) |
 | anonymous struct | `{x : 0, y}` | at a struct position, like the variant curly form |
 
-```rust
+```yo
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
   match(
     r,
@@ -2457,7 +2464,7 @@ labeled sub-patterns (a bare field name binds that field; unlisted fields
 match anything). A `Rc(T)` payload is looked through implicitly — the
 sub-pattern matches `T`:
 
-```rust
+```yo
 axis :: (fn(t : Tuple(i32, i32)) -> i32)(
   match(
     t,
@@ -2520,7 +2527,7 @@ the ordinary suspension/resume machinery (`plans/reference/MATCH_PATTERN_MATCHIN
 
 ### String literal as `str` or C string pointer
 
-```rust
+```yo
 s := "Hello"; // s : str — a string literal is the builtin static string view `str`.
 (s2 : *u8) = "Hi"; // You can explicitly declare a C string pointer (unsafe-capable files only).
 s3 := (*u8)("Hi"); // Or use a pointer cast to get a C string pointer.
@@ -2538,7 +2545,7 @@ threads, see `std/imm/string`, whose "modification" methods all return a new val
 For a mutable builder that several owners share, use `StringBuilder`, a
 reference-semantics type.
 
-```rust
+```yo
 s := String.new();
 s2 := String.from("Hello World!");
 s3 := (s + s2); // Create a new string.
@@ -2576,7 +2583,7 @@ A write lands where it is written:
 - **A struct field** is written through its place: `p.name.push_str("!")` on an
   `inout(p)` parameter or a local.
 
-```rust
+```yo
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -2632,7 +2639,7 @@ take the list over. Bytes are read in place with `len()`, `byte_at(i)`,
 
 The template string works similarly to JavaScript's template literals, allowing you to embed expressions inside a string using `${}` syntax. The value inside `${}` must implement the `ToString` trait to be converted to a `String`.
 
-```rust
+```yo
 name := "Alice";
 age := 16;
 greeting := `Hello, ${name}!, age: ${age}`;
@@ -2651,7 +2658,7 @@ align := "<" | ">" | "^"
 kind  := "x" | "X" | "b" | "o"
 ```
 
-```rust
+```yo
 name := `ada`;
 n := i32(255);
 pi := f64(3.14159);
@@ -2675,10 +2682,10 @@ truncation. Text, `bool`, `Option`, `Result`, `ArrayList` and the other std type
 `ToString` accept width, fill, alignment and truncation, through `Format`'s default member. A
 type of your own opts in with one line, since there is no blanket impl (see Coherence above):
 
-```rust
+```yo
 impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
 impl(Point, Format());
-`[${Point(x : i32(1), y : i32(2)):>8}]`   // "[  (1, 2)]"
+`[${Point(x : i32(1), y : i32(2)):>8}]` // "[  (1, 2)]"
 ```
 
 The spec is separated from the expression by a colon with **no space before it**.
@@ -2739,7 +2746,7 @@ local used for the last time is a move and is not listed.
 
 Dynamic array with automatic resizing.
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 
 // Create a new ArrayList
@@ -2784,7 +2791,7 @@ list.shrink_to_fit();
 
 Hash map with key-value pairs.
 
-```rust
+```yo
 { HashMap } :: import("std/collections/hash_map");
 
 // Create a new HashMap
@@ -2839,7 +2846,7 @@ map.clear();
 
 Hash set for unique values.
 
-```rust
+```yo
 { HashSet } :: import("std/collections/hash_set");
 
 // Create a new HashSet
@@ -2909,7 +2916,7 @@ cond(
 
 Doubly-linked list.
 
-```rust
+```yo
 { LinkedList } :: import("std/collections/linked_list");
 
 // Create a new LinkedList
@@ -3007,7 +3014,7 @@ There are two ways to create closures:
 
 1. **Using `Impl(Fn(...))`** - Explicit closure type:
 
-```rust
+```yo
 test_closure :: (fn() -> unit)({
   x := 1;
 
@@ -3028,7 +3035,7 @@ test_closure :: (fn() -> unit)({
 
 2. **Using `ClosureType({...})`** - Closure value from type:
 
-```rust
+```yo
 test_closure :: (fn() -> unit)({
   x := 1;
 
@@ -3051,7 +3058,7 @@ Closures capture variables from their environment:
 - **Reference-semantics types** (reference-counted) are captured by reference
 - Captured variables maintain their mutability
 
-```rust
+```yo
 test_capture :: (fn() -> unit)({
   // Value type - captured by value
   counter := i32(0);
@@ -3078,13 +3085,13 @@ test_capture :: (fn() -> unit)({
 A closure may list its captures in a record literal before its parameters
 (`plans/VALUES_BY_DEFAULT.md` decisions 35 and 38):
 
-```rust
+```yo
 k := i32(3);
 w := i32(10);
 z := i32(0);
 (h : Impl(Fn(m : i32) -> i32)) = ({ k, imm(w), mut(z) }(m : i32) => {
-  z = (z + m);           // writes the caller's `z` through the borrow
-  ((k + w) + z)
+  z = (z + m); // writes the caller's `z` through the borrow
+  k + w + z
 });
 (g : Impl(Fn() -> usize)) = ({ n : s.len(), imm(name) : &s }() => (n + name.len()));
 count := i32(0);
@@ -3131,17 +3138,17 @@ count := i32(0);
 (`plans/VALUES_BY_DEFAULT.md` decision 37). A closure with a capture list,
 typed `FnOnce(...)`, owns its by-value captures, so its body may move one out:
 
-```rust
+```yo
 take :: (fn(sink(t) : Token) -> i32)(t.n);
 t := Token(n : i32(5));
-(send : Impl(FnOnce() -> i32)) = ({ t }() => take(t));   // moves `t` out, no copy
-send();                                                  // consumes `send`
+(send : Impl(FnOnce() -> i32)) = ({ t }() => take(t)); // moves `t` out, no copy
+send(); // consumes `send`
 // send();                                               // E0901: `send` was moved by the call above
 
 run_once :: (fn(sink(f) : Impl(FnOnce() -> i32)) -> i32)(f());
 k := i32(3);
 (add : Impl(Fn() -> i32)) = ({ k }() => k);
-run_once(add);                                           // an `Fn` serves for one call
+run_once(add); // an `Fn` serves for one call
 ```
 
 - **The call consumes the closure.** A second call, or any later use, is
@@ -3169,7 +3176,7 @@ run_once(add);                                           // an `Fn` serves for o
 
 Each closure has a unique type, even if they look identical:
 
-```rust
+```yo
 // This will fail - each closure has a distinct type
 test_error :: (fn() -> unit)({
   closure : Impl(Fn(y : i32) -> i32);
@@ -3191,13 +3198,13 @@ test_error :: (fn() -> unit)({
 A closure is never a bare function pointer. A parameter or field declared `fn(...) -> R` holds a
 named function or a capture-free `->` literal; a `=>` closure needs a closure-carrying type:
 
-```rust
+```yo
 takes_ptr :: (fn(f : (fn(a : i32) -> i32), v : i32) -> i32)(f(v));
 takes_fn :: (fn(f : Impl(Fn(a : i32) -> i32), v : i32) -> i32)(f(v));
 k := i32(10);
-takes_ptr(double, 5);            // OK: a named fn
-takes_ptr((y) => (y + k), 5);    // error[E0605]: a closure (`=>`) cannot be used where the function-pointer type ... is expected
-takes_fn((y) => (y + k), 5);     // OK
+takes_ptr(double, 5); // OK: a named fn
+takes_ptr(y => (y + k), 5); // error[E0605]: a closure (`=>`) cannot be used where the function-pointer type ... is expected
+takes_fn(y => (y + k), 5); // OK
 ```
 
 The closure's body is checked against the result of the `Fn(...) -> R` it is passed as:
@@ -3206,12 +3213,12 @@ The closure's body is checked against the result of the `Fn(...) -> R` it is pas
 A closure's type can instantiate a container. `ArrayList(type_of(k))` holds copies of `k`, and
 two closures' lists are two types, so a closure cannot go into another closure's list:
 
-```rust
+```yo
 (k1 : Impl(Fn() -> unit)) = (() => println(a));
 (k2 : Impl(Fn() -> unit)) = (() => println(s));
 l1 := ArrayList(type_of(k1)).new();
-l1.push(k1);    // OK
-l1.push(k2);    // error: k2 is a different closure type
+l1.push(k1); // OK
+l1.push(k2); // error: k2 is a different closure type
 ```
 
 To keep different closures in one collection, store them as `Dyn(Fn(...))`.
@@ -3220,7 +3227,7 @@ To keep different closures in one collection, store them as `Dyn(Fn(...))`.
 
 Closures work seamlessly with reference-semantics types:
 
-```rust
+```yo
 MyBox :: ref(
   struct(
     (*) : i32
@@ -3257,7 +3264,7 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > type: copying the handle **shares one heap value and bumps a reference
 > count**, exactly like Rust's `Rc<T>`.
 >
-> ```rust
+> ```yo
 > a := rc(i32(42));
 > b := a;                    // a second handle, NOT a copy of the value
 > consume(b.* = i32(7));
@@ -3279,7 +3286,7 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 
 `Rc(T)` is a generic reference-semantics type that wraps any value type:
 
-```rust
+```yo
 // Rc is defined in std/prelude.yo
 Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
@@ -3297,7 +3304,7 @@ rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 
 ### Usage Examples
 
-```rust
+```yo
 // Wrap a primitive value
 i := rc(42); // i: Rc(i32)
 assert(i.* == 42); // Dereference with .*
@@ -3321,15 +3328,15 @@ assert(m.* == 20);
 type, a field or method the wrapper does not have is looked up on the
 payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 impl(Point, norm1 : (fn(self : Self) -> i32)(self.x + self.y));
 p := rc(Point(x : 3, y : 4));
-assert(p.x == 3);          // p.*.x
-p.x = 5;                   // a place: writes p.*.x
-assert(p.norm1() == 9);    // p.*.norm1()
+assert(p.x == 3); // p.*.x
+p.x = 5; // a place: writes p.*.x
+assert(p.norm1() == 9); // p.*.norm1()
 pp := rc(rc(Point(x : 1, y : 2)));
-assert(pp.y == 2);         // nested wrappers: pp.*.*.y
+assert(pp.y == 2); // nested wrappers: pp.*.*.y
 ```
 
 - **A name both have is an error (E0616).** `Point` derives `Clone` and so
@@ -3356,7 +3363,7 @@ assert(pp.y == 2);         // nested wrappers: pp.*.*.y
 
 ### Rc with Assignments
 
-```rust
+```yo
 test("Rc assignment behavior", {
   x := rc(1);
   y := (x = rc(2)); // y gets the old value
@@ -3369,7 +3376,7 @@ test("Rc assignment behavior", {
 
 `Rc(T)` is an reference-semantics type, so it uses automatic reference counting:
 
-```rust
+```yo
 test("Rc reference counting", {
   original := rc(42);
   copy := original; // RC increment
@@ -3391,7 +3398,7 @@ test("Rc reference counting", {
 - **Dynamic dispatch**: Wrapping value types for use with `Dyn` (`dyn(v)` on a value type does this for you: it wraps `v` in `rc(v)`)
 - **Recursive types**: Breaking cycles in type definitions
 
-```rust
+```yo
 // Dynamic dispatch requires reference-semantics types
 impl(i32, SomeTrait(...));
 
@@ -3408,7 +3415,7 @@ use_dyn(dyn(rc(i32(42))));
 
 ### Basic Usage
 
-```rust
+```yo
 // Define a trait
 Id :: trait(
   id : (fn(self : Self) -> Self)
@@ -3446,7 +3453,7 @@ result := use_id(42); // Prints "i32: 42", returns 42
 
 `Impl` can be used in return types for static dispatch:
 
-```rust
+```yo
 RetI32 :: trait(
   return_i32 : (fn(inout(self) : Self) -> i32)
 );
@@ -3474,7 +3481,7 @@ get_any :: (fn(use_bool : bool) -> Dyn(RetI32))({
 
 ### Impl with Multiple Traits
 
-```rust
+```yo
 Speak :: trait(
   speak : (fn(self : Self) -> unit)
 );
@@ -3517,7 +3524,7 @@ The position of the `dyn(v)` call must say which `Dyn(...)` to build — a param
 
 ### Examples
 
-```rust
+```yo
 Speak :: trait(
   speak : (fn(self : Self) -> i32)
 );
@@ -3581,7 +3588,7 @@ Which one to reach for:
 
 ### Packed: `Dyn(Trait)`
 
-```rust
+```yo
 Shape :: trait(area : (fn(self : Self) -> f64));
 
 // A heterogeneous list: each element's concrete type is gone, only `Shape` remains.
@@ -3598,7 +3605,7 @@ upcast to a smaller trait set is explicit: `upcast(d, Dyn(Sub))`. Details:
 
 ### Opaque: `Impl(Trait)` and closures
 
-```rust
+```yo
 // The caller cannot spell the closure's type; the compiler knows it exactly.
 make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
 ```
@@ -3610,7 +3617,7 @@ one container need `Dyn(Fn(...))` (see [Closure Type Restrictions](#closure-type
 
 ### Not supported: existential enum constructors
 
-```rust
+```yo
 // NOT supported: `T` is bound by the constructor, not by the enum.
 Showable :: enum(
   Wrap(generic(T : Type), value : T, show : (fn(v : T) -> String))
@@ -3631,7 +3638,7 @@ verifier's ghost quantifier over values, as in
 - **Impl**: Static dispatch, compile-time polymorphism, no runtime overhead
 - **Dyn**: Dynamic dispatch, runtime polymorphism, requires reference-semantics types
 
-```rust
+```yo
 // Impl - static dispatch (monomorphization)
 use_impl :: (fn(generic(T : Type), value : T, where(T <: SomeTrait)) -> unit)({
   value.method(); // Statically dispatched
@@ -3679,7 +3686,7 @@ Yo provides two approaches to error handling:
 
 The `Result` type is an algebraic data type for functions that can fail:
 
-```rust
+```yo
 // Define an error type
 DivisionError :: enum(
   DivideByZero,
@@ -3711,7 +3718,7 @@ match(
 
 The standard library defines an `Error` trait and `AnyError` type for dynamic error handling:
 
-```rust
+```yo
 { Error, AnyError } :: import("std/error");
 
 // Error trait requires ToString. `derive(Error)` supplies both from one
@@ -3751,7 +3758,7 @@ Its `throw` field is a `ctl(...) -> ret` handler — calling
 `unwind(...)` inside its body discards the continuation and returns
 from the enclosing function:
 
-```rust
+```yo
 { Exception } :: import("std/error");
 
 safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
@@ -3788,7 +3795,7 @@ is a compile error that points at `ResumableException`:
 When the handler calls `return`, it resumes the continuation with a
 recovery value:
 
-```rust
+```yo
 { ResumableException } :: import("std/error");
 
 safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
@@ -3817,7 +3824,7 @@ For more examples, see [error.test.yo](../tests/error.test.yo).
 
 Yo uses **async/await with state machine transformation** for efficient **single-threaded concurrency**. Async tasks are **lazy** — they don't start until explicitly awaited or joined.
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
@@ -3865,7 +3872,7 @@ any thread, and `Acyclic` because atomic RC is not cycle-collected. So it only w
 thread-shareable values, and `Arc(T)` is itself `Send` and `Sync` under that bound. Use `Arc(T)` when you want to share a single value.
 Use `atomic(ref(struct(...)))` when defining your own shared types.
 
-```rust
+```yo
 // Create with the arc() helper
 shared := arc(i32(42));
 
@@ -3891,7 +3898,7 @@ See [ARC.md](./ARC.md) for full details.
 
 ## Module importing and exporting
 
-```rust
+```yo
 // module1.yo
 test :: (fn() -> unit)({
   println("Hello, world!");
@@ -3909,7 +3916,7 @@ Option :: (fn(comptime(T) : Type) -> comptime(Type))(
 export(Option);
 ```
 
-```rust
+```yo
 { ... } :: import("./test.yo"); // Import everything from test.yo
 test_module :: import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
 { test } :: import("./test.yo"); // Import test function from test.yo
@@ -3921,7 +3928,7 @@ test_module :: import("./test.yo"); // Import everything from test.yo and put it
 
 Every imported name is a binding, so the no-shadowing rule applies to imports: binding the same name twice is an error (`Failed to define variable "ArrayList"` … `variable shadowing is not allowed`), whether both lines name it or a `{ ... }` glob already brought it in. Several import lines from one path are fine as long as each binds different names, and a name may be imported again under a new one:
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 { ArrayListIter } :: import("std/collections/array_list"); // fine: a different name
 { ArrayList : List } :: import("std/collections/array_list"); // fine: bound under a new name
@@ -3946,7 +3953,7 @@ the tool for adding the missing import lines.
 
 The anonymous module is defined using `impl` keyword followed by a `begin` block:
 
-```rust
+```yo
 my_module :: impl({
   my_function :: (fn() -> unit)({
     println("Hello from my_module!");
@@ -3961,7 +3968,7 @@ Yo supports mutable runtime variables at the top level of a module (file scope).
 
 Two syntaxes are supported:
 
-```rust
+```yo
 // := initialization
 counter := i32(0);
 
@@ -3971,7 +3978,7 @@ counter := i32(0);
 
 Functions defined in the same module can read and write these variables:
 
-```rust
+```yo
 inc :: (fn() -> unit)({
   counter = (counter + i32(1));
 });
@@ -3980,11 +3987,11 @@ inc :: (fn() -> unit)({
 **Restrictions:**
 
 - Standalone type annotations without initialization are not allowed at module scope:
-  ```rust
-  a : i32;  // ❌ Error: use `a := i32(0);` or `(a : i32) = i32(0);` instead
+  ```yo
+  a : i32; // ❌ Error: use `a := i32(0);` or `(a : i32) = i32(0);` instead
   ```
 - Mutable runtime variables (`:=` or `(x : T) = val`) are **not allowed inside `impl` blocks**. Use `::` for compile-time definitions:
-  ```rust
+  ```yo ignore
   m :: impl {
     b := i32(13);  // ❌ Error: not allowed inside impl
     b :: 13;       // ✅ OK: compile-time constant
@@ -4015,7 +4022,7 @@ Yo has a built-in testing framework accessible via the `test` keyword.
 
 ### Basic Test Syntax
 
-```rust
+```yo
 test("Test description", {
   // Test code here
   x := (1 + 1);
@@ -4057,7 +4064,7 @@ $ yo test ./tests --json
 
 #### Runtime Assertions
 
-```rust
+```yo
 test("Runtime assertions", {
   x := 42;
 
@@ -4077,7 +4084,7 @@ test("Runtime assertions", {
 
 Use `comptime_assert` for compile-time verification:
 
-```rust
+```yo
 test("Compile-time assertions", {
   // These are checked during compilation
   comptime_assert((2 + 2) == 4);
@@ -4094,7 +4101,7 @@ test("Compile-time assertions", {
 
 Verify that certain code produces compile-time errors:
 
-```rust
+```yo
 test("Expected compile errors", {
   // Expect an error without specific message
   comptime_expect_error({
@@ -4121,7 +4128,7 @@ test("Expected compile errors", {
 
 Organize related tests in the same file:
 
-```rust
+```yo
 // arithmetic.test.yo
 test("Addition", {
   assert((1 + 1) == 2);
@@ -4148,7 +4155,7 @@ test("Division", {
 
 Test cleanup and disposal:
 
-```rust
+```yo
 MyBox :: ref(
   struct(
     (*) : i32
@@ -4193,7 +4200,7 @@ For comprehensive test examples, see the [tests/](../tests/) directory.
 `unquote` can only be used in `quote`.  
 `unquote_splicing` can only be used in `quote` to splice the values into the AST.
 
-```rust
+```yo
 x :: quote(2); // comptime(x) : Expr
 list :: quote((1, unquote(x), 3)); // tuple (1, 2, 3)
 list2 :: quote((1, x, 3)); // tuple (1, x, 3)
@@ -4223,7 +4230,7 @@ callers, so the ability to define them is gated; see
 literals) never needs the pragma, and neither does working with quoted
 `Expr` values in comptime functions (the mechanism `derive_rule` uses).
 
-```rust
+```yo
 pragma(Pragma.AllowMacroDef);
 
 // Custom macro example — a lazy-body `unless`
@@ -4238,7 +4245,7 @@ The prelude's `if` macro is the canonical example (current compilers
 desugar `if(...)` calls to `cond(...)` at parse time, keeping this
 definition as the spec/fallback):
 
-```rust
+```yo
 if :: (
   fn(
     quote(condition) : Expr,
@@ -4274,7 +4281,7 @@ Yo supports automatic trait derivation similar to Rust's `#[derive(...)]`, but u
 
 Six traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, `Default`, and `ToString`. They work for both structs and enums:
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
@@ -4292,7 +4299,7 @@ export(main);
 
 Trait authors can register custom derive rules using `derive_rule`. A derive rule is **not a macro** — it is a regular comptime function returning `comptime(Expr)` that builds the `impl` block with `quote`/`unquote`; the `derive` builtin evaluates the returned Expr explicitly (so no `Pragma.AllowMacroDef` is needed):
 
-```rust
+```yo
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(my_eq : (fn(self : Self, other : Rhs) -> bool))
 );
@@ -4323,7 +4330,7 @@ derive(Point, MyEq(Point)); // Uses the registered derive_rule
 
 Yo provides compile-time type reflection through the `TypeInfo` enum and `Type.get_info()`. Unlike simple type tag systems, `TypeInfo` carries rich structural metadata — struct fields, enum variants, function parameters, and more.
 
-```rust
+```yo
 info :: Type.get_info(i32);
 comptime_assert(info.is_primitive(), "i32 is primitive");
 comptime_assert(info.is_integer(), "i32 is an integer");
@@ -4334,7 +4341,7 @@ comptime_assert(info2.is_struct(), "Point is a struct");
 
 Compound variants carry metadata that can be extracted via `match`:
 
-```rust
+```yo
 // Extract array element type and length
 arr_info :: Type.get_info([i32 ; 3]);
 elem :: match(arr_info, .Array(e, _) => e, _ => unit);
@@ -4373,7 +4380,7 @@ Yo has powerful compile-time evaluation capabilities. You can perform computatio
 
 Variables declared with `::` are compile-time constants:
 
-```rust
+```yo
 // Compile-time integer
 x :: 42; // comptime_int
 y :: (x + 10); // comptime_int = 52
@@ -4394,7 +4401,7 @@ result :: factorial(5); // Computed at compile time: 120
 
 All primitive operations can be performed at compile time:
 
-```rust
+```yo
 // Integer operations
 a :: 100;
 b :: 25;
@@ -4423,7 +4430,7 @@ not_result :: not(flag1); // false
 
 Arrays with compile-time known lengths:
 
-```rust
+```yo
 // Inferred length
 arr :: [1, 2, 3, 4, 5]; // Array(i32, 5)
 len := arr.len(); // 5 (runtime read; the length also lives in the type)
@@ -4439,7 +4446,7 @@ int_array := create_array(i32, 5, 42); // [42,42,42,42,42]
 
 Use `comptime_assert` to verify compile-time conditions:
 
-```rust
+```yo
 test("Compile-time assertions", {
   // These are checked at compile time
   comptime_assert((2 + 2) == 4);
@@ -4456,7 +4463,7 @@ test("Compile-time assertions", {
 
 Test that code produces compile-time errors:
 
-```rust
+```yo
 test("Expected compile errors", {
   // Verify that this code produces an error
   comptime_expect_error(
@@ -4476,7 +4483,7 @@ test("Expected compile errors", {
 
 Understanding when things happen:
 
-```rust
+```yo
 // Compile-time: declared with :: or comptime(...)
 COMPT_VALUE :: 42; // Computed at compile time
 ComptimeType :: i32; // Type selected at compile time
@@ -4516,7 +4523,7 @@ Yo provides `asm()` and `global_asm()` builtins for embedding inline assembly, i
 - **Clobbers and options**: `clobber("memory")`, `asm_options(volatile, noreturn)`
 - **Multi-architecture**: x86_64 and aarch64 support
 
-```rust
+```yo
 // Simple example: move immediate to register
 result := asm(
   "mov {0}, #42",

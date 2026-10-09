@@ -29,7 +29,7 @@
 
 ## 快速开始
 
-```rust
+```yo
 { List } :: import("std/imm/list");
 { Map } :: import("std/imm/map");
 { SortedSet } :: import("std/imm/sorted_set");
@@ -82,7 +82,7 @@ yo doc ./std/imm
 不可变集合在运行时**永远**不会形成环，因为所有操作都是创建新节点——已有节点
 从不被修改。为了表达这一安全保证，内部节点类型声明了**手动 `Acyclic` 实现**：
 
-```rust
+```yo
 ListNode :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
   atomic(ref(struct(_value : T, _next : Option(Self))))
 );
@@ -103,7 +103,7 @@ impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), ListNode(T), Acyclic(
 
 变更方法获取 `self` 的所有权而非借用：
 
-```rust
+```yo
 push : (fn(own(self) : Self, val : T) -> Self)
 ```
 
@@ -114,7 +114,7 @@ push : (fn(own(self) : Self, val : T) -> Self)
 
 ### 使用方式
 
-```rust
+```yo
 { Vec } :: import("std/imm/vec");
 
 // 正常用法——每次 push 都是 O(1)，因为 v 是唯一的：

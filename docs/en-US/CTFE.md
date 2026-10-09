@@ -6,7 +6,7 @@ Yo performs **Compile-Time Function Evaluation** (CTFE) whenever possible to imp
 
 CTFE allows the compiler to execute functions at compile-time when all inputs are known at compile-time. The result is embedded directly into the generated code, eliminating runtime computation.
 
-```rust
+```yo
 // comptime parameters + comptime return: evaluated at compile time
 factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
   result :: i32(1);
@@ -32,7 +32,7 @@ parameters and its return type is `comptime(...)`. A loop whose condition
 depends on comptime values must opt into compile-time unrolling explicitly
 with `while(comptime(cond), body)`.
 
-```rust
+```yo
 // comptime(n) + comptime return: this runs during compilation
 sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
   result :: i32(0);
@@ -59,7 +59,7 @@ Yo's CTFE supports all control flow constructs:
 - **`cond`** (conditional expressions)
 - **`match`** (pattern matching)
 
-```rust
+```yo
 // Example: Sum only odd numbers using continue
 sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
   result :: i32(0);
@@ -85,7 +85,7 @@ odd_sum :: sum_odd(10);
 
 Types are values in Yo, enabling powerful compile-time type manipulation:
 
-```rust
+```yo
 // Create a generic container type at compile-time
 Container :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
@@ -104,7 +104,7 @@ StringContainer :: Container(String);
 
 Use `comptime_assert` to verify conditions at compile-time:
 
-```rust
+```yo
 fib :: (fn(comptime(n) : i32) -> comptime(i32))(
   cond(
     (n <= i32(1)) => n,
@@ -123,7 +123,7 @@ comptime_assert(fib10 == 55, "fib(10) = 55");
 
 Use `comptime` to require compile-time known parameters:
 
-```rust
+```yo
 // T must be known at compile-time for monomorphization
 Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
@@ -140,7 +140,7 @@ IntArray5 :: Array(i32, 5);
 `comptime_read_file(path)` reads a file while the program is being compiled and
 yields its bytes as a `comptime_str` — Zig's `@embedFile`:
 
-```rust
+```yo
 VERSION :: comptime_read_file("./VERSION");
 SHADER :: comptime_read_file("./shaders/blit.wgsl");
 
@@ -174,7 +174,7 @@ made of compile-time scalars and `ComptimeList`, since no runtime container can
 exist at compile time. Composed with `comptime_read_file`, a configuration file
 becomes constants:
 
-```rust
+```yo
 CFG :: comptime_json_parse(comptime_read_file("./config.json"));
 
 PORT :: CFG.get("port").as_int(8080);
@@ -292,7 +292,7 @@ CTFE cannot be used when:
    `comptime` when you want compile-time evaluation; keep them plain for the
    runtime version.
 
-```rust
+```yo
 // Good: clean, simple code evaluated at compile-time
 is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(

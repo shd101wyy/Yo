@@ -1117,12 +1117,14 @@ jobs:
           ls -lR yo-out 2>/dev/null | head -40 || echo "(no yo-out)"
 
       # ubuntu-latest ONLY: formatting is platform- and arch-independent, so
-      # one tree-built-formatter verdict settles it for every leg.
+      # one tree-built-formatter verdict settles it for every leg. The docs
+      # paths check the ```yo blocks in Markdown (a .yo file's doc-comment
+      # blocks are checked with the file); ```yo ignore opts a fragment out.
       - name: Check the formatted code
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          "$S1" fmt --check ./std ./tests ./src
+          "$S1" fmt --check ./std ./tests ./src ./docs ./.github ./README.md
 
       # Also ubuntu-only and also plain text: doc examples must not teach the
       # paren-less `:: import "path"` spelling — the parser rejects it (E0008),

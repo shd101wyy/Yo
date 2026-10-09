@@ -44,7 +44,7 @@ and outside an allocation scope; only where its bytes come from changes.
 
 ## Quick start
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
@@ -200,7 +200,7 @@ When not to use one:
 even if it was spawned inside a scope. To use an arena in a thread, pass its
 `Allocator` value in and open a scope there:
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
@@ -213,7 +213,7 @@ main :: (fn() -> unit)({
   a := arena.allocator(); // `Allocator` is `Send`; the `Arena` handle is not
   t := Thread(i32).spawn(io => {
     p := with_allocator(a, () => Point(x : i32(1), y : i32(2)));
-    (p.x + p.y)
+    p.x + p.y
   });
   println(`${t.join()}`);
 });
@@ -234,7 +234,7 @@ An allocator is a context pointer plus a table of three functions. Both types
 are in the prelude, so they need no import; their methods (`Allocator.global()`,
 `alloc`, `free`, …) come with `std/allocator`:
 
-```rust
+```yo
 AllocatorVTable :: struct(
   alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
   realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
@@ -260,7 +260,7 @@ does not.
 
 A counting allocator that forwards to the global allocator:
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
 { GlobalAllocator, with_allocator } :: import("std/allocator");

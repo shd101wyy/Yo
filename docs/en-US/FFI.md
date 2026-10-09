@@ -17,7 +17,7 @@ A `c_include(...)` or `extern(...)` call is an expression whose value is a
 not enter scope by themselves; you bind the module, or destructure it, exactly
 as you would an import:
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 
 // Bind the module and qualify each use.
@@ -49,7 +49,7 @@ A field's type may name an earlier field of the same declaration
 Written as a statement — at the top level of a file, or as a line of a block —
 a `c_include(...)` or `extern(...)` is sugar for its glob destructure:
 
-```rust
+```yo
 c_include("<stdlib.h>", abs : (fn(x : int) -> int));
 // means exactly
 { ... } :: c_include("<stdlib.h>", abs : (fn(x : int) -> int));
@@ -64,7 +64,7 @@ Because the names arrive through a binding, the no-shadowing rule applies to
 them like to any other binding: a declared name that is already visible in
 scope is an error, whichever came first.
 
-```rust
+```yo
 abs :: (fn(x : i32) -> i32)(x);
 c_include("<stdlib.h>", abs : (fn(x : int) -> int));
 // error: Variable "abs" is already defined here (variable shadowing is not allowed)
@@ -84,7 +84,7 @@ may call one of the names it binds, including a renamed one.
 `std/libc/*` wraps the common headers, one module per header, so most programs
 never write `c_include` themselves:
 
-```rust
+```yo
 { strlen, memcpy } :: import("std/libc/string");
 fcntl :: import("std/libc/fcntl"); // fcntl.open, fcntl.O_RDONLY
 ```
@@ -95,7 +95,7 @@ An opaque `Name : Type` field lowers to the C type spelled `Name`. When the
 C spelling is not a Yo identifier (`struct stat`, `struct timespec`), give
 it explicitly with `c_type`:
 
-```rust
+```yo
 { stat_buf, stat } :: c_include(
   "<sys/stat.h>",
   stat_buf : c_type("struct stat"),
