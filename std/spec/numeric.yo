@@ -21,27 +21,27 @@
 //! unstable — outside the std stability promise entirely; the verification
 //! campaign is still shaping this surface.
 /// `Positive(T)` — strictly greater than zero.
-Positive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x > T(0)))));
+Positive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)(x > T(0)))));
 export(Positive);
 
 /// `Negative(T)` — strictly less than zero.
-Negative :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x < T(0)))));
+Negative :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)(x < T(0)))));
 export(Negative);
 
 /// `NonNegative(T)` — greater than or equal to zero.
-NonNegative :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x >= T(0)))));
+NonNegative :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)(x >= T(0)))));
 export(NonNegative);
 
 /// `NonPositive(T)` — less than or equal to zero.
-NonPositive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x <= T(0)))));
+NonPositive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)(x <= T(0)))));
 export(NonPositive);
 
 /// `Even(T)` — divisible by two.
-Even :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)((x % T(2)) == T(0)))));
+Even :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)((x % T(2)) == T(0)))));
 export(Even);
 
 /// `Odd(T)` — not divisible by two.
-Odd :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)((x % T(2)) == T(1)))));
+Odd :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)((x % T(2)) == T(1)))));
 export(Odd);
 
 // ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ export(Odd);
 // ---------------------------------------------------------------------------
 /// `check_positive(x)` — the `Positive` family's runtime gate.
 check_positive :: (
-  fn(generic(T : Type), x : T) -> Option(Positive(T))
+  fn(generic(T : Type), imm(x) : T) -> Option(Positive(T))
 )(
   if(
     x > T(0),
@@ -61,7 +61,7 @@ export(check_positive);
 
 /// `check_negative(x)` — the `Negative` family's runtime gate.
 check_negative :: (
-  fn(generic(T : Type), x : T) -> Option(Negative(T))
+  fn(generic(T : Type), imm(x) : T) -> Option(Negative(T))
 )(
   if(
     x < T(0),
@@ -73,7 +73,7 @@ export(check_negative);
 
 /// `check_non_negative(x)` — the `NonNegative` family's runtime gate.
 check_non_negative :: (
-  fn(generic(T : Type), x : T) -> Option(NonNegative(T))
+  fn(generic(T : Type), imm(x) : T) -> Option(NonNegative(T))
 )(
   if(
     x >= T(0),
@@ -85,7 +85,7 @@ export(check_non_negative);
 
 /// `check_non_positive(x)` — the `NonPositive` family's runtime gate.
 check_non_positive :: (
-  fn(generic(T : Type), x : T) -> Option(NonPositive(T))
+  fn(generic(T : Type), imm(x) : T) -> Option(NonPositive(T))
 )(
   if(
     x <= T(0),
@@ -97,7 +97,7 @@ export(check_non_positive);
 
 /// `check_even(x)` — the `Even` family's runtime gate.
 check_even :: (
-  fn(generic(T : Type), x : T) -> Option(Even(T))
+  fn(generic(T : Type), imm(x) : T) -> Option(Even(T))
 )(
   if(
     (x % T(2)) == T(0),
@@ -109,7 +109,7 @@ export(check_even);
 
 /// `check_odd(x)` — the `Odd` family's runtime gate.
 check_odd :: (
-  fn(generic(T : Type), x : T) -> Option(Odd(T))
+  fn(generic(T : Type), imm(x) : T) -> Option(Odd(T))
 )(
   if(
     (x % T(2)) == T(1),

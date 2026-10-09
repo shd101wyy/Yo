@@ -22,7 +22,7 @@ Thing :: ref(struct(n : i32));
 impl(
   Thing,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       g_disposed = (g_disposed + i32(1));
     })
   )
@@ -155,7 +155,7 @@ _guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoE
     Result(String, String).Ok(raw)
   })
 );
-_show :: (fn(r : Result(String, String)) -> String)(match(r, .Ok(s) => s, .Err(m) => `ERR ${m}`));
+_show :: (fn(imm(r) : Result(String, String)) -> String)(match(r, .Ok(s) => s, .Err(m) => `ERR ${m}`));
 // Returns what the three awaits produced: a frame that "caught" the unwind by
 // returning early (the old lowering) cannot fake this result.
 _three_guarded :: (fn(io : Io) -> String)({
@@ -177,7 +177,7 @@ test("an unwind from a handler installed in an io.async body resolves that futur
 });
 // A synchronous frame that only passes the outer handler along is not the
 // one that installed the unwinding handler, and must not read its value.
-_run_fail :: (fn(io : Io, exn : Exception) -> String)({
+_run_fail :: (fn(io : Io, imm(exn) : Exception) -> String)({
   e := IoExn(io : io, exn : exn);
   _show(io.await(_guarded(true, io), e))
 });
@@ -345,13 +345,13 @@ test("an escape inside a reassignment's await releases the old value once", {
 // An index result passed to an async call inside a task is a retained temp.
 // It was declared as a C local while its release named the hoisted field,
 // which was never assigned, so every call leaked one reference.
-_sm_hold :: (fn(t : Thing, io : Io) -> Impl(Future(i32, IoExn)))(
+_sm_hold :: (fn(imm(t) : Thing, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
     e.io.await(yield(e.io), e.io);
     t.n
   })
 );
-_sm_pass_indexed :: (fn(keep : ArrayList(Thing), io : Io) -> Impl(Future(i32, IoExn)))(
+_sm_pass_indexed :: (fn(imm(keep) : ArrayList(Thing), io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
     (i : usize) = usize(0);
     (sum : i32) = i32(0);
@@ -393,7 +393,7 @@ _SmErr :: ref(struct(n : i32));
 impl(
   _SmErr,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
+    to_string : (fn(mut(self) : Self) -> String)({
       return(String.from("sm error"));
     })
   )
@@ -402,7 +402,7 @@ impl(_SmErr, Error());
 impl(
   _SmErr,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       g_disposed = (g_disposed + i32(1));
     })
   )

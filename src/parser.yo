@@ -52,7 +52,7 @@ FnArgsResult :: struct(
 /// diagnostics.yo) and one CLI-edge prefix rule serve every stage.
 /// Extract the Nth source line (0-indexed) from the input string.
 /// Returns an empty string if the row is out of range.
-extract_source_line :: (fn(input : String, row : usize) -> String)({
+extract_source_line :: (fn(imm(input) : String, row : usize) -> String)({
   lines_list := input.split(String.from("\n"));
   match(
     lines_list.get(row),
@@ -62,12 +62,12 @@ extract_source_line :: (fn(input : String, row : usize) -> String)({
 });
 /// Build a parse-error `YoError` from a token (message + full span + source
 /// line, rendered by the shared renderer).
-make_parse_error :: (fn(tok : Token, message : String) -> YoError)(
+make_parse_error :: (fn(imm(tok) : Token, imm(message) : String) -> YoError)(
   format_error_message(tok, message)
 );
 /// Build a parse-error `YoError` without source context (end-of-input and
 /// internal errors): path-anchored, no snippet.
-make_parse_error_raw :: (fn(module_path : String, message : String) -> YoError)(
+make_parse_error_raw :: (fn(imm(module_path) : String, imm(message) : String) -> YoError)(
   format_raw_error(module_path, message)
 );
 // Per-process monotonic counter for AstExpr ids. Each Parser instance
@@ -84,7 +84,7 @@ make_parse_error_raw :: (fn(module_path : String, message : String) -> YoError)(
 /// token, plans/VALUES_BY_DEFAULT.md decision 33), and chains like
 /// `**i32` = `*(*(i32))`. `+` and the rest stay infix-only. The prefix
 /// dot (`.Variant`) has its own branch in parse_primary_end.
-_is_prefix_op_token :: (fn(t : Token) -> bool)(
+_is_prefix_op_token :: (fn(imm(t) : Token) -> bool)(
   (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "^") || (t.value == "&mut"))
 );
 /// The result of peeling a `:spec` suffix off a template-string interpolation.
@@ -117,7 +117,7 @@ _advance_body_origin :: (fn(pos : _TemplateBodyOrigin, b : u8) -> _TemplateBodyO
 /// its literal escapes decoded, so offsets into it are not file offsets).
 /// Empty when `tok` has no backtick in its source — a synthetic token — and
 /// the caller lexes the body text on its own.
-_template_body_origins :: (fn(tok : Token) -> ArrayList(_TemplateBodyOrigin))({
+_template_body_origins :: (fn(imm(tok) : Token) -> ArrayList(_TemplateBodyOrigin))({
   out := ArrayList(_TemplateBodyOrigin).new();
   bytes := tok.input;
   n := bytes.len();
@@ -172,9 +172,9 @@ impl(
   Parser,
   new : (
     fn(
-      input_string : String,
-      module_path : String,
-      exn : Exception
+      imm(input_string) : String,
+      imm(module_path) : String,
+      imm(exn) : Exception
     ) -> Self
   )({
     toks := tokenize(input_string, module_path, exn);
@@ -193,14 +193,14 @@ impl(
   /// interpolation bodies are parsed through this.
   new_span : (
     fn(
-      input_string : String,
-      module_path : String,
+      imm(input_string) : String,
+      imm(module_path) : String,
       start_byte : usize,
       end_byte : usize,
       base_row : usize,
       base_col : usize,
       base_char : usize,
-      exn : Exception
+      imm(exn) : Exception
     ) -> Self
   )({
     toks := tokenize_span(input_string, module_path, start_byte, end_byte, base_row, base_col, base_char, exn);
@@ -214,13 +214,13 @@ impl(
       next_expr_id : usize(0)
     )
   }),
-  get_tokens : (fn(self : Self) -> ArrayList(Token))(self.tokens),
-  alloc_id : (fn(inout(self) : Self) -> ExprId)({
+  get_tokens : (fn(imm(self) : Self) -> ArrayList(Token))(self.tokens),
+  alloc_id : (fn(mut(self) : Self) -> ExprId)({
     id := alloc_global_expr_id();
     self.next_expr_id = (self.next_expr_id + usize(1));
     id
   }),
-  make_syn_tok : (fn(inout(self) : Self, kind : TokenKind, value : String) -> Token)(
+  make_syn_tok : (fn(mut(self) : Self, kind : TokenKind, imm(value) : String) -> Token)(
     Token(
       kind : kind,
       value : intern_token_str(value),
@@ -231,7 +231,7 @@ impl(
       input : self.input_string
     )
   ),
-  make_unit_call : (fn(inout(self) : Self, ref_tok : Token) -> AstExpr)({
+  make_unit_call : (fn(mut(self) : Self, imm(ref_tok) : Token) -> AstExpr)({
     unit_tok := Token(
       kind : TokenKind.Identifier,
       value : intern_token_str(String.from(BK_TUPLE)),
@@ -244,7 +244,7 @@ impl(
     );
     .FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok)
   }),
-  skip_ws_fwd : (fn(inout(self) : Self, index : usize) -> usize)({
+  skip_ws_fwd : (fn(mut(self) : Self, index : usize) -> usize)({
     i := index;
     n := self.tokens.len();
     while(i < n, {
@@ -264,7 +264,7 @@ impl(
     });
     i
   }),
-  skip_ws_bwd : (fn(inout(self) : Self, index : usize) -> usize)({
+  skip_ws_bwd : (fn(mut(self) : Self, index : usize) -> usize)({
     i := index;
     while(true, {
       match(
@@ -286,7 +286,7 @@ impl(
     });
     i
   }),
-  range_has_newline : (fn(inout(self) : Self, start : usize, end : usize) -> bool)({
+  range_has_newline : (fn(mut(self) : Self, start : usize, end : usize) -> bool)({
     nl_str := String.from("\n");
     i := start;
     result := false;
@@ -307,7 +307,7 @@ impl(
     });
     result
   }),
-  is_op_at_line_start : (fn(inout(self) : Self, op_idx : usize) -> bool)({
+  is_op_at_line_start : (fn(mut(self) : Self, op_idx : usize) -> bool)({
     if(op_idx == usize(0), {
       return(true);
     });
@@ -360,7 +360,7 @@ impl(
     });
     result
   }),
-  is_parenthesized_expr : (fn(inout(self) : Self, start : usize, end : usize) -> bool)({
+  is_parenthesized_expr : (fn(mut(self) : Self, start : usize, end : usize) -> bool)({
     s := self.skip_ws_fwd(start);
     e := self.skip_ws_bwd(end);
     s_tok := match(
@@ -392,7 +392,7 @@ impl(
     );
     match_idx == e
   }),
-  parse_template_string : (fn(inout(self) : Self, tok : Token, index : usize, exn : Exception) -> ParseResult)({
+  parse_template_string : (fn(mut(self) : Self, imm(tok) : Token, index : usize, imm(exn) : Exception) -> ParseResult)({
     self.has_template_string = true;
     template_value := tok.value;
     // Byte-wise: every delimiter here is ASCII, and a UTF-8 multi-byte
@@ -466,10 +466,10 @@ impl(
     // `.to_string()` dispatch then saw garbage and failed to unify).
     make_ts_call :: (
       fn(
-        e : AstExpr,
-        d_tok : Token,
-        ts_tok : Token,
-        outer_tok : Token,
+        imm(e) : AstExpr,
+        imm(d_tok) : Token,
+        imm(ts_tok) : Token,
+        imm(outer_tok) : Token,
         id_ts_atom : usize,
         id_dot_atom : usize,
         id_prop : usize,
@@ -488,11 +488,11 @@ impl(
     // so wrapping it in double quotes needs no escaping.
     make_ts_spec_call :: (
       fn(
-        e : AstExpr,
-        d_tok : Token,
-        fmt_tok : Token,
-        outer_tok : Token,
-        spec_tok : Token,
+        imm(e) : AstExpr,
+        imm(d_tok) : Token,
+        imm(fmt_tok) : Token,
+        imm(outer_tok) : Token,
+        imm(spec_tok) : Token,
         id_fmt_atom : usize,
         id_dot_atom : usize,
         id_prop : usize,
@@ -528,7 +528,7 @@ impl(
     // `substring` takes BYTE offsets since D4, so feeding it these rune
     // indices would cut a template string like `${名前:>8}` apart in the
     // middle of a codepoint (and panic on the non-boundary).
-    _peel_spec :: (fn(text : String) -> _SpecSplit)({
+    _peel_spec :: (fn(imm(text) : String) -> _SpecSplit)({
       tc := ArrayList(rune).new();
       // `toff(i)` is the byte offset rune `i` starts at.
       toff := ArrayList(usize).new();
@@ -709,10 +709,10 @@ impl(
   }),
   parse_fn_args : (
     fn(
-      inout(self) : Self,
+      mut(self) : Self,
       index : usize,
       has_whitespace : bool,
-      exn : Exception
+      imm(exn) : Exception
     ) -> FnArgsResult
   )({
     args := ArrayList(AstExpr).new();
@@ -773,11 +773,11 @@ impl(
   }),
   parse_fn_call : (
     fn(
-      inout(self) : Self,
-      func : AstExpr,
+      mut(self) : Self,
+      imm(func) : AstExpr,
       index : usize,
       has_whitespace : bool,
-      exn : Exception
+      imm(exn) : Exception
     ) -> ParseResult
   )({
     fn_tok := ast_expr_token(func);
@@ -787,7 +787,7 @@ impl(
       index : fa.index
     )
   }),
-  parse_paren_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_paren_expr : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -909,7 +909,7 @@ impl(
       index : (idx + usize(1))
     )
   }),
-  parse_array_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_array_expr : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -1005,7 +1005,7 @@ impl(
       index : (idx + usize(1))
     )
   }),
-  is_valid_struct_field_arg : (fn(inout(self) : Self, expr : AstExpr) -> bool)(
+  is_valid_struct_field_arg : (fn(mut(self) : Self, imm(expr) : AstExpr) -> bool)(
     match(
       expr,
       .Atom(_, _) => true,
@@ -1027,7 +1027,7 @@ impl(
       )
     )
   ),
-  parse_curly_bracket_expr : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_curly_bracket_expr : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
       .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
@@ -1240,7 +1240,7 @@ impl(
   /// `end_of_input` (no match: a synthetic token) reads as NOT at this
   /// level, the conservative stop.
   _op_token_at_rhs_depth : (
-    fn(self : Self, rhs_start : usize, target : Token) -> bool
+    fn(imm(self) : Self, rhs_start : usize, imm(target) : Token) -> bool
   )({
     (depth : usize) = usize(0);
     (answer : bool) = false;
@@ -1282,13 +1282,13 @@ impl(
   }),
   parse_left_assoc_op : (
     fn(
-      inout(self) : Self,
-      primary : AstExpr,
-      op_tok : Token,
-      rhs : AstExpr,
+      mut(self) : Self,
+      imm(primary) : AstExpr,
+      imm(op_tok) : Token,
+      imm(rhs) : AstExpr,
       rhs_start : usize,
       index : usize,
-      exn : Exception
+      imm(exn) : Exception
     ) -> ParseResult
   )({
     // rhs is a FnCall AND isInfix AND its
@@ -1434,7 +1434,7 @@ impl(
       self.parse_primary_end(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok), simple_args, true, op_tok), index, exn)
     })
   }),
-  parse_primary : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_primary : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(
       self.tokens.get(idx),
@@ -1455,10 +1455,10 @@ impl(
   }),
   parse_primary_end : (
     fn(
-      inout(self) : Self,
-      primary_expr : AstExpr,
+      mut(self) : Self,
+      imm(primary_expr) : AstExpr,
       index : usize,
-      exn : Exception
+      imm(exn) : Exception
     ) -> ParseResult
   )({
     orig_idx := index;
@@ -1647,7 +1647,7 @@ impl(
   /// True if the token at `idx` can start a prefix operand (a primary or
   /// another prefix operator). Terminators/commas/infix-only operators
   /// return false, so `(!)` in `(not) :: (!)` stays an operator ATOM.
-  token_starts_prefix_operand : (fn(inout(self) : Self, idx : usize) -> bool)(
+  token_starts_prefix_operand : (fn(mut(self) : Self, idx : usize) -> bool)(
     match(
       self.tokens.get(idx),
       .None => false,
@@ -1662,7 +1662,7 @@ impl(
   /// and immediate dot-chains) — never an infix chain, so `-a.b(c) + d`
   /// binds `a.b(c)` and `+ d` applies to the prefix result. A nested bare
   /// prefix operator recurses: `**i32` = `*(*(i32))`, `- -1` = `-(-(1))`.
-  parse_prefix_operand : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_prefix_operand : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, exn);
     (cur_expr : AstExpr) = pr.expr;
@@ -1727,7 +1727,7 @@ impl(
     });
     ParseResult(expr : cur_expr, index : cur_idx)
   }),
-  parse_expression : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+  parse_expression : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, exn);
     // PREFIX_OPERATOR_OPERAND_RULE.md Rule 1: a BARE prefix-capable
@@ -1761,7 +1761,7 @@ impl(
     });
     self.parse_primary_end(pr.expr, pr.index, exn)
   }),
-  do_parse : (fn(inout(self) : Self, exn : Exception) -> unit)({
+  do_parse : (fn(mut(self) : Self, imm(exn) : Exception) -> unit)({
     idx := usize(0);
     n := self.tokens.len();
     exprs := ArrayList(AstExpr).new();
@@ -1816,11 +1816,11 @@ impl(
   /// `import("std/fmt/to_string").to_string()`, which fails as
   /// `Module field "to_string" not found in module type`
   /// (issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md).
-  get_expression_program : (fn(inout(self) : Self, exn : Exception) -> ArrayList(AstExpr))({
+  get_expression_program : (fn(mut(self) : Self, imm(exn) : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
     self.program
   }),
-  get_program : (fn(inout(self) : Self, exn : Exception) -> ArrayList(AstExpr))({
+  get_program : (fn(mut(self) : Self, imm(exn) : Exception) -> ArrayList(AstExpr))({
     self.do_parse(exn);
     if(self.has_template_string, {
       import_tok := Token(
@@ -1874,9 +1874,9 @@ impl(
 /// Parse Yo source code and return the top-level expression list.
 parse :: (
   fn(
-    input_string : String,
-    module_path : String,
-    exn : Exception
+    imm(input_string) : String,
+    imm(module_path) : String,
+    imm(exn) : Exception
   ) -> ArrayList(AstExpr)
 )({
   p := Parser.new(input_string, module_path, exn);
@@ -1916,8 +1916,8 @@ parse :: (
 ///
 generate_expr_from_code :: (
   fn(
-    code : String,
-    exn : Exception
+    imm(code) : String,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
@@ -1963,8 +1963,8 @@ generate_expr_from_code :: (
 ///
 generate_exprs_from_code :: (
   fn(
-    code : String,
-    exn : Exception
+    imm(code) : String,
+    imm(exn) : Exception
   ) -> ArrayList(AstExpr)
 )({
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;

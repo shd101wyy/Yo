@@ -22,7 +22,7 @@ import("std/fmt");
 { format_error_message } :: import("../../error.yo");
 // Parses a char literal token value (e.g., `'a'`, `'\n'`) to its u32 code point.
 // tok_value includes surrounding single quotes.
-parse_char_literal :: (fn(tok_value : String, tok : Token, exn : Exception) -> u32)({
+parse_char_literal :: (fn(imm(tok_value) : String, imm(tok) : Token, imm(exn) : Exception) -> u32)({
   // b1 is the byte at index 1 (after the opening `'`)
   b1 := tok_value.byte_at(usize(1));
   cond(
@@ -75,10 +75,10 @@ parse_char_literal :: (fn(tok_value : String, tok : Token, exn : Exception) -> u
 });
 evaluate_char_literal :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

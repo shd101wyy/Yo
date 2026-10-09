@@ -213,12 +213,12 @@ test("Url UrlError to_string", {
 // The parse error a URL produced, or `.None` if it parsed. Returning the
 // MESSAGE pins the variant AND the byte offset — the parser has four other
 // rejections, so "did it throw" would pass for the wrong reason.
-_parse_err :: (fn(src : String) -> Option(String))(
+_parse_err :: (fn(imm(src) : String) -> Option(String))(
   // D13: `Url.parse` returns a Result, so capturing the reason no longer
   // needs an Exception handler that unwinds out of the helper.
   match(Url.parse(src), .Ok(_) => Option(String).None, .Err(e) => Option(String).Some(e.to_string()))
 );
-_assert_invalid_at :: (fn(src : String, at : usize, label : String) -> unit)({
+_assert_invalid_at :: (fn(imm(src) : String, at : usize, imm(label) : String) -> unit)({
   want := (String.from("URL error: invalid character at position ") + at.to_string());
   match(
     _parse_err(src),
@@ -280,7 +280,7 @@ test("Url parse still accepts every legal URI byte", {
 // ============================================================================
 // join — RFC 3986 §5.3 reference resolution
 // ============================================================================
-_joined :: (fn(base : String, reference : String) -> String)(
+_joined :: (fn(imm(base) : String, imm(reference) : String) -> String)(
   Url.parse(base).unwrap().join(reference).unwrap().to_string()
 );
 test("Url.join: the RFC 3986 §5.4.1 normal examples", {

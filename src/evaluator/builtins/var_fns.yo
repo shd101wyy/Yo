@@ -33,11 +33,11 @@ _VarArg :: struct(env : Environment, variable : Variable);
 /// argument alone would answer about the temp.
 _introspected_variable :: (
   fn(
-    expr : AstExpr,
-    builtin_name : String,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(builtin_name) : String,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> Option(_VarArg)
 )({
   var_arg := match(
@@ -84,7 +84,7 @@ _introspected_variable :: (
     .None => Option(_VarArg).None
   )
 });
-_set_bool_result :: (fn(expr : AstExpr, env : Environment, b : bool, ctx : EvalContext) -> AstExpr)({
+_set_bool_result :: (fn(imm(expr) : AstExpr, imm(env) : Environment, b : bool, imm(ctx) : EvalContext) -> AstExpr)({
   out_info := new_expr_info(env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(b));
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -92,10 +92,10 @@ _set_bool_result :: (fn(expr : AstExpr, env : Environment, b : bool, ctx : EvalC
 });
 evaluate_yo_var_is_owning_the_rc_value :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )(
   match(
@@ -106,7 +106,7 @@ evaluate_yo_var_is_owning_the_rc_value :: (
 );
 /// True when `variable` shares its RC value with another binding: it points
 /// at one, or a variable in scope points at it.
-_has_other_aliases :: (fn(variable : Variable, cur_env : Environment) -> bool)({
+_has_other_aliases :: (fn(imm(variable) : Variable, imm(cur_env) : Environment) -> bool)({
   if(variable.is_owning_the_same_rc_value_as.is_some(), {
     return(true);
   });
@@ -140,10 +140,10 @@ _has_other_aliases :: (fn(variable : Variable, cur_env : Environment) -> bool)({
 });
 evaluate_yo_var_has_other_aliases :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )(
   match(

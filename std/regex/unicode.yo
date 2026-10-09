@@ -31,7 +31,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { CharRange } :: import("./node.yo");
-_add_letter_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_letter_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   // Latin letters
   rs.push(CharRange(low : u32(0x0041), high : u32(0x005A)));
   rs.push(CharRange(low : u32(0x0061), high : u32(0x007A)));
@@ -79,7 +79,7 @@ _add_letter_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   // CJK Extension B
   rs.push(CharRange(low : u32(0x20000), high : u32(0x2A6DF)));
 });
-_add_uppercase_letter_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_uppercase_letter_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0041), high : u32(0x005A)));
   rs.push(CharRange(low : u32(0x00C0), high : u32(0x00D6)));
   rs.push(CharRange(low : u32(0x00D8), high : u32(0x00DE)));
@@ -91,7 +91,7 @@ _add_uppercase_letter_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x03A3), high : u32(0x03A9)));
   rs.push(CharRange(low : u32(0x0410), high : u32(0x042F)));
 });
-_add_lowercase_letter_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_lowercase_letter_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0061), high : u32(0x007A)));
   rs.push(CharRange(low : u32(0x00DF), high : u32(0x00F6)));
   rs.push(CharRange(low : u32(0x00F8), high : u32(0x00FF)));
@@ -101,7 +101,7 @@ _add_lowercase_letter_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x03B1), high : u32(0x03C9)));
   rs.push(CharRange(low : u32(0x0430), high : u32(0x044F)));
 });
-_add_number_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_number_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   // ASCII digits
   rs.push(CharRange(low : u32(0x0030), high : u32(0x0039)));
   // Superscript/subscript digits
@@ -116,7 +116,7 @@ _add_number_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   // Fullwidth digits
   rs.push(CharRange(low : u32(0xFF10), high : u32(0xFF19)));
 });
-_add_digit_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_digit_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0030), high : u32(0x0039)));
   rs.push(CharRange(low : u32(0x0660), high : u32(0x0669)));
   rs.push(CharRange(low : u32(0x06F0), high : u32(0x06F9)));
@@ -125,7 +125,7 @@ _add_digit_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0A66), high : u32(0x0A6F)));
   rs.push(CharRange(low : u32(0xFF10), high : u32(0xFF19)));
 });
-_add_punctuation_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_punctuation_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0021), high : u32(0x0023)));
   rs.push(CharRange(low : u32(0x0025), high : u32(0x002A)));
   rs.push(CharRange(low : u32(0x002C), high : u32(0x002F)));
@@ -149,7 +149,7 @@ _add_punctuation_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0xFF1A), high : u32(0xFF1B)));
   rs.push(CharRange(low : u32(0xFF1F), high : u32(0xFF20)));
 });
-_add_symbol_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_symbol_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0024), high : u32(0x0024)));
   rs.push(CharRange(low : u32(0x002B), high : u32(0x002B)));
   rs.push(CharRange(low : u32(0x003C), high : u32(0x003E)));
@@ -166,7 +166,7 @@ _add_symbol_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x2600), high : u32(0x26FF)));
   rs.push(CharRange(low : u32(0x2700), high : u32(0x27BF)));
 });
-_add_separator_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_separator_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0020), high : u32(0x0020)));
   rs.push(CharRange(low : u32(0x00A0), high : u32(0x00A0)));
   rs.push(CharRange(low : u32(0x1680), high : u32(0x1680)));
@@ -176,7 +176,7 @@ _add_separator_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x205F), high : u32(0x205F)));
   rs.push(CharRange(low : u32(0x3000), high : u32(0x3000)));
 });
-_add_mark_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_mark_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   // Combining diacritical marks
   rs.push(CharRange(low : u32(0x0300), high : u32(0x036F)));
   // Devanagari dependent vowel signs
@@ -189,7 +189,7 @@ _add_mark_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   // CJK compatibility ideographs supplement
   rs.push(CharRange(low : u32(0xFE20), high : u32(0xFE2F)));
 });
-_add_other_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_other_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   // C0 controls
   rs.push(CharRange(low : u32(0x0000), high : u32(0x001F)));
   // Delete
@@ -202,7 +202,7 @@ _add_other_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0xFDD0), high : u32(0xFDEF)));
   rs.push(CharRange(low : u32(0xFFFE), high : u32(0xFFFF)));
 });
-_add_latin_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_latin_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0041), high : u32(0x005A)));
   rs.push(CharRange(low : u32(0x0061), high : u32(0x007A)));
   rs.push(CharRange(low : u32(0x00C0), high : u32(0x00D6)));
@@ -210,7 +210,7 @@ _add_latin_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x00F8), high : u32(0x024F)));
   rs.push(CharRange(low : u32(0x1E00), high : u32(0x1EFF)));
 });
-_add_han_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_han_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   // CJK Unified Ideographs
   rs.push(CharRange(low : u32(0x4E00), high : u32(0x9FFF)));
   // CJK Extension A
@@ -224,7 +224,7 @@ _add_han_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   // Kangxi Radicals
   rs.push(CharRange(low : u32(0x2F00), high : u32(0x2FDF)));
 });
-_add_emoji_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_emoji_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   // Miscellaneous Symbols
   rs.push(CharRange(low : u32(0x2600), high : u32(0x26FF)));
   // Dingbats
@@ -241,7 +241,7 @@ _add_emoji_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x1FA00), high : u32(0x1FA6F)));
   rs.push(CharRange(low : u32(0x1FA70), high : u32(0x1FAFF)));
 });
-_add_whitespace_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
+_add_whitespace_ranges :: (fn(mut(rs) : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x0009), high : u32(0x000D)));
   rs.push(CharRange(low : u32(0x0020), high : u32(0x0020)));
   rs.push(CharRange(low : u32(0x0085), high : u32(0x0085)));
@@ -268,7 +268,7 @@ _add_whitespace_ranges :: (fn(inout(rs) : ArrayList(CharRange)) -> unit)({
 /// the caller (`compiler.yo`, once per `\p` in the pattern) owns and may sort
 /// or extend them. Ranges are inclusive on both ends and are NOT guaranteed
 /// sorted or disjoint, so a consumer must not binary-search them.
-unicode_property_ranges :: (fn(name : String) -> Option(ArrayList(CharRange)))({
+unicode_property_ranges :: (fn(imm(name) : String) -> Option(ArrayList(CharRange)))({
   rs := ArrayList(CharRange).new();
   (found : bool) = true;
   cond(

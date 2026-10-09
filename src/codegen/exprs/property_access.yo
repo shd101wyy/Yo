@@ -30,7 +30,7 @@
 { lookup_io_builtin_struct_field } :: import("../../expr_info.yo");
 { dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
 /// True if `s` is all ASCII digits (non-empty).
-_all_digits :: (fn(s : String) -> bool)({
+_all_digits :: (fn(imm(s) : String) -> bool)({
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
   // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
   n := s.len();
@@ -58,16 +58,16 @@ _stars :: (fn(n : usize) -> String)({
   out
 });
 /// The C function name for a func id (registered cName, else the id itself).
-_c_function_name :: (fn(context : FunctionGenerationContext, func_id : String) -> String)(
+_c_function_name :: (fn(imm(context) : FunctionGenerationContext, imm(func_id) : String) -> String)(
   match(context.base.get_function_entry(func_id.clone()), .Some(e) => e.c_name, .None => func_id)
 );
 /// Whether `object_value` is a TypeValue wrapping an enum type.
-_is_typevalue_enum :: (fn(object_value : Option(EvalValue)) -> bool)(
+_is_typevalue_enum :: (fn(imm(object_value) : Option(EvalValue)) -> bool)(
   match(object_value, .Some(v) => match(v, .TypeVal(t) => is_enum_type(t), _ => false), .None => false)
 );
 /// Enum field access: nullable-pointer optimization returns the pointer; else
 /// resolve `object.data.<Variant>.<field>` by locating the variant declaring it.
-_enum_field_access :: (fn(object_type : TypeValue, object_code : String, field_name : String, context : FunctionGenerationContext) -> String)(
+_enum_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : String, imm(field_name) : String, imm(context) : FunctionGenerationContext) -> String)(
   match(
     can_optimize_as_nullable_pointer(object_type),
     .Some(_) => object_code,
@@ -121,7 +121,7 @@ _enum_field_access :: (fn(object_type : TypeValue, object_code : String, field_n
   )
 );
 /// `EnumType.Variant` (fieldless variant) → a C compound literal with the tag.
-_typevalue_enum_access :: (fn(object_value : Option(EvalValue), field_name : String, context : FunctionGenerationContext) -> String)(
+_typevalue_enum_access :: (fn(imm(object_value) : Option(EvalValue), imm(field_name) : String, imm(context) : FunctionGenerationContext) -> String)(
   match(
     object_value,
     .Some(v) => match(
@@ -175,7 +175,7 @@ _typevalue_enum_access :: (fn(object_value : Option(EvalValue), field_name : Str
 );
 /// Pointer/reference field access: dereference to the value type (extra level
 /// for ref-semantics objects), then `->`/`.` as appropriate.
-_ptr_field_access :: (fn(object_type : TypeValue, object_code : String, field_name : String) -> String)(
+_ptr_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : String, imm(field_name) : String) -> String)(
   if(field_name == "*", {
     out := String.from("(*");
     out.push_string(object_code);
@@ -232,7 +232,7 @@ _ptr_field_access :: (fn(object_type : TypeValue, object_code : String, field_na
   })
 );
 /// Tuple field access: numeric `._N` directly, else label → positional index.
-_tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_name : String) -> String)(
+_tuple_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : String, imm(field_name) : String) -> String)(
   if(_all_digits(field_name), {
     out := object_code.clone();
     out.push_str("._");
@@ -270,7 +270,7 @@ _tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_
 );
 /// Generate field access for structs, objects, enums, pointers, tuples, dyn,
 /// newtypes, and module namespaces.
-generate_field_access :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_field_access :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: field access not evaluated */")));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   if(args.len() != usize(2), {

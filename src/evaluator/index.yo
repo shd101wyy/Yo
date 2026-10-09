@@ -49,8 +49,8 @@ import("std/fmt");
 // signature, so the user-supplied `(path) -> Option(EvalValue)` loader is
 // stashed here and adapted by `_evaluator_ctx_load_module` (same pattern as
 // main.yo's `g_demand_loader`).
-(g_evaluator_load_fn : Option((fn(path : String) -> Option(EvalValue)))) = .None;
-_evaluator_ctx_load_module :: (fn(path : String) -> LoadModuleResult)(
+(g_evaluator_load_fn : Option((fn(imm(path) : String) -> Option(EvalValue)))) = .None;
+_evaluator_ctx_load_module :: (fn(imm(path) : String) -> LoadModuleResult)(
   match(
     g_evaluator_load_fn,
     .Some(f) =>
@@ -74,10 +74,10 @@ _evaluator_ctx_load_module :: (fn(path : String) -> LoadModuleResult)(
     )
   )
 );
-(g_evaluator_ctx_loader : Option((fn(path : String) -> LoadModuleResult))) = .None;
+(g_evaluator_ctx_loader : Option((fn(imm(path) : String) -> LoadModuleResult))) = .None;
 // Wire the slot (mirrors main.yo's `_demand_loader_init`).
 _evaluator_loader_init := (fn() -> bool)({
-  g_evaluator_ctx_loader = Option((fn(path : String) -> LoadModuleResult)).Some(
+  g_evaluator_ctx_loader = Option((fn(imm(path) : String) -> LoadModuleResult)).Some(
     _evaluator_ctx_load_module
   );
   true
@@ -103,7 +103,7 @@ is_comment_token_kind :: (fn(k : TokenKind) -> bool)(
 /// deliberately excluded so that documentation that merely mentions an
 /// attribute does not trigger it.
 ///
-has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> bool)({
+has_comment_attribute :: (fn(imm(tokens) : ArrayList(Token), imm(attribute) : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := tokens.len();
@@ -154,11 +154,11 @@ impl(
   /// that a module could not be found.
   new : (
     fn(
-      module_path : String,
-      std_path : String,
-      load_module_fn : (fn(path : String) -> Option(EvalValue)),
-      input_string : String,
-      exn : Exception
+      imm(module_path) : String,
+      imm(std_path) : String,
+      load_module_fn : (fn(imm(path) : String) -> Option(EvalValue)),
+      imm(input_string) : String,
+      imm(exn) : Exception
     ) -> Self
   )({
     // --- Parse ---
@@ -265,11 +265,11 @@ impl(
       env : final_env
     )
   }),
-  get_program : (fn(self : Self) -> ArrayList(AstExpr))(self.program),
-  get_tokens : (fn(self : Self) -> ArrayList(Token))(self.tokens),
-  get_module_value : (fn(self : Self) -> Option(EvalValue))(self.module_value),
-  get_module_error : (fn(self : Self) -> Option(String))(self.module_error),
-  get_env : (fn(self : Self) -> Option(Environment))(self.env)
+  get_program : (fn(imm(self) : Self) -> ArrayList(AstExpr))(self.program),
+  get_tokens : (fn(imm(self) : Self) -> ArrayList(Token))(self.tokens),
+  get_module_value : (fn(imm(self) : Self) -> Option(EvalValue))(self.module_value),
+  get_module_error : (fn(imm(self) : Self) -> Option(String))(self.module_error),
+  get_env : (fn(imm(self) : Self) -> Option(Environment))(self.env)
 );
 // ---------------------------------------------------------------------------
 // Impl-registry stub re-exports
@@ -277,9 +277,9 @@ impl(
 // No-op stubs; kept so callers of the impl-registry cleanup API can
 // safely call them.
 /// No-op stub.
-clear_impls_from_module :: (fn(_module_path : String) -> unit)(());
+clear_impls_from_module :: (fn(imm(_module_path) : String) -> unit)(());
 /// No-op stub.
-clear_generic_impls_from_module :: (fn(_module_path : String) -> unit)(());
+clear_generic_impls_from_module :: (fn(imm(_module_path) : String) -> unit)(());
 /// No-op stub.
 clear_all_global_impl_state :: (fn() -> unit)(());
 export(has_comment_attribute, Evaluator);

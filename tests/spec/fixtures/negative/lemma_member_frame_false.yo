@@ -5,7 +5,7 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
 member :: ghost_fn(
-  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+  (fn(imm(xs) : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
     cond(
       (n == usize(0)) => false,
       true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
@@ -17,8 +17,8 @@ member :: ghost_fn(
 member_frame_too_far :: ghost_fn(
   (
     fn(
-      a : ArrayList(i32),
-      b : ArrayList(i32),
+      imm(a) : ArrayList(i32),
+      imm(b) : ArrayList(i32),
       n : usize,
       v : i32,
       requires(n < a.len(), n < b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
@@ -31,8 +31,8 @@ member_frame_too_far :: ghost_fn(
 member_frame :: ghost_fn(
   (
     fn(
-      a : ArrayList(i32),
-      b : ArrayList(i32),
+      imm(a) : ArrayList(i32),
+      imm(b) : ArrayList(i32),
       n : usize,
       v : i32,
       requires(n <= a.len(), n <= b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
@@ -49,7 +49,7 @@ member_frame :: ghost_fn(
 
 // REFUTED at the call: nothing says a and b agree on their prefix.
 misuse :: (
-  fn(a : ArrayList(i32), b : ArrayList(i32), v : i32, requires(a.len() == b.len()), ensures(true)) -> unit
+  fn(imm(a) : ArrayList(i32), imm(b) : ArrayList(i32), v : i32, requires(a.len() == b.len()), ensures(true)) -> unit
 )({
   ghost(member_frame(a, b, a.len(), v));
 });

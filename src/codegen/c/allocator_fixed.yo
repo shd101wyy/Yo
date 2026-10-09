@@ -25,7 +25,7 @@
 /// Emit the `#define __yo_malloc __yo_fixed_malloc` family and the external
 /// prototypes into the header section. Mirrors the shape of the mimalloc /
 /// system arms in `collection.yo`.
-emit_fixed_allocator_defines :: (fn(emitter : Emitter) -> unit)({
+emit_fixed_allocator_defines :: (fn(imm(emitter) : Emitter) -> unit)({
   emitter.emit_header_string_line(
     `
 // Fixed-region allocator (TLSF): every allocation is served from ONE
@@ -47,7 +47,7 @@ void* __yo_fixed_aligned_alloc(size_t alignment, size_t size);`
 /// Emit the allocator implementation + the fixed-arm `__yo_alloc_fail` into
 /// the code section. `heap_bytes` is validated upstream (granule-aligned,
 /// 64 KiB..4 GiB) and becomes the region size.
-emit_fixed_allocator_impl :: (fn(context : CodeGenContext) -> unit)({
+emit_fixed_allocator_impl :: (fn(imm(context) : CodeGenContext) -> unit)({
   em := context.emitter;
   debug_heap := context.debug_heap;
   // `static` in library mode — see the non-fixed arm in c/collection.yo.

@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("std/spec/numeric");
 
 test("NonZero(i32) is a usable parameter type; check_non_zero is the runtime gate", {
-  safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)(num / denom);
+  safe_div :: (fn(num : i32, imm(denom) : NonZero(i32)) -> i32)(num / denom);
   match(
     check_non_zero(i32(2)),
     .Some(d) => assert(safe_div(i32(10), d) == i32(5), "10/2 == 5 through the gate"),
@@ -51,7 +51,7 @@ test("NonZero(i32) is a usable parameter type; check_non_zero is the runtime gat
 });
 
 test("Bounded(T, lo, hi) gates both ends at runtime", {
-  in_range :: (fn(x : Bounded(i32, i32(0), i32(100))) -> i32)(x);
+  in_range :: (fn(imm(x) : Bounded(i32, i32(0), i32(100))) -> i32)(x);
   match(
     check_bounded(i32(50), i32(0), i32(100)),
     .Some(v) => assert(in_range(v) == i32(50), "50 in [0,100]"),
@@ -65,9 +65,9 @@ test("Bounded(T, lo, hi) gates both ends at runtime", {
 });
 
 test("Positive / Negative / NonNegative gates pass and reject correctly", {
-  pos :: (fn(x : Positive(i32)) -> i32)(x);
-  neg :: (fn(x : Negative(i32)) -> i32)(x);
-  nn :: (fn(x : NonNegative(i32)) -> i32)(x);
+  pos :: (fn(imm(x) : Positive(i32)) -> i32)(x);
+  neg :: (fn(imm(x) : Negative(i32)) -> i32)(x);
+  nn :: (fn(imm(x) : NonNegative(i32)) -> i32)(x);
   match(
     check_positive(i32(7)),
     .Some(v) => assert(pos(v) == i32(7), "Positive(i32) passthrough"),
@@ -91,8 +91,8 @@ test("Positive / Negative / NonNegative gates pass and reject correctly", {
 });
 
 test("Even / Odd gates partition the integers", {
-  e :: (fn(x : Even(i32)) -> i32)(x);
-  o :: (fn(x : Odd(i32)) -> i32)(x);
+  e :: (fn(imm(x) : Even(i32)) -> i32)(x);
+  o :: (fn(imm(x) : Odd(i32)) -> i32)(x);
   match(
     check_even(i32(4)),
     .Some(v) => assert(e(v) == i32(4), "Even(i32) passthrough"),
@@ -114,7 +114,7 @@ test("NonEmpty(T) is the bare refinement (no predicate) usable in parameter posi
   // Phase 0 note kept: a bare refinement erases to T, so any value passes
   // through; attach a collection predicate via Refine(T, p) for real
   // element checks.
-  echo :: (fn(x : NonEmpty(i32)) -> i32)(x);
+  echo :: (fn(imm(x) : NonEmpty(i32)) -> i32)(x);
   assert(echo(i32(42)) == i32(42), "NonEmpty(i32) passthrough");
 });
 
@@ -126,7 +126,7 @@ test("Refine(T, p) is the general constructor and composes over a refinement", {
   // verifier-side chain semantics (the nested predicates act as the
   // conjunction) are proven in tests/internal/verifier_spec_refine.test.yo.
   OddNonZero :: Refine(NonZero(i32), odd_i32);
-  gated :: (fn(x : Refine(i32, odd_i32)) -> i32)(x);
+  gated :: (fn(imm(x) : Refine(i32, odd_i32)) -> i32)(x);
   match(
     check_non_zero(i32(3)),
     .Some(nz3) => {
@@ -141,7 +141,7 @@ test("unchecked is the trusted cast (no gate, no proof)", {
   non_zero_i32 :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
   v := i32(9);
   blind := unchecked(non_zero_i32, v, &v);
-  use :: (fn(x : NonZero(i32)) -> i32)(i32(81) / x);
+  use :: (fn(imm(x) : NonZero(i32)) -> i32)(i32(81) / x);
   assert(use(blind) == i32(9), "9/9 == 1 — the caller vouches for the predicate");
 });
 

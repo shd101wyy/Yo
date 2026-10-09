@@ -78,7 +78,7 @@ derive(Token, Eq(Token));
 impl(
   Token,
   Clone(
-    clone : (fn(inout(self) : Self) -> Self)(self)
+    clone : (fn(mut(self) : Self) -> Self)(self)
   )
 );
 is_operator_char :: (fn(c : rune) -> bool)(
@@ -113,7 +113,7 @@ is_operator_char :: (fn(c : rune) -> bool)(
 /// and the quote-layer splice markers. (Trait declarations are not gated:
 /// operator dispatch resolves these as builtins before any trait lookup,
 /// so a trait field named e.g. `(&&)` is unreachable, not unsound.)
-is_reserved_operator_name :: (fn(name : String) -> bool)(
+is_reserved_operator_name :: (fn(imm(name) : String) -> bool)(
   (name == "=") || (name == ":=") || (name == "::") || (name == ":") || (name == "=>") || (name == "->") || (name == "<:") || (name == "?=") || (name == "&&") || (name == "||") || (name == "#") || (name == "...#") || (name == "..") || (name == "..=") || (name == "...") || (name == "==>")
 );
 /// Plain-named BUILTIN dispatch names. Any call spelled with one of these
@@ -135,7 +135,7 @@ is_reserved_operator_name :: (fn(name : String) -> bool)(
 /// snake_case synonyms (`type_of` `size_of` `align_of` `type_id`) and the
 /// `addr_of` address-of builtin are on the first line
 /// (plans/VALUES_BY_DEFAULT.md V3b Generation A).
-is_reserved_builtin_binding_name :: (fn(name : String) -> bool)(
+is_reserved_builtin_binding_name :: (fn(imm(name) : String) -> bool)(
   (name == "type_of") || (name == "size_of") || (name == "align_of") || (name == "type_id") || (name == "addr_of") ||
     (name == "runtime") || (name == "unwind") || (name == "recur") || (name == "consume")
     ||
@@ -166,7 +166,7 @@ is_identifier_continue :: (fn(c : rune) -> bool)(
   is_identifier_start(c) || c.is_digit()
 );
 /// True iff every char of `s` is an operator char.
-string_is_operator :: (fn(s : String) -> bool)({
+string_is_operator :: (fn(imm(s) : String) -> bool)({
   n := s.len();
   cond(
     // Vacuously true for the empty string.
@@ -231,7 +231,7 @@ string_is_operator :: (fn(s : String) -> bool)({
 });
 /// True iff `s` is a valid identifier under the regex
 /// `^[_a-zA-Z\xA0-￿][_a-zA-Z0-9\xA0-￿]*$`.
-is_valid_identifier :: (fn(s : String) -> bool)({
+is_valid_identifier :: (fn(imm(s) : String) -> bool)({
   chars := ArrayList(rune).new();
   {
     c_iter := s.chars();
@@ -280,7 +280,7 @@ is_valid_identifier :: (fn(s : String) -> bool)({
 // clones fall back to memcmp. The hash+lookup is paid once per TOKEN,
 // the savings on every later compare.
 g_token_intern := HashMap(String, String).new();
-intern_token_str :: (fn(s : String) -> String)(
+intern_token_str :: (fn(imm(s) : String) -> String)(
   match(
     g_token_intern.get(s),
     .Some(canonical) => canonical,
@@ -316,7 +316,7 @@ raii_token :: (fn() -> Token)(
     input : String.from("drop")
   )
 );
-find_matching_bracket :: (fn(tokens : ArrayList(Token), start : usize) -> Option(usize))({
+find_matching_bracket :: (fn(imm(tokens) : ArrayList(Token), start : usize) -> Option(usize))({
   n := tokens.len();
   if(start >= n, {
     return(.None);

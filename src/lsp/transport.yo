@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
 /// the `exit` notification terminate a server). A malformed frame
 /// (headers without Content-Length, or EOF mid-frame) throws.
 read_lsp_message :: (
-  fn(reader : BufReader(Stdin), io : Io, exn : Exception) -> Option(String)
+  fn(imm(reader) : BufReader(Stdin), io : Io, imm(exn) : Exception) -> Option(String)
 )({
   (content_len : usize) = usize(0);
   (saw_header : bool) = false;
@@ -99,7 +99,7 @@ read_lsp_message :: (
 /// The Content-Length is the BYTE length of the body, not the character
 /// count — a multi-byte diagnostic message with the wrong count desyncs
 /// every following frame.
-write_lsp_message :: (fn(body : String) -> unit)({
+write_lsp_message :: (fn(imm(body) : String) -> unit)({
   byte_len := body.len();
   print(`Content-Length: ${byte_len}\r\n\r\n`);
   print(body);
@@ -129,7 +129,7 @@ derive(LspInputWake, Copy, Clone);
 /// steady stream of messages never has the analysis cut in front of it.
 /// The probe never consumes and never touches the async runtime's stdin
 /// read, so an unreadable verdict is purely "would block".
-wait_lsp_input :: (fn(reader : BufReader(Stdin), deadline : Instant) -> LspInputWake)({
+wait_lsp_input :: (fn(imm(reader) : BufReader(Stdin), deadline : Instant) -> LspInputWake)({
   (wake : LspInputWake) = LspInputWake.Idle;
   (ready : bool) = false;
   while(!ready, {

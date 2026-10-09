@@ -23,12 +23,12 @@
 // ---------------------------------------------------------------------------
 // Constraint tables
 // ---------------------------------------------------------------------------
-_is_register_class :: (fn(name : String) -> bool)(
+_is_register_class :: (fn(imm(name) : String) -> bool)(
   (name == "reg") || (name == "reg_byte") || (name == "reg_abcd") || (name == "xmm_reg") ||
     (name == "ymm_reg") || (name == "imm")
     || (name == "mem")
 );
-_explicit_register_constraint :: (fn(name : String) -> Option(String))(
+_explicit_register_constraint :: (fn(imm(name) : String) -> Option(String))(
   cond(
     ((name == "rax") || (name == "eax") || (name == "ax") || (name == "al")) => Option(String).Some(String.from("a")),
     ((name == "rbx") || (name == "ebx") || (name == "bx") || (name == "bl")) => Option(String).Some(String.from("b")),
@@ -39,7 +39,7 @@ _explicit_register_constraint :: (fn(name : String) -> Option(String))(
     true => Option(String).None
   )
 );
-_register_class_to_gcc :: (fn(class_name : String, arch : Arch) -> String)(
+_register_class_to_gcc :: (fn(imm(class_name) : String, arch : Arch) -> String)(
   cond(
     (class_name == "reg") => String.from("r"),
     (class_name == "reg_byte") => String.from("q"),
@@ -51,7 +51,7 @@ _register_class_to_gcc :: (fn(class_name : String, arch : Arch) -> String)(
     true => String.from("r")
   )
 );
-_template_modifier :: (fn(m : String) -> String)(
+_template_modifier :: (fn(imm(m) : String) -> String)(
   cond(
     (m == "e") => String.from("k"),
     (m == "x") => String.from("w"),
@@ -62,7 +62,7 @@ _template_modifier :: (fn(m : String) -> String)(
   )
 );
 /// Resolve a constraint to a GCC constraint letter.
-_resolve_constraint :: (fn(constraint : Option(String), arch : Arch) -> String)({
+_resolve_constraint :: (fn(imm(constraint) : Option(String), arch : Arch) -> String)({
   c := match(
     constraint,
     .Some(x) => x,
@@ -101,7 +101,7 @@ _resolve_constraint :: (fn(constraint : Option(String), arch : Arch) -> String)(
 /// Transform Yo template placeholders to GCC operand references
 /// {name} -> %[name], {N} -> %N, {name:mod} -> %<gcc>[name],
 /// {{ -> {, }} -> }.
-_transform_template :: (fn(template : String) -> String)({
+_transform_template :: (fn(imm(template) : String) -> String)({
   result := String.new();
   b := template;
   n := b.len();
@@ -204,14 +204,14 @@ ParsedOperand :: ref(
     is_variable_target : bool
   )
 );
-_atom_value_cg :: (fn(e : AstExpr) -> String)(
+_atom_value_cg :: (fn(imm(e) : AstExpr) -> String)(
   match(e, .Atom(_, tok) => tok.value.clone(), _ => String.from(""))
 );
-_fn_call_args_cg :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+_fn_call_args_cg :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, args, _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Read an expr's comptime-string VALUE (decoded, delimiters stripped).
-_cg_comptime_str :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(String))(
+_cg_comptime_str :: (fn(imm(e) : AstExpr, imm(context) : FunctionGenerationContext) -> Option(String))(
   match(
     context.base.get_expr_info(e),
     .Some(info) => match(
@@ -223,7 +223,7 @@ _cg_comptime_str :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Opt
     .None => Option(String).None
   )
 );
-_cg_is_type_value :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(TypeValue))(
+_cg_is_type_value :: (fn(imm(e) : AstExpr, imm(context) : FunctionGenerationContext) -> Option(TypeValue))(
   match(
     context.base.get_expr_info(e),
     .Some(info) => match(
@@ -236,7 +236,7 @@ _cg_is_type_value :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Op
   )
 );
 /// Constraint string from a constraint expr.
-_extract_constraint_string :: (fn(e : AstExpr, context : FunctionGenerationContext) -> String)({
+_extract_constraint_string :: (fn(imm(e) : AstExpr, imm(context) : FunctionGenerationContext) -> String)({
   if(ast_expr_is_atom(e) && _is_register_class(_atom_value_cg(e)), {
     return(_atom_value_cg(e));
   });
@@ -263,7 +263,7 @@ _extract_constraint_string :: (fn(e : AstExpr, context : FunctionGenerationConte
 });
 /// Parse an operand sub-call during codegen.
 _parse_operand_for_codegen :: (
-  fn(operand_expr : AstExpr, indent : String, context : FunctionGenerationContext, kind_in : String) -> ParsedOperand
+  fn(imm(operand_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext, imm(kind_in) : String) -> ParsedOperand
 )({
   args := _fn_call_args_cg(operand_expr);
   arch := context.base.target_info.arch;
@@ -384,7 +384,7 @@ _parse_operand_for_codegen :: (
   )
 });
 /// Clobber list from clobber()/clobber_abi().
-_parse_clobbers :: (fn(clobber_expr : AstExpr, context : FunctionGenerationContext) -> ArrayList(String))({
+_parse_clobbers :: (fn(imm(clobber_expr) : AstExpr, imm(context) : FunctionGenerationContext) -> ArrayList(String))({
   clobbers := ArrayList(String).new();
   kind := match(clobber_expr, .FnCall(_, f, _, _, _) => _atom_value_cg(f), _ => String.from("clobber"));
   if(kind == String.from("clobber_abi"), {
@@ -450,7 +450,7 @@ _parse_clobbers :: (fn(clobber_expr : AstExpr, context : FunctionGenerationConte
 AsmCodegenOptions :: struct(is_volatile : bool, intel_syntax : bool, noreturn : bool);
 derive(AsmCodegenOptions, Clone);
 derive(AsmCodegenOptions, Copy);
-_parse_asm_options_for_codegen :: (fn(opt_expr : AstExpr) -> AsmCodegenOptions)({
+_parse_asm_options_for_codegen :: (fn(imm(opt_expr) : AstExpr) -> AsmCodegenOptions)({
   (is_volatile : bool) = true;
   (intel_syntax : bool) = false;
   (noreturn : bool) = false;
@@ -480,7 +480,7 @@ _parse_asm_options_for_codegen :: (fn(opt_expr : AstExpr) -> AsmCodegenOptions)(
   });
   AsmCodegenOptions(is_volatile : is_volatile, intel_syntax : intel_syntax, noreturn : noreturn)
 });
-_join_comma :: (fn(parts : ArrayList(String)) -> String)({
+_join_comma :: (fn(imm(parts) : ArrayList(String)) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   while(i < parts.len(), {
@@ -505,7 +505,7 @@ _next_asm_temp :: (fn() -> usize)({
   n
 });
 /// Generate C code for asm().
-generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_asm :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   em := context.base.emitter;
   return_type := match(
     context.base.get_expr_info(expr),
@@ -917,7 +917,7 @@ generate_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGeneratio
   String.new()
 });
 /// Generate C code for global_asm().
-generate_global_asm :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_global_asm :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   indent;
   if(is_target_wasm(context.base.target_info), {
     return(String.from("/* global_asm skipped: not supported on this target */"));

@@ -10,21 +10,21 @@ derive(Point, Copy, Clone);
 
 // Unlabeled `-> inout(T)` is rejected.
 comptime_expect_error(
-  unlabeled_ref_return :: (fn(inout(p) : Point) -> inout(i32))(
+  unlabeled_ref_return :: (fn(mut(p) : Point) -> inout(i32))(
     p.x
   )
 );
 
 // Labeled `-> (inout(name) : T)` is rejected.
 comptime_expect_error(
-  labeled_ref_return :: (fn(inout(p) : Point) -> (inout(out) : i32))(
+  labeled_ref_return :: (fn(mut(p) : Point) -> (inout(out) : i32))(
     p.x
   )
 );
 
 // Labeled `-> (name : inout(T))` is rejected.
 comptime_expect_error(
-  labeled_type_ref_return :: (fn(inout(p) : Point) -> (out : inout(i32)))(
+  labeled_type_ref_return :: (fn(mut(p) : Point) -> (out : inout(i32)))(
     p.x
   )
 );
@@ -33,7 +33,7 @@ comptime_expect_error(
 comptime_expect_error(
   trait_method_ref_return :: trait(
     Element : Type,
-    project_like : (fn(inout(self) : Self, pos : usize) -> inout(Self.Element))
+    project_like : (fn(mut(self) : Self, pos : usize) -> inout(Self.Element))
   )
 );
 
@@ -47,7 +47,7 @@ comptime_expect_error(
 // through type constructors. (The diagnostic surfaces as a resolution
 // error: `inout` is only a keyword in parameter position.)
 comptime_expect_error(
-  ref_inside_option :: (fn(inout(p) : Point) -> Option(inout(i32)))(
+  ref_inside_option :: (fn(mut(p) : Point) -> Option(inout(i32)))(
     Option(inout(i32)).None
   )
 );
@@ -55,7 +55,7 @@ comptime_expect_error(
 // Positive: the callback pattern — a parameter that RECEIVES a ref —
 // stays legal (`std/sync/mutex.yo` is the live std precedent).
 test("callback-style ref params remain legal", {
-  with_x :: (fn(inout(p) : Point, body : Impl(Fn(inout(v) : i32) -> i32)) -> i32)(
+  with_x :: (fn(mut(p) : Point, imm(body) : Impl(Fn(mut(v) : i32) -> i32)) -> i32)(
     body(p.x)
   );
   pt := Point(x : i32(21), y : i32(0));
@@ -67,7 +67,7 @@ test("callback-style ref params remain legal", {
 // handles that mutate in place.
 Holder :: ref(struct(s : String));
 test("returning the value instead of a ref", {
-  get_s :: (fn(h : Holder) -> String)(
+  get_s :: (fn(imm(h) : Holder) -> String)(
     h.s
   );
   h := Holder(s : String.from("hello"));

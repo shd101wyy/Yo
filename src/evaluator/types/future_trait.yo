@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-_future_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+_future_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
     .FnCall(_, _, args, _, _) => args,
@@ -43,7 +43,7 @@ _future_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   )
 );
 /// Derive a label name for an individual effect type.
-_effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> String)(
+_effect_label_for :: (fn(imm(effect_type) : TypeValue, imm(effect_expr) : AstExpr) -> String)(
   match(
     effect_type,
     .Struct({ name, is_source_namespace : fl_sns }) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
@@ -57,12 +57,12 @@ _effect_label_for :: (fn(effect_type : TypeValue, effect_expr : AstExpr) -> Stri
 /// updated env.
 _resolve_effect_arg :: (
   fn(
-    effect_expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    inout(out_labels) : ArrayList(String),
-    inout(out_types) : ArrayList(TypeValue),
-    exn : Exception
+    imm(effect_expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    mut(out_labels) : ArrayList(String),
+    mut(out_types) : ArrayList(TypeValue),
+    imm(exn) : Exception
   ) -> Environment
 )({
   // A `...(E)` spread: one `...` call with one atom argument.
@@ -138,10 +138,10 @@ _resolve_effect_arg :: (
 ///
 evaluate_future_type :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   expr_args := _future_args(expr);

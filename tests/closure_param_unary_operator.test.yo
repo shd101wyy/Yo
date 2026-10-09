@@ -38,7 +38,7 @@ import("std/fmt");
 test("Test unary ! on a bool parameter inside a closure-specialized fn", {
   // THE REGRESSION CASE. `!(b)` is a unary trait-dispatched operator applied
   // straight to a parameter, and `f` makes this fn closure-specialized.
-  gate :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+  gate :: (fn(b : bool, imm(f) : Impl(Fn(x : usize) -> bool)) -> bool)({
     if(!b, {
       return(false);
     });
@@ -53,7 +53,7 @@ test("Test unary ! on a bool parameter inside a closure-specialized fn", {
 test("Test unary ! on a LOCAL inside a closure-specialized fn", {
   // Same shape, but the negation reads a local. This path always worked; it is
   // here so a regression can be attributed to the parameter, not to `!`.
-  gate :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+  gate :: (fn(b : bool, imm(f) : Impl(Fn(x : usize) -> bool)) -> bool)({
     ok := b;
     if(!ok, {
       return(false);
@@ -68,7 +68,7 @@ test("Test infix operator on a parameter inside a closure-specialized fn", {
   // Primitive INFIX operators bypass the failing dispatcher via
   // `_is_primitive_infix_operator`. Here so a regression can be attributed to
   // unary-ness rather than to operators-on-parameters in general.
-  gate :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> bool)({
+  gate :: (fn(b : bool, imm(f) : Impl(Fn(x : usize) -> bool)) -> bool)({
     if(b == false, {
       return(false);
     });
@@ -98,7 +98,7 @@ test("Test unary ! on a parameter with an Option param, effect_analysis shape", 
     fn(
       maybe : Option(usize),
       allow_missing : bool,
-      get_info : Impl(Fn(k : usize) -> Option(usize))
+      imm(get_info) : Impl(Fn(k : usize) -> Option(usize))
     ) -> bool
   )({
     if(!allow_missing, {
@@ -122,7 +122,7 @@ test("Test unary ! on a parameter with an Option param, effect_analysis shape", 
 test("Test repeated unary ! on the same parameter in one closure-specialized fn", {
   // Two negations of the SAME parameter in one body: effect_analysis emitted
   // the FTT six times across specializations, so cover more than one use site.
-  gate :: (fn(b : bool, f : Impl(Fn(x : usize) -> bool)) -> usize)({
+  gate :: (fn(b : bool, imm(f) : Impl(Fn(x : usize) -> bool)) -> usize)({
     (n : usize) = usize(0);
     if(!b, {
       n = (n + usize(1));
@@ -162,11 +162,11 @@ impl(
   where(T <: (Integer, _UnaryProbe)),
   T,
   /// `~` on a generic-typed value — the shape that could not be written.
-  g_complement : (fn(self : T) -> T)(~self),
+  g_complement : (fn(imm(self) : T) -> T)(~self),
   /// `!` on a generic-typed value, via a comparison. Always worked.
-  g_is_zero : (fn(self : T) -> bool)(!(self != T(0))),
+  g_is_zero : (fn(imm(self) : T) -> bool)(!(self != T(0))),
   /// `~` twice, so more than one use site in one body is covered.
-  g_roundtrip : (fn(self : T) -> T)(~~self),
+  g_roundtrip : (fn(imm(self) : T) -> T)(~~self),
   /// The complement WIDENED. This is the shape that exposed the missing
   /// narrowing cast in the inline lowering: C promotes `~(uint8_t)x` to `int`,
   /// so without a cast back to the operand's own type `u32(~u8(0))` was
@@ -174,7 +174,7 @@ impl(
   /// compared `int -256` against `0` and took the wrong arm. Binding the
   /// complement to a local first hides it, because the local's declared type
   /// does the narrowing, so the widening MUST be in the expression.
-  g_complement_wide : (fn(self : T) -> u32)(u32(~self))
+  g_complement_wide : (fn(imm(self) : T) -> u32)(u32(~self))
 );
 impl(
   generic(T : Type),
@@ -183,7 +183,7 @@ impl(
   /// Unary `-` on a generic-typed value. Its symbol also names the BINARY
   /// lowering, which is what made the naive widening of the fast path emit
   /// `(y) - ()`.
-  g_negate : (fn(self : T) -> T)(-self)
+  g_negate : (fn(imm(self) : T) -> T)(-self)
 );
 _concrete_complement :: (fn(y : u8) -> u8)(~y);
 _concrete_complement_wide :: (fn(y : u8) -> u32)(u32(~y));

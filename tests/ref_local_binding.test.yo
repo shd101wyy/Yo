@@ -55,7 +55,7 @@ test("inout binding to a module-level variable", {
   g_count = i32(0);
 });
 test("inout binding chains: to an inout local and to an inout parameter", {
-  bump_via_alias :: (fn(inout(p) : i32) -> unit)({
+  bump_via_alias :: (fn(mut(p) : i32) -> unit)({
     inout(q) := p;
     q = (q + i32(1));
   });
@@ -179,7 +179,7 @@ test("pin is released on break and on early return", {
   assert(h2.n == i32(3), "three writes");
   // `h2 := h` with `h` never reassigned shares ONE count (alias elision).
   assert(ref_count(h2) == 1, "no pin leaked across break / iterations");
-  early :: (fn(target : Holder) -> i32)({
+  early :: (fn(imm(target) : Holder) -> i32)({
     inout(n) := target.n;
     if(n > i32(0), {
       v := n;
@@ -196,7 +196,7 @@ test("pin is released when an effect unwinds through the binding's scope", {
   Raise :: (ctl() -> unit);
   h := Holder(s : String.from("u"), n : i32(0));
   h2 := h;
-  run_and_unwind :: (fn(target : Holder) -> unit)({
+  run_and_unwind :: (fn(imm(target) : Holder) -> unit)({
     (raise : Raise) = (
       () -> {
         unwind(());
@@ -345,7 +345,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   closure_capture_rejected :: (fn() -> unit)({
-    run :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+    run :: (fn(imm(f) : Impl(Fn() -> unit)) -> unit)(f());
     x := i32(1);
     inout(y) := x;
     run(() => {

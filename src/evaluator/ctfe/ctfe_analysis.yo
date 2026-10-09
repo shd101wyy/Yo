@@ -64,7 +64,7 @@ CtfeComptimeFn :: struct(value : EvalValue, ty : TypeValue);
 /// Convert a runtime TypeValue to its comptime equivalent.
 /// Returns `.Some(comptime_ty)`, or `.None` if the type cannot be promoted to
 /// comptime (e.g. structs, pointers, bools).
-_to_comptime_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
+_to_comptime_type :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))(
   match(
     ty,
     .Int(_, _) => .Some(TypeValue.ComptimeInt),
@@ -86,7 +86,7 @@ _to_comptime_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
 ///
 /// Returns `.None` when the return type cannot be promoted, which is one of the
 /// ways CTFE is simply not available for a function.
-create_comptime_function_type :: (fn(func_type : TypeValue) -> Option(TypeValue))({
+create_comptime_function_type :: (fn(imm(func_type) : TypeValue) -> Option(TypeValue))({
   forall_labels := match(func_type, .Func({ meta : __fm1 }) => __fm1.*.forall_labels, _ => ArrayList(String).new());
   forall_types := match(func_type, .Func({ forall_types : ft }) => ft, _ => ArrayList(TypeValue).new());
   param_labels := match(func_type, .Func({ meta : __fm2 }) => __fm2.*.param_labels, _ => ArrayList(String).new());
@@ -139,17 +139,17 @@ create_comptime_function_type :: (fn(func_type : TypeValue) -> Option(TypeValue)
 /// effect scope. `analyze_ctfe_capability` supplies the swallowing handler.
 _eval_body_for_ctfe :: (
   fn(
-    func_value : EvalValue,
-    param_labels : ArrayList(String),
-    param_types : ArrayList(TypeValue),
-    body_box : AstExpr,
-    cap_names : ArrayList(String),
-    cap_tys : ArrayList(TypeValue),
-    cap_vals : ArrayList(EvalValue),
-    func_type : TypeValue,
-    env : Environment,
-    ctx_p : EvalContext,
-    exn : Exception
+    imm(func_value) : EvalValue,
+    imm(param_labels) : ArrayList(String),
+    imm(param_types) : ArrayList(TypeValue),
+    imm(body_box) : AstExpr,
+    imm(cap_names) : ArrayList(String),
+    imm(cap_tys) : ArrayList(TypeValue),
+    imm(cap_vals) : ArrayList(EvalValue),
+    imm(func_type) : TypeValue,
+    imm(env) : Environment,
+    imm(ctx_p) : EvalContext,
+    imm(exn) : Exception
   ) -> bool
 )({
   // Build a fresh environment: add captured variables, then push a frame.
@@ -278,17 +278,17 @@ _eval_body_for_ctfe :: (
 /// `YO_DEBUG_CTFE_ANALYZE=1` prints every swallowed error.
 _try_eval_body_swallowing :: (
   fn(
-    func_value : EvalValue,
-    param_labels : ArrayList(String),
-    param_types : ArrayList(TypeValue),
-    body_box : AstExpr,
-    cap_names : ArrayList(String),
-    cap_tys : ArrayList(TypeValue),
-    cap_vals : ArrayList(EvalValue),
-    func_type : TypeValue,
-    env : Environment,
-    ctx_p : EvalContext,
-    inout(out) : ArrayList(bool)
+    imm(func_value) : EvalValue,
+    imm(param_labels) : ArrayList(String),
+    imm(param_types) : ArrayList(TypeValue),
+    imm(body_box) : AstExpr,
+    imm(cap_names) : ArrayList(String),
+    imm(cap_tys) : ArrayList(TypeValue),
+    imm(cap_vals) : ArrayList(EvalValue),
+    imm(func_type) : TypeValue,
+    imm(env) : Environment,
+    imm(ctx_p) : EvalContext,
+    mut(out) : ArrayList(bool)
   ) -> unit
 )({
   inner_exn := Exception(
@@ -329,12 +329,12 @@ _try_eval_body_swallowing :: (
 /// C identifiers.
 _build_comptime_clone :: (
   fn(
-    func_value : EvalValue,
-    body_box : AstExpr,
-    cap_names : ArrayList(String),
-    cap_tys : ArrayList(TypeValue),
-    cap_vals : ArrayList(EvalValue),
-    comptime_func_type : TypeValue
+    imm(func_value) : EvalValue,
+    imm(body_box) : AstExpr,
+    imm(cap_names) : ArrayList(String),
+    imm(cap_tys) : ArrayList(TypeValue),
+    imm(cap_vals) : ArrayList(EvalValue),
+    imm(comptime_func_type) : TypeValue
   ) -> EvalValue
 )({
   ct_fid := match(func_value, .FuncVal(__fvd9, _) => __fvd9.*.func_id.clone(), _ => String.new());
@@ -390,10 +390,10 @@ _build_comptime_clone :: (
 /// `YO_DEBUG_CTFE_ANALYZE=1` prints each swallowed analysis error.
 analyze_ctfe_capability :: (
   fn(
-    func_value : EvalValue,
-    func_type : TypeValue,
-    env : Environment,
-    ctx : EvalContext
+    imm(func_value) : EvalValue,
+    imm(func_type) : TypeValue,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext
   ) -> Option(CtfeComptimeFn)
 )({
   // Skip if this is ALREADY a comptime function.

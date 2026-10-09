@@ -102,7 +102,7 @@ impl(
   /// `f` cannot throw — a closure cannot capture an `Exception` — so there
   /// is no "the mutex stayed locked" case to worry about; release is
   /// structural through `Mutex.with_lock` either way.
-  call : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)({
+  call : (fn(imm(self) : Self, imm(f) : Impl(Fn() -> unit)) -> unit)({
     // Fast path: already done (atomic_bool with Acquire load), no lock taken.
     cond(
       (unsafe(atomic_load_explicit(&self._done, memory_order_acquire)) == true) => (),
@@ -135,7 +135,7 @@ impl(
   /// and its writes are visible to this thread. `false` can be stale the
   /// instant it is read — another thread may be inside `f` — so do not use
   /// it to decide whether `call` will block.
-  is_done : (fn(self : Self) -> bool)(
+  is_done : (fn(imm(self) : Self) -> bool)(
     unsafe(atomic_load_explicit(&self._done, memory_order_acquire)) == true
   )
 );
@@ -177,7 +177,7 @@ impl(
   /// Return the stored value, initializing it with `f` if this is the first
   /// call. `f` runs at most once across all threads; every other caller blocks
   /// until it finishes and then sees its value.
-  get_or_init : (fn(self : Self, f : Impl(Fn() -> T)) -> T)({
+  get_or_init : (fn(imm(self) : Self, imm(f) : Impl(Fn() -> T)) -> T)({
     self._once.call(() => {
       self._value = Option(T).Some(f());
     });
@@ -185,14 +185,14 @@ impl(
   }),
   /// Return the stored value, or `None` if the cell has not been initialized.
   /// Never runs an initializer.
-  get : (fn(self : Self) -> Option(T))(
+  get : (fn(imm(self) : Self) -> Option(T))(
     cond(
       self._once.is_done() => self._value,
       true => Option(T).None
     )
   ),
   /// Whether the cell holds a value.
-  is_initialized : (fn(self : Self) -> bool)(
+  is_initialized : (fn(imm(self) : Self) -> bool)(
     self._once.is_done()
   )
 );

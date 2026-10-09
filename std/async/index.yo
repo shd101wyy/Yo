@@ -89,7 +89,7 @@ impl(
   /// resolves at once and reads the same result. Aborting the JOINING task
   /// cancels the wait; the joined task is untouched (it is another handle's
   /// to abort).
-  join : (fn(self : Self, io : Io) -> Impl(Future(Option(T), Io)))(
+  join : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(T), Io)))(
     io.async((io : Io) => {
       w := unsafe(__yo_join_wait_new());
       unsafe(__yo_join_wait_add(w, self.as_ptr()));
@@ -101,7 +101,7 @@ impl(
 );
 /// A wait that resolves when ANY of `handles` is terminal. Handles that are
 /// terminal already resolve it at once.
-_wait_any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T))) -> IoFuture)({
+_wait_any :: (fn(generic(T : Type), imm(handles) : ArrayList(JoinHandle(T))) -> IoFuture)({
   w := unsafe(__yo_join_wait_new());
   (i : usize) = usize(0);
   while(i < handles.len(), i = (i + usize(1)), {
@@ -120,7 +120,7 @@ _wait_any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T))) -> IoFut
 /// results := io.await(join_all(handles, io), io); // ArrayList(Option(T))
 /// ```
 join_all :: (
-  fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(ArrayList(Option(T)), Io))
+  fn(generic(T : Type), imm(handles) : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(ArrayList(Option(T)), Io))
 )(
   io.async((io : Io) => {
     out := ArrayList(Option(T)).with_capacity(handles.len());
@@ -137,7 +137,7 @@ join_all :: (
 /// its index. The losers keep running: a `JoinHandle` dropped without an
 /// await DETACHES its task, so `abort()` the losers if their work is unwanted
 /// (`race_first` does that for you). Panics on an empty list.
-race :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(usize, Io)))({
+race :: (fn(generic(T : Type), imm(handles) : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(usize, Io)))({
   assert(handles.len() > usize(0), "race: empty handle list");
   io.async((io : Io) => {
     _w := io.await(_wait_any(handles), io);
@@ -156,7 +156,7 @@ race :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> I
 /// to `.None` once every handle is terminal without a completion. Like
 /// `race`, the losers keep running unless aborted (`any_first` aborts them).
 /// Panics on an empty list.
-any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(usize), Io)))({
+any :: (fn(generic(T : Type), imm(handles) : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(usize), Io)))({
   assert(handles.len() > usize(0), "any: empty handle list");
   io.async((io : Io) => {
     (result : Option(usize)) = Option(usize).None;
@@ -207,7 +207,7 @@ any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Im
 /// Every loser is aborted AND joined: the join lets a loser suspended in a
 /// cancellable operation be released here rather than when that operation
 /// would have completed.
-race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
+race_first :: (fn(generic(T : Type), imm(handles) : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
   assert(handles.len() > usize(0), "race_first: empty handle list");
   io.async((io : Io) => {
     w := io.await(race(handles, io), io);
@@ -229,7 +229,7 @@ race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io
 /// Resolve to the first handle to COMPLETE and abort the rest — `any` with
 /// the cleanup done for you. `.None` when every handle ended without
 /// completing. Panics on an empty list. See `race_first` for why this exists.
-any_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
+any_first :: (fn(generic(T : Type), imm(handles) : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(Option(T), Io)))({
   assert(handles.len() > usize(0), "any_first: empty handle list");
   io.async((io : Io) => {
     decided := io.await(any(handles, io), io);
@@ -287,7 +287,7 @@ derive(
 /// the timer kept counting and held ~256 bytes per call for the whole
 /// remaining deadline (`issues/fixed/timeout-deadline-timer-future-leak.md`).
 timeout :: (
-  fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), Io))
+  fn(generic(T : Type), imm(handle) : JoinHandle(T), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), Io))
 )({
   ms := Rc(u64)(u64(limit.as_millis()));
   io.async((io : Io) => {

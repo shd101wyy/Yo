@@ -91,7 +91,7 @@ impl(
   /// a reversed pair of arguments reads as "no time passed" instead of
   /// failing. A monotonic clock cannot itself run backwards, so a zero here
   /// means the arguments were the wrong way round.
-  duration_since : (fn(inout(self) : Self, earlier : Instant) -> Duration)({
+  duration_since : (fn(mut(self) : Self, earlier : Instant) -> Duration)({
     self_ns := ((self.secs * i64(1000000000)) + self.nanos);
     earlier_ns := ((earlier.secs * i64(1000000000)) + earlier.nanos);
     cond(
@@ -102,7 +102,7 @@ impl(
   /// How long ago this reading was taken —
   /// `Instant.now().duration_since(self)`, and the method to reach for when
   /// timing a section of code.
-  elapsed : (fn(inout(self) : Self) -> Duration)({
+  elapsed : (fn(mut(self) : Self) -> Duration)({
     current := Instant.now();
     current.duration_since(self)
   })
@@ -114,7 +114,7 @@ impl(
 impl(
   Instant,
   /// This instant shifted forward by `d`.
-  add : (fn(inout(self) : Self, d : Duration) -> Self)({
+  add : (fn(mut(self) : Self, d : Duration) -> Self)({
     total := (self.nanos + (d.as_nanos() % i64(1000000000)));
     carry := (total / i64(1000000000));
     Self(
@@ -124,7 +124,7 @@ impl(
   }),
   /// This instant shifted backward by `d` (clamps at the clock's zero, the
   /// same non-negative stance as `duration_since`).
-  sub : (fn(inout(self) : Self, d : Duration) -> Self)({
+  sub : (fn(mut(self) : Self, d : Duration) -> Self)({
     self_ns := ((self.secs * i64(1000000000)) + self.nanos);
     d_ns := d.as_nanos();
     cond(
@@ -270,12 +270,12 @@ impl(
     _st_normalize(secs, nanos)
   ),
   /// Whole seconds since the epoch, truncating the sub-second part.
-  as_unix_secs : (fn(inout(self) : Self) -> i64)(
+  as_unix_secs : (fn(mut(self) : Self) -> i64)(
     self.secs
   ),
   /// How much later `self` is than `earlier`, or `.Err` when it is EARLIER —
   /// which means the clock was adjusted between the two readings.
-  duration_since : (fn(inout(self) : Self, earlier : SystemTime) -> Result(Duration, SystemTimeError))(
+  duration_since : (fn(mut(self) : Self, earlier : SystemTime) -> Result(Duration, SystemTimeError))(
     cond(
       _st_at_or_after(self, earlier) =>
         Result(Duration, SystemTimeError).Ok(_st_diff_ge(self, earlier)),
@@ -286,15 +286,15 @@ impl(
     )
   ),
   /// How long ago `self` was, or `.Err` if it is in the future.
-  elapsed : (fn(inout(self) : Self) -> Result(Duration, SystemTimeError))(
+  elapsed : (fn(mut(self) : Self) -> Result(Duration, SystemTimeError))(
     SystemTime.now().duration_since(self)
   ),
   /// `self` moved forward by `d`.
-  add : (fn(inout(self) : Self, d : Duration) -> Self)(
+  add : (fn(mut(self) : Self, d : Duration) -> Self)(
     _st_normalize(self.secs + d.secs, self.nanos + d.nanos)
   ),
   /// `self` moved backward by `d`.
-  sub : (fn(inout(self) : Self, d : Duration) -> Self)(
+  sub : (fn(mut(self) : Self, d : Duration) -> Self)(
     _st_normalize(self.secs - d.secs, self.nanos - d.nanos)
   )
 );

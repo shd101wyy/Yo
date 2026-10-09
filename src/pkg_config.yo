@@ -28,7 +28,7 @@ _is_ws_byte :: (fn(byte : u8) -> bool)(
   (byte == u8(0x20)) || (byte == u8(0x09)) || (byte == u8(0x0A)) || (byte == u8(0x0D)) || (byte == u8(0x0C)) || (byte == u8(0x0B))
 );
 /// Split a string on ASCII whitespace boundaries, filtering empty tokens.
-_split_whitespace :: (fn(s : String) -> ArrayList(String))({
+_split_whitespace :: (fn(imm(s) : String) -> ArrayList(String))({
   result := ArrayList(String).new();
   bytes := s;
   n := bytes.len();
@@ -75,7 +75,7 @@ _empty_result :: (fn() -> PkgConfigResult)(
   )
 );
 /// Parse pkg-config `--cflags` output into include_paths and c_flags.
-parse_cflags :: (fn(raw : String) -> PkgConfigResult)({
+parse_cflags :: (fn(imm(raw) : String) -> PkgConfigResult)({
   result := _empty_result();
   tokens := _split_whitespace(raw.trim());
   n := tokens.len();
@@ -101,7 +101,7 @@ parse_cflags :: (fn(raw : String) -> PkgConfigResult)({
 });
 /// Parse pkg-config `--libs` output and append into an existing PkgConfigResult.
 /// Returns the updated result.
-parse_ldflags_into :: (fn(raw : String, result : PkgConfigResult) -> PkgConfigResult)({
+parse_ldflags_into :: (fn(imm(raw) : String, imm(result) : PkgConfigResult) -> PkgConfigResult)({
   tokens := _split_whitespace(raw.trim());
   n := tokens.len();
   k := usize(0);
@@ -125,7 +125,7 @@ parse_ldflags_into :: (fn(raw : String, result : PkgConfigResult) -> PkgConfigRe
   result
 });
 /// Build a fallback PkgConfigResult from user-provided paths when pkg-config fails.
-build_fallback :: (fn(lib : BuildSystemLibrary) -> PkgConfigResult)({
+build_fallback :: (fn(imm(lib) : BuildSystemLibrary) -> PkgConfigResult)({
   result := _empty_result();
   if(!lib.fallback_include.is_empty(), {
     result.include_paths.push(lib.fallback_include.clone());
@@ -150,7 +150,7 @@ build_fallback :: (fn(lib : BuildSystemLibrary) -> PkgConfigResult)({
   result
 });
 /// Merge explicit defines from the library config into the result.
-apply_system_library_metadata :: (fn(lib : BuildSystemLibrary, result : PkgConfigResult) -> PkgConfigResult)({
+apply_system_library_metadata :: (fn(imm(lib) : BuildSystemLibrary, imm(result) : PkgConfigResult) -> PkgConfigResult)({
   k := usize(0);
   n := lib.defines.len();
   while(k < n, {
@@ -164,7 +164,7 @@ apply_system_library_metadata :: (fn(lib : BuildSystemLibrary, result : PkgConfi
   result
 });
 /// Append all elements from `src` into `dst`.
-_append_all :: (fn(inout(dst) : ArrayList(String), src : ArrayList(String)) -> unit)({
+_append_all :: (fn(mut(dst) : ArrayList(String), imm(src) : ArrayList(String)) -> unit)({
   k := usize(0);
   n := src.len();
   while(k < n, {
@@ -175,7 +175,7 @@ _append_all :: (fn(inout(dst) : ArrayList(String), src : ArrayList(String)) -> u
   });
 });
 /// Merge all fields of `src` into `dst` in-place.
-_merge_into :: (fn(dst : PkgConfigResult, src : PkgConfigResult) -> unit)({
+_merge_into :: (fn(imm(dst) : PkgConfigResult, imm(src) : PkgConfigResult) -> unit)({
   _append_all(dst.c_flags, src.c_flags);
   _append_all(dst.ld_flags, src.ld_flags);
   _append_all(dst.include_paths, src.include_paths);
@@ -187,7 +187,7 @@ _merge_into :: (fn(dst : PkgConfigResult, src : PkgConfigResult) -> unit)({
 is_pkg_config_available :: (
   fn(
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -201,9 +201,9 @@ is_pkg_config_available :: (
 /// Returns None if pkg-config fails or the library is not found.
 query_pkg_config :: (
   fn(
-    pkg_name : String,
+    imm(pkg_name) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(Option(PkgConfigResult), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -234,10 +234,10 @@ query_pkg_config :: (
 /// Tries pkg-config first, then falls back to user-provided paths.
 resolve_system_library :: (
   fn(
-    lib : BuildSystemLibrary,
+    imm(lib) : BuildSystemLibrary,
     verbose : bool,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -259,10 +259,10 @@ resolve_system_library :: (
 /// Resolve all system libraries and merge their flags into a single result.
 resolve_all_system_libraries :: (
   fn(
-    libs : ArrayList(BuildSystemLibrary),
+    imm(libs) : ArrayList(BuildSystemLibrary),
     verbose : bool,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
   io.async((e : IoExn) => {

@@ -20,7 +20,7 @@
 //! future — so nothing ever produced an awaited future that was an outer
 //! capture rather than a local or an `await_future_<n>` slot.
 { assert } :: import("std/assert");
-_take :: (fn(fut : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
+_take :: (fn(imm(fut) : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
   io.async(e => e.io.await(fut, e.io))
 );
 _work :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => i32(42)));
@@ -28,7 +28,7 @@ test("a future passed as a parameter can be awaited inside an async closure", {
   r := io.await(_take(_work(io), io), io);
   assert(r == i32(42), `expected 42, got ${r.to_string()}`);
 });
-_twice :: (fn(a : Impl(Future(i32, Io)), b : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
+_twice :: (fn(imm(a) : Impl(Future(i32, Io)), imm(b) : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
   io.async(e => {
     x := e.io.await(a, e.io);
     y := e.io.await(b, e.io);

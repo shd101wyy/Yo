@@ -13,9 +13,9 @@
 { assert } :: import("std/assert");
 { IoExn, Exception } :: import("std/error");
 AsyncReader :: trait(
-  read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
+  read : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn))),
   // Default 1: ONE await of a `Self` async method, combined with a runtime arg.
-  (read_plus : (fn(self : Self, extra : usize, io : Io) -> Impl(Future(usize, IoExn)))) ?=
+  (read_plus : (fn(imm(self) : Self, extra : usize, io : Io) -> Impl(Future(usize, IoExn)))) ?=
     (
       (self, extra, io) ->
         io.async(e => {
@@ -25,7 +25,7 @@ AsyncReader :: trait(
     ),
   // Default 2: TWO awaits of the same `Self` async method (two await points in
   // one state machine).
-  (read_twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
+  (read_twice : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
     (
       (self, io) ->
         io.async(e => {
@@ -38,8 +38,8 @@ AsyncReader :: trait(
 /// Sync trait with a `return(...)` in its default body — the second half of the
 /// same missing-function-body-context root cause.
 Doubler :: trait(
-  base : (fn(self : Self) -> usize),
-  (dbl : (fn(self : Self) -> usize)) ?= (self -> return(Self.base(self) * usize(2)))
+  base : (fn(imm(self) : Self) -> usize),
+  (dbl : (fn(imm(self) : Self) -> usize)) ?= (self -> return(Self.base(self) * usize(2)))
 );
 Ra :: struct(k : usize);
 derive(Ra, Copy, Clone);

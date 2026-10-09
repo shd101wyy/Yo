@@ -241,7 +241,7 @@ test("comptime_eval derive", {
 // Define a custom equality trait
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
-    my_eq : (fn(self : Self, other : Rhs) -> bool)
+    my_eq : (fn(imm(self) : Self, imm(other) : Rhs) -> bool)
   )
 );
 impl(
@@ -302,7 +302,7 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
 });
 derive_rule(MyEq, my_derive_eq);
 UsesEq :: trait(
-  uses_eq : (fn(self : Self, other : Self) -> bool)
+  uses_eq : (fn(imm(self) : Self, imm(other) : Self) -> bool)
 );
 __derive_uses_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))(
   ctx.make_impl(
@@ -771,7 +771,7 @@ test("Debug on the primitives matches their display form (D15)", {
 // build a template literal at all, and `derive` reported it as the
 // unrelated-looking "derive rule must return(comptime(Expr)); got Comptime".
 // issues/fixed/comptime-str-to-expr-cannot-parse-a-template-literal.md
-_TeLbl :: trait(te_lbl : (fn(inout(self) : Self) -> String));
+_TeLbl :: trait(te_lbl : (fn(mut(self) : Self) -> String));
 __te_plain :: (
   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
 )({
@@ -781,7 +781,7 @@ __te_plain :: (
 derive_rule(_TeLbl, __te_plain);
 _TePoint :: struct(x : i32);
 derive(_TePoint, _TeLbl);
-_TeIntLbl :: trait(te_int : (fn(inout(self) : Self) -> String));
+_TeIntLbl :: trait(te_int : (fn(mut(self) : Self) -> String));
 __te_interp :: (
   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
 )({
@@ -855,7 +855,7 @@ comptime_expect_error({
 _LaterInner :: struct(n : usize);
 _LaterOuter :: struct(inner : _LaterInner, k : usize);
 derive(_LaterOuter, Clone);
-impl(_LaterInner, Clone(clone : (fn(self : Self) -> Self)(Self(n : self.n))));
+impl(_LaterInner, Clone(clone : (fn(imm(self) : Self) -> Self)(Self(n : self.n))));
 test("a derived Clone over a field whose Clone impl is registered below the derive", {
   o := _LaterOuter(inner : _LaterInner(n : usize(7)), k : usize(2));
   o2 := o.clone();
@@ -896,7 +896,7 @@ test("a derived Clone over an ArrayList field deep-clones and stays independent 
 // `comptime_expect_error(derive(...))` there never saw its error
 // (issues/fixed/comptime-expect-error-of-a-derive-in-a-function-body-never-sees-the-error.md).
 _LdBare :: struct(n : i32);
-_ld_sum_twice :: (fn(generic(T : Type), _x : T) -> i32)({
+_ld_sum_twice :: (fn(generic(T : Type), imm(_x) : T) -> i32)({
   LdQ :: struct(n : i32);
   derive(LdQ, Copy, Clone);
   q := LdQ(n : i32(4));

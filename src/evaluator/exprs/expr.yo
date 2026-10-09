@@ -13,19 +13,19 @@ import("std/string");
 /// Function type for the main expression evaluator.
 EvaluateExprFn :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext
   ) -> AstExpr
 );
 /// Function type for the raw expression evaluator (with custom exception handler).
 /// Used by builtins like `comptime_expect_error` that need to catch evaluation errors.
 EvaluateExprRawFn :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 );
 /// Module-level function pointer — set once during evaluator initialization.
@@ -50,9 +50,9 @@ set_evaluate_expression_raw_fn :: (fn(f : EvaluateExprRawFn) -> unit)({
 /// Panics if the evaluator has not been initialized.
 evaluate_expression :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext
   ) -> AstExpr
 )(
   match(
@@ -72,10 +72,10 @@ evaluate_expression :: (
 /// is returned (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 6, census site #16).
 evaluate_expression_guarded :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    inout(out) : ArrayList(AstExpr)
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    mut(out) : ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
   g_guarded_eval_err.clear();
@@ -90,10 +90,10 @@ evaluate_expression_guarded :: (
 });
 _evaluate_expression_guarded_inner :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    inout(out) : ArrayList(AstExpr)
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    mut(out) : ArrayList(AstExpr)
   ) -> unit
 )({
   guard_exn := Exception(
@@ -111,10 +111,10 @@ _evaluate_expression_guarded_inner :: (
 /// Panics if the evaluator has not been initialized.
 evaluate_expression_raw :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )(
   match(

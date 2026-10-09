@@ -120,7 +120,7 @@ impl(
   where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   MapCollision(K, V),
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       i := usize(0);
       while(i < (self._pairs_lw & _PAIRS_MASK), i = (i + usize(1)), {
         unsafe.drop((self._pairs_ptr.add(i)).*);
@@ -175,7 +175,7 @@ impl(
   where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   MapBranch(K, V),
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       children := (*MapNode(K, V))(self._children_ptr);
       i := u8(0);
       while(i < (self._children_lw & _BRANCH_MASK), i = (i + u8(1)), {
@@ -211,14 +211,14 @@ impl(
   where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   MapBranch(K, V),
   // The child count, without the allocator tag.
-  _clen : (fn(self : Self) -> u8)(self._children_lw & _BRANCH_MASK)
+  _clen : (fn(imm(self) : Self) -> u8)(self._children_lw & _BRANCH_MASK)
 );
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic)),
   MapCollision(K, V),
   // The pair count, without the allocator tag.
-  _plen : (fn(self : Self) -> usize)(self._pairs_lw & _PAIRS_MASK)
+  _plen : (fn(imm(self) : Self) -> usize)(self._pairs_lw & _PAIRS_MASK)
 );
 // -- MapBranch helpers --
 _alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> *void)({
@@ -229,18 +229,18 @@ _alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, w
     .None => __yo_panic("imm.Map: allocation failed")
   )
 });
-_branch_index_for :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> u8)(
+_branch_index_for :: (fn(comptime(K) : Type, comptime(V) : Type, imm(branch) : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> u8)(
   u8((branch.bitmap & (bit - u32(1))).count_ones())
 );
-_branch_has_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> bool)(
+_branch_has_child :: (fn(comptime(K) : Type, comptime(V) : Type, imm(branch) : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> bool)(
   (branch.bitmap & bit) != u32(0)
 );
-_branch_child_at :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), idx : u8, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapNode(K, V))({
+_branch_child_at :: (fn(comptime(K) : Type, comptime(V) : Type, imm(branch) : MapBranch(K, V), idx : u8, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapNode(K, V))({
   offset := (size_of(MapNode(K, V)) * usize(idx));
   target := (*MapNode(K, V))(branch._children_ptr.add(offset));
   target.*
 });
-_branch_set_child :: (fn(comptime(K) : Type, comptime(V) : Type, ptr : *void, idx : u8, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> unit)({
+_branch_set_child :: (fn(comptime(K) : Type, comptime(V) : Type, ptr : *void, idx : u8, imm(child) : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> unit)({
   offset := (size_of(MapNode(K, V)) * usize(idx));
   target := (*MapNode(K, V))(ptr.add(offset));
   target.* = child;
@@ -267,7 +267,7 @@ _copy_children :: (
     consume(dst_ptr.* = src_ptr.*);
   });
 });
-_branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
+_branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, imm(branch) : MapBranch(K, V), bit : u32, imm(child) : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
   idx := _branch_index_for(K, V, branch, bit);
   new_len := (branch._clen() + u8(1));
   new_ptr := _alloc_map_children(K, V, new_len);
@@ -283,14 +283,14 @@ _branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBr
   });
   MapBranch(K, V)(bitmap : (branch.bitmap | bit), _children_ptr : new_ptr, _children_lw : (new_len | _branch_tag()))
 });
-_branch_replace_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
+_branch_replace_child :: (fn(comptime(K) : Type, comptime(V) : Type, imm(branch) : MapBranch(K, V), bit : u32, imm(child) : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
   idx := _branch_index_for(K, V, branch, bit);
   new_ptr := _alloc_map_children(K, V, branch._clen());
   _copy_children(K, V, new_ptr, branch._children_ptr, u8(0), u8(0), branch._clen());
   _branch_set_child(K, V, new_ptr, idx, child);
   MapBranch(K, V)(bitmap : branch.bitmap, _children_ptr : new_ptr, _children_lw : (branch._clen() | _branch_tag()))
 });
-_branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
+_branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, imm(branch) : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapBranch(K, V))({
   idx := _branch_index_for(K, V, branch, bit);
   new_len := (branch._clen() - u8(1));
   alloc_len := cond((new_len == u8(0)) => u8(1), true => new_len);
@@ -313,7 +313,7 @@ _alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where
     .None => __yo_panic("imm.Map: collision allocation failed")
   )
 });
-_coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Option(usize))({
+_coll_find_key :: (fn(comptime(K) : Type, comptime(V) : Type, imm(coll) : MapCollision(K, V), imm(k) : K, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Option(usize))({
   i := usize(0);
   while(i < coll._plen(), i = (i + usize(1)), {
     if((coll._pairs_ptr.add(i)).*.key == k, {
@@ -340,7 +340,7 @@ _copy_pairs :: (
     consume((dst.add(dst_offset + i)).* = (src.add(src_offset + i)).*);
   });
 });
-_coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, v : V, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapCollision(K, V))(
+_coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, imm(coll) : MapCollision(K, V), imm(k) : K, imm(v) : V, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapCollision(K, V))(
   match(
     _coll_find_key(K, V, coll, k),
     .Some(idx) => {
@@ -358,7 +358,7 @@ _coll_with_pair :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollisi
     }
   )
 );
-_coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, coll : MapCollision(K, V), k : K, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Option(MapCollision(K, V)))(
+_coll_without_key :: (fn(comptime(K) : Type, comptime(V) : Type, imm(coll) : MapCollision(K, V), imm(k) : K, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Option(MapCollision(K, V)))(
   match(
     _coll_find_key(K, V, coll, k),
     .Some(idx) => {
@@ -391,9 +391,9 @@ _make_branch :: (
     comptime(K) : Type,
     comptime(V) : Type,
     shift : usize,
-    node1 : MapNode(K, V),
+    imm(node1) : MapNode(K, V),
     hash1 : u64,
-    node2 : MapNode(K, V),
+    imm(node2) : MapNode(K, V),
     hash2 : u64,
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> MapNode(K, V)
@@ -447,11 +447,11 @@ _node_insert :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : MapNode(K, V),
+    imm(node) : MapNode(K, V),
     shift : usize,
     hash : u64,
-    k : K,
-    v : V,
+    imm(k) : K,
+    imm(v) : V,
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> InsertResult(K, V)
 )(
@@ -532,10 +532,10 @@ _node_get :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : MapNode(K, V),
+    imm(node) : MapNode(K, V),
     shift : usize,
     hash : u64,
-    k : K,
+    imm(k) : K,
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Option(V)
 )(
@@ -583,10 +583,10 @@ _node_remove :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : MapNode(K, V),
+    imm(node) : MapNode(K, V),
     shift : usize,
     hash : u64,
-    k : K,
+    imm(k) : K,
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RemoveResult(K, V)
 )(
@@ -685,8 +685,8 @@ _merge_from_node :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    acc : Map(K, V),
-    node : MapNode(K, V),
+    imm(acc) : Map(K, V),
+    imm(node) : MapNode(K, V),
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Map(K, V)
 )(
@@ -716,8 +716,8 @@ _collect_keys :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : MapNode(K, V),
-    acc : List(K),
+    imm(node) : MapNode(K, V),
+    imm(acc) : List(K),
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(K)
 )(
@@ -746,8 +746,8 @@ _collect_values :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : MapNode(K, V),
-    acc : List(V),
+    imm(node) : MapNode(K, V),
+    imm(acc) : List(V),
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(V)
 )(
@@ -776,8 +776,8 @@ _collect_entries :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : MapNode(K, V),
-    acc : List(MapEntry(K, V)),
+    imm(node) : MapNode(K, V),
+    imm(acc) : List(MapEntry(K, V)),
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(MapEntry(K, V))
 )(
@@ -807,8 +807,8 @@ _map_values_node :: (
     comptime(K) : Type,
     comptime(V) : Type,
     comptime(U) : Type,
-    node : MapNode(K, V),
-    f : Impl(Fn(a : V) -> U),
+    imm(node) : MapNode(K, V),
+    imm(f) : Impl(Fn(imm(a) : V) -> U),
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic), U <: (Send, Sync, Acyclic))
   ) -> MapNode(K, U)
 )(
@@ -851,9 +851,9 @@ _filter_from_node :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    acc : Map(K, V),
-    node : MapNode(K, V),
-    f : Impl(Fn(k : K, v : V) -> bool),
+    imm(acc) : Map(K, V),
+    imm(node) : MapNode(K, V),
+    imm(f) : Impl(Fn(imm(k) : K, imm(v) : V) -> bool),
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Map(K, V)
 )(
@@ -888,8 +888,8 @@ _all_entries_match :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : MapNode(K, V),
-    target : Map(K, V),
+    imm(node) : MapNode(K, V),
+    imm(target) : Map(K, V),
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic, Eq(V)))
   ) -> bool
 )(
@@ -941,11 +941,11 @@ impl(
     Self(_root : .None, _len : usize(0))
   ),
   /// Number of key-value entries.
-  len : (fn(self : Self) -> usize)(self._len),
+  len : (fn(imm(self) : Self) -> usize)(self._len),
   /// Check if the map is empty.
-  is_empty : (fn(self : Self) -> bool)(self._len == usize(0)),
+  is_empty : (fn(imm(self) : Self) -> bool)(self._len == usize(0)),
   /// Look up the value associated with `key`.
-  get : (fn(self : Self, key : K) -> Option(V))(
+  get : (fn(imm(self) : Self, imm(key) : K) -> Option(V))(
     match(
       self._root,
       .Some(root) => _node_get(K, V, root, usize(0), hash_one(key), key),
@@ -953,11 +953,11 @@ impl(
     )
   ),
   /// Check if the map contains `key`.
-  contains_key : (fn(self : Self, key : K) -> bool)(
+  contains_key : (fn(imm(self) : Self, imm(key) : K) -> bool)(
     self.get(key).is_some()
   ),
   /// Return a new map with `key` mapped to `value`.
-  insert : (fn(self : Self, key : K, value : V) -> Self)(
+  insert : (fn(imm(self) : Self, imm(key) : K, imm(value) : V) -> Self)(
     match(
       self._root,
       .Some(root) => {
@@ -976,7 +976,7 @@ impl(
   ///
   /// This deliberately does NOT report what it removed; `extract` is the form
   /// that does.
-  remove : (fn(self : Self, key : K) -> Self)(
+  remove : (fn(imm(self) : Self, imm(key) : K) -> Self)(
     match(
       self._root,
       .Some(root) => {
@@ -1005,7 +1005,7 @@ impl(
   /// carry and then drop a value it does not want. A HAMT walk is
   /// ⌈log₃₂ n⌉ levels (2 for a million entries), so the second walk is a
   /// smaller cost than the refcount traffic on the first.
-  extract : (fn(self : Self, key : K) -> Option(Tuple(V, Self)))({
+  extract : (fn(imm(self) : Self, imm(key) : K) -> Option(Tuple(V, Self)))({
     hit := self.get(key);
     match(
       hit,
@@ -1014,7 +1014,7 @@ impl(
     )
   }),
   /// Merge another map into this one. Keys from `other` overwrite `self`.
-  merge : (fn(self : Self, other : Self) -> Self)(
+  merge : (fn(imm(self) : Self, imm(other) : Self) -> Self)(
     match(
       other._root,
       .Some(root) => _merge_from_node(K, V, self, root),
@@ -1022,7 +1022,7 @@ impl(
     )
   ),
   /// Collect all keys into a list.
-  keys : (fn(self : Self) -> List(K))(
+  keys : (fn(imm(self) : Self) -> List(K))(
     match(
       self._root,
       .Some(root) => _collect_keys(K, V, root, List(K).new()),
@@ -1030,7 +1030,7 @@ impl(
     )
   ),
   /// Collect all values into a list.
-  values : (fn(self : Self) -> List(V))(
+  values : (fn(imm(self) : Self) -> List(V))(
     match(
       self._root,
       .Some(root) => _collect_values(K, V, root, List(V).new()),
@@ -1038,7 +1038,7 @@ impl(
     )
   ),
   /// Collect all entries into a list of pairs.
-  entries : (fn(self : Self) -> List(MapEntry(K, V)))(
+  entries : (fn(imm(self) : Self) -> List(MapEntry(K, V)))(
     match(
       self._root,
       .Some(root) => _collect_entries(K, V, root, List(MapEntry(K, V)).new()),
@@ -1046,7 +1046,7 @@ impl(
     )
   ),
   /// Apply a function to each value, producing a new map.
-  map_values : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : V) -> U), where(U <: (Send, Sync, Acyclic))) -> Map(K, U))(
+  map_values : (fn(generic(U : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : V) -> U), where(U <: (Send, Sync, Acyclic))) -> Map(K, U))(
     match(
       self._root,
       .Some(root) => Map(K, U)(_root : .Some(_map_values_node(K, V, U, root, f)), _len : self._len),
@@ -1054,7 +1054,7 @@ impl(
     )
   ),
   /// Keep only entries where the predicate returns true.
-  filter : (fn(self : Self, f : Impl(Fn(k : K, v : V) -> bool)) -> Self)({
+  filter : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(k) : K, imm(v) : V) -> bool)) -> Self)({
     (result : Self) = Self.new();
     match(
       self._root,
@@ -1066,7 +1066,7 @@ impl(
     result
   }),
   /// Create a map from a slice of key-value pairs.
-  from_entries : (fn(pairs : ArrayList(MapEntry(K, V))) -> Self)({
+  from_entries : (fn(imm(pairs) : ArrayList(MapEntry(K, V))) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     plen := pairs.len();
@@ -1082,7 +1082,7 @@ impl(
   where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic, Eq(V))),
   Map(K, V),
   Eq(Map(K, V))(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)({
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
       if(lhs._len != rhs._len, {
         return(false);
       });
@@ -1110,7 +1110,7 @@ impl(
   IntoIterator(
     Item : MapEntry(K, V),
     IntoIter : ListIter(MapEntry(K, V)),
-    into_iter : (fn(self : Self) -> ListIter(MapEntry(K, V)))(
+    into_iter : (fn(imm(self) : Self) -> ListIter(MapEntry(K, V)))(
       self.entries().into_iter()
     )
   )

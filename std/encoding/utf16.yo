@@ -48,7 +48,7 @@ utf8 :: import("./utf8");
 /// Convert a UTF-8 string to an `ArrayList(u16)` of UTF-16 code units.
 ///
 /// Handles BMP characters directly and encodes supplementary characters as surrogate pairs.
-from_utf8 :: (fn(s : String) -> ArrayList(u16))({
+from_utf8 :: (fn(imm(s) : String) -> ArrayList(u16))({
   bytes := s.to_bytes();
   out := ArrayList(u16).new();
   i := usize(0);
@@ -84,7 +84,7 @@ export(from_utf8);
 /// the offending code unit and its index — it used to report
 /// `InvalidChar(u8(0))`, an offending character of NUL, because a 16-bit code
 /// unit does not fit in `InvalidChar`'s `u8`.
-to_utf8 :: (fn(data : ArrayList(u16)) -> Result(String, EncodingError))({
+to_utf8 :: (fn(imm(data) : ArrayList(u16)) -> Result(String, EncodingError))({
   out := ArrayList(u8).new();
   i := usize(0);
   while(i < data.len(), {
@@ -128,7 +128,7 @@ to_utf8 :: (fn(data : ArrayList(u16)) -> Result(String, EncodingError))({
 });
 /// `to_utf8` as an effect: throws the `EncodingError` through `exn`
 /// instead of returning it. Kept for callers already inside an effect scope.
-to_utf8_exn :: (fn(data : ArrayList(u16), exn : Exception) -> String)(
+to_utf8_exn :: (fn(imm(data) : ArrayList(u16), imm(exn) : Exception) -> String)(
   match(to_utf8(data), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 export(to_utf8, to_utf8_exn);
@@ -140,11 +140,11 @@ export(to_utf8, to_utf8_exn);
 // thin aliases keep them compiling for one release, the way `json_parse_result`
 // and `derive(ToString)` were kept in v0.2.28.
 /// DEPRECATED, removed in v0.2.32: call `utf16.from_utf8`.
-utf8_to_utf16 :: (fn(s : String) -> ArrayList(u16))(from_utf8(s));
+utf8_to_utf16 :: (fn(imm(s) : String) -> ArrayList(u16))(from_utf8(s));
 /// DEPRECATED, removed in v0.2.32: call `utf16.to_utf8`.
-utf16_to_utf8 :: (fn(data : ArrayList(u16)) -> Result(String, EncodingError))(to_utf8(data));
+utf16_to_utf8 :: (fn(imm(data) : ArrayList(u16)) -> Result(String, EncodingError))(to_utf8(data));
 /// DEPRECATED, removed in v0.2.32: call `utf16.to_utf8_exn`.
-utf16_to_utf8_exn :: (fn(data : ArrayList(u16), exn : Exception) -> String)(
+utf16_to_utf8_exn :: (fn(imm(data) : ArrayList(u16), imm(exn) : Exception) -> String)(
   to_utf8_exn(data, exn)
 );
 export(utf8_to_utf16, utf16_to_utf8, utf16_to_utf8_exn);

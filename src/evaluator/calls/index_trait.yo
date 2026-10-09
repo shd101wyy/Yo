@@ -73,7 +73,7 @@ derive(_IdxRange, Copy, Clone);
 // _str_unquote / _str_quote
 // ---------------------------------------------------------------------------
 /// Strip surrounding `"..."` from a raw StrLit value.
-_str_unquote :: (fn(raw : String) -> String)({
+_str_unquote :: (fn(imm(raw) : String) -> String)({
   rn := raw.len();
   if(
     rn >= usize(2),
@@ -82,7 +82,7 @@ _str_unquote :: (fn(raw : String) -> String)({
   )
 });
 /// Add surrounding `"..."` around a string value.
-_str_quote :: (fn(s : String) -> String)(
+_str_quote :: (fn(imm(s) : String) -> String)(
   String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
@@ -95,11 +95,11 @@ _str_quote :: (fn(s : String) -> String)(
 /// (same constraint as `_trial_eval_fn_body`, function_type.yo:239).
 _try_ctfe_range_ctor :: (
   fn(
-    fn_ty : TypeValue,
-    fn_val : EvalValue,
-    env : Environment,
-    ctx : EvalContext,
-    inout(out) : ArrayList(TypeValue)
+    imm(fn_ty) : TypeValue,
+    imm(fn_val) : EvalValue,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    mut(out) : ArrayList(TypeValue)
   ) -> unit
 )({
   local_exn := Exception(
@@ -143,7 +143,7 @@ _try_ctfe_range_ctor :: (
 /// The constructor call is run under a swallowing local exn — a resolve
 /// failure yields `.None`.
 _resolve_prelude_range_type :: (
-  fn(name : String, env : Environment, ctx : EvalContext) -> Option(TypeValue)
+  fn(imm(name) : String, imm(env) : Environment, imm(ctx) : EvalContext) -> Option(TypeValue)
 )({
   vars := get_variables_from_env(env, name.clone());
   out := ArrayList(TypeValue).new();
@@ -166,7 +166,7 @@ _resolve_prelude_range_type :: (
 });
 /// The type constructor a struct type came from (`""` when it was not built
 /// by one). See `_check_range_type`.
-_struct_ctor_fid :: (fn(t : TypeValue) -> String)(
+_struct_ctor_fid :: (fn(imm(t) : TypeValue) -> String)(
   match(
     t,
     .Struct({ constructor_func_id : cfid }) => cfid,
@@ -177,7 +177,7 @@ _struct_ctor_fid :: (fn(t : TypeValue) -> String)(
 /// a nominal distinction `are_types_compatible` cannot make for two anonymous
 /// structs of the same shape. `""` on either side means "unknown", which
 /// defers to the structural check.
-_ctor_ids_agree :: (fn(a : TypeValue, b : TypeValue) -> bool)({
+_ctor_ids_agree :: (fn(imm(a) : TypeValue, imm(b) : TypeValue) -> bool)({
   a_fid := _struct_ctor_fid(a);
   b_fid := _struct_ctor_fid(b);
   if((a_fid.len() > usize(0)) && (b_fid.len() > usize(0)), {
@@ -193,7 +193,7 @@ _ctor_ids_agree :: (fn(a : TypeValue, b : TypeValue) -> bool)({
 (g_range_ty_cache : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
 (g_range_incl_ty_cache : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
 _cached_range_type :: (
-  fn(inclusive : bool, env : Environment, ctx : EvalContext) -> Option(TypeValue)
+  fn(inclusive : bool, imm(env) : Environment, imm(ctx) : EvalContext) -> Option(TypeValue)
 )({
   cache := if(inclusive, g_range_incl_ty_cache, g_range_ty_cache);
   match(
@@ -227,7 +227,7 @@ _cached_range_type :: (
 /// single-character branch — one swallowed error that hollowed all 49 tests
 /// in tests/index.test.yo.
 _check_range_type :: (
-  fn(arg_type : TypeValue, env : Environment, ctx : EvalContext) -> _RangeCheck
+  fn(imm(arg_type) : TypeValue, imm(env) : Environment, imm(ctx) : EvalContext) -> _RangeCheck
 )({
   if(!is_struct_type(arg_type.clone()), {
     return(_RangeCheck(is_range : false, is_inclusive : false));
@@ -285,7 +285,7 @@ _check_range_type :: (
 /// Returns None if the value is not a StructVal with numeric start/end.
 _extract_range_indices :: (
   fn(
-    range_ev : EvalValue,
+    imm(range_ev) : EvalValue,
     is_inclusive : bool
   ) -> Option(_IdxRange)
 )(
@@ -362,8 +362,8 @@ _extract_range_indices :: (
 /// trait-methods registry + generic-impl fallback.
 _find_all_index_methods :: (
   fn(
-    concrete_type : TypeValue,
-    env : Environment
+    imm(concrete_type) : TypeValue,
+    imm(env) : Environment
   ) -> ArrayList(_IndexMethodEntry)
 )({
   result := ArrayList(_IndexMethodEntry).new();
@@ -439,9 +439,9 @@ _find_all_index_methods :: (
 ///   `(self: *(Self), idx: ArgType) -> *(Output)`
 _find_index_method :: (
   fn(
-    concrete_type : TypeValue,
-    arg_type : TypeValue,
-    env : Environment
+    imm(concrete_type) : TypeValue,
+    imm(arg_type) : TypeValue,
+    imm(env) : Environment
   ) -> Option(_IndexMethodEntry)
 )({
   methods := _find_all_index_methods(concrete_type, env);
@@ -512,12 +512,12 @@ _find_index_method :: (
 /// Returns Some(IndexCallResult) or None to fall through.
 _try_comptime_element_access :: (
   fn(
-    arg_expr : AstExpr,
-    arg_val : Option(EvalValue),
-    array_val : Option(EvalValue),
-    value_type : TypeValue,
-    caller_env : Environment,
-    exn : Exception
+    imm(arg_expr) : AstExpr,
+    imm(arg_val) : Option(EvalValue),
+    imm(array_val) : Option(EvalValue),
+    imm(value_type) : TypeValue,
+    imm(caller_env) : Environment,
+    imm(exn) : Exception
   ) -> Option(IndexCallResult)
 )({
   elem_ty := match(
@@ -657,12 +657,12 @@ _try_comptime_element_access :: (
 /// Evaluates the arg, checks for range vs. element access, delegates.
 _try_comptime_array_index :: (
   fn(
-    arg_expr : AstExpr,
-    array_val : Option(EvalValue),
-    value_type : TypeValue,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(arg_expr) : AstExpr,
+    imm(array_val) : Option(EvalValue),
+    imm(value_type) : TypeValue,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> Option(IndexCallResult)
 )({
   // Evaluate the arg with `expected_type` CLEARED — the ambient expected type
@@ -717,12 +717,12 @@ _try_comptime_array_index :: (
 /// Compute the result of indexing a comptime string value.
 _compute_comptime_string_index :: (
   fn(
-    str_value : String,
-    arg_value : EvalValue,
-    arg_expr : AstExpr,
+    imm(str_value) : String,
+    imm(arg_value) : EvalValue,
+    imm(arg_expr) : AstExpr,
     is_range : bool,
     is_inclusive : bool,
-    exn : Exception
+    imm(exn) : Exception
   ) -> EvalValue
 )({
   // During type-checking with UnknownVal, return a placeholder
@@ -885,11 +885,11 @@ _compute_comptime_string_index :: (
 /// Implement comptime_str indexing.
 _try_comptime_string_index :: (
   fn(
-    arg_expr : AstExpr,
-    str_value : String,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(arg_expr) : AstExpr,
+    imm(str_value) : String,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> IndexCallResult
 )({
   // expected_type cleared around the arg eval — see _try_comptime_array_index.
@@ -981,7 +981,7 @@ _try_comptime_string_index :: (
 /// is saved/cleared/restored at the CALL SITE, not here — a restore line after
 /// the call below would be skipped on the throw path and leak `None`.
 _specialize_index_method :: (
-  fn(mv : Option(EvalValue), mty : TypeValue, expr : AstExpr, caller_env : Environment, ctx : EvalContext, idx_expr : AstExpr, inout(out) : ArrayList(EvalValue)) -> unit
+  fn(imm(mv) : Option(EvalValue), imm(mty) : TypeValue, imm(expr) : AstExpr, imm(caller_env) : Environment, imm(ctx) : EvalContext, imm(idx_expr) : AstExpr, mut(out) : ArrayList(EvalValue)) -> unit
 )({
   recv := match(expr, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => expr);
   margs := ArrayList(AstExpr).new();
@@ -1019,9 +1019,9 @@ _specialize_index_method :: (
 /// plain runtime `Index` impl reads back an empty list and is skipped.
 _find_comptime_index_method :: (
   fn(
-    concrete_type : TypeValue,
-    arg_type : TypeValue,
-    env : Environment
+    imm(concrete_type) : TypeValue,
+    imm(arg_type) : TypeValue,
+    imm(env) : Environment
   ) -> Option(_IndexMethodEntry)
 )({
   methods := _find_all_index_methods(concrete_type, env);
@@ -1133,13 +1133,13 @@ _find_comptime_index_method :: (
 ///     function would swallow the runtime dispatch path.
 _try_comptime_custom_type_index :: (
   fn(
-    expr : AstExpr,
-    arg_expr : AstExpr,
-    self_value : EvalValue,
-    value_type : TypeValue,
-    caller_env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(arg_expr) : AstExpr,
+    imm(self_value) : EvalValue,
+    imm(value_type) : TypeValue,
+    imm(caller_env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> Option(IndexCallResult)
 )({
   // Evaluate the argument; expected_type cleared
@@ -1385,13 +1385,13 @@ _try_comptime_custom_type_index :: (
 ///
 try_to_call_with_index_trait :: (
   fn(
-    expr : AstExpr,
-    value_type : TypeValue,
-    self_value : Option(EvalValue),
-    arg_exprs : ArrayList(AstExpr),
-    caller_env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(value_type) : TypeValue,
+    imm(self_value) : Option(EvalValue),
+    imm(arg_exprs) : ArrayList(AstExpr),
+    imm(caller_env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> IndexCallResult
 )({
   // 1. Exactly 1 argument required
@@ -1623,7 +1623,7 @@ try_to_call_with_index_trait :: (
 /// `Output` as `index`'s. Runtime-mode files record nothing, so their C is
 /// unchanged.
 _record_index_unchecked_twin :: (
-  fn(value_type : TypeValue, arg_type : TypeValue, output_ty : TypeValue, expr : AstExpr, caller_env : Environment, ctx : EvalContext, idx_expr : AstExpr) -> unit
+  fn(imm(value_type) : TypeValue, imm(arg_type) : TypeValue, imm(output_ty) : TypeValue, imm(expr) : AstExpr, imm(caller_env) : Environment, imm(ctx) : EvalContext, imm(idx_expr) : AstExpr) -> unit
 )({
   tok := ast_expr_token(expr);
   if(!_is_verify_target(tok.module_path.clone()), {
@@ -1686,10 +1686,10 @@ _record_index_unchecked_twin :: (
 ///
 has_index_impl :: (
   fn(
-    concrete_type : TypeValue,
-    arg_exprs : ArrayList(AstExpr),
-    caller_env : Environment,
-    ctx : EvalContext
+    imm(concrete_type) : TypeValue,
+    imm(arg_exprs) : ArrayList(AstExpr),
+    imm(caller_env) : Environment,
+    imm(ctx) : EvalContext
   ) -> bool
 )({
   ctx;

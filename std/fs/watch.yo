@@ -114,7 +114,7 @@ Watcher :: ref(
 );
 /// Resume every task suspended in `next`: an event arrived, or the watch
 /// closed. Each re-checks the queue, so waking all of them is safe.
-_wake_waiters :: (fn(w : Watcher) -> unit)({
+_wake_waiters :: (fn(imm(w) : Watcher) -> unit)({
   pending := w._waiters;
   w._waiters = ArrayList(Waker).new();
   (i : usize) = usize(0);
@@ -148,7 +148,7 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
 });
 /// Start watching `path`. Throws the backend's `IoError` (e.g. `NotFound`)
 /// through `exn`.
-watch :: (fn(path : Path, opts : WatchOptions, exn : Exception) -> Watcher)({
+watch :: (fn(imm(path) : Path, opts : WatchOptions, imm(exn) : Exception) -> Watcher)({
   w := Watcher(
     _handle : events.fs_event_init(),
     _root : path,
@@ -171,14 +171,14 @@ watch :: (fn(path : Path, opts : WatchOptions, exn : Exception) -> Watcher)({
 impl(
   Watcher,
   /// The watched path.
-  path : (fn(inout(self) : Self) -> Path)(self._root),
+  path : (fn(mut(self) : Self) -> Path)(self._root),
   /// Whether the watch is still running.
-  is_active : (fn(inout(self) : Self) -> bool)(self._active),
+  is_active : (fn(mut(self) : Self) -> bool)(self._active),
   /// Events queued and not yet read.
-  pending : (fn(inout(self) : Self) -> usize)(self._queue.len() - self._head),
+  pending : (fn(mut(self) : Self) -> usize)(self._queue.len() - self._head),
   /// Take the next queued event without waiting; `.None` when the queue is
   /// empty.
-  poll : (fn(inout(self) : Self) -> Option(FsEvent))(
+  poll : (fn(mut(self) : Self) -> Option(FsEvent))(
     cond(
       (self._head < self._queue.len()) => {
         ev := self._queue(self._head);
@@ -195,7 +195,7 @@ impl(
   /// Stop the native watch. Queued events stay readable through `poll`;
   /// `next` no longer waits. Idempotent, and called for you when the last
   /// reference to the watcher goes away (`Dispose` below).
-  close : (fn(self : Self) -> unit)({
+  close : (fn(imm(self) : Self) -> unit)({
     if(self._active, {
       self._active = false;
       events.fs_event_stop(self._handle);
@@ -220,7 +220,7 @@ impl(
     /// re-`yield` in a loop, which kept the task always runnable: a waiting
     /// watcher spun a core and the loop never blocked
     /// (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
       io.async((io : Io) => {
         while(runtime((self._head >= self._queue.len()) && self._active), {
           p := Park.new();
@@ -246,7 +246,7 @@ impl(
   /// because the object's own teardown removes it.
   /// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md)
   Dispose(
-    dispose : (fn(self : Self) -> unit)(self.close())
+    dispose : (fn(imm(self) : Self) -> unit)(self.close())
   )
 );
 export(FsEventKind, FsEvent, WatchOptions, Watcher, watch);

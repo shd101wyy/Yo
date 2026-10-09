@@ -52,7 +52,7 @@ LOCK_FILENAME :: "yo.lock";
 /// True when `path` exists on disk. libc `stat` (portable to Windows — MSVC
 /// has it in <sys/stat.h>; POSIX `access`/`F_OK` broke the v0.2.0 windows
 /// seed leg).
-file_exists_sync :: (fn(path : String) -> bool)({
+file_exists_sync :: (fn(imm(path) : String) -> bool)({
   { stat } :: import("std/libc/sys/stat");
   { GlobalAllocator } :: import("std/allocator");
   { malloc, free } :: GlobalAllocator;
@@ -72,7 +72,7 @@ extern(
 );
 /// Read a whole file synchronously. Errors (a missing file, a permission
 /// failure) are thrown as the libc `IoError`.
-read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
+read_file_sync :: (fn(imm(path) : String, imm(exn) : Exception) -> ArrayList(u8))({
   // Module-qualified so the name says which `open` this is: libc's, not
   // `std/fs`'s `File.open`.
   fcntl :: import("std/libc/fcntl");
@@ -190,7 +190,7 @@ Manifest :: ref(
 impl(
   Manifest,
   /// The dependency named `name`, if the manifest declares one.
-  find_dependency : (fn(self : Self, name : String) -> Option(ManifestDependency))({
+  find_dependency : (fn(imm(self) : Self, imm(name) : String) -> Option(ManifestDependency))({
     (i : usize) = usize(0);
     while(i < self.dependencies.len(), {
       d := self.dependencies(i);
@@ -202,7 +202,7 @@ impl(
     Option(ManifestDependency).None
   }),
   /// The `[modules]` entry named `name` (`"default"` for the package root).
-  find_module : (fn(self : Self, name : String) -> Option(ManifestModule))({
+  find_module : (fn(imm(self) : Self, imm(name) : String) -> Option(ManifestModule))({
     (i : usize) = usize(0);
     while(i < self.modules.len(), {
       m := self.modules(i);
@@ -214,7 +214,7 @@ impl(
     Option(ManifestModule).None
   }),
   /// The git dependencies (dev ones included), in declaration order.
-  git_dependencies : (fn(self : Self) -> ArrayList(ManifestDependency))({
+  git_dependencies : (fn(imm(self) : Self) -> ArrayList(ManifestDependency))({
     out := ArrayList(ManifestDependency).new();
     (i : usize) = usize(0);
     while(i < self.dependencies.len(), {
@@ -231,7 +231,7 @@ impl(
 /// `<dir>/yo.toml` for the nearest directory at or above `start_dir` that has
 /// one, or `.None`. `start_dir` may be relative (resolved against the cwd by
 /// the caller's `Path`).
-find_manifest :: (fn(start_dir : String) -> Option(String))({
+find_manifest :: (fn(imm(start_dir) : String) -> Option(String))({
   (dir_opt : Option(Path)) = Option(Path).Some(Path.new(start_dir));
   while(dir_opt.is_some(), {
     dir := dir_opt.unwrap();
@@ -255,9 +255,9 @@ find_manifest :: (fn(start_dir : String) -> Option(String))({
 /// non-string value is an error naming it.
 _string_field :: (
   fn(
-    table : TomlValue,
-    key : String,
-    where_ : String
+    imm(table) : TomlValue,
+    imm(key) : String,
+    imm(where_) : String
   ) -> Result(String, String)
 )(
   match(
@@ -275,10 +275,10 @@ _string_field :: (
 ///   `{ path = "../dir" }`
 _parse_dependency :: (
   fn(
-    name : String,
-    value : TomlValue,
+    imm(name) : String,
+    imm(value) : TomlValue,
     dev : bool,
-    where_ : String
+    imm(where_) : String
   ) -> Result(ManifestDependency, String)
 )({
   if(!value.is_table(), {
@@ -358,11 +358,11 @@ _parse_dependency :: (
 /// Every entry of the `[<table_name>]` table of `root`, appended to `out`.
 _parse_dependency_table :: (
   fn(
-    root : TomlValue,
-    table_name : String,
+    imm(root) : TomlValue,
+    imm(table_name) : String,
     dev : bool,
-    where_ : String,
-    inout(out) : ArrayList(ManifestDependency)
+    imm(where_) : String,
+    mut(out) : ArrayList(ManifestDependency)
   ) -> Result(unit, String)
 )({
   match(
@@ -403,7 +403,7 @@ _parse_dependency_table :: (
 });
 /// Parse the text of a manifest at `path` (absolute; its directory anchors
 /// the relative paths inside). Errors are messages prefixed with the path.
-parse_manifest :: (fn(text : String, path : String) -> Result(Manifest, String))({
+parse_manifest :: (fn(imm(text) : String, imm(path) : String) -> Result(Manifest, String))({
   where_ := path.clone();
   root := match(
     parse(text),
@@ -552,14 +552,14 @@ parse_manifest :: (fn(text : String, path : String) -> Result(Manifest, String))
   )
 });
 /// Read and parse the manifest at `path` (absolute).
-load_manifest :: (fn(path : String, exn : Exception) -> Result(Manifest, String))(
+load_manifest :: (fn(imm(path) : String, imm(exn) : Exception) -> Result(Manifest, String))(
   parse_manifest(String.from_bytes(read_file_sync(path.clone(), exn)), path)
 );
 // ---------------------------------------------------------------------------
 // Module roots
 // ---------------------------------------------------------------------------
 /// `<base>/<rel>` absolute and normalized (`rel` may already be absolute).
-abs_under :: (fn(base : String, rel : String) -> String)({
+abs_under :: (fn(imm(base) : String, imm(rel) : String) -> String)({
   joined := if(
     Path.new(rel.clone()).is_absolute(),
     Path.new(rel),
@@ -569,7 +569,7 @@ abs_under :: (fn(base : String, rel : String) -> String)({
 });
 /// The root file a package without a `default` module resolves to: the
 /// conventional `src/lib.yo` → `index.yo` → `<name>.yo` under `dir`.
-default_module_root :: (fn(dir : String, name : String) -> Option(String))({
+default_module_root :: (fn(imm(dir) : String, imm(name) : String) -> Option(String))({
   lib_default := abs_under(dir.clone(), String.from("src/lib.yo"));
   index_default := abs_under(dir.clone(), String.from("index.yo"));
   named_default := abs_under(dir, `${name}.yo`);
@@ -613,14 +613,14 @@ ImportRoots :: ref(
 /// is its entry in the ROOT project's `yo.lock` mapped into the store by its
 /// integrity hash (`<cache>/store/sha256/<hash>/<subdir>`) — dependencies'
 /// own git dependencies are recorded in the root lock too.
-_unavailable :: (fn(name : String, reason : String, fetchable : bool) -> UnavailableImport)(
+_unavailable :: (fn(imm(name) : String, imm(reason) : String, fetchable : bool) -> UnavailableImport)(
   UnavailableImport(name : name, reason : reason, fetchable : fetchable)
 );
 dependency_dir :: (
   fn(
-    dep : ManifestDependency,
-    declaring_dir : String,
-    root_lock_text : Option(String)
+    imm(dep) : ManifestDependency,
+    imm(declaring_dir) : String,
+    imm(root_lock_text) : Option(String)
   ) -> Result(String, UnavailableImport)
 )(
   match(
@@ -683,10 +683,10 @@ _ClosureEntry :: ref(
 /// Register `name` → `root`, rejecting one name at two different roots.
 _add_root :: (
   fn(
-    inout(roots) : ArrayList(ImportRoot),
-    name : String,
-    root : String,
-    via : String
+    mut(roots) : ArrayList(ImportRoot),
+    imm(name) : String,
+    imm(root) : String,
+    imm(via) : String
   ) -> Result(unit, String)
 )({
   (i : usize) = usize(0);
@@ -711,10 +711,10 @@ _add_root :: (
 /// `import("<its name>")` — an executable-only project needs no library root.
 _register_package_roots :: (
   fn(
-    entry : _ClosureEntry,
+    imm(entry) : _ClosureEntry,
     is_root : bool,
-    out : ImportRoots,
-    via : String
+    imm(out) : ImportRoots,
+    imm(via) : String
   ) -> Result(unit, String)
 )({
   (default_root : Option(String)) = Option(String).None;
@@ -771,9 +771,9 @@ _register_package_roots :: (
 /// be read.
 resolve_import_roots :: (
   fn(
-    manifest : Manifest,
-    root_lock_text : Option(String),
-    exn : Exception
+    imm(manifest) : Manifest,
+    imm(root_lock_text) : Option(String),
+    imm(exn) : Exception
   ) -> Result(ImportRoots, String)
 )({
   out := ImportRoots(roots : ArrayList(ImportRoot).new(), unavailable : ArrayList(UnavailableImport).new());
@@ -852,7 +852,7 @@ resolve_import_roots :: (
   Result(ImportRoots, String).Ok(out)
 });
 /// The text of `<manifest dir>/yo.lock`, or `.None` when there is no lock.
-read_lock_text :: (fn(manifest : Manifest, exn : Exception) -> Option(String))({
+read_lock_text :: (fn(imm(manifest) : Manifest, imm(exn) : Exception) -> Option(String))({
   lock_path := abs_under(manifest.dir.clone(), String.from(LOCK_FILENAME));
   if(file_exists_sync(lock_path.clone()), Option(String).Some(String.from_bytes(read_file_sync(lock_path, exn))), Option(String).None)
 });

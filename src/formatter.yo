@@ -71,7 +71,7 @@ is_atom_like_token :: (fn(kind : TokenKind) -> bool)(
 );
 /// True iff `name` is a directory the formatter should skip when walking
 /// `format_yo_files`.
-is_ignored_format_dir :: (fn(name : String) -> bool)(
+is_ignored_format_dir :: (fn(imm(name) : String) -> bool)(
   cond(
     (name == ".git") => true,
     (name == ".yo-cache") => true,
@@ -102,7 +102,7 @@ FormatYoFilesResult :: struct(
 // ---------------------------------------------------------------------------
 /// True iff `previous` (the token immediately before `(`) makes the paren a
 /// call delimiter — i.e. the paren follows an rvalue-end.
-paren_is_call_delimiter :: (fn(previous : Option(Token)) -> bool)(
+paren_is_call_delimiter :: (fn(imm(previous) : Option(Token)) -> bool)(
   match(
     previous,
     .None => false,
@@ -115,7 +115,7 @@ paren_is_call_delimiter :: (fn(previous : Option(Token)) -> bool)(
 );
 /// True iff `value` is one of the function-type keywords (`fn` or
 /// `unsafe_fn`).
-is_function_type_keyword :: (fn(value : String) -> bool)(
+is_function_type_keyword :: (fn(imm(value) : String) -> bool)(
   cond(
     (value == "fn") => true,
     (value == "unsafe_fn") => true,
@@ -124,7 +124,7 @@ is_function_type_keyword :: (fn(value : String) -> bool)(
 );
 /// True iff inserting an atom right after `previous` requires a leading
 /// space (so the tokens don't run together).
-needs_space_before_atom :: (fn(previous : Option(Token)) -> bool)(
+needs_space_before_atom :: (fn(imm(previous) : Option(Token)) -> bool)(
   match(
     previous,
     .None => false,
@@ -154,7 +154,7 @@ needs_space_before_atom :: (fn(previous : Option(Token)) -> bool)(
 /// after-any-operator rule dated from the retired maximal-munch lexer,
 /// where any operator pair could merge).
 prefix_operator_needs_leading_space :: (
-  fn(token : Token, previous : Option(Token), prev_prev : Option(Token)) -> bool
+  fn(imm(token) : Token, imm(previous) : Option(Token), imm(prev_prev) : Option(Token)) -> bool
 )(
   match(
     previous,
@@ -196,7 +196,7 @@ prefix_operator_needs_leading_space :: (
 /// mutates `result` via `replace(/[ \t]+$/u, "")`). Used before emitting
 /// closing delimiters and statement terminators to absorb the placeholder
 /// space added by `ensureSpace`-style helpers.
-_trim_trailing_h_ws :: (fn(s : String) -> String)({
+_trim_trailing_h_ws :: (fn(imm(s) : String) -> String)({
   // Count how many trailing space/tab BYTES there are, then cut that many
   // units off the end. Space and tab are single-byte ASCII, so the count is
   // the same number in either basis — which is why this shape survived D4's
@@ -229,7 +229,7 @@ _trim_trailing_h_ws :: (fn(s : String) -> String)({
   )
 });
 /// Count the leading `[ \t]*` characters of `line`.
-leading_whitespace_length :: (fn(line : String) -> usize)({
+leading_whitespace_length :: (fn(imm(line) : String) -> usize)({
   n := line.len();
   (i : usize) = usize(0);
   (done : bool) = false;
@@ -254,7 +254,7 @@ leading_whitespace_length :: (fn(line : String) -> usize)({
 // ---------------------------------------------------------------------------
 /// Walk past comment tokens (anything matching `is_comment_token`) before
 /// `index`, returning the nearest non-comment predecessor.
-previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Option(Token))({
+previous_meaningful_token :: (fn(imm(tokens) : ArrayList(Token), index : usize) -> Option(Token))({
   if(index == usize(0), {
     return(Option(Token).None);
   });
@@ -288,7 +288,7 @@ previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Op
 /// Walk past comment tokens (anything matching `is_comment_token`) after
 /// `index`, returning the nearest non-comment successor within
 /// `[index+1, end_exclusive)`.
-next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclusive : usize) -> Option(Token))({
+next_meaningful_token :: (fn(imm(tokens) : ArrayList(Token), index : usize, end_exclusive : usize) -> Option(Token))({
   (i : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
@@ -311,7 +311,7 @@ next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclu
   result
 });
 /// True iff any token in `[start_inclusive, end_exclusive)` is a comment.
-token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usize, end_exclusive : usize) -> bool)({
+token_range_has_comment :: (fn(imm(tokens) : ArrayList(Token), start_inclusive : usize, end_exclusive : usize) -> bool)({
   (i : usize) = start_inclusive;
   (found : bool) = false;
   while((i < end_exclusive) && !found, {
@@ -328,7 +328,7 @@ token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usiz
 });
 /// True iff any token in `(left_index, right_index)` (exclusive both ends)
 /// has the given kind. No bracket nesting awareness.
-has_any_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
+has_any_token :: (fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
   (i : usize) = (left_index + usize(1));
   (found : bool) = false;
   while((i < right_index) && !found, {
@@ -346,7 +346,7 @@ has_any_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index 
 /// True iff there is a top-level (no nesting) token of `kind` in
 /// `(left_index, right_index)`. Skips comments and tracks paren / bracket /
 /// curly depth so e.g. a comma inside an inner paren doesn't count.
-has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
+has_top_level_token :: (fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
   (paren_depth : usize) = usize(0);
   (bracket_depth : usize) = usize(0);
   (curly_depth : usize) = usize(0);
@@ -391,7 +391,7 @@ has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_
 // ---------------------------------------------------------------------------
 /// Walk past tokens whose index is in `skipped_indices`, returning the
 /// nearest non-skipped successor.
-next_token :: (fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize), index : usize) -> Option(Token))({
+next_token :: (fn(imm(tokens) : ArrayList(Token), imm(skipped_indices) : HashSet(usize), index : usize) -> Option(Token))({
   n := tokens.len();
   (next_index : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
@@ -409,7 +409,7 @@ next_token :: (fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize), i
   result
 });
 /// Build a map of each `LParen` index → its matching `RParen` index.
-find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, usize))({
+find_matching_paren_indices :: (fn(imm(tokens) : ArrayList(Token)) -> HashMap(usize, usize))({
   pairs := HashMap(usize, usize).new();
   stack := ArrayList(usize).new();
   n := tokens.len();
@@ -438,7 +438,7 @@ find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, 
 });
 /// Build a map of each inner `LParen` index → its parent `LParen` index.
 /// Top-level parens are absent.
-find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, usize))({
+find_parent_paren_indices :: (fn(imm(tokens) : ArrayList(Token)) -> HashMap(usize, usize))({
   parents := HashMap(usize, usize).new();
   stack := ArrayList(usize).new();
   n := tokens.len();
@@ -472,7 +472,7 @@ find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, us
 /// Stack frames track per-frame
 /// `paren_depth` / `bracket_depth` so semicolons inside nested calls don't
 /// trigger multiline mode for the enclosing curly.
-find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
+find_inline_curly_indices :: (fn(imm(tokens) : ArrayList(Token)) -> HashSet(usize))({
   inline_indices := HashSet(usize).new();
   stack_indices := ArrayList(usize).new();
   stack_paren_depths := ArrayList(usize).new();
@@ -541,7 +541,7 @@ find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
 });
 /// Compute indices of `LBracket` / `RBracket` pairs that span multiple
 /// source rows.
-find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
+find_multiline_bracket_indices :: (fn(imm(tokens) : ArrayList(Token)) -> HashSet(usize))({
   multiline_indices := HashSet(usize).new();
   stack := ArrayList(usize).new();
   n := tokens.len();
@@ -575,7 +575,7 @@ find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usiz
 /// Compute indices of `LCurlyBracket` / `RCurlyBracket` pairs that are
 /// marked inline-eligible (by `find_inline_curly_indices`) but actually
 /// span multiple rows in the source.
-find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_curly_indices : HashSet(usize)) -> HashSet(usize))({
+find_multiline_inline_curly_indices :: (fn(imm(tokens) : ArrayList(Token), imm(inline_curly_indices) : HashSet(usize)) -> HashSet(usize))({
   multiline_indices := HashSet(usize).new();
   stack := ArrayList(usize).new();
   n := tokens.len();
@@ -613,7 +613,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_cur
 /// `(left_index, right_index)` contains a top-level curly. In that case
 /// the operator's RHS must render as a block (multiline).
 should_force_operator_rhs_block :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize, imm(previous) : Option(Token)) -> bool
 )(
   match(
     previous,
@@ -628,7 +628,7 @@ should_force_operator_rhs_block :: (
 /// `match`) and contains a top-level curly. Forces the paren range to
 /// render multiline.
 should_force_control_flow_multiline :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize, imm(previous) : Option(Token)) -> bool
 )(
   match(
     previous,
@@ -646,7 +646,7 @@ should_force_control_flow_multiline :: (
 /// True iff the paren range contains a top-level curly that follows a
 /// top-level comma (i.e. a curly-bracketed argument like `f(x, { … })`).
 has_top_level_curly_argument :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )({
   (paren_depth : usize) = usize(0);
   (bracket_depth : usize) = usize(0);
@@ -707,7 +707,7 @@ has_top_level_curly_argument :: (
 /// True iff the paren range contains a top-level `:` operator (a struct-
 /// field-style label) followed by a top-level curly.
 has_top_level_field_block :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )({
   (paren_depth : usize) = usize(0);
   (bracket_depth : usize) = usize(0);
@@ -765,7 +765,7 @@ has_top_level_field_block :: (
 /// followed by a curly. Used to detect `xs.iter(x => { ... })`-style
 /// calls so they're rendered inline.
 has_direct_top_level_closure_argument :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, previous : Option(Token)) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize, imm(previous) : Option(Token)) -> bool
 )({
   // Control-flow keywords have their own multiline rules — bail out.
   prev_is_control := match(
@@ -848,7 +848,7 @@ has_direct_top_level_closure_argument :: (
 /// True iff the paren range is `(.X)` (a parenthesised dot-dereference,
 /// e.g. `ptr.*(x)`).
 is_parenthesized_dot_deref :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )({
   previous := previous_meaningful_token(tokens, left_index);
   (inner_token : Option(Token)) = Option(Token).None;
@@ -900,7 +900,7 @@ is_parenthesized_dot_deref :: (
 /// `?*T` chains. Local mirror of the parser's `_is_prefix_op_token` (not
 /// exported there). `+` and the rest stay infix-only, so a leading `+` can
 /// never start an atom-like group.
-is_prefix_capable_operator :: (fn(t : Token) -> bool)(
+is_prefix_capable_operator :: (fn(imm(t) : Token) -> bool)(
   (t.kind == TokenKind.Operator) &&
     (
       (t.value == "-") ||
@@ -929,7 +929,7 @@ GroupContentShape :: struct(
 );
 derive(GroupContentShape, Copy, Clone);
 classify_group_content :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> GroupContentShape
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> GroupContentShape
 )({
   (paren_depth : usize) = usize(0);
   (bracket_depth : usize) = usize(0);
@@ -1003,7 +1003,7 @@ classify_group_content :: (
 /// Index of the nearest preceding meaningful (non-comment) token, searched
 /// backwards from `before` (exclusive). Companion to
 /// `previous_meaningful_token`, which returns only the token.
-previous_meaningful_token_index :: (fn(tokens : ArrayList(Token), before : usize) -> Option(usize))({
+previous_meaningful_token_index :: (fn(imm(tokens) : ArrayList(Token), before : usize) -> Option(usize))({
   (i : usize) = before;
   (result : Option(usize)) = Option(usize).None;
   (done : bool) = false;
@@ -1030,7 +1030,7 @@ previous_meaningful_token_index :: (fn(tokens : ArrayList(Token), before : usize
 /// and never flattens (`3 + (4 + 5)` keeps its parens), and mixed
 /// operators never flatten (`(3 + 4) - 5`).
 is_left_same_operator_flatten_group :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )(
   cond(
     token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
@@ -1141,7 +1141,7 @@ is_left_same_operator_flatten_group :: (
 /// forwards from `index` (exclusive) up to `end_exclusive`. Companion to
 /// `next_meaningful_token`, which returns only the token.
 next_meaningful_token_index :: (
-  fn(tokens : ArrayList(Token), index : usize, end_exclusive : usize) -> Option(usize)
+  fn(imm(tokens) : ArrayList(Token), index : usize, end_exclusive : usize) -> Option(usize)
 )({
   (i : usize) = (index + usize(1));
   (result : Option(usize)) = Option(usize).None;
@@ -1169,7 +1169,7 @@ next_meaningful_token_index :: (
 /// A comma-free inner group is fine: `-((x))` elides all the way to `-x`
 /// because the inner group is a concurrent removal candidate.
 first_inner_group_has_top_level_comma :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )({
   first_idx := next_meaningful_token_index(tokens, left_index, right_index);
   match(
@@ -1231,7 +1231,7 @@ first_inner_group_has_top_level_comma :: (
 /// kept, the inner elides through the normal D1 path and the `-(` call
 /// spelling survives intact.
 single_inner_group_not_atom_like :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )({
   first_idx := next_meaningful_token_index(tokens, left_index, right_index);
   match(
@@ -1304,7 +1304,7 @@ single_inner_group_not_atom_like :: (
 /// (`is_callee_prefix_call_paren`) both start here and differ only in what
 /// they require AFTER the group.
 prefix_call_paren_shape :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )(
   cond(
     token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
@@ -1393,7 +1393,7 @@ prefix_call_paren_shape :: (
 /// parens, as does anything followed by `(` or `.` — `-(x)(y)` / `-(x).y`
 /// would re-bind differently without them (the `(` case is D4's job).
 is_elidable_prefix_call_paren :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )(
   cond(
     !prefix_call_paren_shape(tokens, left_index, right_index) => false,
@@ -1418,7 +1418,7 @@ is_elidable_prefix_call_paren :: (
 /// rejects). Adjacency is structural — the parser forbids whitespace
 /// before a call's `(` — and it excludes comment gaps.
 is_callee_prefix_call_paren :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )(
   cond(
     !prefix_call_paren_shape(tokens, left_index, right_index) => false,
@@ -1459,7 +1459,7 @@ is_callee_prefix_call_paren :: (
 /// required — a spaced `op (x)` does not parse in the first place
 /// (`whitespace before '(' is not allowed`), so it never reaches elision.
 is_non_prefix_operator_call_paren :: (
-  fn(tokens : ArrayList(Token), left_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize) -> bool
 )(
   match(
     previous_meaningful_token_index(tokens, left_index),
@@ -1488,7 +1488,7 @@ is_non_prefix_operator_call_paren :: (
 /// True iff the paren range is a redundant grouping paren (e.g.
 /// `(x)` around a single sub-expression that doesn't need protection).
 is_redundant_grouping_paren :: (
-  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+  fn(imm(tokens) : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )(
   cond(
     (right_index == (left_index + usize(1))) => false,
@@ -1600,11 +1600,11 @@ is_redundant_grouping_paren :: (
 /// chain — only a top-level INFIX operator inside the group exposes.
 paren_removal_would_expose_operator_rhs_infix :: (
   fn(
-    tokens : ArrayList(Token),
+    imm(tokens) : ArrayList(Token),
     left_index : usize,
     right_index : usize,
-    parent_parens : HashMap(usize, usize),
-    candidate_left_indices : HashSet(usize)
+    imm(parent_parens) : HashMap(usize, usize),
+    imm(candidate_left_indices) : HashSet(usize)
   ) -> bool
 )({
   previous := previous_meaningful_token(tokens, left_index);
@@ -1649,7 +1649,7 @@ paren_removal_would_expose_operator_rhs_infix :: (
 });
 /// Compute the set of paren indices that should be elided as redundant
 /// grouping parens.
-find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
+find_redundant_grouping_paren_indices :: (fn(imm(tokens) : ArrayList(Token)) -> HashSet(usize))({
   skipped_indices := HashSet(usize).new();
   matching_parens := find_matching_paren_indices(tokens);
   parent_parens := find_parent_paren_indices(tokens);
@@ -1719,7 +1719,7 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
 /// decisions, the re-parse verify gate) treats the grouping as an ordinary
 /// paren. The rule is operator-generic — any prefix-capable operator in
 /// callee position, never just `*`.
-canonicalize_callee_prefix_calls :: (fn(tokens : ArrayList(Token)) -> ArrayList(Token))({
+canonicalize_callee_prefix_calls :: (fn(imm(tokens) : ArrayList(Token)) -> ArrayList(Token))({
   matching_parens := find_matching_paren_indices(tokens);
   delete_indices := HashSet(usize).new();
   open_before_indices := HashSet(usize).new();
@@ -1818,7 +1818,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : ArrayList(Token)) -> ArrayList(
 /// Compute the set of paren indices that should render on multiple
 /// lines.
 find_multiline_paren_indices :: (
-  fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize)) -> HashSet(usize)
+  fn(imm(tokens) : ArrayList(Token), imm(skipped_indices) : HashSet(usize)) -> HashSet(usize)
 )({
   multiline_indices := HashSet(usize).new();
   matching_parens := find_matching_paren_indices(tokens);
@@ -1919,7 +1919,7 @@ find_multiline_paren_indices :: (
 /// following `(` — i.e. should render as a prefix operator without a space
 /// before the paren (e.g. `*(T)`, `!(x)`).
 is_tightly_bound_operator :: (
-  fn(token : Token, previous : Option(Token), prev_prev : Option(Token), next : Option(Token)) -> bool
+  fn(imm(token) : Token, imm(previous) : Option(Token), imm(prev_prev) : Option(Token), imm(next) : Option(Token)) -> bool
 )({
   // After a dot, always tight (e.g. ptr.*(x), ptr.&(x))
   prev_is_dot := match(previous, .None => false, .Some(p) => (p.kind == TokenKind.Dot));
@@ -2008,7 +2008,7 @@ is_tightly_bound_operator :: (
 });
 /// Split a block-comment string by newlines and trim trailing whitespace.
 /// If indented continuation lines share a common indent, strip it.
-normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
+normalize_multiline_block_comment :: (fn(imm(raw) : String) -> ArrayList(String))({
   // Split raw on '\n', trim each line's trailing horizontal whitespace.
   lines := ArrayList(String).new();
   {
@@ -2227,7 +2227,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
 ///
 /// `Token.byte_offset` (added by `plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3) is
 /// that issue's named follow-up, and it removes the conversion walk entirely.
-read_raw_template_string :: (fn(input : String, start : usize) -> String)({
+read_raw_template_string :: (fn(imm(input) : String, start : usize) -> String)({
   bytes := input;
   n := bytes.len();
   (index : usize) = (start + usize(1));
@@ -2272,7 +2272,7 @@ read_raw_template_string :: (fn(input : String, start : usize) -> String)({
 });
 /// Return the raw source text for token `tokens[index]`. For template strings
 /// this re-reads from `input` (the lexer normalises template-string `value`s).
-raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize) -> String)(
+raw_token_value :: (fn(imm(input) : String, imm(tokens) : ArrayList(Token), index : usize) -> String)(
   match(
     tokens.get(index),
     .None => String.new(),
@@ -2313,9 +2313,9 @@ raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize)
 /// `g_fmt_elided_tokens`.
 _format_yo_source_impl :: (
   fn(
-    input : String,
-    module_path : String,
-    exn : Exception,
+    imm(input) : String,
+    imm(module_path) : String,
+    imm(exn) : Exception,
     elide_parens : bool
   ) -> String
 )({
@@ -3342,7 +3342,7 @@ _format_yo_source_impl :: (
 /// `if`→`cond` desugar, so that is compared like-for-like too). Any parse
 /// failure unwinds here as `false` — the caller reformats conservatively.
 _formatted_parses_identically :: (
-  fn(original : String, formatted : String, module_path : String) -> bool
+  fn(imm(original) : String, imm(formatted) : String, imm(module_path) : String) -> bool
 )({
   gate_exn := Exception(throw : (_err -> unwind(false)));
   before := parse(original.clone(), module_path.clone(), gate_exn);
@@ -3388,7 +3388,7 @@ _formatted_parses_identically :: (
 /// owns the parseability verdict, and the tree's deliberately-unparseable
 /// cli-case fixture (`fix-says-what-it-cannot-repair`) is fmt-clean.
 _fmt_parse_gate :: (
-  fn(input : String, formatted : String, module_path : String, exn : Exception) -> unit
+  fn(imm(input) : String, imm(formatted) : String, imm(module_path) : String, imm(exn) : Exception) -> unit
 )({
   if(formatted != input, {
     parse(input.clone(), module_path.clone(), exn);
@@ -3406,7 +3406,7 @@ _fmt_parse_gate :: (
 /// `_fmt_parse_gate` runs at every exit, so callers that apply the result
 /// (`format_yo_files`, the LSP's `_format_document`) get the parse
 /// diagnostic through their `exn` instead — never a rewrite.
-format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -> String)({
+format_yo_source :: (fn(imm(input) : String, imm(module_path) : String, imm(exn) : Exception) -> String)({
   formatted := _format_yo_source_impl(input.clone(), module_path.clone(), exn, true);
   // `return`, not cond-arm value returns: a local returned through a cond
   // arm is duplicated by the dup/drop policy and the original leaks (LSan
@@ -3432,10 +3432,10 @@ format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -
 /// Skips directories named in `is_ignored_format_dir`.
 collect_yo_files :: (
   fn(
-    target_path : Path,
-    inout(files) : ArrayList(String),
+    imm(target_path) : Path,
+    mut(files) : ArrayList(String),
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> unit
 )({
   is_file_p := io.await(is_file(target_path, io), io);
@@ -3487,10 +3487,10 @@ collect_yo_files :: (
 /// result is sorted with adjacent duplicates dropped.
 find_yo_format_files :: (
   fn(
-    input_paths : ArrayList(String),
-    fmt_cwd : String,
+    imm(input_paths) : ArrayList(String),
+    imm(fmt_cwd) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> ArrayList(String)
 )({
   files := ArrayList(String).new();
@@ -3553,10 +3553,10 @@ find_yo_format_files :: (
 /// no file is written.
 format_yo_files :: (
   fn(
-    input_paths : ArrayList(String),
-    options : FormatYoFilesOptions,
+    imm(input_paths) : ArrayList(String),
+    imm(options) : FormatYoFilesOptions,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> FormatYoFilesResult
 )({
   files := find_yo_format_files(input_paths, options.cwd.clone(), io, exn);

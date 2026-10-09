@@ -17,7 +17,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 test("Test single-hop forwarded closure param", {
   walk1 :: (
-    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32), inout(acc) : ArrayList(i32)) -> unit
+    fn(depth : i32, imm(get_info) : Impl(Fn(k : i32) -> i32), mut(acc) : ArrayList(i32)) -> unit
   )({
     if(depth <= i32(0), {
       return(());
@@ -26,7 +26,7 @@ test("Test single-hop forwarded closure param", {
     recur(depth - i32(1), get_info, acc);
   });
   analyze1 :: (
-    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
+    fn(depth : i32, imm(get_info) : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
   )({
     out := ArrayList(i32).new();
     walk1(depth, get_info, out);
@@ -42,7 +42,7 @@ test("Test single-hop forwarded closure param", {
 test("Test two-hop forwarded closure param with dyn-capturing detector", {
   Detector :: ref(struct(detect : Dyn(Fn(k : i32) -> i32)));
   walk2 :: (
-    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32), det : Detector, inout(acc) : ArrayList(i32)) -> unit
+    fn(depth : i32, imm(get_info) : Impl(Fn(k : i32) -> i32), imm(det) : Detector, mut(acc) : ArrayList(i32)) -> unit
   )({
     if(depth <= i32(0), {
       return(());
@@ -52,7 +52,7 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
     recur(depth - i32(1), get_info, det, acc);
   });
   analyze2 :: (
-    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
+    fn(depth : i32, imm(get_info) : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
   )({
     out := ArrayList(i32).new();
     extras := ArrayList(i32).new();
@@ -67,7 +67,7 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
     out
   });
   outer2 :: (
-    fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
+    fn(depth : i32, imm(get_info) : Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
   )(
     analyze2(depth, get_info)
   );
@@ -82,12 +82,12 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
 });
 test("Test two distinct closures through the same forwarding chain", {
   apply3 :: (
-    fn(get_info : Impl(Fn(k : i32) -> i32)) -> i32
+    fn(imm(get_info) : Impl(Fn(k : i32) -> i32)) -> i32
   )(
     get_info(i32(10))
   );
   relay3 :: (
-    fn(get_info : Impl(Fn(k : i32) -> i32)) -> i32
+    fn(imm(get_info) : Impl(Fn(k : i32) -> i32)) -> i32
   )(
     apply3(get_info)
   );
@@ -111,10 +111,10 @@ test("Test a captured generic callback at T = unit", {
   // binding's spill), for a program `yo check` accepts.
   // See issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
   hits := ArrayList(i32).new();
-  call_unit4 :: (fn(f : Impl(Fn(n : i32) -> unit)) -> unit)({
+  call_unit4 :: (fn(imm(f) : Impl(Fn(n : i32) -> unit)) -> unit)({
     f(i32(7));
   });
-  run4 :: (fn(generic(T : Type), cb : Impl(Fn(n : i32) -> T)) -> unit)({
+  run4 :: (fn(generic(T : Type), imm(cb) : Impl(Fn(n : i32) -> T)) -> unit)({
     call_unit4((k : i32) => {
       _v := cb(k);
       ()

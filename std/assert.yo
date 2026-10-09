@@ -29,7 +29,7 @@
 /// Terminate the program with a message.
 ///
 /// `msg` must implement `ToString`.
-panic :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> never)({
+panic :: (fn(generic(T : Type), imm(msg) : T, where(T <: ToString)) -> never)({
   // __yo_panic comptime-evaluates its message argument, so the pointer has
   // to arrive as a plain *(u8)-typed binding — an Option .unwrap() chain
   // leaves the argument without an ExprInfo and the builtin rejects it.
@@ -43,7 +43,7 @@ panic :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> never)({
 /// Runtime assertion. If `flag` is false, call `panic(msg)`.
 ///
 /// `msg` must implement `ToString`.
-assert :: (fn(generic(T : Type), flag : bool, (msg : T) ?= "Assertion failed.", where(T <: ToString)) -> unit)({
+assert :: (fn(generic(T : Type), flag : bool, (imm(msg) : T) ?= "Assertion failed.", where(T <: ToString)) -> unit)({
   cond(
     flag => (),
     true => panic(msg)
@@ -64,7 +64,7 @@ _ctx :: (fn(msg : str) -> String)(
 ///   assert_eq(got, i32(42));
 ///   assert_eq(name, `yo`, "config name round-trip");
 assert_eq :: (
-  fn(generic(A : Type), left : A, right : A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+  fn(generic(A : Type), imm(left) : A, imm(right) : A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
 )({
   cond(
     (left == right) => (),
@@ -78,7 +78,7 @@ assert_eq :: (
 });
 /// Assert two values are NOT equal; prints the (shared) value on failure.
 assert_ne :: (
-  fn(generic(A : Type), left : A, right : A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+  fn(generic(A : Type), imm(left) : A, imm(right) : A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
 )({
   cond(
     (left != right) => (),

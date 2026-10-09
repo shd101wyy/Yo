@@ -36,7 +36,7 @@ _network_required :: (fn() -> bool)(env.get("CI").is_some());
 /// recovered here through `downcast` rather than by reading the rendered
 /// English (D1). Resolution happens before any connection, so a broken stack
 /// cannot produce it; every other error stays fatal under CI.
-_is_dns_failure :: (fn(err : AnyError) -> bool)(
+_is_dns_failure :: (fn(imm(err) : AnyError) -> bool)(
   match(
     downcast(err, NetError),
     .Some(ne) => match(ne, .DNSFailed => true, _ => false),
@@ -203,7 +203,7 @@ test("fetch over https returns a real response (mandatory under CI)", {
 // True once `b` ends with the CRLFCRLF that closes a request's header section.
 // Every request these servers receive is body-less, so that is the whole
 // message.
-_ends_headers :: (fn(b : ArrayList(u8)) -> bool)({
+_ends_headers :: (fn(imm(b) : ArrayList(u8)) -> bool)({
   n := b.len();
   cond(
     (n < usize(4)) => false,
@@ -220,7 +220,7 @@ _ends_headers :: (fn(b : ArrayList(u8)) -> bool)({
 // queue turn a later `close()` into an RST, which discards the response the
 // client has not read yet. Both make a server that answers correctly look like
 // one that did not.
-_read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
+_read_request :: (fn(imm(stream) : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
@@ -249,7 +249,7 @@ _read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn))
 // An `Rc`: the caller and the spawned task share the list on purpose, and a
 // task captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
 _serve_scripted :: (
-  fn(listener : TcpListener, responses : ArrayList(String), seen : Rc(ArrayList(String)), io : Io) ->
+  fn(imm(listener) : TcpListener, imm(responses) : ArrayList(String), imm(seen) : Rc(ArrayList(String)), io : Io) ->
     Impl(Future(unit, IoExn))
 )(
   io.async(e => {
@@ -265,10 +265,10 @@ _serve_scripted :: (
     return(());
   })
 );
-_redirect_to :: (fn(location : String) -> String)(
+_redirect_to :: (fn(imm(location) : String) -> String)(
   `HTTP/1.1 302 Found\r\nLocation: ${location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`
 );
-_ok_body :: (fn(body : String) -> String)(
+_ok_body :: (fn(imm(body) : String) -> String)(
   `HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`
 );
 test("fetch follows redirects, resolving relative and absolute-path Locations", {
@@ -380,7 +380,7 @@ test("fetch default response ceiling is 64 MiB and 0 lifts it", {
 });
 // A server that accepts and then never answers — the case a deadline exists
 // for: fetch is parked inside a read that will not return on its own.
-_serve_silent :: (fn(listener : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
+_serve_silent :: (fn(imm(listener) : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     s := e.io.await(listener.accept(e.io), e);
     _req := e.io.await(_read_request(s, e.io), e);
@@ -426,7 +426,7 @@ _hex :: (fn(n : usize) -> String)({
     }
   )
 });
-_chunked :: (fn(chunks : ArrayList(String), trailer : String) -> String)({
+_chunked :: (fn(imm(chunks) : ArrayList(String), imm(trailer) : String) -> String)({
   out := `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
   i := usize(0);
   while(i < chunks.len(), i = (i + usize(1)), {
@@ -606,7 +606,7 @@ test("fetch round-trips a binary body byte-for-byte", {
 // separately, so whether they reach the client in a single `read` is the
 // platform's write-coalescing decision — which is exactly how the over-read
 // below hid: it failed on one CI runner and passed on the other five.
-_serve_one_write :: (fn(listener : TcpListener, payload : String, io : Io) -> Impl(Future(unit, IoExn)))(
+_serve_one_write :: (fn(imm(listener) : TcpListener, imm(payload) : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     s := e.io.await(listener.accept(e.io), e);
     _req := e.io.await(_read_request(s, e.io), e);
@@ -616,7 +616,7 @@ _serve_one_write :: (fn(listener : TcpListener, payload : String, io : Io) -> Im
   })
 );
 _serve_then_trailing :: (
-  fn(listener : TcpListener, response : String, trailing : String, io : Io) ->
+  fn(imm(listener) : TcpListener, imm(response) : String, imm(trailing) : String, io : Io) ->
     Impl(Future(unit, IoExn))
 )(
   io.async(e => {
@@ -1042,7 +1042,7 @@ _ka_one_shot :: (fn(mode : i32) -> bool)(
 );
 // One connection: read framed requests off it and answer each one, until the
 // peer closes (an empty framed message is EOF) or the mode says to stop.
-_ka_conn :: (fn(stream : TcpStream, mode : i32, stats : _KaStats, io : Io) -> Impl(Future(unit, IoExn)))(
+_ka_conn :: (fn(imm(stream) : TcpStream, mode : i32, imm(stats) : _KaStats, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     // ONE carry list for the whole connection: a single `read` can deliver
     // the end of this request and the start of the next.
@@ -1108,7 +1108,7 @@ _ka_bind :: (fn(port : u16, io : Io) -> Impl(Future(TcpListener, IoExn)))(
   })
 );
 _ka_serve :: (
-  fn(listener : TcpListener, max_conns : usize, mode : i32, stats : _KaStats, io : Io) ->
+  fn(imm(listener) : TcpListener, max_conns : usize, mode : i32, imm(stats) : _KaStats, io : Io) ->
     Impl(Future(unit, IoExn))
 )(
   io.async(e => {
@@ -1572,12 +1572,12 @@ test("HttpClient: a HEAD response ends at its headers and the connection is reus
 // — the same technique as `tests/http/wire.test.yo`, and the reason it is
 // repeated here is that these two cases are the ones the pool introduced.
 _PipeReader :: ref(struct(data : ArrayList(u8), pos : usize, reads : usize));
-_pipe :: (fn(text : String) -> _PipeReader)(
+_pipe :: (fn(imm(text) : String) -> _PipeReader)(
   _PipeReader(data : text.to_bytes(), pos : usize(0), reads : usize(0))
 );
 impl(
   _PipeReader,
-  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
       self.reads = (self.reads + usize(1));
       // `size` is copied to a body-local before it is used in a branch: a
@@ -1598,7 +1598,7 @@ impl(
 impl(
   _PipeReader,
   Reader(
-    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
   )

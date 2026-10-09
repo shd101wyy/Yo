@@ -6,7 +6,7 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
 concat_wrong :: (
-  fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r.len() == a.len())) -> (r : ArrayList(i32))
+  fn(imm(a) : ArrayList(i32), imm(b) : ArrayList(i32), ensures(r.len() == a.len())) -> (r : ArrayList(i32))
 )({
   out := ArrayList(i32).new();
   (i : usize) = usize(0);
@@ -24,6 +24,6 @@ concat_wrong :: (
   out
 });
 
-push_once :: (fn(xs : ArrayList(i32), v : i32, ensures(xs.len() == (old(xs.len()) + usize(2)))) -> unit)({
+push_once :: (fn(imm(xs) : ArrayList(i32), v : i32, ensures(xs.len() == (old(xs.len()) + usize(2)))) -> unit)({
   xs.push(v);
 });

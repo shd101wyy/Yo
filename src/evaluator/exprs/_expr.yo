@@ -245,7 +245,7 @@ import("std/fmt");
 /// True when `expr` is the desugaring of a PUNNED one-field record — the
 /// `{ x }` shape, which the parser rewrites to `_(x : x)`. Structural, so an
 /// explicit `{ x : x }` is treated the same (the advice is identical).
-_is_punned_single_field :: (fn(expr : AstExpr) -> bool)(
+_is_punned_single_field :: (fn(imm(expr) : AstExpr) -> bool)(
   match(
     expr,
     .FnCall(_, _, args, _, _) => (
@@ -273,7 +273,7 @@ _is_punned_single_field :: (fn(expr : AstExpr) -> bool)(
   )
 );
 /// The punned field's name, for the message. Empty when not punned.
-_punned_field_name :: (fn(expr : AstExpr) -> String)(
+_punned_field_name :: (fn(imm(expr) : AstExpr) -> String)(
   match(
     expr,
     .FnCall(_, _, args, _, _) => match(
@@ -458,7 +458,7 @@ _punned_field_name :: (fn(expr : AstExpr) -> String)(
 { evaluate_raw_pointer_call } :: import("../calls/pointer.yo");
 { panic, assert } :: import("std/assert");
 /// Get the first argument of a FnCall expression. Returns make_err_expr() if not available.
-ast_expr_get_arg0 :: (fn(e : AstExpr) -> AstExpr)(
+ast_expr_get_arg0 :: (fn(imm(e) : AstExpr) -> AstExpr)(
   match(
     e,
     .Atom(_, _) => make_err_expr(),
@@ -466,7 +466,7 @@ ast_expr_get_arg0 :: (fn(e : AstExpr) -> AstExpr)(
   )
 );
 /// True if `e` is a FnCall whose function name starts with a comptime numeric prefix.
-is_comptime_numeric_fn_call :: (fn(e : AstExpr) -> bool)(
+is_comptime_numeric_fn_call :: (fn(imm(e) : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
@@ -564,14 +564,14 @@ evaluator_deadline_tripped :: (fn() -> bool)(_g_eval_deadline_tripped);
 evaluator_deadline_message :: (fn() -> String)(
   `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
 );
-_throw_deadline_error :: (fn(exn : Exception) -> unit)(
+_throw_deadline_error :: (fn(imm(exn) : Exception) -> unit)(
   exn.throw(
     dyn(
       evaluator_deadline_message()
     )
   )
 );
-_check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
+_check_evaluator_deadline :: (fn(imm(exn) : Exception) -> unit)(
   if(_g_eval_deadline_ns != i64(0), {
     if(_g_eval_deadline_tripped, {
       _throw_deadline_error(exn);
@@ -589,10 +589,10 @@ _check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
 /// path (std/assert's assert is an ordinary function).
 _evaluate_assert_ghost_args :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   // The ghost bracket applies ONLY in verification targets: there the
@@ -620,10 +620,10 @@ _evaluate_assert_ghost_args :: (
 /// name a path check differently — `try_exists` is the propagating twin.)
 _evaluate_exists_or_call :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )(
   cond(
@@ -633,10 +633,10 @@ _evaluate_exists_or_call :: (
 );
 _evaluate_expression :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   _check_evaluator_deadline(exn);
@@ -1370,7 +1370,7 @@ _evaluate_expression :: (
 /// GUARDED for safety (prior unguarded ExprInfo changes regressed std/tests):
 /// only acts when the ids DIFFER, only FILLS a missing original entry, and NEVER
 /// overwrites an existing one — so worst case it is a no-op.
-_bridge_expr_info :: (fn(orig : AstExpr, result : AstExpr, ctx : EvalContext) -> unit)({
+_bridge_expr_info :: (fn(imm(orig) : AstExpr, imm(result) : AstExpr, imm(ctx) : EvalContext) -> unit)({
   oid := ast_expr_id(orig);
   rid := ast_expr_id(result);
   if(!(oid == rid), {
@@ -1389,9 +1389,9 @@ _bridge_expr_info :: (fn(orig : AstExpr, result : AstExpr, ctx : EvalContext) ->
 });
 _evaluate_expression_wrapper :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext
   ) -> AstExpr
 )({
   exn := Exception(
@@ -1463,7 +1463,7 @@ _evaluate_expression_wrapper :: (
 /// deliberately NOT inspected: std hands safe code value structs that wrap a
 /// pointer (`JoinHandle`, iterators) and only privileged code can read the
 /// field out — that read is itself a pointer-typed expression and is gated.
-_surfaces_raw_pointer :: (fn(ty : TypeValue) -> bool)({
+_surfaces_raw_pointer :: (fn(imm(ty) : TypeValue) -> bool)({
   if(is_pointer_type(ty), {
     return(true);
   });
@@ -1499,10 +1499,10 @@ _surfaces_raw_pointer :: (fn(ty : TypeValue) -> bool)({
 });
 _evaluate_expression_raw_wrapper :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   // A method receiver / operator operand already evaluated for the call whose

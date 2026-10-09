@@ -86,20 +86,20 @@ impl(
   where(R <: Reader),
   BufReader(R),
   /// Wrap `inner` with the default 4096-byte buffer.
-  new : (fn(inner : R) -> Self)(
+  new : (fn(imm(inner) : R) -> Self)(
     Self(_inner : inner, _buf : _zeroed(usize(4096)), _pos : usize(0), _filled : usize(0), _capacity : usize(4096))
   ),
   /// Wrap `inner` with a `capacity`-byte buffer.
-  with_capacity : (fn(inner : R, capacity : usize) -> Self)(
+  with_capacity : (fn(imm(inner) : R, capacity : usize) -> Self)(
     Self(_inner : inner, _buf : _zeroed(capacity), _pos : usize(0), _filled : usize(0), _capacity : capacity)
   ),
   /// Number of buffered bytes available without touching the inner reader.
-  buffered : (fn(self : Self) -> usize)(
+  buffered : (fn(imm(self) : Self) -> usize)(
     self._filled - self._pos
   ),
   /// Refill the internal buffer from the inner reader. Resolves to the
   /// number of bytes now buffered; `0` means the inner reader hit EOF.
-  _fill : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+  _fill : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
       p := match(self._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
       n := e.io.await(self._inner.read(p, self._capacity, io), e);
@@ -113,7 +113,7 @@ impl(
   /// The bytes are handed back UNVALIDATED via the unchecked constructor —
   /// framing protocols read ASCII headers; validate with `String.from_utf8`
   /// where the content is untrusted.
-  read_line : (fn(self : Self, io : Io) -> Impl(Future(Option(String), IoExn)))(
+  read_line : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(String), IoExn)))(
     io.async(e => {
       line_bytes := ArrayList(u8).new();
       (found_newline : bool) = false;
@@ -156,7 +156,7 @@ impl(
   /// framed protocol needs (`Content-Length: N` then N body bytes).
   /// Resolves to `.None` when EOF arrives first; the partial bytes are
   /// discarded with the broken frame.
-  read_exact : (fn(self : Self, n : usize, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn)))(
+  read_exact : (fn(imm(self) : Self, n : usize, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn)))(
     io.async(e => {
       result := ArrayList(u8).new();
       (hit_eof : bool) = false;
@@ -188,7 +188,7 @@ impl(
   where(R <: Reader),
   BufReader(R),
   Reader(
-    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         (out : usize) = usize(0);
         (done : bool) = false;
@@ -239,22 +239,22 @@ impl(
   where(W <: Writer),
   BufWriter(W),
   /// Wrap `inner` with the default 4096-byte buffer.
-  new : (fn(inner : W) -> Self)(
+  new : (fn(imm(inner) : W) -> Self)(
     Self(_inner : inner, _buf : ArrayList(u8).with_capacity(usize(4096)), _capacity : usize(4096))
   ),
   /// Wrap `inner` with a `capacity`-byte buffer.
-  with_capacity : (fn(inner : W, capacity : usize) -> Self)(
+  with_capacity : (fn(imm(inner) : W, capacity : usize) -> Self)(
     Self(_inner : inner, _buf : ArrayList(u8).with_capacity(capacity), _capacity : capacity)
   ),
   /// Number of bytes currently buffered.
-  buffered : (fn(self : Self) -> usize)(
+  buffered : (fn(imm(self) : Self) -> usize)(
     self._buf.len()
   ),
   /// Buffer a `String`'s bytes. The pointer-taking `write` is the trait's
   /// primitive; this is the form callers actually want, and the fd-based
   /// `std/sys/bufio` writer this module replaced had it — dropping it would
   /// have made "write a string to a buffered writer" a pointer exercise.
-  write_string : (fn(self : Self, s : String, io : Io) -> Impl(Future(unit, IoExn)))(
+  write_string : (fn(imm(self) : Self, imm(s) : String, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(e => {
       bytes := s;
       n := bytes.len();
@@ -269,7 +269,7 @@ impl(
     })
   ),
   /// Buffer an `ArrayList(u8)`. Companion to `write_string`, same rationale.
-  write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
+  write_bytes : (fn(imm(self) : Self, imm(data) : ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(e => {
       n := data.len();
       cond(
@@ -283,7 +283,7 @@ impl(
     })
   ),
   /// Deliver the buffered bytes to the inner writer (without flushing IT).
-  _flush_buf : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+  _flush_buf : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(e => {
       cond(
         (self._buf.len() > usize(0)) => {
@@ -302,7 +302,7 @@ impl(
   where(W <: Writer),
   BufWriter(W),
   Writer(
-    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         (src_pos : usize) = usize(0);
         while(src_pos < size, {
@@ -325,7 +325,7 @@ impl(
         size
       })
     ),
-    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    flush : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => {
         e.io.await(Self._flush_buf(self, io), e);
         e.io.await(self._inner.flush(io), e);

@@ -378,7 +378,7 @@ export(AllocatorVTable, Allocator);
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(inout(self) : Self, idx : Idx) -> *Self.Output)
+    index : (fn(mut(self) : Self, imm(idx) : Idx) -> *Self.Output)
   )
 );
 export(Index);
@@ -458,7 +458,7 @@ Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     /// The output type of the addition.
     Output : Type,
-    (+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
+    (+) : (fn(imm(lhs) : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Add);
@@ -475,7 +475,7 @@ export(ComptimeAdd);
 Sub :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (-) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
+    (-) : (fn(imm(lhs) : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Sub);
@@ -742,8 +742,8 @@ impl(
 Eq ::
   (fn(comptime(Rhs) : Type) -> comptime(Trait))(
     trait(
-      (==) : (fn(lhs : Self, rhs : Rhs) -> bool),
-      ((!=) : (fn(lhs : Self, rhs : Rhs) -> bool)) ?=
+      (==) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
+      ((!=) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool)) ?=
         (
           (lhs, rhs) ->
             not(Self.(==)(lhs, rhs))
@@ -789,14 +789,14 @@ Ord :: (
 )(
   trait(
     (<) :
-      (fn(lhs : Self, rhs : Rhs) -> bool),
+      (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
     (<=) :
-      (fn(lhs : Self, rhs : Rhs) -> bool),
+      (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
     (>) :
-      (fn(lhs : Self, rhs : Rhs) -> bool),
+      (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
     (>=) :
-      (fn(lhs : Self, rhs : Rhs) -> bool),
-    (cmp : (fn(lhs : Self, rhs : Rhs) -> Ordering)) ?=
+      (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
+    (cmp : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Ordering)) ?=
       (
         (lhs, rhs) ->
           cond(

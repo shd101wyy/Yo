@@ -52,9 +52,9 @@
 // BYTE-exact (see utils.yo str_lit_unquote_bytes): the old
 // `substring(1, len()-1)` mixed byte len() with char-indexed substring,
 // corrupting multibyte content.
-str_lit_unquote :: (fn(raw : String) -> String)(str_lit_unquote_bytes(raw));
+str_lit_unquote :: (fn(imm(raw) : String) -> String)(str_lit_unquote_bytes(raw));
 // Wrap an unquoted string with quote chars to produce a StrLit.raw.
-str_lit_quote :: (fn(s : String) -> String)(
+str_lit_quote :: (fn(imm(s) : String) -> String)(
   String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
@@ -62,10 +62,10 @@ str_lit_quote :: (fn(s : String) -> String)(
 // ---------------------------------------------------------------------------
 eval_comptime_str_arg :: (
   fn(
-    arg : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(arg) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> ExprInfo
 )({
   evaluated := evaluate_expression_raw(arg, env, ctx, exn);
@@ -102,10 +102,10 @@ eval_comptime_str_arg :: (
 // ---------------------------------------------------------------------------
 eval_comptime_int_arg :: (
   fn(
-    arg : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(arg) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> ExprInfo
 )({
   evaluated := evaluate_expression_raw(arg, env, ctx, exn);
@@ -139,10 +139,10 @@ eval_comptime_int_arg :: (
 });
 evaluate_yo_comptime_string_functions :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   args := match(

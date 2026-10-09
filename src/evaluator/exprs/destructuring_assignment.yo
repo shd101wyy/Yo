@@ -61,7 +61,7 @@ DestructuringResult :: ref(
 // Internal helpers
 // ---------------------------------------------------------------------------
 /// True if `label` is already in the `seen` list.
-_label_already_seen :: (fn(seen : ArrayList(String), label : String) -> bool)({
+_label_already_seen :: (fn(imm(seen) : ArrayList(String), imm(label) : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while((i < seen.len()) && !found, {
@@ -79,7 +79,7 @@ _label_already_seen :: (fn(seen : ArrayList(String), label : String) -> bool)({
   found
 });
 /// Get the field value at `index` from a struct/module/enum/tuple EvalValue.
-_get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))(
+_get_eval_value_field :: (fn(imm(v) : EvalValue, index : usize) -> Option(EvalValue))(
   match(
     v,
     .StructVal(_, _, field_values) => field_values.get(index),
@@ -92,7 +92,7 @@ _get_eval_value_field :: (fn(v : EvalValue, index : usize) -> Option(EvalValue))
 /// field read off a module value is attributed through the member-read hook —
 /// a def-level edge when the destructure sits inside a definition, an
 /// ordered-read when it is the module's own import statement.
-_record_destructured_read :: (fn(env : Environment, rhs_type : TypeValue, label : String) -> unit)({
+_record_destructured_read :: (fn(imm(env) : Environment, imm(rhs_type) : TypeValue, imm(label) : String) -> unit)({
   match(
     rhs_type,
     .Struct({ id : dr_sns, is_source_namespace : dr_flag }) => if(dr_flag, {
@@ -113,7 +113,7 @@ _record_destructured_read :: (fn(env : Environment, rhs_type : TypeValue, label 
 /// The access site is the pattern TOKEN's module (lexical), not
 /// `env.module_path` (a call-time generic body carries the caller's).
 _reject_private_destructure :: (
-  fn(rhs_type : TypeValue, label : String, tok : Token, exn : Exception) -> unit
+  fn(imm(rhs_type) : TypeValue, imm(label) : String, imm(tok) : Token, imm(exn) : Exception) -> unit
 )({
   pv_type_id := match(
     rhs_type,
@@ -139,7 +139,7 @@ _reject_private_destructure :: (
 /// ran it, so `{ a : b } :: m` onto an existing `b`, the same import twice,
 /// and a `c_include` re-declaring a Yo name were all silently accepted
 /// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §1).
-_reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, ctx : EvalContext, exn : Exception) -> unit)({
+_reject_shadowing :: (fn(imm(env) : Environment, imm(var_name) : String, imm(at) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
   if(var_name == String.from("__yo_self"), {
     return(());
   });
@@ -189,7 +189,7 @@ _reject_shadowing :: (fn(env : Environment, var_name : String, at : Token, ctx :
 /// GLOBAL's C name lived only in the variable name — record the alias so
 /// codegen still emits `stdout` for `{ stdout : out } :: c_include(...)`
 /// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
-_record_extern_c_alias :: (fn(rhs_type : TypeValue, label : String, var_name : String, ty : TypeValue) -> unit)({
+_record_extern_c_alias :: (fn(imm(rhs_type) : TypeValue, imm(label) : String, imm(var_name) : String, imm(ty) : TypeValue) -> unit)({
   if(var_name == label, {
     return(());
   });
@@ -208,7 +208,7 @@ _record_extern_c_alias :: (fn(rhs_type : TypeValue, label : String, var_name : S
 /// value is that existing type itself, so destructuring it under its own name
 /// binds nothing: the binding it would create is the one that already exists,
 /// and re-creating it is exactly the shadowing the rule rejects.
-_is_adopted_extern_c_field :: (fn(rhs_type : TypeValue, fval_opt : Option(EvalValue)) -> bool)(
+_is_adopted_extern_c_field :: (fn(imm(rhs_type) : TypeValue, imm(fval_opt) : Option(EvalValue)) -> bool)(
   match(
     rhs_type,
     .Struct({ id : sid, is_source_namespace : sns }) => (
@@ -224,7 +224,7 @@ _is_adopted_extern_c_field :: (fn(rhs_type : TypeValue, fval_opt : Option(EvalVa
 );
 /// Find the index of `label` in `field_labels`, or -1 cast to usize (not found).
 /// Returns `.None` when not found.
-_find_field_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
+_find_field_index :: (fn(imm(field_labels) : ArrayList(String), imm(label) : String) -> Option(usize))({
   i := usize(0);
   (result : Option(usize)) = Option(usize).None;
   while((i < field_labels.len()) && match(result, .None => true, _ => false), {
@@ -247,18 +247,18 @@ _find_field_index :: (fn(field_labels : ArrayList(String), label : String) -> Op
 /// Handle struct / union / module / tuple / enum-variant destructuring.
 handle_member_destructuring :: (
   fn(
-    lhs_func : AstExpr,
-    lhs_fields : ArrayList(AstExpr),
-    rhs_field_labels : ArrayList(String),
-    rhs_field_types : ArrayList(TypeValue),
-    rhs_value : Option(EvalValue),
-    rhs_type : TypeValue,
-    lhs : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
+    imm(lhs_func) : AstExpr,
+    imm(lhs_fields) : ArrayList(AstExpr),
+    imm(rhs_field_labels) : ArrayList(String),
+    imm(rhs_field_types) : ArrayList(TypeValue),
+    imm(rhs_value) : Option(EvalValue),
+    imm(rhs_type) : TypeValue,
+    imm(lhs) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
     is_compile_time_only : bool,
     is_destructuring_atom_variable : bool,
-    exn : Exception
+    imm(exn) : Exception
   ) -> DestructuringResult
 )({
   require_underscore := !is_tuple_type(rhs_type);
@@ -666,12 +666,12 @@ handle_member_destructuring :: (
 /// Evaluate a destructuring initialization assignment.
 evaluate_destructuring_assignment :: (
   fn(
-    lhs : AstExpr,
-    rhs : AstExpr,
-    env : Environment,
+    imm(lhs) : AstExpr,
+    imm(rhs) : AstExpr,
+    imm(env) : Environment,
     is_compile_time_only : bool,
-    ctx : EvalContext,
-    exn : Exception
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> DestructuringResult
 )({
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));

@@ -261,7 +261,7 @@ FunctionGenerationContext :: ref(
 impl(
   FunctionGenerationContext,
   /// Wrap a base CodeGenContext in a fresh per-function generation context.
-  new : (fn(base : CodeGenContext) -> Self)(
+  new : (fn(imm(base) : CodeGenContext) -> Self)(
     Self(
       base : base,
       current_function_type : Option(TypeValue).None,
@@ -312,7 +312,7 @@ impl(
 /// — the loader rejects the destructuring import cycle. Same structural
 /// necessity as `state_machine_naming.yo`.
 resolve_var_name_in_context :: (
-  fn(var_name : String, context : FunctionGenerationContext) -> String
+  fn(imm(var_name) : String, imm(context) : FunctionGenerationContext) -> String
 )({
   if(context.in_async_state_machine.is_none(), {
     return(var_name);
@@ -363,14 +363,14 @@ export(resolve_var_name_in_context);
 // storing it back, never through a `match` binding: a binding is a copy of
 // the set once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
 /// Record `name` in `declared_temp_vars`, creating the set on first use.
-record_declared_temp_var :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+record_declared_temp_var :: (fn(imm(context) : FunctionGenerationContext, imm(name) : String) -> unit)({
   names := match(context.declared_temp_vars.take(), .Some(s) => s, .None => HashSet(String).new());
   names.insert(name);
   context.declared_temp_vars = Option(HashSet(String)).Some(names);
 });
 /// Record `name` in `short_circuit_handled_drop_var_names` when that set is
 /// active (a short-circuit family is being lowered).
-note_short_circuit_handled :: (fn(context : FunctionGenerationContext, name : String) -> unit)(
+note_short_circuit_handled :: (fn(imm(context) : FunctionGenerationContext, imm(name) : String) -> unit)(
   match(
     context.short_circuit_handled_drop_var_names.take(),
     .Some(s) => {
@@ -383,7 +383,7 @@ note_short_circuit_handled :: (fn(context : FunctionGenerationContext, name : St
 );
 /// Consume `target` from `short_circuit_handled_drop_var_names`: true when it
 /// was there (its drop was already emitted inside a short-circuit branch).
-take_short_circuit_handled :: (fn(context : FunctionGenerationContext, target : String) -> bool)(
+take_short_circuit_handled :: (fn(imm(context) : FunctionGenerationContext, imm(target) : String) -> bool)(
   match(
     context.short_circuit_handled_drop_var_names.take(),
     .Some(s) => {
@@ -396,7 +396,7 @@ take_short_circuit_handled :: (fn(context : FunctionGenerationContext, target : 
   )
 );
 /// Record `id` in `state_machine_binding_ids` when that set is active.
-note_state_machine_binding_id :: (fn(context : FunctionGenerationContext, id : String) -> unit)(
+note_state_machine_binding_id :: (fn(imm(context) : FunctionGenerationContext, imm(id) : String) -> unit)(
   match(
     context.state_machine_binding_ids.take(),
     .Some(s) => {

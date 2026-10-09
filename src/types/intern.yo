@@ -56,10 +56,10 @@
 { TypeValue, FuncMeta } :: import("./definitions.yo");
 { fnv1a64, debug_knob, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../utils.yo");
 { ToString } :: import("std/fmt");
-_append_b :: (fn(inout(sb) : StringBuilder, x : bool) -> unit)(
+_append_b :: (fn(mut(sb) : StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
-_append_strings :: (fn(inout(sb) : StringBuilder, xs : ArrayList(String)) -> unit)({
+_append_strings :: (fn(mut(sb) : StringBuilder, imm(xs) : ArrayList(String)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -68,7 +68,7 @@ _append_strings :: (fn(inout(sb) : StringBuilder, xs : ArrayList(String)) -> uni
     i = (i + usize(1));
   });
 });
-_append_bools :: (fn(inout(sb) : StringBuilder, xs : ArrayList(bool)) -> unit)({
+_append_bools :: (fn(mut(sb) : StringBuilder, imm(xs) : ArrayList(bool)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -76,7 +76,7 @@ _append_bools :: (fn(inout(sb) : StringBuilder, xs : ArrayList(bool)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_i64s :: (fn(inout(sb) : StringBuilder, xs : ArrayList(i64)) -> unit)({
+_append_i64s :: (fn(mut(sb) : StringBuilder, imm(xs) : ArrayList(i64)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -85,7 +85,7 @@ _append_i64s :: (fn(inout(sb) : StringBuilder, xs : ArrayList(i64)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_usizes :: (fn(inout(sb) : StringBuilder, xs : ArrayList(usize)) -> unit)({
+_append_usizes :: (fn(mut(sb) : StringBuilder, imm(xs) : ArrayList(usize)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -94,7 +94,7 @@ _append_usizes :: (fn(inout(sb) : StringBuilder, xs : ArrayList(usize)) -> unit)
     i = (i + usize(1));
   });
 });
-_append_meta_key :: (fn(inout(sb) : StringBuilder, m : FuncMeta) -> unit)({
+_append_meta_key :: (fn(mut(sb) : StringBuilder, imm(m) : FuncMeta) -> unit)({
   _append_strings(sb, m.forall_labels);
   sb.write_str(";");
   _append_strings(sb, m.param_labels);
@@ -142,7 +142,7 @@ _append_meta_key :: (fn(inout(sb) : StringBuilder, m : FuncMeta) -> unit)({
 /// instance's token. A fresh set and depth 0 there recursed forever once enum
 /// tokens carried their arguments. `depth` bounds only how far a token spells
 /// nested arguments.
-_ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth : usize, abs_depth : usize, inout(visited) : HashSet(String)) -> String)({
+_ik_node_token :: (fn(tag : str, imm(sid) : String, imm(tas) : ArrayList(TypeValue), depth : usize, abs_depth : usize, mut(visited) : HashSet(String)) -> String)({
   tok := String.from(tag);
   tok.push_string(sid);
   (i : usize) = usize(0);
@@ -159,7 +159,7 @@ _ik_node_token :: (fn(tag : str, sid : String, tas : ArrayList(TypeValue), depth
   });
   tok
 });
-_ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, inout(visited) : HashSet(String)) -> String)(
+_ik_arg_id :: (fn(imm(t) : TypeValue, depth : usize, abs_depth : usize, mut(visited) : HashSet(String)) -> String)(
   match(
     t,
     .Struct({ id : a_sid, type_arguments : a_tas }) => if(depth < usize(8), {
@@ -182,7 +182,7 @@ _ik_arg_id :: (fn(t : TypeValue, depth : usize, abs_depth : usize, inout(visited
 );
 
 _intern_key_into :: (
-  fn(t : TypeValue, inout(sb) : StringBuilder, depth : usize, inout(visited) : HashSet(String)) -> unit
+  fn(imm(t) : TypeValue, mut(sb) : StringBuilder, depth : usize, mut(visited) : HashSet(String)) -> unit
 )(
   if(
     depth > usize(600),
@@ -655,7 +655,7 @@ _intern_key_into :: (
 );
 /// Render the structural key of `t` as a String. Thin wrapper over
 /// `_intern_key_into` (kept for callers outside this module).
-type_intern_key :: (fn(t : TypeValue, depth : usize, inout(visited) : HashSet(String)) -> String)({
+type_intern_key :: (fn(imm(t) : TypeValue, depth : usize, mut(visited) : HashSet(String)) -> String)({
   sb := StringBuilder.new();
   _intern_key_into(t, sb, depth, visited);
   sb.to_string()
@@ -703,7 +703,7 @@ _ti_list :: (fn(n : usize) -> unit)({
 /// Walk `t` counting nodes by variant and child lists by emptiness. Bounded by
 /// `depth` exactly like the key renderer: a self-referential type is a cycle,
 /// and this walk keeps no visited set because it is counting occurrences.
-_ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
+_ti_walk :: (fn(imm(t) : TypeValue, depth : usize) -> unit)({
   if(depth > usize(12), {
     return(());
   });
@@ -758,7 +758,7 @@ _ti_walk :: (fn(t : TypeValue, depth : usize) -> unit)({
 /// Walk each element of a type list (a helper, because Yo forbids the mutual
 /// recursion an inline loop calling `_ti_walk` would need from inside a match
 /// Walk each element of a type list. Calls back into `_ti_walk`; see its note.
-_ti_walk_list :: (fn(xs : ArrayList(TypeValue), depth : usize) -> unit)({
+_ti_walk_list :: (fn(imm(xs) : ArrayList(TypeValue), depth : usize) -> unit)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     match(
@@ -771,7 +771,7 @@ _ti_walk_list :: (fn(xs : ArrayList(TypeValue), depth : usize) -> unit)({
   ()
 });
 /// Record one retained type. No-op unless the probe knob is set.
-type_intern_probe_record :: (fn(t : TypeValue) -> unit)({
+type_intern_probe_record :: (fn(imm(t) : TypeValue) -> unit)({
   if(!g_ti_probe_on, {
     return(());
   });
@@ -804,7 +804,7 @@ type_intern_probe_report :: (fn() -> String)({
 /// Interned shapes (the B2 plateau test's probe).
 type_intern_entry_count :: (fn() -> usize)(g_type_intern.len());
 /// Drop the intern entries `owner`'s evaluation added.
-purge_type_intern_owned_by :: (fn(owner : String) -> unit)({
+purge_type_intern_owned_by :: (fn(imm(owner) : String) -> unit)({
   keys := owned_keys_take(g_type_intern_owned, owner);
   (i : usize) = usize(0);
   while(i < keys.len(), {
@@ -819,7 +819,7 @@ purge_type_intern_owned_by :: (fn(owner : String) -> unit)({
   });
 });
 /// Return the canonical instance for a structurally-equal type. Whole-tree.
-intern_type :: (fn(t : TypeValue) -> TypeValue)({
+intern_type :: (fn(imm(t) : TypeValue) -> TypeValue)({
   key := type_intern_key(t, usize(0), HashSet(String).new());
   match(
     g_type_intern.get(key),

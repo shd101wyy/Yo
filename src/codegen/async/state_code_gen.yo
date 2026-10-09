@@ -37,7 +37,7 @@
 ///   (1) the resolved concrete type is itself an EXTERN SomeType — an extern C
 ///       type like `__yo_io_future_t` (so NOT a state-machine Future).
 ///   (2) any required trait is a `Concrete(...)` trait.
-is_io_future_type :: (fn(ty : TypeValue) -> bool)({
+is_io_future_type :: (fn(imm(ty) : TypeValue) -> bool)({
   if(!is_some_type(ty), {
     return(false);
   });
@@ -76,7 +76,7 @@ is_io_future_type :: (fn(ty : TypeValue) -> bool)({
 /// arguments (nested awaits are rejected upstream). Companion walker to
 /// `_find_branch_await_target_variable_id`.
 collect_branch_await_exprs :: (
-  fn(expr : AstExpr, inout(out) : ArrayList(AstExpr)) -> unit
+  fn(imm(expr) : AstExpr, mut(out) : ArrayList(AstExpr)) -> unit
 )({
   if(!ast_expr_is_fn_call(expr), {
     return(());
@@ -117,7 +117,7 @@ collect_branch_await_exprs :: (
     }
   );
 });
-_await_future_expr_is_borrowed_place :: (fn(e : AstExpr) -> bool)({
+_await_future_expr_is_borrowed_place :: (fn(imm(e) : AstExpr) -> bool)({
   if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     return(false);
   });
@@ -138,7 +138,7 @@ _await_future_expr_is_borrowed_place :: (fn(e : AstExpr) -> bool)({
   ast_expr_is_atom(root)
 });
 emit_future_store_into_slot :: (
-  fn(future_expr : AstExpr, future_code : String, slot : String, indent : String, context : FunctionGenerationContext) -> unit
+  fn(imm(future_expr) : AstExpr, imm(future_code) : String, imm(slot) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   em.emit_string_line(`${indent}sm->${slot} = (void*)(${future_code});`);

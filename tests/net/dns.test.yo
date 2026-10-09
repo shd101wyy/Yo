@@ -116,7 +116,7 @@ test("lookup_host returns IPv6 results (was: AAAA records dropped)", {
 // plans/ASYNC_IO_API_AUDIT.md A4). `.invalid` is reserved and never resolves;
 // a resolver that wildcards NXDOMAIN answers anyway, which reads as 0 here.
 /// 1 NotFound, 2 TryAgain, 3 Fail, 4 NoMemory, 5 Other, 9 not a DNS failure.
-_dns_reason_code :: (fn(err : AnyError) -> i32)(
+_dns_reason_code :: (fn(imm(err) : AnyError) -> i32)(
   match(
     downcast(err, NetError),
     .Some(ne) => match(
@@ -135,7 +135,7 @@ _dns_reason_code :: (fn(err : AnyError) -> i32)(
   )
 );
 /// 0 when `host` resolved, else the reason code of the throw.
-_lookup_reason :: (fn(host : String, io : Io) -> i32)({
+_lookup_reason :: (fn(imm(host) : String, io : Io) -> i32)({
   exn := Exception(
     throw : (
       err -> {

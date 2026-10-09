@@ -154,7 +154,7 @@ pragma(Pragma.AllowUnsafe);
 /// during a sibling method's resolution). These are caught by EITHER an
 /// `Expr`-typed parameter (a quote-taking macro) OR a comptime-only result (an
 /// operator's `comptime_*` variant) — neither is monomorphized for codegen.
-_method_ty_skip_stamp :: (fn(ty : TypeValue) -> bool)(
+_method_ty_skip_stamp :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     ty,
     .Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.result_is_comptime_only, true, {
@@ -175,7 +175,7 @@ _method_ty_skip_stamp :: (fn(ty : TypeValue) -> bool)(
     _ => false
   )
 );
-_stamp_impl_forall_on_method :: (fn(v : EvalValue, names : ArrayList(String)) -> EvalValue)(
+_stamp_impl_forall_on_method :: (fn(imm(v) : EvalValue, imm(names) : ArrayList(String)) -> EvalValue)(
   if(
     names.len() == usize(0),
     v,
@@ -273,9 +273,9 @@ ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty
 /// generic params that are only constrained through where-clauses").
 TypeImplementsTraitFullFn :: (
   fn(
-    t : TypeValue,
-    trait_type : TypeValue,
-    env : Environment
+    imm(t) : TypeValue,
+    imm(trait_type) : TypeValue,
+    imm(env) : Environment
   ) -> bool
 );
 (g_type_implements_trait_full_fn : Option(TypeImplementsTraitFullFn)) =
@@ -287,7 +287,7 @@ set_type_implements_trait_full_fn :: (fn(f : TypeImplementsTraitFullFn) -> unit)
 /// type implements a trait VALUE (by its base id) so `Type.impls(T, Trait)`
 /// resolves at trait-checking step 4. Routed via a function pointer to break the
 /// impl.yo ↔ trait_checking.yo import cycle (same pattern as above).
-RegisterTraitValueFn :: (fn(type_id : String, trait_ty : TypeValue) -> unit);
+RegisterTraitValueFn :: (fn(imm(type_id) : String, imm(trait_ty) : TypeValue) -> unit);
 (g_register_trait_value_fn : Option(RegisterTraitValueFn)) =
   Option(RegisterTraitValueFn).None;
 /// Install the function pointer (called from trait_checking.yo init block).
@@ -309,7 +309,7 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 /// selfConstraint on it, `.None` when satisfied. Routed via a function pointer to
 /// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
 /// the caller throws with its own token/exn, invoking it per trait entry.
-CheckSelfConstraintsFn :: (fn(target_type : TypeValue, trait_ty : TypeValue, env : Environment) -> Option(String));
+CheckSelfConstraintsFn :: (fn(imm(target_type) : TypeValue, imm(trait_ty) : TypeValue, imm(env) : Environment) -> Option(String));
 (g_check_self_constraints_fn : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
 /// Install the function pointer (called from trait_checking.yo init block).
@@ -346,11 +346,11 @@ set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 /// registered yet.
 (_currently_registering_concrete_impls : HashMap(String, bool)) =
   HashMap(String, bool).new();
-_concrete_impl_key :: (fn(type_id : String, trait_id : String) -> String)(
+_concrete_impl_key :: (fn(imm(type_id) : String, imm(trait_id) : String) -> String)(
   type_id.clone() + String.from(":") + trait_id
 );
 /// Returns true if (type_id, trait_id) is currently being registered.
-is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> bool)({
+is_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) : String) -> bool)({
   k := _concrete_impl_key(type_id, trait_id);
   match(
     _currently_registering_concrete_impls.get(k),
@@ -359,18 +359,18 @@ is_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) ->
   )
 });
 /// Mark a type+trait pair as currently being registered.
-mark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)({
+mark_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) : String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
   _currently_registering_concrete_impls.insert(k, true);
 });
 /// Unmark a type+trait pair after registration completes.
-unmark_concrete_impl_being_registered :: (fn(type_id : String, trait_id : String) -> unit)({
+unmark_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) : String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
   _currently_registering_concrete_impls.remove(k);
 });
 /// Extract the registry key from a trait TypeValue.
 /// Uses the `id` field of TraitT (the stable nominal ID).
-get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
+get_trait_key :: (fn(imm(trait_ty) : TypeValue) -> String)(
   match(
     trait_ty,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
@@ -386,7 +386,7 @@ get_trait_key :: (fn(trait_ty : TypeValue) -> String)(
 /// ONE registry bucket, keyed by the constructor. Everything id-keyed
 /// (negative impls, concrete registrations) keeps `get_trait_key` (the
 /// per-instantiation `id`).
-get_base_trait_key :: (fn(trait_ty : TypeValue) -> String)(
+get_base_trait_key :: (fn(imm(trait_ty) : TypeValue) -> String)(
   match(
     trait_ty,
     .TraitT(_, _, _, _, gb_id, _, _, _, _, _) => match(
@@ -398,7 +398,7 @@ get_base_trait_key :: (fn(trait_ty : TypeValue) -> String)(
   )
 );
 /// Register a new generic impl entry.
-register_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
+register_generic_impl :: (fn(imm(entry) : GenericImplEntry) -> unit)({
   bump_trait_impl_epoch();
   key := entry.trait_key.clone();
   // Find existing bucket for this key, or create a new one.
@@ -468,7 +468,7 @@ MoveOnlyDecl :: struct(
 (g_move_only_in_flight : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Drop every generic-impl entry registered by `owner` (a `file://` abs
 /// module path). Phase B2 — called for each module the LSP invalidates.
-purge_generic_impls_owned_by :: (fn(owner : String) -> unit)({
+purge_generic_impls_owned_by :: (fn(imm(owner) : String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
@@ -499,7 +499,7 @@ purge_generic_impls_owned_by :: (fn(owner : String) -> unit)({
 });
 /// Drop the concrete trait-impl records `owner` registered (coherence index;
 /// the LSP calls this beside `purge_generic_impls_owned_by`).
-purge_concrete_trait_impls_owned_by :: (fn(owner : String) -> unit)({
+purge_concrete_trait_impls_owned_by :: (fn(imm(owner) : String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
@@ -515,7 +515,7 @@ purge_concrete_trait_impls_owned_by :: (fn(owner : String) -> unit)({
 });
 /// Drop the declarations `owner` recorded (beside the impl registries' own
 /// purges, on an LSP/watch invalidation).
-purge_move_only_decls_owned_by :: (fn(owner : String) -> unit)({
+purge_move_only_decls_owned_by :: (fn(imm(owner) : String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
@@ -556,7 +556,7 @@ generic_impl_entry_count :: (fn() -> usize)({
 // tests.
 // ---------------------------------------------------------------------------
 (g_negative_impl_registry : ArrayList(String)) = ArrayList(String).new();
-has_negative_impl :: (fn(type_id : String, trait_id : String) -> bool)({
+has_negative_impl :: (fn(imm(type_id) : String, imm(trait_id) : String) -> bool)({
   key := `${type_id}:${trait_id}`;
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -572,7 +572,7 @@ has_negative_impl :: (fn(type_id : String, trait_id : String) -> bool)({
   });
   found
 });
-register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
+register_negative_impl :: (fn(imm(type_id) : String, imm(trait_id) : String) -> unit)({
   if(!has_negative_impl(type_id, trait_id), {
     g_negative_impl_registry.push(`${type_id}:${trait_id}`);
   });
@@ -614,7 +614,7 @@ register_negative_impl :: (fn(type_id : String, trait_id : String) -> unit)({
 /// the where pass (`pre_where`, index-aligned with `forall_somes`),
 /// else the scoped lookup in `env`.
 _pre_where_or_resolve :: (
-  fn(forall_somes : ArrayList(TypeValue), pre_where : ArrayList(Option(TypeValue)), env : Environment, fa_some : TypeValue, fa_name : String, min_frame : usize) -> Option(TypeValue)
+  fn(imm(forall_somes) : ArrayList(TypeValue), imm(pre_where) : ArrayList(Option(TypeValue)), imm(env) : Environment, imm(fa_some) : TypeValue, imm(fa_name) : String, min_frame : usize) -> Option(TypeValue)
 )({
   fa_id := match(fa_some, .SomeT({ id : fid }) => fid, _ => String.from(""));
   (pi : usize) = usize(0);
@@ -647,7 +647,7 @@ _pre_where_or_resolve :: (
 /// May a forall bind to a different-id SomeT (see `g_open_pattern_query`)?
 _abstract_bindings_ok :: (fn() -> bool)(in_def_time_trial() || g_open_pattern_query);
 _resolve_one_forall_binding :: (
-  fn(expected_env : Environment, fa_some : TypeValue, fa_name : String) -> Option(TypeValue)
+  fn(imm(expected_env) : Environment, imm(fa_some) : TypeValue, imm(fa_name) : String) -> Option(TypeValue)
 )({
   // A binding unified to a DIFFERENT SomeType is a binding — "include the
   // substitution if resolved to a concrete type, OR unified to a different
@@ -741,7 +741,7 @@ _resolve_one_forall_binding :: (
 /// leaked synthesis bindings (the doc_stability
 /// GenericImplEntry-vs-DocParam breakage).
 _resolve_one_forall_binding_from :: (
-  fn(expected_env : Environment, fa_some : TypeValue, fa_name : String, min_frame : usize) -> Option(TypeValue)
+  fn(imm(expected_env) : Environment, imm(fa_some) : TypeValue, imm(fa_name) : String, min_frame : usize) -> Option(TypeValue)
 )({
   fa_some_id := match(fa_some, .SomeT({ id : __fsi2 }) => __fsi2, _ => String.from(""));
   n_frames := expected_env.frames.len();
@@ -817,7 +817,7 @@ _resolve_one_forall_binding_from :: (
 /// returns true and lets full synthesis decide. Purely an optimization —
 /// never changes match outcomes, only skips guaranteed-failure
 /// candidates before the unification env build + synthesis.
-_root_shape_class :: (fn(t : TypeValue) -> i32)(
+_root_shape_class :: (fn(imm(t) : TypeValue) -> i32)(
   match(
     t,
     .Struct({ name }) => cond(
@@ -840,7 +840,7 @@ _root_shape_class :: (fn(t : TypeValue) -> i32)(
     _ => i32(0)
   )
 );
-_root_shape_name :: (fn(t : TypeValue) -> String)(
+_root_shape_name :: (fn(imm(t) : TypeValue) -> String)(
   match(
     t,
     .Struct({ name }) => name,
@@ -850,14 +850,14 @@ _root_shape_name :: (fn(t : TypeValue) -> String)(
 );
 /// The base identifier of a (possibly generic-suffixed) type name:
 /// `Rc(i32)` → `Rc`, `HashMap(K, V)` → `HashMap`, `Foo` → `Foo`.
-_root_shape_base_name :: (fn(name : String) -> String)(
+_root_shape_base_name :: (fn(imm(name) : String) -> String)(
   match(
     name.index_of(`(`),
     .Some(pidx) => name.substring(usize(0), pidx),
     .None => name
   )
 );
-_root_shapes_could_match :: (fn(pattern : TypeValue, concrete : TypeValue) -> bool)({
+_root_shapes_could_match :: (fn(imm(pattern) : TypeValue, imm(concrete) : TypeValue) -> bool)({
   pc := _root_shape_class(pattern);
   cc := _root_shape_class(concrete);
   // Either side flexible -> let synthesis decide.
@@ -916,7 +916,7 @@ _root_shapes_could_match :: (fn(pattern : TypeValue, concrete : TypeValue) -> bo
 /// `type_arguments` (by name + frame level) and read the same position from
 /// the CONCRETE's `type_arguments`.
 _bind_forall_from_type_args :: (
-  fn(pattern : TypeValue, concrete : TypeValue, fa_some : TypeValue) -> Option(TypeValue)
+  fn(imm(pattern) : TypeValue, imm(concrete) : TypeValue, imm(fa_some) : TypeValue) -> Option(TypeValue)
 )({
   fa_name := match(fa_some, .SomeT({ name }) => name, _ => return(Option(TypeValue).None));
   fa_lvl := match(fa_some, .SomeT({ frame_level }) => frame_level, _ => return(Option(TypeValue).None));
@@ -1122,7 +1122,7 @@ _bind_forall_from_type_args :: (
 });
 /// Is `t` an `Impl(...)` type variable that requires `Future`: the handle of
 /// an io.async future, unresolved until its block is lowered?
-_is_future_handle_slot :: (fn(t : TypeValue) -> bool)(
+_is_future_handle_slot :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .SomeT({ required_trait_types : fh_rtts }) => {
@@ -1142,10 +1142,10 @@ _is_future_handle_slot :: (fn(t : TypeValue) -> bool)(
 /// (defined BELOW; it mutually recurses with try_match_generic_impl via the
 /// method finder, and Yo has no forward references). Installed by the
 /// module-level statement right after the finder's definition.
-FindAssocFromImplsFn :: (fn(t : TypeValue, label : String, env : Environment) -> Option(TypeValue));
+FindAssocFromImplsFn :: (fn(imm(t) : TypeValue, imm(label) : String, imm(env) : Environment) -> Option(TypeValue));
 (g_find_assoc_from_impls_fn : Option(FindAssocFromImplsFn)) = Option(FindAssocFromImplsFn).None;
 /// True when any member of `tys` is, or structurally contains, a SomeT.
-_any_type_has_some_type :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+_any_type_has_some_type :: (fn(imm(tys) : ArrayList(TypeValue)) -> bool)({
   (ati : usize) = usize(0);
   while(ati < tys.len(), {
     at_ty := match(tys.get(ati), .Some(t) => t, .None => t_unit());
@@ -1167,7 +1167,7 @@ _any_type_has_some_type :: (fn(tys : ArrayList(TypeValue)) -> bool)({
 /// `try_match_generic_impl`'s where-constraint pass enforces a constructed
 /// receiver pattern's clause only for these; see the long comment there for
 /// why a non-marker bound cannot be decided from the stored TypeValue.
-_is_marker_trait :: (fn(ty : TypeValue) -> bool)(
+_is_marker_trait :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     ty,
     .TraitT({ field_types : mt_fts, assoc_constraint_types : mt_acts }) => (
@@ -1184,7 +1184,7 @@ _is_marker_trait :: (fn(ty : TypeValue) -> bool)(
 /// and `Iterator(Item := A)` do not. Without this, `Type.impls(Option(X),
 /// Clone)` answered true for an `X` without `Clone`
 /// (issues/fixed/a-conditional-clone-impl-answers-yes-for-a-type-argument-without-clone.md).
-_where_trait_mentions_no_forall :: (fn(ty : TypeValue, foralls : ArrayList(TypeValue)) -> bool)(
+_where_trait_mentions_no_forall :: (fn(imm(ty) : TypeValue, imm(foralls) : ArrayList(TypeValue)) -> bool)(
   match(
     ty,
     .TraitT({ field_types : wf_fts, assoc_constraint_types : wf_acts }) => {
@@ -1229,9 +1229,9 @@ _where_trait_mentions_no_forall :: (fn(ty : TypeValue, foralls : ArrayList(TypeV
 /// "`*(NonSend)` is Send".
 try_match_generic_impl :: (
   fn(
-    concrete_type : TypeValue,
-    entry : GenericImplEntry,
-    env : Environment,
+    imm(concrete_type) : TypeValue,
+    imm(entry) : GenericImplEntry,
+    imm(env) : Environment,
     enforce_all_where : bool
   ) -> Option(ArrayList(TypeValue))
 )({
@@ -1736,9 +1736,9 @@ try_match_generic_impl :: (
 /// Returns true if a match is found.
 find_matching_generic_impl :: (
   fn(
-    concrete_type : TypeValue,
-    trait_type : TypeValue,
-    env : Environment
+    imm(concrete_type) : TypeValue,
+    imm(trait_type) : TypeValue,
+    imm(env) : Environment
   ) -> bool
 )({
   key := get_base_trait_key(trait_type);
@@ -1793,7 +1793,7 @@ find_matching_generic_impl :: (
 /// diagnostics name it. The path is canonicalized: the entry module's tokens
 /// carry the path as typed and a demand-loaded one's the `file://` key, and a
 /// replay of one impl under the other spelling is not a second impl.
-_impl_site_string :: (fn(tok : Token) -> String)(
+_impl_site_string :: (fn(imm(tok) : Token) -> String)(
   `${display_module_path(tok.module_path)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
 );
 /// `Deref` (the auto-dereference marker, plans/VALUES_BY_DEFAULT.md §3.3) is
@@ -1801,7 +1801,7 @@ _impl_site_string :: (fn(tok : Token) -> String)(
 /// error, so every auto-dereference forwards through one of the known cells
 /// and never through a user wrapper. Checked on the RESOLVED trait — its
 /// nominal key against the prelude `Deref`'s — so an alias is caught too.
-_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : Option(TypeValue), tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+_throw_if_deref_impl_outside_prelude :: (fn(imm(trait_ty) : Option(TypeValue), imm(tok) : Token, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
   if(is_prelude_or_generated_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
     return(());
   });
@@ -1830,7 +1830,7 @@ _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : Option(TypeValue), tok : 
 /// Traits carry no argument list, so the instantiations are compared by
 /// member: every member of `concrete` must exist in the generic trait with a
 /// compatible type (`Eq(str)` vs `Eq(Rc(T))` differ in `(==)`'s `rhs`).
-_trait_instances_agree :: (fn(entry : GenericImplEntry, bindings : ArrayList(TypeValue), concrete : TypeValue) -> bool)({
+_trait_instances_agree :: (fn(imm(entry) : GenericImplEntry, imm(bindings) : ArrayList(TypeValue), imm(concrete) : TypeValue) -> bool)({
   ta_s := subst_new();
   (ta_i : usize) = usize(0);
   while((ta_i < entry.forall_some_types.len()) && (ta_i < bindings.len()), {
@@ -1871,7 +1871,7 @@ _trait_instances_agree :: (fn(entry : GenericImplEntry, bindings : ArrayList(Typ
   )
 });
 /// The generic-impl bucket for a base trait key (empty when none).
-_generic_impl_bucket :: (fn(key : String) -> ArrayList(GenericImplEntry))({
+_generic_impl_bucket :: (fn(imm(key) : String) -> ArrayList(GenericImplEntry))({
   (ki : usize) = usize(0);
   while(ki < g_impl_registry_keys.len(), {
     if(match(g_impl_registry_keys.get(ki), .Some(k) => (k == key), .None => false), {
@@ -1885,7 +1885,7 @@ _generic_impl_bucket :: (fn(key : String) -> ArrayList(GenericImplEntry))({
 /// (`note_trait_impl_site`, checked by the caller), and no registered generic
 /// impl of the same trait instantiation that covers this receiver. Records the
 /// impl for the reverse direction.
-_check_concrete_impl_coherence :: (fn(receiver_ty : TypeValue, trait_ty : TypeValue, site : String, env : Environment, tok : Token, exn : Exception) -> unit)({
+_check_concrete_impl_coherence :: (fn(imm(receiver_ty) : TypeValue, imm(trait_ty) : TypeValue, imm(site) : String, imm(env) : Environment, imm(tok) : Token, imm(exn) : Exception) -> unit)({
   base := get_base_trait_key(trait_ty);
   if(base.len() == usize(0), {
     return(());
@@ -1924,7 +1924,7 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : TypeValue, trait_ty : TypeVa
 /// an overlap (rule 3, the direction `_check_concrete_impl_coherence` cannot
 /// see). An inherent generic impl (no trait) is checked for a duplicate
 /// method under the same receiver pattern and bounds.
-_check_generic_impl_coherence :: (fn(entry : GenericImplEntry, env : Environment, tok : Token, exn : Exception) -> unit)({
+_check_generic_impl_coherence :: (fn(imm(entry) : GenericImplEntry, imm(env) : Environment, imm(tok) : Token, imm(exn) : Exception) -> unit)({
   // Two substitutions of the forall binders: `canon` renames them by
   // position (`$0`, `$1`, …) so two impls that differ only in binder names
   // compare equal, and `shown` strips their constraint lists so a diagnostic
@@ -2035,13 +2035,13 @@ _check_generic_impl_coherence :: (fn(entry : GenericImplEntry, env : Environment
 /// !(Send))` makes `Container(i32)` NOT `Send`).
 (g_negative_generic_impl_entries : ArrayList(GenericImplEntry)) =
   ArrayList(GenericImplEntry).new();
-register_negative_generic_impl :: (fn(entry : GenericImplEntry) -> unit)({
+register_negative_generic_impl :: (fn(imm(entry) : GenericImplEntry) -> unit)({
   g_negative_generic_impl_entries.push(entry);
 });
 /// Returns true if some registered negative generic impl for `trait_type`
 /// matches `concrete_type`: filter by trait key, then `try_match_generic_impl`.
 find_matching_negative_generic_impl :: (
-  fn(concrete_type : TypeValue, trait_type : TypeValue, env : Environment) -> bool
+  fn(imm(concrete_type) : TypeValue, imm(trait_type) : TypeValue, imm(env) : Environment) -> bool
 )({
   key := get_trait_key(trait_type);
   if(key.is_empty(), {
@@ -2098,7 +2098,7 @@ MethodCandidate :: struct(
 /// entries a removed module's evaluation wrote costs at most a recompute.
 (g_ifc_memo_owned : OwnedKeys) = owned_keys_new();
 /// Drop the memo entries `owner`'s evaluation wrote (Phase 1 step 5).
-purge_ifc_memo_owned_by :: (fn(owner : String) -> unit)({
+purge_ifc_memo_owned_by :: (fn(imm(owner) : String) -> unit)({
   keys := owned_keys_take(g_ifc_memo_owned, owner);
   (i : usize) = usize(0);
   while(i < keys.len(), {
@@ -2124,11 +2124,11 @@ purge_ifc_memo_owned_by :: (fn(owner : String) -> unit)({
 /// mutated) so the registry entry stays reusable across instantiations.
 _inject_forall_captures :: (
   fn(
-    method_val : Option(EvalValue),
-    forall_names : ArrayList(String),
-    bindings : ArrayList(TypeValue),
-    binding_vals : ArrayList(EvalValue),
-    self_receiver : Option(TypeValue)
+    imm(method_val) : Option(EvalValue),
+    imm(forall_names) : ArrayList(String),
+    imm(bindings) : ArrayList(TypeValue),
+    imm(binding_vals) : ArrayList(EvalValue),
+    imm(self_receiver) : Option(TypeValue)
   ) -> Option(EvalValue)
 )(
   match(
@@ -2324,9 +2324,9 @@ _inject_forall_captures :: (
 /// injected into each `FuncVal` method's captures (see `_inject_forall_captures`).
 find_methods_from_generic_impls :: (
   fn(
-    concrete_type : TypeValue,
-    method_name : String,
-    env : Environment
+    imm(concrete_type) : TypeValue,
+    imm(method_name) : String,
+    imm(env) : Environment
   ) -> ArrayList(MethodCandidate)
 )({
   results := ArrayList(MethodCandidate).new();
@@ -2584,9 +2584,9 @@ find_methods_from_generic_impls :: (
 /// specialize method types lazily.
 find_associated_type_from_generic_impls :: (
   fn(
-    concrete_type : TypeValue,
-    property_name : String,
-    env : Environment
+    imm(concrete_type) : TypeValue,
+    imm(property_name) : String,
+    imm(env) : Environment
   ) -> Option(TypeValue)
 )({
   // Resolve SomeT.
@@ -2706,7 +2706,7 @@ GenericImplDocEntry :: struct(
 /// The receiver's base type id for docs: the constructor function id
 /// when the type carries one, else the type's own
 /// `id`; "" when it has neither.
-_receiver_base_type_id_for_doc :: (fn(t : TypeValue) -> String)(
+_receiver_base_type_id_for_doc :: (fn(imm(t) : TypeValue) -> String)(
   match(
     t,
     .Struct({ id, constructor_func_id }) => if(
@@ -2721,7 +2721,7 @@ _receiver_base_type_id_for_doc :: (fn(t : TypeValue) -> String)(
   )
 );
 /// The nominal name of a named type, "" otherwise.
-_type_name_for_doc :: (fn(t : TypeValue) -> String)(
+_type_name_for_doc :: (fn(imm(t) : TypeValue) -> String)(
   match(
     t,
     .Struct({ name }) => name.clone(),
@@ -2733,7 +2733,7 @@ _type_name_for_doc :: (fn(t : TypeValue) -> String)(
 );
 /// Type-kind and value-kind forall params are both kept as SomeT whose
 /// `parent_type` IS the meta-type, so one arm covers both kinds.
-_format_generic_impl_signature :: (fn(entry : GenericImplEntry) -> String)({
+_format_generic_impl_signature :: (fn(imm(entry) : GenericImplEntry) -> String)({
   parts := ArrayList(String).new();
   if(entry.forall_names.len() > usize(0), {
     fa_parts := ArrayList(String).new();
@@ -2787,7 +2787,7 @@ _format_generic_impl_signature :: (fn(entry : GenericImplEntry) -> String)({
 /// (issues/fixed/lsp-member-definition-targets.md). `.None` when no matching
 /// impl declares `name`.
 find_generic_impl_method_value :: (
-  fn(concrete_type : TypeValue, env : Environment, name : String) -> Option(EvalValue)
+  fn(imm(concrete_type) : TypeValue, imm(env) : Environment, imm(name) : String) -> Option(EvalValue)
 )({
   (resolved : TypeValue) = concrete_type;
   if(is_some_type(concrete_type), {
@@ -2854,9 +2854,9 @@ find_generic_impl_method_value :: (
 /// `entry.field_names` / `field_types`.
 get_generic_impl_doc_entries :: (
   fn(
-    concrete_type : TypeValue,
-    env : Environment,
-    receiver_type_name : String
+    imm(concrete_type) : TypeValue,
+    imm(env) : Environment,
+    imm(receiver_type_name) : String
   ) -> ArrayList(GenericImplDocEntry)
 )({
   (resolved : TypeValue) = concrete_type;
@@ -2982,10 +2982,10 @@ get_generic_impl_doc_entries :: (
 /// case falls back to legacy "no expected_type" behavior.
 _try_lookup_trait_type :: (
   fn(
-    trait_expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(trait_expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> Option(TypeValue)
 )({
   // Fast path: walk through `Trait(...)` / `Trait(A)(B)` etc. to reach
@@ -3072,7 +3072,7 @@ _try_lookup_trait_type :: (
 /// `ctx.expected_type` when evaluating method bodies in
 /// `impl(T, Trait(name : value))`.
 _trait_field_type_by_label :: (
-  fn(trait_opt : Option(TypeValue), label : String) -> Option(TypeValue)
+  fn(imm(trait_opt) : Option(TypeValue), imm(label) : String) -> Option(TypeValue)
 )(
   match(
     trait_opt,
@@ -3112,9 +3112,9 @@ _trait_field_type_by_label :: (
 /// result (issues/fixed/yo-self-io-async-return-binop-void.md).
 _substitute_assoc_in_method_ty :: (
   fn(
-    method_ty : TypeValue,
-    labels : ArrayList(String),
-    types : ArrayList(TypeValue)
+    imm(method_ty) : TypeValue,
+    imm(labels) : ArrayList(String),
+    imm(types) : ArrayList(TypeValue)
   ) -> TypeValue
 )({
   if(labels.len() == usize(0), {
@@ -3159,7 +3159,7 @@ _substitute_assoc_in_method_ty :: (
 /// body referencing self/other ('use of undeclared identifier' —
 /// tests/env.test.yo PathBuf Eq, tests/string/rune.test.yo). Rebuild the
 /// meta with the VALUE's param names (arity permitting) before registering.
-_retype_with_value_param_labels :: (fn(ty : TypeValue, fv : EvalValue) -> TypeValue)({
+_retype_with_value_param_labels :: (fn(imm(ty) : TypeValue, imm(fv) : EvalValue) -> TypeValue)({
   fv_params := match(fv, .FuncVal(__rvd, _) => __rvd.*.params, _ => return(ty));
   match(
     ty,
@@ -3209,7 +3209,7 @@ _retype_with_value_param_labels :: (fn(ty : TypeValue, fv : EvalValue) -> TypeVa
 /// foralls / where / implicit positions are left alone — freshening only the
 /// return half of a linked pair would split an identity the signature relies
 /// on.
-_freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
+_freshen_return_only_somes :: (fn(imm(method_ty) : TypeValue) -> TypeValue)(
   match(
     method_ty,
     .Func({ forall_types : fr_fts, param_types : fr_pts, implicit_types : fr_its, where_types : fr_wts, result : fr_res, meta : fr_m, variadic_types : fr_vts }) => {
@@ -3314,7 +3314,7 @@ _freshen_return_only_somes :: (fn(method_ty : TypeValue) -> TypeValue)(
   )
 );
 _substitute_self_in_method_ty :: (
-  fn(method_ty : TypeValue, self_concrete : TypeValue) -> TypeValue
+  fn(imm(method_ty) : TypeValue, imm(self_concrete) : TypeValue) -> TypeValue
 )({
   // Substitute EVERY `Self` occurrence at its OWN frame level.
   // `_find_self_level_in_method_ty` looked only at TOP-LEVEL param slots
@@ -3380,12 +3380,12 @@ _substitute_self_in_method_ty :: (
 (g_mat_default_err : ArrayList(YoError)) = ArrayList(YoError).new();
 _materialize_default_body :: (
   fn(
-    body : AstExpr,
-    fn_ty : TypeValue,
-    fn_id : String,
-    env : Environment,
-    ctx : EvalContext,
-    inout(out) : ArrayList(AstExpr)
+    imm(body) : AstExpr,
+    imm(fn_ty) : TypeValue,
+    imm(fn_id) : String,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    mut(out) : ArrayList(AstExpr)
   ) -> unit
 )({
   inner_exn := Exception(
@@ -3444,7 +3444,7 @@ _materialize_default_body :: (
 /// the impl's own signature, and a Dyn vtable slot goes through a wrapper.
 /// Every OTHER parameter's mode is part of the member's type
 /// (plans/reference/TYPE_IDENTITY.md), so conformance compares those.
-_with_receiver_mode_of :: (fn(actual : TypeValue, expected : TypeValue) -> TypeValue)(
+_with_receiver_mode_of :: (fn(imm(actual) : TypeValue, imm(expected) : TypeValue) -> TypeValue)(
   match(
     actual,
     .Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts }) => match(
@@ -3474,12 +3474,12 @@ _with_receiver_mode_of :: (fn(actual : TypeValue, expected : TypeValue) -> TypeV
 );
 _c3_eval_colon_pair :: (
   fn(
-    meth_expr : AstExpr,
-    current_trait_ty : Option(TypeValue),
-    st : ImplInFlight,
-    field_opt : Option(ImplPendingField),
-    ctx : EvalContext,
-    exn : Exception
+    imm(meth_expr) : AstExpr,
+    imm(current_trait_ty) : Option(TypeValue),
+    imm(st) : ImplInFlight,
+    imm(field_opt) : Option(ImplPendingField),
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> unit
 )({
   colon_args := match(
@@ -3791,7 +3791,7 @@ _c3_eval_colon_pair :: (
 /// early reference already registered this member's phase-A entry (same
 /// func_id), update that entry in place (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3).
 _c2_register_member :: (
-  fn(st : ImplInFlight, pf : ImplPendingField, label : String, ty : TypeValue, value : EvalValue, src_tid : String) -> unit
+  fn(imm(st) : ImplInFlight, imm(pf) : ImplPendingField, imm(label) : String, imm(ty) : TypeValue, imm(value) : EvalValue, imm(src_tid) : String) -> unit
 )({
   (updated : bool) = false;
   if(pf.phase_a_registered, {
@@ -3841,7 +3841,7 @@ _c2_register_member :: (
 /// source order, binds the bare label in the impl env, registers the member
 /// provisionally.
 _c2_eval_direct_field :: (
-  fn(pf : ImplPendingField, st : ImplInFlight, ctx : EvalContext, exn : Exception) -> unit
+  fn(imm(pf) : ImplPendingField, imm(st) : ImplInFlight, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
 )({
   mf_colon_args := match(
     pf.colon_expr,
@@ -3900,7 +3900,7 @@ _c2_eval_direct_field :: (
 /// (`Trait(name : fn_def, ...)`), with the trait's expected field type (Self
 /// substituted to the receiver pattern) and the entry's working bindings.
 _c2_eval_inner_field :: (
-  fn(pf : ImplPendingField, st : ImplInFlight, ctx : EvalContext, exn : Exception) -> unit
+  fn(imm(pf) : ImplPendingField, imm(st) : ImplInFlight, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
 )({
   g_colon_args := match(
     pf.colon_expr,
@@ -3972,7 +3972,7 @@ _c2_eval_inner_field :: (
 /// `try_to_implement_function_by_function_type` publishes the phase-A FuncVal
 /// a re-entrant sibling reference binds.
 _run_impl_field :: (
-  fn(pf : ImplPendingField, st : ImplInFlight, ctx : EvalContext, exn : Exception) -> unit
+  fn(imm(pf) : ImplPendingField, imm(st) : ImplInFlight, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
 )({
   push_forcing_def(pf.def);
   pf.state = ImplFieldState.Forcing;
@@ -3995,7 +3995,7 @@ _run_impl_field :: (
 });
 /// A forced member's failure, parked by the capture-free handler below.
 (g_field_force_failure : Option(String)) = Option(String).None;
-_flag_field_force_failure :: (fn(msg : String) -> unit)({
+_flag_field_force_failure :: (fn(imm(msg) : String) -> unit)({
   g_field_force_failure = Option(String).Some(msg);
   ()
 });
@@ -4004,7 +4004,7 @@ _take_field_force_failure :: (fn() -> Option(String))({
   g_field_force_failure = Option(String).None;
   r
 });
-_force_field_eval :: (fn(pf : ImplPendingField, st : ImplInFlight) -> unit)({
+_force_field_eval :: (fn(imm(pf) : ImplPendingField, imm(st) : ImplInFlight) -> unit)({
   inner_exn := Exception(
     throw : (
       _err -> {
@@ -4027,7 +4027,7 @@ _force_field_eval :: (fn(pf : ImplPendingField, st : ImplInFlight) -> unit)({
 /// (`_try_create_forward_shell`) and the lazy shell materializer — shells had
 /// their own func_ids and needed codegen thunks (`register_shell_redirect`).
 force_in_flight_field :: (
-  fn(type_id : String, method_name : String) -> bool
+  fn(imm(type_id) : String, imm(method_name) : String) -> bool
 )({
   rec := match(
     newest_impl_in_flight_for(type_id),
@@ -4124,14 +4124,14 @@ force_in_flight_field :: (
 /// constraint captured ⇒ no exclusion, same as before).
 _collect_impl_where_constraints :: (
   fn(
-    where_expr : AstExpr,
-    forall_names : ArrayList(String),
-    forall_some_types : ArrayList(TypeValue),
-    forall_env : Environment,
-    ctx : EvalContext,
-    exn : Exception,
-    inout(out_some_types) : ArrayList(TypeValue),
-    inout(out_traits) : ArrayList(TypeValue)
+    imm(where_expr) : AstExpr,
+    imm(forall_names) : ArrayList(String),
+    imm(forall_some_types) : ArrayList(TypeValue),
+    imm(forall_env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception,
+    mut(out_some_types) : ArrayList(TypeValue),
+    mut(out_traits) : ArrayList(TypeValue)
   ) -> unit
 )({
   where_args := match(
@@ -4236,10 +4236,10 @@ _collect_impl_where_constraints :: (
 });
 evaluate_module_value :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   (local_env : Environment) = env;
@@ -5584,7 +5584,7 @@ evaluate_module_value :: (
 /// matching `GenericImplEntry.trait_key`, so the adapter passes
 /// the value forward unchanged.
 _find_methods_from_generic_impls_as_method_entries :: (
-  fn(env : Environment, method_name : String, ty : TypeValue) -> ArrayList(MethodEntry)
+  fn(imm(env) : Environment, imm(method_name) : String, imm(ty) : TypeValue) -> ArrayList(MethodEntry)
 )({
   candidates := find_methods_from_generic_impls(ty, method_name, env);
   out := ArrayList(MethodEntry).new();
@@ -5633,7 +5633,7 @@ export(evaluate_module_value);
 // registry).
 /// `"Dispose"` when `trait_ty` is that prelude trait (by trait identity),
 /// else `""`.
-move_only_declaring_trait_name :: (fn(trait_ty : TypeValue, env : Environment) -> String)({
+move_only_declaring_trait_name :: (fn(imm(trait_ty) : TypeValue, imm(env) : Environment) -> String)({
   key := get_trait_key(trait_ty);
   cond(
     key.is_empty() => String.new(),
@@ -5641,12 +5641,12 @@ move_only_declaring_trait_name :: (fn(trait_ty : TypeValue, env : Environment) -
     true => String.new()
   )
 });
-_named_trait_key_is :: (fn(env : Environment, name : str, key : String) -> bool)(
+_named_trait_key_is :: (fn(imm(env) : Environment, name : str, imm(key) : String) -> bool)(
   match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(t) == key), .None => false)
 );
 /// The `MoveOnlyNominalFn` answer: the trait through which the value nominal
 /// `ty` declares move-only in a recorded impl, or `""`.
-nominal_declares_move_only :: (fn(ty : TypeValue) -> String)({
+nominal_declares_move_only :: (fn(imm(ty) : TypeValue) -> String)({
   // A `Dispose` impl the lazy module walk has not forced yet (it
   // sits below the first use of its type) is forced now: whether the type is
   // move-only decides how every use of it is evaluated.
@@ -5689,7 +5689,7 @@ nominal_declares_move_only :: (fn(ty : TypeValue) -> String)({
   g_move_only_memo.insert(key, found.clone());
   found
 });
-_add_move_only_decl :: (fn(d : MoveOnlyDecl) -> unit)({
+_add_move_only_decl :: (fn(imm(d) : MoveOnlyDecl) -> unit)({
   g_move_only_decls.push(d);
   g_move_only_memo.clear();
   note_move_only_possible();
@@ -5697,7 +5697,7 @@ _add_move_only_decl :: (fn(d : MoveOnlyDecl) -> unit)({
 /// Record a concrete `impl(T, Dispose(...))` on a
 /// value nominal `T` (the impl-site gate has rejected every other receiver of
 /// these two traits).
-note_concrete_move_only_impl :: (fn(receiver_ty : TypeValue, trait_ty : TypeValue, receiver_type_id : String, env : Environment) -> unit)({
+note_concrete_move_only_impl :: (fn(imm(receiver_ty) : TypeValue, imm(trait_ty) : TypeValue, imm(receiver_type_id) : String, imm(env) : Environment) -> unit)({
   if(is_value_nominal_type(receiver_ty), {
     tn := move_only_declaring_trait_name(trait_ty, env);
     if(!tn.is_empty(), {
@@ -5706,7 +5706,7 @@ note_concrete_move_only_impl :: (fn(receiver_ty : TypeValue, trait_ty : TypeValu
   });
 });
 /// Record a generic `Dispose` impl over a value nominal pattern.
-note_generic_move_only_impl :: (fn(entry : GenericImplEntry) -> unit)({
+note_generic_move_only_impl :: (fn(imm(entry) : GenericImplEntry) -> unit)({
   if(is_value_nominal_type(entry.receiver_type_pattern), {
     tn := move_only_declaring_trait_name(entry.trait_type, entry.definition_env);
     if(!tn.is_empty(), {
@@ -5720,7 +5720,7 @@ note_generic_move_only_impl :: (fn(entry : GenericImplEntry) -> unit)({
 /// Does the trait-implementation predicate (trait_checking.yo, installed at
 /// init) say `ty <: trait_ty`? Asked on a private env snapshot: the adapter
 /// writes the bindings a match produced back into the env it is given.
-_implements_via_hook :: (fn(ty : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
+_implements_via_hook :: (fn(imm(ty) : TypeValue, imm(trait_ty) : TypeValue, imm(env) : Environment) -> bool)(
   match(
     g_type_implements_trait_full_fn,
     .Some(f) => f(ty, trait_ty, snapshot_env(env)),
@@ -5732,13 +5732,13 @@ _implements_via_hook :: (fn(ty : TypeValue, trait_ty : TypeValue, env : Environm
 /// 36's hand-written-`Clone` checks ask whether a receiver PATTERN is
 /// `Copy`, and the ordinary predicate rejects a match that binds a forall
 /// to another impl's SomeT.
-_pattern_implements_via_hook :: (fn(ty : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
+_pattern_implements_via_hook :: (fn(imm(ty) : TypeValue, imm(trait_ty) : TypeValue, imm(env) : Environment) -> bool)(
   _implements_via_hook(ty, trait_ty, env) || (type_mentions_some_type(ty) && generic_pattern_implements_trait(ty, trait_ty, env))
 );
 /// The prelude traits `Clone` and `Copy`.
 _CloneCopyTraits :: struct(clone_tt : TypeValue, copy_tt : TypeValue);
 /// Both prelude traits, when both are in scope.
-_clone_and_copy_traits :: (fn(env : Environment) -> Option(_CloneCopyTraits))(
+_clone_and_copy_traits :: (fn(imm(env) : Environment) -> Option(_CloneCopyTraits))(
   match(
     get_trait_type_from_env(env, String.from("Clone")),
     .Some(clone_tt) => match(
@@ -5752,7 +5752,7 @@ _clone_and_copy_traits :: (fn(env : Environment) -> Option(_CloneCopyTraits))(
 /// The hand-written-`Clone` error (decision 36): on a type that is `Copy` for
 /// every instantiation its `Clone` impl serves, `clone()` is the bitwise
 /// copy, so a hand-written impl can only repeat it or contradict it.
-_hand_written_clone_on_copy_msg :: (fn(receiver_ty : TypeValue, other_site : Option(String)) -> String)({
+_hand_written_clone_on_copy_msg :: (fn(imm(receiver_ty) : TypeValue, imm(other_site) : Option(String)) -> String)({
   where_it := match(other_site, .Some(s) => ` (the hand-written Clone impl is at ${s})`, .None => String.new());
   shown := type_to_string(receiver_ty);
   `Type "${shown}" implements Copy, so its Clone may not be hand-written${where_it}: a Copy type's clone() is the bitwise copy, so a hand-written Clone impl can only repeat it or contradict it (plans/VALUES_BY_DEFAULT.md decision 36). Write derive(${shown}, Clone) instead: a derived clone is field-wise, which for Copy fields is the copy.`
@@ -5760,7 +5760,7 @@ _hand_written_clone_on_copy_msg :: (fn(receiver_ty : TypeValue, other_site : Opt
 /// Is the trait constructor at `trait_tok` hand-written: outside the prelude
 /// (whose derive templates and primitive impls are exempt) and outside
 /// generated code?
-_is_hand_written_impl :: (fn(trait_tok : Token, ctx : EvalContext) -> bool)(
+_is_hand_written_impl :: (fn(imm(trait_tok) : Token, imm(ctx) : EvalContext) -> bool)(
   !is_prelude_or_generated_file(Option(String).Some(trait_tok.module_path.clone()), ctx.std_path.clone())
 );
 /// The two directions of "a hand-written `Clone` on a `Copy` type is an
@@ -5776,7 +5776,7 @@ _is_hand_written_impl :: (fn(trait_tok : Token, ctx : EvalContext) -> bool)(
 /// constructor's token, which tells a derive's (spliced from the prelude)
 /// from a hand-written one.
 _check_copy_clone_exclusion :: (
-  fn(receiver_ty : TypeValue, receiver_type_id : String, trait_ty : TypeValue, site : String, trait_tok : Token, env : Environment, ctx : EvalContext, exn : Exception) -> unit
+  fn(imm(receiver_ty) : TypeValue, imm(receiver_type_id) : String, imm(trait_ty) : TypeValue, imm(site) : String, imm(trait_tok) : Token, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
 )({
   match(
     _clone_and_copy_traits(env),
@@ -5818,7 +5818,7 @@ _check_copy_clone_exclusion :: (
 /// A conditional `Clone` that also serves types that are not `Copy`
 /// (`where(T <: Clone)`, the prelude `Option(T)`'s shape) is allowed: at a
 /// `Copy` instantiation its structural clone reduces to the copy.
-_check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, trait_tok : Token, ctx : EvalContext, exn : Exception) -> unit)({
+_check_generic_copy_clone_exclusion :: (fn(imm(entry) : GenericImplEntry, imm(trait_tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
   env := entry.definition_env;
   match(
     _clone_and_copy_traits(env),
@@ -5854,7 +5854,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : GenericImplEntry, trait_tok :
 /// `Option(Point)`)? `YO_AUDIT_COPY_TRAIT` (trait_checking.yo,
 /// `copy_trait_blockers`) tells a type that lacks `Copy` from one whose
 /// conditional `Copy` fails at a type argument.
-type_has_impl_shape_for :: (fn(ty : TypeValue, trait_ty : TypeValue) -> bool)({
+type_has_impl_shape_for :: (fn(imm(ty) : TypeValue, imm(trait_ty) : TypeValue) -> bool)({
   tid := type_id_or_empty(ty);
   if(!tid.is_empty() && trait_impl_site_of(tid, get_trait_key(trait_ty)).is_some(), {
     return(true);
@@ -5892,10 +5892,10 @@ export(type_has_impl_shape_for);
 /// gives `T <: Clone`), and a bound on a constructed type holds when that
 /// type is covered in turn. A concrete impl covers one instantiation only,
 /// so it never covers an open pattern.
-generic_pattern_implements_trait :: (fn(pattern : TypeValue, trait_ty : TypeValue, env : Environment) -> bool)(
+generic_pattern_implements_trait :: (fn(imm(pattern) : TypeValue, imm(trait_ty) : TypeValue, imm(env) : Environment) -> bool)(
   _generic_pattern_covered(pattern, trait_ty, env, u32(0))
 );
-_generic_pattern_covered :: (fn(pattern : TypeValue, trait_ty : TypeValue, env : Environment, depth : u32) -> bool)({
+_generic_pattern_covered :: (fn(imm(pattern) : TypeValue, imm(trait_ty) : TypeValue, imm(env) : Environment, depth : u32) -> bool)({
   if(depth > u32(8), {
     return(false);
   });

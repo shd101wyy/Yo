@@ -23,15 +23,15 @@
 { get_drop_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 { type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
-_func_val_id :: (fn(v : EvalValue) -> String)(
+_func_val_id :: (fn(imm(v) : EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
 /// True for the reserved dyn-method labels (___dup/___drop/___dispose/dispose).
-_is_reserved_dyn_label :: (fn(label : String) -> bool)(
+_is_reserved_dyn_label :: (fn(imm(label) : String) -> bool)(
   (label == "___dup") || (label == "___drop") || (label == "___dispose") || (label == "dispose")
 );
 /// Sanitized C field name of the single field of an Rc(T) data type ("*").
-_box_field_name :: (fn(data_type : TypeValue) -> String)(
+_box_field_name :: (fn(imm(data_type) : TypeValue) -> String)(
   match(
     data_type,
     .Struct({ field_labels }) => match(field_labels.get(usize(0)), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("__0")),
@@ -39,7 +39,7 @@ _box_field_name :: (fn(data_type : TypeValue) -> String)(
   )
 );
 /// Drain a HashMap-key iterator into an ArrayList of the keys.
-_dyn_impl_keys :: (fn(context : FunctionGenerationContext) -> ArrayList(String))({
+_dyn_impl_keys :: (fn(imm(context) : FunctionGenerationContext) -> ArrayList(String))({
   out := ArrayList(String).new();
   it := context.base.dyn_impls.keys();
   (done : bool) = false;
@@ -59,10 +59,10 @@ _dyn_impl_keys :: (fn(context : FunctionGenerationContext) -> ArrayList(String))
 /// Generate dup/drop functions for dyn types (RC on the boxed data pointer).
 /// Is a Dyn's DATA object atomically reference counted? Then its vtable's
 /// retain/release are the atomic RC functions.
-_dyn_data_is_atomic :: (fn(data_type : TypeValue) -> bool)(
+_dyn_data_is_atomic :: (fn(imm(data_type) : TypeValue) -> bool)(
   is_atomic_reference_struct_type(data_type) || is_atomic_reference_enum_type(data_type)
 );
-generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_dyn_dup_drop :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   generated := HashSet(String).new();
   keys := _dyn_impl_keys(context);
@@ -96,7 +96,7 @@ generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
 /// Generate box constructor + dispose functions for dyn impls. The
 /// concrete type's drop fn resolves via get_drop_function_for_type (the
 /// type-method registry).
-generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_dyn_box_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   if(context.base.dyn_impls.is_empty(), {
     return(());
   });
@@ -219,7 +219,7 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
 /// `ret_cast` the cast of the result ("" for none): the wrapper is defined
 /// with the vtable slot's signature, and these convert to and from the impl
 /// method's own C types where the two spellings differ.
-_emit_wrapper_call :: (fn(em : Emitter, cname : String, first_arg : String, n_params : usize, is_void : bool, arg_casts : ArrayList(String), ret_cast : String) -> unit)({
+_emit_wrapper_call :: (fn(imm(em) : Emitter, imm(cname) : String, imm(first_arg) : String, n_params : usize, is_void : bool, imm(arg_casts) : ArrayList(String), imm(ret_cast) : String) -> unit)({
   call := String.from("");
   call.push_string(cname.clone());
   call.push_str("(");
@@ -260,7 +260,7 @@ _emit_wrapper_call :: (fn(em : Emitter, cname : String, first_arg : String, n_pa
 /// the RESOLVED instantiation, so the collected C struct is keyed on it,
 /// while the dyn impl entry recorded the wrapper-SomeT form at coercion
 /// time. Unresolved SomeTs pass through unchanged.
-_resolve_box_payload :: (fn(t : TypeValue) -> TypeValue)(
+_resolve_box_payload :: (fn(imm(t) : TypeValue) -> TypeValue)(
   match(
     t,
     .Struct({
@@ -305,7 +305,7 @@ _resolve_box_payload :: (fn(t : TypeValue) -> TypeValue)(
 /// C name for the boxed dyn payload: the raw recorded key first (the
 /// pre-bridge convention), then the payload-resolved key (see
 /// `_resolve_box_payload`).
-_boxed_c_name :: (fn(data_type : TypeValue, context : FunctionGenerationContext) -> String)(
+_boxed_c_name :: (fn(imm(data_type) : TypeValue, imm(context) : FunctionGenerationContext) -> String)(
   match(
     context.base.get_type_c_name(type_key(data_type.clone())),
     .Some(cn) => cn,
@@ -319,7 +319,7 @@ _boxed_c_name :: (fn(data_type : TypeValue, context : FunctionGenerationContext)
 /// Build the wrapper signature param list: `void* self_ptr` plus one `argN` per
 /// impl parameter after the receiver, typed from `param_types[start..]` (an
 /// `inout` one, per `param_is_ref`, as `T*`: the vtable slot's spelling).
-_wrapper_params :: (fn(param_types : ArrayList(TypeValue), param_is_ref : ArrayList(bool), start : usize, context : FunctionGenerationContext) -> String)({
+_wrapper_params :: (fn(imm(param_types) : ArrayList(TypeValue), imm(param_is_ref) : ArrayList(bool), start : usize, imm(context) : FunctionGenerationContext) -> String)({
   out := String.from("void* self_ptr");
   n := param_types.len();
   (j : usize) = start;
@@ -346,7 +346,7 @@ _wrapper_params :: (fn(param_types : ArrayList(TypeValue), param_is_ref : ArrayL
 /// TraitVal evidence records). The impl func + its type resolve via
 /// the func-id side-table (get_func_type / get_function_entry). The Fn slot
 /// uses the general `box->field.call(...)` fat-pointer path.
-generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   if(context.base.dyn_impls.is_empty(), {
     return(());
   });
@@ -640,7 +640,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
 /// per impl whose first field is the type id and whose method slots reference the
 /// wrappers emitted above (`.call` for Fn traits; `.method` for trait methods
 /// whose first param is `self`).
-generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_dyn_vtables :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   if(context.base.dyn_impls.is_empty(), {
     return(());
   });

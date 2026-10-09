@@ -181,7 +181,7 @@ test("Test comptime", {
     assert((y + z) == 25);
   };
   {
-    use_point :: (fn(p : Point) -> i32)(p.x + p.y);
+    use_point :: (fn(imm(p) : Point) -> i32)(p.x + p.y);
     p :: Point(comptime_12(), 16);
     assert(use_point(p) == 28);
   };
@@ -508,10 +508,10 @@ test("Test type auto derive Comptime", {
   fn2 :: (fn(comptime(T) : Type, where(T <: Comptime)) -> unit)({
     comptime_assert(Type.impls(T, Comptime));
   });
-  fn3 :: (fn(generic(T : Type), v : T) -> unit)({
+  fn3 :: (fn(generic(T : Type), imm(v) : T) -> unit)({
     comptime_assert(Type.impls(T, Comptime) == false);
   });
-  fn4 :: (fn(generic(T : Type), v : T, where(T <: Comptime)) -> unit)({
+  fn4 :: (fn(generic(T : Type), imm(v) : T, where(T <: Comptime)) -> unit)({
     comptime_assert(Type.impls(T, Comptime));
   });
   // Recursive type
@@ -685,10 +685,10 @@ test("Test type auto derive Runtime", {
   fn2 :: (fn(comptime(T) : Type, where(T <: !Runtime)) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
-  fn3 :: (fn(generic(T : Type), v : T) -> unit)({
+  fn3 :: (fn(generic(T : Type), imm(v) : T) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
   });
-  fn4 :: (fn(generic(T : Type), v : T, where(T <: !Runtime)) -> unit)({
+  fn4 :: (fn(generic(T : Type), imm(v) : T, where(T <: !Runtime)) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
   // Self recursive types
@@ -1029,14 +1029,14 @@ test("Test 'struct'", {
     impl(
       generic(T : Type),
       MyStruct(T),
-      new : (fn(v : T) -> Self)(Self(v)),
-      another_new : (fn(v : T) -> Self)(
+      new : (fn(imm(v) : T) -> Self)(Self(v)),
+      another_new : (fn(imm(v) : T) -> Self)(
         Self.new(v)
       ),
-      add : (fn(self : *Self, value : T, where(T <: Add(T))) -> unit)({
+      add : (fn(self : *Self, imm(value) : T, where(T <: Add(T))) -> unit)({
         self.value = (self.value + value);
       }),
-      another_add : (fn(self : *Self, value : T, where(T <: Add(T))) -> unit)({
+      another_add : (fn(self : *Self, imm(value) : T, where(T <: Add(T))) -> unit)({
         self.add(value);
       })
     );
@@ -1879,7 +1879,7 @@ test("Test control flows", {
   // Test enum for match expressions
   (comptime(Shape) : Type) = enum(Circle, Square);
   // Test 7: Match with all break cases
-  test_match_all_break :: (fn(shape : Shape) -> i32)({
+  test_match_all_break :: (fn(imm(shape) : Shape) -> i32)({
     while(
       some_condition(),
       match(
@@ -1895,7 +1895,7 @@ test("Test control flows", {
     return(40);
   });
   // Test 8: Match with all continue cases
-  test_match_all_continue :: (fn(shape : Shape) -> i32)({
+  test_match_all_continue :: (fn(imm(shape) : Shape) -> i32)({
     while(
       some_condition(),
       match(
@@ -1911,7 +1911,7 @@ test("Test control flows", {
     return(45);
   });
   // Test 9: Match with all return cases
-  test_match_all_return :: (fn(shape : Shape) -> i32)(
+  test_match_all_return :: (fn(imm(shape) : Shape) -> i32)(
     match(
       shape,
       .Circle => {
@@ -1959,7 +1959,7 @@ test("Test control flows", {
     return(result);
   });
   // Test 12: Nested match inside while
-  test_nested_match_in_while :: (fn(flag : bool, shape : Shape) -> i32)({
+  test_nested_match_in_while :: (fn(flag : bool, imm(shape) : Shape) -> i32)({
     while(
       flag,
       match(
@@ -1987,7 +1987,7 @@ test("Test control flows", {
     return(result);
   });
   // Test 14: Match returning values assigned to variable
-  test_match_value_assignment :: (fn(shape : Shape) -> i32)({
+  test_match_value_assignment :: (fn(imm(shape) : Shape) -> i32)({
     (result : i32) = match(
       shape,
       .Circle => 300,
@@ -2007,7 +2007,7 @@ test("Test control flows", {
     return(result);
   });
   // Test 16: Complex nested structure with linear values
-  test_complex_nested :: (fn(flag : bool, shape : Shape) -> i32)({
+  test_complex_nested :: (fn(flag : bool, imm(shape) : Shape) -> i32)({
     (x : LinearI32) = 42;
     (y : LinearI32) = 24;
     while(flag, {
@@ -2128,7 +2128,7 @@ test("Test whole-struct destructuring statements", {
   // Destructure a parameter inside a function
   {
     Point :: struct(x : i32, y : i32);
-    calculate :: (fn(p : Point) -> i32)({
+    calculate :: (fn(imm(p) : Point) -> i32)({
       { x, y } := p;
       x + y
     });
@@ -2139,10 +2139,10 @@ test("Test whole-struct destructuring statements", {
 test("Test 'Impl'", {
   {
     Id :: trait(
-      id : (fn(self : Self) -> Self)
+      id : (fn(imm(self) : Self) -> Self)
     );
     ImplId :: Impl(Id);
-    test1 :: (fn(x : ImplId) -> ImplId)({
+    test1 :: (fn(imm(x) : ImplId) -> ImplId)({
       y := (type_of(x) <: Id).id(x);
       return(y.id());
     });
@@ -2150,13 +2150,13 @@ test("Test 'Impl'", {
   };
   {
     Id :: trait(
-      id : (fn(self : Self) -> Self)
+      id : (fn(imm(self) : Self) -> Self)
     );
-    test1 :: (fn(generic((T : Type) = Impl(Id)), x : T) -> T)({
+    test1 :: (fn(generic((T : Type) = Impl(Id)), imm(x) : T) -> T)({
       y := (type_of(x) <: Id).id(x);
       return(y.id());
     });
-    test2 :: (fn((comptime(T) : Type) = Impl(Id), x : T) -> T)({
+    test2 :: (fn((comptime(T) : Type) = Impl(Id), imm(x) : T) -> T)({
       y := (type_of(x) <: Id).id(x);
       return(y.id());
     });
@@ -2310,7 +2310,7 @@ test("Test 'comptime_fn' function call and overload-set rejection", {
   impl(
     generic(T : Type),
     MyOption(T),
-    unwrap : (fn(self : Self) -> T)(
+    unwrap : (fn(imm(self) : Self) -> T)(
       match(
         self,
         .Some(value) => value,
@@ -2503,7 +2503,7 @@ test("match arm struct literal with `return` in field name", {
   );
   derive(ControlFlowFlags, Copy, Clone);
   ControlFlowKind :: enum(Return, Escape, Break, Continue);
-  control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)(
+  control_flow_of :: (fn(imm(kind) : ControlFlowKind) -> ControlFlowFlags)(
     match(
       kind,
       .Return => ControlFlowFlags(return_flag : true, unwind_flag : false, break_flag : false, continue_flag : false),

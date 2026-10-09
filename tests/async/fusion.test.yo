@@ -80,11 +80,11 @@ test("a throw in a fused tail unwinds to a handler two frames up", {
   assert(_unwound_two_up(io), "the outer handler catches it");
 });
 // Side effects in the prologue and the arguments run once, in order.
-_log_push :: (fn(inout(log) : ArrayList(i32), x : i32) -> i32)({
+_log_push :: (fn(mut(log) : ArrayList(i32), x : i32) -> i32)({
   log.push(x);
   x
 });
-_logged :: (fn(log : ArrayList(i32), n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
+_logged :: (fn(imm(log) : ArrayList(i32), n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
   _p := _log_push(log, i32(2));
   io.async(e => {
     r := e.io.await(_leaf(n, e.io), e.io);

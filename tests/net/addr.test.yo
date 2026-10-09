@@ -223,7 +223,7 @@ test("SocketAddr with parsed IP", {
 // range-checked at the separator. Rust's Ipv4Addr::from_str rejects both, and
 // leading zeros (`"01.2.3.4"`, octal ambiguity) — so do we now.
 // issues/fixed/ipaddr-parse-v4-accepts-empty-and-wrapping-octets.md
-_must_reject_v4 :: (fn(s : String) -> unit)({
+_must_reject_v4 :: (fn(imm(s) : String) -> unit)({
   exn := Exception(
     throw : (
       err -> {
@@ -319,7 +319,7 @@ test("SocketAddr Eq, Ord, Clone and use as a HashMap key", {
 // ============================================================================
 // IpAddr.parse_v6 / IpAddr.parse
 // ============================================================================
-_must_reject_v6 :: (fn(s : String) -> unit)({
+_must_reject_v6 :: (fn(imm(s) : String) -> unit)({
   exn := Exception(
     throw : (
       err -> {
@@ -330,7 +330,7 @@ _must_reject_v6 :: (fn(s : String) -> unit)({
   IpAddr.parse_v6(s, exn);
   assert(false, `parse_v6 accepted ${s}`);
 });
-_ok_v6 :: (fn(s : String) -> IpAddr)({
+_ok_v6 :: (fn(imm(s) : String) -> IpAddr)({
   exn := Exception(
     throw : (
       err -> {
@@ -442,7 +442,7 @@ test("IpAddr.parse_v6 round-trips through to_string", {
   assert(_ok_v6(a.to_string()) == a, "to_string output re-parses to the same address");
   assert(_ok_v6(IpAddr.loopback_v6().to_string()) == IpAddr.loopback_v6(), "loopback round-trips");
 });
-_must_reject_parse :: (fn(s : String) -> unit)({
+_must_reject_parse :: (fn(imm(s) : String) -> unit)({
   exn := Exception(
     throw : (
       err -> {
@@ -535,7 +535,7 @@ test("IpAddr.is_link_local covers 169.254/16 and fe80::/10", {
   assert(_ok_v6(`febf::1`).is_link_local(), "the top of fe80::/10");
   assert(!_ok_v6(`fec0::1`).is_link_local(), "fec0 is outside fe80::/10");
 });
-_must_reject_sockaddr :: (fn(s : String) -> unit)({
+_must_reject_sockaddr :: (fn(imm(s) : String) -> unit)({
   exn := Exception(
     throw : (
       err -> {

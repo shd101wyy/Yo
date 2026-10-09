@@ -314,32 +314,32 @@ impl(
   }),
   /// This arena as an `Allocator` value. Every block it hands out is released
   /// back here, wherever and whenever its last reference dies.
-  allocator : (fn(self : Self) -> Allocator)(
+  allocator : (fn(imm(self) : Self) -> Allocator)(
     Allocator(ctx : .Some((*void)(self._state)), vtable : &_ARENA_VTABLE)
   ),
   /// `with_allocator(self.allocator(), f)`: evaluate `f()` with this arena as
   /// the current allocator.
-  scoped : (fn(generic(T : Type), self : Self, f : Impl(Fn() -> T)) -> T)(
+  scoped : (fn(generic(T : Type), imm(self) : Self, imm(f) : Impl(Fn() -> T)) -> T)(
     with_allocator(self.allocator(), f)
   ),
   /// Blocks allocated here and not yet freed.
-  live_blocks : (fn(self : Self) -> usize)({
+  live_blocks : (fn(imm(self) : Self) -> usize)({
     _lock(self._state);
     n := unsafe(self._state.*.live);
     _unlock(self._state);
     n
   }),
   /// Bytes of the region in use (the bump offset).
-  used_bytes : (fn(self : Self) -> usize)({
+  used_bytes : (fn(imm(self) : Self) -> usize)({
     _lock(self._state);
     n := unsafe(self._state.*.top);
     _unlock(self._state);
     n
   }),
   /// The region's size in bytes.
-  capacity : (fn(self : Self) -> usize)(unsafe(self._state.*.capacity)),
+  capacity : (fn(imm(self) : Self) -> usize)(unsafe(self._state.*.capacity)),
   /// Whether `deinit` or `abandon` has run.
-  is_released : (fn(self : Self) -> bool)({
+  is_released : (fn(imm(self) : Self) -> bool)({
     _lock(self._state);
     released := (unsafe(self._state.*.dead) || unsafe(self._state.*.abandoned));
     _unlock(self._state);
@@ -348,7 +348,7 @@ impl(
   /// Release the region. PANICS if any block is still live. A second call, or
   /// a call after `abandon`, is a no-op. Also runs when the last `Arena`
   /// handle dies.
-  deinit : (fn(self : Self) -> unit)({
+  deinit : (fn(imm(self) : Self) -> unit)({
     st := self._state;
     _lock(st);
     cond(
@@ -381,7 +381,7 @@ impl(
   /// Stop tracking and never release the region: for an arena that lives as
   /// long as the process (startup tables, interners). Blocks may still be
   /// freed into it; `deinit` becomes a no-op.
-  abandon : (fn(self : Self) -> unit)({
+  abandon : (fn(imm(self) : Self) -> unit)({
     st := self._state;
     _lock(st);
     cond(
@@ -404,7 +404,7 @@ impl(
 impl(
   Arena,
   Dispose(
-    dispose : (fn(self : Self) -> unit)(self.deinit())
+    dispose : (fn(imm(self) : Self) -> unit)(self.deinit())
   )
 );
 export(Arena);

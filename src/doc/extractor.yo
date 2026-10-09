@@ -63,7 +63,7 @@ DeclarationNameResult_ :: struct(
   position : Option(DocPosition)
 );
 // ── Helpers ──────────────────────────────────────────────────────────
-is_doc_comment_token_ :: (fn(token : Token) -> bool)(
+is_doc_comment_token_ :: (fn(imm(token) : Token) -> bool)(
   cond(
     (token.kind == TokenKind.DocLineComment) => true,
     (token.kind == TokenKind.InnerDocLineComment) => true,
@@ -72,10 +72,10 @@ is_doc_comment_token_ :: (fn(token : Token) -> bool)(
     true => false
   )
 );
-is_inner_doc_token_ :: (fn(token : Token) -> bool)(
+is_inner_doc_token_ :: (fn(imm(token) : Token) -> bool)(
   (token.kind == TokenKind.InnerDocLineComment) || (token.kind == TokenKind.InnerDocBlockComment)
 );
-is_whitespace_or_regular_comment_ :: (fn(token : Token) -> bool)(
+is_whitespace_or_regular_comment_ :: (fn(imm(token) : Token) -> bool)(
   cond(
     (token.kind == TokenKind.Whitespace) => true,
     (token.kind == TokenKind.SingleLineComment) => true,
@@ -84,13 +84,13 @@ is_whitespace_or_regular_comment_ :: (fn(token : Token) -> bool)(
   )
 );
 /// Get a lookup key for a doc comment based on its position and module path.
-get_doc_comment_lookup_key :: (fn(comment : DocComment) -> String)(
+get_doc_comment_lookup_key :: (fn(imm(comment) : DocComment) -> String)(
   `${comment.module_path}:${comment.row.to_string()}:${comment.column.to_string()}`
 );
 /// Strip comment syntax from a `///` or `//!` line comment token.
 /// Input: `"/// some text"` → Output: `"some text"`.
 /// Removes the `///` or `//!` prefix and one optional leading space.
-strip_doc_line_comment :: (fn(value : String) -> String)({
+strip_doc_line_comment :: (fn(imm(value) : String) -> String)({
   content := cond(
     value.starts_with(`///`) => value.substring(usize(3), value.len()),
     value.starts_with(`//!`) => value.substring(usize(3), value.len()),
@@ -103,12 +103,12 @@ strip_doc_line_comment :: (fn(value : String) -> String)({
   )
 });
 // Internal alias used within this module.
-strip_doc_line_comment_ :: (fn(value : String) -> String)(
+strip_doc_line_comment_ :: (fn(imm(value) : String) -> String)(
   strip_doc_line_comment(value)
 );
 /// Strip comment syntax from a doc block comment (`/** ... */` or `/*! ... */`).
 /// Removes delimiters, leading `*` on each line, and blank leading/trailing lines.
-strip_doc_block_comment :: (fn(value : String) -> String)({
+strip_doc_block_comment :: (fn(imm(value) : String) -> String)({
   // Handle empty doc comments: /**/ or /*!*/
   if((value == `/**/`) || (value == `/*!*/`), {
     return(``);
@@ -186,11 +186,11 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
   `\n`.join(processed)
 });
 // Internal alias.
-strip_doc_block_comment_ :: (fn(value : String) -> String)(
+strip_doc_block_comment_ :: (fn(imm(value) : String) -> String)(
   strip_doc_block_comment(value)
 );
 // ── Declaration name finder ──────────────────────────────────────────
-find_next_declaration_name_ :: (fn(tokens : ArrayList(Token), start_index : usize) -> DeclarationNameResult_)({
+find_next_declaration_name_ :: (fn(imm(tokens) : ArrayList(Token), start_index : usize) -> DeclarationNameResult_)({
   i := start_index;
   n := tokens.len();
   while(i < n, {
@@ -229,7 +229,7 @@ find_next_declaration_name_ :: (fn(tokens : ArrayList(Token), start_index : usiz
 /// - Outer doc comments (/// and block variant) are associated with the next
 ///   non-whitespace, non-comment token (the declaration name).
 /// - Consecutive triple-slash lines are merged into a single doc comment block.
-extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
+extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResult)({
   module_doc := Option(DocComment).None;
   declarations := ArrayList(DocAssociation).new();
   inner_doc_parts := ArrayList(String).new();
@@ -414,7 +414,7 @@ extract_doc_comments :: (fn(tokens : ArrayList(Token)) -> DocExtractionResult)({
   DocExtractionResult(module_doc : module_doc, declarations : declarations)
 });
 // ── Inline doc identifier finder ─────────────────────────────────────
-find_next_identifier_ :: (fn(tokens : ArrayList(Token), start_index : usize, end_index : usize) -> String)({
+find_next_identifier_ :: (fn(imm(tokens) : ArrayList(Token), start_index : usize, end_index : usize) -> String)({
   i := start_index;
   while(i < end_index, {
     token := match(
@@ -448,7 +448,7 @@ find_next_identifier_ :: (fn(tokens : ArrayList(Token), start_index : usize, end
 /// (field names, parameter names, or variant names).
 ///
 /// Consecutive `///` lines are merged into a single doc comment.
-extract_inline_docs :: (fn(tokens : ArrayList(Token), start_index : usize, end_index : usize) -> InlineDocResult)({
+extract_inline_docs :: (fn(imm(tokens) : ArrayList(Token), start_index : usize, end_index : usize) -> InlineDocResult)({
   docs := HashMap(String, String).new();
   i := start_index;
   end := cond(
@@ -526,7 +526,7 @@ extract_inline_docs :: (fn(tokens : ArrayList(Token), start_index : usize, end_i
 /// Given an array of tokens and a starting search index, finds the first `(`
 /// and its matching `)`, accounting for nesting. Returns `None` if no matching
 /// pair is found.
-find_matching_parens :: (fn(tokens : ArrayList(Token), search_start : usize) -> Option(ParensResult))({
+find_matching_parens :: (fn(imm(tokens) : ArrayList(Token), search_start : usize) -> Option(ParensResult))({
   i := search_start;
   n := tokens.len();
   // Find the opening paren

@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception } :: import("std/error");
 /// True if struct type `t` has a dereference field labeled `*` (the
 /// pointed-to-value field of an Rc/Arc wrapper).
-_struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
+_struct_has_deref_field :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .Struct({ field_labels : fls }) => {
@@ -72,7 +72,7 @@ _struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
 /// a `Dyn` without `Send` (code unknown here) is not. `.Some(reason)` names the
 /// first offending component.
 _iso_function_offense :: (
-  fn(ty : TypeValue, send : TypeValue, inout(seen) : ArrayList(String), env : Environment, ctx : EvalContext) -> Option(String)
+  fn(imm(ty) : TypeValue, imm(send) : TypeValue, mut(seen) : ArrayList(String), imm(env) : Environment, imm(ctx) : EvalContext) -> Option(String)
 )({
   // Cycle guard on nominal identity (ArrayList(T) reaches T through its buffer).
   nid := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid, _ => String.new());
@@ -184,10 +184,10 @@ _iso_function_offense :: (
 });
 evaluate_iso_type_call :: (
   fn(
-    expr : AstExpr,
-    env_in : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env_in) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -346,7 +346,7 @@ evaluate_iso_type_call :: (
   expr
 });
 /// Join an ArrayList(String) with a separator into a single String.
-_join_strings :: (fn(items : ArrayList(String), sep : String) -> String)({
+_join_strings :: (fn(imm(items) : ArrayList(String), imm(sep) : String) -> String)({
   result := String.from("");
   n := items.len();
   (i : usize) = usize(0);
@@ -367,7 +367,7 @@ _join_strings :: (fn(items : ArrayList(String), sep : String) -> String)({
 });
 /// Collect the names of all variables in `env` whose `is_owning_the_same_rc_value_as`
 /// points to the variable with `owner_id`.
-_find_rc_aliases :: (fn(env : Environment, owner_id : String) -> ArrayList(String))({
+_find_rc_aliases :: (fn(imm(env) : Environment, imm(owner_id) : String) -> ArrayList(String))({
   result := ArrayList(String).new();
   n_frames := env.frames.len();
   (fi : usize) = usize(0);
@@ -412,11 +412,11 @@ _find_rc_aliases :: (fn(env : Environment, owner_id : String) -> ArrayList(Strin
 /// Then marks the arg as consumed and wraps in iso_type.
 evaluate_iso_value_call :: (
   fn(
-    expr : AstExpr,
-    env_in : Environment,
-    ctx : EvalContext,
-    iso_type : TypeValue,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env_in) : Environment,
+    imm(ctx) : EvalContext,
+    imm(iso_type) : TypeValue,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

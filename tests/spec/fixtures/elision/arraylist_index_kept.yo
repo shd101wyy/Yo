@@ -7,9 +7,9 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
 
-first_index :: (fn(xs : ArrayList(i32), requires(!xs.is_empty()), ensures(r < xs.len())) -> (r : usize))(usize(0));
+first_index :: (fn(imm(xs) : ArrayList(i32), requires(!xs.is_empty()), ensures(r < xs.len())) -> (r : usize))(usize(0));
 
-first :: (fn(xs : ArrayList(i32), requires(!xs.is_empty())) -> (r : i32))(xs(first_index(xs)));
+first :: (fn(imm(xs) : ArrayList(i32), requires(!xs.is_empty())) -> (r : i32))(xs(first_index(xs)));
 
 main :: (fn() -> unit)({
   xs := ArrayList(i32).new();

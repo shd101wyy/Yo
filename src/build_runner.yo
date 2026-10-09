@@ -130,7 +130,7 @@ StepResult :: ref(
 // execution context makes compile_artifact call f(argv) instead of spawning
 // a child `yo compile`, so the warm evaluator universe (module cache,
 // prelude env, shared ExprInfoTable) is reused across watch rounds.
-InProcessCompileFn :: (fn(argv : ArrayList(String), io : Io, exn : Exception) -> bool);
+InProcessCompileFn :: (fn(imm(argv) : ArrayList(String), io : Io, imm(exn) : Exception) -> bool);
 /// The callback lives in a MUTABLE REF-STRUCT SLOT, not a bare global
 /// Option: an async fn (`run_build`) reading a global fn-typed Option
 /// minted a temp the state machine carried across a suspension point, and
@@ -188,7 +188,7 @@ ExecutionContext :: ref(
 /// for any reason (not a repo, no git, non-zero exit, empty output) — the
 /// version is decoration on the "Building …"
 /// line, never a reason to fail a build.
-_git_output_task :: (fn(cmd : Command, io : Io) -> Impl(Future(Output, IoExn)))(
+_git_output_task :: (fn(imm(cmd) : Command, io : Io) -> Impl(Future(Output, IoExn)))(
   io.async((e : IoExn) => {
     // Local swallow handler: a missing git / spawn failure must unwind THIS
     // task (read as `.None` at the JoinHandle below), never reach the
@@ -212,9 +212,9 @@ _git_output_task :: (fn(cmd : Command, io : Io) -> Impl(Future(Output, IoExn)))(
 );
 _git_version :: (
   fn(
-    project_dir : String,
+    imm(project_dir) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -260,10 +260,10 @@ _self_exe :: (fn() -> String)({
 get_artifact_output_file_name :: (
   fn(
     kind : ArtifactKind,
-    name : String,
-    artifact_target : String,
-    c_flags : ArrayList(String),
-    target_triple_opt : Option(String)
+    imm(name) : String,
+    imm(artifact_target) : String,
+    imm(c_flags) : ArrayList(String),
+    imm(target_triple_opt) : Option(String)
   ) -> String
 )({
   match(
@@ -312,8 +312,8 @@ get_artifact_output_file_name :: (
 /// Layout: <project>/yo-out/<target>/bin/ or …/lib/
 _get_target_output_dir :: (
   fn(
-    project_dir : String,
-    target_triple : String,
+    imm(project_dir) : String,
+    imm(target_triple) : String,
     kind : str
   ) -> String
 )(
@@ -324,9 +324,9 @@ _get_target_output_dir :: (
 /// may define a `lib` of the same name and neither shadows ours.
 _artifact_output_dir :: (
   fn(
-    artifact : BuildArtifact,
-    project_dir : String,
-    target_triple : String,
+    imm(artifact) : BuildArtifact,
+    imm(project_dir) : String,
+    imm(target_triple) : String,
     kind : str
   ) -> String
 )(
@@ -351,7 +351,7 @@ _artifact_output_dir :: (
 /// The project's manifest — the nearest `yo.toml` at or above `project_dir`
 /// — or `.None` when it has none. A manifest that does not parse fails the
 /// build with its message.
-project_manifest :: (fn(project_dir : String, exn : Exception) -> Option(Manifest))(
+project_manifest :: (fn(imm(project_dir) : String, imm(exn) : Exception) -> Option(Manifest))(
   match(
     find_manifest(project_dir),
     .None => Option(Manifest).None,
@@ -366,7 +366,7 @@ project_manifest :: (fn(project_dir : String, exn : Exception) -> Option(Manifes
   )
 );
 /// The manifest's import-root closure, or the build error it reports.
-_manifest_roots :: (fn(manifest : Manifest, exn : Exception) -> ImportRoots)(
+_manifest_roots :: (fn(imm(manifest) : Manifest, imm(exn) : Exception) -> ImportRoots)(
   match(
     resolve_import_roots(manifest, read_lock_text(manifest, exn), exn),
     .Ok(r) => r,
@@ -377,7 +377,7 @@ _manifest_roots :: (fn(manifest : Manifest, exn : Exception) -> ImportRoots)(
   )
 );
 /// Would `yo install` make some unavailable import available?
-_has_fetchable_unavailable :: (fn(roots : ImportRoots) -> bool)({
+_has_fetchable_unavailable :: (fn(imm(roots) : ImportRoots) -> bool)({
   (i : usize) = usize(0);
   while(i < roots.unavailable.len(), {
     if(roots.unavailable(i).fetchable, return(true));
@@ -405,13 +405,13 @@ _import_lines :: (fn() -> ArrayList(String))({
 /// purpose (see compile_artifact).
 resolve_build_import_roots :: (
   fn(
-    manifest_opt : Option(Manifest),
-    registry : BuildRegistry,
+    imm(manifest_opt) : Option(Manifest),
+    imm(registry) : BuildRegistry,
     locked : bool,
     offline : bool,
     verbose : bool,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -465,9 +465,9 @@ resolve_build_import_roots :: (
 /// depend on. A stale link (a `yo update` moved the tree) is replaced.
 _link_store_trees :: (
   fn(
-    manifest : Manifest,
+    imm(manifest) : Manifest,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -521,7 +521,7 @@ _link_store_trees :: (
   })
 );
 /// Is `name` a symbolic link among `entries`?
-_names_a_symlink :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
+_names_a_symlink :: (fn(imm(entries) : ArrayList(DirEntry), imm(name) : String) -> bool)({
   (i : usize) = usize(0);
   while(i < entries.len(), {
     if(entries(i).name == name, {
@@ -541,7 +541,7 @@ _names_a_symlink :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
 /// The `--imports` lines for an artifact of `package_dir` — this project's
 /// closure when the artifact is ours (`package_dir` empty), the package's own
 /// when it came from a dependency's build file.
-_package_import_lines :: (fn(package_dir : String) -> ArrayList(String))({
+_package_import_lines :: (fn(imm(package_dir) : String) -> ArrayList(String))({
   if(package_dir.len() == usize(0), {
     return(_import_lines());
   });
@@ -562,7 +562,7 @@ _package_import_lines :: (fn(package_dir : String) -> ArrayList(String))({
   ArrayList(String).new()
 });
 /// Record a package's import closure (see `g_dep_import_dirs`).
-_record_package_import_lines :: (fn(package_dir : String, lines : ArrayList(String)) -> unit)({
+_record_package_import_lines :: (fn(imm(package_dir) : String, imm(lines) : ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.len(), {
     if(g_dep_import_dirs(i) == package_dir, {
@@ -576,7 +576,7 @@ _record_package_import_lines :: (fn(package_dir : String, lines : ArrayList(Stri
 /// The `-D` options a dependency sees: the consumer's `-D<dep>.<name>=<value>`
 /// with the prefix stripped. A dependency never reads the parent's own
 /// options — its build file declared its own names.
-_namespaced_defines :: (fn(dep_name : String, defines : HashMap(String, String)) -> HashMap(String, String))({
+_namespaced_defines :: (fn(imm(dep_name) : String, imm(defines) : HashMap(String, String)) -> HashMap(String, String))({
   out := HashMap(String, String).new();
   prefix := dep_name.concat(String.from("."));
   iter := defines.keys();
@@ -609,12 +609,12 @@ _namespaced_defines :: (fn(dep_name : String, defines : HashMap(String, String))
 /// then fails the build; it is never swallowed (the B3 rule).
 _evaluate_dependency_build_file :: (
   fn(
-    dep_name : String,
-    dep_dir : String,
-    build_file : String,
-    defines : HashMap(String, String),
+    imm(dep_name) : String,
+    imm(dep_dir) : String,
+    imm(build_file) : String,
+    imm(defines) : HashMap(String, String),
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -647,11 +647,11 @@ _evaluate_dependency_build_file :: (
 /// archive and the link failed with an undefined symbol.
 _evaluate_dependency_builds :: (
   fn(
-    manifest : Manifest,
-    registry : BuildRegistry,
-    defines : HashMap(String, String),
+    imm(manifest) : Manifest,
+    imm(registry) : BuildRegistry,
+    imm(defines) : HashMap(String, String),
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -769,7 +769,7 @@ _evaluate_dependency_builds :: (
 /// manifest names its modules and its dependencies; the LOCK is the root
 /// project's — dependencies' git dependencies are recorded there.
 _dependency_import_lines :: (
-  fn(dep_dir : String, root_lock_text : Option(String), exn : Exception) -> ArrayList(String)
+  fn(imm(dep_dir) : String, imm(root_lock_text) : Option(String), imm(exn) : Exception) -> ArrayList(String)
 )({
   lines := ArrayList(String).new();
   dep_manifest := match(project_manifest(dep_dir.clone(), exn), .Some(m) => m, .None => return(lines));
@@ -804,11 +804,11 @@ _dependency_import_lines :: (
 /// (issues/fixed/step-link-does-not-link-the-static-library.md).
 _collect_linked_static_libs :: (
   fn(
-    registry : BuildRegistry,
-    artifact : BuildArtifact,
-    project_dir : String,
-    effective_target : String,
-    target_triple_opt : Option(String)
+    imm(registry) : BuildRegistry,
+    imm(artifact) : BuildArtifact,
+    imm(project_dir) : String,
+    imm(effective_target) : String,
+    imm(target_triple_opt) : Option(String)
   ) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
@@ -873,12 +873,12 @@ _collect_linked_static_libs :: (
 /// flags, which the caller appends to `--cflags`.
 _collect_linked_shared_libs :: (
   fn(
-    registry : BuildRegistry,
-    artifact : BuildArtifact,
-    project_dir : String,
-    effective_target : String,
-    inout(dirs_out) : ArrayList(String),
-    inout(names_out) : ArrayList(String)
+    imm(registry) : BuildRegistry,
+    imm(artifact) : BuildArtifact,
+    imm(project_dir) : String,
+    imm(effective_target) : String,
+    mut(dirs_out) : ArrayList(String),
+    mut(names_out) : ArrayList(String)
   ) -> unit
 )({
   seen := ArrayList(String).new();
@@ -934,11 +934,11 @@ _collect_linked_shared_libs :: (
 // ---------------------------------------------------------------------------
 _walk_dag :: (
   fn(
-    registry : BuildRegistry,
-    inout(nodes) : HashMap(String, DAGNode),
-    inout(visited) : HashMap(String, bool),
-    name : String,
-    inout(missing) : ArrayList(String)
+    imm(registry) : BuildRegistry,
+    mut(nodes) : HashMap(String, DAGNode),
+    mut(visited) : HashMap(String, bool),
+    imm(name) : String,
+    mut(missing) : ArrayList(String)
   ) -> unit
 )({
   if(visited.contains_key(name), return(()));
@@ -1000,8 +1000,8 @@ _walk_dag :: (
 /// Build a DAG by walking the step's dependency tree.
 build_dag :: (
   fn(
-    registry : BuildRegistry,
-    root_step_name : String
+    imm(registry) : BuildRegistry,
+    imm(root_step_name) : String
   ) -> ArrayList(DAGNode)
 )(
   build_dag_checked(registry, root_step_name, ArrayList(String).new())
@@ -1011,9 +1011,9 @@ build_dag :: (
 /// rather than building a DAG with a silent hole in it.
 build_dag_checked :: (
   fn(
-    registry : BuildRegistry,
-    root_step_name : String,
-    inout(missing) : ArrayList(String)
+    imm(registry) : BuildRegistry,
+    imm(root_step_name) : String,
+    mut(missing) : ArrayList(String)
   ) -> ArrayList(DAGNode)
 )({
   nodes := HashMap(String, DAGNode).new();
@@ -1041,9 +1041,9 @@ _COLOR_GRAY :: i32(1);
 _COLOR_BLACK :: i32(2);
 _dfs_cycle :: (
   fn(
-    node_map : HashMap(String, DAGNode),
-    inout(color) : HashMap(String, i32),
-    name : String
+    imm(node_map) : HashMap(String, DAGNode),
+    mut(color) : HashMap(String, i32),
+    imm(name) : String
   ) -> Option(String)
 )({
   color.insert(name, _COLOR_GRAY);
@@ -1086,7 +1086,7 @@ _dfs_cycle :: (
   Option(String).None
 });
 /// Detect cycles in a DAG via DFS. Returns the cycle node name if found.
-detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
+detect_cycle :: (fn(imm(dag) : ArrayList(DAGNode)) -> Option(String))({
   node_map := HashMap(String, DAGNode).new();
   i := usize(0);
   n := dag.len();
@@ -1132,7 +1132,7 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
 // version + argv covers the yo side); delete yo-out or set
 // YO_BUILD_NO_CACHE=1 to bypass.
 // ---------------------------------------------------------------------------
-_read_dir_task :: (fn(dir : String, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))(
+_read_dir_task :: (fn(imm(dir) : String, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))(
   io.async((e : IoExn) => {
     // Local swallow handler: read_dir on a FILE (or a vanished dir) unwinds
     // THIS task, read as `.None` at the JoinHandle below — that failure IS
@@ -1153,7 +1153,7 @@ _read_dir_task :: (fn(dir : String, io : Io) -> Impl(Future(ArrayList(DirEntry),
 /// Is `name` a directory among `entries`? A symlink is not followed: a link
 /// loop would hang the walk, and a linked source tree is stamped where it
 /// really lives.
-_entry_is_dir :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
+_entry_is_dir :: (fn(imm(entries) : ArrayList(DirEntry), imm(name) : String) -> bool)({
   (i : usize) = usize(0);
   while(i < entries.len(), {
     en := entries(i);
@@ -1186,7 +1186,7 @@ _entry_is_dir :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
 /// turned out not to exist — issues/retired/
 /// async-body-local-read-by-two-matches-is-emitted-twice.md.)
 _MemberSplit :: struct(parent : String, leaf : String);
-_split_member_pattern :: (fn(pattern : String) -> _MemberSplit)(
+_split_member_pattern :: (fn(imm(pattern) : String) -> _MemberSplit)(
   match(
     pattern.last_index_of(String.from("/")),
     .Some(ix) => _MemberSplit(parent : pattern.substring(usize(0), ix), leaf : pattern.substring(ix + usize(1), pattern.len())),
@@ -1194,7 +1194,7 @@ _split_member_pattern :: (fn(pattern : String) -> _MemberSplit)(
   )
 );
 expand_workspace_members :: (
-  fn(manifest : Manifest, io : Io) -> Impl(Future(ArrayList(String), IoExn))
+  fn(imm(manifest) : Manifest, io : Io) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
@@ -1263,7 +1263,7 @@ expand_workspace_members :: (
 /// declares, is an error that LISTS what is available — a mistyped member name
 /// should say what the choices were, not "build file not found".
 _resolve_workspace_member :: (
-  fn(package : Option(String), io : Io, exn : Exception) -> Impl(Future(Option(String), IoExn))
+  fn(imm(package) : Option(String), io : Io, imm(exn) : Exception) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
     name := match(package, .Some(n) => n, .None => return(Option(String).None));
@@ -1321,7 +1321,7 @@ _resolve_workspace_member :: (
   })
 );
 /// Append `v` to `out` unless it is already there.
-_push_unique_string :: (fn(inout(out) : ArrayList(String), v : String) -> unit)({
+_push_unique_string :: (fn(mut(out) : ArrayList(String), imm(v) : String) -> unit)({
   (i : usize) = usize(0);
   while(i < out.len(), {
     match(
@@ -1339,7 +1339,7 @@ _push_unique_string :: (fn(inout(out) : ArrayList(String), v : String) -> unit)(
 /// than pushing into a caller's: a collection it captured is its own copy
 /// once collections are values (plans/VALUES_BY_DEFAULT.md §3.13).
 _cache_collect_yo_files :: (
-  fn(dir : String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
+  fn(imm(dir) : String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
@@ -1395,7 +1395,7 @@ _cache_collect_yo_files :: (
     out
   })
 );
-_read_bytes_task :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+_read_bytes_task :: (fn(imm(path) : String, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   io.async((e : IoExn) => {
     // Local swallow handler: an unreadable file unwinds THIS task, read as
     // `.None` at the JoinHandle below. The unwind payload must match the
@@ -1408,7 +1408,7 @@ _read_bytes_task :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(u8), Io
 /// Read a file into the stamp accumulator; `.None` (file vanished mid-walk)
 /// disables the cache for this artifact rather than mis-stamping it.
 _cache_read_file :: (
-  fn(path : String, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn))
+  fn(imm(path) : String, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn))
 )(
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
@@ -1422,7 +1422,7 @@ _cache_read_file :: (
 /// Append `s2` and a newline to the stamp accumulator. A module-level fn
 /// rather than a local closure, so the io.async body using it stays a plain
 /// statement sequence.
-_stamp_push_str :: (fn(inout(dst) : ArrayList(u8), s2 : String) -> unit)({
+_stamp_push_str :: (fn(mut(dst) : ArrayList(u8), imm(s2) : String) -> unit)({
   b := s2;
   (bi : usize) = usize(0);
   while(bi < b.len(), {
@@ -1442,7 +1442,7 @@ _stamp_push_str :: (fn(inout(dst) : ArrayList(u8), s2 : String) -> unit)({
 /// (issues/fixed/yo-build-cache-ignores-which-compiler-built-the-artifact.md).
 (g_compiler_identity : Option(String)) = Option(String).None;
 /// Pin the identity instead of hashing the executable (tests).
-set_compiler_identity :: (fn(id : String) -> unit)({
+set_compiler_identity :: (fn(imm(id) : String) -> unit)({
   g_compiler_identity = Option(String).Some(id);
 });
 _compiler_identity :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
@@ -1469,7 +1469,7 @@ _compiler_identity :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
 /// `("", line)` when the line has no hash prefix — a legacy or malformed
 /// depfile, which the record pass treats as unusable.
 _DepEntry :: struct(hash : String, path : String);
-_split_dep_entry :: (fn(line : String) -> _DepEntry)({
+_split_dep_entry :: (fn(imm(line) : String) -> _DepEntry)({
   (at : usize) = usize(0);
   (found : bool) = false;
   while((at < line.len()) && !found, {
@@ -1496,7 +1496,7 @@ _split_dep_entry :: (fn(line : String) -> _DepEntry)({
 /// compile and shared by both stamp passes, so a manifest edit during the
 /// compile cannot be absorbed into the recorded stamp.
 _manifest_stamp_entries :: (
-  fn(project_dir : String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
+  fn(imm(project_dir) : String, io : Io) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
@@ -1547,12 +1547,12 @@ _manifest_stamp_entries :: (
 /// decision pass's own call).
 artifact_input_stamp :: (
   fn(
-    argv : ArrayList(String),
-    project_dir : String,
-    depfile_path : String,
+    imm(argv) : ArrayList(String),
+    imm(project_dir) : String,
+    imm(depfile_path) : String,
     cache_enabled : bool,
     use_recorded_hashes : bool,
-    manifest_entries : ArrayList(String),
+    imm(manifest_entries) : ArrayList(String),
     io : Io
   ) -> Impl(Future(String, IoExn))
 )(
@@ -1678,7 +1678,7 @@ artifact_input_stamp :: (
 /// An absent or empty file yields an EMPTY list, which is the caller's signal
 /// to fall back to the whole-tree walk
 /// (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.9).
-_read_depfile :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(String), IoExn)))(
+_read_depfile :: (fn(imm(path) : String, io : Io) -> Impl(Future(ArrayList(String), IoExn)))(
   io.async((e : IoExn) => {
     out := ArrayList(String).new();
     bytes_opt := e.io.await(_cache_read_file(path.clone(), e.io), e);
@@ -1702,7 +1702,7 @@ _read_depfile :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(String), I
   })
 );
 /// Read the recorded stamp next to an output, `.None` when absent.
-_read_stamp :: (fn(path : String, io : Io) -> Impl(Future(Option(String), IoExn)))(
+_read_stamp :: (fn(imm(path) : String, io : Io) -> Impl(Future(Option(String), IoExn)))(
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
     match(
@@ -1712,7 +1712,7 @@ _read_stamp :: (fn(path : String, io : Io) -> Impl(Future(Option(String), IoExn)
     )
   })
 );
-_write_string_task :: (fn(path : String, data : String, io : Io) -> Impl(Future(unit, IoExn)))(
+_write_string_task :: (fn(imm(path) : String, imm(data) : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     // Local swallow handler: stamp write failures unwind THIS task, read as
     // `.None` at the JoinHandle below (the cache is an optimization). The
@@ -1726,7 +1726,7 @@ _write_string_task :: (fn(path : String, data : String, io : Io) -> Impl(Future(
 /// An EMPTY stamp (cache disabled or stamping failed) is still written: it
 /// truncates the previous stamp, making the next build a guaranteed cache
 /// miss — which is the correct outcome in both of those cases anyway.
-_write_stamp :: (fn(path : String, stamp : String, io : Io) -> Impl(Future(unit, IoExn)))(
+_write_stamp :: (fn(imm(path) : String, imm(stamp) : String, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     t := e.io.spawn(_write_string_task(path.clone(), stamp.clone(), e.io), e);
     match(
@@ -1744,7 +1744,7 @@ _write_stamp :: (fn(path : String, stamp : String, io : Io) -> Impl(Future(unit,
 /// Until 2026-10-03 release-small mapped to "2" as well, making its build
 /// byte-identical to release-safe's
 /// (issues/fixed/build-release-small-is-identical-to-release-safe.md).
-optimize_level_for :: (fn(level : String) -> String)(
+optimize_level_for :: (fn(imm(level) : String) -> String)(
   cond(
     (level == "release-safe") => String.from("2"),
     (level == "release-fast") => String.from("3"),
@@ -1758,14 +1758,14 @@ export(optimize_level_for);
 /// a build file has no other flag that reaches the child compile's -g, so
 /// Debug forwards it here. The release levels document no debug info and
 /// stay lean.
-level_wants_debug_symbols :: (fn(level : String) -> bool)(level == "debug");
+level_wants_debug_symbols :: (fn(imm(level) : String) -> bool)(level == "debug");
 export(level_wants_debug_symbols);
 compile_artifact :: (
   fn(
-    artifact : BuildArtifact,
-    ctx : ExecutionContext,
+    imm(artifact) : BuildArtifact,
+    imm(ctx) : ExecutionContext,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2271,11 +2271,11 @@ compile_artifact :: (
 // ---------------------------------------------------------------------------
 run_executable :: (
   fn(
-    artifact : BuildArtifact,
-    args : ArrayList(String),
-    ctx : ExecutionContext,
+    imm(artifact) : BuildArtifact,
+    imm(args) : ArrayList(String),
+    imm(ctx) : ExecutionContext,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2347,10 +2347,10 @@ run_executable :: (
 /// (issues/fixed/verify-by-default-for-a-project.md).
 run_verify_step :: (
   fn(
-    cfg : BuildVerifyConfig,
-    ctx : ExecutionContext,
+    imm(cfg) : BuildVerifyConfig,
+    imm(ctx) : ExecutionContext,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2386,10 +2386,10 @@ run_verify_step :: (
 // ---------------------------------------------------------------------------
 run_test_suite :: (
   fn(
-    suite : BuildTestSuite,
-    ctx : ExecutionContext,
+    imm(suite) : BuildTestSuite,
+    imm(ctx) : ExecutionContext,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2447,7 +2447,7 @@ run_test_suite :: (
   })
 );
 /// Run a documentation step, mapping any thrown error to `false`.
-_run_doc_step :: (fn(opts : DocCommandOptions, io : Io) -> bool)({
+_run_doc_step :: (fn(imm(opts) : DocCommandOptions, io : Io) -> bool)({
   doc_exn := Exception(
     throw : (
       doc_err -> {
@@ -2460,7 +2460,7 @@ _run_doc_step :: (fn(opts : DocCommandOptions, io : Io) -> bool)({
   true
 });
 /// Append every element of `src` onto `dst` (ArrayList has no extend()).
-_push_all_strings :: (fn(inout(dst) : ArrayList(String), src : ArrayList(String)) -> unit)({
+_push_all_strings :: (fn(mut(dst) : ArrayList(String), imm(src) : ArrayList(String)) -> unit)({
   (pa_i : usize) = usize(0);
   while(pa_i < src.len(), {
     match(
@@ -2479,10 +2479,10 @@ _push_all_strings :: (fn(inout(dst) : ArrayList(String), src : ArrayList(String)
 /// Execute a single DAG node.
 execute_node :: (
   fn(
-    node : DAGNode,
-    ctx : ExecutionContext,
+    imm(node) : DAGNode,
+    imm(ctx) : ExecutionContext,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2646,7 +2646,7 @@ execute_node :: (
 /// runner used to execute a `run` step whose executable had just failed to
 /// compile, turning one clear compile error into a second, confusing one
 /// (the plan's B6).
-_dependency_failed :: (fn(node : DAGNode, results : HashMap(String, StepResult)) -> bool)({
+_dependency_failed :: (fn(imm(node) : DAGNode, imm(results) : HashMap(String, StepResult)) -> bool)({
   (i : usize) = usize(0);
   while(i < node.depends_on.len(), {
     match(
@@ -2666,11 +2666,11 @@ _dependency_failed :: (fn(node : DAGNode, results : HashMap(String, StepResult))
 /// if-branch loses its continuation — issues/retired/async-await-nested-if-lost-continuation.md).
 _execute_node_unless_blocked :: (
   fn(
-    node : DAGNode,
+    imm(node) : DAGNode,
     blocked : bool,
-    ctx : ExecutionContext,
+    imm(ctx) : ExecutionContext,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2704,11 +2704,11 @@ _execute_node_unless_blocked :: (
 /// (plans/VALUES_BY_DEFAULT.md §3.13).
 _execute_batch :: (
   fn(
-    batch : ArrayList(DAGNode),
-    results : HashMap(String, StepResult),
-    ctx : ExecutionContext,
+    imm(batch) : ArrayList(DAGNode),
+    imm(results) : HashMap(String, StepResult),
+    imm(ctx) : ExecutionContext,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(ArrayList(StepResult), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2755,10 +2755,10 @@ _execute_batch :: (
 );
 execute_dag :: (
   fn(
-    dag : ArrayList(DAGNode),
-    ctx : ExecutionContext,
+    imm(dag) : ArrayList(DAGNode),
+    imm(ctx) : ExecutionContext,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2867,11 +2867,11 @@ execute_dag :: (
 // ---------------------------------------------------------------------------
 _print_summary_node :: (
   fn(
-    node : DAGNode,
-    results : HashMap(String, StepResult),
-    node_map : HashMap(String, DAGNode),
-    line_prefix : String,
-    children_prefix : String,
+    imm(node) : DAGNode,
+    imm(results) : HashMap(String, StepResult),
+    imm(node_map) : HashMap(String, DAGNode),
+    imm(line_prefix) : String,
+    imm(children_prefix) : String,
     is_root : bool
   ) -> unit
 )({
@@ -2923,9 +2923,9 @@ _print_summary_node :: (
 });
 print_build_summary :: (
   fn(
-    results : HashMap(String, StepResult),
-    dag : ArrayList(DAGNode),
-    root_name : String
+    imm(results) : HashMap(String, StepResult),
+    imm(dag) : ArrayList(DAGNode),
+    imm(root_name) : String
   ) -> unit
 )({
   n := dag.len();
@@ -2971,7 +2971,7 @@ print_build_summary :: (
 /// B7: it used to print a line per requested step without building a DAG,
 /// validating the step or detecting a cycle).
 _plan_step :: (
-  fn(step_name : String, ctx : ExecutionContext, exn : Exception) -> ArrayList(DAGNode)
+  fn(imm(step_name) : String, imm(ctx) : ExecutionContext, imm(exn) : Exception) -> ArrayList(DAGNode)
 )({
   match(
     ctx.registry.find_step(step_name.clone()),
@@ -3010,7 +3010,7 @@ _plan_step :: (
 });
 /// Print a resolved graph, one node per line in dependency order — what
 /// `--dry-run` shows instead of building.
-_print_plan :: (fn(step_name : String, dag : ArrayList(DAGNode)) -> unit)({
+_print_plan :: (fn(imm(step_name) : String, imm(dag) : ArrayList(DAGNode)) -> unit)({
   println(`[dry-run] step "${step_name}" resolves to ${dag.len().to_string()} node(s):`);
   (i : usize) = usize(0);
   while(i < dag.len(), {
@@ -3036,11 +3036,11 @@ _print_plan :: (fn(step_name : String, dag : ArrayList(DAGNode)) -> unit)({
 });
 execute_step :: (
   fn(
-    step_name : String,
-    ctx : ExecutionContext,
+    imm(step_name) : String,
+    imm(ctx) : ExecutionContext,
     dry_run : bool,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -3095,7 +3095,7 @@ execute_step :: (
 /// the reference compiler's.
 /// `yo build --list-options`: every `build.option(...)` the build file
 /// declared, with its default and description, plus the value in force.
-print_options :: (fn(registry : BuildRegistry) -> unit)({
+print_options :: (fn(imm(registry) : BuildRegistry) -> unit)({
   names := ArrayList(String).new();
   iter := registry.declared_options.keys();
   more := true;
@@ -3133,7 +3133,7 @@ print_options :: (fn(registry : BuildRegistry) -> unit)({
 /// and is checked there (`_evaluate_dependency_builds`), so it is not reported
 /// here. Undeclared names used to be accepted in silence, which makes a typo
 /// in `-Dstrip=true` look like a build that ignored you (the plan's B4).
-undeclared_options :: (fn(registry : BuildRegistry) -> ArrayList(String))({
+undeclared_options :: (fn(imm(registry) : BuildRegistry) -> ArrayList(String))({
   out := ArrayList(String).new();
   iter := registry.cli_options.keys();
   more := true;
@@ -3153,7 +3153,7 @@ undeclared_options :: (fn(registry : BuildRegistry) -> ArrayList(String))({
   out.sort();
   out
 });
-print_steps :: (fn(registry : BuildRegistry) -> unit)({
+print_steps :: (fn(imm(registry) : BuildRegistry) -> unit)({
   steps := registry.steps;
   n := steps.len();
   if(n == usize(0), {
@@ -3174,7 +3174,7 @@ print_steps :: (fn(registry : BuildRegistry) -> unit)({
 // ---------------------------------------------------------------------------
 /// The `[package]` table `build.manifest` reads, keyed by field name. A
 /// project without a `yo.toml` contributes nothing, so every field is "".
-_manifest_fields :: (fn(manifest_opt : Option(Manifest)) -> HashMap(String, String))({
+_manifest_fields :: (fn(imm(manifest_opt) : Option(Manifest)) -> HashMap(String, String))({
   fields := HashMap(String, String).new();
   match(
     manifest_opt,
@@ -3208,11 +3208,11 @@ _manifest_fields :: (fn(manifest_opt : Option(Manifest)) -> HashMap(String, Stri
 /// (issues/fixed/build-yo-evaluation-errors-are-swallowed.md).
 evaluate_build_file :: (
   fn(
-    build_file : String,
-    defines : HashMap(String, String),
-    manifest_opt : Option(Manifest),
+    imm(build_file) : String,
+    imm(defines) : HashMap(String, String),
+    imm(manifest_opt) : Option(Manifest),
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -3246,9 +3246,9 @@ evaluate_build_file :: (
 // Exports
 run_build :: (
   fn(
-    options : BuildOptions,
+    imm(options) : BuildOptions,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {

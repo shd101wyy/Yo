@@ -2239,22 +2239,22 @@ test("Test types compatibility", {
   comptime_assert(
     __yo_are_types_compatible(
       // true: alpha-equivalent
-      fn(generic(T : Type), x : T, y : T) -> T,
-      fn(generic(Z : Type), a : Z, b : Z) -> Z
+      fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T,
+      fn(generic(Z : Type), imm(a) : Z, imm(b) : Z) -> Z
     ) == true
   );
   // The same pair with the SAME binder name.
   comptime_assert(
     __yo_are_types_compatible(
       // true
-      fn(generic(T : Type), x : T, y : T) -> T,
-      fn(generic(T : Type), a : T, b : T) -> T
+      fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T,
+      fn(generic(T : Type), imm(a) : T, imm(b) : T) -> T
     ) == true
   );
   comptime_assert(
     __yo_are_types_compatible(
       // false
-      fn(generic(T : Type), x : T, y : T) -> T,
+      fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T,
       fn(a : i32, b : i32) -> i32
     ) == false
   );
@@ -2262,36 +2262,36 @@ test("Test types compatibility", {
     __yo_are_types_compatible(
       // false
       fn(a : i32, b : i32) -> i32,
-      fn(generic(T : Type), x : T, y : T) -> T
+      fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T
     ) == false
   );
   MyBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(value : T));
   comptime_assert(
     __yo_are_types_compatible(
       // true: alpha-equivalent through a type constructor
-      fn(generic(T : Type), x : T) -> MyBox(T),
-      fn(generic(Z : Type), a : Z) -> MyBox(Z)
+      fn(generic(T : Type), imm(x) : T) -> MyBox(T),
+      fn(generic(Z : Type), imm(a) : Z) -> MyBox(Z)
     ) == true
   );
   Point :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(
     __yo_are_types_compatible(
       // true: alpha-equivalent through a type constructor
-      fn(generic(T : Type), x : T, y : T) -> Point(T),
-      fn(generic(Z : Type), a : Z, b : Z) -> Point(Z)
+      fn(generic(T : Type), imm(x) : T, imm(y) : T) -> Point(T),
+      fn(generic(Z : Type), imm(a) : Z, imm(b) : Z) -> Point(Z)
     ) == true
   );
   comptime_assert(
     __yo_are_types_compatible(
       // false: the result is the FIRST binder on one side, the SECOND on the other
-      fn(generic(T : Type, U : Type), x : T, y : U) -> T,
-      fn(generic(Z : Type, W : Type), a : Z, b : W) -> W
+      fn(generic(T : Type, U : Type), imm(x) : T, imm(y) : U) -> T,
+      fn(generic(Z : Type, W : Type), imm(a) : Z, imm(b) : W) -> W
     ) == false
   );
   comptime_assert(
     __yo_are_types_compatible(
       // false: a generic fn is not a concrete one
-      fn(generic(T : Type), x : T) -> T,
+      fn(generic(T : Type), imm(x) : T) -> T,
       fn(x : i32) -> i32
     ) == false
   );
@@ -3577,7 +3577,7 @@ _ct_doubler :: (fn(comptime(T) : Type) -> comptime(Type))({
   S :: struct(value : T);
   impl(
     S,
-    doubled : (fn(self : Self) -> T)({
+    doubled : (fn(imm(self) : Self) -> T)({
       twice := (self.value + self.value);
       (copy : T) = twice;
       copy

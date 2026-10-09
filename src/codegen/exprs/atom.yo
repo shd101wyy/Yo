@@ -43,7 +43,7 @@
 { panic, assert } :: import("std/assert");
 /// A shadowed name (a match-arm binding): its state-machine slot under the
 /// single-pass async lowering (`shadow_slots`), else its C local.
-_shadowed_name_code :: (fn(var_name : String, context : FunctionGenerationContext) -> String)({
+_shadowed_name_code :: (fn(imm(var_name) : String, imm(context) : FunctionGenerationContext) -> String)({
   cname := sanitize_for_c_identifier(var_name, false);
   match(
     match(context.shadow_slots, .Some(m) => m.get(cname.clone()), .None => Option(String).None),
@@ -54,7 +54,7 @@ _shadowed_name_code :: (fn(var_name : String, context : FunctionGenerationContex
 /// Async/effect state-machine variable resolution — the `sm->var_<id>` /
 /// `sm->__capture.<name>` mapping. Returns `.None` when the atom is not an
 /// SM-resolvable variable (the caller falls through to the regular path).
-_generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGenerationContext) -> Option(String))({
+_generate_sm_atom :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(context) : FunctionGenerationContext) -> Option(String))({
   // Locally-shadowed (match-arm destructure) → the local C variable.
   if(match(context.local_shadowed_variables, .Some(s) => s.contains(sanitize_for_c_identifier(var_name.clone(), false)), .None => false), {
     return(Option(String).Some(_shadowed_name_code(var_name.clone(), context)));
@@ -320,7 +320,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
 /// the exit's recorded env is gone and the drop's own target (through its
 /// atom's record) stands in, as at return points (`_cleanup_drop_variables`,
 /// return.yo).
-_exit_drop_variables :: (fn(exit_expr : AstExpr, env : Environment, var_name : String, drop_expr : AstExpr, context : FunctionGenerationContext) -> ArrayList(Variable))({
+_exit_drop_variables :: (fn(imm(exit_expr) : AstExpr, imm(env) : Environment, imm(var_name) : String, imm(drop_expr) : AstExpr, imm(context) : FunctionGenerationContext) -> ArrayList(Variable))({
   mode := scope_release_mode();
   if(mode == usize(0), {
     return(scope_variables(ast_expr_id(exit_expr), env, var_name));
@@ -337,7 +337,7 @@ _exit_drop_variables :: (fn(exit_expr : AstExpr, env : Environment, var_name : S
   });
   rec
 });
-_emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, indent : String, exit_expr : AstExpr) -> unit)(
+_emit_loop_body_drops_before_exit :: (fn(imm(context) : FunctionGenerationContext, imm(indent) : String, imm(exit_expr) : AstExpr) -> unit)(
   match(
     context.pending_deferred_drops,
     .Some(drops) => match(
@@ -439,7 +439,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
 // keyed on different names, so a variable could be "not captured" for the
 // guard and "captured" for the emitter. The guard won, and the closure body
 // referenced a variable that does not exist in it.
-_is_captured_here :: (fn(key : ExprId, name : String, env_opt : Option(Environment), context : FunctionGenerationContext) -> bool)(
+_is_captured_here :: (fn(key : ExprId, imm(name) : String, imm(env_opt) : Option(Environment), imm(context) : FunctionGenerationContext) -> bool)(
   match(
     context.current_closure_captures,
     .Some(caps) => match(
@@ -455,7 +455,7 @@ _is_captured_here :: (fn(key : ExprId, name : String, env_opt : Option(Environme
 );
 /// The binding `name` resolves to at node `key` is a by-ref borrow (an
 /// `inout`/`mut` parameter or local, or a capture-list borrow).
-_scope_var_is_ref :: (fn(key : ExprId, name : String, env_opt : Option(Environment)) -> bool)(
+_scope_var_is_ref :: (fn(key : ExprId, imm(name) : String, imm(env_opt) : Option(Environment)) -> bool)(
   match(
     env_opt,
     .Some(e) => {
@@ -472,7 +472,7 @@ _scope_var_is_ref :: (fn(key : ExprId, name : String, env_opt : Option(Environme
 /// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
 /// the C level `name` is `T*`, so a read dereferences). The deref here means a by-ref RECEIVER passed/used as a value
 /// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
-_var_read_code :: (fn(key : ExprId, tv : String, env_opt : Option(Environment)) -> String)({
+_var_read_code :: (fn(key : ExprId, imm(tv) : String, imm(env_opt) : Option(Environment)) -> String)({
   vn := get_variable_name_for_codegen_at(key, tv.clone(), env_opt);
   is_ref := match(
     env_opt,
@@ -497,7 +497,7 @@ _var_read_code :: (fn(key : ExprId, tv : String, env_opt : Option(Environment)) 
 });
 /// Generate C for an atom expression (literal / identifier / control-flow
 /// keyword).
-generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent : String) -> String)({
+generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext, imm(indent) : String) -> String)({
   tok := ast_expr_token(expr);
   tv := tok.value;
   // --- control flow keywords ---
@@ -754,7 +754,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
 });
 /// Whether `name` read at `expr` is a by-ref binding (`inout(name) := x`,
 /// or an `inout(name) : T` parameter): its C value is a pointer.
-_is_ref_binding :: (fn(expr : AstExpr, name : String, context : FunctionGenerationContext) -> bool)(
+_is_ref_binding :: (fn(imm(expr) : AstExpr, imm(name) : String, imm(context) : FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => {
@@ -774,7 +774,7 @@ _is_ref_binding :: (fn(expr : AstExpr, name : String, context : FunctionGenerati
 /// parameter before an await was released again when the task was aborted —
 /// a use-after-free once the new owner freed it. Any other read renders the
 /// slot itself.
-_sm_consuming_read :: (fn(expr : AstExpr, name : String, sm_code : String, context : FunctionGenerationContext) -> String)({
+_sm_consuming_read :: (fn(imm(expr) : AstExpr, imm(name) : String, imm(sm_code) : String, imm(context) : FunctionGenerationContext) -> String)({
   low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(sm_code));
   if(low.rc_operand || !sm_code.starts_with("sm->"), {
     return(sm_code);

@@ -120,7 +120,7 @@ impl(
   NetError,
   /// Check a raw syscall result and throw on error.
   /// Positive values are returned as-is; negative values are converted to a `NetError` and thrown.
-  check : (fn(result : i32, exn : Exception) -> i32)(
+  check : (fn(result : i32, imm(exn) : Exception) -> i32)(
     cond(
       (result >= i32(0)) => result,
       true => exn.throw(dyn(Self.from_io(IoError.from_errno(i32(0) - result))))

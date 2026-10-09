@@ -92,12 +92,12 @@ impl(
     Self(_map : HashMap(T, unit).with_capacity_in(alloc, requested_capacity))
   ),
   /// The allocator the set's table lives in, or `.None` for the global one.
-  allocator : (fn(self : Self) -> Option(Allocator))(self._map.allocator()),
+  allocator : (fn(imm(self) : Self) -> Option(Allocator))(self._map.allocator()),
   /// Insert an element, reporting allocation failure.
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
   /// `.Ok(true)` when the element was NOT already present.
-  try_insert : (fn(inout(self) : Self, element : T) -> Result(bool, HashSetError))(
+  try_insert : (fn(mut(self) : Self, imm(element) : T) -> Result(bool, HashSetError))(
     match(
       self._map.try_insert(element, ()),
       .Ok(prev) => .Ok(prev.is_none()),
@@ -108,54 +108,54 @@ impl(
   ///
   /// PANICS on allocation failure (D9); `try_insert` is the allocator-aware
   /// form.
-  insert : (fn(inout(self) : Self, element : T) -> bool)(
+  insert : (fn(mut(self) : Self, imm(element) : T) -> bool)(
     self._map.insert(element, ()).is_none()
   ),
   /// True when `element` is in the set.
-  contains : (fn(self : Self, element : T) -> bool)(
+  contains : (fn(imm(self) : Self, imm(element) : T) -> bool)(
     self._map.contains_key(element)
   ),
   /// Remove `element`. Returns true when it WAS present.
-  remove : (fn(inout(self) : Self, element : T) -> bool)(
+  remove : (fn(mut(self) : Self, imm(element) : T) -> bool)(
     self._map.remove(element).is_some()
   ),
   /// Number of elements.
-  len : (fn(self : Self) -> usize)(
+  len : (fn(imm(self) : Self) -> usize)(
     self._map.len()
   ),
   /// Slots currently allocated in the backing table.
   ///
   /// A METHOD, not a public field: before D16 `capacity` was a bare struct
   /// field, which D2 flags as a naming violation.
-  capacity : (fn(self : Self) -> usize)(
+  capacity : (fn(imm(self) : Self) -> usize)(
     self._map.capacity
   ),
   /// The backing table's SipHash keys — the set's twin of `HashMap`'s public
   /// `k0` / `k1` fields (the key-survival tests assert the delegation is real).
-  k0 : (fn(self : Self) -> u64)(
+  k0 : (fn(imm(self) : Self) -> u64)(
     self._map.k0
   ),
-  k1 : (fn(self : Self) -> u64)(
+  k1 : (fn(imm(self) : Self) -> u64)(
     self._map.k1
   ),
   /// Tombstoned slots in the backing table — a read-only diagnostic, the
   /// set's twin of `HashMap`'s public `tombstones` field (the reclamation
   /// tests assert the load invariant through it).
-  tombstones : (fn(self : Self) -> usize)(
+  tombstones : (fn(imm(self) : Self) -> usize)(
     self._map.tombstones()
   ),
   /// True when the set holds no elements.
-  is_empty : (fn(self : Self) -> bool)(
+  is_empty : (fn(imm(self) : Self) -> bool)(
     self._map.is_empty()
   ),
   /// Remove every element, keeping the allocation.
-  clear : (fn(inout(self) : Self) -> unit)(
+  clear : (fn(mut(self) : Self) -> unit)(
     self._map.clear()
   ),
   /// True when every element of `self` is also in `other` — Rust's
   /// `is_subset`. O(len(self)) lookups, and a set larger than `other` is
   /// rejected without probing anything.
-  is_subset : (fn(self : Self, other : Self) -> bool)(
+  is_subset : (fn(imm(self) : Self, imm(other) : Self) -> bool)(
     cond(
       (self.len() > other.len()) => false,
       true => {
@@ -182,14 +182,14 @@ impl(
   /// True when `self` contains every element of `other` — Rust's
   /// `is_superset`. Exactly `other.is_subset(self)`, so the cost is
   /// O(len(other)).
-  is_superset : (fn(self : Self, other : Self) -> bool)(
+  is_superset : (fn(imm(self) : Self, imm(other) : Self) -> bool)(
     other.is_subset(self)
   ),
   /// True when the two sets share no element — Rust's `is_disjoint`.
   ///
   /// Walks the SMALLER set and probes the larger, so the cost is
   /// O(min(len(self), len(other))) whichever way round it is called.
-  is_disjoint : (fn(self : Self, other : Self) -> bool)({
+  is_disjoint : (fn(imm(self) : Self, imm(other) : Self) -> bool)({
     smaller := cond((self.len() <= other.len()) => self, true => other);
     larger := cond((self.len() <= other.len()) => other, true => self);
     result := true;
@@ -211,7 +211,7 @@ impl(
     result
   }),
   /// Every element of either set.
-  union : (fn(self : Self, other : Self) -> Result(Self, HashSetError))({
+  union : (fn(imm(self) : Self, imm(other) : Self) -> Result(Self, HashSetError))({
     out := Self.new();
     it := self.iter();
     while(runtime(true), {
@@ -252,7 +252,7 @@ impl(
     .Ok(out)
   }),
   /// Elements present in BOTH sets.
-  intersection : (fn(self : Self, other : Self) -> Result(Self, HashSetError))({
+  intersection : (fn(imm(self) : Self, imm(other) : Self) -> Result(Self, HashSetError))({
     out := Self.new();
     it := self.iter();
     while(runtime(true), {
@@ -280,7 +280,7 @@ impl(
     .Ok(out)
   }),
   /// Elements in `self` that are NOT in `other`.
-  difference : (fn(self : Self, other : Self) -> Result(Self, HashSetError))({
+  difference : (fn(imm(self) : Self, imm(other) : Self) -> Result(Self, HashSetError))({
     out := Self.new();
     it := self.iter();
     while(runtime(true), {
@@ -308,7 +308,7 @@ impl(
     .Ok(out)
   }),
   /// Elements in exactly one of the two sets.
-  symmetric_difference : (fn(self : Self, other : Self) -> Result(Self, HashSetError))({
+  symmetric_difference : (fn(imm(self) : Self, imm(other) : Self) -> Result(Self, HashSetError))({
     out := Self.new();
     it := self.iter();
     while(runtime(true), {
@@ -377,7 +377,7 @@ impl(
   HashSetIter(T),
   Iterator(
     Item : T,
-    next : (fn(inout(self) : Self) -> Option(T))(
+    next : (fn(mut(self) : Self) -> Option(T))(
       match(self._inner.next(), .Some(entry) => .Some(entry.key), .None => .None)
     )
   )
@@ -389,7 +389,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : HashSetIter(T),
-    into_iter : (fn(self : Self) -> HashSetIter(T))(
+    into_iter : (fn(imm(self) : Self) -> HashSetIter(T))(
       HashSetIter(T)(_inner : self._map.into_iter())
     )
   )
@@ -412,7 +412,7 @@ impl(
   HashSetIterPtr(T),
   Iterator(
     Item : *T,
-    next : (fn(inout(self) : Self) -> Option(*T))(
+    next : (fn(mut(self) : Self) -> Option(*T))(
       // The entry's KEY is the set's element; take its address rather than
       // assuming `MapEntry`'s field order puts it at offset 0.
       match(self._inner.next(), .Some(p) => .Some(&(p.*.key)), .None => .None)
@@ -424,7 +424,7 @@ impl(
   where(T <: (Eq(T), Hash)),
   HashSet(T),
   /// Non-consuming iteration, yielding a `*(T)` into the backing storage.
-  iter : (fn(self : Self) -> HashSetIterPtr(T))(
+  iter : (fn(imm(self) : Self) -> HashSetIterPtr(T))(
     HashSetIterPtr(T)(_inner : self._map.iter())
   )
 );
@@ -499,7 +499,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       HashSet(T).new()
     ),
-    from_iter_add : (fn(own(acc) : Self, item : T) -> Self)({
+    from_iter_add : (fn(own(acc) : Self, imm(item) : T) -> Self)({
       acc.insert(item);
       acc
     })

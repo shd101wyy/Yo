@@ -89,7 +89,7 @@ RegexParser :: ref(
 impl(
   RegexParser,
   /// A parser positioned at the start of `pattern`, with no groups seen yet.
-  new : (fn(pattern : String) -> Self)(
+  new : (fn(imm(pattern) : String) -> Self)(
     Self(
       _source : pattern,
       _bytes : pattern.to_bytes(),
@@ -98,13 +98,13 @@ impl(
       _group_names : ArrayList(GroupNameEntry).new()
     )
   ),
-  _peek : (fn(self : Self) -> Option(u8))(
+  _peek : (fn(imm(self) : Self) -> Option(u8))(
     cond(
       (self._pos < self._bytes.len()) => self._bytes.get(self._pos),
       true => .None
     )
   ),
-  _advance : (fn(self : Self) -> Option(u8))({
+  _advance : (fn(imm(self) : Self) -> Option(u8))({
     cond(
       (self._pos >= self._bytes.len()) => {
         return(.None);
@@ -122,13 +122,13 @@ impl(
   // becomes U+FFFD and consumes exactly one byte. The old hand-rolled version
   // read `_bytes(self._pos + k)` unconditionally and indexed past the end on a
   // truncated tail.
-  _read_codepoint : (fn(self : Self, first : u8) -> u32)({
+  _read_codepoint : (fn(imm(self) : Self, first : u8) -> u32)({
     start := (self._pos - usize(1));
     d := utf8.decode_lossy(self._bytes, start);
     self._pos = (start + d.width);
     d.code.to_u32()
   }),
-  _at_end : (fn(self : Self) -> bool)(
+  _at_end : (fn(imm(self) : Self) -> bool)(
     self._pos >= self._bytes.len()
   ),
   /// How many capturing groups the pattern declared, not counting group 0.
@@ -136,7 +136,7 @@ impl(
   /// Only meaningful AFTER `parse` — it counts groups as they are opened, so
   /// reading it early reports a partial count. `compile` uses it to size the
   /// VM's capture array.
-  group_count : (fn(self : Self) -> usize)(
+  group_count : (fn(imm(self) : Self) -> usize)(
     self._group_count
   ),
   /// The `(?<name>...)` declarations, in the order they were opened. Valid
@@ -145,10 +145,10 @@ impl(
   /// Returns the parser's own list, not a copy — it travels into the compiled
   /// program and out to `RegexMatch.named_group`, and nobody mutates it after
   /// the parse.
-  group_names : (fn(self : Self) -> ArrayList(GroupNameEntry))(
+  group_names : (fn(imm(self) : Self) -> ArrayList(GroupNameEntry))(
     self._group_names
   ),
-  _lookup_group_name : (fn(self : Self, name : String) -> Option(usize))({
+  _lookup_group_name : (fn(imm(self) : Self, imm(name) : String) -> Option(usize))({
     i := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
       entry := self._group_names(i);
@@ -161,7 +161,7 @@ impl(
     });
     .None
   }),
-  _escape_char_codepoint : (fn(self : Self, ch : u8) -> u32)(
+  _escape_char_codepoint : (fn(imm(self) : Self, ch : u8) -> u32)(
     cond(
       (ch == u8(110)) => u32(10),
       (ch == u8(116)) => u32(9),
@@ -172,7 +172,7 @@ impl(
       true => u32(ch)
     )
   ),
-  _parse_number : (fn(self : Self) -> Option(usize))({
+  _parse_number : (fn(imm(self) : Self) -> Option(usize))({
     start := self._pos;
     while(!self._at_end(), {
       pk := self._peek();
@@ -204,7 +204,7 @@ impl(
     });
     .Some(result)
   }),
-  _parse_greedy_modifier : (fn(self : Self) -> bool)({
+  _parse_greedy_modifier : (fn(imm(self) : Self) -> bool)({
     pk := self._peek();
     is_question := match(
       pk,
@@ -220,12 +220,12 @@ impl(
     );
     true
   }),
-  _make_digit_ranges : (fn(self : Self) -> ArrayList(CharRange))({
+  _make_digit_ranges : (fn(imm(self) : Self) -> ArrayList(CharRange))({
     r := ArrayList(CharRange).new();
     r.push(CharRange(low : u32(48), high : u32(57)));
     r
   }),
-  _make_word_ranges : (fn(self : Self) -> ArrayList(CharRange))({
+  _make_word_ranges : (fn(imm(self) : Self) -> ArrayList(CharRange))({
     r := ArrayList(CharRange).new();
     r.push(CharRange(low : u32(48), high : u32(57)));
     r.push(CharRange(low : u32(65), high : u32(90)));
@@ -233,14 +233,14 @@ impl(
     r.push(CharRange(low : u32(97), high : u32(122)));
     r
   }),
-  _make_space_ranges : (fn(self : Self) -> ArrayList(CharRange))({
+  _make_space_ranges : (fn(imm(self) : Self) -> ArrayList(CharRange))({
     r := ArrayList(CharRange).new();
     r.push(CharRange(low : u32(9), high : u32(13)));
     r.push(CharRange(low : u32(32), high : u32(32)));
     r
   }),
   // Parse \xHH hex unwind — reads exactly 2 hex digits and returns the codepoint.
-  _parse_hex_byte : (fn(self : Self) -> Option(u32))({
+  _parse_hex_byte : (fn(imm(self) : Self) -> Option(u32))({
     if((self._pos + usize(2)) > self._bytes.len(), {
       return(.None);
     });
@@ -265,7 +265,7 @@ impl(
     self._pos = (self._pos + usize(2));
     .Some(u32((v1 << i32(4)) | v2))
   }),
-  _parse_class_unwind : (fn(self : Self) -> Result(ArrayList(CharRange), RegexError))({
+  _parse_class_unwind : (fn(imm(self) : Self) -> Result(ArrayList(CharRange), RegexError))({
     b := self._advance();
     match(
       b,
@@ -315,7 +315,7 @@ impl(
       .None => .Err(RegexError.TrailingBackslash(self._pos))
     )
   }),
-  _try_parse_char_range : (fn(self : Self, inout(ranges) : ArrayList(CharRange), low : u32) -> unit)({
+  _try_parse_char_range : (fn(imm(self) : Self, mut(ranges) : ArrayList(CharRange), low : u32) -> unit)({
     pk3 := self._peek();
     is_dash := match(
       pk3,
@@ -379,7 +379,7 @@ impl(
       }
     );
   }),
-  _parse_char_class_content : (fn(self : Self, inout(ranges) : ArrayList(CharRange)) -> Result(unit, RegexError))({
+  _parse_char_class_content : (fn(imm(self) : Self, mut(ranges) : ArrayList(CharRange)) -> Result(unit, RegexError))({
     pk2 := self._peek();
     b := match(
       pk2,
@@ -422,7 +422,7 @@ impl(
     );
     .Ok(())
   }),
-  _parse_char_class : (fn(self : Self) -> Result(RegexNode, RegexError))({
+  _parse_char_class : (fn(imm(self) : Self) -> Result(RegexNode, RegexError))({
     ranges := ArrayList(CharRange).new();
     negated := false;
     // Check for negation '^'
@@ -467,7 +467,7 @@ impl(
   }),
   // Parse \p{PropertyName} or \P{PropertyName} unicode property unwind.
   // negated=true for \P (inverted match).
-  _parse_unicode_property : (fn(self : Self, negated : bool) -> Result(RegexNode, RegexError))({
+  _parse_unicode_property : (fn(imm(self) : Self, negated : bool) -> Result(RegexNode, RegexError))({
     // Expect opening '{'
     pk := self._peek();
     is_brace := match(
@@ -514,7 +514,7 @@ impl(
     });
     .Err(RegexError.InvalidUnicodeProperty(self._pos))
   }),
-  _parse_unwind : (fn(self : Self) -> Result(RegexNode, RegexError))({
+  _parse_unwind : (fn(imm(self) : Self) -> Result(RegexNode, RegexError))({
     b := self._advance();
     match(
       b,
@@ -598,7 +598,7 @@ impl(
       .None => .Err(RegexError.TrailingBackslash(self._pos))
     )
   }),
-  _parse_counted_quantifier : (fn(self : Self, atom : RegexNode) -> Result(RegexNode, RegexError))({
+  _parse_counted_quantifier : (fn(imm(self) : Self, imm(atom) : RegexNode) -> Result(RegexNode, RegexError))({
     self._pos = (self._pos + usize(1));
     min_opt := self._parse_number();
     mn := match(
@@ -680,7 +680,7 @@ impl(
     greedy := self._parse_greedy_modifier();
     .Ok(RegexNode.quantifier(atom, mn, mx, greedy))
   }),
-  _parse_atom : (fn(self : Self) -> Result(RegexNode, RegexError))({
+  _parse_atom : (fn(imm(self) : Self) -> Result(RegexNode, RegexError))({
     b := self._advance();
     match(
       b,
@@ -696,7 +696,7 @@ impl(
       .None => .Err(RegexError.UnexpectedEnd(self._pos))
     )
   }),
-  _maybe_quantify : (fn(self : Self, a : RegexNode) -> Result(RegexNode, RegexError))({
+  _maybe_quantify : (fn(imm(self) : Self, imm(a) : RegexNode) -> Result(RegexNode, RegexError))({
     pk := self._peek();
     b := match(
       pk,
@@ -725,7 +725,7 @@ impl(
       true => .Ok(a)
     )
   }),
-  _parse_quantified : (fn(self : Self) -> Result(RegexNode, RegexError))({
+  _parse_quantified : (fn(imm(self) : Self) -> Result(RegexNode, RegexError))({
     atom := self._parse_atom();
     match(
       atom,
@@ -737,14 +737,14 @@ impl(
 // Second impl block: helper methods first, then main parse loop
 impl(
   RegexParser,
-  _make_sequence : (fn(self : Self, nodes : ArrayList(RegexNode)) -> RegexNode)(
+  _make_sequence : (fn(imm(self) : Self, imm(nodes) : ArrayList(RegexNode)) -> RegexNode)(
     cond(
       (nodes.len() == usize(0)) => RegexNode.sequence(ArrayList(RegexNode).new()),
       (nodes.len() == usize(1)) => nodes(usize(0)),
       true => RegexNode.sequence(nodes)
     )
   ),
-  _finalize_frame : (fn(self : Self, inout(alts) : ArrayList(ArrayList(RegexNode)), seq : ArrayList(RegexNode)) -> RegexNode)({
+  _finalize_frame : (fn(imm(self) : Self, mut(alts) : ArrayList(ArrayList(RegexNode)), imm(seq) : ArrayList(RegexNode)) -> RegexNode)({
     cond(
       (alts.len() == usize(0)) => {
         return(self._make_sequence(seq));
@@ -776,7 +776,7 @@ impl(
   ///
   /// An empty pattern is legal and parses to an empty `Sequence`, which
   /// matches the empty string at every position.
-  parse : (fn(self : Self) -> Result(RegexNode, RegexError))({
+  parse : (fn(imm(self) : Self) -> Result(RegexNode, RegexError))({
     stack := ArrayList(ParseFrame).new();
     cur_alts := ArrayList(ArrayList(RegexNode)).new();
     cur_seq := ArrayList(RegexNode).new();

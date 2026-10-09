@@ -147,7 +147,7 @@ abi_to_str :: (fn(a : Abi) -> str)(
   )
 );
 /// Parse the architecture word of a triple.
-parse_arch :: (fn(s : String) -> Option(Arch))(
+parse_arch :: (fn(imm(s) : String) -> Option(Arch))(
   cond(
     (s == "x86_64") => Option(Arch).Some(Arch.X86_64),
     (s == "aarch64") => Option(Arch).Some(Arch.Aarch64),
@@ -158,7 +158,7 @@ parse_arch :: (fn(s : String) -> Option(Arch))(
   )
 );
 /// Parse the OS word of a triple.
-parse_os :: (fn(s : String) -> Option(Os))(
+parse_os :: (fn(imm(s) : String) -> Option(Os))(
   cond(
     (s == "linux") => Option(Os).Some(Os.Linux),
     (s == "darwin") => Option(Os).Some(Os.Macos),
@@ -170,7 +170,7 @@ parse_os :: (fn(s : String) -> Option(Os))(
   )
 );
 /// Parse the environment word of a triple.
-parse_abi :: (fn(s : String) -> Option(Abi))(
+parse_abi :: (fn(imm(s) : String) -> Option(Abi))(
   cond(
     (s == "gnu") => Option(Abi).Some(Abi.Gnu),
     (s == "musl") => Option(Abi).Some(Abi.Musl),
@@ -282,7 +282,7 @@ host_target :: (fn() -> TargetInfo)({
 // Linux arm and the link failed with `undefined symbol: getrandom`.
 (g_current_target : Option(TargetInfo)) = Option(TargetInfo).None;
 /// Set the target for the current compilation.
-set_current_target :: (fn(t : TargetInfo) -> unit)({
+set_current_target :: (fn(imm(t) : TargetInfo) -> unit)({
   g_current_target = Option(TargetInfo).Some(t);
   ()
 });
@@ -295,7 +295,7 @@ get_current_target :: (fn() -> TargetInfo)(
 /// `parse_os` plus the two cfg names a user is likely to type into a triple
 /// by mistake (`macos`, `wasi`) — used ONLY to phrase a did-you-mean hint,
 /// never to accept a spelling.
-_parse_os_for_hint :: (fn(s : String) -> Option(Os))(
+_parse_os_for_hint :: (fn(imm(s) : String) -> Option(Os))(
   cond(
     (s == "macos") => Option(Os).Some(Os.Macos),
     (s == "wasi") => Option(Os).Some(Os.Wasi),
@@ -313,7 +313,7 @@ _hint_abi :: (fn(o : Os, typed : Option(Abi)) -> Option(Abi))(
     _ => Option(Abi).None
   )
 );
-_target_error :: (fn(triple : String, why : String) -> Result(TargetInfo, String))(
+_target_error :: (fn(imm(triple) : String, imm(why) : String) -> Result(TargetInfo, String))(
   Result(TargetInfo, String).Err(`Invalid target "${triple}": ${why}\nSupported targets: ${SUPPORTED_TARGETS}`)
 );
 /// Parse a canonical target triple such as "x86_64-unknown-linux-gnu" into a
@@ -324,7 +324,7 @@ _target_error :: (fn(triple : String, why : String) -> Result(TargetInfo, String
 ///   - `<arch>-<vendor>-<os>`         (darwin, freebsd, emscripten — no env)
 ///   - `<arch>-<vendor>-<os>-<env>`   (linux: gnu | musl; windows: msvc | gnu)
 ///   - `wasm32-wasip1`
-parse_target :: (fn(triple : String) -> Result(TargetInfo, String))({
+parse_target :: (fn(imm(triple) : String) -> Result(TargetInfo, String))({
   parts := triple.split(String.from("-"));
   parts_n := parts.len();
   if((parts_n < usize(2)) || (parts_n > usize(4)), {
@@ -447,7 +447,7 @@ parse_target :: (fn(triple : String) -> Result(TargetInfo, String))({
 /// what LLVM speaks, except where LLVM's own spelling differs: MinGW is
 /// `<arch>-w64-mingw32`, and WASI is `wasm32-wasi` (accepted by every
 /// wasi-sdk clang, where `wasm32-wasip1` needs LLVM ≥ 19).
-clang_triple :: (fn(target : TargetInfo) -> String)(
+clang_triple :: (fn(imm(target) : TargetInfo) -> String)(
   cond(
     ((target.os == Os.Windows) && (target.abi == Option(Abi).Some(Abi.Gnu))) => {
       s := String.from(arch_triple_str(target.arch));
@@ -459,28 +459,28 @@ clang_triple :: (fn(target : TargetInfo) -> String)(
   )
 );
 // ── Convenience queries ───────────────────────────────────────────────
-is_target_windows :: (fn(target : TargetInfo) -> bool)(
+is_target_windows :: (fn(imm(target) : TargetInfo) -> bool)(
   target.os == Os.Windows
 );
-is_target_linux :: (fn(target : TargetInfo) -> bool)(
+is_target_linux :: (fn(imm(target) : TargetInfo) -> bool)(
   target.os == Os.Linux
 );
-is_target_macos :: (fn(target : TargetInfo) -> bool)(
+is_target_macos :: (fn(imm(target) : TargetInfo) -> bool)(
   target.os == Os.Macos
 );
-is_target_wasm :: (fn(target : TargetInfo) -> bool)(
+is_target_wasm :: (fn(imm(target) : TargetInfo) -> bool)(
   (target.arch == Arch.Wasm32) || (target.os == Os.Wasi) || (target.os == Os.Emscripten)
 );
-is_target_emscripten :: (fn(target : TargetInfo) -> bool)(
+is_target_emscripten :: (fn(imm(target) : TargetInfo) -> bool)(
   target.os == Os.Emscripten
 );
-is_target_standalone_wasi :: (fn(target : TargetInfo) -> bool)(
+is_target_standalone_wasi :: (fn(imm(target) : TargetInfo) -> bool)(
   target.os == Os.Wasi
 );
-is_target_musl :: (fn(target : TargetInfo) -> bool)(
+is_target_musl :: (fn(imm(target) : TargetInfo) -> bool)(
   target.abi == Option(Abi).Some(Abi.Musl)
 );
-is_target_posix :: (fn(target : TargetInfo) -> bool)(
+is_target_posix :: (fn(imm(target) : TargetInfo) -> bool)(
   !is_target_windows(target) && !is_target_wasm(target)
 );
 export(

@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
 /// `Pragma`. Returns `.None` when the name doesn't match any
 /// known variant — typo handling for full evaluation belongs in
 /// `evaluatePragma`; the pre-scan just ignores unknown names.
-pragma_kind_from_variant_name :: (fn(name : String) -> Option(Pragma))(
+pragma_kind_from_variant_name :: (fn(imm(name) : String) -> Option(Pragma))(
   cond(
     (name == "AllowUnsafe") => Option(Pragma).Some(.AllowUnsafe),
     (name == "AllowMacroDef") => Option(Pragma).Some(.AllowMacroDef),
@@ -61,7 +61,7 @@ pragma_kind_from_variant_name :: (fn(name : String) -> Option(Pragma))(
 /// `Pragma.<variant>` form. The pre-scan is intentionally narrow:
 /// no identifier resolution, no aliased imports. That's fine — full
 /// evaluation in `evaluate_pragma` handles the general case.
-recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
+recognize_pragma_arg :: (fn(imm(arg) : AstExpr) -> Option(Pragma))(
   match(
     arg,
     .Atom(_, _) => Option(Pragma).None,
@@ -94,7 +94,7 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
 /// decide whether to inject the prelude. Pragma calls nested inside
 /// function bodies or blocks are not pre-scanned (they couldn't
 /// affect prelude loading anyway).
-pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
+pre_scan_for_skip_prelude :: (fn(imm(program) : ArrayList(AstExpr)) -> bool)({
   found := false;
   i := usize(0);
   n := program.len();
@@ -141,10 +141,10 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
 /// per-file pragma registry. Returns the expr annotated with a unit result.
 evaluate_pragma :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   args := match(

@@ -122,8 +122,8 @@ t_c_ulong :: (fn() -> TypeValue)(g_t_c_ulong);
 t_c_longlong :: (fn() -> TypeValue)(g_t_c_longlong);
 t_c_ulonglong :: (fn() -> TypeValue)(g_t_c_ulonglong);
 t_c_longdouble :: (fn() -> TypeValue)(g_t_c_longdouble);
-t_ptr :: (fn(pointee : TypeValue) -> TypeValue)(.Pointer(pointee));
-t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
+t_ptr :: (fn(imm(pointee) : TypeValue) -> TypeValue)(.Pointer(pointee));
+t_array :: (fn(imm(element) : TypeValue, length : usize) -> TypeValue)(
   .Array(element, length, String.from(""))
 );
 /// Array type whose LENGTH is an unresolved generic variable (`Array(T, U)`
@@ -133,7 +133,7 @@ t_array :: (fn(element : TypeValue, length : usize) -> TypeValue)(
 /// minted here, `[alen] <shape> <length_var>` (binder / projection / computed
 /// / inferred). It is the census of step 0 of plans/TYPE_SYSTEM_SOUNDNESS.md
 /// Phase 3 step 9 ("array lengths by identity").
-t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)({
+t_array_var :: (fn(imm(element) : TypeValue, imm(length_var) : String) -> TypeValue)({
   if(debug_knob(`YO_DEBUG_ARRAY_LEN`).is_some(), {
     shape := cond(
       length_var.starts_with(COMPUTED_ARRAY_LEN_PREFIX) => "computed",
@@ -155,11 +155,11 @@ t_array_var :: (fn(element : TypeValue, length_var : String) -> TypeValue)({
 /// binders only (evaluator/types/function.yo rejects it; I1 of
 /// plans/backlog/ATS_STYLE_INDEXED_TYPES.md).
 COMPUTED_ARRAY_LEN_PREFIX :: "__yo_len_expr:";
-is_computed_array_len_var :: (fn(length_var : String) -> bool)(length_var.starts_with(COMPUTED_ARRAY_LEN_PREFIX));
+is_computed_array_len_var :: (fn(imm(length_var) : String) -> bool)(length_var.starts_with(COMPUTED_ARRAY_LEN_PREFIX));
 /// Does `t` carry a computed array length anywhere a signature can reach
 /// (arrays, pointers, tuples, struct fields, enum payloads; depth-bounded the
 /// way `_type_has_array_len_var` is, because struct graphs can be recursive)?
-_type_has_computed_array_len_d :: (fn(t : TypeValue, d : usize) -> bool)(
+_type_has_computed_array_len_d :: (fn(imm(t) : TypeValue, d : usize) -> bool)(
   cond(
     (d > usize(6)) => false,
     true => match(
@@ -224,16 +224,16 @@ _type_has_computed_array_len_d :: (fn(t : TypeValue, d : usize) -> bool)(
     )
   )
 );
-type_has_computed_array_len :: (fn(t : TypeValue) -> bool)(_type_has_computed_array_len_d(t, usize(0)));
+type_has_computed_array_len :: (fn(imm(t) : TypeValue) -> bool)(_type_has_computed_array_len_d(t, usize(0)));
 // ---------------------------------------------------------------------------
 // Convenience constructors for compound types (Phase 2b)
 // ---------------------------------------------------------------------------
 /// Create a simple function type (no generic, implicit, or where constraints).
 t_func_simple :: (
   fn(
-    param_labels : ArrayList(String),
-    param_types : ArrayList(TypeValue),
-    result : TypeValue
+    imm(param_labels) : ArrayList(String),
+    imm(param_types) : ArrayList(TypeValue),
+    imm(result) : TypeValue
   ) -> TypeValue
 )(
   .Func(
@@ -270,24 +270,24 @@ t_func_simple :: (
 /// Create a trait type with associated-type names and method/field lists.
 t_trait :: (
   fn(
-    name : String,
-    assoc_names : ArrayList(String),
-    field_labels : ArrayList(String),
-    field_types : ArrayList(TypeValue)
+    imm(name) : String,
+    imm(assoc_names) : ArrayList(String),
+    imm(field_labels) : ArrayList(String),
+    imm(field_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
   .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create a named trait type with no fields.
-t_trait_simple :: (fn(name : String) -> TypeValue)(
+t_trait_simple :: (fn(imm(name) : String) -> TypeValue)(
   .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create a module type with field lists.
 t_module :: (
   fn(
-    name : String,
-    field_labels : ArrayList(String),
-    field_types : ArrayList(TypeValue)
+    imm(name) : String,
+    imm(field_labels) : ArrayList(String),
+    imm(field_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
   // Source-namespace STRUCT — there is no separate module type.
@@ -295,20 +295,20 @@ t_module :: (
   .Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 /// Create a named module type with no fields.
-t_module_simple :: (fn(name : String) -> TypeValue)(
+t_module_simple :: (fn(imm(name) : String) -> TypeValue)(
   .Struct(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new(), false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for Phase 2f variants
 // ---------------------------------------------------------------------------
 t_expr_t :: (fn() -> TypeValue)(.ExprT);
-t_comptime_list :: (fn(child : TypeValue) -> TypeValue)(
+t_comptime_list :: (fn(imm(child) : TypeValue) -> TypeValue)(
   .ComptimeListT(child)
 );
-t_type_app :: (fn(constructor : TypeValue, args : ArrayList(TypeValue)) -> TypeValue)(
+t_type_app :: (fn(imm(constructor) : TypeValue, imm(args) : ArrayList(TypeValue)) -> TypeValue)(
   .TypeAppT(constructor, args)
 );
-t_iso :: (fn(child : TypeValue) -> TypeValue)(
+t_iso :: (fn(imm(child) : TypeValue) -> TypeValue)(
   .IsoT(child)
 );
 /// The sort key of one trait in a `Dyn`'s trait list: its declaration id,
@@ -318,7 +318,7 @@ t_iso :: (fn(child : TypeValue) -> TypeValue)(
 /// the one `Dyn` two ways (two C types; tests/error_source_chain.test.yo).
 /// The printed form breaks ties between instances of one generic trait and
 /// orders the id-less `Fn` traits.
-_dyn_trait_sort_key :: (fn(t : TypeValue) -> String)({
+_dyn_trait_sort_key :: (fn(imm(t) : TypeValue) -> String)({
   tid := match(t, .TraitT(id : i) => i, _ => String.new());
   `${tid}#${type_to_string(t)}`
 });
@@ -329,7 +329,7 @@ _dyn_trait_sort_key :: (fn(t : TypeValue) -> String)({
 /// printed type agree for every spelling
 /// (issues/fixed/dyn-trait-order-is-part-of-its-c-type.md). Insertion sort:
 /// the lists are a handful of traits.
-_sort_dyn_traits :: (fn(inout(types) : ArrayList(TypeValue), inout(levels) : ArrayList(usize)) -> unit)({
+_sort_dyn_traits :: (fn(mut(types) : ArrayList(TypeValue), mut(levels) : ArrayList(usize)) -> unit)({
   if(types.len() < usize(2), {
     return(());
   });
@@ -358,10 +358,10 @@ _sort_dyn_traits :: (fn(inout(types) : ArrayList(TypeValue), inout(levels) : Arr
 /// are in the canonical order (`_sort_dyn_traits`).
 t_dyn :: (
   fn(
-    required_trait_types : ArrayList(TypeValue),
-    required_trait_levels : ArrayList(usize),
-    negative_trait_types : ArrayList(TypeValue),
-    negative_trait_levels : ArrayList(usize)
+    imm(required_trait_types) : ArrayList(TypeValue),
+    imm(required_trait_levels) : ArrayList(usize),
+    imm(negative_trait_types) : ArrayList(TypeValue),
+    imm(negative_trait_levels) : ArrayList(usize)
   ) -> TypeValue
 )({
   rtt := required_trait_types.clone();
@@ -372,46 +372,46 @@ t_dyn :: (
   _sort_dyn_traits(ntt, ntl);
   .DynT(rtt, rtl, ntt, ntl)
 });
-t_dyn_simple :: (fn(required_trait_types : ArrayList(TypeValue)) -> TypeValue)(
+t_dyn_simple :: (fn(imm(required_trait_types) : ArrayList(TypeValue)) -> TypeValue)(
   t_dyn(required_trait_types, ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new())
 );
 t_fn_trait :: (
   fn(
-    base_name : String,
-    call_param_labels : ArrayList(String),
-    call_param_types : ArrayList(TypeValue),
-    call_result : TypeValue,
-    implicit_labels : ArrayList(String),
-    implicit_types : ArrayList(TypeValue),
-    call_param_is_ref : ArrayList(bool)
+    imm(base_name) : String,
+    imm(call_param_labels) : ArrayList(String),
+    imm(call_param_types) : ArrayList(TypeValue),
+    imm(call_result) : TypeValue,
+    imm(implicit_labels) : ArrayList(String),
+    imm(implicit_types) : ArrayList(TypeValue),
+    imm(call_param_is_ref) : ArrayList(bool)
   ) -> TypeValue
 )(
   .FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, call_param_is_ref)
 );
 t_fn_trait_simple :: (
   fn(
-    base_name : String,
-    call_param_types : ArrayList(TypeValue),
-    call_result : TypeValue
+    imm(base_name) : String,
+    imm(call_param_types) : ArrayList(TypeValue),
+    imm(call_result) : TypeValue
   ) -> TypeValue
 )(
   .FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new())
 );
 t_future_trait :: (
   fn(
-    base_name : String,
-    output : TypeValue,
-    effect_labels : ArrayList(String),
-    effect_types : ArrayList(TypeValue)
+    imm(base_name) : String,
+    imm(output) : TypeValue,
+    imm(effect_labels) : ArrayList(String),
+    imm(effect_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
   .FutureTraitT(base_name, output, effect_labels, effect_types)
 );
-t_future_trait_simple :: (fn(base_name : String, output : TypeValue) -> TypeValue)(
+t_future_trait_simple :: (fn(imm(base_name) : String, imm(output) : TypeValue) -> TypeValue)(
   .FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create an unconstrained SomeType (generic type variable).
-t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
+t_some_t :: (fn(imm(name) : String, frame_level : usize) -> TypeValue)(
   .SomeT(
     generate_some_type_id(),
     name,
@@ -429,7 +429,7 @@ t_some_t :: (fn(name : String, frame_level : usize) -> TypeValue)(
 /// (types/definitions.yo `resolution`): a resolution learned after a SomeT is
 /// built makes a new SomeT, and the original is untouched. Non-SomeT input
 /// returns unchanged.
-t_with_resolution :: (fn(t : TypeValue, concrete : TypeValue) -> TypeValue)(
+t_with_resolution :: (fn(imm(t) : TypeValue, imm(concrete) : TypeValue) -> TypeValue)(
   match(
     t,
     .SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _) => TypeValue.SomeT(
@@ -449,7 +449,7 @@ t_with_resolution :: (fn(t : TypeValue, concrete : TypeValue) -> TypeValue)(
 );
 /// The function type `ft` with its result replaced by `result`. Non-`Func`
 /// input returns unchanged.
-t_with_func_result :: (fn(ft : TypeValue, result : TypeValue) -> TypeValue)(
+t_with_func_result :: (fn(imm(ft) : TypeValue, imm(result) : TypeValue) -> TypeValue)(
   match(
     ft,
     .Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt) => TypeValue.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt),
@@ -459,7 +459,7 @@ t_with_func_result :: (fn(ft : TypeValue, result : TypeValue) -> TypeValue)(
 /// The opaque C type an `extern`/`c_include` `X : Type` member declares
 /// (types/definitions.yo `ExternOpaqueT`). `c_name` is its C spelling; the
 /// label is its own spelling when no `c_type("...")` is given.
-t_extern_opaque :: (fn(name : String, c_name : String) -> TypeValue)(
+t_extern_opaque :: (fn(imm(name) : String, imm(c_name) : String) -> TypeValue)(
   TypeValue.ExternOpaqueT(name, cond((c_name.len() > usize(0)) => c_name, true => name.clone()))
 );
 /// Per-call SomeT minting (§7 step 3's cure, issues/fixed/
@@ -472,7 +472,7 @@ t_extern_opaque :: (fn(name : String, c_name : String) -> TypeValue)(
 /// calls (the retired `g_some_resolved_concrete` hazard). Same name and
 /// frame_level, so the callee body's (name, level) resolution is
 /// unchanged. Non-SomeT input returns unchanged.
-clone_some_fresh :: (fn(s : TypeValue) -> TypeValue)(
+clone_some_fresh :: (fn(imm(s) : TypeValue) -> TypeValue)(
   match(
     s,
     .SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _) => .SomeT(
@@ -495,7 +495,7 @@ clone_some_fresh :: (fn(s : TypeValue) -> TypeValue)(
 /// `kind` must be a `Func` TypeValue. Used by `evaluate_function_parameter`
 /// when binding HKT-kinded
 /// generic params so `F(A)` can later be evaluated as a TypeApplication.
-t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) -> TypeValue)(
+t_some_t_with_kind :: (fn(imm(name) : String, frame_level : usize, imm(kind) : TypeValue) -> TypeValue)(
   .SomeT(
     generate_some_type_id(),
     name,
@@ -512,7 +512,7 @@ t_some_t_with_kind :: (fn(name : String, frame_level : usize, kind : TypeValue) 
 // ---------------------------------------------------------------------------
 // Tag accessor — useful for fast dispatch and equality short-circuits.
 // ---------------------------------------------------------------------------
-type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
+type_value_tag :: (fn(imm(t) : TypeValue) -> TypeTag)(
   match(
     t_refine_inner(t),
     .Unit => TypeTag.TUnit,
@@ -578,7 +578,7 @@ type_value_tag :: (fn(t : TypeValue) -> TypeTag)(
 );
 /// True if `visited` already holds `tok` (linear scan — the set stays small:
 /// one token per distinct named type encountered on a shell walk).
-_shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
+_shell_walk_visited :: (fn(imm(visited) : ArrayList(String), imm(tok) : String) -> bool)({
   n := visited.len();
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -607,7 +607,7 @@ _shell_walk_visited :: (fn(visited : ArrayList(String), tok : String) -> bool)({
 /// rebuilding (and formerly recursing forever into) the whole type universe
 /// for every defined field (issues/fixed/patch-self-shell-exponential-walk.md).
 _contains_self_shell :: (
-  fn(t : TypeValue, shell_id : String, inout(visited) : ArrayList(String)) -> bool
+  fn(imm(t) : TypeValue, imm(shell_id) : String, mut(visited) : ArrayList(String)) -> bool
 )(
   match(
     t,
@@ -693,7 +693,7 @@ _contains_self_shell :: (
 /// shared/cyclic node resolves at use sites via the finals registries (the
 /// documented deep-resolution path above).
 _patch_self_shell_guarded :: (
-  fn(t : TypeValue, shell_id : String, final_ty : TypeValue, inout(visited) : ArrayList(String)) -> TypeValue
+  fn(imm(t) : TypeValue, imm(shell_id) : String, imm(final_ty) : TypeValue, mut(visited) : ArrayList(String)) -> TypeValue
 )(
   match(
     t,
@@ -773,7 +773,7 @@ _patch_self_shell_guarded :: (
 /// read-only containment check: the overwhelmingly common case (a field type
 /// that never mentions `Self`) returns `t` UNCHANGED with zero rebuilds.
 _patch_self_shell :: (
-  fn(t : TypeValue, shell_id : String, final_ty : TypeValue) -> TypeValue
+  fn(imm(t) : TypeValue, imm(shell_id) : String, imm(final_ty) : TypeValue) -> TypeValue
 )(
   cond(
     _contains_self_shell(t, shell_id.clone(), ArrayList(String).new()) =>
@@ -792,14 +792,14 @@ _patch_self_shell :: (
 // shared object in place.
 EnumFinalEntry :: struct(enum_id : String, ty : TypeValue);
 (g_enum_finals : ArrayList(EnumFinalEntry)) = ArrayList(EnumFinalEntry).new();
-register_enum_final :: (fn(enum_id : String, ty : TypeValue) -> unit)({
+register_enum_final :: (fn(imm(enum_id) : String, imm(ty) : TypeValue) -> unit)({
   if(enum_id.len() > usize(0), {
     g_enum_finals.push(EnumFinalEntry(enum_id : enum_id, ty : ty));
   });
 });
 /// Resolve an empty-variant EnumT shell to its finalized form (no-op for
 /// non-enums, populated enums, and unknown ids).
-resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
+resolve_enum_shell :: (fn(imm(t) : TypeValue) -> TypeValue)(
   match(
     t,
     .EnumT(eid, _, vns, _, _, _, _, _, _, _) => {
@@ -842,7 +842,7 @@ resolve_enum_shell :: (fn(t : TypeValue) -> TypeValue)(
 (g_ctor_phantom_positions : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
 /// Record a type constructor's phantom positions (see
 /// `g_ctor_phantom_positions`); the first record wins.
-register_ctor_phantom_positions :: (fn(func_id : String, phantom : ArrayList(bool)) -> unit)({
+register_ctor_phantom_positions :: (fn(imm(func_id) : String, imm(phantom) : ArrayList(bool)) -> unit)({
   if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.contains_key(func_id), {
     _prev := g_ctor_phantom_positions.insert(func_id, phantom);
   });
@@ -851,7 +851,7 @@ register_ctor_phantom_positions :: (fn(func_id : String, phantom : ArrayList(boo
 /// arguments: its record, and `true` wherever the record is silent. Keying a
 /// position the payloads already determine only adds a redundant key part;
 /// leaving a phantom one unkeyed makes two instantiations one C type.
-ctor_phantom_flags :: (fn(func_id : String, n_args : usize) -> ArrayList(bool))({
+ctor_phantom_flags :: (fn(imm(func_id) : String, n_args : usize) -> ArrayList(bool))({
   rec := g_ctor_phantom_positions.get(func_id);
   out := ArrayList(bool).new();
   (i : usize) = usize(0);
@@ -871,14 +871,14 @@ ctor_phantom_flags :: (fn(func_id : String, n_args : usize) -> ArrayList(bool))(
 // constructor, which substitution keeps along with the id. Only an
 // instantiation with at least one phantom position is recorded.
 (g_enum_phantom_positions : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
-_register_enum_phantom_positions :: (fn(enum_id : String, phantom : ArrayList(bool)) -> unit)({
+_register_enum_phantom_positions :: (fn(imm(enum_id) : String, imm(phantom) : ArrayList(bool)) -> unit)({
   if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.contains_key(enum_id), {
     _prev := g_enum_phantom_positions.insert(enum_id, phantom);
   });
 });
 /// The phantom-position flags recorded for an enum instantiation (see
 /// `g_enum_phantom_positions`), or an empty list when it has none.
-enum_phantom_positions :: (fn(enum_id : String) -> ArrayList(bool))(
+enum_phantom_positions :: (fn(imm(enum_id) : String) -> ArrayList(bool))(
   match(g_enum_phantom_positions.get(enum_id), .Some(m) => m, .None => ArrayList(bool).new())
 );
 /// Stamp an enum instantiation's type arguments onto its finalized form in the
@@ -889,7 +889,7 @@ enum_phantom_positions :: (fn(enum_id : String) -> ArrayList(bool))(
 /// wins, matching the "innermost constructor that minted the enum" rule there.
 /// `phantom` flags the arguments no payload depends on (`ctor_phantom_flags`);
 /// they are recorded for the instance's id and for its finalized form's id.
-stamp_enum_final_type_arguments :: (fn(enum_id : String, args : ArrayList(TypeValue), phantom : ArrayList(bool)) -> unit)({
+stamp_enum_final_type_arguments :: (fn(imm(enum_id) : String, imm(args) : ArrayList(TypeValue), imm(phantom) : ArrayList(bool)) -> unit)({
   if((enum_id.len() == usize(0)) || (args.len() == usize(0)), {
     return(());
   });
@@ -932,14 +932,14 @@ stamp_enum_final_type_arguments :: (fn(enum_id : String, args : ArrayList(TypeVa
 /// was scanned front to back). A map because struct compatibility now
 /// resolves shells on every comparison (plans/reference/TYPE_IDENTITY.md).
 (g_struct_finals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
-register_struct_final :: (fn(struct_id : String, ty : TypeValue) -> unit)({
+register_struct_final :: (fn(imm(struct_id) : String, imm(ty) : TypeValue) -> unit)({
   if((struct_id.len() > usize(0)) && g_struct_finals.get(struct_id).is_none(), {
     g_struct_finals.insert(struct_id, ty);
   });
 });
 /// Resolve an empty-field Struct shell to its finalized form (no-op for
 /// non-structs, populated structs, and unknown ids).
-resolve_struct_shell :: (fn(t : TypeValue) -> TypeValue)(
+resolve_struct_shell :: (fn(imm(t) : TypeValue) -> TypeValue)(
   match(
     t,
     .Struct({ id : sid, field_types : fts }) => cond(
@@ -960,12 +960,12 @@ resolve_struct_shell :: (fn(t : TypeValue) -> TypeValue)(
 /// Selection only: identity stays with the id. The first binding wins (an
 /// alias `Y :: X` does not rename X).
 (g_type_binding_names : HashMap(String, String)) = HashMap(String, String).new();
-register_type_binding_name :: (fn(type_id : String, name : String) -> unit)({
+register_type_binding_name :: (fn(imm(type_id) : String, imm(name) : String) -> unit)({
   if((type_id.len() > usize(0)) && g_type_binding_names.get(type_id).is_none(), {
     g_type_binding_names.insert(type_id, name);
   });
 });
-type_binding_name :: (fn(type_id : String) -> Option(String))(
+type_binding_name :: (fn(imm(type_id) : String) -> Option(String))(
   g_type_binding_names.get(type_id)
 );
 /// Drop every binding name (a reset of the evaluator universe).
@@ -990,11 +990,11 @@ clear_type_binding_names :: (fn() -> unit)({
 /// impl's evaluation finishes.
 (_some_binder_kinds : HashMap(String, String)) = HashMap(String, String).new();
 register_some_binder_kind :: (
-  fn(name : String, lvl : usize, kind_name : String) -> unit
+  fn(imm(name) : String, lvl : usize, imm(kind_name) : String) -> unit
 )({
   _some_binder_kinds.insert(`${name}@${lvl.to_string()}`, kind_name);
 });
-clear_some_binder_kind :: (fn(name : String, lvl : usize) -> unit)({
+clear_some_binder_kind :: (fn(imm(name) : String, lvl : usize) -> unit)({
   _some_binder_kinds.remove(`${name}@${lvl.to_string()}`);
 });
 /// Definition-time-trial flag STORAGE. The flag's semantics and public
@@ -1012,7 +1012,7 @@ trial_flag_set :: (fn(v : bool) -> bool)({
 /// PURE resolution: builtin scalar names only — a non-builtin annotation
 /// returns `.None` and the binder keeps its (SomeT) binding. `Type` never
 /// registers, so type binders are unaffected.
-resolve_some_binder_kind :: (fn(name : String, lvl : usize) -> Option(TypeValue))(
+resolve_some_binder_kind :: (fn(imm(name) : String, lvl : usize) -> Option(TypeValue))(
   match(
     _some_binder_kinds.get(`${name}@${lvl.to_string()}`),
     .Some(kind_name) => cond(

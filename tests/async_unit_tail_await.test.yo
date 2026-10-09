@@ -12,8 +12,8 @@ pragma(Pragma.AllowUnsafe);
 { IoExn, Exception } :: import("std/error");
 
 Sink :: trait(
-  put : (fn(self : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn))),
-  (put_all : (fn(self : Self, v : u8, io : Io) -> Impl(Future(unit, IoExn)))) ?=
+  put : (fn(imm(self) : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn))),
+  (put_all : (fn(imm(self) : Self, v : u8, io : Io) -> Impl(Future(unit, IoExn)))) ?=
     (
       (self, v, io) ->
         io.async(e => {
@@ -27,7 +27,7 @@ Tally :: ref(struct(count : u8));
 impl(
   Tally,
   Sink(
-    put : (fn(self : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn)))(
+    put : (fn(imm(self) : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         self.count = (self.count + v);
         usize(1)
@@ -38,7 +38,7 @@ impl(
 // THE pre-fix failing shape: the closure body IS the tail await of the unit
 // default, reached through a where bound (unresolved-SomeT result type).
 put_all_generic :: (
-  fn(generic(S : Type), s : S, v : u8, io : Io, where(S <: Sink)) -> Impl(Future(unit, IoExn))
+  fn(generic(S : Type), imm(s) : S, v : u8, io : Io, where(S <: Sink)) -> Impl(Future(unit, IoExn))
 )(
   io.async(e => e.io.await(s.put_all(v, io), e))
 );

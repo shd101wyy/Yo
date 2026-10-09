@@ -6,11 +6,11 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-grow :: (fn(xs : ArrayList(i32), v : i32, ensures(xs.len() >= usize(1))) -> unit)({
+grow :: (fn(imm(xs) : ArrayList(i32), v : i32, ensures(xs.len() >= usize(1))) -> unit)({
   xs.push(v);
 });
 
-shrink :: (fn(xs : ArrayList(i32), ensures(xs.len() >= usize(0))) -> (r : bool))(
+shrink :: (fn(imm(xs) : ArrayList(i32), ensures(xs.len() >= usize(0))) -> (r : bool))(
   match(
     xs.pop(),
     .Some(_) => true,

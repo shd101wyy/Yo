@@ -61,11 +61,11 @@ derive(CiRange, Copy, Clone);
 // ---------------------------------------------------------------------------
 ci_eval_arg :: (
   fn(
-    arg : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    label : String,
-    exn : Exception
+    imm(arg) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(label) : String,
+    imm(exn) : Exception
   ) -> ExprInfo
 )({
   evaluated := evaluate_expression_raw(arg, env, ctx, exn);
@@ -89,7 +89,7 @@ ci_eval_arg :: (
 // ---------------------------------------------------------------------------
 // String quoting / unquoting for StrLit values (raw includes surrounding `"`).
 // ---------------------------------------------------------------------------
-ci_str_unquote :: (fn(raw : String) -> String)({
+ci_str_unquote :: (fn(imm(raw) : String) -> String)({
   rn := raw.len();
   if(
     rn >= usize(2),
@@ -97,14 +97,14 @@ ci_str_unquote :: (fn(raw : String) -> String)({
     String.new()
   )
 });
-ci_str_quote :: (fn(s : String) -> String)(
+ci_str_quote :: (fn(imm(s) : String) -> String)(
   String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // Type helpers: child type extraction and fallback return-type computation.
 // ---------------------------------------------------------------------------
 // Extract element type from ComptimeListT or *(ComptimeListT).
-ci_child_of_comptime_list_ty :: (fn(ty : TypeValue) -> TypeValue)(
+ci_child_of_comptime_list_ty :: (fn(imm(ty) : TypeValue) -> TypeValue)(
   match(
     ty,
     .ComptimeListT(cb) => cb,
@@ -113,7 +113,7 @@ ci_child_of_comptime_list_ty :: (fn(ty : TypeValue) -> TypeValue)(
   )
 );
 // Extract element type from Array(T, N) or *(Array(T, N)).
-ci_child_of_array_ty :: (fn(ty : TypeValue) -> TypeValue)(
+ci_child_of_array_ty :: (fn(imm(ty) : TypeValue) -> TypeValue)(
   match(
     ty,
     .Array(cb, _, _) => cb,
@@ -122,7 +122,7 @@ ci_child_of_array_ty :: (fn(ty : TypeValue) -> TypeValue)(
   )
 );
 // Compute fallback return type for element indexing.
-ci_elem_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
+ci_elem_return_ty :: (fn(imm(ty) : TypeValue) -> TypeValue)(
   match(
     ty,
     .Pointer(pb) => {
@@ -139,7 +139,7 @@ ci_elem_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
   )
 );
 // Compute fallback return type for ComptimeList range indexing.
-ci_list_range_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
+ci_list_range_return_ty :: (fn(imm(ty) : TypeValue) -> TypeValue)(
   match(
     ty,
     .Pointer(_) => ty,
@@ -150,7 +150,7 @@ ci_list_range_return_ty :: (fn(ty : TypeValue) -> TypeValue)(
 // ---------------------------------------------------------------------------
 // Helper: resolve a ComptimeListVal from a direct value or a PtrVal.
 // ---------------------------------------------------------------------------
-ci_resolve_comptime_list :: (fn(val_opt : Option(EvalValue)) -> Option(EvalValue))(
+ci_resolve_comptime_list :: (fn(imm(val_opt) : Option(EvalValue)) -> Option(EvalValue))(
   match(
     val_opt,
     .Some(sv) => if(
@@ -174,7 +174,7 @@ ci_resolve_comptime_list :: (fn(val_opt : Option(EvalValue)) -> Option(EvalValue
 // ---------------------------------------------------------------------------
 ci_extract_range_indices :: (
   fn(
-    range_ev : EvalValue,
+    imm(range_ev) : EvalValue,
     is_inclusive : bool
   ) -> Option(CiRange)
 )(
@@ -243,10 +243,10 @@ ci_extract_range_indices :: (
 // ---------------------------------------------------------------------------
 ci_eval_list_index :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -370,11 +370,11 @@ ci_eval_list_index :: (
 // ---------------------------------------------------------------------------
 ci_eval_list_range_index :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
     is_inclusive : bool,
-    exn : Exception
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -514,10 +514,10 @@ ci_eval_list_range_index :: (
 // ---------------------------------------------------------------------------
 ci_eval_array_index :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -640,7 +640,7 @@ ci_eval_array_index :: (
   expr
 });
 /// A comptime pointer to a fresh cell holding the string literal `quoted`.
-_ci_str_pointer :: (fn(quoted : String) -> EvalValue)({
+_ci_str_pointer :: (fn(imm(quoted) : String) -> EvalValue)({
   cell := ArrayList(EvalValue).new();
   cell.push(EvalValue.StrLit(quoted));
   EvalValue.PtrVal(cell, usize(0), .None)
@@ -650,12 +650,12 @@ _ci_str_pointer :: (fn(quoted : String) -> EvalValue)({
 // ---------------------------------------------------------------------------
 ci_eval_string_index :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
     is_range : bool,
     is_inclusive : bool,
-    exn : Exception
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   args := match(
@@ -889,10 +889,10 @@ ci_eval_string_index :: (
 // ---------------------------------------------------------------------------
 evaluate_yo_comptime_index_functions :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   if(ast_expr_is_fn_call_of(expr, BF_YO_COMPTIME_LIST_INDEX, .None), {

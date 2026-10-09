@@ -113,7 +113,7 @@ Arm :: ref(
 // that never generates code records nothing (`codegen_tables_enabled`, §0.21).
 // ---------------------------------------------------------------------------
 (g_match_arms : HashMap(usize, ArrayList(Arm))) = HashMap(usize, ArrayList(Arm)).new();
-register_match_arms :: (fn(match_id : usize, arms : ArrayList(Arm)) -> unit)({
+register_match_arms :: (fn(match_id : usize, imm(arms) : ArrayList(Arm)) -> unit)({
   if(!codegen_tables_enabled(), {
     return(());
   });
@@ -123,7 +123,7 @@ register_match_arms :: (fn(match_id : usize, arms : ArrayList(Arm)) -> unit)({
 lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.get(match_id));
 /// Drop the compiled arms of the given match ids (a removed module's
 /// `take_owned_expr_ids`).
-purge_match_arms :: (fn(ids : ArrayList(usize)) -> unit)({
+purge_match_arms :: (fn(imm(ids) : ArrayList(usize)) -> unit)({
   (i : usize) = usize(0);
   while(i < ids.len(), {
     match(
@@ -144,12 +144,12 @@ match_arms_entry_count :: (fn() -> usize)(g_match_arms.len());
 // ---------------------------------------------------------------------------
 /// Resolve a GADT type-constructor arg through the SomeT resolution channel
 /// (the SomeT's own resolution first, then the id-keyed registry).
-gadt_resolve_tca_entry :: (fn(t : TypeValue) -> TypeValue)(
+gadt_resolve_tca_entry :: (fn(imm(t) : TypeValue) -> TypeValue)(
   match(some_resolution(t), .Some(rt_r) => rt_r, .None => t)
 );
 /// A variant is UNREACHABLE when the enum is instantiated with concrete type
 /// args that do not match the variant's `-> recur(...)` return-type args.
-gadt_branch_reachable :: (fn(enum_id : String, variant_idx : usize) -> bool)({
+gadt_branch_reachable :: (fn(imm(enum_id) : String, variant_idx : usize) -> bool)({
   vargs_opt := get_gadt_variant_args(enum_id);
   tca_opt := get_gadt_type_constructor_args(enum_id);
   match(
@@ -187,7 +187,7 @@ gadt_branch_reachable :: (fn(enum_id : String, variant_idx : usize) -> bool)({
 /// and one `Rc(T)` wrapper looked through, a leaked recursive-enum
 /// self-shell resolved. An Rc position is presented as its inner type to the
 /// constructor reasoning (the rc wrapper is transparent for coverage).
-norm_position_type :: (fn(t : TypeValue) -> TypeValue)({
+norm_position_type :: (fn(imm(t) : TypeValue) -> TypeValue)({
   inner := match(t, .Pointer(p) => p, _ => t);
   inner2 := match(
     is_box_type(inner),
@@ -197,7 +197,7 @@ norm_position_type :: (fn(t : TypeValue) -> TypeValue)({
   resolve_enum_shell(inner2)
 });
 /// True when the struct's single field is labeled `*` (the Rc shape).
-_box_shaped :: (fn(fls : ArrayList(String), fts : ArrayList(TypeValue)) -> bool)(
+_box_shaped :: (fn(imm(fls) : ArrayList(String), imm(fts) : ArrayList(TypeValue)) -> bool)(
   (fls.len() == usize(1)) && (fts.len() == usize(1)) && match(
     fls.get(usize(0)),
     .Some(l) => (l == "*"),
@@ -207,7 +207,7 @@ _box_shaped :: (fn(fls : ArrayList(String), fts : ArrayList(TypeValue)) -> bool)
 /// `Rc(T)` → `T` (the field the `*` label names); anything else → `.None`.
 /// NOTE: a case whose pattern carries a curly `{…}` destructuring cannot
 /// take a brace-block body (E0007) — the body stays an expression.
-box_inner_type :: (fn(t : TypeValue) -> Option(TypeValue))(
+box_inner_type :: (fn(imm(t) : TypeValue) -> Option(TypeValue))(
   match(
     t,
     .Struct({ field_labels : fls, field_types : fts }) => cond(
@@ -222,7 +222,7 @@ box_inner_type :: (fn(t : TypeValue) -> Option(TypeValue))(
   )
 );
 /// The field types of variant `idx` of enum `enum_ty` (empty when absent).
-variant_field_types :: (fn(enum_ty : TypeValue, idx : usize) -> ArrayList(TypeValue))(
+variant_field_types :: (fn(imm(enum_ty) : TypeValue, idx : usize) -> ArrayList(TypeValue))(
   match(
     enum_ty,
     .EnumT({ variant_fields : vfs }) => match(vfs.get(idx), .Some(f) => f, .None => ArrayList(TypeValue).new()),
@@ -232,7 +232,7 @@ variant_field_types :: (fn(enum_ty : TypeValue, idx : usize) -> ArrayList(TypeVa
 /// A struct type's field types (empty for a non-struct). Expression-bodied:
 /// a case whose pattern carries a curly `{…}` destructuring cannot take a
 /// brace-block body (E0007).
-_struct_field_tys :: (fn(t : TypeValue) -> ArrayList(TypeValue))(
+_struct_field_tys :: (fn(imm(t) : TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
     .Struct({ field_types : fts }) => fts,
@@ -240,7 +240,7 @@ _struct_field_tys :: (fn(t : TypeValue) -> ArrayList(TypeValue))(
   )
 );
 /// A struct type's field labels (empty for a non-struct).
-_struct_field_labels :: (fn(t : TypeValue) -> ArrayList(String))(
+_struct_field_labels :: (fn(imm(t) : TypeValue) -> ArrayList(String))(
   match(
     t,
     .Struct({ field_labels : fls }) => fls,
@@ -248,7 +248,7 @@ _struct_field_labels :: (fn(t : TypeValue) -> ArrayList(String))(
   )
 );
 /// A struct type's declared name (empty for a non-struct).
-_struct_type_name :: (fn(t : TypeValue) -> String)(
+_struct_type_name :: (fn(imm(t) : TypeValue) -> String)(
   match(
     t,
     .Struct({ name : n }) => n.clone(),
@@ -256,23 +256,23 @@ _struct_type_name :: (fn(t : TypeValue) -> String)(
   )
 );
 /// A tuple type's element types (empty for a non-tuple).
-_tuple_elem_tys :: (fn(t : TypeValue) -> ArrayList(TypeValue))(
+_tuple_elem_tys :: (fn(imm(t) : TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
     .Tuple({ field_types : fts }) => fts,
     _ => ArrayList(TypeValue).new()
   )
 );
-_enum_variant_names :: (fn(enum_ty : TypeValue) -> ArrayList(String))(
+_enum_variant_names :: (fn(imm(enum_ty) : TypeValue) -> ArrayList(String))(
   match(enum_ty, .EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new())
 );
-_enum_id :: (fn(enum_ty : TypeValue) -> String)(
+_enum_id :: (fn(imm(enum_ty) : TypeValue) -> String)(
   match(enum_ty, .EnumT({ id : eid }) => eid, _ => String.new())
 );
 // ---------------------------------------------------------------------------
 // Walkers
 // ---------------------------------------------------------------------------
-_push_names :: (fn(p : Pattern, inout(out) : ArrayList(String)) -> unit)({
+_push_names :: (fn(imm(p) : Pattern, mut(out) : ArrayList(String)) -> unit)({
   match(
     p,
     .Wildcard => (),
@@ -341,13 +341,13 @@ _push_names :: (fn(p : Pattern, inout(out) : ArrayList(String)) -> unit)({
   );
 });
 /// The names a pattern binds, in source order.
-pattern_bindings :: (fn(p : Pattern) -> ArrayList(String))({
+pattern_bindings :: (fn(imm(p) : Pattern) -> ArrayList(String))({
   out := ArrayList(String).new();
   _push_names(p, out);
   out
 });
 /// True when the pattern matches every value of its type.
-pattern_is_irrefutable :: (fn(p : Pattern) -> bool)(
+pattern_is_irrefutable :: (fn(imm(p) : Pattern) -> bool)(
   match(
     p,
     .Wildcard => true,
@@ -378,7 +378,7 @@ pattern_is_irrefutable :: (fn(p : Pattern) -> bool)(
 );
 /// Every sub-pattern of `subs` is irrefutable (a single-constructor
 /// aggregate matches every value of its type iff each field pattern does).
-_all_subs_irrefutable :: (fn(subs : ArrayList(Pattern)) -> bool)({
+_all_subs_irrefutable :: (fn(imm(subs) : ArrayList(Pattern)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < subs.len()) && ok, {
@@ -394,7 +394,7 @@ _all_subs_irrefutable :: (fn(subs : ArrayList(Pattern)) -> bool)({
   ok
 });
 /// Render a pattern in Yo syntax (for diagnostics).
-pattern_to_string :: (fn(p : Pattern) -> String)(
+pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
   match(
     p,
     .Wildcard => String.from("_"),
@@ -528,7 +528,7 @@ pattern_to_string :: (fn(p : Pattern) -> String)(
 // ---------------------------------------------------------------------------
 /// The full-arity sub-pattern vector of a variant pattern: `_` for every field
 /// the (possibly partial) pattern leaves open.
-_variant_full_subs :: (fn(field_idx : ArrayList(usize), subs : ArrayList(Pattern), arity : usize) -> ArrayList(Pattern))({
+_variant_full_subs :: (fn(imm(field_idx) : ArrayList(usize), imm(subs) : ArrayList(Pattern), arity : usize) -> ArrayList(Pattern))({
   out := ArrayList(Pattern).new();
   (fi : usize) = usize(0);
   while(fi < arity, {
@@ -561,7 +561,7 @@ _wildcards :: (fn(n : usize) -> ArrayList(Pattern))({
   out
 });
 /// `a ++ b`.
-_concat_patterns :: (fn(a : ArrayList(Pattern), b : ArrayList(Pattern)) -> ArrayList(Pattern))({
+_concat_patterns :: (fn(imm(a) : ArrayList(Pattern), imm(b) : ArrayList(Pattern)) -> ArrayList(Pattern))({
   out := ArrayList(Pattern).new();
   (i : usize) = usize(0);
   while(i < a.len(), {
@@ -587,7 +587,7 @@ _concat_patterns :: (fn(a : ArrayList(Pattern), b : ArrayList(Pattern)) -> Array
   });
   out
 });
-_concat_types :: (fn(a : ArrayList(TypeValue), b : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+_concat_types :: (fn(imm(a) : ArrayList(TypeValue), imm(b) : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   out := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
   while(i < a.len(), {
@@ -613,7 +613,7 @@ _concat_types :: (fn(a : ArrayList(TypeValue), b : ArrayList(TypeValue)) -> Arra
   });
   out
 });
-_tail_patterns :: (fn(v : ArrayList(Pattern)) -> ArrayList(Pattern))({
+_tail_patterns :: (fn(imm(v) : ArrayList(Pattern)) -> ArrayList(Pattern))({
   out := ArrayList(Pattern).new();
   (i : usize) = usize(1);
   while(i < v.len(), {
@@ -628,7 +628,7 @@ _tail_patterns :: (fn(v : ArrayList(Pattern)) -> ArrayList(Pattern))({
   });
   out
 });
-_tail_types :: (fn(v : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+_tail_types :: (fn(imm(v) : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   out := ArrayList(TypeValue).new();
   (i : usize) = usize(1);
   while(i < v.len(), {
@@ -645,7 +645,7 @@ _tail_types :: (fn(v : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
 });
 /// Strip `At`/`ThroughBox` and expand `Or` at the HEAD of every row, so each
 /// row's head is a wildcard, binding, constant, range or variant.
-_expand_row_heads :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayList(Pattern)))({
+_expand_row_heads :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayList(Pattern)))({
   out := ArrayList(ArrayList(Pattern)).new();
   (i : usize) = usize(0);
   while(i < rows.len(), {
@@ -722,7 +722,7 @@ _expand_row_heads :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(Arra
 });
 /// The comparison key of a constant/range head (two heads with equal keys are
 /// the same constructor).
-_const_key :: (fn(p : Pattern) -> String)(
+_const_key :: (fn(imm(p) : Pattern) -> String)(
   match(
     p,
     .Const(v, _, _, _, _) => value_to_string(v),
@@ -734,7 +734,7 @@ _const_key :: (fn(p : Pattern) -> String)(
     _ => String.new()
   )
 );
-_head_is_wild :: (fn(p : Pattern) -> bool)(
+_head_is_wild :: (fn(imm(p) : Pattern) -> bool)(
   match(p, .Wildcard => true, .Bind(_, _, _) => true, _ => false)
 );
 /// True when some row's head is a tuple or struct pattern: the column's one
@@ -742,7 +742,7 @@ _head_is_wild :: (fn(p : Pattern) -> bool)(
 /// default matrix decides it; expanding it anyway walks the scrutinee's whole
 /// field tree (a match on a value carrying the compiler's context structs took
 /// 20x longer to check).
-_column_has_aggregate :: (fn(rows : ArrayList(ArrayList(Pattern))) -> bool)({
+_column_has_aggregate :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> bool)({
   (ri : usize) = usize(0);
   while(ri < rows.len(), {
     head := match(rows.get(ri), .Some(row) => row.get(usize(0)), .None => Option(Pattern).None);
@@ -754,7 +754,7 @@ _column_has_aggregate :: (fn(rows : ArrayList(ArrayList(Pattern))) -> bool)({
   false
 });
 /// Specialize the matrix by variant constructor `name` of arity `arity`.
-_specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, arity : usize) -> ArrayList(ArrayList(Pattern)))({
+_specialize_variant :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), imm(name) : String, arity : usize) -> ArrayList(ArrayList(Pattern)))({
   out := ArrayList(ArrayList(Pattern)).new();
   (i : usize) = usize(0);
   while(i < rows.len(), {
@@ -786,7 +786,7 @@ _specialize_variant :: (fn(rows : ArrayList(ArrayList(Pattern)), name : String, 
 /// of arity `n`: a Tuple/Struct head contributes its sub-patterns (a partial
 /// struct's, padded with wildcards), a wildcard/binding head contributes
 /// `n` wildcards, any other head drops the row.
-_specialize_aggregate :: (fn(rows : ArrayList(ArrayList(Pattern)), n : usize) -> ArrayList(ArrayList(Pattern)))({
+_specialize_aggregate :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), n : usize) -> ArrayList(ArrayList(Pattern)))({
   out := ArrayList(ArrayList(Pattern)).new();
   (i : usize) = usize(0);
   while(i < rows.len(), {
@@ -819,7 +819,7 @@ _specialize_aggregate :: (fn(rows : ArrayList(ArrayList(Pattern)), n : usize) ->
   out
 });
 /// Specialize the matrix by a constant/range constructor with key `key`.
-_specialize_const :: (fn(rows : ArrayList(ArrayList(Pattern)), key : String) -> ArrayList(ArrayList(Pattern)))({
+_specialize_const :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), imm(key) : String) -> ArrayList(ArrayList(Pattern)))({
   out := ArrayList(ArrayList(Pattern)).new();
   (i : usize) = usize(0);
   while(i < rows.len(), {
@@ -846,7 +846,7 @@ _specialize_const :: (fn(rows : ArrayList(ArrayList(Pattern)), key : String) -> 
   out
 });
 /// The default matrix: rows whose head matches anything, heads dropped.
-_default_matrix :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayList(Pattern)))({
+_default_matrix :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayList(Pattern)))({
   out := ArrayList(ArrayList(Pattern)).new();
   (i : usize) = usize(0);
   while(i < rows.len(), {
@@ -868,7 +868,7 @@ _default_matrix :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(ArrayL
   out
 });
 /// `[head] ++ rest` for witness vectors.
-_cons_str :: (fn(head : String, rest : ArrayList(String)) -> ArrayList(String))({
+_cons_str :: (fn(imm(head) : String, imm(rest) : ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
   out.push(head);
   (i : usize) = usize(0);
@@ -888,7 +888,7 @@ _cons_str :: (fn(head : String, rest : ArrayList(String)) -> ArrayList(String))(
 /// `(rendered, remaining)`. Every payload field is rendered, `_` included:
 /// `.Circle(_)` says the variant is matched but not for every payload, where
 /// a bare `.Circle` read as "no arm names `.Circle`".
-_render_variant_witness :: (fn(name : String, arity : usize, w : ArrayList(String)) -> ArrayList(String))({
+_render_variant_witness :: (fn(imm(name) : String, arity : usize, imm(w) : ArrayList(String)) -> ArrayList(String))({
   head := String.from(".");
   head.push_string(name.clone());
   if(arity > usize(0), {
@@ -925,7 +925,7 @@ _render_variant_witness :: (fn(name : String, arity : usize, w : ArrayList(Strin
 });
 /// Render a tuple witness from the first `n` entries of `w`, returning the
 /// full vector (`(a, b)` prepended to the remaining columns).
-_render_tuple_witness :: (fn(w : ArrayList(String), n : usize) -> ArrayList(String))({
+_render_tuple_witness :: (fn(imm(w) : ArrayList(String), n : usize) -> ArrayList(String))({
   head := String.from("(");
   (j : usize) = usize(0);
   while(j < n, {
@@ -958,7 +958,7 @@ _render_tuple_witness :: (fn(w : ArrayList(String), n : usize) -> ArrayList(Stri
 });
 /// Render a struct witness `S(label : w, …)` from the first `n` entries of
 /// `w` (every field rendered, `_` included — like the variant renderer).
-_render_struct_witness :: (fn(struct_ty : TypeValue, w : ArrayList(String), n : usize) -> ArrayList(String))({
+_render_struct_witness :: (fn(imm(struct_ty) : TypeValue, imm(w) : ArrayList(String), n : usize) -> ArrayList(String))({
   head := _struct_type_name(struct_ty);
   head.push_str("(");
   flabels := _struct_field_labels(struct_ty);
@@ -1004,7 +1004,7 @@ _render_struct_witness :: (fn(struct_ty : TypeValue, w : ArrayList(String), n : 
 /// none; without it (an arm check inside a generic specialization, where the
 /// index is the instantiation's, not the source's) every variant counts.
 /// Returns the list of missing variant indices (empty = complete).
-_missing_variants :: (fn(rows : ArrayList(ArrayList(Pattern)), enum_ty : TypeValue, gadt_exact : bool) -> ArrayList(usize))({
+_missing_variants :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), imm(enum_ty) : TypeValue, gadt_exact : bool) -> ArrayList(usize))({
   vns := _enum_variant_names(enum_ty);
   eid := _enum_id(enum_ty);
   missing := ArrayList(usize).new();
@@ -1041,7 +1041,7 @@ _missing_variants :: (fn(rows : ArrayList(ArrayList(Pattern)), enum_ty : TypeVal
 });
 /// Are both `true` and `false` among the constant heads? Returns the missing
 /// bool keys (empty = complete).
-_missing_bools :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(String))({
+_missing_bools :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList(String))({
   (has_t : bool) = false;
   (has_f : bool) = false;
   (ri : usize) = usize(0);
@@ -1082,7 +1082,7 @@ _missing_bools :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(String)
 });
 /// Variants of `enum_ty` present as row heads, each with its arity — the
 /// constructor set to iterate when the signature is complete.
-_present_variants :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(Pattern))({
+_present_variants :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList(Pattern))({
   out := ArrayList(Pattern).new();
   seen := ArrayList(String).new();
   (ri : usize) = usize(0);
@@ -1119,7 +1119,7 @@ _present_variants :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(Patt
 });
 /// Distinct constant/range heads of the matrix (their keys), for the
 /// "specialize by every present constant" walk of a bool column.
-_present_bool_consts :: (fn(rows : ArrayList(ArrayList(Pattern))) -> ArrayList(Pattern))({
+_present_bool_consts :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList(Pattern))({
   out := ArrayList(Pattern).new();
   seen := ArrayList(String).new();
   (ri : usize) = usize(0);
@@ -1168,7 +1168,7 @@ _KEY_SIGN :: u64(9223372036854775808);
 /// only a catch-all arm matches, so no set of ranges covers them (as in Rust).
 _IntDomain :: struct(lo : u64, hi : u64, signed : bool, unbounded : bool);
 derive(_IntDomain, Copy, Clone);
-_int_domain :: (fn(ty : TypeValue) -> Option(_IntDomain))(
+_int_domain :: (fn(imm(ty) : TypeValue) -> Option(_IntDomain))(
   match(
     get_integer_type_range(ty),
     .Some(r) => {
@@ -1189,7 +1189,7 @@ _int_domain :: (fn(ty : TypeValue) -> Option(_IntDomain))(
 /// the value's 64-bit pattern, which is the key of an unsigned value and the
 /// key of a signed one with its sign bit flipped. `.None` when `v` is not an
 /// integer literal.
-_int_key :: (fn(v : EvalValue, d : _IntDomain) -> Option(u64))(
+_int_key :: (fn(imm(v) : EvalValue, d : _IntDomain) -> Option(u64))(
   match(
     v,
     .IntLit(raw) => match(
@@ -1210,7 +1210,7 @@ _iv_of_keys :: (fn(l : u64, h : u64, d : _IntDomain) -> _IvHead)({
   hi := cond((h > d.hi) => d.hi, true => h);
   cond((lo > hi) => _IvHead.Empty, true => _IvHead.Iv(lo : lo, hi : hi))
 });
-_iv_head :: (fn(p : Pattern, d : _IntDomain) -> _IvHead)(
+_iv_head :: (fn(imm(p) : Pattern, d : _IntDomain) -> _IvHead)(
   match(
     p,
     .Const(v, _, _, _, _) => match(
@@ -1241,7 +1241,7 @@ _iv_head :: (fn(p : Pattern, d : _IntDomain) -> _IvHead)(
 );
 /// Can the head column of `rows`, with `q`'s head `head`, be decided by
 /// intervals: every head a catch-all or an integer constant or range?
-_int_column_ok :: (fn(rows : ArrayList(ArrayList(Pattern)), head : Pattern, d : _IntDomain) -> bool)({
+_int_column_ok :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), imm(head) : Pattern, d : _IntDomain) -> bool)({
   if(!_head_is_wild(head) && match(_iv_head(head, d), .NotInt => true, _ => false), {
     return(false);
   });
@@ -1266,7 +1266,7 @@ _int_column_ok :: (fn(rows : ArrayList(ArrayList(Pattern)), head : Pattern, d : 
 });
 /// Insert `k` into the sorted, duplicate-free `cuts` when it lies in
 /// `(lo, hi]`, i.e. starts a segment of `[lo, hi]` other than the first.
-_add_cut :: (fn(inout(cuts) : ArrayList(u64), k : u64, lo : u64, hi : u64) -> unit)({
+_add_cut :: (fn(mut(cuts) : ArrayList(u64), k : u64, lo : u64, hi : u64) -> unit)({
   if((k <= lo) || (k > hi), {
     return(());
   });
@@ -1286,7 +1286,7 @@ _add_cut :: (fn(inout(cuts) : ArrayList(u64), k : u64, lo : u64, hi : u64) -> un
 });
 /// The rows whose head matches the integer with key `k` (a catch-all, or an
 /// interval containing it), heads dropped.
-_specialize_key :: (fn(rows : ArrayList(ArrayList(Pattern)), k : u64, d : _IntDomain) -> ArrayList(ArrayList(Pattern)))({
+_specialize_key :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), k : u64, d : _IntDomain) -> ArrayList(ArrayList(Pattern)))({
   out := ArrayList(ArrayList(Pattern)).new();
   (i : usize) = usize(0);
   while(i < rows.len(), {
@@ -1336,10 +1336,10 @@ _render_keys :: (fn(lo : u64, hi : u64, d : _IntDomain) -> String)(
 /// splits ranges the same way).
 _useful_int :: (
   fn(
-    rows : ArrayList(ArrayList(Pattern)),
-    head : Pattern,
-    q_rest : ArrayList(Pattern),
-    tys_rest : ArrayList(TypeValue),
+    imm(rows) : ArrayList(ArrayList(Pattern)),
+    imm(head) : Pattern,
+    imm(q_rest) : ArrayList(Pattern),
+    imm(tys_rest) : ArrayList(TypeValue),
     d : _IntDomain,
     gadt_exact : bool
   ) -> Option(ArrayList(String))
@@ -1424,9 +1424,9 @@ _useful_int :: (
 /// `_missing_variants`).
 _useful :: (
   fn(
-    rows_in : ArrayList(ArrayList(Pattern)),
-    q : ArrayList(Pattern),
-    tys : ArrayList(TypeValue),
+    imm(rows_in) : ArrayList(ArrayList(Pattern)),
+    imm(q) : ArrayList(Pattern),
+    imm(tys) : ArrayList(TypeValue),
     gadt_exact : bool
   ) -> Option(ArrayList(String))
 )({
@@ -1706,7 +1706,7 @@ _useful :: (
   )
 });
 /// One-column row vector for an arm pattern.
-_row_of :: (fn(p : Pattern) -> ArrayList(Pattern))({
+_row_of :: (fn(imm(p) : Pattern) -> ArrayList(Pattern))({
   r := ArrayList(Pattern).new();
   r.push(p);
   r
@@ -1725,13 +1725,13 @@ _row_of :: (fn(p : Pattern) -> ArrayList(Pattern))({
 /// (`.None` = no witness = covered).
 variant_group_covers :: (
   fn(
-    rows : ArrayList(Pattern),
-    name : String,
+    imm(rows) : ArrayList(Pattern),
+    imm(name) : String,
     idx : usize,
     arity : usize,
     through_ptr : bool,
-    enum_ty : TypeValue,
-    scrutinee_ty : TypeValue
+    imm(enum_ty) : TypeValue,
+    imm(scrutinee_ty) : TypeValue
   ) -> bool
 )({
   qsubs := ArrayList(Pattern).new();
@@ -1774,7 +1774,7 @@ variant_group_covers :: (
 /// The rows that count toward COVERAGE: the arms before `upto`, unguarded
 /// ones only unless `count_guarded` (a guard can fail, so a guarded arm
 /// covers nothing for the arms below it).
-_coverage_rows :: (fn(arms : ArrayList(Arm), upto : usize, count_guarded : bool) -> ArrayList(ArrayList(Pattern)))({
+_coverage_rows :: (fn(imm(arms) : ArrayList(Arm), upto : usize, count_guarded : bool) -> ArrayList(ArrayList(Pattern)))({
   rows := ArrayList(ArrayList(Pattern)).new();
   (i : usize) = usize(0);
   while(i < upto, {
@@ -1795,7 +1795,7 @@ _coverage_rows :: (fn(arms : ArrayList(Arm), upto : usize, count_guarded : bool)
 /// `.None` when the match is exhaustive. `count_guarded` counts guarded arms
 /// as if their guards held: the caller asks both ways to tell the user when
 /// a guard is what leaves the value unmatched.
-match_missing_witness :: (fn(arms : ArrayList(Arm), scrutinee_ty : TypeValue, count_guarded : bool) -> Option(String))({
+match_missing_witness :: (fn(imm(arms) : ArrayList(Arm), imm(scrutinee_ty) : TypeValue, count_guarded : bool) -> Option(String))({
   rows := _coverage_rows(arms, arms.len(), count_guarded);
   tys := ArrayList(TypeValue).new();
   tys.push(scrutinee_ty);
@@ -1822,7 +1822,7 @@ ArmReach :: enum(
 );
 /// The alternatives of an arm's top-level or-pattern, flattened, looking
 /// through `(name := …)`; empty when the pattern is not an or-pattern.
-_top_alternatives :: (fn(p : Pattern, inout(out) : ArrayList(Pattern)) -> unit)(
+_top_alternatives :: (fn(imm(p) : Pattern, mut(out) : ArrayList(Pattern)) -> unit)(
   match(
     p,
     .Or(alts) => {
@@ -1846,7 +1846,7 @@ _top_alternatives :: (fn(p : Pattern, inout(out) : ArrayList(Pattern)) -> unit)(
 );
 /// The verdict for one pattern `part` against the coverage `rows` (the
 /// earlier unguarded arms and earlier sibling alternatives).
-_part_reach :: (fn(part : Pattern, whole : bool, rows : ArrayList(ArrayList(Pattern)), tys : ArrayList(TypeValue), gadt_exact : bool) -> ArmReach)({
+_part_reach :: (fn(imm(part) : Pattern, whole : bool, imm(rows) : ArrayList(ArrayList(Pattern)), imm(tys) : ArrayList(TypeValue), gadt_exact : bool) -> ArmReach)({
   q := _row_of(part);
   if(_useful(ArrayList(ArrayList(Pattern)).new(), q, tys, gadt_exact).is_none(), {
     return(ArmReach.MatchesNothing(part : part, whole : whole));
@@ -1886,7 +1886,7 @@ _part_reach :: (fn(part : Pattern, whole : bool, rows : ArrayList(ArrayList(Patt
 /// `gadt_exact` is false inside a generic specialization: there the GADT
 /// index is the instantiation's, and an arm for a variant this instantiation
 /// excludes still serves the others.
-arm_reachability :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeValue, gadt_exact : bool) -> ArmReach)({
+arm_reachability :: (fn(imm(arms) : ArrayList(Arm), i : usize, imm(scrutinee_ty) : TypeValue, gadt_exact : bool) -> ArmReach)({
   arm := match(arms.get(i), .Some(a) => a, .None => return(ArmReach.Reachable));
   if(((i + usize(1)) == arms.len()) && arm.guard.is_none(), {
     if(match(arm.pattern, .Wildcard => true, .Bind(_, _, _) => true, _ => false), {
@@ -1918,7 +1918,7 @@ arm_reachability :: (fn(arms : ArrayList(Arm), i : usize, scrutinee_ty : TypeVal
 /// pattern, in pre-order — codegen's collectors must see them (they are not
 /// in the source AST), so the evaluator hangs them off the arm's pattern node
 /// as its `macro_expansion`.
-pattern_test_exprs :: (fn(p : Pattern, inout(out) : ArrayList(AstExpr)) -> unit)({
+pattern_test_exprs :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> unit)({
   match(
     p,
     .Wildcard => (),

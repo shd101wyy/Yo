@@ -939,7 +939,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   out
 });
 /// Find the registry entry for `code`.
-lookup_explain :: (fn(code : String) -> Option(Explain))({
+lookup_explain :: (fn(imm(code) : String) -> Option(Explain))({
   entries := registry_entries();
   (i : usize) = usize(0);
   while(i < entries.len(), {
@@ -979,10 +979,10 @@ all_registry_codes :: (fn() -> ArrayList(String))({
 /// string (E99999 → E0909, matched on two nines) is noise. The identifier
 /// engine's default threshold is 3 (`suggest_name`); codes pass 2 explicitly
 /// so the registry can densify without re-arming the far-miss probe.
-suggest_code :: (fn(code : String) -> Option(String))(suggest_name(code, all_registry_codes(), usize(2)));
+suggest_code :: (fn(imm(code) : String) -> Option(String))(suggest_name(code, all_registry_codes(), usize(2)));
 /// One registry entry as JSON (for `yo explain --format json`): both
 /// languages always included.
-explain_to_json :: (fn(e : Explain) -> String)({
+explain_to_json :: (fn(imm(e) : Explain) -> String)({
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();
   keys.push(String.from("code"));

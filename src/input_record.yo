@@ -54,7 +54,7 @@ input_hashing_enabled :: (fn() -> bool)(g_input_hashing);
 /// Absolutize against the cwd (when relative) and fold `.`/`..` LEXICALLY —
 /// the same treatment the std path gets. Lexical only: this runs inside the
 /// module loader, which is synchronous, and symlink resolution is not.
-_canonicalize :: (fn(p : String) -> String)({
+_canonicalize :: (fn(imm(p) : String) -> String)({
   path := Path.new(p.clone());
   if(!path.is_absolute(), {
     match(
@@ -74,7 +74,7 @@ _canonicalize :: (fn(p : String) -> String)({
 /// `content_sha256` must be the hash of the bytes THIS COMPILE CONSUMED — the
 /// disk bytes, never an editor overlay applied on top of them, because the next
 /// build hashes the disk. Pass `""` when hashing is disabled.
-record_input_file :: (fn(path : String, content_sha256 : String) -> unit)({
+record_input_file :: (fn(imm(path) : String, imm(content_sha256) : String) -> unit)({
   fs := _canonicalize(path.replace(String.from("file://"), String.new()));
   if(fs.len() == usize(0), {
     return(());
@@ -134,7 +134,7 @@ input_file_entries :: (fn() -> ArrayList(String))({
 // keeps both, because both influenced the build.
 (g_env_reads : ArrayList(String)) = ArrayList(String).new();
 /// Record that the build read `name`, seeing `rendered` (`<unset>` when absent).
-record_env_read :: (fn(name : String, rendered : String) -> unit)({
+record_env_read :: (fn(imm(name) : String, imm(rendered) : String) -> unit)({
   entry := `${name}=${rendered}`;
   (i : usize) = usize(0);
   while(i < g_env_reads.len(), {

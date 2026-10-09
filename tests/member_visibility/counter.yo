@@ -5,12 +5,12 @@
 Counter :: struct(_count : i32, label : String);
 impl(
   Counter,
-  new : (fn(label : String) -> Counter)(Counter(_count : i32(0), label : label)),
-  _bump : (fn(self : Self, by : i32) -> Counter)(
+  new : (fn(imm(label) : String) -> Counter)(Counter(_count : i32(0), label : label)),
+  _bump : (fn(imm(self) : Self, by : i32) -> Counter)(
     Counter(_count : (self._count + by), label : self.label.clone())
   ),
-  add : (fn(self : Self, by : i32) -> Counter)(self._bump(by)),
-  count : (fn(self : Self) -> i32)(self._count)
+  add : (fn(imm(self) : Self, by : i32) -> Counter)(self._bump(by)),
+  count : (fn(imm(self) : Self) -> i32)(self._count)
 );
 /// A GENERIC type: its methods reach callers through the generic-impl
 /// registry, whose candidates must carry the impl's declaring module.

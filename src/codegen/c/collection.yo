@@ -10,7 +10,7 @@
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 { emit_fixed_allocator_defines, emit_fixed_allocator_impl } :: import("./allocator_fixed.yo");
 /// Collect C include headers from the collected types and extern functions.
-collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
+collect_c_includes :: (fn(imm(context) : CodeGenContext) -> unit)({
   // Collect C includes from all collected types. (Loop via a flag, NOT
   // `return(())` — a bare return would exit the whole function and skip the
   // extern-function pass below.)
@@ -69,7 +69,7 @@ collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
 /// `CodeGenContext` (`tests/internal/c_include_order.test.yo`); non-Windows
 /// output is unchanged from the pre-hoist emission, element for element.
 ordered_c_includes :: (
-  fn(registered : ArrayList(String), is_windows : bool, is_macos : bool) -> ArrayList(String)
+  fn(imm(registered) : ArrayList(String), is_windows : bool, is_macos : bool) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
   if(is_windows, {
@@ -113,7 +113,7 @@ ordered_c_includes :: (
 /// Emit C include headers (platform feature macros, the collected includes
 /// with platform-incompatible headers filtered out, platform-specific file-op
 /// includes, and the allocator compatibility layer).
-emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
+emit_c_includes :: (fn(imm(context) : CodeGenContext) -> unit)({
   is_windows := is_target_windows(context.target_info);
   is_macos := is_target_macos(context.target_info);
   // Emit platform-specific feature macros.

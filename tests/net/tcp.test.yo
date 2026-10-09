@@ -446,14 +446,14 @@ test("client reads to EOF after the server closes, twice on one listener", {
 // to connect. Every pre-existing TCP test connected first and accepted
 // second, which is why nothing caught it until a server was spawned first.
 // ---------------------------------------------------------------------------
-_d6_ends_headers :: (fn(b : ArrayList(u8)) -> bool)({
+_d6_ends_headers :: (fn(imm(b) : ArrayList(u8)) -> bool)({
   n := b.len();
   cond(
     (n < usize(4)) => false,
     true => ((b(n - usize(4)) == u8(13)) && (b(n - usize(3)) == u8(10)) && ((b(n - usize(2)) == u8(13)) && (b(n - usize(1)) == u8(10))))
   )
 });
-_d6_read_headers :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
+_d6_read_headers :: (fn(imm(stream) : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
@@ -478,7 +478,7 @@ _d6_read_headers :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoEx
   })
 );
 _d6_scripted_server :: (
-  fn(listener : TcpListener, rounds : usize, seen : Rc(ArrayList(String)), io : Io) -> Impl(Future(unit, IoExn))
+  fn(imm(listener) : TcpListener, rounds : usize, imm(seen) : Rc(ArrayList(String)), io : Io) -> Impl(Future(unit, IoExn))
 )(
   io.async(e => {
     k := usize(0);
@@ -745,7 +745,7 @@ test("connecting to a non-routable address does not park the event loop", {
 // killed the whole process, so any std server could be taken down by a client
 // that disconnected mid-response
 // (issues/fixed/a-std-net-stream-write-to-a-closed-peer-kills-the-process-with-sigpipe.md).
-_tcp_write_until_error :: (fn(s : TcpStream, io : Io) -> bool)({
+_tcp_write_until_error :: (fn(imm(s) : TcpStream, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {

@@ -69,14 +69,14 @@ SuspensionPointDetector :: ref(
     /// inside this closure by the caller; see the Phase 2m/2n implementation notes.
     detect : Dyn(
       Fn(
-        expr : AstExpr,
-        parent_expr : Option(AstExpr)
+        imm(expr) : AstExpr,
+        imm(parent_expr) : Option(AstExpr)
       ) -> ArrayList(SuspensionPoint)
     ),
     /// Return true if this FnCall expression's body should be skipped
     /// (no recursion into func/args). Used for nested async blocks that
     /// have their own analysis. Deferred dup expressions are still walked.
-    should_skip_body : Dyn(Fn(expr : AstExpr) -> bool),
+    should_skip_body : Dyn(Fn(imm(expr) : AstExpr) -> bool),
     /// Walk EVERY macro call through its expansion, not only `if`: the async
     /// lowering generates the expansion, so an await that only a user macro
     /// contains is a suspension point like any other
@@ -92,8 +92,8 @@ SuspensionPointDetector :: ref(
 /// Shared by both async and effect suspension point detection.
 extract_target_variable_id :: (
   fn(
-    parent_expr : Option(AstExpr),
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(parent_expr) : Option(AstExpr),
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> Option(String)
 )({
   pe := match(
@@ -202,14 +202,14 @@ extract_target_variable_id :: (
 _capture_env_variable :: (
   fn(
     key : ExprId,
-    var_name : String,
-    env : Environment,
-    ty_override : Option(TypeValue),
+    imm(var_name) : String,
+    imm(env) : Environment,
+    imm(ty_override) : Option(TypeValue),
     pattern_binding : bool,
-    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
-    inout(captured_variable_ids_in_order) : ArrayList(String),
-    inout(name_frame_to_original_id) : HashMap(String, String),
-    inout(variable_id_remapping) : HashMap(String, String)
+    mut(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    mut(captured_variable_ids_in_order) : ArrayList(String),
+    mut(name_frame_to_original_id) : HashMap(String, String),
+    mut(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )({
   // A MODULE-LEVEL global is not a local and must never be hoisted into the
@@ -361,12 +361,12 @@ _capture_env_variable :: (
 /// elsewhere, so the declaration-site test skips it).
 _capture_pattern_bindings :: (
   fn(
-    pat : AstExpr,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
-    inout(captured_variable_ids_in_order) : ArrayList(String),
-    inout(name_frame_to_original_id) : HashMap(String, String),
-    inout(variable_id_remapping) : HashMap(String, String)
+    imm(pat) : AstExpr,
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo)),
+    mut(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    mut(captured_variable_ids_in_order) : ArrayList(String),
+    mut(name_frame_to_original_id) : HashMap(String, String),
+    mut(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )(
   match(
@@ -407,7 +407,7 @@ _capture_pattern_bindings :: (
 /// codegen/exprs/generation.yo), since a later argument suspended after its
 /// C local was set. Names are unique in a program.
 (g_arg_temps_across_suspension : HashSet(String)) = HashSet(String).new();
-is_arg_temp_across_suspension :: (fn(name : String) -> bool)(
+is_arg_temp_across_suspension :: (fn(imm(name) : String) -> bool)(
   g_arg_temps_across_suspension.contains(name)
 );
 /// Capture the temp an argument's value is held in (a labeled argument
@@ -417,13 +417,13 @@ is_arg_temp_across_suspension :: (fn(name : String) -> bool)(
 /// A named variable is captured by its atom; only a minted temp needs this.
 _capture_argument_temp :: (
   fn(
-    arg : AstExpr,
-    call : AstExpr,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
-    inout(captured_variable_ids_in_order) : ArrayList(String),
-    inout(name_frame_to_original_id) : HashMap(String, String),
-    inout(variable_id_remapping) : HashMap(String, String)
+    imm(arg) : AstExpr,
+    imm(call) : AstExpr,
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo)),
+    mut(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    mut(captured_variable_ids_in_order) : ArrayList(String),
+    mut(name_frame_to_original_id) : HashMap(String, String),
+    mut(variable_id_remapping) : HashMap(String, String)
   ) -> unit
 )({
   value := match(
@@ -459,15 +459,15 @@ _capture_argument_temp :: (
 /// support mutual `recur` across two top-level functions).
 walk_expr_ :: (
   fn(
-    expr : AstExpr,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    inout(points) : ArrayList(SuspensionPoint),
-    inout(captured_variables) : HashMap(String, SuspensionCapturedVariable),
-    inout(captured_variable_ids_in_order) : ArrayList(String),
-    inout(name_frame_to_original_id) : HashMap(String, String),
-    inout(variable_id_remapping) : HashMap(String, String),
-    detector : SuspensionPointDetector,
-    parent_expr : Option(AstExpr)
+    imm(expr) : AstExpr,
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo)),
+    mut(points) : ArrayList(SuspensionPoint),
+    mut(captured_variables) : HashMap(String, SuspensionCapturedVariable),
+    mut(captured_variable_ids_in_order) : ArrayList(String),
+    mut(name_frame_to_original_id) : HashMap(String, String),
+    mut(variable_id_remapping) : HashMap(String, String),
+    imm(detector) : SuspensionPointDetector,
+    imm(parent_expr) : Option(AstExpr)
   ) -> unit
 )({
   // Clone expr before match because match consumes the value.
@@ -987,9 +987,9 @@ walk_expr_ :: (
 /// Takes `get_info`: the per-expression evaluation annotation lookup.
 analyze_suspension_points :: (
   fn(
-    body : AstExpr,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo)),
-    detector : SuspensionPointDetector
+    imm(body) : AstExpr,
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo)),
+    imm(detector) : SuspensionPointDetector
   ) -> SuspensionAnalysisResult
 )({
   suspension_points := ArrayList(SuspensionPoint).new();

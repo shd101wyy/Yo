@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-_visited_contains :: (fn(visited : ArrayList(String), key : String) -> bool)({
+_visited_contains :: (fn(imm(visited) : ArrayList(String), imm(key) : String) -> bool)({
   i := usize(0);
   n := visited.len();
   while(i < n, {
@@ -39,7 +39,7 @@ _visited_contains :: (fn(visited : ArrayList(String), key : String) -> bool)({
   });
   false
 });
-_is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
+_is_in_used :: (fn(imm(used) : ArrayList(usize), idx : usize) -> bool)({
   i := usize(0);
   n := used.len();
   while(i < n, {
@@ -54,7 +54,7 @@ _is_in_used :: (fn(used : ArrayList(usize), idx : usize) -> bool)({
 /// Does the bound `req` mention the SomeT `self_var` (same name and frame
 /// level)? Looks inside a trait's member types and an Fn trait's signature,
 /// which `get_all_some_types` does not enter.
-_bound_mentions_some :: (fn(req : TypeValue, self_var : TypeValue) -> bool)({
+_bound_mentions_some :: (fn(imm(req) : TypeValue, imm(self_var) : TypeValue) -> bool)({
   (sv_n, sv_l) := match(self_var, .SomeT({ name : n, frame_level : l }) => (n, l), _ => (String.new(), usize(0)));
   if(sv_n.len() == usize(0), {
     return(false);
@@ -107,7 +107,7 @@ _bound_mentions_some :: (fn(req : TypeValue, self_var : TypeValue) -> bool)({
 /// by its init block. Routed through a fn-pointer slot because compatibility.yo
 /// (types/) cannot import evaluator/ modules (trait_checking.yo imports THIS
 /// file). Used by the concrete-vs-constrained-SomeT rule in `_compat_impl`.
-CompatImplementsTraitFn :: (fn(t : TypeValue, trait_type : TypeValue) -> bool);
+CompatImplementsTraitFn :: (fn(imm(t) : TypeValue, imm(trait_type) : TypeValue) -> bool);
 (g_compat_type_implements_trait_fn : Option(CompatImplementsTraitFn)) =
   Option(CompatImplementsTraitFn).None;
 set_compat_type_implements_trait_fn :: (fn(f : CompatImplementsTraitFn) -> unit)({
@@ -123,7 +123,7 @@ set_compat_type_implements_trait_fn :: (fn(f : CompatImplementsTraitFn) -> unit)
 /// name+frame-level rule, else a genuinely different instantiation could be
 /// accepted. Non-carrier constraints (plain TraitT) carry no arguments and
 /// are compared by the pairwise recursion itself.
-_wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
+_wrapper_carrier_args_concrete :: (fn(imm(rtts) : ArrayList(TypeValue)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < rtts.len()) && ok, {
@@ -186,7 +186,7 @@ _wrapper_carrier_args_concrete :: (fn(rtts : ArrayList(TypeValue)) -> bool)({
 /// anywhere else (the cache-identity collisions the file's comments record).
 AlphaPair :: struct(a_name : String, a_level : usize, e_name : String, e_level : usize);
 (g_alpha_pairs : ArrayList(AlphaPair)) = ArrayList(AlphaPair).new();
-_alpha_pair_active :: (fn(a_name : String, a_level : usize, e_name : String, e_level : usize) -> bool)({
+_alpha_pair_active :: (fn(imm(a_name) : String, a_level : usize, imm(e_name) : String, e_level : usize) -> bool)({
   (i : usize) = g_alpha_pairs.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -201,7 +201,7 @@ _alpha_pair_active :: (fn(a_name : String, a_level : usize, e_name : String, e_l
   false
 });
 /// The frame level of the first SomeT named `label` among `types`.
-_binder_level :: (fn(types : ArrayList(TypeValue), label : String) -> Option(usize))({
+_binder_level :: (fn(imm(types) : ArrayList(TypeValue), imm(label) : String) -> Option(usize))({
   (i : usize) = usize(0);
   while(i < types.len(), {
     t := match(types.get(i), .Some(x) => x, .None => TypeValue.Unit);
@@ -225,7 +225,7 @@ _binder_level :: (fn(types : ArrayList(TypeValue), label : String) -> Option(usi
 });
 /// Push the binder correspondence of an (actual, expected) `Func` pair;
 /// returns how many pairs were pushed (the caller pops that many).
-_push_alpha_pairs :: (fn(a_labels : ArrayList(String), a_types : ArrayList(TypeValue), e_labels : ArrayList(String), e_types : ArrayList(TypeValue)) -> usize)({
+_push_alpha_pairs :: (fn(imm(a_labels) : ArrayList(String), imm(a_types) : ArrayList(TypeValue), imm(e_labels) : ArrayList(String), imm(e_types) : ArrayList(TypeValue)) -> usize)({
   if(a_labels.len() != e_labels.len(), {
     return(usize(0));
   });
@@ -256,7 +256,7 @@ _pop_alpha_pairs :: (fn(n : usize) -> unit)({
   });
 });
 /// `t` was an empty-field struct shell and `resolved` is its populated final.
-_is_resolved_shell :: (fn(t : TypeValue, resolved : TypeValue) -> bool)(
+_is_resolved_shell :: (fn(imm(t) : TypeValue, imm(resolved) : TypeValue) -> bool)(
   match(
     t,
     .Struct({ field_types : tfts }) => (
@@ -286,7 +286,7 @@ _exact_mode :: (fn(mode : _CompatMode) -> _CompatMode)(
 );
 /// The `Future(...)` requirement `t` carries: itself, or the first one in a
 /// SomeT's required traits.
-_future_trait_of :: (fn(t : TypeValue) -> Option(TypeValue))(
+_future_trait_of :: (fn(imm(t) : TypeValue) -> Option(TypeValue))(
   match(
     t,
     .FutureTraitT(base_name : _) => Option(TypeValue).Some(t),
@@ -301,7 +301,7 @@ _future_trait_of :: (fn(t : TypeValue) -> Option(TypeValue))(
   )
 );
 /// A SomeT's resolution when it has one, else the type itself.
-_resolved_or_self :: (fn(t : TypeValue) -> TypeValue)(
+_resolved_or_self :: (fn(imm(t) : TypeValue) -> TypeValue)(
   match(
     resolve_cell_chain(t),
     .SomeT({ resolution : r }) => match(r, .Some(x) => resolve_cell_chain(x), .None => resolve_cell_chain(t)),
@@ -313,7 +313,7 @@ _resolved_or_self :: (fn(t : TypeValue) -> TypeValue)(
 /// through `expected` injects nothing, so the body would run against a zeroed
 /// bundle. An unresolved (generic) bundle is not judged here: it is checked
 /// again at the concrete call.
-future_view_drops_a_bundle :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
+future_view_drops_a_bundle :: (fn(imm(actual) : TypeValue, imm(expected) : TypeValue) -> bool)({
   ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
   af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
   e_types := match(ef, .FutureTraitT(effect_types : ets) => ets, _ => ArrayList(TypeValue).new());
@@ -333,10 +333,10 @@ future_view_drops_a_bundle :: (fn(actual : TypeValue, expected : TypeValue) -> b
 });
 _compat_impl :: (
   fn(
-    actual : TypeValue,
-    expected : TypeValue,
+    imm(actual) : TypeValue,
+    imm(expected) : TypeValue,
     mode : _CompatMode,
-    inout(visited) : ArrayList(String)
+    mut(visited) : ArrayList(String)
   ) -> bool
 )({
   require_exact := match(mode, .Flow => false, _ => true);
@@ -1631,7 +1631,7 @@ _compat_impl :: (
 // `refine#N` obligation at the construction/call site, not a unifier
 // decision). Two predicates over the same inner likewise unify as that
 // inner: dispatch keys off the erased type everywhere.
-are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
+are_types_compatible :: (fn(imm(actual) : TypeValue, imm(expected) : TypeValue) -> bool)({
   // The C-scalar → extern-opaque coercion is an INITIALIZATION rule — a C
   // scalar value-initializes an opaque C slot exactly as C does
   // (`atomic(ref(struct((*) : atomic_bool)))(false)` is C's `_Atomic bool`
@@ -1654,16 +1654,16 @@ are_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)({
 /// The identity predicate (plans/reference/TYPE_IDENTITY.md): what caches,
 /// memos and `Type.eq` key by. A SomeT is never identical to a `Dyn` that
 /// merely satisfies its bounds.
-are_types_compatible_exact :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
+are_types_compatible_exact :: (fn(imm(actual) : TypeValue, imm(expected) : TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Identity, ArrayList(String).new())
 );
 /// Flow without representation-changing coercions, the relation a pointee
 /// uses: a `Dyn` satisfies a SomeT's bounds. For a receiver matched against a
 /// method's `*(Self)`.
-are_types_compatible_invariant :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
+are_types_compatible_invariant :: (fn(imm(actual) : TypeValue, imm(expected) : TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Invariant, ArrayList(String).new())
 );
-are_function_types_compatible :: (fn(actual : TypeValue, expected : TypeValue) -> bool)(
+are_function_types_compatible :: (fn(imm(actual) : TypeValue, imm(expected) : TypeValue) -> bool)(
   _compat_impl(t_refine_inner(actual), t_refine_inner(expected), _CompatMode.Flow, ArrayList(String).new())
 );
 export(are_types_compatible, are_types_compatible_exact, are_types_compatible_invariant, are_function_types_compatible, set_compat_type_implements_trait_fn, future_view_drops_a_bundle);

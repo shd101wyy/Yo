@@ -14,8 +14,8 @@ pragma(Pragma.AllowUnsafe);
 { IoExn, Exception } :: import("std/error");
 
 Reader :: trait(
-  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn))),
-  (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
+  read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  (read_to_end : (fn(imm(self) : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
     (
       (self, io) ->
         io.async(e => {
@@ -46,7 +46,7 @@ TenSrc :: ref(struct(pos : u8));
 impl(
   TenSrc,
   Reader(
-    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         (n : usize) = usize(0);
         while((n < size) && (self.pos < u8(10)), {
@@ -60,7 +60,7 @@ impl(
   )
 );
 read_to_end_free :: (
-  fn(generic(R : Type), r : R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
+  fn(generic(R : Type), imm(r) : R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
 )({
   the_r := r;
   io.async(e => {
@@ -99,7 +99,7 @@ impl(
   generic(R : Type),
   where(R <: Reader),
   Wrap(R),
-  fill_once : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+  fill_once : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
       tmp := ArrayList(u8).with_capacity(usize(8));
       tmp.push(u8(0));
@@ -108,7 +108,7 @@ impl(
       n
     })
   ),
-  drain : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+  drain : (fn(imm(self) : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
     io.async(e => {
       out := ArrayList(u8).new();
       chunk := ArrayList(u8).with_capacity(usize(4));
@@ -207,7 +207,7 @@ SmArgProbe :: ref(struct(n : i32));
 impl(
   SmArgProbe,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       g_sm_arg_disposed = (g_sm_arg_disposed + i32(1));
     })
   )

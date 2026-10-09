@@ -64,7 +64,7 @@ impl(
   /// Two leading BACKSLASHES are a Windows UNC share: the `\\server\share`
   /// root is kept whole in `_prefix`. `//a/b` is NOT a UNC path — on POSIX
   /// that is an ordinary root with a redundant separator.
-  new : (fn(path_str : String) -> Self)({
+  new : (fn(imm(path_str) : String) -> Self)({
     segments := ArrayList(String).new();
     (prefix : String) = String.new();
     (is_abs : bool) = false;
@@ -173,10 +173,10 @@ impl(
   /// `other`'s components are APPENDED, `..` included: `"a/b".join("../c")`
   /// is `a/b/../c`, matching what `Path.new("a/b/../c")` records. Call
   /// `normalize()` on the result for the lexical fold.
-  join : (fn(generic(P : Type), self : Self, other : P, where(P <: ToString)) -> Self)(
+  join : (fn(generic(P : Type), imm(self) : Self, imm(other) : P, where(P <: ToString)) -> Self)(
     self._join_path(Path.new(other.to_string()))
   ),
-  _join_path : (fn(self : Self, other : Self) -> Self)({
+  _join_path : (fn(imm(self) : Self, imm(other) : Self) -> Self)({
     // If other is absolute, return other
     cond(
       other._is_absolute => {
@@ -224,7 +224,7 @@ impl(
   /// it to pop, and dropping it is what silently turned an escaping path into
   /// a non-escaping one. On an ABSOLUTE path it folds away, because `/..` is
   /// `/`; a drive or UNC root (`_prefix`) is never popped either.
-  normalize : (fn(self : Self) -> Self)({
+  normalize : (fn(imm(self) : Self) -> Self)({
     out := ArrayList(String).with_capacity(self._segments.len());
     dotdot := String.from("..");
     i := usize(0);
@@ -260,7 +260,7 @@ impl(
     return(Self(_prefix : self._prefix.clone(), _segments : out, _is_absolute : self._is_absolute));
   }),
   /// Get the parent directory path, or `.None` if there are no segments.
-  parent : (fn(self : Self) -> Option(Self))({
+  parent : (fn(imm(self) : Self) -> Option(Self))({
     cond(
       (self._segments.len() == usize(0)) => {
         return(.None);
@@ -282,7 +282,7 @@ impl(
     return(.Some(Self(_prefix : self._prefix.clone(), _segments : new_segments, _is_absolute : self._is_absolute)));
   }),
   /// Get the last path segment (filename), or `.None` for empty paths.
-  file_name : (fn(self : Self) -> Option(String))({
+  file_name : (fn(imm(self) : Self) -> Option(String))({
     cond(
       (self._segments.len() == usize(0)) => {
         return(.None);
@@ -292,7 +292,7 @@ impl(
     return(self._segments.last());
   }),
   /// Get the filename without its extension, or `.None` for empty paths.
-  file_stem : (fn(self : Self) -> Option(String))({
+  file_stem : (fn(imm(self) : Self) -> Option(String))({
     name_opt := self.file_name();
     match(
       name_opt,
@@ -319,7 +319,7 @@ impl(
     );
   }),
   /// Get the file extension (without the dot), or `.None` if there is none.
-  extension : (fn(self : Self) -> Option(String))({
+  extension : (fn(imm(self) : Self) -> Option(String))({
     name_opt := self.file_name();
     match(
       name_opt,
@@ -353,7 +353,7 @@ impl(
     );
   }),
   /// Return a new path with the extension replaced by `ext`.
-  with_extension : (fn(self : Self, ext : String) -> Self)({
+  with_extension : (fn(imm(self) : Self, imm(ext) : String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
         return(self);
@@ -390,7 +390,7 @@ impl(
     );
   }),
   /// Return a new path with the last segment replaced by `name`.
-  with_file_name : (fn(self : Self, name : String) -> Self)({
+  with_file_name : (fn(imm(self) : Self, imm(name) : String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
         // Empty path, just return a new path with the name
@@ -417,7 +417,7 @@ impl(
     return(Self(_prefix : self._prefix.clone(), _segments : new_segments, _is_absolute : self._is_absolute));
   }),
   /// Check if this path starts with the given base path (segment-wise).
-  starts_with : (fn(self : Self, base : Self) -> bool)({
+  starts_with : (fn(imm(self) : Self, imm(base) : Self) -> bool)({
     // Absolute vs relative mismatch, or a different root (drive / UNC share)
     cond(
       (self._is_absolute != base._is_absolute) => {
@@ -467,7 +467,7 @@ impl(
     return(true);
   }),
   /// Check if this path ends with the given suffix path (segment-wise).
-  ends_with : (fn(self : Self, suffix : Self) -> bool)({
+  ends_with : (fn(imm(self) : Self, imm(suffix) : Self) -> bool)({
     // Suffix has more segments than self
     cond(
       (suffix._segments.len() > self._segments.len()) => {
@@ -533,7 +533,7 @@ impl(
   /// Get all path components as a list. The first component is the ROOT when
   /// there is one: the drive / UNC share for a prefixed path, `"/"` for a
   /// plain absolute path, nothing for a relative one.
-  components : (fn(self : Self) -> ArrayList(String))({
+  components : (fn(imm(self) : Self) -> ArrayList(String))({
     result := ArrayList(String).with_capacity(self._segments.len() + usize(1));
     // Add the root component: the drive / UNC share when there is one (it IS
     // the root), otherwise `/` for a plain absolute path.
@@ -561,11 +561,11 @@ impl(
     return(result);
   }),
   /// Check if the path is absolute.
-  is_absolute : (fn(self : Self) -> bool)(
+  is_absolute : (fn(imm(self) : Self) -> bool)(
     self._is_absolute
   ),
   /// Check if the path is relative (not absolute).
-  is_relative : (fn(self : Self) -> bool)(
+  is_relative : (fn(imm(self) : Self) -> bool)(
     !self._is_absolute
   ),
   /// The remainder of `self` after `base`, as a relative path — Rust's
@@ -574,7 +574,7 @@ impl(
   /// `.`). For "how do I get from `base` to `self`", `..` segments and all,
   /// use `relative_to` — node's `path.relative`, which is what this method
   /// used to do (issues/fixed/path-strip-prefix-was-nodes-relative.md).
-  strip_prefix : (fn(self : Self, base : Self) -> Option(Self))({
+  strip_prefix : (fn(imm(self) : Self, imm(base) : Self) -> Option(Self))({
     cond(
       !self.starts_with(base) => {
         return(.None);
@@ -605,7 +605,7 @@ impl(
   /// `self` differ in absoluteness there is no common root to walk from, so
   /// `self` is returned unchanged (node resolves both against the cwd first;
   /// this has no cwd to resolve against).
-  relative_to : (fn(self : Self, base : Self) -> Self)({
+  relative_to : (fn(imm(self) : Self, imm(base) : Self) -> Self)({
     cond(
       (self._is_absolute != base._is_absolute) => {
         return(self);
@@ -776,7 +776,7 @@ impl(
 impl(
   Path,
   Clone(
-    clone : (fn(inout(self) : Self) -> Self)({
+    clone : (fn(mut(self) : Self) -> Self)({
       segments := ArrayList(String).with_capacity(self._segments.len());
       (n : usize) = self._segments.len();
       (i : usize) = usize(0);
@@ -800,7 +800,7 @@ impl(
 impl(
   Path,
   Hash(
-    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)({
       hasher.write_u8(if(self._is_absolute, u8(1), u8(0)));
       match(
         self._prefix.ptr(),
@@ -837,16 +837,16 @@ impl(
 impl(
   Path,
   Ord(Path)(
-    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       lhs.to_string() < rhs.to_string()
     ),
-    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       lhs.to_string() <= rhs.to_string()
     ),
-    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       lhs.to_string() > rhs.to_string()
     ),
-    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       lhs.to_string() >= rhs.to_string()
     )
   )
@@ -857,7 +857,7 @@ impl(
 /// `other` is appended rather than folded, exactly like `join`.
 impl(
   Path,
-  push : (fn(generic(P : Type), inout(self) : Self, other : P, where(P <: ToString)) -> unit)({
+  push : (fn(generic(P : Type), mut(self) : Self, imm(other) : P, where(P <: ToString)) -> unit)({
     joined := self._join_path(Path.new(other.to_string()));
     self._segments.clear();
     _e := self._segments.extend(joined._segments);
@@ -871,7 +871,7 @@ impl(
 /// walker-style). `"a/b/c"` → `a/b/c`, `a/b`, `a`; `/x` → `/x`, `/`.
 impl(
   Path,
-  ancestors : (fn(self : Self) -> ArrayList(Self))({
+  ancestors : (fn(imm(self) : Self) -> ArrayList(Self))({
     out := ArrayList(Self).new();
     cur := self.clone();
     out.push(cur.clone());
@@ -918,7 +918,7 @@ export(Path);
 // ============================================================================
 /// Split a `PATH`-style string (`"/usr/bin:/bin"` on Unix, `;`-separated on
 /// Windows) into its `Path` components. Empty segments are dropped.
-split_paths :: (fn(s : String) -> ArrayList(Path))({
+split_paths :: (fn(imm(s) : String) -> ArrayList(Path))({
   parts := s.split(rune(u32(PATH_DELIMITER)));
   out := ArrayList(Path).new();
   i := usize(0);
@@ -934,7 +934,7 @@ split_paths :: (fn(s : String) -> ArrayList(Path))({
   out
 });
 /// Join paths back into a `PATH`-style string with the platform delimiter.
-join_paths :: (fn(paths : ArrayList(Path)) -> String)({
+join_paths :: (fn(imm(paths) : ArrayList(Path)) -> String)({
   out := String.new();
   i := usize(0);
   while(i < paths.len(), i = (i + usize(1)), {

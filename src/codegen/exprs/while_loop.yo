@@ -15,17 +15,17 @@
 { is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
 { expr_info_consumed_variable_drop_expressions, expr_info_comptime_unrolled_bodies } :: import("../../expr_info.yo");
 /// Emit `<indent><text>` + newline.
-_emit_line :: (fn(em : Emitter, indent : String, text : String) -> unit)({
+_emit_line :: (fn(imm(em) : Emitter, imm(indent) : String, imm(text) : String) -> unit)({
   line := indent.clone();
   line.push_string(text);
   em.emit_string_line(line);
 });
 /// Args of a FnCall (empty for an Atom).
-_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Strip a `comptime(x)` wrapper (evaluator-only) down to `x`.
-_strip_comptime :: (fn(e : AstExpr) -> AstExpr)(
+_strip_comptime :: (fn(imm(e) : AstExpr) -> AstExpr)(
   if(ast_expr_is_fn_call_of(e, BK_COMPTIME, .Some(usize(1))), match(_args(e).get(usize(0)), .Some(inner) => inner, .None => e), e)
 );
 /// Generate the step expression of a 3-arg while: `lhs = rhs` (single), a
@@ -38,7 +38,7 @@ _strip_comptime :: (fn(e : AstExpr) -> AstExpr)(
 /// statements, comma-joined, dropped every other statement, and a later
 /// `i = t` then read a `t` that was never declared
 /// (issues/fixed/a-begin-block-step-in-a-three-argument-while-reads-an-undeclared-local.md).
-generate_step_expression :: (fn(step_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+generate_step_expression :: (fn(imm(step_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
   cond(
     ast_expr_is_fn_call_of(step_expr, BK_BEGIN, .None) => {
       em := context.base.emitter;
@@ -62,7 +62,7 @@ generate_step_expression :: (fn(step_expr : AstExpr, indent : String, context : 
   )
 );
 /// Concatenate `current` then `prev` (cloned) into a fresh drop list.
-_concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+_concat_drops :: (fn(imm(current) : Option(ArrayList(AstExpr)), imm(prev) : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   match(
     current,
@@ -105,7 +105,7 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// Emit a loop body. begin blocks emit their statements directly (with
 /// pending-drop bookkeeping for early-exit drops); other expressions emit
 /// normally.
-generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
+generate_loop_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)(
   cond(
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN, .None) => {
       ei_opt := context.base.get_expr_info(body_expr);
@@ -240,7 +240,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
   )
 );
 /// Generate C for a while-loop expression.
-generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_while_loop :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
   // Comptime-unrolled loop: emit bodies sequentially, no C loop.
   match(

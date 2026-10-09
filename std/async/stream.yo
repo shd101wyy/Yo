@@ -115,7 +115,7 @@ Stream :: trait(
   /// Yield the next item, or `.None` once the stream is finished.
   next :
     (
-      fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io))
+      fn(imm(self) : Self, io : Io) -> Impl(Future(Option(Self.Item), Io))
     )
 );
 export(Stream);
@@ -128,11 +128,11 @@ StreamMap :: (fn(comptime(S) : Type, comptime(B) : Type, comptime(F) : Type) -> 
 );
 impl(
   generic(S : Type, A : Type, B : Type, F : Type),
-  where(S <: Stream(Item := A), F <: (Fn(item : A) -> B)),
+  where(S <: Stream(Item := A), F <: (Fn(imm(item) : A) -> B)),
   StreamMap(S, B, F),
   Stream(
     Item : B,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(B), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(B), Io)))(
       io.async((io : Io) => {
         nx := io.await(self._inner.next(io), io);
         match(
@@ -156,11 +156,11 @@ StreamFilter :: (fn(comptime(S) : Type, comptime(F) : Type) -> comptime(Type))(
 );
 impl(
   generic(S : Type, A : Type, F : Type),
-  where(S <: Stream(Item := A), F <: (Fn(item : A) -> bool)),
+  where(S <: Stream(Item := A), F <: (Fn(imm(item) : A) -> bool)),
   StreamFilter(S, F),
   Stream(
     Item : A,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(A), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(A), Io)))(
       io.async((io : Io) => {
         (out : Option(A)) = Option(A).None;
         (searching : bool) = true;
@@ -196,11 +196,11 @@ StreamFilterMap :: (fn(comptime(S) : Type, comptime(B) : Type, comptime(F) : Typ
 );
 impl(
   generic(S : Type, A : Type, B : Type, F : Type),
-  where(S <: Stream(Item := A), F <: (Fn(item : A) -> Option(B))),
+  where(S <: Stream(Item := A), F <: (Fn(imm(item) : A) -> Option(B))),
   StreamFilterMap(S, B, F),
   Stream(
     Item : B,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(B), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(B), Io)))(
       io.async((io : Io) => {
         (out : Option(B)) = Option(B).None;
         (searching : bool) = true;
@@ -240,7 +240,7 @@ impl(
   StreamTake(S),
   Stream(
     Item : A,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(A), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(A), Io)))(
       io.async((io : Io) => {
         (out : Option(A)) = Option(A).None;
         if(self._remaining > usize(0), {
@@ -272,7 +272,7 @@ impl(
   StreamSkip(S),
   Stream(
     Item : A,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(A), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(A), Io)))(
       io.async((io : Io) => {
         (out : Option(A)) = Option(A).None;
         (pulling : bool) = true;
@@ -314,9 +314,9 @@ impl(
   map : (
     fn(
       generic(A : Type, B : Type, F : Type),
-      self : Self,
-      f : F,
-      where(Self <: Stream(Item := A), F <: (Fn(item : A) -> B))
+      imm(self) : Self,
+      imm(f) : F,
+      where(Self <: Stream(Item := A), F <: (Fn(imm(item) : A) -> B))
     ) -> StreamMap(Self, B, F)
   )(
     StreamMap(Self, B, F)(_inner : self, _f : f)
@@ -325,9 +325,9 @@ impl(
   filter : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
-      f : F,
-      where(Self <: Stream(Item := A), F <: (Fn(item : A) -> bool))
+      imm(self) : Self,
+      imm(f) : F,
+      where(Self <: Stream(Item := A), F <: (Fn(imm(item) : A) -> bool))
     ) -> StreamFilter(Self, F)
   )(
     StreamFilter(Self, F)(_inner : self, _f : f)
@@ -337,9 +337,9 @@ impl(
   filter_map : (
     fn(
       generic(A : Type, B : Type, F : Type),
-      self : Self,
-      f : F,
-      where(Self <: Stream(Item := A), F <: (Fn(item : A) -> Option(B)))
+      imm(self) : Self,
+      imm(f) : F,
+      where(Self <: Stream(Item := A), F <: (Fn(imm(item) : A) -> Option(B)))
     ) -> StreamFilterMap(Self, B, F)
   )(
     StreamFilterMap(Self, B, F)(_inner : self, _f : f)
@@ -348,7 +348,7 @@ impl(
   take : (
     fn(
       generic(A : Type),
-      self : Self,
+      imm(self) : Self,
       n : usize,
       where(Self <: Stream(Item := A))
     ) -> StreamTake(Self)
@@ -359,7 +359,7 @@ impl(
   skip : (
     fn(
       generic(A : Type),
-      self : Self,
+      imm(self) : Self,
       n : usize,
       where(Self <: Stream(Item := A))
     ) -> StreamSkip(Self)
@@ -370,10 +370,10 @@ impl(
   for_each : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
-      f : F,
+      imm(self) : Self,
+      imm(f) : F,
       io : Io,
-      where(Self <: Stream(Item := A), F <: (Fn(item : A) -> unit))
+      where(Self <: Stream(Item := A), F <: (Fn(imm(item) : A) -> unit))
     ) -> Impl(Future(unit, Io))
   )(
     io.async((io : Io) => {
@@ -397,7 +397,7 @@ impl(
   collect : (
     fn(
       generic(A : Type),
-      self : Self,
+      imm(self) : Self,
       io : Io,
       where(Self <: Stream(Item := A))
     ) -> Impl(Future(ArrayList(A), Io))

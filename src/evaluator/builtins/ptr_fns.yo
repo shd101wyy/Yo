@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { Exception } :: import("std/error");
 /// A fresh single-element PtrVal cell.
-_cell1 :: (fn(v : EvalValue) -> ArrayList(EvalValue))({
+_cell1 :: (fn(imm(v) : EvalValue) -> ArrayList(EvalValue))({
   c := ArrayList(EvalValue).new();
   c.push(v);
   c
@@ -44,7 +44,7 @@ _cell1 :: (fn(v : EvalValue) -> ArrayList(EvalValue))({
 // The type of the aggregate an element/field place points into: the object
 // of `obj.f`, else the receiver of `a(i)` (the callee, or the first argument
 // of a lowered index builtin) — whichever is an array, struct or tuple.
-_aggregate_type_of :: (fn(place : AstExpr, ctx : EvalContext) -> Option(TypeValue))(
+_aggregate_type_of :: (fn(imm(place) : AstExpr, imm(ctx) : EvalContext) -> Option(TypeValue))(
   match(
     place,
     .FnCall(_, callee, args, _, _) => {
@@ -71,10 +71,10 @@ _aggregate_type_of :: (fn(place : AstExpr, ctx : EvalContext) -> Option(TypeValu
 );
 evaluate_address_call :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   args := match(

@@ -287,7 +287,7 @@ impl(
   ///
   /// Exact for negative years too — it is the era-based inverse of
   /// `from_unix`, not a loop.
-  to_unix : (fn(inout(self) : Self) -> i64)({
+  to_unix : (fn(mut(self) : Self) -> i64)({
     days := _days_from_civil(i64(self.year), i64(self.month), i64(self.day));
     time_secs := ((i64(self.hour) * i64(3600)) + (i64(self.minute) * i64(60)) + i64(self.second));
     (days * i64(86400)) + time_secs
@@ -295,7 +295,7 @@ impl(
   /// Whether `year` is a leap year under the proleptic Gregorian rule
   /// (divisible by 4, except centuries not divisible by 400) — so year 0 and
   /// year 2000 are leap years and 1900 is not.
-  is_leap_year : (fn(inout(self) : Self) -> bool)(
+  is_leap_year : (fn(mut(self) : Self) -> bool)(
     _is_leap_year(self.year)
   ),
   /// Day of the week as ISO 8601 numbers the days: `0` = Monday through
@@ -311,14 +311,14 @@ impl(
   /// ISO index 3, hence the `+ 3`; the `+ 7` before the second `%` is what
   /// makes the result non-negative, since C's `%` keeps the sign of its
   /// dividend and every pre-epoch date has a negative day count.
-  day_of_week : (fn(inout(self) : Self) -> u8)({
+  day_of_week : (fn(mut(self) : Self) -> u8)({
     days := _days_from_civil(i64(self.year), i64(self.month), i64(self.day));
     u8((((days + i64(3)) % i64(7)) + i64(7)) % i64(7))
   }),
   /// Day of the year, 1-based: `1` on 1 January and `365` (`366` in a leap
   /// year) on 31 December. Leap-aware, and correct for negative years, unlike
   /// `day_of_week` — it only sums month lengths.
-  day_of_year : (fn(inout(self) : Self) -> u16)({
+  day_of_year : (fn(mut(self) : Self) -> u16)({
     m := i32(self.month);
     d := i32(self.day);
     // Sum days in preceding months
@@ -341,7 +341,7 @@ impl(
 impl(
   DateTime,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
+    to_string : (fn(mut(self) : Self) -> String)({
       // RFC3339 offset rendering: "Z" only for UTC; a non-zero
       // `utc_offset_secs` renders as ±HH:MM. This used to hardcode "Z" for
       // EVERY value, stringifying offset datetimes as if they were UTC
@@ -469,7 +469,7 @@ _validate :: (fn(dt : DateTime) -> Option(DateTimeError))(
   )
 );
 /// Parse exactly `count` ASCII digits at `at`; .None on any non-digit.
-_digits :: (fn(bs : ArrayList(u8), at : usize, count : usize) -> Option(i64))({
+_digits :: (fn(imm(bs) : ArrayList(u8), at : usize, count : usize) -> Option(i64))({
   (acc : i64) = i64(0);
   (i : usize) = usize(0);
   while(i < count, i = (i + usize(1)), {
@@ -484,7 +484,7 @@ _digits :: (fn(bs : ArrayList(u8), at : usize, count : usize) -> Option(i64))({
   });
   Option(i64).Some(acc)
 });
-_byte_is :: (fn(bs : ArrayList(u8), at : usize, a : u8, b : u8) -> bool)(
+_byte_is :: (fn(imm(bs) : ArrayList(u8), at : usize, a : u8, b : u8) -> bool)(
   match(bs.get(at), .Some(x) => ((x == a) || (x == b)), .None => false)
 );
 impl(
@@ -514,7 +514,7 @@ impl(
   /// Lowercase `t`/`z` are accepted (the RFC permits them); fractional
   /// seconds keep nanosecond precision (digits beyond 9 are truncated);
   /// calendar ranges are validated leap-aware.
-  parse : (fn(text : String) -> Result(DateTime, DateTimeError))({
+  parse : (fn(imm(text) : String) -> Result(DateTime, DateTimeError))({
     bs := text.to_bytes();
     n := bs.len();
     err :: (fn(at : usize) -> Result(DateTime, DateTimeError))(
@@ -588,11 +588,11 @@ impl(
   /// Unix seconds of the INSTANT this value names — unlike `to_unix`, which
   /// reads the wall-clock fields as if they were UTC, this subtracts the
   /// UTC offset. Equal instants at different offsets agree here.
-  to_unix_utc : (fn(inout(self) : Self) -> i64)(
+  to_unix_utc : (fn(mut(self) : Self) -> i64)(
     self.to_unix() - i64(self.utc_offset_secs)
   ),
   /// This value shifted forward by `d` (offset preserved; nanoseconds carry).
-  add : (fn(inout(self) : Self, d : Duration) -> Self)({
+  add : (fn(mut(self) : Self, d : Duration) -> Self)({
     total_nanos := (i64(self.nanosecond) + (d.as_nanos() % i64(1000000000)));
     carry := (total_nanos / i64(1000000000));
     off := self.utc_offset_secs;
@@ -609,7 +609,7 @@ impl(
     )
   }),
   /// This value shifted backward by `d`.
-  sub : (fn(inout(self) : Self, d : Duration) -> Self)({
+  sub : (fn(mut(self) : Self, d : Duration) -> Self)({
     (nanos : i64) = (i64(self.nanosecond) - (d.as_nanos() % i64(1000000000)));
     (borrow : i64) = i64(0);
     cond(

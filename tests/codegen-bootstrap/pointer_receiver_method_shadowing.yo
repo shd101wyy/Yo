@@ -25,11 +25,11 @@ derive(generic(T : Type), where(T <: Copy), MyStruct(T), Copy);
 impl(
   generic(T : Type),
   MyStruct(T),
-  new : (fn(v : T) -> Self)(Self(v)),
-  add : (fn(self : *Self, value : T, where(T <: Add(T))) -> unit)({
+  new : (fn(imm(v) : T) -> Self)(Self(v)),
+  add : (fn(self : *Self, imm(value) : T, where(T <: Add(T))) -> unit)({
     self.value = (self.value + value);
   }),
-  another_add : (fn(self : *Self, value : T, where(T <: Add(T))) -> unit)({
+  another_add : (fn(self : *Self, imm(value) : T, where(T <: Add(T))) -> unit)({
     self.add(value);
   })
 );

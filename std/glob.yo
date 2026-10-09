@@ -33,7 +33,7 @@
 // Index of the `]` closing the class whose body starts at `ci` (just past `[`
 // and any `!` / `^`), or `pb.len()` when the class is unterminated. A `]` in
 // the first position is a literal member, as in POSIX.
-_class_end :: (fn(pb : ArrayList(u8), ci : usize) -> usize)({
+_class_end :: (fn(imm(pb) : ArrayList(u8), ci : usize) -> usize)({
   plen := pb.len();
   (k : usize) = ci;
   cond(
@@ -47,7 +47,7 @@ _class_end :: (fn(pb : ArrayList(u8), ci : usize) -> usize)({
 });
 // Whether byte `t` is a member of the class body `pb(ci .. end)`: single
 // bytes and `lo-hi` ranges; a `-` first or last is literal.
-_class_matches :: (fn(pb : ArrayList(u8), ci : usize, end : usize, t : u8) -> bool)({
+_class_matches :: (fn(imm(pb) : ArrayList(u8), ci : usize, end : usize, t : u8) -> bool)({
   (k : usize) = ci;
   while(k < end, {
     lo := pb(k);
@@ -93,7 +93,7 @@ _class_matches :: (fn(pb : ArrayList(u8), ci : usize, end : usize, t : u8) -> bo
 //
 // `?` and `[…]` match one byte that is not `/`; `[!…]` / `[^…]` negate; an
 // unterminated `[` matches nothing.
-_glob_match_impl :: (fn(pb : ArrayList(u8), pi0 : usize, tb : ArrayList(u8), ti0 : usize) -> bool)({
+_glob_match_impl :: (fn(imm(pb) : ArrayList(u8), pi0 : usize, imm(tb) : ArrayList(u8), ti0 : usize) -> bool)({
   plen := pb.len();
   tlen := tb.len();
   (pi : usize) = pi0;
@@ -217,7 +217,7 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi0 : usize, tb : ArrayList(u8), ti0
 /// costs the same, but is where a compiled representation would go). A run
 /// costs O(|pattern| · |text|) per `**`-free segment; see `_glob_match_impl`
 /// for why only `**` recurses.
-glob_match :: (fn(pattern : String, text : String) -> bool)(
+glob_match :: (fn(imm(pattern) : String, imm(text) : String) -> bool)(
   _glob_match_impl(pattern.to_bytes(), usize(0), text.to_bytes(), usize(0))
 );
 /// Compiled glob pattern that can be matched against strings.
@@ -233,12 +233,12 @@ impl(
   /// It does NOT validate: a malformed pattern (an unterminated `[`) is
   /// accepted here and simply matches nothing later. §4 wants this to become
   /// a `Result`, which is why the module is unstable.
-  new : (fn(pattern : String) -> Self)(
+  new : (fn(imm(pattern) : String) -> Self)(
     Self(_pattern : pattern)
   ),
   /// Whether `text` matches this pattern — identical to `glob_match(p, text)`
   /// and with the same cost, since the pattern is not precompiled.
-  matches : (fn(self : Self, text : String) -> bool)(
+  matches : (fn(imm(self) : Self, imm(text) : String) -> bool)(
     _glob_match_impl(self._pattern.to_bytes(), usize(0), text.to_bytes(), usize(0))
   )
 );

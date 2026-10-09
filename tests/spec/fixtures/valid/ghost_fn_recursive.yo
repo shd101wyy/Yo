@@ -8,7 +8,7 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
 all_pos :: ghost_fn(
-  (fn(xs : ArrayList(i32), n : usize, requires(n <= xs.len()), decreases(n)) -> bool)(
+  (fn(imm(xs) : ArrayList(i32), n : usize, requires(n <= xs.len()), decreases(n)) -> bool)(
     cond(
       (n == usize(0)) => true,
       true => (all_pos(xs, n - usize(1)) && (xs(n - usize(1)) > i32(0)))
@@ -16,7 +16,7 @@ all_pos :: ghost_fn(
   )
 );
 
-check_all :: (fn(xs : ArrayList(i32), ensures(r ==> all_pos(xs, xs.len()))) -> (r : bool))({
+check_all :: (fn(imm(xs) : ArrayList(i32), ensures(r ==> all_pos(xs, xs.len()))) -> (r : bool))({
   (i : usize) = usize(0);
   (ok : bool) = true;
   while(i < xs.len(), {

@@ -92,9 +92,9 @@ pragma(Pragma.AllowUnsafe);
 /// plain C enum constant and also allocates nothing.
 _attach_owned_temp_for_rc_unit_variant :: (
   fn(
-    expr : AstExpr,
-    ty : TypeValue,
-    ctx : EvalContext
+    imm(expr) : AstExpr,
+    imm(ty) : TypeValue,
+    imm(ctx) : EvalContext
   ) -> unit
 )({
   if(!is_reference_enum_type(ty), return(()));
@@ -133,7 +133,7 @@ _attach_owned_temp_for_rc_unit_variant :: (
 /// An instantiation whose index is still a SomeT (a generic body) is not
 /// judged here: `gadt_branch_reachable` treats unresolved positions as a match.
 _reject_gadt_unreachable_variant :: (
-  fn(enum_ty : TypeValue, enum_id : String, variant_idx : usize, variant_name : String, at : AstExpr, exn : Exception) -> unit
+  fn(imm(enum_ty) : TypeValue, imm(enum_id) : String, variant_idx : usize, imm(variant_name) : String, imm(at) : AstExpr, imm(exn) : Exception) -> unit
 )({
   if(!gadt_branch_reachable(enum_id.clone(), variant_idx), {
     idx := match(
@@ -161,7 +161,7 @@ _reject_gadt_unreachable_variant :: (
     );
   });
 });
-find_last_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
+find_last_field_index :: (fn(imm(labels) : ArrayList(String), imm(name) : String) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
@@ -180,7 +180,7 @@ find_last_field_index :: (fn(labels : ArrayList(String), name : String) -> Optio
   result
 });
 /// Return the first index in `labels` where `labels[i] == name`, or `.None`.
-find_first_field_index :: (fn(labels : ArrayList(String), name : String) -> Option(usize))({
+find_first_field_index :: (fn(imm(labels) : ArrayList(String), imm(name) : String) -> Option(usize))({
   n := labels.len();
   (result : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
@@ -205,7 +205,7 @@ find_first_field_index :: (fn(labels : ArrayList(String), name : String) -> Opti
 /// the field and method auto-dereference hooks. Fresh ids; the tokens copy
 /// `at`'s position and module path, so a diagnostic on the synthesized node
 /// still points at the user's access.
-make_deref_expr :: (fn(obj : AstExpr, dot_tok : Token, at : Token) -> AstExpr)({
+make_deref_expr :: (fn(imm(obj) : AstExpr, imm(dot_tok) : Token, imm(at) : Token) -> AstExpr)({
   star_tok := Token(
     kind : TokenKind.Operator,
     value : intern_token_str(String.from("*")),
@@ -222,7 +222,7 @@ make_deref_expr :: (fn(obj : AstExpr, dot_tok : Token, at : Token) -> AstExpr)({
   AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), dot_tok), args, true, dot_tok)
 });
 /// The labels a field read can name on `t`: a struct's, tuple's or union's.
-_field_labels_of :: (fn(t : TypeValue) -> ArrayList(String))(
+_field_labels_of :: (fn(imm(t) : TypeValue) -> ArrayList(String))(
   match(
     t,
     .Tuple(labels, _) => labels,
@@ -235,7 +235,7 @@ _field_labels_of :: (fn(t : TypeValue) -> ArrayList(String))(
 /// whose own fields lack `label`: `.Ok(())` when some payload in the chain
 /// (`t`'s `Target`, its `Target`, …) has a field `label`, else `.Err` with
 /// the innermost payload type reached (for the E0406 message).
-_deref_chain_has_field :: (fn(t : TypeValue, label : String, env : Environment) -> Result(unit, TypeValue))({
+_deref_chain_has_field :: (fn(imm(t) : TypeValue, imm(label) : String, imm(env) : Environment) -> Result(unit, TypeValue))({
   (cur : TypeValue) = t;
   while(runtime(true), {
     match(
@@ -260,9 +260,9 @@ _deref_chain_has_field :: (fn(t : TypeValue, label : String, env : Environment) 
 /// singleton is created.
 build_field_path_collection :: (
   fn(
-    obj_pc : ArrayList(ArrayList(String)),
-    obj_vname : Option(String),
-    prop_name : String
+    imm(obj_pc) : ArrayList(ArrayList(String)),
+    imm(obj_vname) : Option(String),
+    imm(prop_name) : String
   ) -> ArrayList(ArrayList(String))
 )({
   result := ArrayList(ArrayList(String)).new();
@@ -321,7 +321,7 @@ build_field_path_collection :: (
 /// when recorded, else the type's own declaring module. Throws when the
 /// access token's module may not see a private member.
 _reject_private_static_member :: (
-  fn(type_id : String, prop_name : String, type_val_inner : TypeValue, property_expr : AstExpr, exn : Exception) -> unit
+  fn(imm(type_id) : String, imm(prop_name) : String, imm(type_val_inner) : TypeValue, imm(property_expr) : AstExpr, imm(exn) : Exception) -> unit
 )({
   if(!is_private_member_name(prop_name.clone()), {
     return(());
@@ -345,12 +345,12 @@ _reject_private_static_member :: (
 });
 _try_resolve_associated_type :: (
   fn(
-    type_val_inner : TypeValue,
-    prop_name : String,
-    expr : AstExpr,
-    property_expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext
+    imm(type_val_inner) : TypeValue,
+    imm(prop_name) : String,
+    imm(expr) : AstExpr,
+    imm(property_expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext
   ) -> bool
 )({
   // (a) During generic-impl specialization the assoc type may be bound
@@ -433,10 +433,10 @@ _try_resolve_associated_type :: (
 // ---------------------------------------------------------------------------
 evaluate_property_access :: (
   fn(
-    expr : AstExpr,
-    env_in : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env_in) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

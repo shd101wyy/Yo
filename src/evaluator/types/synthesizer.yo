@@ -47,7 +47,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../types/guards.yo");
 /// Runtime numeric (Int/Float of any width) — the lowering targets of
 /// comptime_int / comptime_float at a consuming boundary.
-_is_runtime_numeric :: (fn(t : TypeValue) -> bool)(
+_is_runtime_numeric :: (fn(imm(t) : TypeValue) -> bool)(
   match(t, .Int(_, _) => true, .Float(_) => true, _ => false)
 );
 { TypeTag } :: import("../../types/tags.yo");
@@ -127,14 +127,14 @@ TypePair :: ref(
 /// (issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md).
 _synthesize_phantom_type_args :: (
   fn(
-    exp_tas : ArrayList(TypeValue),
-    giv_tas : ArrayList(TypeValue),
-    flags : ArrayList(bool),
-    ee : Environment,
-    ge : Environment,
-    inout(checked) : ArrayList(TypePair),
-    opts : Option(SynthesizeOptions),
-    exn : Exception
+    imm(exp_tas) : ArrayList(TypeValue),
+    imm(giv_tas) : ArrayList(TypeValue),
+    imm(flags) : ArrayList(bool),
+    imm(ee) : Environment,
+    imm(ge) : Environment,
+    mut(checked) : ArrayList(TypePair),
+    imm(opts) : Option(SynthesizeOptions),
+    imm(exn) : Exception
   ) -> SynthesizeResult
 )({
   (pe : Environment) = ee;
@@ -156,13 +156,13 @@ _synthesize_phantom_type_args :: (
 });
 synthesize_types :: (
   fn(
-    expected_ty : TypeValue,
-    expected_env : Environment,
-    given_ty : TypeValue,
-    given_env : Environment,
-    inout(checked) : ArrayList(TypePair),
-    opts : Option(SynthesizeOptions),
-    exn : Exception
+    imm(expected_ty) : TypeValue,
+    imm(expected_env) : Environment,
+    imm(given_ty) : TypeValue,
+    imm(given_env) : Environment,
+    mut(checked) : ArrayList(TypePair),
+    imm(opts) : Option(SynthesizeOptions),
+    imm(exn) : Exception
   ) -> SynthesizeResult
 )(
   _synthesize_types_impl(expected_ty, expected_env, given_ty, given_env, checked, opts, exn)
@@ -178,7 +178,7 @@ synthesize_types :: (
 /// blows up to O(n²) string-building — the hang seen when routing recursive-
 /// type instantiations through synthesis. The shallow key bounds that cost; it
 /// is identical to the full string for shallow types.)
-synthesis_type_id :: (fn(ty : TypeValue) -> String)(
+synthesis_type_id :: (fn(imm(ty) : TypeValue) -> String)(
   match(
     ty,
     .Struct({ id }) => id,
@@ -189,7 +189,7 @@ synthesis_type_id :: (fn(ty : TypeValue) -> String)(
   )
 );
 /// Check if a `TypePair` is already in the checked-pairs list.
-_has_type_pair :: (fn(pairs : ArrayList(TypePair), exp_id : String, giv_id : String) -> bool)({
+_has_type_pair :: (fn(imm(pairs) : ArrayList(TypePair), imm(exp_id) : String, imm(giv_id) : String) -> bool)({
   n := pairs.len();
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -215,7 +215,7 @@ _has_type_pair :: (fn(pairs : ArrayList(TypePair), exp_id : String, giv_id : Str
 /// binder: an `Impl(...)` annotation wrapper (the reserved name "Impl") and a
 /// nameless dyn-coercion wrapper are bound by synthesis too, but are not
 /// binders, and their name-keyed slots keep their old behaviour.
-_record_bound_some_id :: (fn(bound : Option(Variable), name : String, source_some_id : String, val : EvalValue) -> unit)(
+_record_bound_some_id :: (fn(imm(bound) : Option(Variable), imm(name) : String, imm(source_some_id) : String, imm(val) : EvalValue) -> unit)(
   match(
     bound,
     .Some(bv) => if((source_some_id.len() > usize(0)) && (name.len() > usize(0)) && (name != "Impl") && match(val, .TypeVal(bvt) => !is_some_type(bvt), _ => false), {
@@ -227,13 +227,13 @@ _record_bound_some_id :: (fn(bound : Option(Variable), name : String, source_som
 /// Bind a SomeType variable in `env`: add if not present, update if already present.
 _bind_some_type :: (
   fn(
-    env : Environment,
-    name : String,
-    source_some_id : String,
-    val : EvalValue,
-    ty : TypeValue,
-    tok : Option(Token),
-    exn : Exception
+    imm(env) : Environment,
+    imm(name) : String,
+    imm(source_some_id) : String,
+    imm(val) : EvalValue,
+    imm(ty) : TypeValue,
+    imm(tok) : Option(Token),
+    imm(exn) : Exception
   ) -> unit
 )({
   token := match(tok, .Some(t) => t, .None => synthetic_token(name, env.module_path));
@@ -392,7 +392,7 @@ _bind_some_type :: (
 // canAssignTypeHierarchy
 // ---------------------------------------------------------------------------
 /// Check if a given type hierarchy type can be assigned to an expected one.
-can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> bool)(
+can_assign_type_hierarchy :: (fn(imm(expected) : TypeValue, imm(given) : TypeValue) -> bool)(
   match(
     expected,
     .TypeUni(exp_level) => match(
@@ -409,7 +409,7 @@ can_assign_type_hierarchy :: (fn(expected : TypeValue, given : TypeValue) -> boo
 /// Check if a SomeType (identified by `some_type_id`) occurs anywhere in `ty`.
 /// Prevents infinite types like T = Option(T).
 /// `visited` is a list of type IDs already being checked (prevents cycles).
-_occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeValue, inout(visited) : ArrayList(String), exn : Exception) -> bool)({
+_occurs_check :: (fn(imm(some_type_id) : String, imm(some_type_name) : String, imm(ty) : TypeValue, mut(visited) : ArrayList(String), imm(exn) : Exception) -> bool)({
   ty_id := synthesis_type_id(ty);
   // Prevent infinite recursion on cyclic types
   (found_visited : bool) = false;
@@ -690,7 +690,7 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
 // synthesize_future_effects (private)
 // ---------------------------------------------------------------------------
 /// Extract the token from options (or make a synthetic one).
-opts_token :: (fn(opts : Option(SynthesizeOptions), env : Environment) -> Option(Token))(
+opts_token :: (fn(imm(opts) : Option(SynthesizeOptions), imm(env) : Environment) -> Option(Token))(
   match(opts, .Some(o) => o.token, .None => Option(Token).None)
 );
 /// A flow coercion between two types that carry no SomeTs to bind: there is
@@ -706,7 +706,7 @@ opts_token :: (fn(opts : Option(SynthesizeOptions), env : Environment) -> Option
 ///   `comptime_str`, and a `str` destination lowers it
 ///   (issues/fixed/io-await-of-a-string-literal-task-rejects-its-str-destination.md).
 ///   Never the reverse: a runtime `str` is not a `comptime_str`.
-_flow_coercion_without_binders :: (fn(expected_ty : TypeValue, given_ty : TypeValue, opts : Option(SynthesizeOptions)) -> bool)({
+_flow_coercion_without_binders :: (fn(imm(expected_ty) : TypeValue, imm(given_ty) : TypeValue, imm(opts) : Option(SynthesizeOptions)) -> bool)({
   expected_is_source := match(opts, .Some(o) => o.expected_is_source, .None => false);
   (destination : TypeValue) = if(expected_is_source, given_ty, expected_ty);
   (source : TypeValue) = if(expected_is_source, expected_ty, given_ty);
@@ -719,7 +719,7 @@ _flow_coercion_without_binders :: (fn(expected_ty : TypeValue, given_ty : TypeVa
 /// else a synthetic token — row 0, column 0 of the module — which is all
 /// the synthesizer itself knows. Callers whose errors reach the user pass
 /// the token (issues/fixed/unify-errors-carry-a-synthetic-token-so-editors-show-them-at-0-0.md).
-_anchor :: (fn(tok : Option(Token), fallback_name : String, module_path : String) -> Token)(
+_anchor :: (fn(imm(tok) : Option(Token), imm(fallback_name) : String, imm(module_path) : String) -> Token)(
   match(tok, .Some(t) => t, .None => synthetic_token(fallback_name, module_path))
 );
 /// Synthesize the effect lists of two FutureTraitT types, or the implicit
@@ -728,13 +728,13 @@ _anchor :: (fn(tok : Option(Token), fallback_name : String, module_path : String
 /// (set-based, order-independent), and the pair is synthesized.
 _synthesize_implicit_params :: (
   fn(
-    expected_types : ArrayList(TypeValue),
-    given_types : ArrayList(TypeValue),
-    expected_env : Environment,
-    given_env : Environment,
-    inout(checked) : ArrayList(TypePair),
-    opts : Option(SynthesizeOptions),
-    exn : Exception
+    imm(expected_types) : ArrayList(TypeValue),
+    imm(given_types) : ArrayList(TypeValue),
+    imm(expected_env) : Environment,
+    imm(given_env) : Environment,
+    mut(checked) : ArrayList(TypePair),
+    imm(opts) : Option(SynthesizeOptions),
+    imm(exn) : Exception
   ) -> unit
 )({
   n_giv := given_types.len();
@@ -795,13 +795,13 @@ _synthesize_implicit_params :: (
 /// Synthesize two FnTraitT types.
 _synthesize_fn_traits :: (
   fn(
-    expected_ty : TypeValue,
-    expected_env : Environment,
-    given_ty : TypeValue,
-    given_env : Environment,
-    inout(checked) : ArrayList(TypePair),
-    opts : Option(SynthesizeOptions),
-    exn : Exception
+    imm(expected_ty) : TypeValue,
+    imm(expected_env) : Environment,
+    imm(given_ty) : TypeValue,
+    imm(given_env) : Environment,
+    mut(checked) : ArrayList(TypePair),
+    imm(opts) : Option(SynthesizeOptions),
+    imm(exn) : Exception
   ) -> SynthesizeResult
 )({
   // Either side may be a `Func` rather than an `FnTraitT`: this helper also
@@ -872,13 +872,13 @@ _synthesize_fn_traits :: (
 /// (When `given_ty` is a Func, the FnTraitT's call type is synthesized against it.)
 _synthesize_future_traits :: (
   fn(
-    expected_ty : TypeValue,
-    expected_env : Environment,
-    given_ty : TypeValue,
-    given_env : Environment,
-    inout(checked) : ArrayList(TypePair),
-    opts : Option(SynthesizeOptions),
-    exn : Exception
+    imm(expected_ty) : TypeValue,
+    imm(expected_env) : Environment,
+    imm(given_ty) : TypeValue,
+    imm(given_env) : Environment,
+    mut(checked) : ArrayList(TypePair),
+    imm(opts) : Option(SynthesizeOptions),
+    imm(exn) : Exception
   ) -> SynthesizeResult
 )({
   exp_out := match(expected_ty, .FutureTraitT(_, out, _, _) => out, _ => TypeValue.Unit);
@@ -908,13 +908,13 @@ _synthesize_future_traits :: (
 ///   opts      — optional options (token).
 _synthesize_types_impl :: (
   fn(
-    expected_ty : TypeValue,
-    expected_env : Environment,
-    given_ty : TypeValue,
-    given_env : Environment,
-    inout(checked) : ArrayList(TypePair),
-    opts : Option(SynthesizeOptions),
-    exn : Exception
+    imm(expected_ty) : TypeValue,
+    imm(expected_env) : Environment,
+    imm(given_ty) : TypeValue,
+    imm(given_env) : Environment,
+    mut(checked) : ArrayList(TypePair),
+    imm(opts) : Option(SynthesizeOptions),
+    imm(exn) : Exception
   ) -> SynthesizeResult
 )({
   exp_id := synthesis_type_id(expected_ty);

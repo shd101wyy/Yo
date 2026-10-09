@@ -63,7 +63,7 @@ pragma(Pragma.AllowUnsafe);
 /// The generated body's error code, carried onto the "derive on … failed"
 /// re-raise.
 (g_derive_impl_code : ArrayList(String)) = ArrayList(String).new();
-_flag_derive_impl_err :: (fn(msg : String, code : Option(String)) -> unit)({
+_flag_derive_impl_err :: (fn(imm(msg) : String, imm(code) : Option(String)) -> unit)({
   g_derive_impl_err.clear();
   g_derive_impl_err.push(msg);
   g_derive_impl_code.clear();
@@ -95,7 +95,7 @@ _derive_impl_err_message :: (fn() -> String)(
 /// fault; writing a `derive_rule` was writing blind
 /// (issues/fixed/derive-swallows-the-rule-error.md).
 _derive_eval_guarded :: (
-  fn(step_expr : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
+  fn(imm(step_expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(AstExpr)) -> unit
 )({
   inner_exn := Exception(
     throw : (
@@ -117,7 +117,7 @@ _derive_eval_guarded :: (
 /// lowercase `error: ` that the diagnostic renderer uses, while some throws
 /// carry the capitalized `Error: `. Stripping only one of them left the other
 /// doubled in the message.
-_derive_strip_error_prefix :: (fn(raw_msg : String) -> String)({
+_derive_strip_error_prefix :: (fn(imm(raw_msg) : String) -> String)({
   lower_prefix := String.from("error: ");
   upper_prefix := String.from("Error: ");
   // A coded prefix (`error[E0610]: `) is the third spelling: a swallowed
@@ -145,7 +145,7 @@ _derive_strip_error_prefix :: (fn(raw_msg : String) -> String)({
 // Bind a comptime-only variable
 // (isCompileTimeOnly=true, isOwningTheRcValue=false).
 add_comptime_var :: (
-  fn(env : Environment, name : String, ty : TypeValue, value : EvalValue) -> unit
+  fn(imm(env) : Environment, imm(name) : String, imm(ty) : TypeValue, imm(value) : EvalValue) -> unit
 )({
   _r := add_variable_to_env(
     env,
@@ -166,11 +166,11 @@ add_comptime_var :: (
 // type.
 _derive_bind_opt :: (
   fn(
-    env : Environment,
-    prefix : String,
-    arg_opt : Option(AstExpr),
-    ctx : EvalContext,
-    exn : Exception
+    imm(env) : Environment,
+    imm(prefix) : String,
+    imm(arg_opt) : Option(AstExpr),
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> String
 )({
   var_name := `__derive_opt_${generate_variable_id(env.module_path, prefix.clone())}`;
@@ -210,16 +210,16 @@ _derive_bind_opt :: (
 // ---------------------------------------------------------------------------
 call_registered_derive_rule :: (
   fn(
-    derive_rule_val : EvalValue,
-    derive_rule_ty : TypeValue,
-    target_type : TypeValue,
-    target_type_expr : AstExpr,
-    forall_arg_opt : Option(AstExpr),
-    where_arg_opt : Option(AstExpr),
-    trait_arg_expr : AstExpr,
-    caller_env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(derive_rule_val) : EvalValue,
+    imm(derive_rule_ty) : TypeValue,
+    imm(target_type) : TypeValue,
+    imm(target_type_expr) : AstExpr,
+    imm(forall_arg_opt) : Option(AstExpr),
+    imm(where_arg_opt) : Option(AstExpr),
+    imm(trait_arg_expr) : AstExpr,
+    imm(caller_env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> Environment
 )({
   tok := ast_expr_token(trait_arg_expr);
@@ -418,14 +418,14 @@ call_registered_derive_rule :: (
 // ---------------------------------------------------------------------------
 process_trait_arg :: (
   fn(
-    trait_arg_expr : AstExpr,
-    target_type : TypeValue,
-    target_type_expr : AstExpr,
-    env : Environment,
-    forall_arg_opt : Option(AstExpr),
-    where_arg_opt : Option(AstExpr),
-    ctx : EvalContext,
-    exn : Exception
+    imm(trait_arg_expr) : AstExpr,
+    imm(target_type) : TypeValue,
+    imm(target_type_expr) : AstExpr,
+    imm(env) : Environment,
+    imm(forall_arg_opt) : Option(AstExpr),
+    imm(where_arg_opt) : Option(AstExpr),
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> Environment
 )({
   tok := ast_expr_token(trait_arg_expr);
@@ -499,10 +499,10 @@ process_trait_arg :: (
 (g_derive_eval_err : ArrayList(AnyError)) = ArrayList(AnyError).new();
 _evaluate_derive_guarded :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    inout(out) : ArrayList(AstExpr)
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    mut(out) : ArrayList(AstExpr)
   ) -> unit
 )({
   guard_exn := Exception(
@@ -517,10 +517,10 @@ _evaluate_derive_guarded :: (
 });
 evaluate_derive :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   if(ctx.is_executing && !ctx.is_validating_function_definition, {
@@ -561,10 +561,10 @@ evaluate_derive :: (
 });
 _evaluate_derive_executing :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

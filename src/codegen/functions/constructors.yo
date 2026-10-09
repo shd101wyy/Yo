@@ -21,7 +21,7 @@
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, get_trace_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
-_has_generic_fields :: (fn(fields : ArrayList(RuntimeStructField)) -> bool)({
+_has_generic_fields :: (fn(imm(fields) : ArrayList(RuntimeStructField)) -> bool)({
   n := fields.len();
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -41,7 +41,7 @@ _has_generic_fields :: (fn(fields : ArrayList(RuntimeStructField)) -> bool)({
 /// name? ONE predicate for the prototype pass, both generators and every
 /// child reference a traversal emits, so a reference can never name a function
 /// that was not emitted: a concrete, non-atomic reference struct or enum.
-_traversal_fn_name :: (fn(ty : TypeValue, c_name : String) -> Option(String))(
+_traversal_fn_name :: (fn(imm(ty) : TypeValue, imm(c_name) : String) -> Option(String))(
   cond(
     (is_reference_struct_type(ty) && !is_atomic_reference_struct_type(ty)) => if(_has_generic_fields(get_runtime_struct_fields(ty)), Option(String).None, Option(String).Some(`__yo_traverse_${c_name}`)),
     (is_reference_enum_type(ty) && !is_atomic_reference_enum_type(ty)) => if(type_contains_some_type(ty), Option(String).None, Option(String).Some(`__yo_traverse_${c_name}`)),
@@ -50,7 +50,7 @@ _traversal_fn_name :: (fn(ty : TypeValue, c_name : String) -> Option(String))(
 );
 /// Traversal functions are emitted when the cycle collector needs them OR the
 /// program uses `Iso`, whose uniqueness walk (rule D2) descends through them.
-needs_traversal_functions :: (fn(context : FunctionGenerationContext) -> bool)(
+needs_traversal_functions :: (fn(imm(context) : FunctionGenerationContext) -> bool)(
   context.base.needs_cycle_gc || (context.base.iso_types.len() > usize(0))
 );
 /// The C expression a traversal passes to its visitor as a managed child's own
@@ -58,7 +58,7 @@ needs_traversal_functions :: (fn(context : FunctionGenerationContext) -> bool)(
 /// `__yo_traverse_atomic_stop` sentinel for an atomic handle (shared by
 /// design — a walker does not descend), NULL otherwise (unknown: a walker that
 /// must PROVE something about the child fails on it).
-_child_traverse_fn_expr :: (fn(ty : TypeValue, context : FunctionGenerationContext) -> String)(
+_child_traverse_fn_expr :: (fn(imm(ty) : TypeValue, imm(context) : FunctionGenerationContext) -> String)(
   cond(
     (is_atomic_reference_struct_type(ty) || is_atomic_reference_enum_type(ty)) => String.from("(void*)__yo_traverse_atomic_stop"),
     true => match(
@@ -74,7 +74,7 @@ _child_traverse_fn_expr :: (fn(ty : TypeValue, context : FunctionGenerationConte
 );
 /// The same for the handle payload of a nullable-pointer-optimized enum
 /// (`Option(handle)` lowered to a bare pointer).
-_nullable_payload_traverse_fn_expr :: (fn(ty : TypeValue, context : FunctionGenerationContext) -> String)(
+_nullable_payload_traverse_fn_expr :: (fn(imm(ty) : TypeValue, imm(context) : FunctionGenerationContext) -> String)(
   match(
     can_optimize_as_nullable_pointer(ty),
     .Some(payload) => _child_traverse_fn_expr(payload, context),
@@ -87,7 +87,7 @@ _nullable_payload_traverse_fn_expr :: (fn(ty : TypeValue, context : FunctionGene
 /// emission order between types must not matter. Called once per program,
 /// from the struct constructor pass, which always runs before the enum one
 /// (functions/generation.yo).
-_emit_traversal_prototypes :: (fn(context : FunctionGenerationContext) -> unit)({
+_emit_traversal_prototypes :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(`static void __yo_traverse_atomic_stop(void* ptr, void (*visit)(void*, void*)) { (void)ptr; (void)visit; }`);
   vals := context.base.types.values();
@@ -119,7 +119,7 @@ _emit_traversal_prototypes :: (fn(context : FunctionGenerationContext) -> unit)(
 /// The constructor block is one contiguous region (copied verbatim into the
 /// shared header in chunk mode), so emission order is first-use order. Call it
 /// BEFORE the constructor's signature line.
-dispose_fn_thunk :: (fn(dispose_c_name : String, context : FunctionGenerationContext) -> String)({
+dispose_fn_thunk :: (fn(imm(dispose_c_name) : String, imm(context) : FunctionGenerationContext) -> String)({
   thunk := `__yo_dispose_thunk_${dispose_c_name}`;
   if(!context.base.dispose_thunks.contains(thunk.clone()), {
     cg_base := context.base;
@@ -130,7 +130,7 @@ dispose_fn_thunk :: (fn(dispose_c_name : String, context : FunctionGenerationCon
   thunk
 });
 /// Emit the constructor function for a single concrete object type.
-_generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
+_generate_one_constructor :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm(context) : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   runtime_fields := get_runtime_struct_fields(type);
   if(_has_generic_fields(runtime_fields), {
@@ -279,10 +279,10 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
 (g_traverse_visit_expr : String) = String.from("visit");
 /// Set the traversal visit-callback expression (see g_traverse_visit_expr).
 /// Callers set this immediately before `_traverse_value`.
-set_traverse_visit_expr :: (fn(expr : String) -> unit)({
+set_traverse_visit_expr :: (fn(imm(expr) : String) -> unit)({
   g_traverse_visit_expr = expr;
 });
-_traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenerationContext) -> unit)({
+_traverse_value :: (fn(imm(access) : String, imm(ty) : TypeValue, imm(context) : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Nothing reference-counted anywhere in this value → nothing to trace.
   if(!type_contains_rc_cell_or_move_only(ty), {
@@ -419,7 +419,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
 /// (`object`/`ref(struct(…))`). Per-field traversal is delegated to the
 /// compositional `_traverse_value` (so `Option(Self)`, nested value-enums, tuples,
 /// and inline arrays are traced, not just direct handle fields).
-_generate_one_ref_struct_traversal :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
+_generate_one_ref_struct_traversal :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm(context) : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   runtime_fields := get_runtime_struct_fields(type);
   // Generic structs (any runtime field carrying a SomeType) get no traversal —
@@ -461,7 +461,7 @@ _generate_one_ref_struct_traversal :: (fn(type : TypeValue, c_name : String, con
 });
 /// Generate cycle-GC traversal functions for every concrete, non-atomic
 /// reference-semantics struct.
-generate_ref_struct_traversal_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_ref_struct_traversal_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   vals := context.base.types.values();
   (go : bool) = true;
   while(go, {
@@ -482,7 +482,7 @@ generate_ref_struct_traversal_functions :: (fn(context : FunctionGenerationConte
 });
 /// Generate constructor implementations for every concrete object type: emits
 /// the cycle-GC traversal functions first (when needed), then the constructors.
-generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_ref_struct_constructor_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   // Traversal functions: for the cycle collector, and for Iso's uniqueness walk.
   if(needs_traversal_functions(context), {
     _emit_traversal_prototypes(context);
@@ -506,7 +506,7 @@ generate_ref_struct_constructor_functions :: (fn(context : FunctionGenerationCon
 /// `__yo_traverse_<cName>` switches on the active variant's tag and `visit()`s
 /// each reference-semantics field of that variant (accessed through the handle
 /// pointer).
-_generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
+_generate_one_ref_enum_traversal :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm(context) : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*, void*)) {`);
   // `${c_name}` is the struct-VALUE typedef (get_type_string adds the `*`), so
@@ -577,7 +577,7 @@ _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, conte
 });
 /// Generate cycle-GC traversal functions for every concrete, non-atomic
 /// reference-semantics enum.
-generate_ref_enum_traversal_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_ref_enum_traversal_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   vals := context.base.types.values();
   (go : bool) = true;
   while(go, {
@@ -601,7 +601,7 @@ generate_ref_enum_traversal_functions :: (fn(context : FunctionGenerationContext
 /// initializes the reference-count header (and GC fields / dispose dispatch,
 /// mirroring the object path), sets the tag and the active variant's data, and
 /// returns the pointer.
-_generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String, context : FunctionGenerationContext) -> unit)({
+_generate_one_ref_enum_constructor_set :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm(context) : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Skip generic enums that still contain SomeType parameters.
   if(type_contains_some_type(type), {
@@ -735,7 +735,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
 /// Generate per-variant constructor implementations for every concrete
 /// reference-semantics enum (`ref(enum(…))`): emits the cycle-GC traversal
 /// functions first (when needed), then the constructors.
-generate_ref_enum_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_ref_enum_constructor_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   if(needs_traversal_functions(context), {
     generate_ref_enum_traversal_functions(context);
   });
@@ -756,7 +756,7 @@ generate_ref_enum_constructor_functions :: (fn(context : FunctionGenerationConte
 /// Generate constructor implementations for closures and their Rc functions.
 /// No-op: Impl(Fn(...)) closures use concrete capture structs + direct calls,
 /// and Dyn(Fn(...)) uses dyn constructors generated elsewhere.
-generate_closure_constructor_functions :: (fn(context : FunctionGenerationContext) -> unit)(
+generate_closure_constructor_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)(
   ()
 );
 /// Rule D2 (plans/reference/PARALLELISM_RULES.md): `^v` proves the value's
@@ -775,7 +775,7 @@ generate_closure_constructor_functions :: (fn(context : FunctionGenerationContex
 /// when that walk ends. A worklist cached in a thread-local outlived its
 /// thread and was reported by LSan on every program that used `^`
 /// (issues/fixed/the-iso-uniqueness-walk-leaks-its-worklist-per-thread.md).
-generate_iso_uniqueness_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+generate_iso_uniqueness_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
   if(context.base.iso_types.len() == usize(0), {
     return(());
   });

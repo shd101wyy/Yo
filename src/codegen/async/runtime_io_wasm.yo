@@ -24,7 +24,7 @@ import("std/string");
 { TargetInfo, is_target_standalone_wasi } :: import("../../target.yo");
 /// Emit WASM platform-specific SYNC helpers (open/close/pipe/dup/fcntl/readv/
 /// stat/lseek/…) over Emscripten POSIX.
-generate_platform_sys_runtime_wasm :: (fn(emitter : Emitter) -> unit)({
+generate_platform_sys_runtime_wasm :: (fn(imm(emitter) : Emitter) -> unit)({
   emitter.emit_string_line(
     `
 // ============================================================================
@@ -321,7 +321,7 @@ static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint
 /// Emit the WASM async I/O runtime: a sorted timer queue (the Windows pattern)
 /// plus sync-wrapped IoFutures over Emscripten POSIX.
 generate_async_runtime_io_wasm :: (
-  fn(emitter : Emitter, target_info : TargetInfo) -> unit
+  fn(imm(emitter) : Emitter, imm(target_info) : TargetInfo) -> unit
 )({
   is_wasi := is_target_standalone_wasi(target_info);
   emitter.emit_string_line(

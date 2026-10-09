@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 /// Sanitize a source identifier for SMT-LIB: keep [A-Za-z0-9_], replace
 /// every other byte with `_`. Mangled names are stable across runs because
 /// the walk order that produces them is stable.
-_sanitize_smt_name :: (fn(name : String) -> String)({
+_sanitize_smt_name :: (fn(imm(name) : String) -> String)({
   sb := StringBuilder.new();
   {
     it := name.chars();
@@ -44,14 +44,14 @@ _sanitize_smt_name :: (fn(name : String) -> String)({
 /// Mangle a source variable for function `fn_prefix` into the stable
 /// `__yo_v<fn>_<name>` form (the plan's name-mangling contract), so
 /// counter-examples render as the user's own names.
-mangle_vc_name :: (fn(fn_prefix : String, name : String) -> String)(
+mangle_vc_name :: (fn(imm(fn_prefix) : String, imm(name) : String) -> String)(
   `__yo_v${_sanitize_smt_name(fn_prefix)}_${_sanitize_smt_name(name)}`
 );
 // ============================================================================
 // Sorts
 // ============================================================================
 /// The SMT-LIB spelling of a sort.
-encode_sort :: (fn(s : VcSort) -> String)(
+encode_sort :: (fn(imm(s) : VcSort) -> String)(
   match(
     s,
     .BoolS => String.from("Bool"),
@@ -122,7 +122,7 @@ _op_name :: (fn(op : VcOp) -> String)(
 /// uninterpreted application — so VcOp needs no String-payload variant,
 /// which the plain enum's derived Eq cannot carry).
 /// `(declare-fun <name> (<arg sorts>) <result sort>)`.
-encode_fun_decl :: (fn(d : VcFunDecl) -> String)({
+encode_fun_decl :: (fn(imm(d) : VcFunDecl) -> String)({
   sb := StringBuilder.new();
   sb.write_string(`(declare-fun ${d.name} (`);
   (ai : usize) = usize(0);
@@ -136,12 +136,12 @@ encode_fun_decl :: (fn(d : VcFunDecl) -> String)({
   sb.write_string(`) ${encode_sort(d.result)})`);
   sb.to_string()
 });
-encode_fundecl :: (fn(elem : VcSort) -> String)(
+encode_fundecl :: (fn(imm(elem) : VcSort) -> String)(
   `(declare-fun __yo_msof_${_msof_key(elem)} ((Array (_ BitVec 64) ${encode_sort(elem)})) (Array ${encode_sort(elem)} (_ BitVec 64)))`
 );
 /// The elem sort key of a `__yo_msof` function — a sanitized rendering
 /// unique per sort (the walk and the encoder must agree on it).
-_msof_key :: (fn(elem : VcSort) -> String)(
+_msof_key :: (fn(imm(elem) : VcSort) -> String)(
   match(
     elem,
     .BoolS => String.from("bool"),
@@ -157,7 +157,7 @@ _msof_key :: (fn(elem : VcSort) -> String)(
 // Terms
 // ============================================================================
 /// `(<name> <arg>...)` for a constructor or function with arguments.
-_encode_ctor_app :: (fn(name : String, args : ArrayList(VcTerm)) -> String)({
+_encode_ctor_app :: (fn(imm(name) : String, imm(args) : ArrayList(VcTerm)) -> String)({
   sb := StringBuilder.new();
   sb.write_byte(u8(0x28));
   sb.write_string(name.clone());
@@ -177,7 +177,7 @@ _encode_ctor_app :: (fn(name : String, args : ArrayList(VcTerm)) -> String)({
   sb.to_string()
 });
 /// The SMT-LIB spelling of a term (deterministic walk).
-encode_term :: (fn(t : VcTerm) -> String)(
+encode_term :: (fn(imm(t) : VcTerm) -> String)(
   match(
     t,
     .Var(name, _) => name.clone(),
@@ -305,7 +305,7 @@ encode_term :: (fn(t : VcTerm) -> String)(
 /// Deterministically ordered copy of a small string list (the datatype
 /// entries; insertion sort — same discipline as the verifier's
 /// `_sorted_strings`).
-_sorted_lines :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
+_sorted_lines :: (fn(imm(xs) : ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < xs.len(), {
@@ -345,7 +345,7 @@ _sorted_lines :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
 /// `((C0 (a S)) (C1))` — one paren'd constructor per segment, accessor
 /// pairs directly under it — while the entry stores the flat
 /// `C0 ((a S)) C1` (the group keeps multi-field ctors one segment).
-_wrap_ctor_segments :: (fn(ctors : String) -> String)({
+_wrap_ctor_segments :: (fn(imm(ctors) : String) -> String)({
   parts := ArrayList(String).new();
   (i : usize) = usize(0);
   (n : usize) = ctors.len();
@@ -404,7 +404,7 @@ _wrap_ctor_segments :: (fn(ctors : String) -> String)({
   });
   sb.to_string()
 });
-encode_content :: (fn(q : VcQuery) -> String)({
+encode_content :: (fn(imm(q) : VcQuery) -> String)({
   sb := StringBuilder.new();
   // The datatype block FIRST (constants may carry datatype sorts; one
   // combined declare-datatypes covers mutual recursion without ordering
@@ -570,7 +570,7 @@ default_encode_options :: (fn() -> EncodeOptions)(
 );
 /// The full SMT-LIB script for one obligation. Layout is fixed:
 /// set-logic, options (deterministic order), content, evidence directives.
-encode_script :: (fn(q : VcQuery, opts : EncodeOptions) -> String)({
+encode_script :: (fn(imm(q) : VcQuery, opts : EncodeOptions) -> String)({
   sb := StringBuilder.new();
   sb.write_str("(set-logic ALL)\n");
   sb.write_string(`(set-option :rlimit ${opts.rlimit.to_string()})\n`);

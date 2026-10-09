@@ -127,7 +127,7 @@ impl(
   where(T <: (Send, Sync, Acyclic)),
   Vec(T),
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       i := usize(0);
       while(i < self._len, i = (i + usize(1)), {
         unsafe.drop((self._ptr.add(i)).*);
@@ -164,19 +164,19 @@ impl(
   }),
   // Release a buffer the way `_raw_alloc` placed it (`capw` is its tagged
   // capacity word).
-  _free_buf : (fn(p : *T, capw : usize) -> unit)(
+  _free_buf : (fn(imm(p) : *T, capw : usize) -> unit)(
     cond(
       ((capw & _CAP_TAG) != usize(0)) => Allocator.free(.Some((*void)(p))),
       true => free(.Some((*void)(p)))
     )
   ),
   // The capacity, without the allocator tag.
-  _capn : (fn(self : Self) -> usize)(self._capw & _CAP_MASK),
+  _capn : (fn(imm(self) : Self) -> usize)(self._capw & _CAP_MASK),
   /// Copy elements element-by-element so RC-backed values duplicate correctly.
   _copy_elems : (
     fn(
-      dst : *T,
-      src : *T,
+      imm(dst) : *T,
+      imm(src) : *T,
       dst_offset : usize,
       src_offset : usize,
       count : usize
@@ -194,7 +194,7 @@ impl(
   /// for a buffer the source keeps sharing. Copying with `_copy_elems` and then
   /// freeing the old buffer leaked one reference per element per grow
   /// (issues/fixed/imm-vec-leaks-on-grow-and-drops-uninitialized-memory.md).
-  _move_elems : (fn(dst : *T, src : *T, count : usize) -> unit)({
+  _move_elems : (fn(imm(dst) : *T, imm(src) : *T, count : usize) -> unit)({
     if(count > usize(0), {
       unsafe(memcpy((*void)(dst), (*void)(src), count * size_of(T)));
     });
@@ -208,11 +208,11 @@ impl(
     Self(_ptr : Self._raw_alloc(cap), _len : usize(0), _capw : (cap | _scope_tag()))
   ),
   /// Number of elements in the vector.
-  len : (fn(self : Self) -> usize)(self._len),
+  len : (fn(imm(self) : Self) -> usize)(self._len),
   /// Check if the vector is empty.
-  is_empty : (fn(self : Self) -> bool)(self._len == usize(0)),
+  is_empty : (fn(imm(self) : Self) -> bool)(self._len == usize(0)),
   /// Get the element at `idx`, or `.None` if out of bounds.
-  get : (fn(self : Self, idx : usize) -> Option(T))({
+  get : (fn(imm(self) : Self, idx : usize) -> Option(T))({
     if(idx >= self._len, {
       return(.None);
     });
@@ -224,7 +224,7 @@ impl(
   /// Takes `own(self)`: the receiver is MOVED, and when it is the only owner
   /// the element is overwritten in place (O(1)). If any other handle exists
   /// the whole buffer is copied first — O(n).
-  set : (fn(own(self) : Self, idx : usize, val : T) -> Self)({
+  set : (fn(own(self) : Self, idx : usize, imm(val) : T) -> Self)({
     assert(idx < self._len, "imm.Vec.set: index out of bounds");
     if(ref_count(self) == usize(1), {
       unsafe.drop((self._ptr.add(idx)).*);
@@ -249,7 +249,7 @@ impl(
   /// is O(n) per push. Keeping the old version — `kept := v; bigger :=
   /// v.push(x)` — is what makes it shared, so building a vector by pushing
   /// while holding every intermediate is quadratic.
-  push : (fn(own(self) : Self, val : T) -> Self)({
+  push : (fn(own(self) : Self, imm(val) : T) -> Self)({
     if(ref_count(self) == usize(1), {
       if(self._len >= self._capn(), {
         new_cap := (self._capn() * usize(2));
@@ -278,14 +278,14 @@ impl(
     result
   }),
   /// Return the first element, or `.None` if empty.
-  first : (fn(self : Self) -> Option(T))({
+  first : (fn(imm(self) : Self) -> Option(T))({
     if(self.is_empty(), {
       return(.None);
     });
     .Some(self._ptr.*)
   }),
   /// Return the last element, or `.None` if empty.
-  last : (fn(self : Self) -> Option(T))({
+  last : (fn(imm(self) : Self) -> Option(T))({
     if(self.is_empty(), {
       return(.None);
     });
@@ -319,7 +319,7 @@ impl(
     PopResult(T)(vec : new_vec, value : .Some(val))
   }),
   /// Return a new vector containing only elements in range [start, end).
-  slice : (fn(self : Self, start : usize, end : usize) -> Self)({
+  slice : (fn(imm(self) : Self, start : usize, end : usize) -> Self)({
     (actual_start : usize) = cond(
       (start > self._len) => self._len,
       true => start
@@ -339,7 +339,7 @@ impl(
   /// New vector holding `self`'s elements followed by `other`'s — O(n + m),
   /// always: there is no shared spine to splice, so the result is a fresh
   /// array. Takes `own(self)`, so the left operand is MOVED.
-  concat : (fn(own(self) : Self, other : Self) -> Self)({
+  concat : (fn(own(self) : Self, imm(other) : Self) -> Self)({
     total := (self._len + other._len);
     if(ref_count(self) == usize(1), {
       if(total <= self._capn(), {
@@ -408,7 +408,7 @@ impl(
     result
   }),
   /// Apply a function to each element, producing a new vector.
-  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: (Send, Sync, Acyclic))) -> Vec(U))({
+  map : (fn(generic(U : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> U), where(U <: (Send, Sync, Acyclic))) -> Vec(U))({
     new_ptr := Vec(U)._raw_alloc(self._len);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
@@ -417,7 +417,7 @@ impl(
     Vec(U)(_ptr : new_ptr, _len : self._len, _capw : (self._len | _scope_tag()))
   }),
   /// Filter elements by a predicate, returning a new vector.
-  filter : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> Self)({
+  filter : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> bool)) -> Self)({
     new_ptr := Self._raw_alloc(self._len);
     count := usize(0);
     i := usize(0);
@@ -431,7 +431,7 @@ impl(
     Self(_ptr : new_ptr, _len : count, _capw : (self._len | _scope_tag()))
   }),
   /// Left fold over elements.
-  fold : (fn(generic(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, elem : T) -> U)) -> U)({
+  fold : (fn(generic(U : Type), imm(self) : Self, imm(init) : U, imm(f) : Impl(Fn(imm(acc) : U, imm(elem) : T) -> U)) -> U)({
     (acc : U) = init;
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
@@ -440,7 +440,7 @@ impl(
     acc
   }),
   /// Check if any element satisfies the predicate.
-  any : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> bool)({
+  any : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> bool)) -> bool)({
     i := usize(0);
     (found : bool) = false;
     while((i < self._len) && !found, i = (i + usize(1)), {
@@ -451,7 +451,7 @@ impl(
     found
   }),
   /// Check if all elements satisfy the predicate.
-  all : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> bool)({
+  all : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> bool)) -> bool)({
     i := usize(0);
     (ok : bool) = true;
     while((i < self._len) && ok, i = (i + usize(1)), {
@@ -462,7 +462,7 @@ impl(
     ok
   }),
   /// Find the first element satisfying the predicate.
-  find : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> Option(T))({
+  find : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> bool)) -> Option(T))({
     i := usize(0);
     (result : Option(T)) = .None;
     while((i < self._len) && result.is_none(), i = (i + usize(1)), {
@@ -474,7 +474,7 @@ impl(
     result
   }),
   /// Return the index of the first element equal to `val`, or `.None`.
-  index_of : (fn(self : Self, val : T, where(T <: Eq(T))) -> Option(usize))({
+  index_of : (fn(imm(self) : Self, imm(val) : T, where(T <: Eq(T))) -> Option(usize))({
     i := usize(0);
     (result : Option(usize)) = .None;
     while((i < self._len) && result.is_none(), i = (i + usize(1)), {
@@ -485,7 +485,7 @@ impl(
     result
   }),
   /// Check if the vector contains `val`.
-  contains : (fn(self : Self, val : T, where(T <: Eq(T))) -> bool)(
+  contains : (fn(imm(self) : Self, imm(val) : T, where(T <: Eq(T))) -> bool)(
     self.index_of(val).is_some()
   ),
   /// New vector with duplicates removed, keeping the FIRST occurrence of
@@ -541,7 +541,7 @@ impl(
     result
   }),
   /// Zip two vectors together using a combining function.
-  zip_with : (fn(generic(U : Type, V : Type), self : Self, other : Vec(U), f : Impl(Fn(a : T, b : U) -> V), where(U <: (Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Vec(V))({
+  zip_with : (fn(generic(U : Type, V : Type), imm(self) : Self, imm(other) : Vec(U), imm(f) : Impl(Fn(imm(a) : T, imm(b) : U) -> V), where(U <: (Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> Vec(V))({
     min_len := cond(
       (self._len < other._len) => self._len,
       true => other._len
@@ -554,7 +554,7 @@ impl(
     Vec(V)(_ptr : new_ptr, _len : min_len, _capw : (min_len | _scope_tag()))
   }),
   /// Create a vector from a slice, copying all elements.
-  from_list : (fn(l : ArrayList(T)) -> Self)({
+  from_list : (fn(imm(l) : ArrayList(T)) -> Self)({
     slen := l.len();
     cap := cond(
       (slen > usize(0)) => slen,
@@ -577,7 +577,7 @@ impl(
   where(T <: (Send, Sync, Acyclic, Eq(T))),
   Vec(T),
   Eq(Vec(T))(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)({
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
       if(lhs._len != rhs._len, {
         return(false);
       });
@@ -601,7 +601,7 @@ impl(
   Vec(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "imm.Vec: index out of bounds");
       self._ptr.add(idx)
     })
@@ -623,7 +623,7 @@ impl(
   VecIter(T),
   Iterator(
     Item : T,
-    next : (fn(inout(self) : Self) -> Option(T))(
+    next : (fn(mut(self) : Self) -> Option(T))(
       cond(
         (self._index >= self._vec.len()) => Option(T).None,
         true => {
@@ -642,7 +642,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : VecIter(T),
-    into_iter : (fn(self : Self) -> VecIter(T))(
+    into_iter : (fn(imm(self) : Self) -> VecIter(T))(
       VecIter(T)(_vec : self, _index : usize(0))
     )
   )

@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
+create_option_type :: (fn(imm(inner_type) : TypeValue) -> TypeValue)({
   variant_names := ArrayList(String).new();
   variant_names.push(String.from("None"));
   variant_names.push(String.from("Some"));
@@ -67,11 +67,11 @@ create_option_type :: (fn(inner_type : TypeValue) -> TypeValue)({
 _eval_arg :: (
   fn(
     fn_name : str,
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
     arg_idx : usize,
-    exn : Exception
+    imm(exn) : Exception
   ) -> ExprInfo
 )({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
@@ -98,10 +98,10 @@ _eval_arg :: (
 // ---------------------------------------------------------------------------
 evaluate_yo_decr_rc :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_decr_rc", expr, env, ctx, usize(0), exn);
@@ -112,10 +112,10 @@ evaluate_yo_decr_rc :: (
 });
 evaluate_yo_decr_rc_atomic :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_decr_rc_atomic", expr, env, ctx, usize(0), exn);
@@ -126,10 +126,10 @@ evaluate_yo_decr_rc_atomic :: (
 });
 evaluate_yo_incr_rc :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_incr_rc", expr, env, ctx, usize(0), exn);
@@ -140,10 +140,10 @@ evaluate_yo_incr_rc :: (
 });
 evaluate_yo_incr_rc_atomic :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_incr_rc_atomic", expr, env, ctx, usize(0), exn);
@@ -154,10 +154,10 @@ evaluate_yo_incr_rc_atomic :: (
 });
 evaluate_yo_dyn_vtable_drop :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_dyn_vtable_drop", expr, env, ctx, usize(0), exn);
@@ -168,10 +168,10 @@ evaluate_yo_dyn_vtable_drop :: (
 });
 evaluate_yo_dyn_vtable_dup :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_dyn_vtable_dup", expr, env, ctx, usize(0), exn);
@@ -182,10 +182,10 @@ evaluate_yo_dyn_vtable_dup :: (
 });
 evaluate_yo_some_type_drop :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_some_type_drop", expr, env, ctx, usize(0), exn);
@@ -196,10 +196,10 @@ evaluate_yo_some_type_drop :: (
 });
 evaluate_yo_some_type_dup :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_some_type_dup", expr, env, ctx, usize(0), exn);
@@ -210,10 +210,10 @@ evaluate_yo_some_type_dup :: (
 });
 evaluate_yo_iso_dispose :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_iso_dispose", expr, env, ctx, usize(0), exn);
@@ -227,10 +227,10 @@ evaluate_yo_iso_dispose :: (
 // ---------------------------------------------------------------------------
 evaluate_yo_rc_own :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_rc_own", expr, env, ctx, usize(0), exn);
@@ -244,10 +244,10 @@ evaluate_yo_rc_own :: (
 // ---------------------------------------------------------------------------
 evaluate_yo_iso_extract :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_iso_extract", expr, env, ctx, usize(0), exn);
@@ -288,10 +288,10 @@ evaluate_yo_iso_extract :: (
 /// (no dup), so a uniquely held `v` reads as count 1.
 evaluate_yo_iso_unique :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_iso_unique", expr, env, ctx, usize(0), exn);
@@ -320,10 +320,10 @@ evaluate_yo_iso_unique :: (
 // ---------------------------------------------------------------------------
 evaluate_yo_drop_array_element :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info0 := _eval_arg("evaluate_yo_drop_array_element", expr, env, ctx, usize(0), exn);
@@ -336,10 +336,10 @@ evaluate_yo_drop_array_element :: (
 });
 evaluate_yo_drop_tuple_element :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info0 := _eval_arg("evaluate_yo_drop_tuple_element", expr, env, ctx, usize(0), exn);
@@ -355,10 +355,10 @@ evaluate_yo_drop_tuple_element :: (
 // ---------------------------------------------------------------------------
 evaluate_yo_dup_array_element :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info0 := _eval_arg("evaluate_yo_dup_array_element", expr, env, ctx, usize(0), exn);
@@ -385,10 +385,10 @@ evaluate_yo_dup_array_element :: (
 });
 evaluate_yo_dup_tuple_element :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   info0 := _eval_arg("evaluate_yo_dup_tuple_element", expr, env, ctx, usize(0), exn);

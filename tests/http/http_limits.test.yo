@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 /// `.None` if it returned normally. The handler unwinds THIS frame with the
 /// message (handlers are capture-free, so the caller does the checking), and the
 /// caller still closes its sockets.
-_fetch_error :: (fn(url : String, opts : FetchOptions, io : Io) -> Option(String))({
+_fetch_error :: (fn(imm(url) : String, imm(opts) : FetchOptions, io : Io) -> Option(String))({
   exn := Exception(
     throw : (
       err -> unwind(Option(String).Some(err.to_string()))
@@ -87,7 +87,7 @@ test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
 });
 /// `/r/<n>` answers 302 `Location: /r/<n-1>` while `n > 0`, and 200 `done`
 /// at `/r/0` — a redirect chain of any length on loopback.
-_redirect_hop :: (fn(req : HttpRequest) -> HttpResponse)({
+_redirect_hop :: (fn(imm(req) : HttpRequest) -> HttpResponse)({
   n := match(req.path.strip_prefix(`/r/`), .Some(rest) => rest.parse_u64().unwrap_or(u64(0)), .None => u64(0));
   cond(
     (n > u64(0)) => {
@@ -101,7 +101,7 @@ _redirect_hop :: (fn(req : HttpRequest) -> HttpResponse)({
 /// `fetch(url)` and report whether it threw `TooManyRedirects` — the handler
 /// unwinds THIS frame with `true` (handlers cannot capture the caller's
 /// locals), and a fetch that returns normally yields `false`.
-_fetch_throws_too_many_redirects :: (fn(url : String, io : Io) -> bool)({
+_fetch_throws_too_many_redirects :: (fn(imm(url) : String, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
@@ -197,7 +197,7 @@ test("FetchOptions builders set the new fields", {
 /// Only the first is exercised end to end here — the other two are pinned
 /// directly on `Url.join` in `tests/url/url.test.yo`, because reaching another
 /// host or asserting on a query needs no round trip.
-_dotdot_redirect :: (fn(req : HttpRequest) -> HttpResponse)(
+_dotdot_redirect :: (fn(imm(req) : HttpRequest) -> HttpResponse)(
   cond(
     (req.path == `/a/b/c`) => {
       resp := HttpResponse.with_status(StatusCode.FOUND());

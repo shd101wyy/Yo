@@ -12,7 +12,7 @@
 // See issues/fixed/unit-typed-params-and-fields-emit-c-void.md and
 // issues/fixed/unit-should-be-a-true-zero-sized-type-like-rust.md.
 _takes_unit :: (fn(x : unit) -> i32)(i32(7));
-_generic_id :: (fn(generic(T : Type), x : T) -> i32)(i32(9));
+_generic_id :: (fn(generic(T : Type), imm(x) : T) -> i32)(i32(9));
 _UnitField :: struct(a : i32, b : unit);
 derive(_UnitField, Copy, Clone);
 test("unit as a by-value parameter", {
@@ -248,7 +248,7 @@ test("HashMap(K, unit) does not overflow its bucket array", {
 // would have failed on: glibc and the Windows CRT free `p` and return NULL, so
 // the SECOND growth (element 5) reported "allocation failed".
 _Counter :: ref(struct(n : i32));
-_bump :: (fn(c : _Counter) -> unit)({
+_bump :: (fn(imm(c) : _Counter) -> unit)({
   c.n = (c.n + i32(1));
 });
 _RefWithUnit :: ref(struct(a : i32, u : unit, s : String));

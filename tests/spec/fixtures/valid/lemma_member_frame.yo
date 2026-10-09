@@ -9,7 +9,7 @@ pragma(Pragma.Verify);
 
 // v occurs in xs[0..n).
 member :: ghost_fn(
-  (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+  (fn(imm(xs) : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
     cond(
       (n == usize(0)) => false,
       true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
@@ -22,8 +22,8 @@ member :: ghost_fn(
 member_frame :: ghost_fn(
   (
     fn(
-      a : ArrayList(i32),
-      b : ArrayList(i32),
+      imm(a) : ArrayList(i32),
+      imm(b) : ArrayList(i32),
       n : usize,
       v : i32,
       requires(n <= a.len(), n <= b.len(), forall(i : usize, (i < n) ==> (a(i) == b(i)))),
@@ -41,7 +41,7 @@ member_frame :: ghost_fn(
 // A use: a copy of a prefix keeps every member of that prefix.
 copy_keeps_member :: (
   fn(
-    xs : ArrayList(i32),
+    imm(xs) : ArrayList(i32),
     v : i32,
     requires(member(xs, xs.len(), v)),
     ensures(member(r, xs.len(), v))

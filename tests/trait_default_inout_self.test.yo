@@ -5,10 +5,10 @@
 // did nothing (`bump` received `&(self)`, a `Counter**`).
 { assert } :: import("std/assert");
 Bumpable :: trait(
-  bump : (fn(inout(self) : Self, v : u64) -> unit),
-  peek : (fn(inout(self) : Self) -> u64),
+  bump : (fn(mut(self) : Self, v : u64) -> unit),
+  peek : (fn(mut(self) : Self) -> u64),
   // default calling sibling inout methods
-  (twice : (fn(inout(self) : Self, v : u64) -> unit)) ?=
+  (twice : (fn(mut(self) : Self, v : u64) -> unit)) ?=
     (
       (self, v) -> {
         self.bump(v);
@@ -16,32 +16,32 @@ Bumpable :: trait(
       }
     ),
   // default writing a field through self
-  (direct : (fn(inout(self) : Self, v : u64) -> unit)) ?=
+  (direct : (fn(mut(self) : Self, v : u64) -> unit)) ?=
     (
       (self, v) -> {
         self.state = (self.state + v);
       }
     ),
   // default reading through a sibling
-  (ro : (fn(inout(self) : Self) -> u64)) ?= (self -> self.peek()),
+  (ro : (fn(mut(self) : Self) -> u64)) ?= (self -> self.peek()),
   // explicit fn spelling of a default
-  (thrice : (fn(inout(self) : Self, v : u64) -> unit)) ?=
-    (fn(inout(self) : Self, v : u64) -> unit)({
+  (thrice : (fn(mut(self) : Self, v : u64) -> unit)) ?=
+    (fn(mut(self) : Self, v : u64) -> unit)({
       self.bump(v);
       self.twice(v);
     }),
   // by-value receiver default — the control that always worked
-  (snapshot : (fn(self : Self) -> u64)) ?= (self -> self.state)
+  (snapshot : (fn(imm(self) : Self) -> u64)) ?= (self -> self.state)
 );
 Counter :: struct(state : u64);
 derive(Counter, Copy, Clone);
 impl(
   Counter,
   Bumpable(
-    bump : (fn(inout(self) : Self, v : u64) -> unit)({
+    bump : (fn(mut(self) : Self, v : u64) -> unit)({
       self.state = (self.state + v);
     }),
-    peek : (fn(inout(self) : Self) -> u64)(self.state)
+    peek : (fn(mut(self) : Self) -> u64)(self.state)
   )
 );
 test("inout(self) default calling sibling inout methods mutates the receiver", {
@@ -63,10 +63,10 @@ RefCounter :: ref(struct(state : u64));
 impl(
   RefCounter,
   Bumpable(
-    bump : (fn(inout(self) : Self, v : u64) -> unit)({
+    bump : (fn(mut(self) : Self, v : u64) -> unit)({
       self.state = (self.state + v);
     }),
-    peek : (fn(inout(self) : Self) -> u64)(self.state)
+    peek : (fn(mut(self) : Self) -> u64)(self.state)
   )
 );
 test("ref-struct receiver: the same defaults", {

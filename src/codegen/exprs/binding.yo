@@ -6,7 +6,7 @@
 /// Emit the C declaration `<type> <name>;` for a binding's left-hand side
 /// (the value is assigned separately). Compile-time bindings emit nothing.
 /// Returns "" (statement).
-generate_binding :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_binding :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   lhs := match(expr, .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.from(""))), .Atom(_, _) => return(String.from("")));
   // Compile-time variable (`comptime(x)`) → no C declaration.
   if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .Some(usize(1))), {

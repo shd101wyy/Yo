@@ -44,11 +44,11 @@ _ca_is_ident_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(48)) && (b <= u8(57))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))) || (b == u8(95))
 );
 /// Byte at `i`, or 0 past the end.
-_ca_bget :: (fn(bytes : ArrayList(u8), i : usize) -> u8)(
+_ca_bget :: (fn(imm(bytes) : ArrayList(u8), i : usize) -> u8)(
   match(bytes.get(i), .Some(b) => b, .None => u8(0))
 );
 /// True iff `bytes[pos..]` starts with `pat`'s bytes.
-_ca_matches :: (fn(bytes : ArrayList(u8), pos : usize, pat : String) -> bool)({
+_ca_matches :: (fn(imm(bytes) : ArrayList(u8), pos : usize, imm(pat) : String) -> bool)({
   n := pat.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -60,7 +60,7 @@ _ca_matches :: (fn(bytes : ArrayList(u8), pos : usize, pat : String) -> bool)({
   true
 });
 /// `bytes[start, end)` as a String.
-_ca_slice :: (fn(bytes : ArrayList(u8), start : usize, end : usize) -> String)({
+_ca_slice :: (fn(imm(bytes) : ArrayList(u8), start : usize, end : usize) -> String)({
   out := ArrayList(u8).new();
   (i : usize) = start;
   while(i < end, {
@@ -80,7 +80,7 @@ _StaticFnLine :: struct(name : String, is_def : bool, prefix_len : usize);
 /// before any `(`). The paren scan crosses newlines, so multi-line signatures
 /// classify correctly.
 _ca_parse_static_fn_line :: (
-  fn(bytes : ArrayList(u8), ls : usize, n : usize, inline_pat : String, attr_pat : String) -> Option(_StaticFnLine)
+  fn(imm(bytes) : ArrayList(u8), ls : usize, n : usize, imm(inline_pat) : String, imm(attr_pat) : String) -> Option(_StaticFnLine)
 )({
   (p : usize) = (ls + usize(7));
   if(_ca_matches(bytes, p, inline_pat), {
@@ -184,7 +184,7 @@ _ca_parse_static_fn_line :: (
 });
 /// Collect the names of every column-0 `static` FUNCTION DEFINITION in `text`
 /// into `into` (the header-defined set the dequalifier keys on).
-_ca_collect_static_def_names :: (fn(text : String, inout(into) : HashSet(String)) -> unit)({
+_ca_collect_static_def_names :: (fn(imm(text) : String, mut(into) : HashSet(String)) -> unit)({
   static_pat := String.from("static ");
   inline_pat := String.from("inline ");
   attr_pat := String.from("__attribute__((");
@@ -212,7 +212,7 @@ _ca_collect_static_def_names :: (fn(text : String, inout(into) : HashSet(String)
 /// column-0 static FUNCTION line (prototype or definition) whose name is NOT
 /// in `header_defined` — those functions become external so any chunk can
 /// call them. Everything else is copied byte-for-byte.
-_ca_dequalify_statics :: (fn(text : String, header_defined : HashSet(String)) -> String)({
+_ca_dequalify_statics :: (fn(imm(text) : String, imm(header_defined) : HashSet(String)) -> String)({
   static_pat := String.from("static ");
   inline_pat := String.from("inline ");
   attr_pat := String.from("__attribute__((");
@@ -247,12 +247,12 @@ _ca_dequalify_statics :: (fn(text : String, header_defined : HashSet(String)) ->
 });
 /// True iff `name` is a per-type RC helper (routed into the shared header —
 /// same predicate as generate_function's `is_rc` linkage branch).
-_ca_is_rc_helper :: (fn(name : String) -> bool)(
+_ca_is_rc_helper :: (fn(imm(name) : String) -> bool)(
   name.contains("___drop") || name.contains("___dup") || name.contains("___dispose")
 );
 /// True iff the column-0 line at `ls` opens a linkage-qualified or type-level
 /// construct that is NEVER a relocatable external definition.
-_ca_decl_line_is_qualified :: (fn(bytes : ArrayList(u8), ls : usize) -> bool)(
+_ca_decl_line_is_qualified :: (fn(imm(bytes) : ArrayList(u8), ls : usize) -> bool)(
   _ca_matches(bytes, ls, String.from("static ")) || _ca_matches(bytes, ls, String.from("extern ")) || _ca_matches(bytes, ls, String.from("typedef ")) || _ca_matches(bytes, ls, String.from("inline ")) || _ca_matches(bytes, ls, String.from("struct ")) || _ca_matches(bytes, ls, String.from("union ")) || _ca_matches(bytes, ls, String.from("enum "))
 );
 /// Result of `_ca_split_decl_defs`. A REF struct return, not two `String`
@@ -274,7 +274,7 @@ DeclSplit :: ref(struct(header_part : String, moved_part : String));
 /// Block extent: emitted C closes a file-scope body with `}` at COLUMN 0 and
 /// indents everything inside it, and C string literals cannot span a raw
 /// newline — so the first column-0 `}` after the opening line ends the body.
-_ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
+_ca_split_decl_defs :: (fn(imm(text) : String) -> DeclSplit)({
   bytes := text.to_bytes();
   n := bytes.len();
   hdr := ArrayList(u8).new();
@@ -395,7 +395,7 @@ _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
 /// required: FSM emitters write `switch (...) {` at column 0, which has no
 /// identifier before its paren.
 _ca_collect_residue_protos :: (
-  fn(text : String, inout(names_out) : ArrayList(String), inout(protos_out) : HashMap(String, String)) -> unit
+  fn(imm(text) : String, mut(names_out) : ArrayList(String), mut(protos_out) : HashMap(String, String)) -> unit
 )({
   yo_pat := String.from("__yo_");
   bytes := text.to_bytes();
@@ -472,7 +472,7 @@ _ca_collect_residue_protos :: (
 /// as `__yo_str` spill data, and matching names inside them would mark every
 /// runtime function as referenced. Emitted C strings never span lines (their
 /// newlines are `\n` escapes), so the in-string state resets per line.
-_ca_collect_yo_refs :: (fn(text : String, inout(into) : HashSet(String)) -> unit)({
+_ca_collect_yo_refs :: (fn(imm(text) : String, mut(into) : HashSet(String)) -> unit)({
   yo_pat := String.from("__yo_");
   bytes := text.to_bytes();
   n := bytes.len();
@@ -541,7 +541,7 @@ _ca_pad3 :: (fn(i : usize) -> String)({
 /// is rewritten too — the emitter wrote the monolithic `<out>.c` name it
 /// knows; only the driver's chunk naming is real here. Returns the body
 /// unchanged when no marker is present, so a flag-off compile pays nothing.
-_ca_patch_chunk_markers :: (fn(body : String, chunk_file : String) -> String)({
+_ca_patch_chunk_markers :: (fn(imm(body) : String, imm(chunk_file) : String) -> String)({
   marker := line_restore_marker();
   if(!body.contains(marker), {
     return(body);
@@ -637,7 +637,7 @@ _ca_patch_chunk_markers :: (fn(body : String, chunk_file : String) -> String)({
 });
 /// Merge two start-ascending range lists into one start-ascending list.
 _ca_merge_ranges :: (
-  fn(a : ArrayList(ChunkRange), b : ArrayList(ChunkRange)) -> ArrayList(ChunkRange)
+  fn(imm(a) : ArrayList(ChunkRange), imm(b) : ArrayList(ChunkRange)) -> ArrayList(ChunkRange)
 )({
   out := ArrayList(ChunkRange).new();
   (i : usize) = usize(0);
@@ -677,12 +677,12 @@ _ca_merge_ranges :: (
 /// carries the split-static definitions and the residue (see file header).
 assemble_chunks :: (
   fn(
-    headers : String,
-    declarations : String,
-    code : String,
-    fn_ranges : ArrayList(ChunkRange),
-    header_ranges : ArrayList(ChunkRange),
-    globals : String,
+    imm(headers) : String,
+    imm(declarations) : String,
+    imm(code) : String,
+    imm(fn_ranges) : ArrayList(ChunkRange),
+    imm(header_ranges) : ArrayList(ChunkRange),
+    imm(globals) : String,
     n_chunks : usize,
     /// Group functions by DEFINING module (`fnv1a(module) % n`) instead of by
     /// C name — the edit-stable grouping for the `.o` cache (§8). Ranges with
@@ -692,7 +692,7 @@ assemble_chunks :: (
     /// files from (`<base>NNN.c`): non-empty makes this pass rewrite every
     /// restore marker to its chunk's real file and line. Empty (directives
     /// off) leaves the bodies untouched.
-    (chunk_base_opt : Option(String)) ?= .None
+    (imm(chunk_base_opt) : Option(String)) ?= .None
   ) -> ChunkAssembly
 )({
   chunk_base := match(chunk_base_opt, .Some(b) => b, .None => String.new());

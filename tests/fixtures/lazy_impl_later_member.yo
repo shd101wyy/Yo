@@ -19,10 +19,10 @@ impl(LaterS, copy_of : (fn(self : Self) -> Self)(LaterS(n : self.n)));
 // importer's, whose walk is parked on this import
 // (issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md).
 LaterBump :: trait(
-  base : (fn(self : Self) -> i32),
-  (bumped : (fn(self : Self) -> i32)) ?= (self -> (self.base() + i32(1)))
+  base : (fn(imm(self) : Self) -> i32),
+  (bumped : (fn(imm(self) : Self) -> i32)) ?= (self -> (self.base() + i32(1)))
 );
 LaterT :: struct(n : i32);
-later_bumped :: (fn(t : LaterT) -> i32)(t.bumped());
-impl(LaterT, LaterBump(base : (fn(self : Self) -> i32)(self.n)));
+later_bumped :: (fn(imm(t) : LaterT) -> i32)(t.bumped());
+impl(LaterT, LaterBump(base : (fn(imm(self) : Self) -> i32)(self.n)));
 export(LaterS, later_twice_free, LaterT, later_bumped);

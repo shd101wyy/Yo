@@ -17,7 +17,7 @@
 /// The HTML renderer needs no such translation: it ships its own Yo
 /// highlighter and matches `language-yo` directly. Only this renderer's output
 /// is read on GitHub, so only this renderer translates.
-_md_doc :: (fn(d : String) -> String)({
+_md_doc :: (fn(imm(d) : String) -> String)({
   out := String.new();
   lines := d.split(`\n`);
   (i : usize) = usize(0);
@@ -60,7 +60,7 @@ _md_doc :: (fn(d : String) -> String)({
 } :: import("./model.yo");
 // ── Private helpers ───────────────────────────────────────────────────────────
 // Find a DocFunction by name in an ArrayList; returns None if not found.
-find_method_by_name_ :: (fn(methods : ArrayList(DocFunction), name : String) -> Option(DocFunction))({
+find_method_by_name_ :: (fn(imm(methods) : ArrayList(DocFunction), imm(name) : String) -> Option(DocFunction))({
   i := usize(0);
   n := methods.len();
   while(i < n, {
@@ -79,7 +79,7 @@ find_method_by_name_ :: (fn(methods : ArrayList(DocFunction), name : String) -> 
   Option(DocFunction).None
 });
 // Check whether a name appears in a claimed-names list.
-is_in_list_ :: (fn(list : ArrayList(String), name : String) -> bool)({
+is_in_list_ :: (fn(imm(list) : ArrayList(String), imm(name) : String) -> bool)({
   i := usize(0);
   n := list.len();
   result := false;
@@ -100,7 +100,7 @@ is_in_list_ :: (fn(list : ArrayList(String), name : String) -> bool)({
   result
 });
 // Format type parameters as "(A, B, C)" or "" when absent/empty.
-format_type_params_ :: (fn(params : Option(ArrayList(DocParam))) -> String)(
+format_type_params_ :: (fn(imm(params) : Option(ArrayList(DocParam))) -> String)(
   match(
     params,
     .None => ``,
@@ -129,7 +129,7 @@ format_type_params_ :: (fn(params : Option(ArrayList(DocParam))) -> String)(
   )
 );
 // Render a list of DocField as "**Fields:**\n\n- `name` : `type`...".
-render_fields_ :: (fn(fields : ArrayList(DocField)) -> String)({
+render_fields_ :: (fn(imm(fields) : ArrayList(DocField)) -> String)({
   lines := ArrayList(String).new();
   lines.push(`**Fields:**`);
   lines.push(``);
@@ -152,7 +152,7 @@ render_fields_ :: (fn(fields : ArrayList(DocField)) -> String)({
   `\n`.join(lines)
 });
 // Render a list of DocVariant as "**Variants:**\n\n- `Name`...".
-render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
+render_variants_ :: (fn(imm(variants) : ArrayList(DocVariant)) -> String)({
   lines := ArrayList(String).new();
   lines.push(`**Variants:**`);
   lines.push(``);
@@ -201,7 +201,7 @@ render_variants_ :: (fn(variants : ArrayList(DocVariant)) -> String)({
   `\n`.join(lines)
 });
 // Render a list of DocAssociatedType as "**Associated Types:**\n\n- ...".
-render_associated_types_ :: (fn(types : ArrayList(DocAssociatedType)) -> String)({
+render_associated_types_ :: (fn(imm(types) : ArrayList(DocAssociatedType)) -> String)({
   lines := ArrayList(String).new();
   lines.push(`**Associated Types:**`);
   lines.push(``);
@@ -225,7 +225,7 @@ render_associated_types_ :: (fn(types : ArrayList(DocAssociatedType)) -> String)
 });
 // ── Public renderers ──────────────────────────────────────────────────────────
 /// Render a single DocFunction as Markdown (### heading + signature + docs).
-render_function_md :: (fn(fn_ : DocFunction) -> String)({
+render_function_md :: (fn(imm(fn_) : DocFunction) -> String)({
   lines := ArrayList(String).new();
   self_type_str := match(fn_.self_type, .Some(s) => s, .None => ``);
   anchor := cond(fn_.is_method => `${self_type_str}.${fn_.name}`, true => fn_.name);
@@ -314,7 +314,7 @@ render_function_md :: (fn(fn_ : DocFunction) -> String)({
   `\n`.join(lines)
 });
 /// Render a single DocType as Markdown (### heading + signature + fields/variants + methods).
-render_type_md :: (fn(t : DocType) -> String)({
+render_type_md :: (fn(imm(t) : DocType) -> String)({
   lines := ArrayList(String).new();
   tp := format_type_params_(t.type_params);
   lines.push(`### \`${t.name}${tp}\``);
@@ -525,7 +525,7 @@ render_type_md :: (fn(t : DocType) -> String)({
   `\n`.join(lines)
 });
 /// Render a single DocTrait as Markdown.
-render_trait_md :: (fn(t : DocTrait) -> String)({
+render_trait_md :: (fn(imm(t) : DocTrait) -> String)({
   lines := ArrayList(String).new();
   tp := format_type_params_(t.type_params);
   lines.push(`### \`${t.name}${tp}\``);
@@ -610,7 +610,7 @@ render_trait_md :: (fn(t : DocTrait) -> String)({
   `\n`.join(lines)
 });
 /// Render a single DocConstant as Markdown.
-render_constant_md :: (fn(c : DocConstant) -> String)({
+render_constant_md :: (fn(imm(c) : DocConstant) -> String)({
   lines := ArrayList(String).new();
   val := match(c.value, .None => ``, .Some(v) => ` = ${v}`);
   lines.push(`### \`${c.name}\``);
@@ -636,7 +636,7 @@ render_constant_md :: (fn(c : DocConstant) -> String)({
   `\n`.join(lines)
 });
 /// Render a single DocModule as a Markdown page.
-render_module_md :: (fn(mod : DocModule) -> String)({
+render_module_md :: (fn(imm(mod) : DocModule) -> String)({
   lines := ArrayList(String).new();
   lines.push(`# ${mod.name}`);
   lines.push(``);
@@ -820,7 +820,7 @@ render_module_md :: (fn(mod : DocModule) -> String)({
   `\n`.join(lines)
 });
 /// Render the index page listing all modules in a DocModel.
-render_index_md :: (fn(model : DocModel) -> String)({
+render_index_md :: (fn(imm(model) : DocModel) -> String)({
   lines := ArrayList(String).new();
   lines.push(`# ${model.name} — API Documentation`);
   lines.push(``);

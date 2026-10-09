@@ -57,12 +57,12 @@ ParsedPackage :: enum(
   Path(name : String, rel_path : String)
 );
 /// Return `true` if `spec` looks like a local file-system path.
-is_local_path :: (fn(spec : String) -> bool)(
+is_local_path :: (fn(imm(spec) : String) -> bool)(
   (spec == ".") || (spec == "..") || spec.starts_with(String.from("./")) || spec.starts_with(String.from("../")) || spec.starts_with(String.from("/"))
 );
 /// The last path component of a URL or path, stripped of `.git` and of a
 /// trailing `/`.
-_url_to_dep_name :: (fn(url : String) -> String)({
+_url_to_dep_name :: (fn(imm(url) : String) -> String)({
   s := url.clone();
   if(s.ends_with("/"), {
     s = s.substring(usize(0), s.len() - usize(1));
@@ -83,7 +83,7 @@ _url_to_dep_name :: (fn(url : String) -> String)({
 /// `@…` suffix → requirement. A `v`-prefixed full version is an exact tag;
 /// anything else must parse as a range (`^1.2`, `~1`, `1.2.3`, `>=1, <2`,
 /// `*`). Branches and commits are flags (`--branch`, `--rev`), not `@`.
-_requirement_from_suffix :: (fn(suffix : String) -> Result(GitRequirement, String))({
+_requirement_from_suffix :: (fn(imm(suffix) : String) -> Result(GitRequirement, String))({
   if((suffix.starts_with("v") || suffix.starts_with("V")) && parse_semver(suffix.clone()).is_some(), {
     return(Result(GitRequirement, String).Ok(GitRequirement.Tag(suffix)));
   });
@@ -102,7 +102,7 @@ _requirement_from_suffix :: (fn(suffix : String) -> Result(GitRequirement, Strin
 /// - `https://host/path[.git]`            → any https/http remote
 /// - `git@host:path[.git]`, `ssh://…`     → ssh remotes, as written
 /// each optionally followed by `@<tag or range>`.
-parse_package_specifier :: (fn(spec : String) -> Result(ParsedPackage, String))({
+parse_package_specifier :: (fn(imm(spec) : String) -> Result(ParsedPackage, String))({
   spec_str := spec.clone();
   if(is_local_path(spec_str), {
     name := _url_to_dep_name(spec_str);
@@ -166,7 +166,7 @@ _user_cwd :: (fn() -> String)(
 );
 /// The manifest governing the user's cwd (the nearest `yo.toml` at or above
 /// it), loaded. An error when there is none or it does not parse.
-load_project_manifest :: (fn(exn : Exception) -> Manifest)({
+load_project_manifest :: (fn(imm(exn) : Exception) -> Manifest)({
   start := _user_cwd();
   path := match(
     find_manifest(start.clone()),
@@ -195,7 +195,7 @@ load_project_manifest :: (fn(exn : Exception) -> Manifest)({
   )
 });
 /// The `{ git = …, version = … }` / `{ path = … }` text `yo add` writes.
-dependency_value_text :: (fn(source : DependencySource) -> String)(
+dependency_value_text :: (fn(imm(source) : DependencySource) -> String)(
   match(
     source,
     .Path(p) => `{ path = ${toml_string(p)} }`,
@@ -221,13 +221,13 @@ dependency_value_text :: (fn(source : DependencySource) -> String)(
 /// `yo update` asked for (`Install` keeps every satisfying lock entry).
 install_dependencies :: (
   fn(
-    manifest : Manifest,
-    mode : ResolveMode,
+    imm(manifest) : Manifest,
+    imm(mode) : ResolveMode,
     locked : bool,
     offline : bool,
     verbose : bool,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(LockFile, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -269,9 +269,9 @@ AddOptions :: ref(
 /// and fetch every git dependency and write `yo.lock`.
 run_add :: (
   fn(
-    options : AddOptions,
+    imm(options) : AddOptions,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -447,10 +447,10 @@ run_add :: (
 /// `yo.lock`.
 run_remove :: (
   fn(
-    name : String,
+    imm(name) : String,
     verbose : bool,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -530,11 +530,11 @@ InstallOptions :: ref(
 /// every await a top-level statement.
 _bump_ranges_to_latest :: (
   fn(
-    manifest : Manifest,
-    names : ArrayList(String),
+    imm(manifest) : Manifest,
+    imm(names) : ArrayList(String),
     verbose : bool,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(Manifest, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -635,9 +635,9 @@ _bump_ranges_to_latest :: (
 /// is empty); `--latest` first raises their ranges to the newest release.
 run_install :: (
   fn(
-    options : InstallOptions,
+    imm(options) : InstallOptions,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {

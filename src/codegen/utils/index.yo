@@ -354,10 +354,10 @@ impl(
   /// Create a fresh generation context with empty registries.
   new : (
     fn(
-      emitter : Emitter,
-      info_table : ExprInfoTable,
-      target_info : TargetInfo,
-      allocator : String,
+      imm(emitter) : Emitter,
+      imm(info_table) : ExprInfoTable,
+      imm(target_info) : TargetInfo,
+      imm(allocator) : String,
       heap_size : usize,
       debug_heap : bool,
       debug_gc : bool,
@@ -422,7 +422,7 @@ impl(
   /// chunk 0 — because per-TU copies would give the same type a different
   /// address in every chunk (address identity IS the semantics). `comment` is
   /// appended verbatim when non-empty (the dyn vtable pass labels its ids).
-  emit_typeid_static : (fn(self : Self, static_var_name : String, comment : String) -> unit)({
+  emit_typeid_static : (fn(imm(self) : Self, imm(static_var_name) : String, imm(comment) : String) -> unit)({
     if(self.chunk_mode, {
       decl := String.from("extern const char ");
       decl.push_string(static_var_name.clone());
@@ -446,7 +446,7 @@ impl(
   /// static storage that lives for the whole program). Chunked emission
   /// splits it the way `emit_typeid_static` does — `extern` in the header,
   /// one definition in chunk 0 — so every translation unit sees one object.
-  comptime_pointer_static : (fn(self : Self, c_type : String, init : String) -> String)({
+  comptime_pointer_static : (fn(imm(self) : Self, imm(c_type) : String, imm(init) : String) -> String)({
     key := `${c_type.clone()}=${init.clone()}`;
     match(
       self.comptime_pointer_statics.get(key.clone()),
@@ -466,7 +466,7 @@ impl(
     )
   }),
   /// Allocate (or reuse) the type-tag id for a dispose function's C name.
-  dispose_type_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
+  dispose_type_id_for : (fn(imm(self) : Self, imm(dispose_c_name) : String) -> usize)(
     match(
       self.dispose_type_ids.get(dispose_c_name.clone()),
       .Some(id) => id,
@@ -480,7 +480,7 @@ impl(
   ),
   /// Allocate (or reuse) the pool index of a state-machine type, keyed by its
   /// dispose function's C name.
-  sm_pool_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
+  sm_pool_id_for : (fn(imm(self) : Self, imm(dispose_c_name) : String) -> usize)(
     match(
       self.sm_pool_ids.get(dispose_c_name.clone()),
       .Some(id) => id,
@@ -493,7 +493,7 @@ impl(
   ),
   /// Register a type to be generated.
   register_type : (
-    fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
+    fn(imm(self) : Self, imm(id) : String, imm(ty) : TypeValue, imm(c_name) : String, imm(c_include) : Option(String)) -> unit
   )({
     self.types.insert(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
     ()
@@ -501,12 +501,12 @@ impl(
   /// Alias an EVOLVED type_key render to an already-registered key (the
   /// stable-identity dedup in collect_type). One level only — the target is
   /// always a PRIMARY registered key.
-  register_type_alias : (fn(self : Self, alias_id : String, target_id : String) -> unit)({
+  register_type_alias : (fn(imm(self) : Self, imm(alias_id) : String, imm(target_id) : String) -> unit)({
     self.type_key_aliases.insert(alias_id, target_id);
     ()
   }),
   /// Look up a registered type entry by id (following one alias level).
-  get_type_entry : (fn(self : Self, id : String) -> Option(CodegenTypeEntry))(
+  get_type_entry : (fn(imm(self) : Self, imm(id) : String) -> Option(CodegenTypeEntry))(
     match(
       self.types.get(id.clone()),
       .Some(e) => .Some(e),
@@ -518,7 +518,7 @@ impl(
     )
   ),
   /// Look up a registered type's C name by id.
-  get_type_c_name : (fn(self : Self, id : String) -> Option(String))(
+  get_type_c_name : (fn(imm(self) : Self, imm(id) : String) -> Option(String))(
     // Return a CLONE, not the stored String. Yo `String` is reference-
     // semantics, so handing out the registry's own `c_name` lets a caller that
     // builds e.g. a temp declaration `<type> <var>` (via `decl := get_type_string(..);
@@ -531,14 +531,14 @@ impl(
   ),
   /// The per-expression evaluation metadata for `expr`, or
   /// `.None` if the node was never evaluated.
-  get_expr_info : (fn(self : Self, expr : AstExpr) -> Option(ExprInfo))(
+  get_expr_info : (fn(imm(self) : Self, imm(expr) : AstExpr) -> Option(ExprInfo))(
     expr_info_table_get(self.info_table, ast_expr_id(expr))
   ),
   /// Register a reachable function to be generated (idempotent on func_id).
   /// C names are content-derived (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5),
   /// so a sanitization collision between two DIFFERENT functions is possible —
   /// disambiguate with an `_x<k>` suffix rather than emit two definitions of one symbol.
-  register_function : (fn(self : Self, func_id : String, value : EvalValue, c_name : String) -> unit)({
+  register_function : (fn(imm(self) : Self, imm(func_id) : String, imm(value) : EvalValue, imm(c_name) : String) -> unit)({
     // Record first-registration order (insertion order) so codegen emits
     // functions deterministically instead of in HashMap bucket order.
     // Re-registration keeps the original position.
@@ -574,11 +574,11 @@ impl(
     ()
   }),
   /// True if a function with this func_id is already registered.
-  has_function : (fn(self : Self, func_id : String) -> bool)(
+  has_function : (fn(imm(self) : Self, imm(func_id) : String) -> bool)(
     self.functions.contains_key(func_id)
   ),
   /// Look up a registered function entry by func_id.
-  get_function_entry : (fn(self : Self, func_id : String) -> Option(CodegenFunctionEntry))(
+  get_function_entry : (fn(imm(self) : Self, imm(func_id) : String) -> Option(CodegenFunctionEntry))(
     // Return an entry whose c_name is a CLONE, never the registry's own
     // String — Yo String is reference-semantics, so handing out the
     // stored buffer lets any consumer that builds on it (e.g. the index-call
@@ -595,7 +595,7 @@ impl(
   ),
   /// True if any registered function already uses this C name (collision check
   /// for plain-name exports).
-  has_function_with_c_name : (fn(self : Self, c_name : String) -> bool)({
+  has_function_with_c_name : (fn(imm(self) : Self, imm(c_name) : String) -> bool)({
     vals := self.functions.values();
     (found : bool) = false;
     while(!found, {
@@ -610,17 +610,17 @@ impl(
     found
   }),
   /// Record an exported function's label → func_id mapping (stable C name).
-  set_exported_function_label : (fn(self : Self, func_id : String, label : String) -> unit)({
+  set_exported_function_label : (fn(imm(self) : Self, imm(func_id) : String, imm(label) : String) -> unit)({
     self.exported_function_labels.insert(func_id, label);
     ()
   }),
   /// Register a dyn() usage (idempotent on key).
-  register_dyn_impl : (fn(self : Self, key : String, entry : DynImplEntry) -> unit)({
+  register_dyn_impl : (fn(imm(self) : Self, imm(key) : String, imm(entry) : DynImplEntry) -> unit)({
     self.dyn_impls.insert(key, entry);
     ()
   }),
   /// Record one `upcast(src, tgt)` (idempotent per target).
-  register_dyn_upcast : (fn(self : Self, src : TypeValue, tgt : TypeValue) -> unit)({
+  register_dyn_upcast : (fn(imm(self) : Self, imm(src) : TypeValue, imm(tgt) : TypeValue) -> unit)({
     src_key := type_key(src);
     tgt_key := type_key(tgt.clone());
     targets := match(self.dyn_upcasts.get(src_key.clone()), .Some(t) => t, .None => ArrayList(TypeValue).new());
@@ -636,30 +636,30 @@ impl(
     ()
   }),
   /// The `upcast` targets of the source Dyn `src` (empty for most Dyns).
-  dyn_upcast_targets : (fn(self : Self, src : TypeValue) -> ArrayList(TypeValue))(
+  dyn_upcast_targets : (fn(imm(self) : Self, imm(src) : TypeValue) -> ArrayList(TypeValue))(
     match(self.dyn_upcasts.get(type_key(src)), .Some(t) => t, .None => ArrayList(TypeValue).new())
   ),
   /// Register an extern function.
   register_extern_function : (
-    fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
+    fn(imm(self) : Self, imm(id) : String, imm(ty) : TypeValue, imm(c_name) : String, imm(c_include) : Option(String)) -> unit
   )({
     self.extern_functions.insert(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
     ()
   }),
   /// Register an array struct type (idempotent).
   register_array_struct_type : (
-    fn(self : Self, c_name : String, child_type : String, length : i64) -> unit
+    fn(imm(self) : Self, imm(c_name) : String, imm(child_type) : String, length : i64) -> unit
   )({
     self.array_struct_types.insert(c_name, ArrayStructInfo(child_type : child_type, length : length));
     ()
   }),
   /// True if an array struct type with this C name is registered.
-  has_array_struct_type : (fn(self : Self, c_name : String) -> bool)(
+  has_array_struct_type : (fn(imm(self) : Self, imm(c_name) : String) -> bool)(
     self.array_struct_types.contains_key(c_name)
   ),
   /// Register an Iso struct type (idempotent).
   register_iso_type : (
-    fn(self : Self, c_name : String, child_type_c_name : String, iso_type : TypeValue) -> unit
+    fn(imm(self) : Self, imm(c_name) : String, imm(child_type_c_name) : String, imm(iso_type) : TypeValue) -> unit
   )({
     self.iso_types.insert(
       c_name,
@@ -676,11 +676,11 @@ impl(
     ()
   }),
   /// True if an Iso struct type with this C name is registered.
-  has_iso_type : (fn(self : Self, c_name : String) -> bool)(
+  has_iso_type : (fn(imm(self) : Self, imm(c_name) : String) -> bool)(
     self.iso_types.contains_key(c_name)
   ),
   /// Add a C include header.
-  add_c_include : (fn(self : Self, include : String) -> unit)({
+  add_c_include : (fn(imm(self) : Self, imm(include) : String) -> unit)({
     self.c_includes.insert(include);
     ()
   })
@@ -698,7 +698,7 @@ RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
 /// The runtime (non-comptime-only) fields of a struct type, in declaration
 /// order. Non-struct types yield an empty
 /// list. A struct with no registered comptime-flags is treated as all-runtime.
-get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeStructField))(
+get_runtime_struct_fields :: (fn(imm(struct_type) : TypeValue) -> ArrayList(RuntimeStructField))(
   match(
     struct_type,
     .Struct({ id, field_labels, field_types }) => {
@@ -823,7 +823,7 @@ fresh_local_counts_reset :: (fn() -> unit)({
   g_fresh_local_counts = HashMap(String, usize).new();
   ()
 });
-fresh_local_name :: (fn(prefix : String, current_function_name : String) -> String)({
+fresh_local_name :: (fn(imm(prefix) : String, imm(current_function_name) : String) -> String)({
   key := `${prefix}@${current_function_name}`;
   k := match(
     g_fresh_local_counts.get(key),
@@ -840,7 +840,7 @@ fresh_local_name :: (fn(prefix : String, current_function_name : String) -> Stri
 /// numeric atom. String/char literals are deliberately NOT "literals": no
 /// path compares them, and the evaluator rejects them loudly (the evaluator
 /// twin is `_pattern_param_is_literal` in evaluator/exprs/match.yo).
-pattern_param_is_literal :: (fn(e : AstExpr) -> bool)(
+pattern_param_is_literal :: (fn(imm(e) : AstExpr) -> bool)(
   cond(
     ast_expr_is_atom(e) => match(
       ast_expr_token(e).kind,
@@ -872,7 +872,7 @@ pattern_param_is_literal :: (fn(e : AstExpr) -> bool)(
 /// and float token text, `-` prefix for negated numerics. No
 /// `_call_generate_expr` (this module is imported below the expr emitters;
 /// a call-through would cycle, and these atoms need no evaluation).
-pattern_literal_param_code :: (fn(e : AstExpr) -> String)({
+pattern_literal_param_code :: (fn(imm(e) : AstExpr) -> String)({
   neg := match(
     e,
     .FnCall(_, _, neg_args, _, _) => match(
@@ -900,10 +900,10 @@ pattern_literal_param_code :: (fn(e : AstExpr) -> String)({
 /// directly — no shared state, safe to call from either emitter.
 pattern_literal_arm_guards :: (
   fn(
-    enum_type : TypeValue,
-    variant_name : String,
-    params : ArrayList(AstExpr),
-    matched_value_code : String,
+    imm(enum_type) : TypeValue,
+    imm(variant_name) : String,
+    imm(params) : ArrayList(AstExpr),
+    imm(matched_value_code) : String,
     access : str
   ) -> String
 )({
@@ -969,7 +969,7 @@ pattern_literal_arm_guards :: (
 /// Collisions between two hashed signatures fall back to register_function's
 /// `_x<k>` backstop; a hashed name can never equal a sanitized fid (those
 /// never start with `__yo_fs_`).
-function_c_name :: (fn(func_id : String) -> String)(
+function_c_name :: (fn(imm(func_id) : String) -> String)(
   cond(
     (func_id.len() > usize(160)) => `__yo_fs_${fnv1a64(func_id.clone()).to_string()}`,
     true => c_symbol_name(func_id.clone())
@@ -980,7 +980,7 @@ function_c_name :: (fn(func_id : String) -> String)(
 /// holds EVERY declaration's type, so a local that merely shares the name
 /// (`errno : i32` beside <errno.h>'s `errno : *(int)`) does not match, while
 /// two modules declaring the same symbol with different types both do.
-extern_c_global_matches :: (fn(name : String, ty : TypeValue) -> bool)({
+extern_c_global_matches :: (fn(imm(name) : String, imm(ty) : TypeValue) -> bool)({
   tk := type_key(ty);
   tys := get_extern_c_global_types(name);
   (i : usize) = usize(0);
@@ -997,7 +997,7 @@ extern_c_global_matches :: (fn(name : String, ty : TypeValue) -> bool)({
   false
 });
 /// `s` with every byte that is not `[a-zA-Z0-9_]` spelled `_u<byte>_`.
-_mangle_c_identifier_bytes :: (fn(s : String) -> String)({
+_mangle_c_identifier_bytes :: (fn(imm(s) : String) -> String)({
   sanitized := String.new();
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
   // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
@@ -1035,7 +1035,7 @@ _mangle_c_identifier_bytes :: (fn(s : String) -> String)({
 /// global, a member of a struct adopted from a header) keeps its spelling.
 /// Symbols with an ABI of their own (exported library functions, extern
 /// "Yo" imports, function ids) go through `c_symbol_name` instead.
-sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
+sanitize_for_c_identifier :: (fn(imm(s) : String, is_extern_c : bool) -> String)({
   sanitized := _mangle_c_identifier_bytes(s);
   if(is_extern_c, {
     return(sanitized);
@@ -1052,10 +1052,10 @@ sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
 /// name, a function id, a piece of a type or static's name. Byte-mangled,
 /// and moved off the C keywords and the macros in `_c_reserved_words`, but
 /// never given the `__yo_v_` prefix.
-c_symbol_name :: (fn(s : String) -> String)(
+c_symbol_name :: (fn(imm(s) : String) -> String)(
   _avoid_c_reserved_word(_mangle_c_identifier_bytes(s))
 );
-_avoid_c_reserved_word :: (fn(sanitized : String) -> String)({
+_avoid_c_reserved_word :: (fn(imm(sanitized) : String) -> String)({
   if(_c_reserved_words.contains(sanitized), {
     prefixed := String.from("__yo_c_reserved_");
     prefixed.push_string(sanitized);
@@ -1067,29 +1067,29 @@ _avoid_c_reserved_word :: (fn(sanitized : String) -> String)({
 /// ADOPTED by a `c_include` (`Point : Type` naming a Yo struct) is laid out
 /// by its header, so its members keep the header's spelling; every other
 /// field is a Yo name (sanitize_for_c_identifier).
-c_field_name :: (fn(owner : TypeValue, label : String) -> String)(
+c_field_name :: (fn(imm(owner) : TypeValue, imm(label) : String) -> String)(
   sanitize_for_c_identifier(label, get_adopted_extern_c_type(owner).is_some())
 );
 /// The C member name of variant `variant`'s payload in an enum's `data` union:
 /// a Yo name like any field (`data.__yo_v_Some.__yo_v_value`), so a variant
 /// named after a header macro (`EOF`) cannot collide either.
-c_variant_member_name :: (fn(variant : String) -> String)(
+c_variant_member_name :: (fn(imm(variant) : String) -> String)(
   sanitize_for_c_identifier(variant, false)
 );
 /// A name the compiler generated, emitted as is (see sanitize_for_c_identifier).
 /// A leading digit is a numeric literal some atom paths hand over (`i32(1)`'s
 /// `1`); no Yo identifier starts with one.
-_is_compiler_shaped_identifier :: (fn(s : String) -> bool)(
+_is_compiler_shaped_identifier :: (fn(imm(s) : String) -> bool)(
   s.starts_with("_") || s.starts_with("fn_yo_id_") || s.starts_with("yo_id_") || s.starts_with("closure_yo_id_") || s.starts_with("var_") || ((s.len() > usize(0)) && (s.byte_at(usize(0)) >= u8(48)) && (s.byte_at(usize(0)) <= u8(57)))
 );
 /// Check if a type should avoid the `const` qualifier even when not mutable.
 /// Object types need this so reference-counting operations remain legal.
-should_avoid_const :: (fn(t : TypeValue) -> bool)(
+should_avoid_const :: (fn(imm(t) : TypeValue) -> bool)(
   is_reference_struct_type(t)
 );
 /// Local helper: the callee atom's token value if `e` is a `FnCall` whose
 /// `func` is an `Atom`; `.None` otherwise.
-_fn_call_callee_name :: (fn(e : AstExpr) -> Option(String))(
+_fn_call_callee_name :: (fn(imm(e) : AstExpr) -> Option(String))(
   match(
     e,
     .Atom(_, _) => .None,
@@ -1103,7 +1103,7 @@ _fn_call_callee_name :: (fn(e : AstExpr) -> Option(String))(
 /// Local helper: look through `unsafe(expr)` transparently. A body shaped
 /// like `unsafe(__yo_op_add(a,b))` is equivalent to `__yo_op_add(a,b)` for
 /// inlining.
-_unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
+_unwrap_unsafe :: (fn(imm(e) : AstExpr) -> AstExpr)(
   match(
     e,
     .Atom(_, _) => e,
@@ -1159,7 +1159,7 @@ _unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
 /// alias exists in the tree, and one would fail LOUDLY rather than silently —
 /// the emitter would render an empty operand (`usleep(() * 1000)`), which is
 /// invalid C.
-_inline_unwrap_transparent :: (fn(e : AstExpr) -> AstExpr)({
+_inline_unwrap_transparent :: (fn(imm(e) : AstExpr) -> AstExpr)({
   inner := _unwrap_unsafe(e);
   match(
     inner,
@@ -1171,7 +1171,7 @@ _inline_unwrap_transparent :: (fn(e : AstExpr) -> AstExpr)({
     )
   )
 });
-_inline_body_passes_params_through :: (fn(call : AstExpr, fv : EvalValue) -> bool)({
+_inline_body_passes_params_through :: (fn(imm(call) : AstExpr, imm(fv) : EvalValue) -> bool)({
   args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(false));
   params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params, _ => return(false));
   nparams := params.len();
@@ -1219,7 +1219,7 @@ _inline_body_passes_params_through :: (fn(call : AstExpr, fv : EvalValue) -> boo
 /// `__yo_as` casts are excluded (they need real call handling). The
 /// pass-through check lives in `_inline_body_passes_params_through`.
 is_function_value_with_only_builtin_yo_inline_function_call :: (
-  fn(fv : EvalValue) -> Option(String)
+  fn(imm(fv) : EvalValue) -> Option(String)
 )({
   body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
   body := _unwrap_unsafe(body_box);
@@ -1256,12 +1256,12 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// The variant name + destructuring params of a tagged-union arm pattern,
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
-arm_variant_name :: (fn(case_value : AstExpr) -> Option(String))(
+arm_variant_name :: (fn(imm(case_value) : AstExpr) -> Option(String))(
   match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(v).value), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(v).value), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
-arm_params :: (fn(case_value : AstExpr) -> ArrayList(AstExpr))(
+arm_params :: (fn(imm(case_value) : AstExpr) -> ArrayList(AstExpr))(
   match(
     case_value,
     .FnCall(_, func, args, _, _) => match(
@@ -1289,7 +1289,7 @@ arm_params :: (fn(case_value : AstExpr) -> ArrayList(AstExpr))(
 );
 /// The two variants of a nullable-pointer enum (`can_optimize_as_nullable_pointer`):
 /// the fieldless one (NULL) and the one carrying the pointer, as `(empty, payload)`.
-nullable_variant_names :: (fn(t : TypeValue) -> Option(ArrayList(String)))(
+nullable_variant_names :: (fn(imm(t) : TypeValue) -> Option(ArrayList(String)))(
   match(
     t,
     .EnumT({ variant_names : vns, variant_fields : vfs }) => {
@@ -1318,7 +1318,7 @@ nullable_variant_names :: (fn(t : TypeValue) -> Option(ArrayList(String)))(
 /// VARIANT NAME: `.Some(true)` for the pointer variant (payload bound or not:
 /// `.Some(x)`, `.Some`, `.Node({ child })`), `.Some(false)` for the fieldless
 /// one, `.None` for a pattern that names neither (`_`, guards).
-nullable_arm_selects_payload :: (fn(enum_type : TypeValue, case_value : AstExpr) -> Option(bool))(
+nullable_arm_selects_payload :: (fn(imm(enum_type) : TypeValue, imm(case_value) : AstExpr) -> Option(bool))(
   match(
     arm_variant_name(case_value),
     .Some(raw) => {
@@ -1340,7 +1340,7 @@ nullable_arm_selects_payload :: (fn(enum_type : TypeValue, case_value : AstExpr)
 /// positional (`.Some(x)`), labeled (`.Node(child : c)`) or curly
 /// (`.Node({ child })`, `.Node({ child : c })`) pattern binds the single field
 /// to, or `.None` when it binds nothing (`.Some`, `.Some(_)`, a literal).
-nullable_arm_payload_binder :: (fn(case_value : AstExpr) -> Option(AstExpr))({
+nullable_arm_payload_binder :: (fn(imm(case_value) : AstExpr) -> Option(AstExpr))({
   params := arm_params(case_value);
   is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false));
   dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, ca, _, _) => ca, .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
@@ -1355,7 +1355,7 @@ nullable_arm_payload_binder :: (fn(case_value : AstExpr) -> Option(AstExpr))({
 });
 /// Check if an enum can be optimized as a simple C enum (all variants have no
 /// data members and there is at least one variant).
-can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
+can_optimize_as_simple_enum :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .EnumT({ variant_fields, is_reference_semantics }) => {
@@ -1402,13 +1402,13 @@ can_optimize_as_simple_enum :: (fn(t : TypeValue) -> bool)(
 // drifted key to the existing nominal entry (or collects + declares a
 // genuinely-new type into the DECLARATIONS buffer, which the three-buffer
 // emitter places before all function code).
-OnDemandDeclareFn :: (fn(t : TypeValue, context : CodeGenContext) -> unit);
+OnDemandDeclareFn :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> unit);
 (g_on_demand_declare_fn : Option(OnDemandDeclareFn)) = Option(OnDemandDeclareFn).None;
 set_on_demand_declare_fn :: (fn(f : OnDemandDeclareFn) -> unit)({
   g_on_demand_declare_fn = Option(OnDemandDeclareFn).Some(f);
   ()
 });
-_lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
+_lookup_named_c_type :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> String)(
   match(
     context.get_type_c_name(type_key(t)),
     .Some(c_name) => c_name,
@@ -1440,7 +1440,7 @@ _lookup_named_c_type :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
 /// SomeT's required traits contain a `FutureTraitT` (the SomeT shape of
 /// `Impl(Future(T, E))`). Kept local so this foundational module does not
 /// import the evaluator's trait_checking.
-_some_t_requires_future :: (fn(t : TypeValue) -> bool)(
+_some_t_requires_future :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .SomeT({ required_trait_types : rtts }) => {
@@ -1468,7 +1468,7 @@ _some_t_requires_future :: (fn(t : TypeValue) -> bool)(
 /// carried by `Impl(Future(T, E))`). Companion to `_some_t_requires_future`;
 /// local structural extraction so this foundational module does not import
 /// the evaluator's trait_checking.
-_extract_future_trait_of_some_t :: (fn(t : TypeValue) -> Option(TypeValue))(
+_extract_future_trait_of_some_t :: (fn(imm(t) : TypeValue) -> Option(TypeValue))(
   match(
     t,
     .SomeT({ required_trait_types : eft_rtts }) => {
@@ -1496,7 +1496,7 @@ _extract_future_trait_of_some_t :: (fn(t : TypeValue) -> Option(TypeValue))(
 );
 /// Remove all `*` bytes from a C type string (a by-value C
 /// identifier can't contain `*`; sanitize would otherwise turn it into `_u42_`).
-_strip_stars :: (fn(s : String) -> String)({
+_strip_stars :: (fn(imm(s) : String) -> String)({
   out := String.from("");
   n := s.len();
   (i : usize) = usize(0);
@@ -1520,7 +1520,7 @@ _strip_stars :: (fn(s : String) -> String)({
 /// is treated as UNRESOLVED (registered-name / void* fallback) — the same
 /// "bounded by a monotonic visited set" convention type_to_string follows.
 (g_gts_some_stack : ArrayList(String)) = ArrayList(String).new();
-_gts_stack_contains :: (fn(sid : String) -> bool)({
+_gts_stack_contains :: (fn(imm(sid) : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := g_gts_some_stack.len();
@@ -1536,7 +1536,7 @@ _gts_stack_contains :: (fn(sid : String) -> bool)({
   });
   found
 });
-get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
+get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> String)(
   match(
     t,
     // A refinement wraps its inner at runtime (the erasure rule) — the C
@@ -1770,7 +1770,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
 /// REF/`inout` unit parameter keeps `void*`
 /// (issues/fixed/inout-unit-receiver-void-ref-spill.md). Every other type is
 /// unchanged.
-get_storage_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)({
+get_storage_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> String)({
   s := get_type_string(t, context);
   if(s == `void`, String.from("uint8_t"), s)
 });
@@ -1785,7 +1785,7 @@ get_storage_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> Strin
 /// sibling block keeps its name in the set forever, so a set-only gate emits
 /// `__yo_decr_rc(x)` for an out-of-scope `x`. The `"{"` block sentinels never
 /// match a real C name.
-scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
+scope_stack_contains :: (fn(imm(stack) : ArrayList(String), imm(cn) : String) -> bool)({
   n := stack.len();
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -1804,7 +1804,7 @@ scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
 /// C type string for a variable declaration (`<type> <name>`), sanitizing the
 /// variable name to avoid C reserved words/macros.
 get_variable_type_string :: (
-  fn(t : TypeValue, var_name : String, context : CodeGenContext) -> String
+  fn(imm(t) : TypeValue, imm(var_name) : String, imm(context) : CodeGenContext) -> String
 )({
   result := get_type_string(t, context);
   result.push_str(" ");
@@ -1818,21 +1818,21 @@ get_variable_type_string :: (
 /// Record `c_name` as a C declaration of the current function
 /// (`declared_c_var_names`). The set is an `Rc` because the emitter holds the
 /// same set (`Emitter.declared_ref`) and writes it too.
-declare_c_var_name :: (fn(context : CodeGenContext, c_name : String) -> unit)({
+declare_c_var_name :: (fn(imm(context) : CodeGenContext, imm(c_name) : String) -> unit)({
   names := context.declared_c_var_names;
   names.*.insert(c_name);
 });
 /// Push `c_name` onto the current function's block-scope stack
 /// (`declared_scopes`), which the emitter shares the same way
 /// (`Emitter.scope_ref`).
-push_declared_scope :: (fn(context : CodeGenContext, c_name : String) -> unit)({
+push_declared_scope :: (fn(imm(context) : CodeGenContext, imm(c_name) : String) -> unit)({
   scopes := context.declared_scopes;
   scopes.*.push(c_name);
 });
 /// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
 /// upper-cased).
 get_enum_variant_c_name :: (
-  fn(enum_type : TypeValue, variant_name : String, context : CodeGenContext) -> String
+  fn(imm(enum_type) : TypeValue, imm(variant_name) : String, imm(context) : CodeGenContext) -> String
 )(
   match(
     context.get_type_c_name(type_key(enum_type)),
@@ -1864,7 +1864,7 @@ get_enum_variant_c_name :: (
 ///
 /// The extern-C sanitize flag is modeled only on the Func variant (Gap 3),
 /// so it is read from there (false for non-Func types — the common case).
-_codegen_name_of_variables :: (fn(variable_name : String, variables : ArrayList(Variable)) -> String)({
+_codegen_name_of_variables :: (fn(imm(variable_name) : String, imm(variables) : ArrayList(Variable)) -> String)({
   n := variables.len();
   cond(
     (n > usize(0)) => {
@@ -1951,7 +1951,7 @@ _codegen_name_of_variables :: (fn(variable_name : String, variables : ArrayList(
     true => sanitize_for_c_identifier(variable_name.clone(), false)
   )
 });
-get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Environment)) -> String)(
+get_variable_name_for_codegen :: (fn(imm(variable_name) : String, imm(env) : Option(Environment)) -> String)(
   match(
     env,
     .None => sanitize_for_c_identifier(variable_name.clone(), false),
@@ -1961,7 +1961,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
 /// `get_variable_name_for_codegen` through node `key`'s recorded scope: the
 /// form every caller holding a recorded env (an `ExprInfo.env`) uses, so the
 /// lookup goes through `scope_variables`.
-get_variable_name_for_codegen_at :: (fn(key : ExprId, variable_name : String, env : Option(Environment)) -> String)(
+get_variable_name_for_codegen_at :: (fn(key : ExprId, imm(variable_name) : String, imm(env) : Option(Environment)) -> String)(
   match(
     env,
     .None => sanitize_for_c_identifier(variable_name.clone(), false),
@@ -1971,7 +1971,7 @@ get_variable_name_for_codegen_at :: (fn(key : ExprId, variable_name : String, en
 /// Extract the target atom name from a deferred dup expression.
 ///   Form 1: `___dup(varName)` — pre-evaluation form (first arg atom).
 ///   Form 2: `(varName.___dup)()` — post-evaluation method-style form.
-get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
+get_deferred_dup_target_atom_name :: (fn(imm(dup_expr) : AstExpr) -> Option(String))(
   match(
     dup_expr,
     .Atom(_, _) => .None,
@@ -2016,7 +2016,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : AstExpr) -> Option(String))(
 ///   Form A: `varName.drop()` (method-call syntax).
 ///   Form B: `___drop(varName)`.
 /// The target atom of a deferred drop: `(x.___drop)()` or `___drop(x)`.
-get_deferred_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
+get_deferred_drop_target_atom :: (fn(imm(drop_expr) : AstExpr) -> Option(AstExpr))(
   match(
     drop_expr,
     .Atom(_, _) => .None,
@@ -2054,7 +2054,7 @@ get_deferred_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
 );
 /// The Variable a deferred drop's target atom resolves to (innermost match),
 /// read through that atom's own record (`scope_variables`).
-deferred_drop_target_variable :: (fn(drop_expr : AstExpr, base : CodeGenContext) -> Option(Variable))(
+deferred_drop_target_variable :: (fn(imm(drop_expr) : AstExpr, imm(base) : CodeGenContext) -> Option(Variable))(
   match(
     get_deferred_drop_target_atom(drop_expr),
     .Some(atom) => match(
@@ -2065,7 +2065,7 @@ deferred_drop_target_variable :: (fn(drop_expr : AstExpr, base : CodeGenContext)
     .None => Option(Variable).None
   )
 );
-get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String))(
+get_deferred_drop_target_atom_name :: (fn(imm(drop_expr) : AstExpr) -> Option(String))(
   match(
     drop_expr,
     .Atom(_, _) => .None,
@@ -2112,7 +2112,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : AstExpr) -> Option(String)
 /// (`is_fnonce_capture_drop`): that body owns its captures and drops the ones
 /// it did not move (plans/VALUES_BY_DEFAULT.md decision 37).
 is_deferred_drop_for_closure_capture :: (
-  fn(drop_expr : AstExpr, current_closure_captures : Option(ArrayList(String))) -> bool
+  fn(imm(drop_expr) : AstExpr, imm(current_closure_captures) : Option(ArrayList(String))) -> bool
 )({
   if(is_fnonce_capture_drop(ast_expr_id(drop_expr)) || is_fnonce_post_call_release(ast_expr_id(drop_expr)), {
     return(false);
@@ -2131,7 +2131,7 @@ is_deferred_drop_for_closure_capture :: (
 /// Find the first async block in an expression that might be returned.
 /// For functions returning `Impl(Future(T))`, any async block in the body
 /// could be the return value, so the first one found is returned.
-find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
+find_returned_async_block :: (fn(imm(expr) : Option(AstExpr)) -> Option(AstExpr))(
   match(
     expr,
     .None => .None,
@@ -2177,7 +2177,7 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
 ///
 /// A bare-decimal index against a bare-decimal comptime length that is in
 /// range folds to the raw index, keeping comptime-shaped code identical.
-_is_decimal_literal :: (fn(s : String) -> bool)({
+_is_decimal_literal :: (fn(imm(s) : String) -> bool)({
   ok := (s.len() > usize(0));
   (i : usize) = usize(0);
   while((i < s.len()) && ok, {
@@ -2189,7 +2189,7 @@ _is_decimal_literal :: (fn(s : String) -> bool)({
   });
   ok
 });
-_parse_decimal :: (fn(s : String) -> usize)({
+_parse_decimal :: (fn(imm(s) : String) -> usize)({
   (v : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < s.len(), {
@@ -2201,7 +2201,7 @@ _parse_decimal :: (fn(s : String) -> usize)({
 });
 /// C string literal for the source location (module paths are URIs; escape
 /// the two characters C cares about).
-_idx_c_string_literal :: (fn(s : String) -> String)({
+_idx_c_string_literal :: (fn(imm(s) : String) -> String)({
   bytes := ArrayList(u8).new();
   bytes.push(u8(34));
   (i : usize) = usize(0);
@@ -2219,7 +2219,7 @@ _idx_c_string_literal :: (fn(s : String) -> String)({
 });
 /// The guarded index sub-expression for a runtime-length receiver (`str`:
 /// the caller spells the length as `(<recv>).len`).
-_checked_index_expr :: (fn(index_code : String, length_code : String, expr : AstExpr) -> String)({
+_checked_index_expr :: (fn(imm(index_code) : String, imm(length_code) : String, imm(expr) : AstExpr) -> String)({
   // 5b: the verifier proved this subscript in bounds (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
   if(guard_site_is_proved(expr, "index-in-bounds"), {
     return(index_code);
@@ -2236,7 +2236,7 @@ _checked_index_expr :: (fn(index_code : String, length_code : String, expr : Ast
 /// The comptime length of a fixed `Array(T, N)` as a decimal literal, or ""
 /// when the length is symbolic (a generic body pre-specialization — should
 /// never reach codegen; callers fail open to the raw subscript).
-_fixed_array_len_literal :: (fn(array_type : TypeValue) -> String)(
+_fixed_array_len_literal :: (fn(imm(array_type) : TypeValue) -> String)(
   match(
     array_type,
     .Array(_, nlen, nlvar) => if(nlvar.len() == usize(0), nlen.to_string(), String.new()),
@@ -2245,7 +2245,7 @@ _fixed_array_len_literal :: (fn(array_type : TypeValue) -> String)(
 );
 /// Guarded subscript for a FIXED array receiver: the bound is the array's
 /// comptime N. Symbolic-length arrays fail open (raw index).
-_checked_fixed_array_subscript :: (fn(index_code : String, array_type : TypeValue, expr : AstExpr) -> String)({
+_checked_fixed_array_subscript :: (fn(imm(index_code) : String, imm(array_type) : TypeValue, imm(expr) : AstExpr) -> String)({
   len_code := _fixed_array_len_literal(array_type);
   if(len_code.len() == usize(0), {
     return(index_code);
@@ -2257,7 +2257,7 @@ _checked_fixed_array_subscript :: (fn(index_code : String, array_type : TypeValu
 /// state-machine slot `sm->var_…` under the single-pass async lowering), so
 /// materializing it as `T name = <rendering>;` would redefine the variable in
 /// its own scope.
-is_self_named_atom :: (fn(expr : AstExpr, variable_name : String) -> bool)(
+is_self_named_atom :: (fn(imm(expr) : AstExpr, imm(variable_name) : String) -> bool)(
   ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value)
 );
 /// The C type of one parameter of a Dyn vtable slot and of the wrapper the
@@ -2265,7 +2265,7 @@ is_self_named_atom :: (fn(expr : AstExpr, variable_name : String) -> bool)(
 /// prototype spells it (`functions/declarations.yo`): the call site hands the
 /// slot the address of the place, and the impl or closure the wrapper forwards
 /// to takes a `T*` (issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md).
-dyn_slot_param_type_string :: (fn(t : Option(TypeValue), is_ref : Option(bool), context : CodeGenContext) -> String)(
+dyn_slot_param_type_string :: (fn(imm(t) : Option(TypeValue), is_ref : Option(bool), imm(context) : CodeGenContext) -> String)(
   match(
     t,
     .Some(pt) => {
@@ -2284,7 +2284,7 @@ dyn_slot_param_type_string :: (fn(t : Option(TypeValue), is_ref : Option(bool), 
 /// `--line-directives` (one bool check inside the emitter), so every begin /
 /// function-body / loop-body / case-body statement loop can call it
 /// unconditionally.
-note_line_position :: (fn(em : Emitter, expr : AstExpr) -> unit)({
+note_line_position :: (fn(imm(em) : Emitter, imm(expr) : AstExpr) -> unit)({
   tok := ast_expr_token(expr);
   em.set_yo_line_position(tok.module_path, tok.row);
 });

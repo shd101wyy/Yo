@@ -11,7 +11,7 @@
 /// The global `--lang` override, stashed by main.yo's pre-scan.
 (g_lang_override : Option(String)) = Option(String).None;
 /// Record the global `--lang` flag value.
-set_cli_lang_override :: (fn(lang : String) -> unit)({
+set_cli_lang_override :: (fn(imm(lang) : String) -> unit)({
   g_lang_override = Option(String).Some(lang);
 });
 /// Resolve the CLI language: `"zh-CN"` when the override or `YO_LANG` names a
@@ -38,7 +38,7 @@ cli_lang :: (fn() -> String)({
   );
 });
 /// Pick the English or Simplified-Chinese variant of a user-facing string.
-tr :: (fn(en : String, zh : String) -> String)(
+tr :: (fn(imm(en) : String, imm(zh) : String) -> String)(
   cond(
     (cli_lang() == "zh-CN") => zh,
     true => en

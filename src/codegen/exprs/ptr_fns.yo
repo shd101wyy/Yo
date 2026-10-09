@@ -24,11 +24,11 @@
 { expr_info_converted_runtime_type, expr_info_index_method_value, expr_info_is_index_trait_address_of } :: import("../../expr_info.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The C function name for a func id (registered cName, else None).
-_c_function_name_opt :: (fn(context : FunctionGenerationContext, func_id : String) -> Option(String))(
+_c_function_name_opt :: (fn(imm(context) : FunctionGenerationContext, imm(func_id) : String) -> Option(String))(
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
 );
 /// The `&` (address-of) operator generation.
-generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_address_of :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(
     context.base.get_expr_info(expr),
     .Some(e) => e,

@@ -70,7 +70,7 @@ impl(
   /// 0–255, no leading zeros (`01.2.3.4` is rejected, as Rust's
   /// `Ipv4Addr::from_str` does — octal ambiguity), no empty octet (`1..2.3`,
   /// `1.2.3.`, `...` used to parse as 0-filled addresses).
-  parse_v4 : (fn(s : String, exn : Exception) -> IpAddr)({
+  parse_v4 : (fn(imm(s) : String, imm(exn) : Exception) -> IpAddr)({
     bytes := s;
     parts := Array(u8, usize(4)).fill(u8(0));
     part_idx := usize(0);
@@ -150,7 +150,7 @@ impl(
   /// leading or trailing `:`, a non-hex byte, and a dotted-quad anywhere but
   /// at the end. A zone id (`%eth0`) is NOT accepted — it identifies an
   /// interface, not an address, and `IpAddr` has nowhere to put it.
-  parse_v6 : (fn(s : String, exn : Exception) -> IpAddr)({
+  parse_v6 : (fn(imm(s) : String, imm(exn) : Exception) -> IpAddr)({
     bytes := s;
     n := bytes.len();
     cond(
@@ -412,7 +412,7 @@ impl(
   /// the discriminator is exact — no try-one-then-the-other, and a malformed
   /// address reports the error for the family it was clearly meant to be
   /// rather than the second parser's confusing complaint.
-  parse : (fn(s : String, exn : Exception) -> IpAddr)(
+  parse : (fn(imm(s) : String, imm(exn) : Exception) -> IpAddr)(
     cond(
       s.contains(`:`) => Self.parse_v6(s, exn),
       true => Self.parse_v4(s, exn)
@@ -756,7 +756,7 @@ impl(
     /// Feeds a one-byte family tag and then the address bytes, so a V4
     /// address and a V6 address that happen to share a byte pattern do not
     /// collide by construction.
-    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(
+    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(
       match(
         self,
         .V4(a, b, c, d) => {
@@ -785,7 +785,7 @@ export(IpAddr);
 // A port is `0..=65535`. Parsed here rather than with `parse_i32` so the range
 // is enforced: `parse_i32("70000")` succeeds and `u16` would truncate it to
 // 4464 — a silently WRONG port rather than a rejected one.
-_parse_port :: (fn(s : String, exn : Exception) -> u16)({
+_parse_port :: (fn(imm(s) : String, imm(exn) : Exception) -> u16)({
   cond(
     s.is_empty() => {
       exn.throw(dyn(NetError.Other(String.from("empty port in socket address"))));
@@ -846,7 +846,7 @@ impl(
   /// ambiguous: `80` could be the port or the last group. That is exactly why
   /// RFC 3986 §3.2.2 introduced the brackets, and why this rejects the
   /// unbracketed form rather than guessing.
-  parse : (fn(s : String, exn : Exception) -> Self)(
+  parse : (fn(imm(s) : String, imm(exn) : Exception) -> Self)(
     cond(
       s.starts_with(`[`) =>
         match(
@@ -959,7 +959,7 @@ impl(
 impl(
   SocketAddr,
   Hash(
-    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)({
       self.ip.hash(hasher);
       self.port.hash(hasher);
     })

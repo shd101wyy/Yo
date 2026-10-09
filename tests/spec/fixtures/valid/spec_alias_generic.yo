@@ -6,10 +6,10 @@ pragma(Pragma.Verify);
 // in scope at ghost creation. Each `Family(i32)` evaluation therefore
 // creates a fully concrete predicate — no generic predicates exist.
 // NonZero(T): the values of T that are not zero.
-NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)(x != T(0)))));
 
 // Positive(T): strictly greater than zero.
-Positive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x > T(0)))));
+Positive :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)(x > T(0)))));
 
 // Bounded(T, lo, hi): the values of T in the closed range [lo, hi] — the
 // predicate CAPTURES the alias's comptime value parameters.
@@ -20,7 +20,7 @@ Bounded :: (
     comptime(hi) : T,
     where(T <: Comptime)
   ) -> comptime(Type)
-)(refine(T, ghost_fn((fn(x : T) -> bool)((x >= lo) && (x <= hi)))));
+)(refine(T, ghost_fn((fn(imm(x) : T) -> bool)((x >= lo) && (x <= hi)))));
 
 // Composition: refine(refine(T, p_inner), p_outer) — the chain acts as the
 // CONJUNCTION. The INNER leg (nonzero) is the load-bearing one for
@@ -30,14 +30,14 @@ Bounded :: (
 // obligation.
 Doubly :: (fn(comptime(T) : Type) -> comptime(Type))(
   refine(
-    refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))),
-    ghost_fn((fn(x : T) -> bool)((x % T(2)) == T(0)))
+    refine(T, ghost_fn((fn(imm(x) : T) -> bool)(x != T(0)))),
+    ghost_fn((fn(imm(x) : T) -> bool)((x % T(2)) == T(0)))
   )
 );
 
 // The generic public wrapper from the plan's §7 sketch: Refine(T, p) takes
 // the predicate as a VALUE parameter (a one-parameter ghost_fn over T).
-Refine :: (fn(comptime(T) : Type, comptime(p) : (fn(v : T) -> bool)) -> comptime(Type))(refine(T, p));
+Refine :: (fn(comptime(T) : Type, comptime(p) : (fn(imm(v) : T) -> bool)) -> comptime(Type))(refine(T, p));
 
 nz_i32_ghost :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
 Wrapped :: Refine(i32, nz_i32_ghost);
@@ -53,17 +53,17 @@ Dbl :: Doubly(i32);
 // Verified users
 // ---------------------------------------------------------------------------
 // The INNER chain leg (nonzero) discharges the divisor obligation.
-use_dbl :: (fn(v : Dbl) -> i32)(i32(100) / v);
+use_dbl :: (fn(imm(v) : Dbl) -> i32)(i32(100) / v);
 
 // The assumed [0, 100] band is all the callee needs.
-use_band :: (fn(x : Band) -> i32)(x);
+use_band :: (fn(imm(x) : Band) -> i32)(x);
 
 // The caller proves refine#1 (bounded(v)) from its own requires.
 band_caller :: (fn(v : i32, requires((v >= i32(0)) && (v <= i32(100)))) -> i32)(use_band(v));
 
 // The value-parameter wrapper path: a refinement created through a fn call
 // that passes the ghost predicate as an argument.
-use_wrapped :: (fn(w : Wrapped) -> i32)(i32(64) / w);
+use_wrapped :: (fn(imm(w) : Wrapped) -> i32)(i32(64) / w);
 
 // The .check entry path (E4: an ordinary runtime Option gate) — in verify
 // mode the body walks and the Some construction carries no hidden

@@ -36,7 +36,7 @@
 /// lexicographic within a length for determinism. Plain lexicographic would
 /// be WRONG ('A' < '_' puts deeper `Array_Array_…` names before their
 /// children).
-_array_wrapper_name_lt :: (fn(a : String, b : String) -> bool)(
+_array_wrapper_name_lt :: (fn(imm(a) : String, imm(b) : String) -> bool)(
   cond(
     (a.len() < b.len()) => true,
     (a.len() > b.len()) => false,
@@ -64,7 +64,7 @@ _array_wrapper_name_lt :: (fn(a : String, b : String) -> bool)(
 /// wrapper first), so emission is interleaved instead: `_drain_ready_array_wrappers`
 /// releases a wrapper as soon as its element type is available, and
 /// `generate_type_declarations` drains again after each nominal type it emits.
-_array_wrapper_names_sorted :: (fn(context : CodeGenContext) -> ArrayList(String))({
+_array_wrapper_names_sorted :: (fn(imm(context) : CodeGenContext) -> ArrayList(String))({
   keys := ArrayList(String).new();
   kit := context.array_struct_types.keys();
   (kdone : bool) = false;
@@ -105,11 +105,11 @@ _array_wrapper_names_sorted :: (fn(context : CodeGenContext) -> ArrayList(String
 /// container of such an aggregate was under-allocated on Windows. One byte lays
 /// out identically everywhere; `_c_aggregate_size` (src/types/utils.yo) reports
 /// exactly this byte.
-_emit_zst_dummy :: (fn(context : CodeGenContext) -> unit)(
+_emit_zst_dummy :: (fn(imm(context) : CodeGenContext) -> unit)(
   context.emitter.emit_declaration_line("  uint8_t _zst_dummy; // member-less aggregate: 1 byte on every target (an empty struct is 4 on MSVC, 0 on GNU)")
 );
 /// Emit one array-wrapper typedef.
-_emit_array_wrapper :: (fn(context : CodeGenContext, name : String) -> unit)({
+_emit_array_wrapper :: (fn(imm(context) : CodeGenContext, imm(name) : String) -> unit)({
   match(
     context.array_struct_types.get(name.clone()),
     .Some(info) => {
@@ -137,7 +137,7 @@ _emit_array_wrapper :: (fn(context : CodeGenContext, name : String) -> unit)({
 /// been emitted. A pointer spelling (`__yo_t3*`) never matches a bare name, so
 /// a wrapper of pointers stays ready — pointer-to-incomplete is legal C.
 _drain_ready_array_wrappers :: (
-  fn(context : CodeGenContext, inout(pending) : ArrayList(String), inout(available) : HashSet(String), deferred : HashSet(String)) -> unit
+  fn(imm(context) : CodeGenContext, mut(pending) : ArrayList(String), mut(available) : HashSet(String), imm(deferred) : HashSet(String)) -> unit
 )({
   (progress : bool) = true;
   while(progress, {
@@ -163,7 +163,7 @@ _drain_ready_array_wrappers :: (
   });
 });
 /// Generate the builtin `str` type declaration.
-generate_str_type_declaration :: (fn(context : CodeGenContext) -> unit)({
+generate_str_type_declaration :: (fn(imm(context) : CodeGenContext) -> unit)({
   context.emitter.emit_declaration_line("typedef struct { // str: builtin static string view");
   context.emitter.emit_declaration_line("  const uint8_t* ptr;");
   context.emitter.emit_declaration_line("  size_t len;");
@@ -197,7 +197,7 @@ generate_str_type_declaration :: (fn(context : CodeGenContext) -> unit)({
 /// PARAMETER and capture it in an `io.async` closure — the capture struct's
 /// field was the Future interface type's first use
 /// (issues/fixed/an-async-closure-capturing-a-future-parameter-emits-a-nested-typedef.md).
-_prewarm_runtime_field_types :: (fn(fields : ArrayList(RuntimeStructField), context : CodeGenContext) -> unit)({
+_prewarm_runtime_field_types :: (fn(imm(fields) : ArrayList(RuntimeStructField), imm(context) : CodeGenContext) -> unit)({
   n := fields.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -211,7 +211,7 @@ _prewarm_runtime_field_types :: (fn(fields : ArrayList(RuntimeStructField), cont
     i = (i + usize(1));
   });
 });
-_emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : CodeGenContext) -> bool)({
+_emit_runtime_fields :: (fn(imm(fields) : ArrayList(RuntimeStructField), imm(context) : CodeGenContext) -> bool)({
   n := fields.len();
   (i : usize) = usize(0);
   (emitted : bool) = false;
@@ -240,7 +240,7 @@ _emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : Co
 });
 /// Generate a struct/object declaration. Newtypes lower to a typedef;
 /// reference-semantics structs carry the RC header.
-generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+generate_struct_declaration :: (fn(imm(struct_type) : TypeValue, imm(c_name) : String, imm(context) : CodeGenContext) -> unit)(
   match(
     struct_type,
     .Struct({ name, field_types, is_reference_semantics, is_atomic_rc, is_newtype }) => {
@@ -303,7 +303,7 @@ generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, con
 );
 /// Generate a tuple declaration (numeric `_0`, `_1`, … fields; unit tuple gets
 /// a dummy byte).
-generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+generate_tuple_declaration :: (fn(imm(tuple_type) : TypeValue, imm(c_name) : String, imm(context) : CodeGenContext) -> unit)(
   match(
     tuple_type,
     .Tuple({ field_types }) => {
@@ -344,7 +344,7 @@ generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, conte
   )
 );
 /// Generate a (C, untagged) union declaration.
-generate_union_declaration :: (fn(union_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+generate_union_declaration :: (fn(imm(union_type) : TypeValue, imm(c_name) : String, imm(context) : CodeGenContext) -> unit)(
   match(
     union_type,
     .Union({ name, field_labels, field_types }) => {
@@ -371,7 +371,7 @@ generate_union_declaration :: (fn(union_type : TypeValue, c_name : String, conte
   )
 );
 /// Emit one `  <tag> = <discriminant><comma>` line per variant.
-_emit_enum_tags :: (fn(c_name : String, variant_names : ArrayList(String), variant_discriminants : ArrayList(i64), context : CodeGenContext) -> unit)({
+_emit_enum_tags :: (fn(imm(c_name) : String, imm(variant_names) : ArrayList(String), imm(variant_discriminants) : ArrayList(i64), imm(context) : CodeGenContext) -> unit)({
   // Enumerator prefixes derive from the PASSED c_name, never by re-keying the
   // enum type (get_enum_variant_c_name → get_type_c_name(type_key(t))): the
   // type_key render can EVOLVE between this entry's registration and its
@@ -395,7 +395,7 @@ _emit_enum_tags :: (fn(c_name : String, variant_names : ArrayList(String), varia
 });
 /// Generate an enum declaration: a nullable-pointer typedef, a simple C enum,
 /// or a tag-enum + data-union + tagged-union struct.
-generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context : CodeGenContext) -> unit)(
+generate_enum_declaration :: (fn(imm(enum_type) : TypeValue, imm(c_name) : String, imm(context) : CodeGenContext) -> unit)(
   match(
     enum_type,
     .EnumT({ name, variant_names, variant_fields, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc }) => {
@@ -547,7 +547,7 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
 /// `__yo_ref_header_t` (chosen by needs_cycle_gc), and the generic Future /
 /// I/O Future struct types — a fixed-template head; the type-walk (forward
 /// decls + topological emission) follows it.
-_emit_type_runtime_preamble :: (fn(context : CodeGenContext) -> unit)({
+_emit_type_runtime_preamble :: (fn(imm(context) : CodeGenContext) -> unit)({
   em := context.emitter;
   debug_gc_define := if(context.debug_gc, String.from("#define __YO_DEBUG_GC 1"), String.from("// #define __YO_DEBUG_GC 1"));
   debug_par_define := if(context.debug_parallelism, String.from("#define __YO_DEBUG_PARALLELISM 1"), String.from("// #define __YO_DEBUG_PARALLELISM 1"));
@@ -1268,7 +1268,7 @@ _Static_assert(offsetof(__yo_io_future_t, continuation_sm) == offsetof(__yo_futu
 /// True if a struct's SomeType content is only inside function-typed fields.
 /// Replicated from types/collection.yo (`_struct_some_type_is_only_in_function_fields`)
 /// to avoid a collection↔generation import cycle.
-_walk_struct_some_only :: (fn(type : TypeValue, inout(visited) : HashSet(String)) -> bool)(
+_walk_struct_some_only :: (fn(imm(type) : TypeValue, mut(visited) : HashSet(String)) -> bool)(
   match(
     type,
     .Struct({ id, field_types }) => {
@@ -1298,7 +1298,7 @@ _walk_struct_some_only :: (fn(type : TypeValue, inout(visited) : HashSet(String)
 );
 /// True if an enum's SomeType content is only inside function-typed variant
 /// fields. Replicated from types/collection.yo (cycle avoidance).
-_walk_enum_some_only :: (fn(type : TypeValue, inout(visited) : HashSet(String)) -> bool)(
+_walk_enum_some_only :: (fn(imm(type) : TypeValue, mut(visited) : HashSet(String)) -> bool)(
   match(
     type,
     .EnumT({ id, variant_fields }) => {
@@ -1334,7 +1334,7 @@ _walk_enum_some_only :: (fn(type : TypeValue, inout(visited) : HashSet(String)) 
 );
 /// True when a type must be SKIPPED in the type-walk: it contains a SomeType,
 /// unless it is a struct/enum whose only SomeType source is function-typed fields.
-_walk_skip_some :: (fn(type : TypeValue) -> bool)(
+_walk_skip_some :: (fn(imm(type) : TypeValue) -> bool)(
   if(!type_contains_some_type(type), false, {
     keep := ((is_struct_type(type) && _walk_struct_some_only(type, HashSet(String).new())) || (is_enum_type(type) && _walk_enum_some_only(type, HashSet(String).new())));
     !keep
@@ -1342,7 +1342,7 @@ _walk_skip_some :: (fn(type : TypeValue) -> bool)(
 );
 /// The newtype-struct pointee of a field type, if the field is a pointer to a
 /// newtype (direct `*(NT)`) or an enum optimized as a nullable pointer to one.
-_walk_pointee_newtype :: (fn(ft : TypeValue) -> Option(TypeValue))(
+_walk_pointee_newtype :: (fn(imm(ft) : TypeValue) -> Option(TypeValue))(
   match(
     ft,
     .Pointer(pointee) => {
@@ -1369,7 +1369,7 @@ _walk_pointee_newtype :: (fn(ft : TypeValue) -> Option(TypeValue))(
 );
 /// Add a dependency edge (self_type_id depends on dep_ty's type) if dep_ty is a
 /// collected type other than self. `cname_to_typeid` maps a C name to its typeId.
-_walk_add_dep :: (fn(inout(deps_set) : HashSet(String), dep_ty : TypeValue, self_type_id : String, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)({
+_walk_add_dep :: (fn(mut(deps_set) : HashSet(String), imm(dep_ty) : TypeValue, imm(self_type_id) : String, imm(cname_to_typeid) : HashMap(String, String), imm(context) : CodeGenContext) -> unit)({
   dep_cname := get_type_string(dep_ty, context);
   match(
     cname_to_typeid.get(dep_cname),
@@ -1383,7 +1383,7 @@ _walk_add_dep :: (fn(inout(deps_set) : HashSet(String), dep_ty : TypeValue, self
 /// for struct fields (an enum field optimized as a nullable pointer is NOT a
 /// by-value dep there); enum/tuple fields pass false. Shared by the
 /// enum/newtype/value-struct/tuple by-value dependency chain.
-_walk_by_value_dep :: (fn(inout(deps_set) : HashSet(String), ft : TypeValue, self_type_id : String, guard_nullable : bool, cname_to_typeid : HashMap(String, String), context : CodeGenContext) -> unit)(
+_walk_by_value_dep :: (fn(mut(deps_set) : HashSet(String), imm(ft) : TypeValue, imm(self_type_id) : String, guard_nullable : bool, imm(cname_to_typeid) : HashMap(String, String), imm(context) : CodeGenContext) -> unit)(
   cond(
     // A SomeT field with a per-object resolved concrete is EMITTED as that
     // concrete (get_type_string SomeT arm) — order the decl after it
@@ -1451,7 +1451,7 @@ _TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, 
 /// revisits them, emitting their declaration twice
 /// (issues/fixed/a-type-walk-revisits-entries-after-a-rehash-and-emits-a-vtable-twice.md).
 /// Call it until it returns nothing to also reach the types the walk registered.
-_unseen_type_ids :: (fn(context : CodeGenContext, inout(seen) : HashSet(String)) -> ArrayList(String))({
+_unseen_type_ids :: (fn(imm(context) : CodeGenContext, mut(seen) : HashSet(String)) -> ArrayList(String))({
   ids := ArrayList(String).new();
   it := context.types.keys();
   (done : bool) = false;
@@ -1471,13 +1471,13 @@ _unseen_type_ids :: (fn(context : CodeGenContext, inout(seen) : HashSet(String))
 });
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
 /// dispose are generated separately).
-_is_reserved_dyn_method :: (fn(label : String) -> bool)(
+_is_reserved_dyn_method :: (fn(imm(label) : String) -> bool)(
   (label == BF_DUP) || (label == BF_DROP) || (label == "___dispose") || (label == "dispose")
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
 /// Dyn by value.
-generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
+generate_dyn_forward_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
   em := context.emitter;
   keys := ArrayList(String).new();
   fkit := context.types.keys();
@@ -1526,7 +1526,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
 /// struct right there), which must land BEFORE the vtable typedef opens — the
 /// caller collects every member first, then emits the typedef
 /// (issues/fixed/dyn-trait-with-future-returning-method-splices-struct-into-vtable.md).
-_dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, inout(processed) : HashSet(String), context : CodeGenContext) -> Option(String))({
+_dyn_vtable_method_line :: (fn(imm(label) : String, imm(field_ty) : TypeValue, mut(processed) : HashSet(String), imm(context) : CodeGenContext) -> Option(String))({
   if((label == "Self") || _is_reserved_dyn_method(label), {
     return(Option(String).None);
   });
@@ -1578,7 +1578,7 @@ _dyn_vtable_method_line :: (fn(label : String, field_ty : TypeValue, inout(proce
 /// Generate a Dyn vtable declaration (the Dyn struct is forward-declared). The
 /// vtable has __yo_type_id + a function pointer per trait method (FnTrait → a
 /// `call` pointer).
-generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
+generate_dyn_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm(context) : CodeGenContext) -> unit)({
   em := context.emitter;
   vtable_name := `${c_name}_vtable`;
   // Collect the member lines BEFORE opening the typedef: resolving a member's
@@ -1676,7 +1676,7 @@ generate_dyn_declaration :: (fn(type : TypeValue, c_name : String, context : Cod
 });
 /// Generate box types (RC-header-wrapped value structs) + their ctor/dispose
 /// declarations for every dyn() implementation.
-generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
+generate_dyn_box_types :: (fn(imm(context) : CodeGenContext) -> unit)({
   if(context.dyn_impls.is_empty(), {
     return(());
   });
@@ -1746,7 +1746,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
 /// so a concrete SM
 /// future pointer casts to this interface — it is the C lowering for a
 /// FUTURE-typed function parameter (`task : Impl(Future(T, E))`).
-generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, context : CodeGenContext) -> unit)({
+generate_future_trait_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm(context) : CodeGenContext) -> unit)({
   em := context.emitter;
   result_type := match(type, .FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
   em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
@@ -1772,12 +1772,12 @@ generate_future_trait_declaration :: (fn(type : TypeValue, c_name : String, cont
 /// dispose instead.
 /// Is the child of the Iso type `iso_type` a reference object (held by its
 /// handle), rather than a value held inline?
-iso_child_is_object :: (fn(iso_type : TypeValue) -> bool)(
+iso_child_is_object :: (fn(imm(iso_type) : TypeValue) -> bool)(
   match(iso_type, .IsoT(c) => (is_reference_struct_type(c) || is_reference_enum_type(c)), _ => true)
 );
 /// The Iso wrapper struct bodies, emitted after every other type declaration
 /// (see `generate_iso_type_declarations`'s first pass).
-generate_iso_struct_bodies :: (fn(context : CodeGenContext) -> unit)({
+generate_iso_struct_bodies :: (fn(imm(context) : CodeGenContext) -> unit)({
   em := context.emitter;
   kb := context.iso_types.keys();
   (gb : bool) = true;
@@ -1802,7 +1802,7 @@ generate_iso_struct_bodies :: (fn(context : CodeGenContext) -> unit)({
     );
   });
 });
-generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
+generate_iso_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
   em := context.emitter;
   // Pass 1: Iso struct type + constructor declaration.
   k1 := context.iso_types.keys();
@@ -1966,7 +1966,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
 /// listed — this pass never defines it, so waiting for it would strand every
 /// wrapper over it.
 _deferred_decl_cnames :: (
-  fn(context : CodeGenContext, wrapper_names : ArrayList(String)) -> HashSet(String)
+  fn(imm(context) : CodeGenContext, imm(wrapper_names) : ArrayList(String)) -> HashSet(String)
 )({
   out := HashSet(String).new();
   (wi : usize) = usize(0);
@@ -2026,7 +2026,7 @@ _deferred_decl_cnames :: (
 /// resolution in the dependency analysis is skipped (the corpus is monomorphized
 /// — fields are already concrete); the dyn/iso/future sub-emitters are Phase-3/5
 /// no-ops (see above).
-generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
+generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
   em := context.emitter;
   _emit_type_runtime_preamble(context);
   // Forward declarations for structs / enums / future traits.

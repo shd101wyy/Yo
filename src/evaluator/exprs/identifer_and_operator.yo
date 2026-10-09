@@ -41,11 +41,11 @@
 /// `ExprInfo` entry in `ctx.expr_info_table`.
 evaluate_identifier_and_operator :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
     throw_error_on_undefined : bool,
-    exn : Exception
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   token := ast_expr_token(expr);
@@ -629,13 +629,13 @@ evaluate_identifier_and_operator :: (
 /// `sink(h)`, the callee may have released `a`'s value, so reading `a` read
 /// freed memory
 /// (issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md).
-_read_after_move_is_checked :: (fn(variable : Variable, token : Token, env : Environment) -> bool)(
+_read_after_move_is_checked :: (fn(imm(variable) : Variable, imm(token) : Token, imm(env) : Environment) -> bool)(
   !token.module_path.starts_with(String.from("auto-generated://"))
   && !is_temp_variable_name(env.module_path, variable.name)
 );
 /// The row of the first line that is neither blank nor a `//` comment — where
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.
-_first_code_row :: (fn(source : String) -> usize)({
+_first_code_row :: (fn(imm(source) : String) -> usize)({
   lines := source.split(String.from("\n"));
   (r : usize) = usize(0);
   while(r < lines.len(), {

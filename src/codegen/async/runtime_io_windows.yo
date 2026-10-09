@@ -7,7 +7,7 @@
 import("std/string");
 { Emitter } :: import("../../emitter.yo");
 /// Emit Windows platform-specific SYNC helpers.
-generate_platform_sys_runtime_windows :: (fn(emitter : Emitter) -> unit)({
+generate_platform_sys_runtime_windows :: (fn(imm(emitter) : Emitter) -> unit)({
   // The guarded POSIX-constant fallbacks go to the DECLARATIONS buffer,
   // which chunked emission makes the shared header every translation unit
   // compiles against: std code spells these constants (AT_FDCWD,
@@ -2214,7 +2214,7 @@ static int32_t __yo_isatty(int32_t fd) { return _isatty(fd) ? 1 : 0; }
   );
 });
 /// Emit the Windows IOCP-based async I/O runtime.
-generate_async_runtime_io_windows :: (fn(emitter : Emitter) -> unit)({
+generate_async_runtime_io_windows :: (fn(imm(emitter) : Emitter) -> unit)({
   emitter.emit_string_line(
     `
 // ============================================================================
