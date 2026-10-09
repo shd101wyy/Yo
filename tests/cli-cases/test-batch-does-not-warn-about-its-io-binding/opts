@@ -1,0 +1,8 @@
+# `yo test` synthesizes each batch's `main` with `io :: __yo_builtin_io;` so a
+# test body can use `io` (or an implicit `using(io : Io)` can find it). A batch
+# whose tests never name `io` printed `warning: unused variable \`io\`` for the
+# generated binding; the runner now also emits `_yo_batch_io :: io;`
+# (issues/fixed/yo-test-warns-about-its-own-io-binding.md). The golden keeps the
+# verdicts and any unused-variable warning, so the warning's return is a diff.
+stdout_keep=^(  ✓|  ✗|[0-9]+ passed|[0-9]+ failed|warning: unused variable)
+timeout=300
