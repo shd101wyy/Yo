@@ -11,6 +11,7 @@
 //! spread spelling was removed (2026-10-03) and is reported as an error.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ HashSet } :: import("std/collections/hash_set");
 import("std/fmt");
 {
   AstExpr,
@@ -26,6 +27,7 @@ import("std/fmt");
   BK_COMPTIME,
   BK_QUOTE,
   BK_IMM,
+  BK_INOUT,
   ast_expr_is_inout_mode_call,
   BK_COLON,
   BK_FN,
@@ -66,7 +68,8 @@ import("std/fmt");
 {
   get_value_of_some_type_from_env,
   convert_comptime_type_to_runtime_type,
-  convert_comptime_type_to_runtime_type_with_expected
+  convert_comptime_type_to_runtime_type_with_expected,
+  get_trait_type_from_env
 } :: import("../../types/env_lookup.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError } :: import("../../error.yo");
 { E_COMPTIME_PARAM_DEFAULT } :: import("../../diagnostics.yo");
@@ -1320,6 +1323,56 @@ _param_default_not_comptime_error :: (fn(label : Option(String), param_type : Op
 // ---------------------------------------------------------------------------
 /// Evaluate a single function parameter expression.
 ///
+/// One source edit of `yo fix --migrate params` (plans/VALUES_BY_DEFAULT.md
+/// V3b Generation B, step 1): `expect` is the text the span must hold, so an
+/// edit recorded through a synthetic token (a derive's generated impl) is
+/// dropped at apply time instead of corrupting the file.
+MigrateEdit :: struct(path : String, row : usize, col : usize, len : usize, replacement : String, expect : String);
+(g_migrate_param_modes : bool) = false;
+(g_migrate_edits : ArrayList(MigrateEdit)) = ArrayList(MigrateEdit).new();
+(g_migrate_edit_keys : HashSet(String)) = HashSet(String).new();
+set_migrate_param_modes :: (fn(on : bool) -> unit)({
+  g_migrate_param_modes = on;
+});
+take_migrate_edits :: (fn() -> ArrayList(MigrateEdit))({
+  out := g_migrate_edits;
+  g_migrate_edits = ArrayList(MigrateEdit).new();
+  g_migrate_edit_keys = HashSet(String).new();
+  out
+});
+_record_migrate_edit :: (fn(tok : Token, len : usize, replacement : String, expect : String) -> unit)({
+  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(g_migrate_edit_keys.contains(key), {
+    return(());
+  });
+  g_migrate_edit_keys.insert(key);
+  g_migrate_edits.push(MigrateEdit(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect));
+});
+/// The parameter half of the V3b sweep: `inout(x)` is spelled `mut(x)`, and a
+/// plain runtime parameter whose type is not `Copy` becomes `imm(x)`, which is
+/// what it means today; the flip then makes a plain parameter by value. A
+/// generic parameter is `imm` unless its bounds make it `Copy`. Recorded once
+/// per source position: a parameter evaluated in several instantiations is
+/// `imm` when any of them is not `Copy`.
+_record_param_mode_migration :: (fn(label_tok : Token, inout_word : Option(Token), is_plain : bool, ty : TypeValue, env : Environment) -> unit)({
+  match(
+    inout_word,
+    .Some(w) => _record_migrate_edit(w, usize(5), String.from("mut"), String.from("inout")),
+    .None => ()
+  );
+  if(!is_plain, {
+    return(());
+  });
+  is_copy := match(
+    get_trait_type_from_env(env, String.from("Copy")),
+    .Some(copy_tt) => type_implements_trait(ty, copy_tt, env).implemented,
+    .None => true
+  );
+  if(!is_copy, {
+    lbl := label_tok.value.clone();
+    _record_migrate_edit(label_tok, lbl.len(), `imm(${lbl})`, lbl);
+  });
+});
 evaluate_function_parameter :: (
   fn(
     expr : AstExpr,
@@ -1335,6 +1388,9 @@ evaluate_function_parameter :: (
   (is_quote : bool) = false;
   (is_owning_rc_value : bool) = false;
   (is_param_ref : bool) = false;
+  // `yo fix --migrate params`: an explicit `imm(...)` and the `inout` word.
+  (has_imm_wrapper : bool) = false;
+  (inout_word : Option(Token)) = Option(Token).None;
   (lhs_expr : Option(AstExpr)) = Option(AstExpr).None;
   (type_expr : Option(AstExpr)) = Option(AstExpr).None;
   (label_expr : Option(AstExpr)) = Option(AstExpr).None;
@@ -1491,6 +1547,7 @@ evaluate_function_parameter :: (
           );
         });
         lhs_mut = match(m_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        has_imm_wrapper = true;
         if(ast_expr_is_inout_mode_call(lhs_mut, Option(usize).None), {
           exn.throw(
             dyn(
@@ -1538,6 +1595,9 @@ evaluate_function_parameter :: (
           );
         });
         is_param_ref = true;
+        if(ast_expr_is_fn_call_of(lhs_mut, BK_INOUT, Option(usize).None), {
+          inout_word = match(lhs_mut, .FnCall(_, iw_callee, _, _, _) => Option(Token).Some(ast_expr_token(iw_callee)), .Atom(_, _) => Option(Token).None);
+        });
         lhs_mut = match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
       // quote modifier
@@ -1874,6 +1934,9 @@ use_id :: (fn(generic(T : Type),
   });
   label_str := match(label, .Some(l) => l, .None => String.from("?"));
   lbl_tok := match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr));
+  if(g_migrate_param_modes && !is_compile_time_only && !is_quote && label_expr.is_some(), {
+    _record_param_mode_migration(lbl_tok, inout_word, !is_param_ref && !is_owning_rc_value && !has_imm_wrapper, final_param_type, env_mut);
+  });
   // Check if variable already exists from where clause or pre-add pass
   existing_vars := get_variables_from_env(env_mut, label_str);
   n_existing := existing_vars.len();
@@ -5225,6 +5288,7 @@ export(evaluate_function_return_type_again);
 export(_collect_type_arg_somes);
 export(collect_wrapper_trait_somes, _substitute_wrapper_carriers);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
+export(MigrateEdit, set_migrate_param_modes, take_migrate_edits);
 export(_add_where_clause_constraint, _trait_has_receiver);
 export(
   register_macro_quoted_params,

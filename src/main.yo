@@ -76,7 +76,7 @@ pragma(Pragma.AllowUnsafe);
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build_runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
-{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled } :: import("./utils.yo");
+{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, canonical_module_path } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -138,6 +138,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits } :: import("./evaluator/types/function.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -1067,6 +1068,113 @@ _apply_fixes_to_file :: (
   io.await(write_string(Path.new(path.clone()), String.from("\n").join(lines), io), IoExn(io : io, exn : exn));
   applied
 });
+/// The runes `[col, col + len)` of `line` (empty when the line is shorter).
+_rune_slice :: (fn(line : String, col : usize, len : usize) -> String)({
+  out := String.new();
+  it := line.chars();
+  (i : usize) = usize(0);
+  (go : bool) = true;
+  while(go && (i < (col + len)), {
+    match(
+      it.next(),
+      .Some(r) => {
+        if(i >= col, {
+          out.push_rune(r);
+        });
+        i = (i + usize(1));
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  out
+});
+/// `yo fix <path> --migrate params` (plans/VALUES_BY_DEFAULT.md V3b
+/// Generation B, step 1): evaluate every file with the parameter recorder on
+/// (`_record_param_mode_migration`, evaluator/types/function.yo), then apply
+/// its edits to the files under `<path>`: `inout(x)` becomes `mut(x)`, and a
+/// plain parameter whose type is not `Copy` becomes `imm(x)`. Neither changes
+/// what a program means today. An edit whose span no longer holds the text it
+/// was recorded for (a synthetic token, a template) is skipped and counted.
+_run_migrate_params :: (
+  fn(files : ArrayList(String), std_path : String, dry_run : bool, io : Io, exn : Exception) -> unit
+)({
+  set_migrate_param_modes(true);
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      _drop := _take_load_error();
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its parameters are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_param_modes(false);
+  edits := take_migrate_edits();
+  // Group by target file: an edit lands only in a file under `<path>`.
+  targets := ArrayList(String).new();
+  canon_targets := ArrayList(String).new();
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    t := match(files.get(ti), .Some(f) => f, .None => String.new());
+    canon_targets.push(canonical_module_path(t.clone()));
+    targets.push(t);
+  });
+  (n_imm : usize) = usize(0);
+  (n_mut : usize) = usize(0);
+  (n_stale : usize) = usize(0);
+  (ci : usize) = usize(0);
+  while(ci < canon_targets.len(), ci = (ci + usize(1)), {
+    canon := match(canon_targets.get(ci), .Some(c) => c, .None => String.new());
+    file := match(targets.get(ci), .Some(f) => f, .None => String.new());
+    pending := ArrayList(_PendingFix).new();
+    (ei : usize) = usize(0);
+    while(ei < edits.len(), ei = (ei + usize(1)), {
+      e := match(edits.get(ei), .Some(x) => x, .None => MigrateEdit(path : String.new(), row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), expect : String.new()));
+      if(canonical_module_path(e.path.clone()) == canon, {
+        pending.push(_PendingFix(row : e.row, col : e.col, len : e.len, replacement : e.replacement.clone(), description : e.expect.clone()));
+      });
+    });
+    if(pending.len() == usize(0), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    lines := src.split(String.from("\n"));
+    checked := ArrayList(_PendingFix).new();
+    (pi : usize) = usize(0);
+    while(pi < pending.len(), pi = (pi + usize(1)), {
+      p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
+      line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+      if(_rune_slice(line, p.col, p.len) != p.description, {
+        n_stale = (n_stale + usize(1));
+        continue;
+      });
+      if(p.description == "inout", {
+        n_mut = (n_mut + usize(1));
+      }, {
+        n_imm = (n_imm + usize(1));
+      });
+      checked.push(p);
+    });
+    if(!dry_run && (checked.len() > usize(0)), {
+      _apply_fixes_to_file(file.clone(), checked, io, exn);
+      fmt_argv := ArrayList(String).new();
+      fmt_argv.push(String.from("yo"));
+      fmt_argv.push(String.from("fmt"));
+      fmt_argv.push(file.clone());
+      run_fmt(fmt_argv, io, exn);
+    });
+  });
+  verb := if(dry_run, String.from("would migrate"), String.from("migrated"));
+  println(`fix: ${verb} ${n_imm.to_string()} parameter(s) to imm(...) and ${n_mut.to_string()} inout to mut; ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated parameters were not migrated`));
+  });
+});
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -1084,10 +1192,11 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params]`));
   });
   (target_path : String) = String.new();
   (dry_run : bool) = false;
+  (migrate : String) = String.new();
   excludes := ArrayList(String).new();
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
@@ -1096,6 +1205,14 @@ run_fix :: (
       (a == "--dry-run") => {
         dry_run = true;
         ai = (ai + usize(1));
+      },
+      (a == "--migrate") => {
+        next_m := (ai + usize(1));
+        if((next_m >= argv.len()) || (argv(next_m) != "params"), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params`));
+        });
+        migrate = argv(next_m);
+        ai = (ai + usize(2));
       },
       (a == "--exclude") => {
         next_i := (ai + usize(1));
@@ -1107,7 +1224,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params]`));
       },
       true => {
         target_path = a.clone();
@@ -1136,6 +1253,10 @@ run_fix :: (
     exn.throw(dyn(`fix: could not load the prelude from ${std_path}`));
   });
   _index_std_exports(std_path.clone(), io, exn);
+  if(migrate.len() > usize(0), {
+    _run_migrate_params(files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
   (total_applied : usize) = usize(0);
   (pass : usize) = usize(0);
   (progress : bool) = true;
