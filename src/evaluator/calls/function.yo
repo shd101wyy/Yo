@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note } :: import("../../types/utils.yo");
+{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -102,6 +102,7 @@ pragma(Pragma.AllowUnsafe);
   type_is_callable_shaped,
   fn_constrained_param_requires_callable,
   fn_argument_not_callable_message,
+  function_value_slot_mismatch,
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
   type_implements_future,
@@ -4060,6 +4061,30 @@ _evaluate_funcval_runtime_call :: (
                     // Reported at the ARGUMENT (index-aligned with the infos here).
                     _ac_tok := ast_expr_token(match(runtime_arg_exprs.get(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr));
                     raise_flow_violation(format_error_message(_ac_tok, _ac_mmsg), ctx, exn);
+                  });
+                  // A FUNCTION-typed slot skips the check above (its type
+                  // variables live inside the Func), so its own rule runs
+                  // here: a function value fills it only when its modes — and,
+                  // for a concrete slot, its whole signature — are the slot's
+                  // (`function_value_slot_mismatch`, the rule the shared
+                  // `check_argument_for_parameter` applies on the other paths).
+                  if(is_function_type(_ac_pty) && !_ac_a_comptime, {
+                    match(
+                      function_value_slot_mismatch(_ac_pty, _ac_ai.ty),
+                      .Some(_ac_fv_note) => {
+                        _ac_fv_tok := ast_expr_token(match(runtime_arg_exprs.get(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr));
+                        raise_flow_violation(
+                          mark_generic_independent(
+                            format_error_message(_ac_fv_tok, `Incompatible types:\n- Expected: ${type_to_string(_ac_pty)}\n- Given   : ${type_to_string(_ac_ai.ty)}${_ac_fv_note}`),
+                            _ac_pty,
+                            _ac_ai.ty
+                          ),
+                          ctx,
+                          exn
+                        );
+                      },
+                      .None => ()
+                    );
                   });
                 },
                 .None => ()

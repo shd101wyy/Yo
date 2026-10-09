@@ -108,6 +108,7 @@ pragma(Pragma.AllowUnsafe);
   type_is_callable_shaped,
   fn_constrained_param_requires_callable,
   fn_argument_not_callable_message,
+  function_value_slot_mismatch,
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
   judge_function_argument_markers,
@@ -1221,6 +1222,15 @@ check_argument_for_parameter :: (
       _arg_rule_throw(arg_tok, fn_argument_not_callable_message(param_label.clone(), resolved_pt, lowered), ctx, exn);
     });
   });
+  // A function value fills a function-typed slot only when its type is the
+  // slot's, modes included — the binding rule (`(h : Hook) = f`). A by-value
+  // `fn(s : String)` passed for an `imm(s)` slot would drop what its caller
+  // only lent (issues/fixed/a-function-argument-is-not-checked-against-a-function-typed-parameter.md).
+  match(
+    function_value_slot_mismatch(resolved_pt, lowered),
+    .Some(fv_note) => _arg_rule_throw_types(arg_tok, `Incompatible types:\n- Expected: ${type_to_string(resolved_pt)}\n- Given   : ${type_to_string(lowered)}${fv_note}`, resolved_pt, lowered, ctx, exn),
+    .None => ()
+  );
   // Decision 37: `Fn` implies `FnOnce`, never the reverse. A closure typed
   // `FnOnce(...)` may be called once, and an `Fn(...)` parameter's callee may
   // call it again. A closure literal adopts the parameter's trait, so this
