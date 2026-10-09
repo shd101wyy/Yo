@@ -305,7 +305,7 @@ derive(generic(T : Type), where(T <: Copy), GenBox(T), Copy);
 impl(
   generic(T : Type),
   GenBox(T),
-  first : (fn(self : Self) -> T)(self.v)
+  first : (fn(imm(self) : Self) -> T)(self.v)
 );
 test("Test generic impl instantiated twice registers cleanly", {
   a := GenBox(i32)(v : i32(7));
@@ -357,7 +357,7 @@ SelfEqTree :: ref(struct(v : i32, kid : Option(Self)));
 impl(
   SelfEqTree,
   Eq(SelfEqTree)(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       (lhs.v == rhs.v) && match(lhs.kid, .Some(a) => match(rhs.kid, .Some(b) => (a == b), .None => false), .None => rhs.kid.is_none())
     )
   )
@@ -389,15 +389,15 @@ MrE :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
 impl(
   MrE,
   Eq(MrE)(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       match(lhs, .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false), .Node(a) => match(rhs, .Node(b) => _mr_kids_eq(a, b), _ => false))
     ),
-    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(lhs == rhs)
     )
   )
 );
-_mr_kids_eq :: (fn(a : ArrayList(MrE), b : ArrayList(MrE)) -> bool)({
+_mr_kids_eq :: (fn(imm(a) : ArrayList(MrE), imm(b) : ArrayList(MrE)) -> bool)({
   if(a.len() != b.len(), {
     return(false);
   });

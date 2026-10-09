@@ -59,7 +59,7 @@ test("soundness: a phantom enum parameter is part of the type", {
 // table this replaced read back the definition-era `[T]`, a wildcard, so the
 // result flowed into any `_Phantom(...)`
 // (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
-_phantom_of :: (fn(generic(T : Type), _t : T) -> _Phantom(T))(_Phantom(T).A(i32(1)));
+_phantom_of :: (fn(generic(T : Type), imm(_t) : T) -> _Phantom(T))(_Phantom(T).A(i32(1)));
 test("soundness: a substituted phantom enum instance keeps its type argument", {
   comptime_expect_error({
     x := _phantom_of(true);
@@ -75,8 +75,8 @@ test("soundness: a substituted phantom enum instance keeps its type argument", {
 // was never checked against a `T` another argument fixed
 // (issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md;
 // the struct half is issues/generic-inference-ignores-phantom-type-arguments-of-structs.md).
-_pid :: (fn(generic(T : Type), p : _Phantom(T)) -> _Phantom(T))(p);
-_pick :: (fn(generic(T : Type), y : T, _p : _Phantom(T)) -> T)(y);
+_pid :: (fn(generic(T : Type), imm(p) : _Phantom(T)) -> _Phantom(T))(p);
+_pick :: (fn(generic(T : Type), imm(y) : T, imm(_p) : _Phantom(T)) -> T)(y);
 test("soundness: a phantom argument binds a generic parameter", {
   comptime_expect_error({
     x := _pid(_Phantom(i32).A(i32(1)));
@@ -93,7 +93,7 @@ test("soundness: a phantom argument is checked against a bound parameter", {
 _PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
 derive(generic(K : Type), _PhantomTag(K), Clone);
 derive(generic(K : Type), _PhantomTag(K), Copy);
-_ksize :: (fn(generic(K : Type), _t : _PhantomTag(K)) -> usize)(size_of(K));
+_ksize :: (fn(generic(K : Type), imm(_t) : _PhantomTag(K)) -> usize)(size_of(K));
 test("soundness: a body reads a type parameter bound only by a phantom argument", {
   assert(_ksize(_PhantomTag(u8).A) == usize(1), "u8");
   assert(_ksize(_PhantomTag(i64).A) == usize(8), "i64");
@@ -120,7 +120,7 @@ test("soundness canary: same-index GADT and phantom instantiations still flow", 
 // (Phase 1.2): a closure's body is checked against the result of the
 // `Fn(...) -> R` it adopts.
 // ---------------------------------------------------------------------------
-_apply :: (fn(f : Impl(Fn(x : i32) -> i32), v : i32) -> i32)(f(v));
+_apply :: (fn(imm(f) : Impl(Fn(x : i32) -> i32), v : i32) -> i32)(f(v));
 test("soundness: a closure body must have the adopted Fn result type", {
   comptime_expect_error(_apply(x => true, i32(3)), "Function body has type `bool`");
   comptime_expect_error(_apply(x -> true, i32(3)), "Function body has type `bool`");
@@ -141,15 +141,15 @@ test("soundness canary: a well-typed closure still flows into Fn(x : i32) -> i32
 // issues/fixed/generic-fn-body-is-not-checked-against-its-declared-result-type.md
 // (Phase 1.3): a specialized body is checked against its declared result.
 // ---------------------------------------------------------------------------
-_bad_ct :: (fn(comptime(T) : Type, x : T) -> i32)(true);
-_bad_generic :: (fn(generic(T : Type), x : T) -> i32)(true);
-_good_generic :: (fn(generic(T : Type), x : T) -> T)(x);
+_bad_ct :: (fn(comptime(T) : Type, imm(x) : T) -> i32)(true);
+_bad_generic :: (fn(generic(T : Type), imm(x) : T) -> i32)(true);
+_good_generic :: (fn(generic(T : Type), imm(x) : T) -> T)(x);
 test("soundness: a specialized generic body must have its declared result type", {
   comptime_expect_error(_bad_ct(i32, i32(1)), "Function body has type `bool`");
   comptime_expect_error(_bad_generic(i32(1)), "Function body has type `bool`");
   // A `-> T` result answered concretely is already caught at definition
   // (the deferred-generic compare), before any call.
-  comptime_expect_error(_bad_generic_t :: (fn(generic(T : Type), x : T) -> T)(true), "Incompatible function return type");
+  comptime_expect_error(_bad_generic_t :: (fn(generic(T : Type), imm(x) : T) -> T)(true), "Incompatible function return type");
   assert(true, "rejected");
 });
 test("soundness canary: a well-typed generic body still specializes", {
@@ -231,7 +231,7 @@ test("soundness: the arm join does not depend on arm order", {
 _NoEq :: struct(x : i32);
 derive(_NoEq, Copy, Clone);
 _NoEqE :: enum(A, B);
-_generic_eq :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);
+_generic_eq :: (fn(generic(T : Type), imm(a) : T, imm(b) : T, where(T <: Eq(T))) -> bool)(a == b);
 test("soundness: a missing operator impl is an error", {
   a := _NoEq(x : i32(1));
   b := _NoEq(x : i32(2));
@@ -286,7 +286,7 @@ test("soundness canary: named fns and literals still fit those slots", {
 // issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md
 // (Phase 1.9): an `inout` parameter is a pointer in every fn-pointer call.
 // ---------------------------------------------------------------------------
-_bump :: (fn(inout(x) : i32) -> unit)({
+_bump :: (fn(mut(x) : i32) -> unit)({
   x = (x + i32(1));
   ()
 });
@@ -294,12 +294,12 @@ _Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
 derive(generic(T : Type), where(T <: Clone), _Wrap(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _Wrap(T), Copy);
 test("soundness: an inout call through a fn value mutates the argument", {
-  (f : (fn(inout(x) : i32) -> unit)) = _bump;
+  (f : (fn(mut(x) : i32) -> unit)) = _bump;
   (v : i32) = i32(5);
   f(v);
   _bump(v);
   assert(v == i32(7), "fn-typed local and direct call both mutate");
-  (w : _Wrap((fn(inout(x) : i32) -> unit))) = _Wrap((fn(inout(x) : i32) -> unit))(inner : _bump);
+  (w : _Wrap((fn(mut(x) : i32) -> unit))) = _Wrap((fn(mut(x) : i32) -> unit))(inner : _bump);
   w.inner(v);
   assert(v == i32(8), "fn-typed struct field mutates");
 });
@@ -311,16 +311,16 @@ _p35_by_val :: (fn(x : i32) -> unit)({
   ()
 });
 _p35_eat :: (fn(own(s) : String) -> usize)(s.len());
-_p35_len :: (fn(s : String) -> usize)(s.len());
-_p35_inout_is_by_val :: Type.eq((fn(inout(x) : i32) -> unit), (fn(x : i32) -> unit));
-_p35_own_is_borrow :: Type.eq((fn(own(s) : String) -> usize), (fn(s : String) -> usize));
-_p35_inout_flows_by_val :: Type.is_compatible_with((fn(inout(x) : i32) -> unit), (fn(x : i32) -> unit));
+_p35_len :: (fn(imm(s) : String) -> usize)(s.len());
+_p35_inout_is_by_val :: Type.eq((fn(mut(x) : i32) -> unit), (fn(x : i32) -> unit));
+_p35_own_is_borrow :: Type.eq((fn(own(s) : String) -> usize), (fn(imm(s) : String) -> usize));
+_p35_inout_flows_by_val :: Type.is_compatible_with((fn(mut(x) : i32) -> unit), (fn(x : i32) -> unit));
 test("soundness: parameter modes are part of a fn type", {
   comptime_expect_error({
     (g : (fn(x : i32) -> unit)) = _bump;
   }, "Incompatible types");
   comptime_expect_error({
-    (h : (fn(s : String) -> usize)) = _p35_eat;
+    (h : (fn(imm(s) : String) -> usize)) = _p35_eat;
   }, "Incompatible types");
   assert(!_p35_inout_is_by_val, "inout is not by-value");
   assert(!_p35_own_is_borrow, "own is not a borrow");
@@ -328,16 +328,16 @@ test("soundness: parameter modes are part of a fn type", {
 });
 test("soundness: the memo keeps a by-value and an inout instantiation apart", {
   (w0 : _Wrap((fn(x : i32) -> unit))) = _Wrap((fn(x : i32) -> unit))(inner : _p35_by_val);
-  (w1 : _Wrap((fn(inout(x) : i32) -> unit))) = _Wrap((fn(inout(x) : i32) -> unit))(inner : _bump);
+  (w1 : _Wrap((fn(mut(x) : i32) -> unit))) = _Wrap((fn(mut(x) : i32) -> unit))(inner : _bump);
   (v : i32) = i32(5);
   w0.inner(v);
   w1.inner(v);
   assert(v == i32(6), "the inout instance mutates");
 });
 test("soundness canary: a fn value flows into a slot of the same modes", {
-  (g : (fn(inout(x) : i32) -> unit)) = _bump;
+  (g : (fn(mut(x) : i32) -> unit)) = _bump;
   (h : (fn(own(s) : String) -> usize)) = _p35_eat;
-  (k : (fn(s : String) -> usize)) = _p35_len;
+  (k : (fn(imm(s) : String) -> usize)) = _p35_len;
   (v : i32) = i32(1);
   g(v);
   assert(v == i32(2), "inout slot");
@@ -348,8 +348,8 @@ test("soundness canary: a fn value flows into a slot of the same modes", {
 // issues/fixed/impl-is-not-checked-against-the-trait-members.md (Phase 2.1):
 // an `impl(T, Trait(...))` is checked against the trait's members.
 // ---------------------------------------------------------------------------
-_Foo :: trait(f : (fn(self : Self) -> i32), g : (fn(self : Self) -> i32));
-_Bar :: trait(f : (fn(self : Self) -> i32), (h : (fn(self : Self) -> i32)) ?= (self -> i32(9)));
+_Foo :: trait(f : (fn(imm(self) : Self) -> i32), g : (fn(imm(self) : Self) -> i32));
+_Bar :: trait(f : (fn(imm(self) : Self) -> i32), (h : (fn(imm(self) : Self) -> i32)) ?= (self -> i32(9)));
 _ImplP :: struct(x : i32);
 _ImplQ :: struct(x : i32);
 _ImplR :: struct(x : i32);
@@ -358,7 +358,7 @@ derive(_ImplS, Copy, Clone);
 impl(_ImplS, _Bar(f : (self -> self.x)));
 test("soundness: an impl must match its trait's members", {
   comptime_expect_error(impl(_ImplP, _Foo(f : (self -> self.x))), "member \"g\" is not provided and has no default");
-  comptime_expect_error(impl(_ImplQ, _Foo(f : (self -> self.x), g : (fn(self : Self) -> bool)(true))), "member \"g\" has type");
+  comptime_expect_error(impl(_ImplQ, _Foo(f : (self -> self.x), g : (fn(imm(self) : Self) -> bool)(true))), "member \"g\" has type");
   comptime_expect_error(impl(_ImplR, _Foo(f : (self -> self.x), g : (self -> self.x), k : (self -> self.x))), "\"k\" is not a member of the trait");
   assert(true, "rejected");
 });
@@ -376,14 +376,14 @@ test("soundness canary: a trait default fills an omitted member", {
 // issues/fixed/impl-trait-return-bound-is-not-checked.md (Phase 2.2): an
 // `Impl(Trait)` result or parameter takes only a type that implements it.
 // ---------------------------------------------------------------------------
-_Speaks :: trait(speak : (fn(self : Self) -> i32));
+_Speaks :: trait(speak : (fn(imm(self) : Self) -> i32));
 _Dog :: struct(x : i32);
 derive(_Dog, Copy, Clone);
 _Rock :: struct(y : i32);
 derive(_Rock, Copy, Clone);
 impl(_Dog, _Speaks(speak : (self -> self.x)));
 _make_dog :: (fn() -> Impl(_Speaks))(_Dog(x : i32(3)));
-_hear :: (fn(v : Impl(_Speaks)) -> i32)(v.speak());
+_hear :: (fn(imm(v) : Impl(_Speaks)) -> i32)(v.speak());
 test("soundness: an Impl(Trait) result or argument must implement the trait", {
   comptime_expect_error(_bad_make :: (fn() -> Impl(_Speaks))(_Rock(y : i32(4))), "which does not implement required trait");
   comptime_expect_error(_hear(_Rock(y : i32(4))), "does not implement required trait");
@@ -398,7 +398,7 @@ test("soundness canary: an implementing type flows through Impl(Trait)", {
 // plans/reference/PARALLELISM_RULES.md), so each argument below is judged by
 // value. The bare type `fn() -> i32` has no value to judge and is not Send;
 // Acyclic stays a property of the type (a code pointer holds no reference).
-_run_send :: (fn(generic(T : Type), cb : Impl(Fn() -> T, Send), where(T <: Send)) -> T)(cb());
+_run_send :: (fn(generic(T : Type), imm(cb) : Impl(Fn() -> T, Send), where(T <: Send)) -> T)(cb());
 _plain_fn :: (fn() -> i32)(i32(8));
 test("soundness canary: fn values and capture-free closures are Send", {
   comptime_assert(!Type.impls(fn() -> i32, Send));
@@ -412,9 +412,9 @@ test("soundness canary: fn values and capture-free closures are Send", {
 // issues/fixed/generic-type-var-rebinds-per-argument.md (Phase 2.4): every
 // mention of a type parameter in one call stands for one type.
 // ---------------------------------------------------------------------------
-_pair_same :: (fn(generic(A : Type), x : A, y : A) -> A)(x);
-_apply_g :: (fn(generic(T : Type), f : Impl(Fn(x : T) -> T), v : T) -> T)(f(v));
-_apply_v :: (fn(generic(T : Type), v : T, f : Impl(Fn(x : T) -> T)) -> T)(f(v));
+_pair_same :: (fn(generic(A : Type), imm(x) : A, imm(y) : A) -> A)(x);
+_apply_g :: (fn(generic(T : Type), imm(f) : Impl(Fn(imm(x) : T) -> T), imm(v) : T) -> T)(f(v));
+_apply_v :: (fn(generic(T : Type), imm(v) : T, imm(f) : Impl(Fn(imm(x) : T) -> T)) -> T)(f(v));
 test("soundness: two arguments cannot bind one type parameter to two types", {
   comptime_expect_error(_pair_same(String.from("hello"), i32(2)), "Incompatible types for generic parameter");
   comptime_expect_error(_pair_same(i32(3), String.from("world")), "Incompatible types for generic parameter");
@@ -475,8 +475,8 @@ test("soundness canary: the expected type infers a result-only type parameter", 
 // `usize` index where the closure took a `_Rec`.
 _TwoTRec :: struct(key : i32, tag : i32);
 derive(_TwoTRec, Copy, Clone);
-_inner_at :: (fn(generic(T : Type), a : T, b : T, less : Impl(Fn(x : T, y : T) -> bool)) -> bool)(less(a, b));
-_outer_at :: (fn(generic(T : Type), xs : ArrayList(T), less : Impl(Fn(x : T, y : T) -> bool)) -> bool)(
+_inner_at :: (fn(generic(T : Type), imm(a) : T, imm(b) : T, imm(less) : Impl(Fn(imm(x) : T, imm(y) : T) -> bool)) -> bool)(less(a, b));
+_outer_at :: (fn(generic(T : Type), imm(xs) : ArrayList(T), imm(less) : Impl(Fn(imm(x) : T, imm(y) : T) -> bool)) -> bool)(
   _inner_at(usize(0), usize(1), (i, j) => less(xs(i), xs(j)))
 );
 test("soundness canary: a closure keeps the inner instantiation's parameter type", {
@@ -495,11 +495,11 @@ impl(
   generic(T : Type),
   where(T <: Send),
   _IoCell(T),
-  put : (fn(inout(self) : Self, value : T) -> unit)({
+  put : (fn(mut(self) : Self, imm(value) : T) -> unit)({
     self.v = value;
   })
 );
-_io_run :: (fn(generic(T : Type), io : Io, seed : T, cb : Impl(Fn(io : Io) -> T), where(T <: Send)) -> T)({
+_io_run :: (fn(generic(T : Type), io : Io, imm(seed) : T, imm(cb) : Impl(Fn(io : Io) -> T), where(T <: Send)) -> T)({
   b := _IoCell(T)(v : seed);
   b.put(cb(io));
   b.v
@@ -515,7 +515,7 @@ test("soundness canary: an io-param closure's result inside a generic body", {
 // type concrete" test), so `U` stayed a type variable and the callee was
 // specialized abstractly — an FTT stub at run time.
 impl(i32, _wrap_some : (fn(self : i32) -> Option(i32))(Option(i32).Some(self)));
-_take_opt :: (fn(generic(U : Type), o : Option(U)) -> bool)(match(o, .Some(_) => true, .None => false));
+_take_opt :: (fn(generic(U : Type), imm(o) : Option(U)) -> bool)(match(o, .Some(_) => true, .None => false));
 test("soundness canary: a method-call argument binds the callee's type parameter", {
   x := i32(1);
   assert(_take_opt(x._wrap_some()), "Some through the method call");
@@ -523,7 +523,7 @@ test("soundness canary: a method-call argument binds the callee's type parameter
 // issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md
 // (Phase 2.4): a kind-annotated binder is inferred from an argument's
 // instantiation, and `F(A)` in the result is applied.
-_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
+_hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), imm(x) : F(A)) -> F(A))(x);
 test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
   o := Option(i32).Some(i32(7));
   r := _hk_identity(o);
@@ -544,7 +544,7 @@ impl(
   _SoundRange,
   Iterator(
     Item : i32,
-    next : (fn(inout(self) : Self) -> Option(i32))(
+    next : (fn(mut(self) : Self) -> Option(i32))(
       cond(
         (self._cur >= self._end) => .None,
         true => {
@@ -562,7 +562,7 @@ impl(
   _SoundRange64,
   Iterator(
     Item : i64,
-    next : (fn(inout(self) : Self) -> Option(i64))(
+    next : (fn(mut(self) : Self) -> Option(i64))(
       cond(
         (self._cur >= self._end) => .None,
         true => {
@@ -590,20 +590,20 @@ test("soundness canary: two .map chains at different Item types keep their own I
 // impl, a self-referential bound on `A` is judged at that binding, and the
 // blanket combinators can be called on the parameter.
 // ---------------------------------------------------------------------------
-_sound_count :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> usize)(
+_sound_count :: (fn(generic(I : Type, A : Type), imm(it) : I, where(I <: Iterator(Item := A))) -> usize)(
   it.fold(usize(0), (n, x) => (n + usize(1)))
 );
-_sound_sum :: (fn(generic(I : Type, A : Type), it : I, zero : A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
+_sound_sum :: (fn(generic(I : Type, A : Type), imm(it) : I, imm(zero) : A, where(I <: Iterator(Item := A), A <: Add(A))) -> A)(
   it.fold(zero, (acc, x) => (acc + x))
 );
-_sound_collect :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> ArrayList(A))(
+_sound_collect :: (fn(generic(I : Type, A : Type), imm(it) : I, where(I <: Iterator(Item := A))) -> ArrayList(A))(
   it.collect(ArrayList(A))
 );
 // `J` is fixed only by `F <: (Fn(item : A) -> J)` and the closure's body.
-_sound_map_all :: (fn(generic(I : Type, A : Type, J : Type, F : Type), it : I, f : F, where(I <: Iterator(Item := A), F <: (Fn(item : A) -> J))) -> ArrayList(J))(
+_sound_map_all :: (fn(generic(I : Type, A : Type, J : Type, F : Type), imm(it) : I, imm(f) : F, where(I <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> J))) -> ArrayList(J))(
   it.map(f).collect(ArrayList(J))
 );
-_sound_sum_i32 :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := i32))) -> i32)(
+_sound_sum_i32 :: (fn(generic(I : Type), imm(it) : I, where(I <: Iterator(Item := i32))) -> i32)(
   it.fold(i32(0), (acc, x) => (acc + x))
 );
 test("soundness: a free fn binds an associated type from its where-clause", {
@@ -625,7 +625,7 @@ test("soundness: a free fn binds an associated type from its where-clause", {
 // issues/fixed/fn-trait-pairs-are-never-synthesized.md (Phase 2.6): binders
 // inside a `Dyn(Fn(...))` parameter are inferred from the argument.
 // ---------------------------------------------------------------------------
-_sound_apply_dyn :: (fn(generic(A : Type, B : Type), f : Dyn(Fn(x : A) -> B), v : A) -> B)(f(v));
+_sound_apply_dyn :: (fn(generic(A : Type, B : Type), imm(f) : Dyn(Fn(imm(x) : A) -> B), imm(v) : A) -> B)(f(v));
 test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
   (inc : Dyn(Fn(y : i32) -> i32)) = dyn(y => (y + i32(1)));
   assert(_sound_apply_dyn(inc, i32(41)) == i32(42), "B inferred");
@@ -714,8 +714,8 @@ _P34Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
 derive(generic(T : Type), where(T <: Clone), _P34Wrap(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _P34Wrap(T), Copy);
 impl(_P34A, show : (fn(self : Self) -> i32)(self.x + i32(100)));
-_P34T1 :: trait(t1 : (fn(self : Self) -> i32));
-_P34T2 :: trait(t2 : (fn(self : Self) -> i32));
+_P34T1 :: trait(t1 : (fn(imm(self) : Self) -> i32));
+_P34T2 :: trait(t2 : (fn(imm(self) : Self) -> i32));
 test("soundness: Type.eq does not depend on the order of earlier questions", {
   // anonymous pair first, then the named pair ...
   (anon_first : bool) = Type.eq(struct(x : i32), struct(x : i32));
@@ -836,7 +836,7 @@ test("soundness: an extern opaque type is nominal", {
 { atomic_ullong : _P38Ull } :: import("std/libc/stdatomic");
 _p38_u64_into_ull :: Type.is_compatible_with(u64, _P38Ull);
 _p38_ull_not_u64 :: Type.is_compatible_with(_P38Ull, u64);
-_p38_opt_ull_sink :: (fn(o : Option(_P38Ull)) -> bool)(o.is_some());
+_p38_opt_ull_sink :: (fn(imm(o) : Option(_P38Ull)) -> bool)(o.is_some());
 _P38G :: (fn(comptime(T) : Type) -> comptime(Type))(struct(f : T));
 _p38_opt_composes :: Type.is_compatible_with(Option(u64), Option(_P38Ull));
 _p38_g_composes :: Type.is_compatible_with(_P38G(u64), _P38G(_P38Ull));
@@ -856,8 +856,8 @@ test("soundness: a C scalar initializes an extern opaque, never the reverse", {
 // binding and reassignment checks called it as (expected, actual). Each
 // directional rule is pinned here in the direction those sites had flipped.
 _p38_u64_sink :: (fn(x : u64) -> u64)(x);
-_P38DA :: trait(da : (fn(self : Self) -> i32));
-_P38DB :: trait(db : (fn(self : Self) -> i32));
+_P38DA :: trait(da : (fn(imm(self) : Self) -> i32));
+_P38DB :: trait(db : (fn(imm(self) : Self) -> i32));
 _P38OnlyA :: struct(n : i32);
 derive(_P38OnlyA, Copy, Clone);
 impl(_P38OnlyA, _P38DA(da : (self -> self.n)));
@@ -865,12 +865,12 @@ _P38Both :: struct(n : i32);
 derive(_P38Both, Copy, Clone);
 impl(_P38Both, _P38DA(da : (self -> self.n)));
 impl(_P38Both, _P38DB(db : (self -> (self.n + i32(1)))));
-_p38_takes_both :: (fn(x : Dyn(_P38DA, _P38DB)) -> i32)(x.db());
-_p38_takes_a :: (fn(x : Dyn(_P38DA)) -> i32)(x.da());
+_p38_takes_both :: (fn(imm(x) : Dyn(_P38DA, _P38DB)) -> i32)(x.db());
+_p38_takes_a :: (fn(imm(x) : Dyn(_P38DA)) -> i32)(x.da());
 _p38_both_into_a :: Type.is_compatible_with(Dyn(_P38DA, _P38DB), Dyn(_P38DA));
 _p38_a_into_both :: Type.is_compatible_with(Dyn(_P38DA), Dyn(_P38DB, _P38DA));
 test("soundness: an extern opaque value is not a scalar argument", {
-  comptime_expect_error((fn(a : _P38Ull) -> u64)(_p38_u64_sink(a)));
+  comptime_expect_error((fn(imm(a) : _P38Ull) -> u64)(_p38_u64_sink(a)));
   assert(true, "rejected");
 });
 test("soundness: a Dyn is neither downcast nor upcast", {
@@ -916,7 +916,7 @@ test("soundness: a value struct cannot reach itself by value", {
 // this pins the runtime behavior.
 test("soundness: a ref struct's Option(Self) survives a generic specialization", {
   _osf_env :: ref(struct(n : i64, memo : Option(Self)));
-  _osf_first :: (fn(l : ArrayList(_osf_env)) -> Option(_osf_env))(l.get(usize(0)));
+  _osf_first :: (fn(imm(l) : ArrayList(_osf_env)) -> Option(_osf_env))(l.get(usize(0)));
   l := ArrayList(_osf_env).new();
   l.push(_osf_env(n : i64(5), memo : Option(_osf_env).None));
   match(
@@ -938,7 +938,7 @@ _P5Box :: ref(struct(tag : i32));
 impl(
   _P5Box,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       g_p5_disposed = (g_p5_disposed + i32(1));
     })
   )
@@ -961,7 +961,7 @@ test("soundness: a move in an arm that returns does not reach the code after the
 // holds one more reference: a second release by the returning arm would
 // dispose the box while the keeper still holds it
 // (issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
-_p5_early_return_kept :: (fn(c : bool, inout(keep) : ArrayList(_P5Box)) -> i32)({
+_p5_early_return_kept :: (fn(c : bool, mut(keep) : ArrayList(_P5Box)) -> i32)({
   b := _P5Box(tag : i32(5));
   keep.push(b);
   if(c, {
@@ -981,7 +981,7 @@ test("soundness: the returning arm releases its moved value once", {
 // then the tail's, after the arm's return, and the early-return drop the
 // evaluator attaches for a value moved later released it again
 // (issues/fixed/an-early-return-after-an-arm-move-releases-a-value-the-tail-also-moves.md).
-_p5_tail_move_kept :: (fn(c : bool, inout(keep) : ArrayList(_P5Box)) -> i32)({
+_p5_tail_move_kept :: (fn(c : bool, mut(keep) : ArrayList(_P5Box)) -> i32)({
   b := _P5Box(tag : i32(5));
   keep.push(b);
   if(c, {
@@ -991,7 +991,7 @@ _p5_tail_move_kept :: (fn(c : bool, inout(keep) : ArrayList(_P5Box)) -> i32)({
 });
 // The arm moves the box in a statement before its return, and a sibling arm
 // returns without moving it: that return still releases the caller's box.
-_p5_tail_move_three_way :: (fn(k : i32, inout(keep) : ArrayList(_P5Box)) -> i32)({
+_p5_tail_move_three_way :: (fn(k : i32, mut(keep) : ArrayList(_P5Box)) -> i32)({
   b := _P5Box(tag : k);
   keep.push(b);
   cond(
@@ -1044,7 +1044,7 @@ test("soundness: a loop may move an outer value on its only way out", {
   assert(g_p5_disposed == (before + i32(1)), `released once, got ${(g_p5_disposed - before).to_string()}`);
 });
 _P5Holder :: struct(s : String);
-_p5_clobber :: (fn(inout(a) : _P5Holder, b : _P5Holder) -> usize)({
+_p5_clobber :: (fn(mut(a) : _P5Holder, imm(b) : _P5Holder) -> usize)({
   (i : i32) = i32(0);
   while(runtime(i < i32(3)), {
     a = _P5Holder(s : `fresh-value-${i}-xxxxxxxxxxxxxxxxxxxxxxxx`);
@@ -1073,13 +1073,13 @@ test("soundness: std panic types a value arm", {
 // a generic that forwards its own binder to a generic applying an operator to
 // it type-checks, whether or not anything calls it. On develop the result
 // check rejected `U` against `U` and this whole file failed to check.
-_p6_twice :: (fn(generic(T : Type), x : T) -> T)(x + x);
-_p6_twice_via :: (fn(generic(U : Type), u : U) -> U)(_p6_twice(u));
-_p6_twice_via_let :: (fn(generic(U : Type), u : U) -> U)({
+_p6_twice :: (fn(generic(T : Type), imm(x) : T) -> T)(x + x);
+_p6_twice_via :: (fn(generic(U : Type), imm(u) : U) -> U)(_p6_twice(u));
+_p6_twice_via_let :: (fn(generic(U : Type), imm(u) : U) -> U)({
   (r : U) = _p6_twice(u);
   r
 });
-_p6_twice_via_never_called :: (fn(generic(U : Type), u : U) -> U)(_p6_twice(u));
+_p6_twice_via_never_called :: (fn(generic(U : Type), imm(u) : U) -> U)(_p6_twice(u));
 test("soundness: a generic forwarding its binder to an operator generic", {
   assert(_p6_twice_via(i32(4)) == i32(8), "the i32 instantiation adds");
   assert(_p6_twice_via_let(i64(5)) == i64(10), "the declared intermediate keeps the binder");
@@ -1105,7 +1105,7 @@ _SinkReadBox :: ref(struct(n : i32));
 impl(
   _SinkReadBox,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       g_sink_read_disposed = (g_sink_read_disposed + i32(1));
     })
   )

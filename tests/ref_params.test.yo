@@ -75,7 +75,7 @@ test("ref chained through another ref-param fn", {
 
 test("ref read returns current caller value", {
   v := i32(100);
-  read_back :: (fn(inout(p) : i32) -> i32)(p);
+  read_back :: (fn(mut(p) : i32) -> i32)(p);
   result := read_back(v);
   assert(result == i32(100), "read through ref");
 });
@@ -85,7 +85,7 @@ test("ref read returns current caller value", {
 // initializer dereferences itself — "indirection requires pointer operand".
 // The top-level tail `m` never hit it (no nested block, no shadow).
 test("returning an inout param from inside a nested block", {
-  first_positive :: (fn(inout(m) : i32) -> i32)({
+  first_positive :: (fn(mut(m) : i32) -> i32)({
     if(m > i32(0), {
       return(m);
     });
@@ -107,7 +107,7 @@ test("returning an inout param from inside a nested block", {
 // the callee's release over-released the caller's variable.)
 own_len :: (fn(own(v) : String) -> usize)(v.len());
 test("inout parameter passed to an own parameter copies, the referenced slot survives", {
-  via_param :: (fn(inout(p) : String) -> usize)({
+  via_param :: (fn(mut(p) : String) -> usize)({
     n := own_len(p);
     p.push_str("!");
     n
@@ -127,12 +127,12 @@ test("inout parameter passed to an own parameter copies, the referenced slot sur
 InoutBag :: struct(items : ArrayList(i32), n : i32);
 impl(
   InoutBag,
-  touched : (fn(inout(self) : Self, x : i32) -> Self)({
+  touched : (fn(mut(self) : Self, x : i32) -> Self)({
     self.n = x;
     self
   })
 );
-touch_bag :: (fn(inout(x) : InoutBag, k : i32) -> InoutBag)({
+touch_bag :: (fn(mut(x) : InoutBag, k : i32) -> InoutBag)({
   x.n = k;
   x
 });
@@ -140,7 +140,7 @@ InoutEntry :: (fn(comptime(V) : Type) -> comptime(Type))(struct(_items : ArrayLi
 impl(
   generic(V : Type),
   InoutEntry(V),
-  bumped : (fn(inout(self) : Self, k : i32) -> Self)({
+  bumped : (fn(mut(self) : Self, k : i32) -> Self)({
     self.n = (self.n + k);
     self
   })
