@@ -2501,6 +2501,67 @@ reset_sibling_flow_state :: (fn(imm(env) : Environment, imm(prev_arm) : Option(A
     ri = (ri + usize(1));
   });
 });
+/// Does a `match` arm pattern anywhere in `e` bind `name`?
+_pattern_binds_name :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+  match(
+    e,
+    .FnCall(_, callee, args, _, _) => {
+      is_match := ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            if(is_match && (i > usize(0)) && ast_expr_is_fn_call_of(a, "=>", Option(usize).None), {
+              match(
+                a,
+                .FnCall(_, _, arm_args, _, _) => match(
+                  arm_args.get(usize(0)),
+                  .Some(pat) => if(_atom_named_in(pat, name.clone()), {
+                    return(true);
+                  }),
+                  .None => ()
+                ),
+                .Atom(_, _) => ()
+              );
+            });
+            if(recur(a, name.clone()), {
+              return(true);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      recur(callee, name)
+    },
+    .Atom(_, _) => false
+  )
+);
+/// Is there an identifier atom spelled `name` anywhere in `e`?
+_atom_named_in :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+  match(
+    e,
+    .Atom(_, tok) => (tok.value == name),
+    .FnCall(_, callee, args, _, _) => {
+      if(recur(callee, name.clone()), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => if(recur(a, name.clone()), {
+            return(true);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
 /// The earliest token of `e`'s own source: the start of an arm.
 _first_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
   (best : Token) = root;
@@ -2794,10 +2855,17 @@ _drop_in_arms_that_keep :: (
     imm(consumed_at_tokens) : ArrayList(Option(Token)),
     imm(env) : Environment,
     imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    imm(exn) : Exception,
+    (imm(branch_expr) : Option(AstExpr)) ?= Option(AstExpr).None
   ) -> bool
 )({
   if(v.is_module_level, {
+    return(false);
+  });
+  // The drop names the value, so a `match` pattern in the branch that binds
+  // the same name (`.Some(x)`) would make the drop release that binding
+  // instead: keep E0907 there.
+  if(match(branch_expr, .Some(be) => _pattern_binds_name(be, v.name.clone()), .None => false), {
     return(false);
   });
   // A binding that owns nothing (a `match`/`for` binding, a `mut` place)
@@ -3400,8 +3468,18 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             });
             if(all_consumed && !match(base_var.consumed_at_token, .Some(_) => true, .None => false), {
               first_tok := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+              // Moved where the branch ends, as for a move in some arms: a
+              // `return` in an arm that left the join (a returning arm) is
+              // before that point, so the early-return pass drops the value
+              // there; one after a move in its own arm is not (the flow log
+              // keeps each arm's move as an `UndoneMove`).
+              end_tok := match(
+                branch_expr,
+                .Some(be) => match(first_tok, .Some(ft) => Option(Token).Some(_last_token_of(be, ft)), .None => Option(Token).None),
+                .None => first_tok
+              );
               match(
-                first_tok,
+                end_tok,
                 .Some(t) => {
                   base_var.consumed_at_token = Option(Rc(Token)).Some(rc(t.clone()));
                 },
@@ -3414,7 +3492,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             // the arms are structured, so no runtime flag is needed). Only a
             // value the elaboration cannot drop is still E0907.
             partial := (any_consumed && !all_consumed);
-            elaborated := (partial && _drop_in_arms_that_keep(base_var, bodies, consumed_at_tokens, env, ctx, exn));
+            elaborated := (partial && _drop_in_arms_that_keep(base_var, bodies, consumed_at_tokens, env, ctx, exn, branch_expr));
             if(elaborated, {
               // Moved where the branch ends: every arm has either moved it
               // or dropped it by then. A `return` inside the branch is before

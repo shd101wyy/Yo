@@ -216,6 +216,37 @@ test("move-only: a value moved in one arm is dropped at the end of the others", 
   assert(keep.len() == usize(3), "three moved into the list");
   assert(g_mo_sum == (before_sum + i32(170)), "30 + 40 + 50 + 50");
 });
+_mo_all_move_or_return :: (fn(k : i32) -> i32)({
+  a := _MoFd(n : i32(60));
+  cond(
+    (k == i32(0)) => _mo_take(a),
+    (k == i32(1)) => {
+      return(i32(77));
+    },
+    true => _mo_take(a)
+  )
+});
+_mo_some_move_or_return :: (fn(k : i32) -> i32)({
+  a := _MoFd(n : i32(70));
+  cond(
+    (k == i32(0)) => _mo_take(a),
+    (k == i32(1)) => {
+      return(i32(77));
+    },
+    true => i32(0)
+  )
+});
+test("move-only: a returning arm beside arms that move a value drops it at the return", {
+  before := g_mo_disposed;
+  assert(_mo_all_move_or_return(i32(0)) == i32(60), "moved");
+  assert(_mo_all_move_or_return(i32(1)) == i32(77), "returned");
+  assert(_mo_all_move_or_return(i32(2)) == i32(60), "moved");
+  assert(g_mo_disposed == (before + i32(3)), "every path disposed it once, the returning one included");
+  assert(_mo_some_move_or_return(i32(0)) == i32(70), "moved");
+  assert(_mo_some_move_or_return(i32(1)) == i32(77), "returned");
+  assert(_mo_some_move_or_return(i32(2)) == i32(0), "kept, then dropped at the arm's end");
+  assert(g_mo_disposed == (before + i32(6)), "and again for a move in some arms");
+});
 test("move-only: a closure capture moves the value, and the closure disposes it", {
   before := g_mo_disposed;
   {
