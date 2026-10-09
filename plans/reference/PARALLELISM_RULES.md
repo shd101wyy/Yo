@@ -274,6 +274,13 @@ provably alive, and the loop's thread waits for that count to drain before teari
 down. Together this keeps a spawned thread's loop alive until every cross-thread message
 addressed to it has been processed and every foreign thread is done touching it.
 
+"Provably alive" is decided by the ORDER of the writes. A foreign release registers its visit
+before it publishes `release_pending`: once the flag is visible, a drain already working on the
+token (a wake the same thread posted earlier) may consume the release at its second check and
+exit, so a visit registered after the store can land on the freed `_Thread_local` loop
+(amended 2026-10-09,
+`issues/fixed/a-foreign-waker-release-registers-its-visit-after-publishing-the-release.md`).
+
 ## D8 — Closures may not capture second-class bindings
 
 **Status:** LANDED 2026-09-26 (Phase 4): the rule already existed in
