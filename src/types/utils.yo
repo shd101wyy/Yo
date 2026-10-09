@@ -2281,6 +2281,42 @@ type_contains_some_type_deep :: (fn(imm(ty) : TypeValue) -> bool)({
   });
   found
 });
+/// Does `ty` mention an `Impl(Fn(...))` / `Impl(Future(...))` existential?
+/// `type_contains_some_type` counts such a SomeT as CONCRETE (it lowers to the
+/// value's capture struct / state machine), which is right for the codegen
+/// gates and wrong for a branch JOIN: a `cond`/`match` that adopted it as its
+/// result type in place of the arms' concrete closure type lost both the C
+/// type (the result temp became `void*`) and the closure's capture borrows
+/// (so a borrowing closure escaped decision 38 A's E0909).
+/// issues/fixed/cond-match-tail-adopts-the-abstract-impl-result-type.md
+type_mentions_impl_fn_or_future :: (fn(imm(ty) : TypeValue) -> bool)({
+  sts := get_all_some_types(ty);
+  (i : usize) = usize(0);
+  while(i < sts.len(), {
+    match(
+      sts.get(i),
+      .Some(.SomeT({ required_trait_types : rtt })) => {
+        (j : usize) = usize(0);
+        while(j < rtt.len(), {
+          match(
+            rtt.get(j),
+            .Some(.FnTraitT(_, _, _, _, _, _, _, _)) => {
+              return(true);
+            },
+            .Some(.FutureTraitT(_, _, _, _)) => {
+              return(true);
+            },
+            _ => ()
+          );
+          j = (j + usize(1));
+        });
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
 // ---------------------------------------------------------------------------
 // Size and alignment utilities
 // ---------------------------------------------------------------------------
@@ -3131,6 +3167,7 @@ export(is_bound_closure_identity);
 export(is_closure_capture_struct);
 export(resolve_cell_chain);
 export(type_contains_some_type_deep);
+export(type_mentions_impl_fn_or_future);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);
 /// Does `ty` mention a trait's `Self` (a SomeT named `Self`)?

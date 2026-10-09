@@ -75,7 +75,7 @@ pragma(Pragma.AllowUnsafe);
   is_function_type_and_returns_comptime_value,
   is_never_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type, mark_generic_independent } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ merge_and_check_envs, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding } :: import("../utils.yo");
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -282,7 +282,7 @@ _gadt_refined_expected :: (
 /// type unless a concrete expected type is in force).
 _arm_result_type :: (fn(imm(ctx) : EvalContext, imm(body_ty) : TypeValue) -> TypeValue)(
   cond(
-    match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+    match(ctx.expected_type, .Some(et) => (!type_contains_some_type(et.ty) && !type_mentions_impl_fn_or_future(et.ty)), .None => false) =>
       match(ctx.expected_type, .Some(et) => et.ty, .None => body_ty),
     true => body_ty
   )
@@ -1270,6 +1270,7 @@ evaluate_match :: (
       );
       // Case 4: runtime or multiple bodies → merge
       if(!(did_use_single), {
+        reject_mixed_closure_arms(non_return_em, ctx, exn);
         env = merge_and_check_envs(env, non_return_em, group_log_start, arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
       });
     });

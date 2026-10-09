@@ -101,7 +101,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -2950,6 +2950,64 @@ _drop_in_arms_that_keep :: (
   v.consumed_at_token = saved_consumed;
   true
 });
+/// The closure an arm yields, as its capture struct: a closure literal's
+/// `capture_type`, or the resolution of a bound closure identity (a local
+/// declared `(f : Impl(Fn...)) = closure`).
+_arm_closure_capture_struct :: (fn(imm(info) : ExprInfo) -> Option(TypeValue))(
+  match(
+    expr_info_capture_type(info),
+    .Some(cap) => Option(TypeValue).Some(cap),
+    .None => cond(
+      is_bound_closure_identity(info.ty) => Option(TypeValue).Some(resolve_cell_chain(info.ty)),
+      is_closure_capture_struct(info.ty) => Option(TypeValue).Some(info.ty),
+      true => Option(TypeValue).None
+    )
+  )
+);
+/// Impl(...) RESULT rule for a `cond`/`match` join: arms yielding DIFFERENT
+/// closures cannot unify into one value (static dispatch —
+/// `(c : Impl(Fn...)) = cond(a => closureA, b => closureB)` is rejected, and so
+/// is a function whose `Impl(Fn)` result is such a join). `bodies` are the
+/// arms that reach the join.
+reject_mixed_closure_arms :: (
+  fn(
+    imm(bodies) : ArrayList(AstExpr),
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
+  ) -> unit
+)({
+  (first_id : String) = String.new();
+  (i : usize) = usize(0);
+  while(i < bodies.len(), {
+    match(
+      bodies.get(i),
+      .Some(body) => match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(body)),
+        .Some(info) => match(
+          _arm_closure_capture_struct(info),
+          .Some(.Struct({ id : cid })) => if(cid.len() > usize(0), {
+            if(first_id.len() == usize(0), {
+              first_id = cid;
+            }, if(cid != first_id, {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(body),
+                    String.from("Branches produce different concrete closure types for an Impl(...) result. Impl(...) uses static dispatch and requires the same concrete type across branches. Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.")
+                  )
+                )
+              );
+            }));
+          }),
+          _ => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
 /// Join the arms of a `cond`/`match` into `env`. `bodies` are the arms that
 /// reach the join; `group_log_start` is the flow log's length when the
 /// branch began (its arms' records follow it); `arm_ranges` holds each
@@ -3878,7 +3936,7 @@ export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(reject_second_class_escape, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
-export(consume_case_body_temp_var, merge_and_check_envs, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
+export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
 export(are_values_equal);
 /// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
 /// The naive `v.to_string()` is C `%g` — SIX significant digits — and

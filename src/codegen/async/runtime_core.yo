@@ -235,11 +235,20 @@ static void __yo_async_blocking_end(void* loop_p) {
 // the loop alive, so no NEW visitor can start, and the ones in flight are a
 // few instructions from done.
 static void __yo_thread_yield(void);
+static void __yo_async_drain_xwakes(void);
 static void __yo_async_loop_quiesce(void) {
   __yo_loop_t* loop = __yo_loop_self();
   while (atomic_load(&loop->visitors) > 0) {
     __yo_thread_yield();
   }
+  // A visitor that finished during the wait may have left a token on the
+  // inbox: a foreign release whose post re-queued it after this loop's drain
+  // had already consumed the release (the drain cleared 'queued', the
+  // release's CAS then won). Nothing else will drain it once the thread
+  // exits, so drain it now: its release is consumed and its inbox reference
+  // dropped, so the token is freed instead of leaked
+  // (issues/fixed/a-release-re-queued-after-the-owners-last-drain-leaks-its-waker-token.md).
+  __yo_async_drain_xwakes();
 }
 static void* __yo_async_loop_self_ptr(void) {
   return (void*)__yo_loop_self();
@@ -824,8 +833,11 @@ static void __yo_waker_token_unref(__yo_waker_token_t* t) {
 // function are deliberately outside the lock.
 static void __yo_waker_post(__yo_waker_token_t* t) {
   __yo_loop_t* owner = t->owner;
-  // The caller's token reference keeps a waker live on the owner, so the
-  // owner cannot have exited yet; register the visit before anything else.
+  // A wake's caller holds a token reference whose waker is still counted
+  // live on the owner, so the owner cannot have exited yet; register the
+  // visit before anything else. A foreign release has published
+  // release_pending, after which that count may already be gone, so it
+  // registers its own visit first (__yo_waker_release) and this one nests.
   atomic_fetch_add(&owner->visitors, 1);
   int expected = 0;
   if (!atomic_compare_exchange_strong(&t->queued, &expected, 1)) {
@@ -956,8 +968,19 @@ static void __yo_waker_release(void* p) {
     // Post so the owner actually looks at the token, then drop the HANDLE
     // reference: this thread must not touch the token again after that, and
     // does not.
+    //
+    // The visit is registered BEFORE release_pending is published. Until
+    // then this waker is still counted live on the owner, so the owner is
+    // provably alive; once the flag is set, a drain already working on this
+    // token (a wake the same thread posted earlier) may consume the release
+    // at its second check, see zero live wakers and exit. Registering the
+    // visit inside __yo_waker_post, after the store, wrote into the exited
+    // thread's freed _Thread_local loop
+    // (issues/fixed/a-foreign-waker-release-registers-its-visit-after-publishing-the-release.md).
+    atomic_fetch_add(&owner->visitors, 1);
     atomic_store(&t->release_pending, 1);
     __yo_waker_post(t);
+    atomic_fetch_sub(&owner->visitors, 1);
     __yo_waker_token_unref(t);
     return;
   }

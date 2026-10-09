@@ -1,0 +1,11 @@
+// A `cond` tail of an `Impl(Fn)`-returning function joins at the arms'
+// concrete closure type, so returning a borrowing closure through it is E0909.
+mk :: (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ imm(x) }() => x);
+  cond(b => f, true => f)
+});
+main :: (fn() -> unit)({
+  g := mk(i32(42), true);
+  _ := g();
+});
+export(main);
