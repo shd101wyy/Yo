@@ -862,7 +862,7 @@ _attach_early_return_only_drop_to_returns :: (fn(imm(expr) : AstExpr, imm(variab
   init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
   consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb.*, .None => return(()));
   if(ast_expr_is_atom(expr), {
-    if((ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND)) && !variable_moved_at_cleanup_point(variable, ast_expr_token(expr)), {
+    if((ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND)) && !variable_moved_at_cleanup_point(variable, ast_expr_token(expr), true), {
       _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, init_tok, consumed_tok, ctx);
     });
     return(());
@@ -875,7 +875,7 @@ _attach_early_return_only_drop_to_returns :: (fn(imm(expr) : AstExpr, imm(variab
         // undid — made earlier inside the arm this return sits in, e.g. by the
         // return's own `sink(b)` — already released the value on this path,
         // though the tail's later move is what the variable still shows.
-        if(!variable_moved_at_cleanup_point(variable, _m3_last_comparable_token_in_expr(expr, ast_expr_token(expr))), {
+        if(!variable_moved_at_cleanup_point(variable, _m3_last_comparable_token_in_expr(expr, ast_expr_token(expr)), true), {
           _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, consumed_tok), variable, drop_expr, init_tok, consumed_tok, ctx);
         });
         return(());

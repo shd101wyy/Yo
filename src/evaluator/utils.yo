@@ -2501,6 +2501,39 @@ reset_sibling_flow_state :: (fn(imm(env) : Environment, imm(prev_arm) : Option(A
     ri = (ri + usize(1));
   });
 });
+/// The earliest token of `e`'s own source: the start of an arm.
+_first_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
+  (best : Token) = root;
+  tok := ast_expr_token(e);
+  if((tok.module_path == root.module_path) && (tok.character < best.character), {
+    best = tok;
+  });
+  match(
+    e,
+    .FnCall(_, callee, args, _, _) => {
+      c := recur(callee, root);
+      if((c.module_path == root.module_path) && (c.character < best.character), {
+        best = c;
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            t := recur(a, root);
+            if((t.module_path == root.module_path) && (t.character < best.character), {
+              best = t;
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  best
+});
 /// The latest token of `e`'s own source: the end of an arm.
 _last_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
   (best : Token) = root;
@@ -2790,13 +2823,20 @@ _drop_in_arms_that_keep :: (
         bodies.get(si),
         .Some(sb) => match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(sb)),
-          .Some(sbi) => match(
-            get_variables_from_env(sbi.env, v.name.clone()).last(),
-            .Some(sv) => if(sv.id != v.id, {
-              return(false);
-            }),
-            .None => ()
-          ),
+          .Some(sbi) => {
+            same_name := get_variables_from_env(sbi.env, v.name.clone());
+            (sni : usize) = usize(0);
+            while(sni < same_name.len(), {
+              match(
+                same_name.get(sni),
+                .Some(sv) => if(sv.id != v.id, {
+                  return(false);
+                }),
+                .None => ()
+              );
+              sni = (sni + usize(1));
+            });
+          },
           .None => ()
         ),
         .None => ()
@@ -2823,6 +2863,12 @@ _drop_in_arms_that_keep :: (
             drops := match(bi.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
             drops.push(evaluated);
             bi.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(drops);
+            // A `return` inside this arm already emits the arm's deferred
+            // drops (they ride the pending list codegen keeps for the arm),
+            // so the early-return pass must not add a second drop there:
+            // record the arm as a window in which the value counts as gone.
+            arm_tok := ast_expr_token(body);
+            variable_record_undone_move(v, UndoneMove(moved_at : _first_token_of(body, arm_tok), until : _last_token_of(body, arm_tok), inclusive : true, arm_drop : true));
           },
           .None => ()
         ),
