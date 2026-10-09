@@ -67,6 +67,7 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("std/allocator");
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
@@ -1115,6 +1116,11 @@ _run_migrate_params :: (
   });
   set_migrate_param_modes(false);
   edits := take_migrate_edits();
+  edit_paths := ArrayList(String).new();
+  (epi : usize) = usize(0);
+  while(epi < edits.len(), epi = (epi + usize(1)), {
+    edit_paths.push(match(edits.get(epi), .Some(e) => canonical_module_path(e.path.clone()), .None => String.new()));
+  });
   // Group by target file: an edit lands only in a file under `<path>`.
   targets := ArrayList(String).new();
   canon_targets := ArrayList(String).new();
@@ -1132,10 +1138,15 @@ _run_migrate_params :: (
     canon := match(canon_targets.get(ci), .Some(c) => c, .None => String.new());
     file := match(targets.get(ci), .Some(f) => f, .None => String.new());
     pending := ArrayList(_PendingFix).new();
+    seen := HashSet(String).new();
     (ei : usize) = usize(0);
     while(ei < edits.len(), ei = (ei + usize(1)), {
       e := match(edits.get(ei), .Some(x) => x, .None => MigrateEdit(path : String.new(), row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), expect : String.new()));
-      if(canonical_module_path(e.path.clone()) == canon, {
+      // One parameter can be recorded under both spellings of its module
+      // path (the entry's as typed, a demand load's `file://` key), so the
+      // evaluator's key does not dedupe it: keep the first edit per span.
+      if(match(edit_paths.get(ei), .Some(ep) => (ep == canon), .None => false) && !seen.contains(`${e.row.to_string()}:${e.col.to_string()}`), {
+        seen.insert(`${e.row.to_string()}:${e.col.to_string()}`);
         pending.push(_PendingFix(row : e.row, col : e.col, len : e.len, replacement : e.replacement.clone(), description : e.expect.clone()));
       });
     });
