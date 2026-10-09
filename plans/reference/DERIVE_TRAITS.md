@@ -226,7 +226,7 @@ __yo_type_join_variants(
   T,
   (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
     // variant.name : comptime_string, variant.field_count : i32, etc.
-    quote(.unquote(variant.name.to_expr()) => ...)
+    quote(.(unquote(variant.name.to_expr())) => ...)
   ),
   quote(,)   // or whatever combiner makes sense for match arms
 )
