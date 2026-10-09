@@ -222,7 +222,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "This is Yo's most distinctive brace rule: `{ expr }` (no semicolons) constructs an anonymous struct; `{ stmt; stmt; }` is a block. Wrap the expression in `begin`-style braces with semicolons, or — better — drop the braces and let the expression stand alone.",
       "这是 Yo 最特别的 braces 规则：`{ expr }`（无分号）构造匿名结构体；`{ stmt; stmt; }` 才是语句块。请为语句加分号，或者更好的做法是去掉花括号，直接写表达式。",
       "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({ helper() });\nexport(main);\n",
-      "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({ helper(); });\nexport(main);\n",
+      "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper();\n});\nexport(main);\n",
       "Without a `;` the braces are a record literal, and `helper()` is not a field. `yo fix` inserts the `;` for the single-expression shape.",
       "没有 `;` 时花括号是记录字面量，而 `helper()` 不是字段。对单表达式形状，`yo fix` 会补上 `;`。"
     )
