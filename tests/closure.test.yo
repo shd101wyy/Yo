@@ -577,6 +577,37 @@ test("a closure returned through a cond tail keeps and releases its capture once
   };
   assert((g_cap_disposed - before) == i32(1), `the capture is released exactly once, released ${g_cap_disposed - before}`);
 });
+// A LOCAL function value returning `Impl(Fn)` is called with the concrete
+// closure type the function returns, not `void*`
+// (issues/fixed/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md).
+test("a local function value returning an Impl(Fn) result", {
+  mk := (fn(x : i32) -> Impl(Fn() -> i32))({
+    (f : Impl(Fn() -> i32)) = ({ x }() => (x + i32(1)));
+    f
+  });
+  g := mk(i32(41));
+  h := mk(i32(9));
+  assert(g() == i32(42), "first call");
+  assert(h() == i32(10), "second call");
+  assert(g() == i32(42), "the first closure again");
+  assert(mk(i32(3))() == i32(4), "called directly");
+  (outer : Impl(Fn(y : i32) -> i32)) = ({ mk }(y : i32) => mk(y)());
+  assert(outer(i32(5)) == i32(6), "captured by a closure");
+});
+test("a local function value's Impl(Fn) result keeps and releases its capture once", {
+  before := g_cap_disposed;
+  {
+    mk := (fn(n : i32) -> Impl(Fn(x : i32) -> i32))({
+      p := CapPayload(n : n);
+      (f : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+      f
+    });
+    g := mk(i32(5));
+    assert(g(i32(1)) == i32(6), "the returned closure reads its capture");
+    assert(g(i32(2)) == i32(7), "and again");
+  };
+  assert((g_cap_disposed - before) == i32(1), `the capture is released exactly once, released ${g_cap_disposed - before}`);
+});
 test("an Impl(Fn) result joined from two different closures is rejected", {
   comptime_expect_error(
     (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({

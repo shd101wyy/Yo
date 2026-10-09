@@ -103,7 +103,7 @@ it on the arms that reach the join.
 | `cond`/`match` of `dyn(...)` closure literals into a `Dyn` result | runs | runs |
 
 Found on the way and filed separately (independent of `cond`/`match`, reproduces
-on the seed): `issues/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md`.
+on the seed): `issues/fixed/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md`.
 
 ## Tests
 
