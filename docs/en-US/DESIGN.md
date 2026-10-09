@@ -374,8 +374,8 @@ func(x, y); // a function call with two arguments x and y.
 // A run of operator characters is split greedily against two fixed tables;
 // anything not in them is a LEX ERROR, not a user-defined operator.
 //   two-char: != && -> :: := <: << <= == => >= >> ?= ||
-//   one-char: ! # % & * + - / : < = > ? ^ | ~
-//   dot family: . .. ..= ... ...#
+//   one-char: ! % & * + - / : < = > ? ^ | ~
+//   dot family: . .. ..= ...
 // Infix operators are translated to a dot method call:
 // But they will be translated as dot method call:
 (3 + 4) * 5; // is the same as
@@ -4306,14 +4306,14 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
   eq_body :: Type.join_fields(
     T,
     (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-      quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+      quote(self.(unquote(field.name.to_expr())).my_eq(other.(unquote(field.name.to_expr()))))
     ),
     quote(&&)
   );
   ctx.make_impl(
     quote(
-      MyEq(...#(trait_params))(
-        my_eq : ((self, other) -> #(eq_body))
+      MyEq(unquote_splicing(trait_params))(
+        my_eq : ((self, other) -> unquote(eq_body))
       )
     )
   )

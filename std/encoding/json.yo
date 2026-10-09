@@ -1920,7 +1920,7 @@ __derive_to_json :: (
   body_expr :: __yo_comptime_string_to_expr(body);
   ctx.make_impl(
     quote(
-      ToJson(to_json : (self -> #(body_expr)))
+      ToJson(to_json : (self -> unquote(body_expr)))
     )
   )
 });
@@ -1963,7 +1963,7 @@ __derive_from_json :: (
   body :: ("({ " + extracts + ".Ok(Self(" + ctor_args + ")) })");
   ctx.make_impl(
     quote(
-      FromJson(from_json : (v -> #(body.to_expr())))
+      FromJson(from_json : (v -> unquote(body.to_expr())))
     )
   )
 });

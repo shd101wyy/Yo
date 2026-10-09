@@ -4027,11 +4027,8 @@ evaluate_function_type :: (
       });
       rl_expr = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
-    // unquote modifier — accepts both `unquote(...)` and `#(...)`.
-    rl_is_unquote := (
-      ast_expr_is_fn_call_of(rl_expr, "unquote", Option(usize).None) ||
-        ast_expr_is_fn_call_of(rl_expr, "#", Option(usize).None)
-    );
+    // unquote modifier: `-> unquote(...)`.
+    rl_is_unquote := ast_expr_is_fn_call_of(rl_expr, "unquote", Option(usize).None);
     if(rl_is_unquote, {
       is_return_unquote = true;
       uq_args := _fn_call_args(rl_expr);
@@ -4134,10 +4131,7 @@ evaluate_function_type :: (
       });
       return_type_expr = match(ct_args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
-    rte_is_unquote := (
-      ast_expr_is_fn_call_of(return_type_expr, "unquote", Option(usize).None) ||
-        ast_expr_is_fn_call_of(return_type_expr, "#", Option(usize).None)
-    );
+    rte_is_unquote := ast_expr_is_fn_call_of(return_type_expr, "unquote", Option(usize).None);
     if(rte_is_unquote, {
       is_return_unquote = true;
       uq_args2 := _fn_call_args(return_type_expr);

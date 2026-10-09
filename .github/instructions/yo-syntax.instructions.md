@@ -111,9 +111,9 @@ Fmt KEEPS these — the grammar needs them; do not remove by hand:
   binds exactly ONE postfix expression
   (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1); the call parens are
   the operand boundary.
-- **The operand call of a non-prefix-capable operator**: `...(entries)`,
-  `#(field)`, `...#(exprs)` — `...`, `#`, and `...#` have no bare prefix
-  form, so the tight call is their only operand spelling. Until 2026-10-05
+- **The operand call of a non-prefix-capable operator**: `...(entries)` —
+  `...` has no bare prefix form, so the tight call is its only operand
+  spelling. Until 2026-10-05
   the elider stripped these too; the re-parse gate then silently disabled
   paren elision for the WHOLE file, so the same `Item : *(MapEntry(K, V))`
   spelling passed `fmt --check` in one file and was rewritten in another
@@ -264,11 +264,11 @@ those shadowing-shaped bindings.
 - Control-flow keywords follow the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`.
 - In `(exn : Exception) = Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves. (`unwind` requires the handler's lambda to be typed as `ctl(...) -> R`, which it is when bound to a `ctl`-typed field like `Exception.throw`.)
 - Prefix operators may use the call form (`&(x)`, `!(ready)`) or bind one bare postfix expression (`&x`, `!ready`, `-value` — plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1; see "Unary (prefix) operators" below, including the src/std seed constraint). A no-whitespace `(` after the operator is always the call form.
-- Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
-- **The operator token set is CLOSED** (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md): a run of operator characters is split greedily against the fixed table in `src/lexer.yo` (`_is_two_char_operator`/`_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as `*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && || # ...#`, ranges) can never be bound or overloaded (`is_reserved_operator_name` in `src/token.yo`, gated in `evaluator/exprs/binding.yo`). Adding a new operator = editing the lexer table deliberately, like a keyword.
+- Inside `quote(...)`, unquote with `unquote(expr)` and splice with `unquote_splicing(exprs)`: words, the only spellings. The operator spellings `#(expr)` and `...#(exprs)` were deleted 2026-10-10; the lexer rejects them with a message naming the word.
+- **The operator token set is CLOSED** (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md): a run of operator characters is split greedily against the fixed table in `src/lexer.yo` (`_is_two_char_operator`/`_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as `*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && ||`, ranges) can never be bound or overloaded (`is_reserved_operator_name` in `src/token.yo`, gated in `evaluator/exprs/binding.yo`). Adding a new operator = editing the lexer table deliberately, like a keyword.
 - **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/reference/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std is exempt this generation (seed-bootstrap constraint — see `is_macro_def_capable_file` in `src/evaluator/memory_safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
 - **Builtin dispatch names are reserved for bindings** (2026-09-27): a user definition of any plain-named builtin is rejected at every binding site (`::`, `:=`, `(x : T) =`, destructuring rename) with `"…" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run`. The set (`is_reserved_builtin_binding_name`, `src/token.yo`): `type_of` `size_of` `align_of` `type_id` `addr_of` `runtime` `unwind` `recur` `consume` `unsafe` `pragma` `asm` `global_asm` `macro_expand` `va_start` `comptime_assert` `comptime_fn` `comptime_print` `comptime_eval` `comptime_read_file` `comptime_json_parse` `comptime_toml_parse` `requires` `ensures` `invariant` `decreases` `assumed` `___drop` `___dup` `dyn` `the` `as` `clone` `quote`. (The `__yo` runtime prefix is not reserved yet.) Probed motivation: a user `consume` was silently hijacked (the call never ran, the argument was marked consumed, its reference leaked); everything except `as`/`clone` hijacked the same way, and `as`/`clone` only fragilely deferred. `std/prelude.yo` is exempt (its `unsafe` namespace module predates the rule). The rejection goes through `raise_flow_violation`: `yo compile` and the test runner enforce it; a plain `yo check` of a file whose only error is this rejection still exits 0 (known check-driver gap).
-- Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
+- Dynamic field access with unquote requires grouping after the dot: `value.(unquote(field_expr))`.
 
 Note how the prefix rule disambiguates `&x, y`: a bare `&` binds ONE
 postfix expression, so `call(&x, y)` passes a pointer to `x` plus `y`.
@@ -340,7 +340,7 @@ Formatter-specific syntax preservation:
 - Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
 - Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
 
-Special tight syntaxes must stay immediate: macro splices `#(expr)`, Option sugar `?T` / nullable pointers `?*T`, and negated trait constraints `T <: !Runtime` must not be formatted as `# (expr)`, `? T`, or `T <: ! Runtime`.
+Special tight syntaxes must stay immediate: Option sugar `?T` / nullable pointers `?*T`, and negated trait constraints `T <: !Runtime` must not be formatted as `? T` or `T <: ! Runtime`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 

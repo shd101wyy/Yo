@@ -8549,15 +8549,15 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
         true => Type.join_fields(
           T,
           (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-            quote(lhs.(#(field.name.to_expr())) == rhs.(#(field.name.to_expr())))
+            quote(lhs.(unquote(field.name.to_expr())) == rhs.(unquote(field.name.to_expr())))
           ),
           quote(&&)
         )
       );
       ctx.make_impl(
         quote(
-          Eq(...#(trait_params))(
-            (==) : ((lhs, rhs) -> #(eq_body)),
+          Eq(unquote_splicing(trait_params))(
+            (==) : ((lhs, rhs) -> unquote(eq_body)),
             (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
         )
@@ -8627,8 +8627,8 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
       match_body :: __s3("match(lhs,\n    ", eq_branches, "\n  )");
       ctx.make_impl(
         quote(
-          Eq(...#(trait_params))(
-            (==) : ((lhs, rhs) -> #(match_body.to_expr())),
+          Eq(unquote_splicing(trait_params))(
+            (==) : ((lhs, rhs) -> unquote(match_body.to_expr())),
             (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
         )
@@ -8637,7 +8637,7 @@ __derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(t
     true =>
       ctx.make_impl(
         quote(
-          Eq(...#(trait_params))(
+          Eq(unquote_splicing(trait_params))(
             (==) : ((lhs, rhs) -> true),
             (!=) : ((lhs, rhs) -> not(lhs == rhs))
           )
@@ -8683,7 +8683,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       ctx.make_impl(
         quote(
           Clone(
-            clone : (self -> #(clone_body.to_expr()))
+            clone : (self -> unquote(clone_body.to_expr()))
           )
         )
       )
@@ -8744,7 +8744,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
       ctx.make_impl(
         quote(
           Clone(
-            clone : (self -> #(match_body.to_expr()))
+            clone : (self -> unquote(match_body.to_expr()))
           )
         )
       )
@@ -8847,7 +8847,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
   ctx.make_impl(
     quote(
       Hash(
-        hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(#(body.to_expr()))
+        hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(unquote(body.to_expr()))
       )
     )
   )
@@ -8924,7 +8924,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
         (fc == 0) =>
           ctx.make_impl(
             quote(
-              Ord(...#(trait_params))(
+              Ord(unquote_splicing(trait_params))(
                 (<) : ((lhs, rhs) -> false),
                 (<=) : ((lhs, rhs) -> true),
                 (>) : ((lhs, rhs) -> false),
@@ -8939,11 +8939,11 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
           ge_body :: __derive_ord_struct_body(T, ">=");
           ctx.make_impl(
             quote(
-              Ord(...#(trait_params))(
-                (<) : ((lhs, rhs) -> #(lt_body.to_expr())),
-                (<=) : ((lhs, rhs) -> #(le_body.to_expr())),
-                (>) : ((lhs, rhs) -> #(gt_body.to_expr())),
-                (>=) : ((lhs, rhs) -> #(ge_body.to_expr()))
+              Ord(unquote_splicing(trait_params))(
+                (<) : ((lhs, rhs) -> unquote(lt_body.to_expr())),
+                (<=) : ((lhs, rhs) -> unquote(le_body.to_expr())),
+                (>) : ((lhs, rhs) -> unquote(gt_body.to_expr())),
+                (>=) : ((lhs, rhs) -> unquote(ge_body.to_expr()))
               )
             )
           )
@@ -9010,11 +9010,11 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
       ge_match :: __gen_op_branches(">=", "true");
       ctx.make_impl(
         quote(
-          Ord(...#(trait_params))(
-            (<) : ((lhs, rhs) -> #(lt_match.to_expr())),
-            (<=) : ((lhs, rhs) -> #(le_match.to_expr())),
-            (>) : ((lhs, rhs) -> #(gt_match.to_expr())),
-            (>=) : ((lhs, rhs) -> #(ge_match.to_expr()))
+          Ord(unquote_splicing(trait_params))(
+            (<) : ((lhs, rhs) -> unquote(lt_match.to_expr())),
+            (<=) : ((lhs, rhs) -> unquote(le_match.to_expr())),
+            (>) : ((lhs, rhs) -> unquote(gt_match.to_expr())),
+            (>=) : ((lhs, rhs) -> unquote(ge_match.to_expr()))
           )
         )
       )
@@ -9022,7 +9022,7 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
     true =>
       ctx.make_impl(
         quote(
-          Ord(...#(trait_params))(
+          Ord(unquote_splicing(trait_params))(
             (<) : ((lhs, rhs) -> false),
             (<=) : ((lhs, rhs) -> true),
             (>) : ((lhs, rhs) -> false),
@@ -9079,7 +9079,7 @@ __derive_default :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, compt
   ctx.make_impl(
     quote(
       Default(
-        default : (() -> #(default_body.to_expr()))
+        default : (() -> unquote(default_body.to_expr()))
       )
     )
   )

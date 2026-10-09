@@ -26,7 +26,7 @@
 /// (longest match first) instead of becoming one arbitrary token — so
 /// `**i32` lexes as `*`,`*`,`i32` (there is no `**` token), and an unknown
 /// run is a LEX error instead of a phantom user-operator. The dot family
-/// (`.` `..` `..=` `...` `...#`) has its own branch in `tokenize` and never
+/// (`.` `..` `..=` `...`) has its own branch in `tokenize` and never
 /// reaches this split. New operators are added HERE, deliberately, like
 /// keywords. The retired pointer-arithmetic family (`&+`/`&-`/`&/`,
 /// plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md) is NOT in the
@@ -40,8 +40,13 @@ _is_two_char_operator :: (fn(imm(s) : String) -> bool)(
 /// — is the ONLY three-char operator, matched before the greedy two-char
 /// split so `a ==> b` is one token, not `==` + `>`.
 _is_three_char_operator :: (fn(imm(s) : String) -> bool)(s == "==>");
+// The quote layer has one spelling per operation: `unquote(x)` and
+// `unquote_splicing(xs)`. Their operator spellings `#(x)` and `...#(xs)` were
+// deleted 2026-10-10; these name the replacement where they are written.
+_REMOVED_UNQUOTE_OPERATOR_MESSAGE :: "`#` is not an operator: write `unquote(x)` instead of `#(x)` inside a `quote(...)` (the `#` spelling was removed)";
+_REMOVED_SPLICE_OPERATOR_MESSAGE :: "`...#` is not an operator: write `unquote_splicing(xs)` instead of `...#(xs)` inside a `quote(...)` (the `...#` spelling was removed)";
 _is_one_char_operator :: (fn(imm(s) : String) -> bool)(
-  (s == "!") || (s == "#") || (s == "%") || (s == "&") || (s == "*") || (s == "+") || (s == "-") || (s == "/") || (s == ":") || (s == "<") || (s == "=") || (s == ">") || (s == "?") || (s == "^") || (s == "|") || (s == "~")
+  (s == "!") || (s == "%") || (s == "&") || (s == "*") || (s == "+") || (s == "-") || (s == "/") || (s == ":") || (s == "<") || (s == "=") || (s == ">") || (s == "?") || (s == "^") || (s == "|") || (s == "~")
 );
 /// An error produced by the lexer during tokenization. Deleted in P1 of
 /// plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md: the lexer now throws the same
@@ -154,8 +159,7 @@ tokenize_span :: (
           dot_sb.write_rune(cj);
           j = (j + usize(1));
         });
-        // Dots consumed by the loop above, BEFORE a suffix ('=' / '#')
-        // widens j - i: `...#` legitimately consumes four characters.
+        // Dots consumed by the loop above, BEFORE the '=' suffix widens j - i.
         dot_run_len := (j - i);
         // Check for trailing '=' to form '..=' (inclusive range)
         next_after_dots := chars.get(j).unwrap_or(null_rune);
@@ -163,11 +167,10 @@ tokenize_span :: (
           dot_sb.write_rune(next_after_dots);
           j = (j + usize(1));
         });
-        // Check for trailing '#' to form '...#' (unquote_splicing).
-        // Only the 3-dot form gets the `#` suffix; `..#` is two tokens.
+        // `...#(xs)` was the operator spelling of `unquote_splicing(xs)`,
+        // deleted 2026-10-10 (one spelling per operation): name the word.
         if((dot_run_len == usize(3)) && (next_after_dots.char == u32(0x23)), {
-          dot_sb.write_rune(next_after_dots);
-          j = (j + usize(1));
+          exn.throw(dyn(format_lexer_error(module_path, input, line, col, _REMOVED_SPLICE_OPERATOR_MESSAGE)));
         });
         // A run of four or more dots is not in the closed set: without this
         // check the whole run became ONE Operator token that bypassed the
@@ -230,6 +233,12 @@ tokenize_span :: (
             if(_is_one_char_operator(op_str.slice_copy(k .. (k + usize(1)))), {
               tok_len = usize(1);
             });
+          });
+          // `#(x)` was the operator spelling of `unquote(x)`, deleted
+          // 2026-10-10 (one spelling per operation): name the word.
+          if((tok_len == usize(0)) && (op_str.slice_copy(k .. (k + usize(1))) == "#"), {
+            exn.throw(dyn(format_lexer_error(module_path, input, line, col + k, _REMOVED_UNQUOTE_OPERATOR_MESSAGE)));
+            break;
           });
           if(tok_len == usize(0), {
             exn.throw(

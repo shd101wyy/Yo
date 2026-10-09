@@ -3,7 +3,7 @@
 //! `quote(expr)` lifts an expression as a first-class compile-time value of
 //! type `Expr`.  Inside a quoted expression, `unquote(x)` (or `#(x)`)
 //! evaluates `x` at compile time and splices the resulting `Expr` value back
-//! in, while `unquote_splicing(xs)` (or `...#(xs)`) splices a `ComptimeList(Expr)`
+//! in, while `unquote_splicing(xs)` splices a `ComptimeList(Expr)`
 //! into the surrounding argument list.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
@@ -41,44 +41,15 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
-// Constant string aliases for unquote/unquote_splicing builtin keyword names.
+// The quote layer's builtin keyword names. Each operation has one spelling:
+// the `#(x)` / `...#(xs)` operators and the `...unquote(x)` spread were
+// deleted 2026-10-10.
 BK_UNQUOTE :: "unquote";
-BK_HASH :: "#";
 BK_UNQUOTE_SPLICING :: "unquote_splicing";
-BK_SPREAD_HASH :: "...#";
-BK_SPREAD :: "...";
-/// Returns true if `expr` is an `unquote` / `#` call with exactly 1 argument.
-_is_unquote :: (fn(imm(e) : AstExpr) -> bool)(
-  ast_expr_is_fn_call_of(e, BK_UNQUOTE, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_HASH, Option(usize).Some(usize(1)))
-);
-/// Returns true if `expr` is an `unquote_splicing` / `...#` call with 1 arg.
-_is_unquote_splicing :: (fn(imm(e) : AstExpr) -> bool)(
-  ast_expr_is_fn_call_of(e, BK_UNQUOTE_SPLICING, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_SPREAD_HASH, Option(usize).Some(usize(1)))
-);
-/// Returns true if `expr` is `...#(x)` — spread(unquote(x)).
-_is_spread_unquote :: (fn(imm(e) : AstExpr) -> bool)(
-  match(
-    e,
-    .FnCall(_, fb, args, _, _) => {
-      is_spread := match(fb, .Atom(_, tok) => (tok.value == BK_SPREAD), _ => false);
-      if(!is_spread, {
-        return(false);
-      });
-      if(!(args.len() == usize(1)), {
-        return(false);
-      });
-      inner := match(
-        args.get(usize(0)),
-        .Some(a) => a,
-        .None => {
-          return(false);
-        }
-      );
-      _is_unquote(inner)
-    },
-    .Atom(_, _) => false
-  )
-);
+/// Returns true if `expr` is an `unquote` call with exactly 1 argument.
+_is_unquote :: (fn(imm(e) : AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BK_UNQUOTE, Option(usize).Some(usize(1))));
+/// Returns true if `expr` is an `unquote_splicing` call with exactly 1 argument.
+_is_unquote_splicing :: (fn(imm(e) : AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BK_UNQUOTE_SPLICING, Option(usize).Some(usize(1))));
 /// Recursively walk `expr`, evaluating any embedded `unquote`/`unquote_splicing`
 /// sub-expressions and constructing a new (possibly modified) AST node.
 ///
@@ -178,18 +149,11 @@ process_unquotes_in_expr :: (
           opt_arg,
           .None => (),
           .Some(arg) => {
-            // Check for unquote_splicing or spread(unquote(...))
-            is_splice := (_is_unquote_splicing(arg) || _is_spread_unquote(arg));
-            if(is_splice, {
-              // Extract the inner unquote argument.
+            if(_is_unquote_splicing(arg), {
+              // The unquote_splicing argument.
               splice_inner := match(
                 arg,
-                .FnCall(_, _, splice_args, _, _) =>
-                  if(_is_spread_unquote(arg), {
-                    // ...#(x): arg is spread(...), its first arg is #(x)
-                    inner_arg := match(splice_args.get(usize(0)), .Some(a) => a, .None => arg);
-                    match(inner_arg, .FnCall(_, _, ia2, _, _) => match(ia2.get(usize(0)), .Some(a) => a, .None => arg), .Atom(_, _) => arg)
-                  }, match(splice_args.get(usize(0)), .Some(a) => a, .None => arg)),
+                .FnCall(_, _, splice_args, _, _) => match(splice_args.get(usize(0)), .Some(a) => a, .None => arg),
                 .Atom(_, _) => arg
               );
               eval_splice := evaluate_expression_raw(splice_inner, env, ctx, exn);
