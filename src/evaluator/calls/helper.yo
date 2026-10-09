@@ -797,8 +797,9 @@ audit_borrow_marker_site :: (
 /// marker means:
 ///
 /// - `&mut x` to a `mut` parameter lends the place `x` exclusively;
-/// - `&x` to an `imm` parameter lends `x` read-only, whatever the declared
-///   type, a generic or `Impl(...)` one included (V3b Generation B);
+/// - `&x` to an `imm` parameter lends `x` read-only, a generic or `Impl(...)`
+///   one included (V3b Generation B), unless the parameter is a raw pointer:
+///   there `&x` can only be the address-of;
 /// - `&x` to a by-value parameter (plain or `sink`) is still the raw-pointer
 ///   address-of, until `&x` loses that meaning to `addr_of(x)` (decision 33);
 ///   a pointer or generic by-value parameter infers `*(T)` from it.
@@ -853,6 +854,7 @@ apply_call_site_borrow_markers :: (
       p_is_ref := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
       p_is_owning := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
       p_label := match(param_labels.get(ai), .Some(l) => l, .None => String.new());
+      p_ty := match(param_types.get(ai), .Some(t) => t, .None => t_unit());
       place_text := ast_expr_to_string(ast_expr_strip_borrow_marker(bare));
       cond(
         (is_mut_marker && p_is_ref) => {
@@ -878,7 +880,10 @@ apply_call_site_borrow_markers :: (
             )
           );
         },
-        p_is_owning => (),
+        // A raw-pointer parameter can only receive an address, whatever its
+        // mode; a by-value one keeps today's address-of (a pointer or generic
+        // parameter infers `*(T)` from it) until `&x` loses that meaning.
+        (p_is_owning || is_pointer_type(p_ty)) => (),
         true => {
           peel = true;
         }
