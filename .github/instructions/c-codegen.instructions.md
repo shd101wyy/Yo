@@ -78,7 +78,7 @@ both learned the hard way:
    The escape is supported and is the right answer — markdown in an emitted C
    comment is fine, write it:
 
-   ```rust
+   ```yo
    c := `// reads \`state\` first, then registers
    static int x = 1;`;
    ```

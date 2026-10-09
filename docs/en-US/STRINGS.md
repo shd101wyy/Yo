@@ -22,7 +22,7 @@ An index into a string names a **byte**, and every index a string method
 accepts or returns must sit on a **UTF-8 character boundary** (the first byte
 of a rune, or `len()`). ASCII text is unaffected — every byte is a boundary.
 
-```rust
+```yo
 { String } :: import("std/string");
 
 //        a=1B @0   é=2B @1   中=3B @3   𝄞=4B @6   — 10 bytes, 4 runes
@@ -56,7 +56,7 @@ Stated once, on `substring`, and it applies to the `s(a..b)` sugar too:
 - **`is_char_boundary(i)`** answers the question directly: `0` and `len()`
   are boundaries; an index past the end never is.
 
-```rust
+```yo
 s := String.from("aé中𝄞");
 s.substring(usize(1), usize(2)); // PANICS — byte 2 is inside é
 s.try_substring(usize(1), usize(2)); // .None — same range, refused politely
@@ -98,7 +98,7 @@ into a slice **and** can be handed an empty needle should go through
 There is no char-indexed slicing in the API. Rune work composes `chars()` /
 `char_indices()` with iterator methods:
 
-```rust
+```yo
 s := String.from("aé中𝄞");
 
 // The rune count. O(n) — the iterator spelling keeps that cost visible at
@@ -141,13 +141,13 @@ the buffer and could leave invalid UTF-8 behind. A read-only `s(i)` returns once
 `Index` separates reads from writes. The range sugar `s(a..b)` is unaffected:
 it builds a new string.
 
-```rust
+```yo
 { String } :: import("std/string");
 
 s := String.from("aé中");
 s.byte_at(usize(0)); // u8(97)
 s.get_byte(usize(9)); // .None — past the end
-s(usize(1)..usize(3)); // "é" — a new String
+s(usize(1) .. usize(3)); // "é" — a new String
 ```
 
 ## Copies, clones and the byte list
@@ -179,7 +179,7 @@ iterator, which copy nothing.
 
 Since D4 PR 7 the `comptime_str` operations are byte-based too:
 
-```rust
+```yo
 s :: "aé中𝄞";
 comptime_assert(s.len() == 10); // bytes, like the runtime len()
 comptime_assert(s.slice(3, 6) == "中"); // byte offsets, like substring

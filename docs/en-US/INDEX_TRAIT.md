@@ -4,7 +4,7 @@ The `Index` trait provides a unified interface for accessing elements of a colle
 
 ## Overview
 
-```rust
+```yo
 // Built-in arrays and custom types use the same syntax:
 (arr : [i32 ; 3]) = [i32(10), i32(20), i32(30)];
 v := arr(usize(1)); // 20
@@ -17,7 +17,7 @@ v := list(usize(0)); // 42
 
 The `Index` trait is defined in the prelude and is available to all Yo programs:
 
-```rust
+```yo
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -32,7 +32,7 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 
 The `index` method returns `*(Output)` (a pointer), which is automatically dereferenced when used in value context. This design enables both reading and writing through the same trait:
 
-```rust
+```yo
 // Read: auto-deref happens
 v := collection(idx); // calls index(collection, idx).*
 // Write via call-syntax assignment (preferred)
@@ -45,7 +45,7 @@ p := &collection(idx); // calls index(collection, idx), no deref
 
 ### Basic Implementation
 
-```rust
+```yo
 MyArray :: struct(data0 : i32, data1 : i32, data2 : i32);
 
 impl(
@@ -73,7 +73,7 @@ assert(arr(usize(1)) == i32(20), "should be 20");
 
 For generic types like `ArrayList(T)`, use `generic` in the impl:
 
-```rust
+```yo
 impl(
   generic(T : Type),
   ArrayList(T),
@@ -110,7 +110,7 @@ T* result = Index_index(&collection, idx);  // ← direct pointer
 
 This is critical for correctness — the pointer remains valid and points directly into the collection's storage. You can use it for mutation:
 
-```rust
+```yo
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(100));
 
@@ -123,7 +123,7 @@ assert(list(usize(0)) == i32(999), "should be 999");
 
 Arrays and slices support range-based slicing with `..` (exclusive end) and `..=` (inclusive end):
 
-```rust
+```yo
 (arr : [i32 ; 5]) = [i32(10), i32(20), i32(30), i32(40), i32(50)];
 
 // Exclusive range: elements at indices 1, 2, 3
@@ -143,7 +143,7 @@ assert(sub.len() == usize(2), "sub-slice length is 2");
 
 The `..` and `..=` operators produce `Range(usize)` and `RangeInclusive(usize)` types, which are defined in the prelude:
 
-```rust
+```yo
 Range :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );
@@ -170,7 +170,7 @@ Custom types and standard library collections (like `ArrayList`) use the Index t
 
 Index expressions work seamlessly with operators. The result is auto-dereferenced before being passed to operators:
 
-```rust
+```yo
 (arr : [i32 ; 3]) = [i32(10), i32(20), i32(30)];
 
 // Comparison
@@ -188,7 +188,7 @@ The following standard library types implement the `Index` trait:
 
 ### ArrayList(T) — `Index(usize)`
 
-```rust
+```yo
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 v := list(usize(0)); // 42
@@ -197,7 +197,7 @@ v := list(usize(0)); // 42
 
 ### HashMap(K, V) — `Index(K)`
 
-```rust
+```yo
 (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
 map.insert(i32(1), i32(100));
 v := map(i32(1)); // 100
@@ -209,7 +209,7 @@ Requires `K <: (Eq(K), Hash)`.
 
 ### BTreeMap(K, V) — `Index(K)`
 
-```rust
+```yo
 (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
 map.insert(i32(5), i32(500));
 v := map(i32(5)); // 500
@@ -221,7 +221,7 @@ Requires `K <: Ord(K)`.
 
 ### Deque(T) — `Index(usize)`
 
-```rust
+```yo
 (d : Deque(i32)) = Deque(i32).new();
 d.push_back(i32(10));
 d.push_back(i32(20));
@@ -235,7 +235,7 @@ O(1) random access, correctly handles ring buffer wrapping.
 
 `String` does not implement `Index`, so a runtime `s(i)` is E0606 ("s is not callable"). Read bytes by name instead:
 
-```rust
+```yo
 (s : String) = `Hello`;
 b := s.byte_at(usize(0)); // u8(72) — byte-level access ('H'); panics past the end
 c := s.get_byte(usize(9)); // .None — the checked form
@@ -247,7 +247,7 @@ c := s.get_byte(usize(9)); // .None — the checked form
 
 Out-of-bounds access through the Index trait causes a **panic** at runtime. This is consistent with Rust's behavior. For checked access that returns `Option(T)`, use the `get` method on `ArrayList`:
 
-```rust
+```yo
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 

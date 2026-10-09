@@ -4,7 +4,7 @@ These patterns are aimed at everyday Yo application and library code.
 
 ## Strings and output
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 
@@ -38,7 +38,7 @@ Key rules:
 
 ## Import patterns
 
-```rust
+```yo
 { LocalType } :: import("./local_type.yo");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -60,15 +60,16 @@ Do not import `std/prelude`; it is already available.
 
 ## Option and Result
 
-```rust
+```yo
 { String } :: import("std/string");
 
 (value : Option(i32)) = .Some(i32(21));
-doubled := value.map((x) => (x * i32(2)));
+doubled := value.map(x => (x * i32(2)));
 fallback := value.unwrap_or_else(() => i32(0));
 
 (parsed : Result(i32, String)) = .Ok(i32(42));
-text := match(parsed,
+text := match(
+  parsed,
   .Ok(n) => `value=${n}`,
   .Err(err) => err
 );
@@ -90,16 +91,16 @@ time, `comptime_unwrap()` is legal, and on `.None` it is a compile error.
 For a variant with **2+ fields**, destructure by **name** with curly braces —
 name only the fields the arm uses. Do NOT count positions and pad with `_`.
 
-```rust
+```yo
 // ✅ Curly — names only what you need; order-free; partial matches OK.
 //    Robust: adding a field to the variant later doesn't shift anything.
-match(v,
-  .FuncVal({ func_id }) => use(func_id),          // bind field `func_id`
-  .Struct({ id, name: n }) => use2(id, n),        // rename via `field: alias`
-  .EnumT({ id }) => use3(id),                     // ignore the other 6 fields
+match(
+  v,
+  .FuncVal({ func_id }) => use(func_id), // bind field `func_id`
+  .Struct({ id, name : n }) => use2(id, n), // rename via `field: alias`
+  .EnumT({ id }) => use3(id), // ignore the other 6 fields
   _ => ()
 )
-
 // ❌ Avoid — positional with many `_`; brittle and unreadable:
 //    .FuncVal(_, _, _, _, _, _, _, _, func_id) => …   // count the 8 _'s!
 ```
@@ -110,7 +111,7 @@ empty `{}` = bind nothing (`.Circle({}) => …`). Bare `{_}` is rejected (E0406:
 
 ## Collections
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { String } :: import("std/string");
@@ -120,17 +121,18 @@ numbers.push(i32(1));
 numbers.push(i32(2));
 
 // Index via call syntax (Index trait) — returns the value directly:
-first := numbers(usize(0));  // → i32  (value)
+first := numbers(usize(0)); // → i32  (value)
 
 // Mutate in place — direct assignment syntax:
 numbers(usize(0)) = i32(99);
 
 // When you need the pointer explicitly:
-ptr := &numbers(usize(0));  // → *(i32)
+ptr := &numbers(usize(0)); // → *(i32)
 ptr.* = i32(100);
 
 // Safe access:
-match(numbers.get(usize(0)),
+match(
+  numbers.get(usize(0)),
   .Some(v) => println(`${v}`),
   .None => ()
 );
@@ -156,15 +158,15 @@ counts.insert(`yo`, i32(1));
 
 ## Explicit allocators
 
-```rust
+```yo
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 arena := Arena.new(usize(1) << usize(20));
-list := ArrayList(i32).new_in(arena.allocator());    // the buffer lives in the arena
+list := ArrayList(i32).new_in(arena.allocator()); // the buffer lives in the arena
 p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // RC objects created inside
 q := with_allocator(arena.allocator(), () => build()); // same, any Allocator
-arena.deinit();   // PANICS while a block is still live; abandon() never frees
+arena.deinit(); // PANICS while a block is still live; abandon() never frees
 ```
 
 - RC still decides WHEN a block dies; the allocator decides WHERE. Releases
@@ -183,7 +185,7 @@ arena.deinit();   // PANICS while a block is still live; abandon() never frees
 
 ## Traits and associated types
 
-```rust
+```yo
 Iterator :: trait(
   Item : Type,
   next : (fn(inout(self) : Self) -> Option(Self.Item))
@@ -196,11 +198,11 @@ Iterator :: trait(
 
 ## Boxes, pointers, and nullability
 
-```rust
+```yo
 counter := rc(i32(0));
 counter.* = (counter.* + i32(1));
 
-(ptr : Option(*(u8))) = .None;
+(ptr : Option(*u8)) = .None;
 ```
 
 - Use `Rc(T)` or `rc(value)` for owned heap allocation
@@ -215,20 +217,22 @@ counter.* = (counter.* + i32(1));
   recursion terminates at the handle. (`Rc(Self)` is only for self-referential VALUE
   `struct(...)` / `enum(...)` types, where it breaks the recursive cycle.)
 
-```rust
-Node :: ref(struct(
-  value : i32,
-  next  : Option(Self)   // direct Self — the ref handle is already a pointer
-));
+```yo
+Node :: ref(
+  struct(
+    value : i32,
+    next : Option(Self) // direct Self — the ref handle is already a pointer
+  )
+);
 
-n := Node(value: i32(1), next: Option(Node).None);
-child := Node(value: i32(2), next: Option(Node).None);
-parent := Node(value: i32(1), next: Option(Node).Some(child));
+n := Node(value : i32(1), next : Option(Node).None);
+child := Node(value : i32(2), next : Option(Node).None);
+parent := Node(value : i32(1), next : Option(Node).Some(child));
 ```
 
 ## Unicode and platform checks
 
-```rust
+```yo
 { Platform, platform } :: import("std/process");
 
 separator := cond(
@@ -242,7 +246,7 @@ separator := cond(
 
 ## Type categories
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 
 FilePermission :: newtype(mode : u32);
@@ -276,18 +280,22 @@ TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
 
 ## Impl blocks and generics
 
-```rust
+```yo
 { sqrt } :: import("std/libc/math");
 
-impl(Point,
+impl(
+  Point,
   distance : (fn(self : Self, other : Point) -> f64)({
-    dx := f64((self.x - other.x));
-    dy := f64((self.y - other.y));
-    sqrt(((dx * dx) + (dy * dy)))
+    dx := f64(self.x - other.x);
+    dy := f64(self.y - other.y);
+    sqrt((dx * dx) + (dy * dy))
   })
 );
 
-impl(generic(T), where(T <: ToString), Rc(T),
+impl(
+  generic(T),
+  where(T <: ToString),
+  Rc(T),
   show : (fn(self : Self) -> unit)(
     println(self.*)
   )
@@ -318,12 +326,12 @@ argument types. This is how std gives `String` both `contains(String)`
 (inherent) and `contains(str)` (via the `StrPattern` trait), and both
 `Eq(String)` and `Eq(str)` `(==)` overloads:
 
-```rust
+```yo
 PickStr :: trait(pick : (fn(self : Self, x : str) -> i32));
-impl(V, pick : (fn(self : Self, x : V) -> i32)(i32(1)));        // inherent
+impl(V, pick : (fn(self : Self, x : V) -> i32)(i32(1))); // inherent
 impl(V, PickStr(pick : (fn(self : Self, x : str) -> i32)(i32(2))));
-v.pick(v);    // 1 — inherent overload
-v.pick("s");  // 2 — trait overload, chosen by argument type
+v.pick(v); // 1 — inherent overload
+v.pick("s"); // 2 — trait overload, chosen by argument type
 ```
 
 - Heterogeneous parametric-trait impls work: `impl(String, Eq(str)(...))`
@@ -333,11 +341,11 @@ v.pick("s");  // 2 — trait overload, chosen by argument type
 
 ## Partial application
 
-```rust
+```yo
 IntResult :: Result(_, i32);
 (r : IntResult(bool)) = .Ok(true);
 
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
 add1 :: add(i32(1), _);
 ```
 
@@ -347,7 +355,7 @@ add1 :: add(i32(1), _);
 
 ## Dynamic dispatch
 
-```rust
+```yo
 (value : Dyn(ToString)) = dyn(i32(42));
 println(value);
 ```
@@ -358,13 +366,13 @@ println(value);
 
 ## Derive traits
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Ord(Point), Hash, Clone, ToString, Default);
 
 p1 := Point(1, 2);
 p2 := p1.clone();
-assert((p1 == p2), "equal after clone");
+assert(p1 == p2, "equal after clone");
 println(p1.to_string());
 ```
 
@@ -378,7 +386,7 @@ println(p1.to_string());
 `derive(Node, Eq(Node))` works on a recursive enum; the derived `==` recurses
 through the list:
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
 
@@ -405,21 +413,21 @@ already shares such values by handle, so most code needs no `Clone` impl.
 Complex enum types (structs/enums with nested fields) do not support `==`/`!=` unless `Eq` is
 derived or implemented. For **tag-only equality** (checking which variant), use a tag function:
 
-```rust
+```yo
 // WRONG — TypeValue enum doesn't support !=
 if(my_type != t_unit(), { ... });
 
 // CORRECT — compare tags instead
 { type_value_tag } :: import("../../types/type.yo");
-{ TypeTag }        :: import("../../types/tags.yo");
-if((type_value_tag(my_type) != TypeTag.TUnit), { ... });
+{ TypeTag } :: import("../../types/tags.yo");
+if(type_value_tag(my_type) != TypeTag.TUnit, { ... });
 ```
 
 ## Error handling
 
-```rust
+```yo
 { Exception } :: import("std/error"); // brings the Error derive rule
-{ ToString } :: import("std/fmt");    // Error's derive needs ToString
+{ ToString } :: import("std/fmt"); // Error's derive needs ToString
 
 DivError :: enum(DivByZero);
 // `derive(Error)` emits ToString AND Error from one message per variant, in
@@ -430,7 +438,7 @@ derive(DivError, Error(.DivByZero => `division by zero`));
 safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
   cond(
     (b == i32(0)) => .Err(.DivByZero),
-    true => .Ok((a / b))
+    true => .Ok(a / b)
   )
 );
 ```
@@ -454,8 +462,8 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 
 ## Closures as values
 
-```rust
-(inc : Impl(Fn(x : i32) -> i32)) = ((x) => (x + i32(1)));
+```yo
+(inc : Impl(Fn(x : i32) -> i32)) = (x => (x + i32(1)));
 result := inc(i32(5));
 
 // `inout`: the caller's list is written. A plain `values : ArrayList(i32)`
@@ -478,7 +486,7 @@ transform :: (fn(inout(values) : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -
 
 ## Iterator and for loop
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 
 list := ArrayList(i32).new();
@@ -486,7 +494,7 @@ list.push(i32(1));
 list.push(i32(2));
 
 // Value form — implicit .into_iter().
-for(list, (value) => {
+for(list, value => {
   println(value);
 });
 
@@ -516,7 +524,7 @@ while(i < list.len(), {
 
 ## Module-level mutable variables
 
-```rust
+```yo
 counter := i32(0);
 
 inc :: (fn() -> unit)({
@@ -530,16 +538,16 @@ inc :: (fn() -> unit)({
 
 ## Anonymous modules: `impl({ ... })` — a module value in one expression
 
-```rust
+```yo
 my_module :: impl({
-  helper :: (fn(x : i32) -> i32)((x + i32(1)));
-  scale :: i32(2);            // `::` = compile-time member
-  runtime_note := i32(0);     // `:=` = module-level runtime static (allowed)
+  helper :: (fn(x : i32) -> i32)(x + i32(1));
+  scale :: i32(2); // `::` = compile-time member
+  runtime_note := i32(0); // `:=` = module-level runtime static (allowed)
   export(helper, scale);
 });
 
-result := my_module.helper(i32(5));      // member access through the module value
-{ helper, scale } :: my_module;          // or destructure the exports by name
+result := my_module.helper(i32(5)); // member access through the module value
+{ helper, scale } :: my_module; // or destructure the exports by name
 ```
 
 - The braces block is the module BODY: `::` bindings are compile-time
@@ -563,7 +571,7 @@ Several `src/` APIs take `String` (not `str`) parameters even when the argument 
 - Most other env/value/type lookup functions follow the same convention
 - (`as_str()` no longer exists — heap Strings can never become `str`.)
 
-```rust
+```yo
 // ✅ Pass the String directly
 vars := get_variables_from_env(env, prop_name_su);
 ```
@@ -580,14 +588,14 @@ swept all of them): `token.value == "fn"`, `name != other_string`, and
 you wrap a call in a swallowing exception handler, every statement after that call —
 including `save`/`restore` of mutable state — is skipped on the failure path.
 
-```rust
+```yo
 // ❌ BROKEN: on a swallowed error the restore never runs, and the flags stay set
 // for the REST OF THE COMPILE.
 _analyze :: (fn(..., ctx : EvalContext, exn : Exception) -> bool)({
   saved := ctx.some_flag;
   ctx.some_flag = true;
-  r := evaluate_something(..., exn);   // <-- throws; handler unwinds past everything below
-  ctx.some_flag = saved;               // <-- NEVER RUNS
+  r := evaluate_something(..., exn); // <-- throws; handler unwinds past everything below
+  ctx.some_flag = saved; // <-- NEVER RUNS
   r
 });
 ```
@@ -596,11 +604,11 @@ Fix: save and restore in the caller that the `unwind` lands in — `unwind` only
 unwinds as far as the `fn` whose body contains the handler, so code after _that_
 call always runs.
 
-```rust
+```yo
 // ✅ the restore is OUTSIDE the unwind target
 saved := ctx.some_flag;
-_try_analyze_swallowing(..., ctx, out);   // handler's unwind exits THIS helper
-ctx.some_flag = saved;                    // always runs
+_try_analyze_swallowing(..., ctx, out); // handler's unwind exits THIS helper
+ctx.some_flag = saved; // always runs
 ```
 
 **Why this matters:** the leak is invisible in isolation and only shows up when

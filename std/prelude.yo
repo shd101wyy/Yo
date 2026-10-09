@@ -816,11 +816,11 @@ export(Ord);
 * It turns any max-ordered structure into a min-ordered one without a second
 * implementation. `PriorityQueue` is a MAX-heap (D11), so a min-heap is:
 *
-* ```rust
+* ```yo
 * pq := PriorityQueue(Reverse(i32)).new();
 * pq.push(Reverse(i32)(i32(5)));
 * pq.push(Reverse(i32)(i32(1)));
-* pq.pop().unwrap().value;  // 1 — the SMALLEST
+* pq.pop().unwrap().value; // 1 — the SMALLEST
 * ```
 *
 * It is equally the way to sort descending: `list.sort_by((a, b) ->
@@ -9676,7 +9676,7 @@ export(Result);
 ///
 /// ```yo
 /// a := rc(i32(42));
-/// b := a;          // a second handle to the same value
+/// b := a; // a second handle to the same value
 /// consume(b.* = i32(7));
 /// assert(a.* == i32(7), "a and b name the same value");
 /// ```
@@ -9880,7 +9880,7 @@ export(Arc, arc);
 /// ```yo
 /// P :: struct(n : i32);
 /// b := rc(P(n : i32(1)));
-/// b.n = i32(2);              // writes b.*.n
+/// b.n = i32(2); // writes b.*.n
 /// assert(b.n == i32(2), "read through the cell");
 /// ```
 Deref :: trait(
@@ -12419,7 +12419,9 @@ impl(
   /// Reverse the iteration order, producing an `IterRev` iterator.
   ///
   /// ```yo
-  /// (i32(0) .. i32(5)).rev().for_each(x => { out.push(x); });  // 4 3 2 1 0
+  /// (i32(0) .. i32(5)).rev().for_each(x => {
+  ///   out.push(x);
+  /// }); // 4 3 2 1 0
   /// ```
   rev : (fn(sink(self) : Self) -> IterRev(Self))(
     IterRev(Self)(_inner : self)

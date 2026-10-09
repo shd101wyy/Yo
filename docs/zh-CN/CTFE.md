@@ -6,7 +6,7 @@ Yo 会尽可能地执行**编译期函数求值**（Compile-Time Function Evalua
 
 CTFE 允许编译器在所有输入在编译期已知的情况下，于编译期执行函数。其结果会直接嵌入到生成的代码中，从而消除运行时计算开销。
 
-```rust
+```yo
 // comptime 参数 + comptime 返回值：在编译期求值
 factorial :: (fn(comptime(n) : i32) -> comptime(i32))({
   result :: i32(1);
@@ -31,7 +31,7 @@ value :: factorial(10);
 时，它就在编译期求值。循环条件依赖 comptime 值时，必须用
 `while(comptime(cond), body)` 显式选择编译期展开。
 
-```rust
+```yo
 // comptime(n) + comptime 返回值：在编译过程中运行
 sum_squares :: (fn(comptime(n) : i32) -> comptime(i32))({
   result :: i32(0);
@@ -58,7 +58,7 @@ Yo 的 CTFE 支持所有控制流结构：
 - **`cond`**（条件表达式）
 - **`match`**（模式匹配）
 
-```rust
+```yo
 // 示例: 使用 continue 只对奇数求和
 sum_odd :: (fn(comptime(max) : i32) -> comptime(i32))({
   result :: i32(0);
@@ -84,7 +84,7 @@ odd_sum :: sum_odd(10);
 
 在 Yo 中类型就是值，这使得强大的编译期类型操作成为可能：
 
-```rust
+```yo
 // 在编译期创建一个泛型容器类型
 Container :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
@@ -103,7 +103,7 @@ StringContainer :: Container(String);
 
 使用 `comptime_assert` 在编译期验证条件：
 
-```rust
+```yo
 fib :: (fn(comptime(n) : i32) -> comptime(i32))(
   cond(
     (n <= i32(1)) => n,
@@ -122,7 +122,7 @@ comptime_assert(fib10 == 55, "fib(10) = 55");
 
 使用 `comptime` 要求参数在编译期已知：
 
-```rust
+```yo
 // T 必须在编译期已知，以便单态化
 Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
@@ -139,7 +139,7 @@ IntArray5 :: Array(i32, 5);
 `comptime_read_file(path)` 在编译期读取文件，并把其字节作为 `comptime_str` 返回
 ——相当于 Zig 的 `@embedFile`：
 
-```rust
+```yo
 VERSION :: comptime_read_file("./VERSION");
 SHADER :: comptime_read_file("./shaders/blit.wgsl");
 
@@ -168,7 +168,7 @@ comptime_assert(VERSION == "0.4.1\n"); // 在编译期检查
 `ComptimeList` 构成的文档树，因为编译期不存在运行时容器。与
 `comptime_read_file` 组合起来，配置文件就变成了常量：
 
-```rust
+```yo
 CFG :: comptime_json_parse(comptime_read_file("./config.json"));
 
 PORT :: CFG.get("port").as_int(8080);
@@ -278,7 +278,7 @@ Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：
 4. **显式声明 comptime 意图**：需要编译期求值时把参数和返回值标记为
    `comptime`；运行期版本使用普通参数即可。
 
-```rust
+```yo
 // 良好实践: 简洁清晰的代码，在编译期求值
 is_prime :: (fn(comptime(n) : i32) -> comptime(bool))(
   cond(

@@ -14,10 +14,10 @@
 
 ## 构造 `Iso`：`^` 运算符
 
-```rust
+```yo
 xs := ArrayList(i32).new();
 xs.push(i32(1));
-iso_opt := ^xs;                // Option(Iso(ArrayList(i32)))
+iso_opt := ^xs; // Option(Iso(ArrayList(i32)))
 match(
   iso_opt,
   .Some(iso) => { /* 发送它 */ },
@@ -30,10 +30,10 @@ match(
 1. **对变量的编译期检查** —— `v` 必须拥有它的引用计数值，不能有其他变量作为别名，且其类型不能形成引用环（环需要每线程的循环收集器，而接收线程不会为它运行收集器）。
 2. **一次对整张对象图的运行期遍历**（`__yo_iso_unique`）：从 `v`（包括 `v` 本身）出发可达的每个非原子对象的引用计数都必须恰好为 1。遍历使用循环收集器所用的同一套按类型生成的遍历函数 —— 结构体与枚举的字段，以及容器通过其 `Trace` 实现暴露的元素 —— 并使用显式工作列表，所以很长的链表也不会递归。值内部的**原子**对象（`Arc`、`Mutex`、`AtomicI32`）按设计就是共享的，遍历在此停止：在隔离的对象图里捕获一个共享计数器是可以的。
 
-```rust
+```yo
 shared := ArrayList(i32).new();
-w := Wrap(items : shared);     // Wrap :: ref(struct(items : ArrayList(i32)))
-r := ^w;                       // .None：`shared` 仍然能到达 w.items
+w := Wrap(items : shared); // Wrap :: ref(struct(items : ArrayList(i32)))
+r := ^w; // .None：`shared` 仍然能到达 w.items
 ```
 
 代价是每次移交在发送线程上对值的对象图遍历一次。
@@ -46,8 +46,8 @@ r := ^w;                       // .None：`shared` 仍然能到达 w.items
 
 ## `extract`
 
-```rust
-inner := iso.extract();        // T
+```yo
+inner := iso.extract(); // T
 ```
 
 `extract()` 直接返回内部的 `T`（不是 `Option`），把 `Iso` 标记为已提取，并且在同一个 `Iso` 的任何副本上第二次调用时 panic：
@@ -85,7 +85,7 @@ void __yo_iso_dispose_Iso_T(Iso_T iso) {
 
 ## 示例：把工作线程上构建的列表交回主线程
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
@@ -101,7 +101,7 @@ main :: (fn() -> unit)({
   match(
     t.join(),
     .Some(iso) => {
-      xs := iso.extract();     // 列表现在位于主线程上
+      xs := iso.extract(); // 列表现在位于主线程上
       // ...
     },
     .None => ()
@@ -111,8 +111,8 @@ main :: (fn() -> unit)({
 
 ## 示例：构造时被拒绝
 
-```rust
+```yo
 x := rc(i32(42));
 y := x;
-iso := ^x;                     // 编译错误：无法隔离 x，它同时被 y 持有
+iso := ^x; // 编译错误：无法隔离 x，它同时被 y 持有
 ```

@@ -31,7 +31,7 @@ Yo 采用一套规则清晰的简化所有权模型：
 
 `:=`（初始化）和 `=`（重新赋值）都会使左侧**拥有**该值的所有权：
 
-```rust
+```yo
 x := Point(x : i32(3), y : i32(4)); // 构造器的结果移动到 x，RC = 1
 y := x; // ___dup(x)，y 获得所有权，RC = 2
 z = y; // ___dup(y)，___drop(旧 z)，z 获得所有权，RC = 3
@@ -44,7 +44,7 @@ z = y; // ___dup(y)，___drop(旧 z)，z 获得所有权，RC = 3
 
 函数参数默认**借用**（不改变引用计数）。没有 `own()` 显式标记即表示参数是借用的：
 
-```rust
+```yo
 print_point :: (fn(p : Point) -> unit)({
   printf("(%d, %d)", p.x, p.y); // 仅读取，无 RC 开销
 });
@@ -57,7 +57,7 @@ print_point(point); // 调用处无 ___dup，p 借用 point
 
 **解构同样是借用的：**
 
-```rust
+```yo
 // 解构赋值是借用
 { x, y } := point; // x 和 y 从 point 借用，不调用 dup
 // match 解构也是借用
@@ -73,7 +73,7 @@ match(
 
 可以**通过**参数修改字段，但不能**重新赋值**参数本身：
 
-```rust
+```yo
 move_point :: (fn(p : Point, dx : i32, dy : i32) -> unit)({
   p.x = (p.x + dx); // ✅ 允许：通过参数修改字段
   p.y = (p.y + dy); // ✅ 允许：通过参数修改字段
@@ -88,7 +88,7 @@ broken :: (fn(p : Point) -> unit)({
 
 按值参数借用其值：它的存储是调用方值的一份副本，字段写入只改变这份副本。若字段的旧值含有 RC 数据（`String`、集合、`Rc` 等），则不能通过它写入，因为写入会释放调用方仍持有的数据（E0908）。`match` 或 `for` 的绑定同理；把这样的位置传给被调用方可能写入的 `inout` 形参也一样，包括在其上调用 `push_str` 这类 `inout(self)` 方法：写入只会落在借用的副本上。只读的 `inout(self)` 方法（`clone`、`to_string`）和索引仍然允许。请把参数声明为 `own(p) : T` 或 `inout(p) : T`，或先把它复制到一个局部变量：
 
-```rust
+```yo
 Named :: struct(s : String, n : i32);
 rename :: (fn(p : Named) -> Named)({
   p.n = (p.n + i32(1)); // ✅ 允许：旧值不含 RC 数据
@@ -109,7 +109,7 @@ rename :: (fn(p : Named) -> Named)({
 - 如果实参已经**拥有** GC 值的所有权，调用会将所有权**移动**到被调用函数中（调用方的绑定变为已消费状态）。
 - 如果实参仅是**借用/非拥有**的（例如借用的参数），编译器会插入 `___dup` 以创建一个拥有所有权的临时值传入被调用函数，同时原始绑定仍会被**消费**（变为不可用），以保证 `own()` 调用的线性/消费语义。
 
-```rust
+```yo
 consume :: (fn(own(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box 在函数末尾被 drop
@@ -139,7 +139,7 @@ call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
 
 每个堆分配的 ARC 值在创建时有一个所有者，引用计数初始为 1。
 
-```rust
+```yo
 Point :: ref(struct(x : i32, y : i32));
 
 Point(x : i32(3), y : i32(4)); // temp_var 拥有 Point(x: i32(3), y: i32(4))，RC = 1
@@ -149,7 +149,7 @@ Point(x : i32(3), y : i32(4)); // temp_var 拥有 Point(x: i32(3), y: i32(4))，
 
 内建函数 `ref_count(x)` 返回 `x` 所持有单元当前的引用计数，类型为 `usize`。对值类型（普通 `struct`、整数）它总是 `1`，在编译期即可确定。原子计数的句柄（`Arc(T)`、`atomic(ref(...))`、`Iso`）用原子加载读取。
 
-```rust
+```yo
 b := Rc(i32)(3);
 assert(ref_count(b) == usize(1), "one owner");
 ```
@@ -158,7 +158,7 @@ assert(ref_count(b) == usize(1), "one owner");
 
 `rc` 不是计数。它是一个普通的 prelude 函数，用来分配一个引用计数单元：`rc(v)` 取得 `v` 的所有权，返回一个 `ref_count` 为 `1` 的 `Rc(T)` 句柄。`Rc(T)` 是 Yo 的共享单元；它以前写作 `Box(T)`。之后 `Box` 会作为唯一所有的单元重新出现（`plans/VALUES_BY_DEFAULT.md`，V1 第 2 步）。
 
-```rust
+```yo
 a := rc(i32(42));
 assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 ```
@@ -169,14 +169,14 @@ assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 
 新值移入它的第一个绑定；从具名变量初始化时会调用 `___dup` 以创建新的所有者：
 
-```rust
+```yo
 p1 := Point(x : i32(3), y : i32(4)); // 构造器的结果移动到 p1，RC = 1
 p2 := p1; // ___dup(p1)，p2 是第二个所有者，RC = 2
 ```
 
 当拥有所有权的变量离开作用域时，自动调用 `___drop`：
 
-```rust
+```yo
 p1 := Point(x : i32(3), y : i32(4)); // p1 拥有所有权，RC = 1
 // 作用域结束
 ___drop(p1); // RC = 0，内存释放
@@ -186,7 +186,7 @@ ___drop(p1); // RC = 0，内存释放
 
 函数参数不会增加引用计数：
 
-```rust
+```yo
 use_point :: (fn(p : Point) -> unit)({
   printf("(%d, %d)", p.x, p.y); // p 是借用的，不改变 RC
 });
@@ -200,7 +200,7 @@ use_point(point); // 不调用 ___dup，p 借用 point
 
 **关键问题**：不经过生命周期分析的朴素借用会导致释放后使用（use-after-free）错误！
 
-```rust
+```yo
 x := rc(12); // x 拥有 rc(12)，RC = 1
 {
   y := rc(13); // y 拥有 rc(13)，RC = 1
@@ -216,7 +216,7 @@ printf("%d\n", x.*); // BUG：x 会指向已释放的内存！
 
 使用我们的模型（赋值始终拥有所有权）：
 
-```rust
+```yo
 x := rc(12); // x 拥有 rc(12)，RC = 1
 {
   y := rc(13); // y 拥有 rc(13)，RC = 1
@@ -240,7 +240,7 @@ Yo 优先保证**安全性和简洁性**，同时为优化留有空间：
 
 **示例——简洁且安全：**
 
-```rust
+```yo
 x := rc(12);
 {
   y := rc(13);
@@ -287,7 +287,7 @@ printf("%d\n", x.*); // 始终有效：x 拥有一个有效引用
 
 **赋值 ARC 值时，始终对右侧调用 `___dup`：**
 
-```rust
+```yo
 p1 := Point(x : i32(3), y : i32(4)); // 结果移动到 p1（不调用 dup）
 p2 := Point(5, 6); // 移动到 p2
 p2 = p1; // ___dup(p1)，___drop(旧 p2)，p2 与 p1 共享该值
@@ -298,7 +298,7 @@ ___drop(p1); // 减少 RC
 
 **字段/索引赋值同样调用 `___dup`：**
 
-```rust
+```yo
 data.point = p1; // ___dup(p1)，存入数据结构
 arr(0) = p1; // ___dup(p1)，存入数组
 ```
@@ -307,7 +307,7 @@ arr(0) = p1; // ___dup(p1)，存入数组
 
 **传递给 struct/enum/array 构造器时，始终调用 `___dup`：**
 
-```rust
+```yo
 p1 := Point(x : i32(3), y : i32(4)); // p1 拥有所有权
 data := Data(p1); // ___dup(p1)，data 拥有副本
 arr := [p1,]; // ___dup(p1)，数组拥有副本
@@ -318,7 +318,7 @@ result := Result(Point).Ok(p1); // ___dup(p1)，enum 拥有副本
 
 **返回借用的参数时调用 `___dup`：**
 
-```rust
+```yo
 identity :: (fn(p : Point) -> Point)({
   // p 是借用的（参数）
   return(p); // ___dup(p)，返回值拥有副本
@@ -337,7 +337,7 @@ create :: (fn() -> Point)({
 
 **begin 块：**
 
-```rust
+```yo
 x := rc(1);
 y := {
   ();
@@ -348,7 +348,7 @@ y := {
 
 **match 表达式：**
 
-```rust
+```yo
 optional := Option(Rc(i32)).Some(rc(42)); // optional 拥有所有权
 x := match(
   optional,
@@ -383,7 +383,7 @@ x := match(
 
 **`own()` 参数获取所有权（可能时移动，否则 dup）：**
 
-```rust
+```yo
 consume :: (fn(own(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box 在函数末尾被 drop
@@ -403,7 +403,7 @@ call_consume :: (fn(p : Rc(i32)) -> unit)({
 
 **传递给借用参数（没有 `own()` 的参数）时不调用 `___dup`：**
 
-```rust
+```yo
 print_point :: (fn(p : Point) -> unit)({
   // p 是借用的（无 own 关键字）
   printf("(%d, %d)", p.x, p.y);
@@ -415,7 +415,7 @@ print_point(point); // 不调用 ___dup！p 借用 point
 
 **match 表达式中的解构同样是借用的：**
 
-```rust
+```yo
 match(
   optional,
   .Some(value) => {
@@ -433,7 +433,7 @@ match(
 
 ### 示例：链表遍历
 
-```rust
+```yo
 current_opt := self.head; // ___dup(self.head)，current_opt 拥有所有权
 while(true, {
   match(

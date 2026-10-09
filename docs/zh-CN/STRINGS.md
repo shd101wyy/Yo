@@ -21,7 +21,7 @@ Go 的模型相同。这条规则贯穿日常代码里会遇到的所有字符�
 **UTF-8 字符边界**上（某个 rune 的首字节，或 `len()`）。ASCII 文本不受影响
 —— 它的每个字节都是边界。
 
-```rust
+```yo
 { String } :: import("std/string");
 
 //        a=1B @0   é=2B @1   中=3B @3   𝄞=4B @6   —— 共 10 字节，4 个 rune
@@ -53,7 +53,7 @@ s.index_of(String.from("中")); // .Some(usize(3)) —— 字节偏移，
 - **`is_char_boundary(i)`** 直接回答这个问题：`0` 和 `len()` 永远是边界；
   超出末尾的索引永远不是。
 
-```rust
+```yo
 s := String.from("aé中𝄞");
 s.substring(usize(1), usize(2)); // PANIC —— 字节 2 在 é 内部
 s.try_substring(usize(1), usize(2)); // .None —— 同一区间，礼貌地拒绝
@@ -91,7 +91,7 @@ rune 边界。
 API 中没有按字符索引的切片。rune 操作由 `chars()` / `char_indices()` 与迭代
 器方法组合完成：
 
-```rust
+```yo
 s := String.from("aé中𝄞");
 
 // rune 数量。O(n) —— 迭代器写法让这份开销在调用处可见（std 里的 `len()`
@@ -131,13 +131,13 @@ E0606（"s is not callable"）。`Index` 交出的是一个可写的位置，通
 把读和写分开之后，只读的 `s(i)` 会回来。区间语法糖 `s(a..b)` 不受影响：它构建
 一个新字符串。
 
-```rust
+```yo
 { String } :: import("std/string");
 
 s := String.from("aé中");
 s.byte_at(usize(0)); // u8(97)
 s.get_byte(usize(9)); // .None —— 越界
-s(usize(1)..usize(3)); // "é" —— 一个新的 String
+s(usize(1) .. usize(3)); // "é" —— 一个新的 String
 ```
 
 ## 副本、克隆与字节列表
@@ -166,7 +166,7 @@ s(usize(1)..usize(3)); // "é" —— 一个新的 String
 
 自 D4 PR 7 起，`comptime_str` 的操作同样以字节为基准：
 
-```rust
+```yo
 s :: "aé中𝄞";
 comptime_assert(s.len() == 10); // 字节数，与运行期 len() 一致
 comptime_assert(s.slice(3, 6) == "中"); // 字节偏移，与 substring 一致

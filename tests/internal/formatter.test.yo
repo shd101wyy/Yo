@@ -7,7 +7,7 @@
 { println } :: import("std/fmt");
 { Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
-{ format_yo_source, collect_yo_files } :: import("../../src/formatter.yo");
+{ format_yo_source, format_yo_fences, collect_yo_files } :: import("../../src/formatter.yo");
 { YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
 _fmt :: (fn(src : String) -> String)({
@@ -598,4 +598,35 @@ test("collect_yo_files skips dot-prefixed files in a directory walk", {
     exn
   );
   assert(direct.len() == usize(1), "an explicitly-passed dot file is still collected");
+});
+
+_fences :: (fn(imm(src) : String, in_comment : bool) -> String)({
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "fence formatter threw");
+        unwind(String.new());
+      }
+    )
+  );
+  format_yo_fences(src, `<fence-test>`, in_comment, exn)
+});
+test("format_yo_fences: a ```yo block in Markdown is formatted", {
+  src := String.from("# T\n\n```yo\nf :: (fn(a : i32) -> i32)((a + a));\nx := f(i32(1));   // aligned\n```\n");
+  out := _fences(src, false);
+  assert(out == "# T\n\n```yo\nf :: (fn(a : i32) -> i32)(a + a);\nx := f(i32(1)); // aligned\n```\n", `got:\n${out}`);
+});
+test("format_yo_fences: a block indented in a list item keeps its indent", {
+  src := String.from("- item:\n\n  ```yo\n  g :: (fn(a : i32) -> i32)((a));\n  ```\n");
+  out := _fences(src, false);
+  assert(out == "- item:\n\n  ```yo\n  g :: (fn(a : i32) -> i32)(a);\n  ```\n", `got:\n${out}`);
+});
+test("format_yo_fences: ```yo ignore and other languages are left as written", {
+  src := String.from("```yo ignore\nbad := a + b * c;\n```\n\n```rust\nlet x = ((1));\n```\n");
+  assert(_fences(src.clone(), false) == src, "ignored and rust blocks untouched");
+});
+test("format_yo_fences: a ```yo block in a doc comment is formatted", {
+  src := String.from("/// Doc.\n///\n/// ```yo\n/// x := f(i32(1));   // aligned\n/// ```\nf :: (fn() -> i32)(i32(1));\n");
+  out := _fences(src, true);
+  assert(out == "/// Doc.\n///\n/// ```yo\n/// x := f(i32(1)); // aligned\n/// ```\nf :: (fn() -> i32)(i32(1));\n", `got:\n${out}`);
 });

@@ -5,14 +5,15 @@
 //! comptime `T` is in scope at ghost creation, so every `Positive(i32)`
 //! evaluation creates a fully concrete predicate.
 //!
-//! ```rust
+//! ```yo
 //! { Positive, check_positive } :: import("std/spec/numeric");
 //!
-//! recipl :: (fn(x : Positive(i32)) -> i32)(i32(1) / x);   // p assumed at entry
+//! recipl :: (fn(x : Positive(i32)) -> i32)(i32(1) / x); // p assumed at entry
 //!
-//! match(check_positive(i32(3)),        // runtime gate: Option(Positive(i32))
+//! match(
+//!   check_positive(i32(3)), // runtime gate: Option(Positive(i32))
 //!   .Some(v) => recipl(v),
-//!   .None    => i32(0)
+//!   .None => i32(0)
 //! );
 //! ```
 //!

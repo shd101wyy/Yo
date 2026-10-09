@@ -29,7 +29,7 @@ Both are derived for structs, enums, unions, tuples and arrays:
 | `Dyn(Trait)`                                                  | only as `Dyn(Trait, Send)`| only as `Dyn(Trait, Sync)`|
 | a closure                                                     | see below                 | see below                 |
 
-```rust
+```yo
 // All fields are Send and Sync → so is Point
 Point :: struct(x : i32, y : i32);
 
@@ -37,7 +37,7 @@ Point :: struct(x : i32, y : i32);
 MyObj :: ref(struct(data : Vec(i32)));
 
 // A raw pointer is neither: nothing says who owns the pointee
-Raw :: struct(p : ?(*(u8)));
+Raw :: struct(p : ?*u8);
 ```
 
 An atomic object's copies share one payload, so it is `Send` only when that payload is `Sync`.
@@ -73,7 +73,7 @@ every such claim auditable.
 | **Cycle collection**     | Yes (stop-the-world GC)      | No (purely atomic RC)                   |
 | **Example**              | `ArrayList`, `HashMap`       | `Arc(T)`, `Mutex(T)`, `Channel(T)`      |
 
-```rust
+```yo
 // Regular object — thread-local only
 local_data := MyList.new();
 
@@ -90,12 +90,12 @@ Writes through an `atomic object` are **compile-time errors** in safe code — f
 assignment, and any `inout` route into it (an `inout` argument, or a method whose `self` is
 `inout(self)`) whose callee may write through that parameter:
 
-```rust
+```yo
 a := arc(i32(0));
-a.* = i32(5);          // ERROR: cannot write to atomic object field
+a.* = i32(5); // ERROR: cannot write to atomic object field
 c := arc(Counter(n : i32(0)));
-c.*.bump();            // ERROR: cannot call an inout(self) method on atomic object 'c'
-bump_by_ten(c.*);      // ERROR: cannot pass an inout argument rooted in atomic object 'c'
+c.*.bump(); // ERROR: cannot call an inout(self) method on atomic object 'c'
+bump_by_ten(c.*); // ERROR: cannot pass an inout argument rooted in atomic object 'c'
 ```
 
 A local copy is a value, so `k := c.*; k.bump()` is fine (it mutates the copy);
@@ -139,7 +139,7 @@ Every method takes `self : Self`, the same receiver convention the rest of
 `expected` is `inout`, because a failing exchange writes the observed value
 back into it. Every operation takes an explicit `MemoryOrder`:
 
-```rust
+```yo
 { AtomicBool, AtomicI32, AtomicU32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 
 flag := AtomicBool(false);
@@ -201,7 +201,7 @@ Windows too, where the underlying `CRITICAL_SECTION` would have recursed.
 
 `Mutex(T)` wraps protected data inside the lock. Access is granted through a closure:
 
-```rust
+```yo
 { Mutex } :: import("std/sync/mutex");
 
 counter := Mutex(i32).new(i32(0));
@@ -247,16 +247,22 @@ one static that every thread shares. In safe code:
   from every thread and never written, it is a shared constant. The error lands on whichever
   of the two sites the compiler sees second and names the other.
 
-```rust
-LIMIT :: i32(5);                              // a constant: fine from any thread
-hits := AtomicI32(i32(0));                    // an atomic object: shared state, fine
-(thread_local(scratch) : i32) = i32(0);       // per-thread mutable state: fine
-g := ArrayList(i32).new();                    // fine on the main thread only
-fill :: (fn() -> unit)({ g.push(i32(1)); });
-Thread(unit).spawn(io => { fill(); });        // ERROR: the closure calls fill, which reaches g
+```yo
+LIMIT :: i32(5); // a constant: fine from any thread
+hits := AtomicI32(i32(0)); // an atomic object: shared state, fine
+(thread_local(scratch) : i32) = i32(0); // per-thread mutable state: fine
+g := ArrayList(i32).new(); // fine on the main thread only
+fill :: (fn() -> unit)({
+  g.push(i32(1));
+});
+Thread(unit).spawn(io => {
+  fill();
+}); // ERROR: the closure calls fill, which reaches g
 (counter : i32) = i32(0);
-bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // fine on its own...
-Thread(i32).spawn(io => counter);             // ERROR: ...but another thread reads counter
+bump :: (fn() -> unit)({
+  counter = (counter + i32(1));
+}); // fine on its own...
+Thread(i32).spawn(io => counter); // ERROR: ...but another thread reads counter
 ```
 
 ## Functions and Closures Across Threads
@@ -286,25 +292,36 @@ another thread's closure. `Impl(Fn(...), Send)` is the function type that carrie
 write `(f : Impl(Fn(Io) -> unit, Send)) = count`. A value is checked once, where it is
 converted into that type (an argument, a return, a declared binding).
 
-```rust
-g := ArrayList(i32).new();                          // main thread only
+```yo
+g := ArrayList(i32).new(); // main thread only
 hits := AtomicI32(i32(0));
-fill :: (fn(io : Io) -> unit)({ g.push(i32(1)); });
-count :: (fn(io : Io) -> unit)({ hits.fetch_add(i32(1), MemoryOrder.AcqRel); ();});
-Thread(unit).spawn(count);                          // fine: count reaches only an atomic
-Thread(unit).spawn(fill);                           // ERROR: fill's code reaches g
-(k : Impl(Fn() -> unit)) = (() => { g.push(i32(2)); });
-a := arc(k);                                        // ERROR: k's code reaches g
+fill :: (fn(io : Io) -> unit)({
+  g.push(i32(1));
+});
+count :: (fn(io : Io) -> unit)({
+  hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+  ();
+});
+Thread(unit).spawn(count); // fine: count reaches only an atomic
+Thread(unit).spawn(fill); // ERROR: fill's code reaches g
+(k : Impl(Fn() -> unit)) = (
+  () => {
+    g.push(i32(2));
+  }
+);
+a := arc(k); // ERROR: k's code reaches g
 Holder :: struct(f : (fn(io : Io) -> unit));
 h := Holder(f : count);
-Thread(unit).spawn((io : Io) => { (h.f)(io); });    // ERROR: Holder has a bare fn field
+Thread(unit).spawn((io : Io) => {
+  (h.f)(io);
+}); // ERROR: Holder has a bare fn field
 ```
 
 ## Negative Impls — Opting Out of Send and Sync
 
 A type that would auto-derive `Send` or `Sync` can explicitly opt out with `!(Send)` / `!(Sync)`:
 
-```rust
+```yo
 impl(MyHandle, !Send()); // MyHandle is NOT Send, regardless of fields
 impl(MyHandle, !Sync()); // nor Sync
 ```
@@ -323,12 +340,12 @@ reaches a non-atomic cell — a plain `ref(struct)` graph, or a struct holding a
 `Iso(T)` itself is `Send` without requiring `T <: Send`. The argument
 for that is uniqueness — at the moment of use, at most one thread holds the inner value.
 
-```rust
+```yo
 data := rc(MyData(...));
 match(
-  ^data,                        // '^' constructs the Iso; .None if `data` is not unique
+  ^data, // '^' constructs the Iso; .None if `data` is not unique
   .Some(iso) => Thread(unit).spawn(io => {
-    inner := iso.extract();     // returns T; panics on a second extract
+    inner := iso.extract(); // returns T; panics on a second extract
     // ... use inner on this thread only ...
   }),
   .None => ()
@@ -352,7 +369,7 @@ hands the value out exactly once. Details: `docs/en-US/ISOLATED.md`.
 
 Fields whose names start with `_` are private to the **file and directory** that defines the containing type:
 
-```rust
+```yo
 // In std/sync/mutex.yo:
 Mutex :: atomic(ref(struct(_handle : __YO_THREAD_SYNC_TYPE, _value : T)));
 ```

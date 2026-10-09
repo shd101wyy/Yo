@@ -10,7 +10,7 @@ GADTs extend Yo's enum types by allowing each constructor to specify the exact i
 
 Each GADT constructor specifies its return type using `-> recur(Type1, Type2, ...)` after the field list:
 
-```rust
+```yo
 Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     IntVal(i : i32) -> recur(i32),
@@ -26,7 +26,7 @@ Value :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 ### Multi-parameter GADTs
 
-```rust
+```yo
 MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   enum(
     MkIntBool(x : i32, y : bool) -> recur(i32, bool),
@@ -39,7 +39,7 @@ MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
 
 Custom discriminants and GADT return types coexist:
 
-```rust
+```yo
 Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     (TagInt(i : i32) -> recur(i32)) = 10,
@@ -52,7 +52,7 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 Some variants can have GADT annotations while others remain unconstrained:
 
-```rust
+```yo
 MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     MInt(i : i32) -> recur(i32),
@@ -66,7 +66,7 @@ MixedVal :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 The core GADT feature: when pattern matching on a GADT value, the type system refines type variables in each branch.
 
-```rust
+```yo
 eval_value :: (fn(generic(T : Type), v : Value(T)) -> T)(
   match(
     v,
@@ -89,7 +89,7 @@ Each branch can return a different concrete type — the type checker verifies e
 
 When matching a GADT value with a concrete type, the type system filters out unreachable variants:
 
-```rust
+```yo
 // Value(i32) can only be IntVal or PairVal
 // BoolVal is unreachable (it returns Value(bool), not Value(i32))
 eval_int_only :: (fn(v : Value(i32)) -> i32)(
@@ -108,17 +108,17 @@ The type arguments of a GADT (or any generic enum) are part of its type, even wh
 payload mentions them. `Value(i32)` and `Value(bool)` have identical payload shapes, and are still
 two different types:
 
-```rust
+```yo
 x := Value(i32).IntVal(i32(77));
-(y : Value(bool)) = x;  // error[E0601]: Incompatible types (Value(bool) vs Value(i32))
+(y : Value(bool)) = x; // error[E0601]: Incompatible types (Value(bool) vs Value(i32))
 ```
 
 A variant constructs only the instantiation its `-> recur(...)` index names. Naming it through a
 different instantiation is a type error, both spelled out and as a shorthand:
 
-```rust
-Value(i32).BoolVal(true);         // error[E0601]: GADT variant "BoolVal" is declared
-                                  // `-> recur(bool)`, so it cannot construct a Value(i32)
+```yo
+Value(i32).BoolVal(true); // error[E0601]: GADT variant "BoolVal" is declared
+// `-> recur(bool)`, so it cannot construct a Value(i32)
 (v : Value(i32)) = .BoolVal(true); // same error
 (w : Value(bool)) = .BoolVal(true); // OK
 ```

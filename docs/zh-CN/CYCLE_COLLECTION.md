@@ -6,7 +6,7 @@ Yo 使用**非原子引用计数**结合**线程局部循环回收**来回收循
 
 引用计数无法回收循环引用：
 
-```rust
+```yo
 Node :: ref(struct(value : i32, next : Option(Self)));
 
 // 创建循环引用
@@ -94,7 +94,7 @@ Yo 使用**自适应的被跟踪对象数量阈值**来触发循环回收：
 
 **显式回收**也可以通过 `gc.collect()` 触发：
 
-```rust
+```yo
 { collect, tracked_count } :: import("std/gc");
 
 // 强制执行循环回收
@@ -220,7 +220,7 @@ Yo 采用**完全线程隔离**——spawn 的任务运行在独立线程上，*
 3. 无需跟踪哪些对象可能被"窃取"——对象不会在线程间移动
 4. 只有值类型可以在线程间传递（复制，而非共享）
 
-```rust
+```yo
 // 父线程
 x := 42;
 node := Node(1, .None); // 可能形成循环引用的类型，留在当前线程
@@ -256,7 +256,7 @@ handle.join();
 
 **常见模式：**
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 { Channel } :: import("std/sync/channel");
 
@@ -344,7 +344,7 @@ void __yo_gc_collect_thread_local() {
 
 ## API
 
-```rust
+```yo
 { collect, tracked_count } :: import("std/gc");
 
 collect(); // 立即触发一次循环回收
@@ -365,7 +365,7 @@ tracked_count(); // u64——回收器当前跟踪的对象数
 
 编译器为可能形成循环引用的类型自动生成跟踪代码：
 
-```rust
+```yo
 // 用户代码
 Node :: ref(struct(value : i32, next : Option(Node)));
 
@@ -426,7 +426,7 @@ if (__yo_gc_state.alloc_count >= __YO_GC_THRESHOLD) {
 循环回收建立在一个约定之上：回收器必须能够枚举出每个对象所持有的受管引用。这个约定就是 `Trace`
 trait，定义于 `std/prelude.yo`：
 
-```rust
+```yo
 Trace :: trait(
   id := "Trace",
   trace : (fn(self : Self, tracer : GcTracer) -> unit)
@@ -455,7 +455,7 @@ Trace :: trait(
 `HashMap` 等）。自动派生的字段遍历会在裸缓冲区指针处停下，永远到不了元素，因此容器必须自行遍历每个
 元素槽位。`ArrayList`（位于 `std/collections/array_list.yo`）：
 
-```rust
+```yo
 impl(
   generic(T : Type),
   ArrayList(T),
@@ -481,7 +481,7 @@ impl(
 
 `GcTracer` 是一个不透明句柄，承载回收器的边注册回调：
 
-```rust
+```yo
 GcTracer :: newtype(_callback : *u8);
 
 // （位于 `impl(GcTracer, ...)` 中）

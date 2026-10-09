@@ -13,7 +13,7 @@ These patterns cover normal Yo async code and algebraic effects.
 
 ## Minimal async function
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 pause_then_answer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
@@ -30,7 +30,7 @@ pause_then_answer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 
 ## Sequential await
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
@@ -40,7 +40,7 @@ main :: (fn(io : Io) -> unit)({
   });
 
   result := io.await(task, io);
-  assert((result == i32(1)), "unexpected result");
+  assert(result == i32(1), "unexpected result");
 });
 
 export(main);
@@ -48,7 +48,7 @@ export(main);
 
 ## Concurrent tasks on the same thread
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
@@ -80,7 +80,7 @@ Handlers are typed `fn(...) -> R` when they only resume, and `ctl(...) -> R` whe
 body may `unwind`. Use the local binding form `(name : EffectType) = ((args) -> { ... })`
 to install a handler; lambdas on the RHS of `=` need outer parens.
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 
@@ -96,19 +96,23 @@ safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
 resume_example :: (fn() -> i32)({
   // No `unwind` in this body — type the binding as the same Raise (a `ctl` is also a `fn`-compatible value when not unwinding).
   // Use plain `fn(...) -> i32` if you want to forbid unwind altogether at this site.
-  (raise : Raise) = (msg -> {
-    println(msg);
-    return(i32(0));
-  });
+  (raise : Raise) = (
+    msg -> {
+      println(msg);
+      return(i32(0));
+    }
+  );
 
   safe_divide(i32(8), i32(0), raise)
 });
 
 unwind_example :: (fn() -> i32)({
-  (raise : Raise) = (msg -> {
-    println(msg);
-    unwind(i32(-1));
-  });
+  (raise : Raise) = (
+    msg -> {
+      println(msg);
+      unwind(i32(-1));
+    }
+  );
 
   safe_divide(i32(8), i32(0), raise)
 });
@@ -124,7 +128,7 @@ unwind_example :: (fn() -> i32)({
 `Future(T, E)` accepts a single effect type `E`. To carry several effects, declare a
 bundle struct and pass that.
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 Raise :: (ctl(msg : String) -> i32);
@@ -150,20 +154,21 @@ Inside an `io.async` lambda, `recur` names the LAMBDA (its own signature), not t
 outer function, so `recur(n, io)` there is an argument-count error. Call the outer
 `::` function by its name instead; each level is its own future:
 
-```rust
+```yo
 count_down :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) =>
-    cond(
-      (n == i32(0)) => i32(0),
-      true => (io.await(count_down((n - i32(1)), io), io) + i32(1))
-    )
+  io.async(
+    (io : Io) =>
+      cond(
+        (n == i32(0)) => i32(0),
+        true => (io.await(count_down(n - i32(1), io), io) + i32(1))
+      )
   )
 );
 ```
 
 An iterative worklist with an `ArrayList` as the stack avoids one future per level:
 
-```rust
+```yo
 { read_dir, DirEntry } :: import("std/fs/dir");
 
 WalkCtx :: struct(io : Io, exn : Exception);
@@ -171,7 +176,9 @@ WalkCtx :: struct(io : Io, exn : Exception);
 process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
     stack := ArrayList(Path).new();
-    { stack.push(root); };
+    {
+      stack.push(root);
+    };
 
     while(stack.len() > usize(0), {
       cur := match(stack.pop(), .Some(p) => p, .None => return());
@@ -180,12 +187,16 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
       n := entries.len();
       i := usize(0);
       while(i < n, {
-        match(entries.get(i),
+        match(
+          entries.get(i),
           .None => (),
           .Some(e) => {
-            match(e.file_type,
-              .Directory => { stack.push(cur.join(Path.new(e.name))); },
-              _ => ()   // handle files here
+            match(
+              e.file_type,
+              .Directory => {
+                stack.push(cur.join(Path.new(e.name)));
+              },
+              _ => () // handle files here
             );
           }
         );
@@ -225,9 +236,9 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   `race`, `race_first`, `any`, `any_first`, `timeout`) are futures too, so one
   spelling works in `main` and in a task:
 
-  ```rust
+  ```yo
   // ✗ inside io.async — nests the event loop
-  outs := join_all_blocking(handles, io);   // any plain-fn poll loop, e.g. h.await(io)
+  outs := join_all_blocking(handles, io); // any plain-fn poll loop, e.g. h.await(io)
 
   // ✓ a real suspension point
   outs := io.await(join_all(handles, io), io);
@@ -258,10 +269,10 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
 `std/async/stream` is the async analogue of `Iterator`: `next(self, io)`
 answers `Impl(Future(Option(Self.Item), Io))`, and `.None` is terminal.
 
-```rust
+```yo
 { Stream } :: import("std/async/stream");
 
-conns := listener.incoming().take(usize(3));    // lazy chain, built out here
+conns := listener.incoming().take(usize(3)); // lazy chain, built out here
 io.await(conns.for_each(c => serve(c), io), io);
 ```
 
@@ -284,7 +295,7 @@ io.await(conns.for_each(c => serve(c), io), io);
 `yield` hands the loop a turn; it does not let one task wait for ANOTHER
 task's progress. `std/async/waker` is that primitive.
 
-```rust
+```yo
 { Park, park, yield_now } :: import("std/async/waker");
 
 // The waiter: create the park, hand its waker to whoever will signal, THEN
@@ -297,7 +308,12 @@ io.await(p.wait(io), io);
 match(waiters.pop(), .Some(w) => w.wake(), .None => ());
 
 // Or, for the single-waker case, with the ordering built in:
-io.await(park((w : Waker) => { slot.* = Option(Waker).Some(w); }, io), io);
+io.await(
+  park((w : Waker) => {
+    slot.* = Option(Waker).Some(w);
+  }, io),
+  io
+);
 ```
 
 - A wake that arrives BEFORE the sleeper suspends is not lost: an await point
@@ -321,7 +337,7 @@ waker will do: that is the millisecond floor this exists to remove.
 
 `Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `unwind`, the continuation is discarded:
 
-```rust
+```yo
 { Exception } :: import("std/error");
 { ToString, println } :: import("std/fmt");
 
@@ -337,10 +353,12 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
 
 main :: (fn() -> unit)({
   exn := Exception(
-    throw : (err -> {
-      println(`Error: ${err}`);
-      unwind(());
-    })
+    throw : (
+      err -> {
+        println(`Error: ${err}`);
+        unwind(());
+      }
+    )
   );
 
   result := safe_divide(i32(10), i32(2), exn);
@@ -366,15 +384,19 @@ compile error that points at `ResumableException`. It must `unwind`, diverge, or
 fall through with `()`. To turn a failing operation into a fallback value, install
 the handler in a small helper and `unwind` the fallback out of it:
 
-```rust
+```yo
 { Command } :: import("std/process/command");
 { Exception } :: import("std/error");
 
 // `true` if the tool runs and exits 0; `false` if it fails or cannot be spawned.
 tool_ok :: (fn(cmd : Command, io : Io) -> bool)({
-  exn := Exception(throw: (err -> {
-    unwind(false);
-  }));
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(false);
+      }
+    )
+  );
   status := io.await(cmd.status(io), { io, exn });
   status.success()
 });
@@ -386,7 +408,7 @@ To resume the throw site with a recovery value instead, the callee must take a
 
 `ResumableException(ResumeType)` is a struct-record effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
-```rust
+```yo
 { Exception, ResumableException } :: import("std/error");
 { ToString, println } :: import("std/fmt");
 { assert } :: import("std/assert");
@@ -400,14 +422,16 @@ safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
 
 main :: (fn() -> unit)({
   exn := ResumableException(i32)(
-    throw : (err -> {
-      println(`Recovering from: ${err}`);
-      return(i32(0));
-    })
+    throw : (
+      err -> {
+        println(`Recovering from: ${err}`);
+        return(i32(0));
+      }
+    )
   );
 
   result := safe_divide(i32(10), i32(0), exn);
-  assert((result == i32(0)), "recovered with 0");
+  assert(result == i32(0), "recovered with 0");
 });
 
 export(main);
@@ -421,7 +445,7 @@ export(main);
 Effects in Yo can be plain function/ctl types or struct-record types that group several
 operations:
 
-```rust
+```yo
 Raise :: (ctl(msg : String) -> i32);
 
 Logger :: struct(
@@ -438,7 +462,7 @@ operations under a single nominal type — that pattern composes naturally with 
 A function can be polymorphic over the effect bundle a Future carries by quantifying
 over `E : Type.Struct`:
 
-```rust
+```yo
 wait_then :: (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T)(
   io.await(fut, e)
 );

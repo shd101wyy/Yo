@@ -15,7 +15,7 @@ Yo 在编译期保证：安全代码无法构造出悬垂引用。这一设计�
 是独占借用，`imm(name) := place;` 是只读借用（`plans/VALUES_BY_DEFAULT.md`
 决策 18）：
 
-```rust
+```yo
 x := i32(1);
 mut(y) := x; // y 命名 x 的槽位
 y = i32(2); // 写入 x
@@ -54,11 +54,17 @@ copy := n; // 拷贝被指向的值 —— 不存在可存储的"inout 类型"
 `imm(cur) = place` 把 `cur` 移到一个从它可达的位置 —— `cur` 目标的字段，
 或对 `cur` 做 `match` 得到的绑定中进入引用单元的字段：
 
-```rust
+```yo
 append :: (fn(mut(list) : List, v : i32) -> unit)({
   mut(cur) := list.head; // Option(Rc(Node))
   while(cur.is_some(), {
-    match(cur, .Some(n) => { mut(cur) = n.next; }, .None => ());
+    match(
+      cur,
+      .Some(n) => {
+        mut(cur) = n.next;
+      },
+      .None => ()
+    );
   });
   cur = .Some(rc(Node(value : v, next : .None))); // 写入尾部槽位
 });
@@ -111,7 +117,7 @@ borrows from it"`）而非内存破坏。同缓存行加载 + 预测分支 —�
 
 容器只交出**值**，从不交出指向其缓冲区内部的指针：
 
-```rust
+```yo
 e := xs.get(i); // object 元素：指向元素对象的句柄
 e.push_str("!"); //   就地变异元素；句柄在 xs.push / realloc 之后
 //   依然有效 —— 它指向 String 对象本身，
@@ -124,7 +130,7 @@ for(xs, x => { ... }); // 迭代是值形式（into_iter）
 
 元素也可以被**借用**，但只在一个地方：借用形式的 `for`。
 
-```rust
+```yo
 for(enemies, inout(e) => {
   e.hp = (e.hp - i32(1));
 }); // struct 元素就地修改

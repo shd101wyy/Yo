@@ -45,7 +45,7 @@ Yo 提供两种并行执行机制：
 
 ### API
 
-```rust
+```yo
 // `T` 是线程体产出的类型。`Thread(unit)` 即无返回值的线程；
 // 任何满足 `Send + Acyclic` 的类型都可以被带出线程。
 Thread :: (
@@ -68,7 +68,7 @@ impl(
 （`{ t }(io : Io) => ...`）可以把捕获的值移出，而不必克隆，例如交给一个 `sink` 参数，或通过
 Channel 发送（该值必须是 `Send`）。没有移出的捕获值在线程体返回时被释放。普通闭包同样可以传入，因为 `Fn` 蕴含 `FnOnce`。
 
-```rust
+```yo
 Job :: struct(id : i32);
 run :: (fn(sink(j) : Job) -> i32)(j.id);
 job := Job(id : i32(7));
@@ -80,7 +80,7 @@ n := t.join(); // 7
 
 `join()` 返回线程体的返回值，途径是句柄自己持有的容量为 1 的 `Channel(T)`：
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 
 t := Thread(i32).spawn((io : Io) => i32(42));
@@ -92,7 +92,7 @@ answer := t.join(); // 42
 
 ### 用法
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 { yield } :: import("std/async");
 
@@ -129,7 +129,7 @@ thread.join();
 
 ### API
 
-```rust
+```yo
 { ThreadPool, spawn } :: import("std/thread");
 
 // 创建线程池，请求 num_threads 个工作线程
@@ -154,7 +154,7 @@ ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 
 ### 用法
 
-```rust
+```yo
 { ThreadPool, spawn } :: import("std/thread");
 { yield } :: import("std/async");
 
@@ -215,7 +215,7 @@ pool.shutdown();
 
 Channel（`std/sync/channel.yo`）提供有界的多生产者多消费者线程间通信。
 
-```rust
+```yo
 { Channel } :: import("std/sync/channel");
 
 // 创建一个有界 Channel（容量为 10）
@@ -247,7 +247,7 @@ Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 
 **已经结束**时，请改用 `Sender`/`Receiver` 拆分：队列会统计存活的 sender，最后一个被丢弃时
 自动关闭 Channel。
 
-```rust
+```yo
 { Channel } :: import("std/sync/channel");
 
 rx := Channel(i32).receiver(usize(4)); // 队列及其唯一的消费者
@@ -274,7 +274,7 @@ rx.recv(); // .Err(TryRecvError.Disconnected)
 对于位于其他线程的生产者，请在线程内部创建该线程自己的 `Sender`，并在父线程中保留一个，
 直到工作线程都已启动：
 
-```rust
+```yo
 rx := Channel(i32).receiver(usize(16));
 {
   keeper := rx.sender(); // 保证计数不会归零
@@ -300,7 +300,7 @@ issues/fixed/a-closure-typed-slot-never-releases-its-captures.md）。异步任�
 - **可发送**：基本类型（`i32`、`bool` 等）、由 Send 字段组成的值类型结构体/枚举/元组、字段全部为 Sync 的原子对象（`Arc`、`Mutex`、`Channel`、`Atomic*` 包装器）、`Dyn(Trait, Send)`（具体类型在 `dyn(...)` 处检查，其载荷使用原子引用计数：`dyn(v)` 用 `arc` 装箱值类型）、`Iso(T)`（见 `THREAD_SAFETY.md`），以及捕获值全部为 Send、且代码不触及任何非 Send 模块级全局变量的函数值（具名函数或闭包）—— 在编译器能看到该值的地方按值判断：派生闭包体、`Impl(Fn(...), Send)` 或 `Impl(FnOnce(...), Send)` 参数、泛型 `where(T <: Send)` 参数、被捕获的变量
 - **不可发送**：`ref(struct(...))` / `ref(enum(...))`（非原子引用计数：`ArrayList`、`Rc` 等，以及持有它们的值，如 `String`）、未选择加入的裸指针及持有裸指针的类型、约束中不含 `Send` 的 `Dyn(Trait)`、`Io`、`JoinHandle`、借用其捕获的闭包，捕获了上述任一值或触及非 Send 全局变量的函数值，以及在该处不知道其值的裸 `fn(...)` 类型（结构体字段、`Channel(fn() -> unit)` 的载荷）—— 见 `THREAD_SAFETY.md` 的“跨线程的函数与闭包”
 
-```rust
+```yo
 // ✅ 可发送
 Point :: struct(x : i32, y : i32);
 Thread(unit).spawn(io => {
@@ -357,7 +357,7 @@ Thread(unit).spawn(io => {
 
 ### 快速参考
 
-```rust
+```yo
 { Thread, ThreadPool, spawn } :: import("std/thread");
 { Channel } :: import("std/sync/channel");
 

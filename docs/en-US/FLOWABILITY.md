@@ -18,7 +18,7 @@ same thing one level down. A local borrow binds `name` to the storage
 borrows it exclusively, `imm(name) := place;` read-only
 (`plans/VALUES_BY_DEFAULT.md` decision 18):
 
-```rust
+```yo
 x := i32(1);
 mut(y) := x; // y names x's slot
 y = i32(2); // writes x
@@ -66,11 +66,17 @@ memory.
 it — a field of `cur`'s target, or a field of a `match` binding over `cur`
 that enters a reference cell:
 
-```rust
+```yo
 append :: (fn(mut(list) : List, v : i32) -> unit)({
   mut(cur) := list.head; // Option(Rc(Node))
   while(cur.is_some(), {
-    match(cur, .Some(n) => { mut(cur) = n.next; }, .None => ());
+    match(
+      cur,
+      .Some(n) => {
+        mut(cur) = n.next;
+      },
+      .None => ()
+    );
   });
   cur = .Some(rc(Node(value : v, next : .None))); // writes the tail slot
 });
@@ -135,7 +141,7 @@ borrows from it"`) instead of corrupting memory. Same-cache-line load
 
 Containers hand out **values**, never pointers into their buffers:
 
-```rust
+```yo
 e := xs.get(i); // object elements: a HANDLE to the element
 e.push_str("!"); //   mutates the element in place; the handle
 //   survives xs.push / realloc — it points at
@@ -149,7 +155,7 @@ for(xs, x => { ... }); // iteration is the value form (into_iter)
 Elements can also be **borrowed**, in exactly one place: the borrowed
 `for`.
 
-```rust
+```yo
 for(enemies, inout(e) => {
   e.hp = (e.hp - i32(1));
 }); // struct elements, in place

@@ -217,7 +217,7 @@ echo "=== T1 GATE 6: fmt (self-hosted check + write idempotence) ==="
 # would report them and this gate would fail on its own debris.
 find ./tests -name '.yo_selftest_batch_*' -delete 2>/dev/null
 
-YO_MAIN_STACK_MB=4096 "$S1" fmt --check ./std ./tests ./src &> "/tmp/${P}_fmt_self.log"
+YO_MAIN_STACK_MB=4096 "$S1" fmt --check ./std ./tests ./src ./docs ./.github ./README.md &> "/tmp/${P}_fmt_self.log"
 fmt_self_rc=$?
 echo "FMT_SELF_RC=$fmt_self_rc"
 if [ "$fmt_self_rc" != "0" ]; then

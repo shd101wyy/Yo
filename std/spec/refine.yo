@@ -7,15 +7,16 @@
 //! files) discharges them modularly: a callee ASSUMES `p(param)` at entry, a
 //! call site PROVES `refine#N` for each refined argument.
 //!
-//! ```rust
+//! ```yo
 //! { NonZero, check_non_zero } :: import("std/spec/refine");
 //!
 //! safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)(num / denom);
 //!
 //! // Construction paths — a plain `T` does not coerce silently:
-//! match(check_non_zero(i32(2)),        // runtime gate: Option(NonZero(i32))
-//!   .Some(d)  => safe_div(i32(10), d),
-//!   .None     => i32(0)
+//! match(
+//!   check_non_zero(i32(2)), // runtime gate: Option(NonZero(i32))
+//!   .Some(d) => safe_div(i32(10), d),
+//!   .None => i32(0)
 //! );
 //! ```
 //!

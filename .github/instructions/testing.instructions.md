@@ -459,9 +459,12 @@ green at 3240/3240.
 
 Derive widths instead of writing them:
 
-```rust
+```yo
 sh := usize(1);
-while(sh < (size_of(usize) * usize(8)), { c = (c | (c >> sh)); sh = (sh * usize(2)); });
+while(sh < (size_of(usize) * usize(8)), {
+  c = (c | (c >> sh));
+  sh = (sh * usize(2));
+});
 ```
 
 and in tests, derive the boundary the same way (`bits :: (size_of(usize) * usize(8))`,
@@ -1075,7 +1078,7 @@ Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the rea
 
 Tests use the `test` keyword with exactly 2 arguments: a name string and a body block.
 
-```rust
+```yo
 { assert } :: import("std/assert");
 test("my test", {
   assert(true, "ok");
@@ -1088,7 +1091,7 @@ needs `{ assert, panic } :: import("std/assert");` at the top (after any
 
 **`io : Io` is automatically bound** inside every test body — no parameter is needed. All tests can use `io.async(...)`, `io.await(...)`, `io.spawn(...)`, etc. directly:
 
-```rust
+```yo
 test("Async test", {
   task := io.async((io : Io) => {
     io.await(yield(), io);
@@ -1109,7 +1112,7 @@ test("Async test", {
 `assert(condition, msg)` accepts any `msg` implementing `ToString` — plain
 `str` literals, template strings, integers, etc. all work:
 
-```rust
+```yo
 assert(false, `unexpected: ${value}`);
 assert(false, "unexpected");
 ```
@@ -1123,9 +1126,16 @@ For a diverging panic in a VALUE-position match/cond arm (the arm must yield
 When testing a function that takes an `exn : Exception` parameter, build the handler
 locally and pass it in:
 
-```rust
+```yo
 test("my test", {
-  exn := Exception(throw : ((err) -> { assert(false, "unexpected error"); unwind(()); }));
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
   result := my_function_that_throws(exn);
   // ...
 });

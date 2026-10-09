@@ -58,7 +58,7 @@ WebAssembly 模块通过普通的 C 函数与 JavaScript 交互。Yo 的 `str`�
 
 下面是一个遵循这些规则的完整库：
 
-```rust
+```yo
 // src/wasm_api.yo
 //! `transform`：输入字节，输出新分配的字节。
 pragma(Pragma.AllowUnsafe);
@@ -136,7 +136,7 @@ export(wasm_alloc, wasm_free, transform);
 `str` 的 API。这个视图的有效期取决于背后的缓冲区：只在调用期间使用；若有内容需要活过本次调用，
 就拷贝一份（`String.from(view)`）。
 
-```rust
+```yo
 //! 在一次调用期间把调用方的字节借用为 `str`。
 pragma(Pragma.AllowUnsafe);
 
@@ -181,7 +181,7 @@ yo compile src/wasm_api.yo --target wasm32-unknown-emscripten --optimize 2 \
 
 同一个产物写成 `build.yo` 步骤（字段和输出格式规则见 [BUILD_SYSTEM.md](./BUILD_SYSTEM.md)）：
 
-```rust
+```yo
 build :: import("std/build");
 
 wasm_api :: build.executable({
@@ -348,7 +348,7 @@ function readStringWithStoredLength(mod, ptr, lenPtr) {
 wasm 构建没有 sanitizer（C 编译器为 `emcc` 时 `--sanitize` 会被忽略）。原生冒烟测试以
 JavaScript 将要使用的方式调用 API：
 
-```rust
+```yo
 // src/smoke.yo
 //! WASM API 的原生冒烟测试：先在 AddressSanitizer 下运行。
 pragma(Pragma.AllowUnsafe);

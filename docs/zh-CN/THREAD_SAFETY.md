@@ -27,7 +27,7 @@ Yo 默认为安全代码（非 pragma 代码）提供**无数据竞争**保证�
 | `Dyn(Trait)`                                                  | 仅当写成 `Dyn(Trait, Send)` | 仅当写成 `Dyn(Trait, Sync)` |
 | 闭包                                                          | 见下文                      | 见下文                      |
 
-```rust
+```yo
 // 所有字段都是 Send 和 Sync → Point 也是
 Point :: struct(x : i32, y : i32);
 
@@ -35,7 +35,7 @@ Point :: struct(x : i32, y : i32);
 MyObj :: ref(struct(data : Vec(i32)));
 
 // 裸指针两者都不是：没有任何东西说明谁拥有被指向的值
-Raw :: struct(p : ?(*(u8)));
+Raw :: struct(p : ?*u8);
 ```
 
 原子对象的所有副本共享同一个载荷，所以只有当该载荷是 `Sync` 时它才是 `Send`。`Mutex(T)` 是一个例外，恰好印证了这条规则：它一次只把 `T` 交给一个线程，所以只要 `T` 是 `Send`，它就是 `Sync`。
@@ -61,12 +61,12 @@ Raw :: struct(p : ?(*(u8)));
 
 在安全代码中，通过 `atomic(ref(struct(...)))` 写入是**编译时错误** —— 字段与索引赋值，以及任何进入它的、其被调用者可能通过该参数写入的 `inout` 路径（`inout` 参数，或 `self` 为 `inout(self)` 的方法）：
 
-```rust
+```yo
 a := arc(i32(0));
-a.* = i32(5);          // 错误：不能写入原子对象字段
+a.* = i32(5); // 错误：不能写入原子对象字段
 c := arc(Counter(n : i32(0)));
-c.*.bump();            // 错误：不能在原子对象 'c' 上调用 inout(self) 方法
-bump_by_ten(c.*);      // 错误：不能传递以原子对象 'c' 为根的 inout 参数
+c.*.bump(); // 错误：不能在原子对象 'c' 上调用 inout(self) 方法
+bump_by_ten(c.*); // 错误：不能传递以原子对象 'c' 为根的 inout 参数
 ```
 
 局部副本是值，所以 `k := c.*; k.bump()` 没问题（它修改的是副本）；`Mutex.with_lock` 的 `inout(v)` 是参数，所以闭包体可以通过 `v` 写入；只读的 `inout(self)` 方法 —— `ToString` 的 `${c.*.n}`、`Sender.clone` —— 也没问题，因为编译器依据被调用者的函数体做决定（`plans/reference/PARALLELISM_RULES.md` D3），而不只看参数模式。
@@ -104,7 +104,7 @@ Pragma 代码（带有 `pragma(Pragma.AllowUnsafe)` 的文件）绕过此规则�
 型的约定一致；只有 `compare_exchange` 的 `expected` 是 `inout`，因为交换失败时
 会把实际观测到的值写回它。每个操作都需要显式的 `MemoryOrder`：
 
-```rust
+```yo
 { AtomicBool, AtomicI32, AtomicU32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 
 flag := AtomicBool(false);
@@ -156,7 +156,7 @@ compare-exchange 循环。该循环是无锁的，产生相同的返回值和相
 
 `Mutex(T)` 将受保护的数据包装在锁内部。通过闭包进行访问：
 
-```rust
+```yo
 { Mutex } :: import("std/sync/mutex");
 
 counter := Mutex(i32).new(i32(0));
@@ -177,16 +177,22 @@ new_value := counter.with_lock(v => (v + i32(1)));
 - 在另一个线程上运行的闭包（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调 —— 任何绑定到 `Impl(FnOnce(...), Send)`、`Impl(Fn(...), Send)` 或 `Impl(Fn(...), Sync)` 的闭包）不能直接或经由它调用的任何函数触及类型不是 `Sync` 的全局变量。全局变量被所有线程共享，所以问题在于共享。非原子引用计数的全局变量（`ArrayList`、`String`、任何 `ref(struct)`）对主线程仍然合法，但通过这样的句柄读取字段会更新引用计数，所以其他线程不能碰它；
 - 在任何地方被**写入**的 `Sync` 值类型全局变量（标量或内部不含引用的结构体）—— 被赋值、以它为根做字段或索引写入、或交给被调用者会通过其写入的 `inout` 参数 —— 是可变静态变量，在另一个线程上运行的闭包不能触及它。只在一个线程上读写时，它是普通的全局变量；被所有线程读取但从不写入时，它是共享常量。错误报在编译器第二个看到的那个位置上，并指出另一个位置。
 
-```rust
-LIMIT :: i32(5);                              // 常量：任何线程都可读
-hits := AtomicI32(i32(0));                    // 原子对象：共享状态，可以
-(thread_local(scratch) : i32) = i32(0);       // 每线程可变状态：可以
-g := ArrayList(i32).new();                    // 只在主线程上可用
-fill :: (fn() -> unit)({ g.push(i32(1)); });
-Thread(unit).spawn(io => { fill(); });        // 错误：闭包调用了触及 g 的 fill
+```yo
+LIMIT :: i32(5); // 常量：任何线程都可读
+hits := AtomicI32(i32(0)); // 原子对象：共享状态，可以
+(thread_local(scratch) : i32) = i32(0); // 每线程可变状态：可以
+g := ArrayList(i32).new(); // 只在主线程上可用
+fill :: (fn() -> unit)({
+  g.push(i32(1));
+});
+Thread(unit).spawn(io => {
+  fill();
+}); // 错误：闭包调用了触及 g 的 fill
 (counter : i32) = i32(0);
-bump :: (fn() -> unit)({ counter = (counter + i32(1)); });   // 单独来看没问题……
-Thread(i32).spawn(io => counter);             // 错误：……但另一个线程读取了 counter
+bump :: (fn() -> unit)({
+  counter = (counter + i32(1));
+}); // 单独来看没问题……
+Thread(i32).spawn(io => counter); // 错误：……但另一个线程读取了 counter
 ```
 
 ## 跨线程的函数与闭包
@@ -201,25 +207,36 @@ Thread(i32).spawn(io => counter);             // 错误：……但另一个线�
 
 编译器看不到值的裸 `fn(...)` 类型**不是 `Send`**：结构体字段、集合元素、`Channel(fn() -> unit)` 的载荷，以及被另一个线程的闭包捕获的普通局部变量 `f := count`，都属于这种情况。承载这一承诺的函数类型是 `Impl(Fn(...), Send)`，应写成 `(f : Impl(Fn(Io) -> unit, Send)) = count`。一个值只在被转换成它的地方检查一次（参数、返回值、带类型声明的绑定）。
 
-```rust
-g := ArrayList(i32).new();                          // 只在主线程上可用
+```yo
+g := ArrayList(i32).new(); // 只在主线程上可用
 hits := AtomicI32(i32(0));
-fill :: (fn(io : Io) -> unit)({ g.push(i32(1)); });
-count :: (fn(io : Io) -> unit)({ hits.fetch_add(i32(1), MemoryOrder.AcqRel); ();});
-Thread(unit).spawn(count);                          // 可以：count 只触及原子对象
-Thread(unit).spawn(fill);                           // 错误：fill 的代码触及 g
-(k : Impl(Fn() -> unit)) = (() => { g.push(i32(2)); });
-a := arc(k);                                        // 错误：k 的代码触及 g
+fill :: (fn(io : Io) -> unit)({
+  g.push(i32(1));
+});
+count :: (fn(io : Io) -> unit)({
+  hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+  ();
+});
+Thread(unit).spawn(count); // 可以：count 只触及原子对象
+Thread(unit).spawn(fill); // 错误：fill 的代码触及 g
+(k : Impl(Fn() -> unit)) = (
+  () => {
+    g.push(i32(2));
+  }
+);
+a := arc(k); // 错误：k 的代码触及 g
 Holder :: struct(f : (fn(io : Io) -> unit));
 h := Holder(f : count);
-Thread(unit).spawn((io : Io) => { (h.f)(io); });    // 错误：Holder 有一个裸 fn 字段
+Thread(unit).spawn((io : Io) => {
+  (h.f)(io);
+}); // 错误：Holder 有一个裸 fn 字段
 ```
 
 ## 负向实现 — 选择退出 Send 与 Sync
 
 可以通过 `!(Send)` / `!(Sync)` 明确退出自动派生的 `Send` 或 `Sync`：
 
-```rust
+```yo
 impl(MyHandle, !Send()); // MyHandle 不是 Send
 impl(MyHandle, !Sync()); // 也不是 Sync
 ```
@@ -230,12 +247,12 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 
 `Iso(T)` 包装一个**非** `Send` 的值，一次性地转移给另一个线程：`T` 是任何能触及非原子单元的值 —— 普通的 `ref(struct)` 对象图，或持有 `ArrayList` 的结构体 —— 而 `Iso(T)` 本身是 `Send`，不要求 `T <: Send`。依据是唯一性 —— 在使用的那一刻，最多只有一个线程持有内部值。
 
-```rust
+```yo
 data := rc(MyData(...));
 match(
-  ^data,                        // '^' 构造 Iso；`data` 不唯一时为 .None
+  ^data, // '^' 构造 Iso；`data` 不唯一时为 .None
   .Some(iso) => Thread(unit).spawn(io => {
-    inner := iso.extract();     // 返回 T；第二次 extract 会 panic
+    inner := iso.extract(); // 返回 T；第二次 extract 会 panic
     // ... 只在本线程使用 inner ...
   }),
   .None => ()

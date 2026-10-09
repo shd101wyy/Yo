@@ -15,7 +15,7 @@
 //!
 //! w := watch(Path.new(`./logs`), WatchOptions.defaults(), exn);
 //! names := w.map(e => e.name).take(usize(3));
-//! got := io.await(names.collect(io), io);   // ArrayList(String), 3 entries
+//! got := io.await(names.collect(io), io); // ArrayList(String), 3 entries
 //! ```
 //!
 //! The combinators (`map`, `filter`, `filter_map`, `take`, `skip`) are LAZY:
@@ -30,7 +30,13 @@
 //! ```yo
 //! io.async((io : Io) => {
 //!   for_await(conns, io, c => {
-//!     match(c, .Ok(s) => serve(s, io), .Err(_) => { break; });
+//!     match(
+//!       c,
+//!       .Ok(s) => serve(s, io),
+//!       .Err(_) => {
+//!         break;
+//!       }
+//!     );
 //!   });
 //! })
 //! ```
@@ -56,15 +62,16 @@
 //!   Stream(
 //!     Item : i32,
 //!     next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-//!       io.async((io : Io) =>
-//!         cond(
-//!           (self._n <= i32(0)) => Option(i32).None,
-//!           true => {
-//!             v := self._n;
-//!             self._n = (self._n - i32(1));
-//!             Option(i32).Some(v)
-//!           }
-//!         )
+//!       io.async(
+//!         (io : Io) =>
+//!           cond(
+//!             (self._n <= i32(0)) => Option(i32).None,
+//!             true => {
+//!               v := self._n;
+//!               self._n = (self._n - i32(1));
+//!               Option(i32).Some(v)
+//!             }
+//!           )
 //!       )
 //!     )
 //!   )

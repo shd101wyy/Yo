@@ -826,11 +826,10 @@ generate_highlight_js :: (fn() -> String)({
   // type and operator tables are Yo's: `comptime`, `usize`, `::`, `:=`, `?=`),
   // so the fence language was being read by nobody.
   //
-  // `rust` is accepted alongside `yo` because doc comments historically tagged
-  // Yo samples ```rust — GitHub highlights `rust` and has never heard of `yo`,
-  // and that rule still holds for the MARKDOWN under docs/. Inside a .yo doc
-  // comment GitHub never renders the fence at all, so those are migrating to
-  // ```yo; both spellings must highlight while that is in flight.
+  // `rust` is accepted alongside `yo` because Yo samples were long tagged
+  // ```rust (GitHub highlights `rust` and has never heard of `yo`). docs/ and
+  // the doc comments now say ```yo, which `yo fmt` checks; the historical
+  // plans/ and issues/ keep ```rust, so both spellings still highlight.
   s.push_str("  var YO_LANGS = { 'language-yo': 1, 'language-rust': 1 };\n");
   s.push_str("  document.querySelectorAll('pre > code[class*=\"language-\"]').forEach(function(el) {\n");
   s.push_str("    var yo = false;\n");

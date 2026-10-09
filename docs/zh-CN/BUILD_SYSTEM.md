@@ -65,7 +65,7 @@ yo-out/
 
 构建文件是一个普通的 Yo 源文件，通过导入 `std/build` 模块来使用。所有构建函数在编译期执行，用于注册产物和步骤。
 
-```rust
+```yo
 build :: import("std/build");
 
 // 定义产物——每个都返回一个 Step 用于依赖连接
@@ -208,7 +208,7 @@ libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执�
 
 步骤是命名的目标，定义了 `yo build <step>` 的行为。每个构建函数（`executable`、`static_library`、`test`、`run`）都返回一个 `Step` 值。使用 `step.depend_on(dep)` 来连接依赖：
 
-```rust
+```yo
 // 每个构建函数都返回一个 Step
 exe :: build.executable({ name : "my-app", root : "./src/main.yo" });
 lib :: build.static_library({ name : "my-lib", root : "./src/lib.yo" });
@@ -336,7 +336,7 @@ shapes  = "src/shapes.yo"
 
 `build.yo` 在需要给模块附加系统库时才引用它。当另一个包导入该模块时，其系统库会传播到使用方的构建：
 
-```rust
+```yo
 build :: import("std/build");
 
 raylib :: build.system_library({
@@ -373,7 +373,7 @@ install.depend_on(exe);
 
 `build.yo` 中无需任何接线：在 `yo.toml` 中声明的依赖可按其名称导入，其命名模块按 `name/module` 导入：
 
-```rust
+```yo
 raylib_yo :: import("raylib_yo"); // 依赖的 [modules] default
 { Circle } :: import("raylib_yo/shapes"); // 它的 [modules] shapes
 ```
@@ -384,7 +384,7 @@ raylib_yo :: import("raylib_yo"); // 依赖的 [modules] default
 
 使用 `step.link()` 将任何库链接到产物 —— 支持静态库、共享库和系统库。类似 Zig 的 `exe.linkLibrary(lib)`：
 
-```rust
+```yo
 build :: import("std/build");
 
 // Yo 库
@@ -423,7 +423,7 @@ install.depend_on(lib);
 
 **库模块**（`add.yo`）：
 
-```rust
+```yo
 add :: (fn(a : i32, b : i32) -> i32)(
   a + b
 );
@@ -433,7 +433,7 @@ export(add);
 
 **可执行模块**（`demo.yo`）：
 
-```rust
+```yo
 // `extern(...)` is an FFI declaration, so the file must opt into unsafe code.
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
@@ -449,7 +449,7 @@ export(main);
 
 **构建文件**（`build.yo`）：
 
-```rust
+```yo
 build :: import("std/build");
 
 lib :: build.static_library({
@@ -497,7 +497,7 @@ yo compile demo.yo --extern libadd.a -o demo
 
 类似 Zig 的 `b.option()`，可以声明用户可配置的构建选项，并通过 CLI 的 `-Dname=value` 设置：
 
-```rust
+```yo
 build :: import("std/build");
 
 // 声明带有默认值的构建选项
@@ -560,7 +560,7 @@ Yo 通过目标三元组支持 WASM 目标。可以在 `build.yo` 中或命令�
 
 ### 在 `build.yo` 中
 
-```rust
+```yo
 build.executable({
   name : "my-app-wasm",
   root : "./src/main.yo",
@@ -571,7 +571,7 @@ build.executable({
 
 也可以使用原始目标字符串：
 
-```rust
+```yo
 build.executable({
   name : "my-app-wasm",
   root : "./src/main.yo",
@@ -637,7 +637,7 @@ python -m http.server 8080
 
 如需 Node.js 执行环境（如无界面/服务端 WASM），可手动添加标志：
 
-```rust
+```yo
 exe_wasm.add_c_flags("-sNODERAWFS=1");
 ```
 
@@ -647,7 +647,7 @@ exe_wasm.add_c_flags("-sNODERAWFS=1");
 
 使用 `std/process` 编写平台相关代码：
 
-```rust
+```yo
 { platform, arch, Platform, Arch } :: import("std/process");
 
 cond(
@@ -748,7 +748,7 @@ chunks: 10 unit(s), 7 cached, 3 to compile (jobs=8)
 
 构建文件可以读取环境变量，其他任何地方都不行：
 
-```rust
+```yo
 build :: import("std/build");
 
 ci :: build.env_is_set("CI");
@@ -806,7 +806,7 @@ Options:
 
 可以在单个 `build.yo` 中定义针对不同目标的多个产物：
 
-```rust
+```yo
 build :: import("std/build");
 
 // 模块定义
@@ -888,7 +888,7 @@ members = ["packages/*", "examples/demo"]
 
 `build.verify` 注册该步骤并返回它的 `Step`：
 
-```rust
+```yo
 build :: import("std/build");
 
 // mode：build.VerifyMode.Verify（默认）或 build.VerifyMode.VerifyOrAssert；
@@ -1038,7 +1038,7 @@ mylib = { path = "../mylib" }
 
 ### 导入依赖
 
-```rust
+```yo
 mylib :: import("mylib"); // 依赖的默认模块
 { triple } :: import("mylib/extra"); // 命名模块，或默认根文件旁的同级文件
 ```
@@ -1062,7 +1062,7 @@ mylib :: import("mylib"); // 依赖的默认模块
 
 `build.dependency("name")` 返回 `yo.toml` 中已声明依赖的句柄——名称必须是清单声明的，否则构建失败。其 `.module("x")` 指名依赖的某个模块（以传播它链接的系统库），`.artifact("lib")` 指名依赖 `build.yo` 定义的静态库：
 
-```rust
+```yo
 build :: import("std/build");
 
 dep :: build.dependency("dep_lib");
@@ -1159,7 +1159,7 @@ integrity = "sha256-9a0b2e..."
 
 通过 `pkg-config` 链接系统 C 库：
 
-```rust
+```yo
 build.system_library({
   name : "openssl",
   fallback_include : "/usr/include/openssl",
@@ -1175,7 +1175,7 @@ build.system_library({
 
 例如，`raylib` 在 Windows 上需要在包含 `raylib.h` 之前定义几个 Win32 宏：
 
-```rust
+```yo
 raylib :: build.system_library({
   name : "raylib",
   defines : "NOMINMAX NOGDI NOUSER"
@@ -1270,18 +1270,18 @@ Yo 支持四种文档注释样式，与 Rust 的约定一致：
 
 普通注释（`//`、`/* */`）**不是**文档注释 — 它们是内部注解和属性载体。
 
-````rust
+````yo
 //! Yo 标准库的数学工具模块。
 
 /// 将两个整数相加。
 ///
 /// # 示例
 ///
-/// ```rust
+/// ```yo
 /// result :: add(i32(1), i32(2));
 /// assert((result == i32(3)), "1 + 2 = 3");
 /// ```
-add :: (fn(a : i32, b : i32) -> i32)((a + b));
+add :: (fn(a : i32, b : i32) -> i32)(a + b);
 export(add);
 ````
 
@@ -1321,7 +1321,7 @@ yo doc --allow-token-only   # 对求值器无法加载的模块接受仅词法�
 
 对于高级项目，可在 `build.yo` 中配置文档生成：
 
-```rust
+```yo
 build :: import("std/build");
 
 // 定义文档配置
@@ -1351,7 +1351,7 @@ yo build --list-steps # 查看所有步骤（包括 doc）
 
 ### `DocFormat`
 
-```rust
+```yo
 DocFormat :: enum(
   Html,
   // 完全离线的静态 HTML 网站（默认）
@@ -1363,7 +1363,7 @@ DocFormat :: enum(
 
 ### `DocConfig`
 
-```rust
+```yo
 DocConfig :: struct(
   name : comptime_str,
   // 步骤名称

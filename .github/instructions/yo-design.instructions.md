@@ -28,7 +28,7 @@ description: "Use when making design decisions about the Yo language, writing st
 
 Always use `Self` to refer to the type being defined inside `struct(...)`, `ref(struct(...))`, `ref(enum(...))`, and `enum(...)` bodies. The type name is not yet bound during its own definition, so using it causes a "Variable not found" error:
 
-```rust
+```yo
 // CORRECT — Self for recursive references:
 TypeValue :: enum(
   IntType(bits : u8),
@@ -48,7 +48,7 @@ This applies equally to `impl` method signatures (use `Self` for parameter and r
 
 `Self` also works inside **generic type constructor functions** — it refers to the current type instantiation (e.g., `Tree(T)` inside `Tree`):
 
-```rust
+```yo
 // CORRECT — Self refers to Tree(T):
 Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
@@ -89,11 +89,13 @@ Use `recur(args)` only when calling the type constructor with **different** type
 
 Implemented in `prelude.yo`:
 
-```rust
+```yo
 Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
-  ref(struct(
-    (*) : V
-  ))
+  ref(
+    struct(
+      (*) : V
+    )
+  )
 );
 rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
 ```
@@ -139,9 +141,9 @@ The `unsafe` module in `prelude.yo` provides low-level escape hatches:
 - `unsafe.drop(value)` — manually drop `value`, running its destructor immediately.
 - `unsafe.cast(value, TargetType)` — reinterpret cast (alias for the internal `__yo_as` builtin).
 
-```rust
+```yo
 // Cast between types (use sparingly)
-result := unsafe.cast(ptr, *(u8));
+result := unsafe.cast(ptr, *u8);
 ```
 
 **Note:** `__yo_as` is still exported from prelude as a top-level symbol because the evaluator internally transforms type casts (e.g., `u32(x)`) into `__yo_as` calls. Do not remove `export __yo_as;`.
@@ -218,7 +220,7 @@ The guarantee is data-race freedom for every program that compiles without `prag
 
 Use `process.yo` module `platform` and `Platform`:
 
-```rust
+```yo
 AF_INET6 :: cond(
   (platform == Platform.Darwin) => i32(30),
   true => i32(10)
@@ -290,7 +292,7 @@ Yo the LANGUAGE is still evolving — language-level breaking changes are accept
 
 Functions that only execute at compile time (e.g., build system functions, macro-like utilities) must wrap their return type in `comptime(...)`. If the return type is not wrapped in `comptime`, the evaluator treats it as a runtime function.
 
-```rust
+```yo
 // WRONG — unit return without comptime means runtime:
 register_module :: (fn(comptime(config) : ModuleConfig) -> unit)({
   __yo_build_module(config);
@@ -304,7 +306,7 @@ register_module :: (fn(comptime(config) : ModuleConfig) -> comptime(unit))({
 // CORRECT — comptime(Step) for functions returning compile-time values:
 executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
   __yo_build_executable(config.name, config.root, ...);
-  Step(name: config.name, kind: StepKind.Executable)
+  Step(name : config.name, kind : StepKind.Executable)
 });
 ```
 
@@ -338,12 +340,12 @@ This applies to all parameters and return types in comptime-only APIs:
   result type
   (`issues/fixed/io-async-variant-inference-passes-check-but-fails-compile.md`):
 
-```rust
+```yo
 // CORRECT — return io.async directly:
 my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, String), Io)))(
   io.async((io : Io) => {
     zero := i32(0);
-    .Ok((i32(42) + zero))
+    .Ok(i32(42) + zero)
   })
 );
 
@@ -351,7 +353,7 @@ my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, String), Io)))(
 my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, String), Io)))({
   task := io.async((io : Io) => {
     zero := i32(0);
-    .Ok((i32(42) + zero))
+    .Ok(i32(42) + zero)
   });
   return(task);
 });
@@ -366,7 +368,7 @@ rule.)
 The async analogue of `Iterator`, landed 2026-09-11
 (`plans/reference/ASYNC_ITERATION_STREAM.md`):
 
-```rust
+```yo
 Stream :: trait(
   Item : Type,
   next : (fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
@@ -405,11 +407,13 @@ lowering (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
 
 ### API
 
-```rust
-handle := io.spawn(task, ctx);   // → JoinHandle(T), ctx is the task's effect bundle
-result := handle.await(io);      // → Option(T), blocking: main / plain fns only
+```yo
+handle := io.spawn(task, ctx); // → JoinHandle(T), ctx is the task's effect bundle
+result := handle.await(io); // → Option(T), blocking: main / plain fns only
 result := io.await(handle.join(io), io); // → Option(T), suspending: the form inside a task (std/async)
-handle.state(); handle.is_finished(); handle.abort();
+handle.state();
+handle.is_finished();
+handle.abort();
 ```
 
 ### Semantics
@@ -422,9 +426,9 @@ handle.state(); handle.is_finished(); handle.abort();
 
 ### Definition (in prelude.yo)
 
-```rust
+```yo
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(struct(__future : *(T)))
+  ref(struct(__future : *T))
 );
 ```
 
@@ -447,7 +451,7 @@ find missing imports before they fail a batch
 
 Traits use direct `trait(...)` syntax with associated types as labeled `Type` fields:
 
-```rust
+```yo
 // Trait definition — Item is an associated type. Iterator was
 // migrated to take inout(self) : Self in plans/archive/ITERATOR_REDESIGN.md
 // (the old *(Self) signature would be forbidden in safe code).
@@ -457,13 +461,22 @@ Iterator :: trait(
 );
 
 // impl — provide concrete values for all fields
-impl(Counter, Iterator(
-  Item : i32,
-  next : (fn(inout(self) : Self) -> Option(Self.Item))(cond(
-    (self._current >= self._max) => .None,
-    true => { val := self._current; self._current = (self._current + i32(1)); .Some(val) }
-  ))
-));
+impl(
+  Counter,
+  Iterator(
+    Item : i32,
+    next : (fn(inout(self) : Self) -> Option(Self.Item))(
+      cond(
+        (self._current >= self._max) => .None,
+        true => {
+          val := self._current;
+          self._current = (self._current + i32(1));
+          .Some(val)
+        }
+      )
+    )
+  )
+);
 
 // Where clause — use `:=` to constrain associated types (not `:`)
 IntoIterator :: trait(
@@ -482,7 +495,7 @@ IntoIterator :: trait(
 
 When a type implements multiple traits that each define a method with the same name, where-clause constraints disambiguate which trait's method is used:
 
-```rust
+```yo
 T1 :: trait(get_number : (fn(self : Self) -> i32));
 T2 :: trait(get_number : (fn(self : Self) -> i32));
 
@@ -492,12 +505,12 @@ impl(Point, T2(get_number : (self -> self.y)));
 
 // Implicit dispatch — where(T <: T1) constrains self.get_number() to T1's method
 use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
-  return(self.get_number());  // Dispatches to T1.get_number -> returns x
+  return(self.get_number()); // Dispatches to T1.get_number -> returns x
 });
 
 // Explicit dispatch — (T <: T2).get_number accesses T2's method directly
 use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
-  return((T <: T2).get_number(self));  // Dispatches to T2.get_number -> returns y
+  return((T <: T2).get_number(self)); // Dispatches to T2.get_number -> returns y
 });
 ```
 
@@ -524,31 +537,31 @@ All operator traits (Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor, BitLeftShif
 
 Binary operator traits take `Rhs` as a type parameter:
 
-```rust
+```yo
 Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (+) : (fn(lhs: Self, rhs: Rhs) -> Self.Output)
+    (+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 ```
 
 Unary operator traits (Negate, BitNot) are parameterless:
 
-```rust
+```yo
 Negate :: trait(
   Output : Type,
-  (neg): (fn(self: Self) -> Self.Output)
+  neg : (fn(self : Self) -> Self.Output)
 );
 ```
 
 Comptime variants add `where(Self <: Comptime, Self.Output <: Comptime)`:
 
-```rust
-ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trait))(
+```yo
+ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (+) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(Self.Output)),
+    (+) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -556,16 +569,22 @@ ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime))-> comptime(Trai
 
 Impls must provide `Output : Type` explicitly:
 
-```rust
-impl(i32, Add(i32)(
-  Output : i32,
-  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
-));
+```yo
+impl(
+  i32,
+  Add(i32)(
+    Output : i32,
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
+  )
+);
 
-impl(i32, Negate(
-  Output : i32,
-  (neg): ((self) -> __yo_op_neg(self))
-));
+impl(
+  i32,
+  Negate(
+    Output : i32,
+    neg : (self -> __yo_op_neg(self))
+  )
+);
 ```
 
 ## Higher-Kinded Types (HKT)
@@ -576,7 +595,7 @@ Yo supports HKT by using **comptime function types as kinds**. Type constructors
 
 Declare a generic parameter with a function-type kind to accept type constructors:
 
-```rust
+```yo
 // F is a type constructor (kind: Type → Type)
 identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : F(A)) -> F(A))(x);
 ```
@@ -585,7 +604,7 @@ identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type
 
 Define traits parameterized by type constructors:
 
-```rust
+```yo
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Type))(
   trait(
     map : (fn(generic(A : Type, B : Type), self : F(A), f : Impl(Fn(a : A) -> B)) -> F(B))
@@ -597,13 +616,15 @@ Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comp
 
 Use `where(F(A) <: SomeTrait(F))` to constrain type constructor applications:
 
-```rust
-do_map :: (fn(
-  generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
-  container: F(A),
-  f: Impl(Fn(a : A) -> B),
-  where(F(A) <: Functor(F))
-) -> F(B))(
+```yo
+do_map :: (
+  fn(
+    generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+    container : F(A),
+    f : Impl(Fn(a : A) -> B),
+    where(F(A) <: Functor(F))
+  ) -> F(B)
+)(
   container.map(generic(B), f)
 );
 ```
@@ -616,15 +637,15 @@ do_map :: (fn(
 
 Multi-parameter comptime functions can be partially applied using `_` as a placeholder:
 
-```rust
+```yo
 // Type constructors:
-IntResult :: Result(_, i32);     // kind: Type -> Type
-StrResult :: Result(str, _);     // kind: Type -> Type
+IntResult :: Result(_, i32); // kind: Type -> Type
+StrResult :: Result(str, _); // kind: Type -> Type
 
 // Comptime value functions:
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
-add1 :: add(i32(1), _);          // fn(comptime(__0) : i32) -> comptime(i32)
-result :: add1(i32(2));           // 3
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
+add1 :: add(i32(1), _); // fn(comptime(__0) : i32) -> comptime(i32)
+result :: add1(i32(2)); // 3
 ```
 
 Partial application works on **any** comptime function (functions whose return type is `comptime`). It cannot be used on runtime functions.
@@ -638,15 +659,16 @@ Partial application works on **any** comptime function (functions whose return t
 
 Combinators use `Impl(Fn(...))` callbacks, and the generic type parameter is inferred automatically. Lambda syntax `(a) => expr` works too — parameter types are inferred from context:
 
-```rust
+```yo
 (x : Option(i32)) = .Some(i32(5));
 
 // Lambda with fully inferred types:
-result := x.map((a) => (a * i32(2)));
+result := x.map(a => (a * i32(2)));
 // result = .Some(i32(10))
 
-chained := x.and_then((a) =>
-  cond((a > i32(0)) => Option(i32).Some((a * i32(2))), true => Option(i32).None)
+chained := x.and_then(
+  a =>
+    cond((a > i32(0)) => Option(i32).Some(a * i32(2)), true => Option(i32).None)
 );
 ```
 
@@ -654,7 +676,7 @@ chained := x.and_then((a) =>
 
 GADTs extend enum types with per-constructor return type annotations using `-> recur(...)`:
 
-```rust
+```yo
 Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     IntVal(i : i32) -> recur(i32),
@@ -704,12 +726,15 @@ Rules that follow from it:
   together; each message is checked against the variant it lands on, so a
   renamed/added/removed/reordered variant is a compile error.
 
-  ```rust
-  derive(JsonError, Error(
-    .UnexpectedChar => `unexpected character at position ${pos}`,
-    .UnexpectedEnd  => `unexpected end of input`,
-    .Other          => `JSON error: ${msg}`
-  ));
+  ```yo
+  derive(
+    JsonError,
+    Error(
+      .UnexpectedChar => `unexpected character at position ${pos}`,
+      .UnexpectedEnd => `unexpected end of input`,
+      .Other => `JSON error: ${msg}`
+    )
+  );
   ```
 
   The message is ordinary Yo spliced into the arm that binds the payload, so
@@ -842,7 +867,7 @@ Re-evaluating a function type's parameter/return type expressions with concrete 
 
 Only create `index.yo` when the directory contains a **single public module file whose name duplicates the directory name** (the `dir/dir.yo` pattern). Rename that file to `index.yo` so users get clean imports without repetition:
 
-```rust
+```yo
 // std/url/url.yo → std/url/index.yo
 // Users write:
 { Url } :: import("std/url");
@@ -870,7 +895,7 @@ Use a directory with `index.yo` only when the module already has or plans to hav
 
 Do **not** create `index.yo` re-export files for directories with multiple distinct submodules. Users should import each submodule explicitly:
 
-```rust
+```yo
 // CORRECT — explicit submodule imports:
 { TcpStream } :: import("std/net/tcp");
 { HashMap } :: import("std/collections/hash_map");
@@ -887,7 +912,7 @@ Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/cryp
 
 When a directory has a primary public file matching the directory name **plus** additional files, use an `index.yo` that re-exports all public submodules:
 
-```rust
+```yo
 // std/http/ has http.yo (types) + client.yo (async fetch)
 // std/http/index.yo re-exports both:
 _http :: import("./http.yo");
@@ -968,9 +993,9 @@ not value types. Mutations to a reference-semantics value's fields are visible t
 holders of the reference. Using `&(env)` creates a pointer-to-pointer
 (`*(Environment)`) which won't match `Environment`.
 
-```rust
+```yo
 // WRONG — unnecessary &() creates type mismatch:
-_some_fn(&(ee), &(ge));
+_some_fn(&ee, &ge);
 
 // CORRECT — just pass the reference-semantics value:
 _some_fn(ee, ge);
@@ -982,7 +1007,7 @@ Function parameters in Yo are immutable. To "reassign" an effect-handler
 variable that was passed in (e.g., `env`, `expected_env`, `env_mut`),
 use field-level assignment instead of variable reassignment:
 
-```rust
+```yo
 // WRONG — cannot reassign parameter:
 env_mut = result.env;
 
@@ -1002,13 +1027,13 @@ one parameter — the **effects struct** `e : E`. When the future needs
 go through `e.io` and `e.exn`. The closure body must NOT capture `io` or
 `exn` from the enclosing scope (CTL values cannot be captured).
 
-```rust
+```yo
 // WRONG — two parameters:
 io.async((io, exn) => { ... });
 
 // WRONG — captures enclosing io (CTL capture error):
 io.async((e : IoExn) => {
-  io.await(future, io);  // captured io!
+  io.await(future, io); // captured io!
 });
 
 // CORRECT — all effects through e:
@@ -1020,7 +1045,7 @@ io.async((e : IoExn) => {
 
 For `Io`-only futures, use `(io : Io) =>` — just the `Io` handler:
 
-```rust
+```yo
 // Io-only future: closure parameter is just Io
 io.async((io : Io) => {
   io.await(some_io_future(io), io);
@@ -1041,7 +1066,7 @@ The evaluator threads `Exception` explicitly as the last parameter of every
 function that may error — Yo has no ambient `throw`. Any new fallible helper
 needs `exn : Exception` as its last parameter, passed on to all callees:
 
-```rust
+```yo
 // Raise an error:
 exn.throw(dyn(format_error_message(...)));
 
@@ -1055,7 +1080,7 @@ evaluate_type_annotation(expr, env, ctx, exn);
 In `check` mode (no codegen), write field-level operations directly
 on the reference-semantics value:
 
-```rust
+```yo
 // WRONG — C pointer deref fails in check:
 env_ptr.* = info.env;
 

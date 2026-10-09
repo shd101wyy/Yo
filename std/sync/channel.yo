@@ -14,7 +14,7 @@
 //! t := Thread(unit).spawn(io => {
 //!   ch.send(i32(42));
 //! });
-//! val := ch.recv();   // blocks until data available
+//! val := ch.recv(); // blocks until data available
 //! assert(val.unwrap() == i32(42), "received value");
 //! t.join();
 //! ```
@@ -40,13 +40,13 @@
 //! ```yo
 //! { Channel } :: import("std/sync/channel");
 //!
-//! rx := Channel(i32).receiver(usize(4));   // queue + its one consumer
+//! rx := Channel(i32).receiver(usize(4)); // queue + its one consumer
 //! {
-//!   tx := rx.sender();                     // a counted producer
+//!   tx := rx.sender(); // a counted producer
 //!   tx.send(i32(1));
-//! };                                       // last sender dropped -> closed
-//! rx.recv().unwrap();                      // 1
-//! rx.recv();                               // .Err(Disconnected)
+//! }; // last sender dropped -> closed
+//! rx.recv().unwrap(); // 1
+//! rx.recv(); // .Err(Disconnected)
 //! ```
 //!
 //! ## Producers on other threads
@@ -59,12 +59,12 @@
 //! {
 //!   tx := rx.sender();
 //!   w := Thread(unit).spawn(io => {
-//!     tx.send(i32(7));                     // the capture is released when
-//!   });                                    // the thread's body returns
+//!     tx.send(i32(7)); // the capture is released when
+//!   }); // the thread's body returns
 //!   w.join();
-//! };                                       // and tx itself drops here
-//! rx.recv().unwrap();                      // 7
-//! rx.recv();                               // .Err(Disconnected)
+//! }; // and tx itself drops here
+//! rx.recv().unwrap(); // 7
+//! rx.recv(); // .Err(Disconnected)
 //! ```
 //!
 //! This did NOT work before 2026-09-11: a spawn closure's captures were never
@@ -77,13 +77,13 @@
 //! ```yo
 //! rx := Channel(i32).receiver(usize(16));
 //! {
-//!   keeper := rx.sender();                 // holds the count above zero
+//!   keeper := rx.sender(); // holds the count above zero
 //!   w := Thread(unit).spawn(io => {
-//!     tx := rx.sender();                   // this thread's producer
+//!     tx := rx.sender(); // this thread's producer
 //!     tx.send(i32(7));
-//!   });                                    // tx drops when the body ends
+//!   }); // tx drops when the body ends
 //!   w.join();
-//! };                                       // keeper drops -> closed
+//! }; // keeper drops -> closed
 //! ```
 //!
 //! ## Stability

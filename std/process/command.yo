@@ -33,10 +33,14 @@
 //! cmd.stdin(Stdio.Piped);
 //! cmd.stdout(Stdio.Piped);
 //! child := io.await(cmd.spawn(io), ie);
-//! match(child.take_stdin(), .Some(w) => {
-//!   io.await(w.write_string(`b\na\n`, io), ie);
-//!   io.await(w.close(io), ie);            // EOF — or just drop `w`
-//! }, .None => ());
+//! match(
+//!   child.take_stdin(),
+//!   .Some(w) => {
+//!     io.await(w.write_string(`b\na\n`, io), ie);
+//!     io.await(w.close(io), ie); // EOF — or just drop `w`
+//!   },
+//!   .None => ()
+//! );
 //! text := match(
 //!   child.take_stdout(),
 //!   .Some(r) => io.await(r.read_to_string(io), ie),

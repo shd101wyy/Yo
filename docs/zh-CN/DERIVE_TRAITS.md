@@ -6,7 +6,7 @@
 
 ## 基本用法
 
-```rust
+```yo
 { ToString } :: import("std/fmt"); // ToString 的 derive 规则位于 std/fmt
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
@@ -27,7 +27,7 @@ export(main);
 
 生成结构化相等比较。当所有字段相等时，两个值相等。需要显式类型参数：`Eq(Type)`。
 
-```rust
+```yo
 Color :: struct(r : u8, g : u8, b : u8);
 derive(Color, Eq(Color));
 
@@ -37,7 +37,7 @@ assert(Color(u8(255), u8(0), u8(0)) == Color(u8(255), u8(0), u8(0)), "same color
 
 对于枚举类型，相等性先检查变体标签，然后在变体匹配时比较字段：
 
-```rust
+```yo
 Shape :: enum(Circle(radius : i32), Rect(w : i32, h : i32));
 derive(Shape, Eq(Shape));
 
@@ -48,7 +48,7 @@ assert(.Circle(i32(5)) == .Circle(i32(5)), "same circle");
 
 生成 `hash(self, hasher)` —— Rust 风格的 `Hash` 方法，把值的"身份"字节喂给任意 `Hasher`。结构体按声明顺序喂入每个字段；枚举先喂入变体序号（`u64`），再喂入该变体的字段。具体算法由 hasher 决定：`HashMap`/`HashSet` 使用 SipHash-1-3（`std/hash` 的 `DefaultHasher`），`hash_one(value)` 用它对单个值求哈希。
 
-```rust
+```yo
 { hash_one, DefaultHasher } :: import("std/hash");
 derive(Point, Hash);
 // Point 现在实现了 Hash 特征
@@ -65,7 +65,7 @@ combined := hasher.finish();
 
 生成克隆方法，通过克隆每个字段来创建深拷贝。
 
-```rust
+```yo
 derive(Point, Clone);
 
 p := Point(i32(1), i32(2));
@@ -76,7 +76,7 @@ p2 := p.clone();
 
 生成字典序排序，从左到右比较字段。需要显式类型参数：`Ord(Type)`。对于枚举类型，先按判别值排序，再按字段值排序。
 
-```rust
+```yo
 derive(Point, Ord(Point));
 
 p1 := Point(i32(1), i32(2));
@@ -88,7 +88,7 @@ assert(p1 < p2, "p1 < p2");
 
 生成字符串表示。结构体产生 `TypeName(field1, field2, ...)` 格式。枚举产生 `TypeName.Variant` 或 `TypeName.Variant(field1, ...)` 格式。
 
-```rust
+```yo
 derive(Point, ToString);
 
 p := Point(i32(1), i32(2));
@@ -99,7 +99,7 @@ p := Point(i32(1), i32(2));
 
 生成一个各字段均取其自身类型默认值的值。**仅支持结构体**——枚举没有公认的默认变体，这种实现需要手写。
 
-```rust
+```yo
 Config :: struct(retries : i32, verbose : bool, name : String);
 derive(Config, Default);
 
@@ -115,7 +115,7 @@ d := (Config <: Default).default();
 
 生成与 `ToString` 相同的结构化渲染——结构体为 `TypeName(field1, field2, …)`，枚举为 `TypeName.Variant(…)`——但挂在 `Debug` 特征的 `debug_string` 上，于是一个类型可以同时拥有面向**开发者**的渲染和面向**用户**的 `to_string`。
 
-```rust
+```yo
 derive(Point, Debug);
 
 p := Point(i32(1), i32(2));
@@ -128,7 +128,7 @@ p := Point(i32(1), i32(2));
 
 从每个变体一条消息，同时生成 `ToString` **和** `Error`——相当于 `thiserror` 的 `#[error("…")]`，只是用 Yo 已有的语法写。**仅支持枚举**：结构体错误只有一条消息，直接手写那个 `ToString` impl 即可。
 
-```rust
+```yo
 JsonError :: enum(
   UnexpectedChar(ch : u8, pos : usize),
   UnexpectedEnd,
@@ -159,7 +159,7 @@ derive(
 
 可以在一次调用中使用可变编译期参数派生多个特征：
 
-```rust
+```yo
 derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 ```
 
@@ -169,7 +169,7 @@ derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
 所有标准派生都适用于枚举类型，包括带字段的枚举：
 
-```rust
+```yo
 // 无字段枚举
 Direction :: enum(North, South, East, West);
 derive(Direction, Eq(Direction), Hash, Clone, Ord(Direction), ToString);
@@ -189,7 +189,7 @@ derive(Shape, Eq(Shape), Clone, ToString);
 
 类型可以通过引用自身的字段进行派生，例如 `ArrayList(Self)` 或 `Rc(Self)`。派生出的方法借助容器自己的 impl 访问内部的值：下面 `Node` 派生的 `==` 用 `ArrayList(Node)` 的 `==` 比较 `children`，而后者又会调用 `Node` 的 `==`。
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 { println, ToString } :: import("std/fmt");
 
@@ -221,7 +221,7 @@ export(main);
 
 派生规则是一个编译期函数，签名为：
 
-```rust
+```yo
 fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
 ```
 
@@ -233,7 +233,7 @@ fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : C
 
 ### 示例：结构体相等性
 
-```rust
+```yo
 // 定义自定义相等特征
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
@@ -291,13 +291,14 @@ derive(Point, MyEq(Point));
 
 对于无字段枚举，使用 `Type.map_variants` 生成 match 分支：
 
-```rust
+```yo
 info.is_enum() => {
   match_branches :: Type.map_variants(
     T,
     (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
       quote(
-        .(#(variant.name.to_expr())) => match(other,
+        .(#(variant.name.to_expr())) => match(
+          other,
           .(#(variant.name.to_expr())) => true,
           _ => false
         )
@@ -312,7 +313,7 @@ info.is_enum() => {
 
 派生规则支持使用 `generic` 和 `where` 的泛型类型：
 
-```rust
+```yo
 Pair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );

@@ -155,7 +155,7 @@ my-project/
 
 `src/main.yo`：
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 main :: (fn() -> unit)({
@@ -209,7 +209,7 @@ $ yo doc ./src -o docs --title "我的项目"
 
 ### Hello World
 
-```rust
+```yo
 // main.yo
 { println } :: import("std/fmt");
 

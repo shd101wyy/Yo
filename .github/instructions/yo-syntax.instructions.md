@@ -25,7 +25,7 @@ description: "Use when writing or editing Yo language code. Covers critical synt
 - If you want a single expression, write `expr` directly. Don't wrap it in `{...}` unless you need a struct.
 - **The parser now detects this mistake and emits a clear error**: if `{ }` contains a single non-struct expression (a function call, `match`, `cond`, `while`, etc.), it fails with: `{ ... } without semicolons is parsed as a struct literal, not a block.`
 
-```rust
+```yo ignore
 // WRONG - creates a struct:
 result := { .Ok(()) }
 
@@ -124,14 +124,14 @@ Fmt KEEPS these — the grammar needs them; do not remove by hand:
 
 `if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The prelude macro that used to back this was DELETED 2026-08-30 once the v0.2.20 seed shipped the desugar (plans/reference/MACRO_POLICY.md Part 3.2) — an `if` call the desugar leaves alone (odd arity, mismatched labels, a dynamically built AST) is now an error:
 
-```rust
+```yo ignore
 if(condition, then_body)        // → cond(condition => then_body, true => ())
 if(condition, then_body, else)  // → cond(condition => then_body, true => else)
 ```
 
 Use `if` for simple two-branch conditionals — especially for comptime early-return guards:
 
-```rust
+```yo
 if(arch == Arch.Wasm32, {
   printf("  skipped on wasm32\n");
   return();
@@ -165,27 +165,27 @@ spellings are correct; the annotated form is the idiom inside `io.async`
 (`io.async((io : Io) => ...)`) and wherever the expected signature is not
 obvious.
 
-```rust
+```yo
 // CORRECT — types inferred from expected Fn signature:
-filtered := iter.filter((x) => (x.* > i32(2)));
+filtered := iter.filter(x => (x.* > i32(2)));
 
 // CORRECT — single parameter, parens optional:
 filtered := iter.filter(x => (x.* > i32(2)));
 
 // CORRECT — annotated `=>` parameter (annotation is documentation only):
-filtered := iter.filter((x : *(i32)) => (x.* > i32(2)));
+filtered := iter.filter((x : *i32) => (x.* > i32(2)));
 ```
 
 Use the full `fn(...)` form when the closure needs a standalone signature
 for a typed slot:
 
-```rust
+```yo
 // Use fn(...) form when the value needs a standalone signature:
-pred :: (fn(x : *(i32)) -> bool)(x.* > i32(2));
+pred :: (fn(x : *i32) -> bool)(x.* > i32(2));
 filtered := iter.filter(pred);
 
 // Or inline:
-filtered := iter.filter((fn(x : *(i32)) -> bool)(x.* > i32(2)));
+filtered := iter.filter((fn(x : *i32) -> bool)(x.* > i32(2)));
 ```
 
 **Nested `=>` needs explicit right parens.** An unparenthesized `(p1) => (p2) => body`
@@ -194,7 +194,7 @@ then fails with a confusing evaluator error ("Expected a function type…") long
 after parsing. A closure returning a closure (in any slot whose expected type
 supplies the signature) is written with the right group, which fmt keeps:
 
-```rust
+```yo ignore
 // CORRECT — the inner closure is the RIGHT operand, grouped:
 (x : i32) => ((y : i32) => ((x + y)))
 
@@ -213,7 +213,7 @@ Enum variants are defined **without** the `.` prefix. The `.` prefix is only use
 
 **Use `Self` to refer to the enum type itself** inside the `enum(...)` definition — the type name is not yet available during the definition. This applies to recursive types using `Rc(Self)`, `ArrayList(Self)`, etc.:
 
-```rust
+```yo
 // CORRECT — use Self for recursive references:
 Expr :: enum(
   Atom(id : ExprId, token : Token),
@@ -240,7 +240,8 @@ Color :: enum(.Red, .Green, .Blue);
 (x : Option(i32)) = .Some(i32(42));
 
 // Dots are used in match branches:
-match(c,
+match(
+  c,
   .Red => println(`red`),
   .Green => println(`green`),
   .Blue => println(`blue`)
@@ -273,7 +274,7 @@ Note how the prefix rule disambiguates `&x, y`: a bare `&` binds ONE
 postfix expression, so `call(&x, y)` passes a pointer to `x` plus `y`.
 Taking the address of a tuple needs the call form:
 
-```rust
+```yo ignore
 // Pointer to x, plus y (bare prefix binds one postfix expression):
 call(&x, y)      // same as call(&(x), y)
 
@@ -283,8 +284,8 @@ call(&(x, y))
 
 Parens are also required for zero-argument control flow:
 
-```rust
-if((arch == Arch.Wasm32), {
+```yo
+if(arch == Arch.Wasm32, {
   return();
 });
 ```
@@ -302,7 +303,7 @@ Yo has **no operator precedence**. Two rules:
    operator: `x := a + b;` is E0003 — write `x := (a + b);`, `ok := (p && q);`,
    `end : (j + usize(1))`.
 
-```rust
+```yo ignore
 // CORRECT — same operator, no nesting needed:
 (A | B | C | D)
 1 + 2 + 3        // ⇒ (1 + 2) + 3
@@ -320,7 +321,7 @@ associativity; it has been removed — see `plans/archive/OPERATOR_ASSOCIATIVITY
 `:`, `:=`, `=`, `::`, and `->` are ordinary operators with no precedence, so a
 type/value containing a _different_ top-level operator must be parenthesized:
 
-```rust
+```yo ignore
 // `:` vs `->` — wrap the fn type:
 next : (fn(inout(self) : Self) -> Option(Self.Item))
 
@@ -350,7 +351,7 @@ prefix operator (`-` `!` `~` `&` `*` `?` `^`) followed by a primary is
 valid: it binds exactly one postfix expression — the primary plus its
 dot-chains and calls — and nothing more.
 
-```rust
+```yo ignore
 // Valid, and preferred in NEW user code:
 x := -1;
 assert(!d.is_empty(), "bare prefix binds the whole call chain");
@@ -374,7 +375,7 @@ v0.2.21 ships it — and the 2026-09-02 tree sweep converted `src/`,
 one postfix expression. Since unary and infix are _different operators
 with no precedence_, write the other intent with parens:
 
-```rust
+```yo ignore
 // (NOT x) AND y:
 !x && y
 
@@ -403,7 +404,7 @@ The right shape for a function parameter depends on what kind of type the value 
 
 **Anti-patterns to avoid:**
 
-```rust
+```yo ignore
 // ✗ Pointer on a reference-semantics type — wraps a reference in another reference
 foo : (fn(ctx : *(EvalContext)) -> unit)({ ctx.*.method() })
 
@@ -426,12 +427,12 @@ When choosing between `inout(self) : Self` and `self : Self` for a method receiv
 
 Yo does **not** allow a function to call itself by name. Use the `recur` keyword instead:
 
-```rust
+```yo
 // WRONG — "Variable 'factorial' not found":
 factorial :: (fn(n : i32) -> i32)(
   cond(
     (n <= i32(1)) => i32(1),
-    true => (n * factorial((n - i32(1))))
+    true => (n * factorial(n - i32(1)))
   )
 );
 
@@ -439,15 +440,16 @@ factorial :: (fn(n : i32) -> i32)(
 factorial :: (fn(n : i32) -> i32)(
   cond(
     (n <= i32(1)) => i32(1),
-    true => (n * recur((n - i32(1))))
+    true => (n * recur(n - i32(1)))
   )
 );
 ```
 
 For methods, pass `self` explicitly as the first argument:
 
-```rust
-impl(Tree,
+```yo
+impl(
+  Tree,
   depth : (fn(self : Self) -> i32)(
     cond(
       self.is_leaf() => i32(0),
@@ -465,9 +467,9 @@ impl(Tree,
 
 **Pattern for async recursion**: Replace recursion with an iterative worklist:
 
-```rust
+```yo
 // WRONG — "Variable 'walk_dir' not found" inside io.async:
-walk_dir :: (fn(path: Path, io: Io) -> Impl(Future(unit, Io)))(
+walk_dir :: (fn(path : Path, io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
     entries := io.await(read_dir(path, io), io);
     // CANNOT call walk_dir recursively here
@@ -477,10 +479,12 @@ walk_dir :: (fn(path: Path, io: Io) -> Impl(Future(unit, Io)))(
 // CORRECT — bundle the needed effects into one struct and iterate with a stack:
 WalkCtx :: struct(io : Io, exn : Exception);
 
-walk_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
+walk_dir :: (fn(root : Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   io.async((ctx : WalkCtx) => {
     stack := ArrayList(Path).new();
-    { stack.push(root); };
+    {
+      stack.push(root);
+    };
     while(stack.len() > usize(0), {
       cur := match(stack.pop(), .Some(p) => p, .None => return());
       entries := ctx.io.await(read_dir(cur, ctx.io), ctx.io);
@@ -494,7 +498,7 @@ walk_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 
 `Self` works inside generic type constructor functions too — it refers to the current type instantiation (e.g., `Tree(T)` inside `Tree`):
 
-```rust
+```yo
 // CORRECT — Self refers to Tree(T):
 Tree :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
@@ -527,7 +531,7 @@ Use `recur(args)` only when calling the type constructor with **different** type
 
 Use destructured imports for files in the same directory:
 
-```rust
+```yo
 // CORRECT — destructured import with relative path:
 { RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
 
@@ -557,19 +561,19 @@ For files within the same directory, always use relative paths (`./file.yo`). Fo
 
 GADT constructors use `-> recur(Type1, Type2, ...)` after fields to specify the return type:
 
-```rust
+```yo
 Value :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
-    IntVal(i : i32) -> recur(i32),       // constructs Value(i32)
-    BoolVal(b : bool) -> recur(bool),    // constructs Value(bool)
-    MGeneric(v : T)                       // no annotation = unconstrained
+    IntVal(i : i32) -> recur(i32), // constructs Value(i32)
+    BoolVal(b : bool) -> recur(bool), // constructs Value(bool)
+    MGeneric(v : T) // no annotation = unconstrained
   )
 );
 ```
 
 With discriminants, wrap the variant in parentheses:
 
-```rust
+```yo
 Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     (TagInt(i : i32) -> recur(i32)) = 10,
@@ -602,13 +606,13 @@ Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 User code is memory-safe by default. To use raw pointers, a `.yo` file must declare `pragma(Pragma.AllowUnsafe);` at the top — this opts the entire file into unsafe-capability. Without the pragma, `unsafe(...)` itself is a compile error and pointer ops are forbidden.
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 
 main :: (fn() -> unit)({
   x := i32(42);
-  p := &(x);
-  v := unsafe(p.*);   // OK
+  p := &x;
+  v := unsafe(p.*); // OK
 });
 ```
 
@@ -637,7 +641,7 @@ address, because the seed predates that fix.
 
 `pragma(...)` is also a regular builtin call. The argument `Pragma.AllowUnsafe` is recognized at the AST level; you can place the pragma anywhere at the top of the file (after the file's leading `//` comments). Multiple `pragma(...)` declarations are allowed.
 
-```rust
+```yo
 // Single expression:
 v := unsafe(p.*);
 
@@ -645,15 +649,17 @@ v := unsafe(p.*);
 unsafe(p.* = i32(12));
 
 // cond / match wrapped directly (no braces — `{...}` without `;` is a struct):
-result := unsafe(cond(
-  (n > i32(0)) => p.*,
-  true => i32(0)
-));
+result := unsafe(
+  cond(
+    (n > i32(0)) => p.*,
+    true => i32(0)
+  )
+);
 
 // Multi-statement begin-block (semicolons required):
 n := unsafe({
   p.* = i32(1);
-  (p.* + i32(2))
+  p.* + i32(2)
 });
 ```
 
@@ -663,15 +669,15 @@ n := unsafe({
 
 Even inside a pragma'd file, every `extern "c"` call site must be wrapped in `unsafe(...)`. The pragma authorizes DECLARING the FFI symbol (via `extern(...)` / `c_include(...)`); the wrap is the per-call audit marker that lets `yo unsafe-report` line up with the actual UB-capable lines.
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 { memcpy, strlen } :: import("std/libc/string");
 
-copy :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
-  _ := unsafe(memcpy((*void)(dst), (*void)(src), n));   // wrap required
+copy :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
+  _ := unsafe(memcpy((*void)(dst), (*void)(src), n)); // wrap required
 });
 
-len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
+len :: (fn(s : *char) -> usize)(unsafe(strlen(s))); // wrap required
 ```
 
 `asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
@@ -689,9 +695,9 @@ expression (same rule as `-f(x)` ⇒ `-(f(x))`). So `*void(p)` parses as
 pointer-type constructor must get a TYPE as its operand, then the resulting
 pointer type is called with the value:
 
-```rust
-free(.Some((*void)(buf)));    // CANONICAL — grouped type, then the value
-free(.Some(*(void)(buf)));    // same AST, but yo fmt rewrites it to the above
+```yo
+free(.Some((*void)(buf))); // CANONICAL — grouped type, then the value
+free(.Some((*void)(buf))); // same AST, but yo fmt rewrites it to the above
 ```
 
 `(*void)(buf)` and `*(void)(buf)` parse identically; the grouped form is the one
@@ -709,9 +715,9 @@ transpile in comparisons (`n <= isize(0)` emits `// Failed to transpile` in
 condition position — a class `yo check` cannot see; the C compiler then
 errors). Casts DO emit correctly, so bind through a cast at the call site:
 
-```rust
+```yo
 // WRONG — may emit "// Failed to transpile n <= isize(0)":
-n := unsafe(write(int(fd), (*void)(p), count));   // n : ssize_t
+n := unsafe(write(int(fd), (*void)(p), count)); // n : ssize_t
 if(n <= isize(0), { ... });
 
 // CORRECT — cast to a Yo integer at the binding:
@@ -766,13 +772,13 @@ that predates the traps.)
 On compile-time constants the same expressions are compile errors (E1102), and a left shift
 wraps the bits it shifts out exactly as at run time:
 
-```rust
-y := (i32(2147483647) + i32(1));   // ERROR E1102: Integer overflow in compile-time evaluation
-z :: (i32(1) << 31);               // OK: i32(-2147483648), like the run time
-w :: (i32(1) << 40);               // ERROR E1102: shift count 40 is out of range for i32 (0..32)
-v :: (-(i8(-128)));                // ERROR E1102: -(-128) does not fit in i8
+```yo
+y := (i32(2147483647) + i32(1)); // ERROR E1102: Integer overflow in compile-time evaluation
+z :: (i32(1) << 31); // OK: i32(-2147483648), like the run time
+w :: (i32(1) << 40); // ERROR E1102: shift count 40 is out of range for i32 (0..32)
+v :: -i8(-128); // ERROR E1102: -(-128) does not fit in i8
 x := i32(2147483647);
-q := (x + i32(1));                  // runtime add: ABORTS (use x.wrapping_add(i32(1)) to wrap)
+q := (x + i32(1)); // runtime add: ABORTS (use x.wrapping_add(i32(1)) to wrap)
 ```
 
 A test that asserts wrap-around therefore needs `wrapping_*` on runtime values; a folded
@@ -792,12 +798,12 @@ operator `comptime_int` lacks defaults to `i32` — write `u64(1) << u64(40)`.
 
 Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment explaining the contract (what invariant guarantees the deref/arith is in bounds and the pointer is live). `yo unsafe-report` scans the previous ~8 lines preceding each unsafe site and surfaces the comment in the report.
 
-```rust
+```yo
 match(
   self._ptr,
   // SAFETY: idx bounds-checked above (idx < self._length);
   // _ptr points at the Rc-managed heap buffer.
-  .Some(_ptr) => (_ptr.add(idx)),
+  .Some(_ptr) => _ptr.add(idx),
   .None => __yo_panic("ArrayList: empty")
 )
 ```
@@ -818,7 +824,7 @@ A value type (`struct`/`enum`/`newtype`) that implements `Dispose`, or a plain o
 
 For mutating a caller's variable without raw pointers, use the `inout` parameter modifier. It wraps the parameter name (parallel to `sink(name)`) and gives second-class reference semantics — reads/writes through the parameter access the caller's storage.
 
-```rust
+```yo
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
@@ -828,8 +834,8 @@ swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // no `&()` syntax at the call site
-  assert((x == i32(2)), "swapped");
+  swap(x, y); // no `&()` syntax at the call site
+  assert(x == i32(2), "swapped");
 });
 ```
 
@@ -871,11 +877,17 @@ Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level
 
 The `for` macro is a 2-argument prelude macro. The value form iterates BY VALUE (it expands to `coll.into_iter()`); the BORROWED form `for(coll, inout(x) => body)` / `for(map, (k, inout(v)) => body)` binds each element as an `inout` local into the collection's storage (pointer iterator `iter()` under the hood):
 
-```rust
-for(list, (x) => { process(x); });               // value form: macro expands to list.into_iter()
-for(counters, (c) => { c.n = (c.n + 1); });      // ref(struct(...)) elements are HANDLES: mutates in place
-for(names, inout(s) => { s.push_str("!"); });    // value elements (String, …): the borrowed form writes in place
-for(chain.map(f), (y) => println(y));            // combinator chain: pass as the value-form iterator
+```yo
+for(list, x => {
+  process(x);
+}); // value form: macro expands to list.into_iter()
+for(counters, c => {
+  c.n = (c.n + 1);
+}); // ref(struct(...)) elements are HANDLES: mutates in place
+for(names, inout(s) => {
+  s.push_str("!");
+}); // value elements (String, …): the borrowed form writes in place
+for(chain.map(f), y => println(y)); // combinator chain: pass as the value-form iterator
 ```
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
@@ -900,15 +912,15 @@ Always use `func(a, b)` with no space. Never `func (a, b)` or `func a, b`.
 
 Use `_` as a placeholder argument to partially apply any comptime function:
 
-```rust
+```yo
 // Type constructors (return comptime(Type)):
-IntResult :: Result(_, i32);    // fn(comptime(T) : Type) -> comptime(Type)
-(r : IntResult(bool)) = .Ok(true);  // = Result(bool, i32)
+IntResult :: Result(_, i32); // fn(comptime(T) : Type) -> comptime(Type)
+(r : IntResult(bool)) = .Ok(true); // = Result(bool, i32)
 
 // Comptime value functions:
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
-add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
-result :: add1(i32(2));   // 3
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
+add1 :: add(i32(1), _); // fn(comptime(y) : i32) -> comptime(i32)
+result :: add1(i32(2)); // 3
 ```
 
 - `_` is only valid in arguments to **comptime functions** (functions with `comptime` return type)
@@ -919,7 +931,7 @@ result :: add1(i32(2));   // 3
 
 `return expr` is invalid. Use `return(expr)` or `return()` for unit. Inside match/cond branches, use begin blocks when you need early return:
 
-```rust
+```yo ignore
 // WRONG — paren-less return:
 match(opt,
   .Some(p) => return str.from_raw_parts(p, len),
@@ -939,10 +951,11 @@ match(opt,
 
 Better yet, if the entire function body is just a match/cond expression, use the expression form (no body block) to avoid needing `return` at all:
 
-```rust
+```yo
 // BEST — expression form, no return needed:
-raw_bytes : (fn(self: Self) -> RawSlice(u8))(
-  match(self._bytes._ptr,
+raw_bytes : (fn(self : Self) -> RawSlice(u8))(
+  match(
+    self._bytes._ptr,
     .Some(p) => RawSlice(u8)(ptr : p, len : self._bytes._length),
     .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0))
   )
@@ -997,21 +1010,20 @@ Rules that follow:
 
 Match arms support three destructuring shapes for enum variants. All three coexist (different arms can use different forms within the same `match`):
 
-```rust
+```yo
 Shape :: enum(
   Circle(radius : i32),
   Rectangle(width : i32, height : i32),
   Triangle(base : i32, height : i32, label : str)
 );
 
-match(s,
+match(
+  s,
   // ✅ Preferred — Curly shorthand: `{a, b: c}` names only the fields
   //    the arm uses. Order-free, partial matches allowed.
-  .Triangle({base, height: h}) => (base * h),
-
+  .Triangle({ base, height : h }) => (base * h),
   // Also OK — Labeled `(label: var)` pairs. Order-free, partial matches OK.
-  .Circle(radius: r) => (r * r),
-
+  .Circle(radius : r) => (r * r),
   // ⚠️ Avoid for variants with 2+ fields — Positional ordering with `_`
   //    padding is brittle (adding a field shifts every later position)
   //    and hard to read (each `_` requires counting fields). Fine when
@@ -1067,9 +1079,9 @@ The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)`
 
 When a generic function has `where(T <: Trait)`, calling `self.method()` on a parameter of type `T` dispatches to `Trait`'s method:
 
-```rust
+```yo
 use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
-  return(self.get_number());  // Dispatches to T1.get_number
+  return(self.get_number()); // Dispatches to T1.get_number
 });
 ```
 
@@ -1077,9 +1089,9 @@ use_t1 :: (fn(generic(T : Type), self : T, where(T <: T1)) -> i32)({
 
 Use `(T <: Trait).method(self)` to explicitly select which trait's method to call:
 
-```rust
+```yo
 use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
-  return((T <: T2).get_number(self));  // Explicitly calls T2.get_number
+  return((T <: T2).get_number(self)); // Explicitly calls T2.get_number
 });
 ```
 
@@ -1093,7 +1105,7 @@ This is necessary when:
 
 `impl(...)` is a statement and requires a trailing `;` at the top level:
 
-```rust
+```yo ignore
 // WRONG — missing semicolon causes "Invalid function call on type":
 impl(MyType,
   get : (fn(self : Self) -> i32)(self.x)
@@ -1129,7 +1141,7 @@ longer are.
 
 Yo does not allow redeclaring `___` twice in the same begin-block scope. Each use is a fresh variable binding and shadowing is not allowed:
 
-```rust
+```yo
 // WRONG — second `___` shadows the first, causing a compile error:
 ___ := foo();
 ___ := bar();
@@ -1149,19 +1161,19 @@ bar();
 
 `ArrayList(T)` implements the `Index` trait, so elements can be accessed with call syntax:
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 
 list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 
-val := list(usize(0));       // → i32  (value copy)
-list(usize(0)) = i32(99);   // mutate in place directly (preferred)
+val := list(usize(0)); // → i32  (value copy)
+list(usize(0)) = i32(99); // mutate in place directly (preferred)
 
 // When you need the pointer explicitly:
-ptr := &(list(usize(0)));    // → *(i32)
-ptr.* = i32(100);            // also works
+ptr := &list(usize(0)); // → *(i32)
+ptr.* = i32(100); // also works
 ```
 
 - `list(i)` returns the value `T` directly (not a pointer)
@@ -1174,20 +1186,20 @@ ptr.* = i32(100);            // also works
 
 The Index trait method `.index(i)` returns `*(T)`. The verbose form
 
-```rust
-(&(self.field)).index(i).* = value;    // ✗ writes through raw pointer
-elem := (&(self.field)).index(i).*;    // ✗ same, but as a read
-v := list.get(i).unwrap();             // ✗ Option unwrap of safe form
+```yo
+(&self.field).index(i).* = value; // ✗ writes through raw pointer
+elem := (&self.field).index(i).*; // ✗ same, but as a read
+v := list.get(i).unwrap(); // ✗ Option unwrap of safe form
 ```
 
 requires `pragma(Pragma.AllowUnsafe);` because of the `.*` deref, and
 just clutters the call site. Use the call-syntax form everywhere it
 works:
 
-```rust
-self.field(i) = value;                 // ✓ same write, no `.*`
-elem := self.field(i);                 // ✓ same read
-v := list(i);                          // ✓ same panic-on-OOB semantics
+```yo
+self.field(i) = value; // ✓ same write, no `.*`
+elem := self.field(i); // ✓ same read
+v := list(i); // ✓ same panic-on-OOB semantics
 ```
 
 Out-of-bounds panic is preserved — `list(i)` panics via the Index
@@ -1201,10 +1213,11 @@ multiple times, or when borrowing through a non-Index trait method.
 
 `::` definitions and `impl(...)` registrations at module level are **order-independent** (`docs/en-US/DEFINITION_ORDER.md`, landed 2026-09-05): a body may call a function, name a type or constant, or use a method / trait default whose definition or `impl` appears later in the same file; bare-name self-recursion and mutual recursion between free functions work; `export(...)` may name a later definition. The walker pre-scans the module and forces a pending definition on the first lookup that would otherwise miss, so order-correct programs evaluate exactly as before.
 
-```rust
+```yo
 // OK — evaluate references eval_atom, defined below:
 evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
-  match(e,
+  match(
+    e,
     .Atom(tok) => eval_atom(tok, env),
     _ => .None
   )
@@ -1222,11 +1235,11 @@ Inside one `impl(...)` block, sibling methods reference each other through `self
 
 When constructing a `struct(...)` or `ref(struct(...))` value, always use named field syntax:
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
 
 // CORRECT — named fields:
-p := Point(x: i32(1), y: i32(2));
+p := Point(x : i32(1), y : i32(2));
 
 // WRONG — positional construction for struct/ref(struct(...)) is not supported:
 p := Point(i32(1), i32(2));
@@ -1234,7 +1247,7 @@ p := Point(i32(1), i32(2));
 
 `enum` variant construction is positional (fields are matched by order):
 
-```rust
+```yo
 // CORRECT — enum variants use positional args:
 (v : Option(i32)) = .Some(i32(42));
 ```
@@ -1262,7 +1275,7 @@ A clause out of order — `ensures` before `requires`, `where` after
 `requires`, a regular param after `where`/`requires` — is a syntax
 error ("X appears after Y in the function signature").
 
-```rust
+```yo
 // requires = precondition, ensures = postcondition. Name the return to use
 // it in `ensures` (labeled return type):
 divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> (result : i32))(
@@ -1282,7 +1295,7 @@ divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y)
   `old(expr)` is the value of `expr` on function entry (correct for
   mutated `inout(name) : T` params).
 
-```rust
+```yo
 increment :: (fn(inout(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
   n = (n + i32(1));
 });
@@ -1293,7 +1306,7 @@ increment :: (fn(inout(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + 
 
 ### `invariant(...)` is the FIRST statement of a `while` body
 
-```rust
+```yo
 while(i < n, {
   invariant((i >= i32(0)) && (i <= n), acc >= i32(0)); // must be first
   i = (i + i32(1));
@@ -1312,8 +1325,8 @@ a nested block — is a syntax error. (Type-body invariants inside
 - `ghost_fn(fn_value)` — declares a ghost (spec-only) function. These
   are SEPARATE builtins; do not write `ghost(some_fn_value)`.
 
-```rust
-permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)(/* ... */));
+```yo
+permutation :: ghost_fn((fn(a : ArrayList(i32), b : ArrayList(i32)) -> bool)( /* ... */));
 ```
 
 ### Pragmas
@@ -1359,18 +1372,34 @@ Error: Frame level 7 has different number of values for different cases.
 This bites hardest when adding temporary instrumentation, because the edit looks
 completely innocuous:
 
-```rust
+```yo
 // BEFORE — fine
-match(t, .SomeT({ id : rid }) => match(lookup(rid), .Some(g) => { r = g; }, .None => ()), _ => ());
+match(
+  t,
+  .SomeT({ id : rid }) => match(
+    lookup(rid),
+    .Some(g) => {
+      r = g;
+    },
+    .None => ()
+  ),
+  _ => ()
+);
 
 // AFTER — "Frame level N has different number of values"
 match(
   t,
   .SomeT({ id : rid }) => {
-    eprintln(`probe ${rid}`);          // <-- extra frame value in THIS arm only
-    match(lookup(rid), .Some(g) => { r = g; }, .None => ());
+    eprintln(`probe ${rid}`); // <-- extra frame value in THIS arm only
+    match(
+      lookup(rid),
+      .Some(g) => {
+        r = g;
+      },
+      .None => ()
+    );
   },
-  _ => ()                               // <-- sibling still empty
+  _ => () // <-- sibling still empty
 );
 ```
 
@@ -1402,32 +1431,37 @@ A `(fn(...) -> T)(body)` literal is a plain function, not a closure. It cannot
 see the enclosing scope's locals, and referring to one is a hard error at the
 USE site, which reads as if the variable never existed:
 
-```rust
+```yo
 test("...", {
   m := BTreeMap(i32, i32).new();
   // WRONG — `m` is not in scope inside a `fn` literal.
   count := (fn(lo : i32, hi : i32) -> usize)({
-    it := m.range(lo .. hi);   // error[E0401]: Variable "m" not found.
+    it := m.range(lo .. hi); // error[E0401]: Variable "m" not found.
     ...
-  });
+    });
 });
 ```
 
 Two ways out, in order of preference:
 
-```rust
+```yo
 // 1. Pass it in. Explicit, and it works for every value type.
 count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
   it := mm.range(lo .. hi);
   ...
-});
+  });
 count(m, i32(3), i32(6));
 
 // 2. Use a closure, which does capture — BY VALUE. A list two places
 //    write on purpose is an explicit shared handle, `Rc(ArrayList(T))`, so a
 //    closure can be used as a recorder:
 calls := rc(ArrayList(i32).new());
-f := (() => { calls.*.push(i32(1)); i32(7) });
+f := (
+  () => {
+    calls.*.push(i32(1));
+    i32(7)
+  }
+);
 ```
 
 That by-value rule is why an `i32` counter mutated inside a closure never comes
@@ -1492,7 +1526,7 @@ callable`.
 `io.async` is the same rule, not a special case: its `action` parameter is an
 ordinary `Impl(Fn(e : E) -> T)` slot, so a bare block is now an error.
 
-```rust
+```yo ignore
 // WRONG — a block is not a closure. This used to type-check, run EAGERLY in
 // the enclosing function, and return no future at all:
 io.async({

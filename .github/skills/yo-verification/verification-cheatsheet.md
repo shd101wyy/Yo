@@ -57,7 +57,7 @@ verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error
 
 ## Contracts
 
-```rust
+```yo
 pragma(Pragma.Verify);
 
 abs_i32 :: (fn(x : i32, requires(x > i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
@@ -86,7 +86,7 @@ safe_div :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(r == (x / y))) 
 
 ## Loop invariants
 
-```rust
+```yo
 pragma(Pragma.Verify);
 
 sum_to :: (
@@ -127,7 +127,7 @@ sum_to :: (
 
 ## Laws: claims outside the code
 
-```rust
+```yo
 pragma(Pragma.Verify);
 
 abs_value :: (
@@ -169,12 +169,13 @@ abs_doubles_nonneg :: law(
 
 ## Refinements (`std/spec`)
 
-```rust
+```yo
 { NonZero, check_non_zero } :: import("std/spec/refine");
 
 safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)(num / denom);
 
-match(check_non_zero(i32(2)),      // runtime gate: Option(NonZero(i32))
+match(
+  check_non_zero(i32(2)), // runtime gate: Option(NonZero(i32))
   .Some(denom) => safe_div(i32(10), denom),
   .None => i32(0)
 );
@@ -212,7 +213,7 @@ match(check_non_zero(i32(2)),      // runtime gate: Option(NonZero(i32))
 
 ## Verification in the build
 
-```rust
+```yo
 build :: import("std/build");
 
 proofs :: build.verify({ name : "proofs", root : "./src" }); // mode Verify, strict false

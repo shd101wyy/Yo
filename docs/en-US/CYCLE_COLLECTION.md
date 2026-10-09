@@ -6,7 +6,7 @@ Yo uses **non-atomic reference counting** with **thread-local cycle collection**
 
 Reference counting cannot reclaim cycles:
 
-```rust
+```yo
 Node :: ref(struct(value : i32, next : Option(Self)));
 
 // Create a cycle
@@ -94,7 +94,7 @@ After creating 400 more objects → GC runs, 300 survive → threshold = max(256
 
 **Explicit collection** can also be triggered via `gc.collect()`:
 
-```rust
+```yo
 { collect, tracked_count } :: import("std/gc");
 
 // Force cycle collection
@@ -220,7 +220,7 @@ Yo uses **complete thread isolation** - spawned tasks run on separate threads wi
 3. No need to track which objects can be "stolen" - nothing moves between threads
 4. Only value types can be sent between threads (copied, not shared)
 
-```rust
+```yo
 // Parent thread
 x := 42;
 node := Node(1, .None); // Cycle-forming type, stays on this thread
@@ -256,7 +256,7 @@ handle.join();
 
 **Common patterns:**
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 { Channel } :: import("std/sync/channel");
 
@@ -347,7 +347,7 @@ Global impact: Zero (other threads continue running)
 
 ## API
 
-```rust
+```yo
 { collect, tracked_count } :: import("std/gc");
 
 collect(); // Trigger an immediate cycle collection
@@ -369,7 +369,7 @@ variables read by the emitted runtime:
 
 Compiler generates tracking code for cycle-forming types:
 
-```rust
+```yo
 // User code
 Node :: ref(struct(value : i32, next : Option(Node)));
 
@@ -436,7 +436,7 @@ Cycle collection rests on one contract: the collector must be able to enumerate 
 managed references each object holds. That contract is the `Trace` trait, defined in
 `std/prelude.yo`:
 
-```rust
+```yo
 Trace :: trait(
   id := "Trace",
   trace : (fn(self : Self, tracer : GcTracer) -> unit)
@@ -470,7 +470,7 @@ auto-derived field walk stops at the raw buffer pointer and never reaches the el
 so the container must trace each element slot itself. `ArrayList` (in
 `std/collections/array_list.yo`):
 
-```rust
+```yo
 impl(
   generic(T : Type),
   ArrayList(T),
@@ -496,7 +496,7 @@ impl(
 
 `GcTracer` is an opaque handle that carries the collector's edge-registration callback:
 
-```rust
+```yo
 GcTracer :: newtype(_callback : *u8);
 
 // (in `impl(GcTracer, ...)`)

@@ -28,7 +28,7 @@ function pointers are passed as extra C parameters.
 
 A handler is a **control function**, written `ctl(args) -> ret`:
 
-```rust
+```yo
 // Declare a handler type
 Raise :: (ctl(msg : String) -> i32);
 
@@ -60,7 +60,7 @@ result := safe_divide(1, 0, raise);
 - **`return(value)`** — resumes the continuation with `value` at the
   effect call site.
 
-```rust
+```yo
 Raise :: (ctl(msg : String) -> i32);
 
 // Unwind handler: discards continuation. The enclosing function
@@ -89,7 +89,7 @@ and forwards it does _not_ itself need to be `ctl` — the unwind
 targets the handler's install frame, which is above the propagating
 function in the call stack.
 
-```rust
+```yo
 // `wrapper` is plain `fn` even though it forwards a ctl handler.
 wrapper :: (fn(x : i32, raise : Raise) -> i32)(
   safe_divide(x, 0, raise)
@@ -126,7 +126,7 @@ statement after the call that raised is skipped, and so is the rest of every
 propagating frame in between. A save/restore of mutable state around the
 guarded call therefore never restores on the failure path:
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 
@@ -139,7 +139,11 @@ parse :: (fn(n : i32, raise : Raise) -> i32)(
 
 // ✗ the handler is installed HERE, so its unwind exits `try_parse`
 try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
-  (raise : Raise) = (msg -> { unwind(i32(-1)); });
+  (raise : Raise) = (
+    msg -> {
+      unwind(i32(-1));
+    }
+  );
   saved := ctx.depth;
   ctx.depth = (ctx.depth + i32(1));
   r := parse(n, raise);
@@ -162,10 +166,14 @@ parameter does not help: that frame is a propagation site, and the unwind
 passes through it the same way. Put the handler in a helper of its own, so the
 unwind ends at the helper and the code after the helper call always runs:
 
-```rust
+```yo
 // ✓ the unwind ends `_parse_or`, never the frame that restores
 _parse_or :: (fn(n : i32) -> i32)({
-  (raise : Raise) = (msg -> { unwind(i32(-1)); });
+  (raise : Raise) = (
+    msg -> {
+      unwind(i32(-1));
+    }
+  );
   parse(n, raise)
 });
 
@@ -192,7 +200,7 @@ constraint `Type.Struct` restricts `E` to struct types (single bundle
 of effects), and enables auto-flattening of struct fn-ptr fields into
 separate C parameters at specialization.
 
-```rust
+```yo
 run :: (
   fn(
     generic(T : Type, E : Type.Struct),
@@ -207,7 +215,7 @@ result := run(might_fail, effects);
 
 No effects → empty struct `{}`:
 
-```rust
+```yo
 result := run(pure_func, {});
 ```
 
@@ -218,7 +226,7 @@ type arguments. Each effect arg should itself be a struct type (or a
 generic E bound to one), so that callers can pass a struct value
 containing the actual handlers:
 
-```rust
+```yo
 // Single bundle (most common)
 fut1 : Impl(Future(i32, IoExn)); // IoExn = { io, exn }
 y := io.await(fut1, { io, exn });
@@ -233,7 +241,7 @@ cannot derive it from the bare closure literal. Use `type_of(effects)`
 at top-level call sites, or rely on the enclosing function's annotated
 return type when the closure is inside a function body:
 
-```rust
+```yo
 effects := { raise, log };
 
 // Top-level: annotate e with type_of(effects).
@@ -245,7 +253,7 @@ fut := io.async((e : type_of(effects)) => {
 result := io.await(fut, effects);
 ```
 
-```rust
+```yo
 { Exception, IoExn } :: import("std/error");
 
 // Inside a function with annotated return type — the return type
@@ -261,7 +269,7 @@ do_work :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
 Width matching is **strict** — Yo structs are nominal. If a caller
 holds `e : IoExn` but a nested future only needs `Io`, project:
 
-```rust
+```yo
 // fut needs Io; project to e.io
 result := io.await(fut, e.io);
 ```
@@ -325,7 +333,7 @@ locally installed.
 
 ### Worked example
 
-```rust
+```yo
 Raise :: (ctl(msg : String) -> i32);
 
 // Caller installs the handler at frame F.
@@ -351,7 +359,7 @@ safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
 
 ### What you can't do (and why)
 
-```rust
+```yo ignore
 Raise :: (ctl(msg : String) -> i32);
 
 // ❌ Returning the handler — its install frame would be dead.
@@ -380,7 +388,7 @@ A handler type can be a bare `ctl(...) -> R`, or a struct whose fields
 are `ctl(...) -> R`. Both shapes are first-class — the choice is
 purely an API-shape question:
 
-```rust
+```yo
 // Bare ctl — single-method effect.
 Raise :: (ctl(msg : String) -> i32);
 
@@ -412,7 +420,7 @@ Effects can be grouped into struct records. The handler fields use
 binding. Common bundles (e.g., `Exception`, `IoExn`) live in
 `std/error.yo`:
 
-```rust
+```yo
 Logger :: struct(
   info : (ctl(msg : String) -> unit),
   warn : (ctl(msg : String) -> unit)
@@ -472,9 +480,15 @@ standalone, not closures" is the implementation-side statement of the same rule.
   between is aborted). When the installer is an `io.async` block, the value
   **resolves that block's future**, so it must have the block's result type:
 
-  ```rust
+  ```yo
   guarded := io.async((e : IoExn) => {
-    local := Exception(throw : (err -> { unwind(Result(String, String).Err(err.to_string())); }));
+    local := Exception(
+      throw : (
+        err -> {
+          unwind(Result(String, String).Err(err.to_string()));
+        }
+      )
+    );
     raw := e.io.await(may_fail(e.io), IoExn(io : e.io, exn : local));
     Result(String, String).Ok(raw)
   });

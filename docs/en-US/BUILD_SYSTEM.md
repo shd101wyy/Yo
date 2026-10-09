@@ -66,7 +66,7 @@ yo-out/
 
 The build file is a regular Yo source file that imports the `std/build` module. All build functions run at compile time and register artifacts and steps. What the package IS — its name, the modules other packages may import, and its dependencies — lives in the data file `yo.toml` next to it (see [Dependencies](#dependencies)); `build.yo` only says how to build it.
 
-```rust
+```yo
 build :: import("std/build");
 
 // Define artifacts — each returns a Step for dependency wiring
@@ -211,7 +211,7 @@ The host target is also available as `build.target_host`.
 
 Steps are named targets that define what `yo build <step>` does. Every build function (`executable`, `static_library`, `test`, `run`) returns a `Step` value. Use `step.depend_on(dep)` to wire dependencies:
 
-```rust
+```yo
 // Each build function returns a Step
 exe :: build.executable({ name : "my-app", root : "./src/main.yo" });
 lib :: build.static_library({ name : "my-lib", root : "./src/lib.yo" });
@@ -339,7 +339,7 @@ shapes  = "src/shapes.yo"
 
 `build.yo` refers to a module when it needs to attach system libraries to it. When another package imports the module, its system libraries are propagated to the consumer's build:
 
-```rust
+```yo
 build :: import("std/build");
 
 raylib :: build.system_library({
@@ -376,7 +376,7 @@ Returned by `build.module()` and `dep.module()`. Has one method:
 
 Nothing to wire in `build.yo`: a dependency declared in `yo.toml` is importable by its name, and its named modules as `name/module`:
 
-```rust
+```yo
 raylib_yo :: import("raylib_yo"); // the dependency's [modules] default
 { Circle } :: import("raylib_yo/shapes"); // its [modules] shapes
 ```
@@ -387,7 +387,7 @@ This works in every command — `yo build`, `yo compile`, `yo check`, `yo test`,
 
 Use `step.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
 
-```rust
+```yo
 build :: import("std/build");
 
 // Yo libraries
@@ -426,7 +426,7 @@ Static libraries export Yo functions that other modules can call using `extern "
 
 **Library module** (`add.yo`):
 
-```rust
+```yo
 add :: (fn(a : i32, b : i32) -> i32)(
   a + b
 );
@@ -436,7 +436,7 @@ export(add);
 
 **Executable module** (`demo.yo`):
 
-```rust
+```yo
 // `extern(...)` is an FFI declaration, so the file must opt into unsafe code.
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
@@ -452,7 +452,7 @@ export(main);
 
 **Build file** (`build.yo`):
 
-```rust
+```yo
 build :: import("std/build");
 
 lib :: build.static_library({
@@ -500,7 +500,7 @@ yo compile demo.yo --extern libadd.a -o demo
 
 Like Zig's `b.option()`, declare user-configurable build options that can be set from the CLI with `-Dname=value`:
 
-```rust
+```yo
 build :: import("std/build");
 
 // Declare a build option with a default value
@@ -565,7 +565,7 @@ Yo supports targeting WASM via target triples. Specify the target in `build.yo` 
 
 ### In `build.yo`
 
-```rust
+```yo
 build.executable({
   name : "my-app-wasm",
   root : "./src/main.yo",
@@ -576,7 +576,7 @@ build.executable({
 
 You can also use raw target strings if preferred:
 
-```rust
+```yo
 build.executable({
   name : "my-app-wasm",
   root : "./src/main.yo",
@@ -642,7 +642,7 @@ python -m http.server 8080
 
 If you need Node.js execution instead (e.g., headless/server-side WASM), add the flag manually:
 
-```rust
+```yo
 exe_wasm.add_c_flags("-sNODERAWFS=1");
 ```
 
@@ -652,7 +652,7 @@ exe_wasm.add_c_flags("-sNODERAWFS=1");
 
 Use `std/process` to write platform-aware code:
 
-```rust
+```yo
 { platform, arch, Platform, Arch } :: import("std/process");
 
 cond(
@@ -771,7 +771,7 @@ cache as well.
 
 A build file may read environment variables. Nothing else may:
 
-```rust
+```yo
 build :: import("std/build");
 
 ci :: build.env_is_set("CI");
@@ -834,7 +834,7 @@ fresh project) and writes two entry points for AI coding agents:
 
 Define multiple artifacts with different targets in a single `build.yo`:
 
-```rust
+```yo
 build :: import("std/build");
 
 // Module definition
@@ -920,7 +920,7 @@ nothing, and a missing solver there is a hint, not a failure.
 
 `build.verify` registers the step and returns its `Step`:
 
-```rust
+```yo
 build :: import("std/build");
 
 // mode: build.VerifyMode.Verify (the default) or build.VerifyMode.VerifyOrAssert;
@@ -1071,7 +1071,7 @@ The path is relative to `yo.toml`. Nothing is fetched and nothing is locked: the
 
 ### Importing a dependency
 
-```rust
+```yo
 mylib :: import("mylib"); // the dependency's default module
 { triple } :: import("mylib/extra"); // a named module, or a sibling file of the default root
 ```
@@ -1095,7 +1095,7 @@ Each dependency's own `yo.toml` is read in turn, so its dependencies are importa
 
 `build.dependency("name")` returns the handle of a dependency declared in `yo.toml` — the name must be one the manifest declares, or the build fails. Its `.module("x")` names one of the dependency's modules (to propagate the system libraries it links) and `.artifact("lib")` names a static library the dependency's `build.yo` defines:
 
-```rust
+```yo
 build :: import("std/build");
 
 dep :: build.dependency("dep_lib");
@@ -1192,7 +1192,7 @@ integrity = "sha256-9a0b2e..."
 
 Link against system C libraries discovered via `pkg-config`:
 
-```rust
+```yo
 build.system_library({
   name : "openssl",
   fallback_include : "/usr/include/openssl",
@@ -1208,7 +1208,7 @@ When `pkg-config` is available (Linux, macOS), it automatically resolves include
 
 For example, `raylib` on Windows needs a few Win32 macros defined before including `raylib.h`:
 
-```rust
+```yo
 raylib :: build.system_library({
   name : "raylib",
   defines : "NOMINMAX NOGDI NOUSER"
@@ -1303,18 +1303,18 @@ Yo supports four styles of documentation comments, matching Rust conventions:
 
 Regular comments (`//`, `/* */`) are **not** documentation comments — they are internal notes and attribute carriers.
 
-````rust
+````yo
 //! Math utilities for the Yo standard library.
 
 /// Add two integers.
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```yo
 /// result :: add(i32(1), i32(2));
 /// assert((result == i32(3)), "1 + 2 = 3");
 /// ```
-add :: (fn(a : i32, b : i32) -> i32)((a + b));
+add :: (fn(a : i32, b : i32) -> i32)(a + b);
 export add;
 ````
 
@@ -1356,7 +1356,7 @@ per exported top-level declaration.
 
 For advanced projects, configure documentation generation in `build.yo`:
 
-```rust
+```yo
 build :: import("std/build");
 
 // Define doc config
@@ -1386,7 +1386,7 @@ yo build --list-steps # See all steps including doc
 
 ### `DocFormat`
 
-```rust
+```yo
 DocFormat :: enum(
   Html,
   // Fully offline static HTML site (default)
@@ -1398,7 +1398,7 @@ DocFormat :: enum(
 
 ### `DocConfig`
 
-```rust
+```yo
 DocConfig :: struct(
   name : comptime_str,
   // Step name

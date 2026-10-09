@@ -27,7 +27,7 @@ continuations）。效应是常规函数参数，其处理器体可使用
 
 处理器是**控制函数**，记作 `ctl(args) -> ret`：
 
-```rust
+```yo
 // 声明处理器类型
 Raise :: (ctl(msg : String) -> i32);
 
@@ -56,7 +56,7 @@ result := safe_divide(1, 0, raise);
 - **`unwind(value)`** — 丢弃续延，以 `value` 从所在函数返回。
 - **`return(value)`** — 以 `value` 在效应调用处恢复续延。
 
-```rust
+```yo
 Raise :: (ctl(msg : String) -> i32);
 
 // Unwind 处理器：丢弃续延。所在函数最终以 i64(42) 返回。
@@ -82,7 +82,7 @@ Raise :: (ctl(msg : String) -> i32);
 `ctl` 参数的函数自身**不必**是 `ctl` — unwind 跳回的目标是处理器
 的安装帧，位于这一层之上。
 
-```rust
+```yo
 // `wrapper` 是普通 fn，即使它转发了 ctl 处理器。
 wrapper :: (fn(x : i32, raise : Raise) -> i32)(
   safe_divide(x, 0, raise)
@@ -114,7 +114,7 @@ wrapper :: (fn(x : i32, raise : Raise) -> i32)(
 不运行任何代码。在安装帧中，抛出效应的那次调用之后的每条语句都会被跳过，中间每个传播帧的
 剩余部分也一样。因此，围绕受保护调用对可变状态做的保存/恢复，在失败路径上永远不会恢复：
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { String } :: import("std/string");
 
@@ -127,7 +127,11 @@ parse :: (fn(n : i32, raise : Raise) -> i32)(
 
 // ✗ 处理器就安装在这里，所以它的 unwind 会退出 `try_parse`
 try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
-  (raise : Raise) = (msg -> { unwind(i32(-1)); });
+  (raise : Raise) = (
+    msg -> {
+      unwind(i32(-1));
+    }
+  );
   saved := ctx.depth;
   ctx.depth = (ctx.depth + i32(1));
   r := parse(n, raise);
@@ -149,10 +153,14 @@ export(main);
 会穿过它。应当把处理器放进一个单独的辅助函数，让 unwind 在这个辅助函数处结束，这样辅助函数
 调用之后的代码总会执行：
 
-```rust
+```yo
 // ✓ unwind 只结束 `_parse_or`，永远不会结束负责恢复的那一帧
 _parse_or :: (fn(n : i32) -> i32)({
-  (raise : Raise) = (msg -> { unwind(i32(-1)); });
+  (raise : Raise) = (
+    msg -> {
+      unwind(i32(-1));
+    }
+  );
   parse(n, raise)
 });
 
@@ -176,7 +184,7 @@ try_parse :: (fn(n : i32, ctx : Ctx) -> i32)({
 `E` 限定为结构体类型（一个效应捆绑），并在特化时启用结构体函数
 指针字段自动展开为独立 C 参数。
 
-```rust
+```yo
 run :: (
   fn(
     generic(T : Type, E : Type.Struct),
@@ -191,7 +199,7 @@ result := run(might_fail, effects);
 
 无效应 → 空结构体 `{}`：
 
-```rust
+```yo
 result := run(pure_func, {});
 ```
 
@@ -201,7 +209,7 @@ result := run(pure_func, {});
 本身是结构体类型（或绑定到结构体的 generic E），调用方传入含实际
 处理器的结构体值：
 
-```rust
+```yo
 // 单个捆绑（最常见）
 fut1 : Impl(Future(i32, IoExn)); // IoExn = { io, exn }
 y := io.await(fut1, { io, exn });
@@ -215,7 +223,7 @@ x := io.await(fut2, io);
 的闭包字面量推出 `E`。顶层调用点用 `type_of(effects)`；位于带返回
 类型注解的函数体内时，可省略闭包参数注解：
 
-```rust
+```yo
 effects := { raise, log };
 
 // 顶层：用 type_of(effects) 标注 e
@@ -227,7 +235,7 @@ fut := io.async((e : type_of(effects)) => {
 result := io.await(fut, effects);
 ```
 
-```rust
+```yo
 { Exception, IoExn } :: import("std/error");
 
 // 函数体内、返回类型已标注 — E 由返回类型固定，闭包参数可不标注：
@@ -242,7 +250,7 @@ do_work :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
 宽度匹配是**严格**的 — Yo 的结构体是名义类型。如果调用方持有
 `e : IoExn` 但嵌套 future 只需要 `Io`，必须显式投影：
 
-```rust
+```yo
 // fut 需要 Io；投影到 e.io
 result := io.await(fut, e.io);
 ```
@@ -292,7 +300,7 @@ result := io.await(fut, e.io);
 
 ### 完整示例
 
-```rust
+```yo
 Raise :: (ctl(msg : String) -> i32);
 
 // 调用方在帧 F 安装处理器
@@ -317,7 +325,7 @@ safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
 
 ### 不允许的形式
 
-```rust
+```yo ignore
 Raise :: (ctl(msg : String) -> i32);
 
 // ❌ 返回处理器 — 安装帧已死。
@@ -345,7 +353,7 @@ cb := (() => r(`hi`));  // 闭包捕获 r；拒绝
 处理器类型既可以是裸 `ctl(...) -> R`，也可以是字段为 `ctl(...) -> R`
 的结构体。两种形态都是一等的 — 选哪一种纯粹是 API 形态的问题：
 
-```rust
+```yo
 // 裸 ctl —— 单方法效应。
 Raise :: (ctl(msg : String) -> i32);
 
@@ -375,7 +383,7 @@ Exception :: struct(
 值可通过本地绑定安装它们。常见捆绑（如 `Exception`、`IoExn`）位于
 `std/error.yo`：
 
-```rust
+```yo
 Logger :: struct(
   info : (ctl(msg : String) -> unit),
   warn : (ctl(msg : String) -> unit)
@@ -428,9 +436,15 @@ standalone, not closures" 一节是同一条规则在实现层面的表述。）
   块。中间的帧（包括异步任务）都会被展开穿过（中间的任务会被中止）。当安装者是一个
   `io.async` 块时，这个值会**兑现该块的 future**，因此它必须是该块的结果类型：
 
-  ```rust
+  ```yo
   guarded := io.async((e : IoExn) => {
-    local := Exception(throw : (err -> { unwind(Result(String, String).Err(err.to_string())); }));
+    local := Exception(
+      throw : (
+        err -> {
+          unwind(Result(String, String).Err(err.to_string()));
+        }
+      )
+    );
     raw := e.io.await(may_fail(e.io), IoExn(io : e.io, exn : local));
     Result(String, String).Ok(raw)
   });

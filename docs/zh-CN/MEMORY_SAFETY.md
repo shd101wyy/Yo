@@ -29,7 +29,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 
 这是默认的用户体验。不需要 pragma、不需要 `&()` 注解、不需要 `*(T)` 类型、不需要 `unsafe(...)` 包装：
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 
 main :: (fn() -> unit)({
@@ -71,7 +71,7 @@ main :: (fn() -> unit)({
 
 对 `Option`/`Result` 调用 `.unwrap()`、`.expect(...)`、`.unwrap_err()`、`.expect_err(...)` 在安全文件中是**编译错误**。接收者的类型已经说明"这可能失败"，而这个调用丢弃了该信息，并在失败分支终止程序。请改为处理失败情形：
 
-```rust
+```yo
 // 编译错误 —— 未处理 None 分支：
 best := scores.max().unwrap();
 
@@ -91,7 +91,7 @@ best := scores.max().unwrap_or_else(() => recompute());
 
 C / Rust 用 `&mut T` 解决的模式，在安全 Yo 中由一个参数修饰符解决：
 
-```rust
+```yo
 swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
   tmp := a;
   a = b;
@@ -134,7 +134,7 @@ main :: (fn() -> unit)({
 
 显式分配器决定一块内存**放在哪里**，引用计数仍然决定它**何时释放**。放在 arena 里的对象和其他对象一样，最后一个引用消失时立即释放，释放会被路由回分配它的那个分配器。内存块不会比它的簿记活得更久，也不可能被释放到错误的分配器。
 
-```rust
+```yo
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
@@ -159,7 +159,7 @@ xs := ArrayList(i32).new_in(arena.allocator()); // 缓冲区在 arena 里
 
 当你确实需要原始指针时 —— 绑定 C 库、编写自定义分配器、实现新集合 —— 在文件顶部加一行声明，进入 unsafe-capable 模式：
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 
 // 在这个文件里现在可以使用 *(T)、&(x)、unsafe(...)、asm(...)、
@@ -170,7 +170,7 @@ pragma(Pragma.AllowUnsafe);
 
 在特权文件内你仍然需要显式写明操作：
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 { memcpy } :: import("std/libc/string");
 
@@ -209,7 +209,7 @@ copy_bytes :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
 
 当你写 `unsafe(...)` 时，你是在声明某个具体契约成立。把它写下来：
 
-```rust
+```yo
 match(
   self._ptr,
   // SAFETY: idx has been bounds-checked above (idx < self._length);
@@ -276,7 +276,7 @@ Findings (file:line:col):
 
 两种声明形式都求值为模块值——绑定它、挑选或重命名成员、或整体 glob 引入；裸声明语句就是 glob。见 [FFI.md](FFI.md)。
 
-```rust
+```yo
 // my_ffi.yo
 pragma(Pragma.AllowUnsafe);
 
@@ -301,7 +301,7 @@ compute :: (fn(input : i32) -> i32)(unsafe(mylib_compute(input)));
 
 然后在安全的调用方文件中：
 
-```rust
+```yo
 // main.yo  （无 pragma）
 { init, compute } :: import("./my_ffi");
 
@@ -320,7 +320,7 @@ main :: (fn() -> unit)({
 
 **`+`、`-`、`*` 以及一元取负的整数溢出会直接中止并给出诊断信息** —— 既不会静默回卷，也不是未定义行为。除以零（包括 `MIN / -1`）和移位位数达到或超过操作数宽度的移位同样如此。每条消息都带有源码位置；中止行为在所有优化级别上都是确定的。
 
-```rust
+```yo
 x := i32(2147483647); // i32 最大值
 y := (x + i32(1)); // 中止："integer addition overflow (at file:line:col)"
 ```
@@ -329,7 +329,7 @@ y := (x + i32(1)); // 中止："integer addition overflow (at file:line:col)"
 
 **按设计就要回卷的算术** —— 哈希混合、序列计数器、校验和 —— 使用显式的 wrapping 方法：
 
-```rust
+```yo
 h := state.wrapping_add(v); // 二补码回卷，绝不中止
 h := state.wrapping_mul(prime);
 d := state.wrapping_sub(inc);

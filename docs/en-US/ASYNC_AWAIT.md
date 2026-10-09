@@ -6,7 +6,7 @@ Yo uses **async/await with state machine transformation** via **algebraic effect
 
 **Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md`, which describes `Thread(T).spawn` (std/thread) and the worker pool for isolated multi-threaded execution.
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 // All async code runs on the SAME thread
@@ -36,7 +36,7 @@ export(main);
 | **Concurrency** | `io.async`/`io.await` | Multiple tasks interleaved on ONE thread   |
 | **Parallelism** | `Thread(T).spawn`        | Multiple tasks running on SEPARATE threads |
 
-```rust
+```yo
 // Concurrency: Same thread, interleaved execution
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
@@ -64,7 +64,7 @@ Yo's async uses **algebraic effects** with the `Io` effect type. Async tasks are
 - `io.await(task)` starts a cold task and runs it to completion (sequential)
 - `io.spawn(task)` starts a cold task **without waiting** for it to complete, returns `JoinHandle(T)`
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
@@ -134,7 +134,7 @@ Yo's approach: Keep async simple (single-threaded), use `Thread(T).spawn` for pa
 
 ## Language Syntax
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 // Async task creation (lazy — doesn't run until awaited/spawned)
@@ -161,7 +161,7 @@ r3 := handle3.await(io);
 
 Async operations require the `Io` effect, passed via `io : Io`:
 
-```rust
+```yo
 // Main function receives Io effect
 main :: (fn(io : Io) -> unit)({
   task := io.async((io : Io) => {
@@ -181,7 +181,7 @@ test("my test", {
 
 ### API
 
-```rust
+```yo ignore
 io.async(fn)                  // Create a cold Future (lazy, doesn't start)
 io.await(future, e)           // Start if cold, wait for completion, return result
 io.state(future)              // Query the current state of a Future (returns FutureState)
@@ -212,7 +212,7 @@ yield(io)                     // Create a pending Future completed by the next l
 
 ### Execution Model
 
-```rust
+```yo
 // All three tasks run on the SAME thread
 main :: (fn(io : Io) -> unit)({
   // LAZY — tasks are cold, nothing runs yet
@@ -238,7 +238,7 @@ main :: (fn(io : Io) -> unit)({
 
 ### Future Type
 
-```rust
+```yo
 // `io.async(fn)` returns `Impl(Future(T))` — a pointer to a heap-allocated state machine.
 // The state machine stores:
 //   - state: int (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)
@@ -252,7 +252,7 @@ main :: (fn(io : Io) -> unit)({
 
 `Future(T)` can carry algebraic-effect information. The shape is:
 
-```rust
+```yo ignore
 Future(T)        // No effects
 Future(T, E)     // Future yielding T with effect bundle E
 ```
@@ -261,7 +261,7 @@ Future(T, E)     // Future yielding T with effect bundle E
 needs (handler fields plus any `Io`-like records). The author packs the bundle
 themselves; the language does not concatenate effects from multiple type arguments.
 
-```rust
+```yo
 // A bundle struct carries every effect the task needs.
 TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 ```
@@ -286,7 +286,7 @@ TaskCtx :: struct(io : Io, raise : Raise, log : Log);
 
 **Example: bundled effects through async**
 
-```rust
+```yo
 { yield } :: import("std/async");
 { println } :: import("std/fmt");
 { String } :: import("std/string");
@@ -324,7 +324,7 @@ export(main);
 The `Io` effect record is itself a bundle-shaped struct that the async runtime
 provides:
 
-```rust
+```yo
 Io :: struct(
   async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
@@ -344,7 +344,7 @@ This is an implementation choice, not a semantic requirement.
 
 A Future can be awaited **multiple times**. Each `io.await` call on the same Future returns the same result:
 
-```rust
+```yo
 { assert } :: import("std/assert");
 
 main :: (fn(io : Io) -> unit)({
@@ -367,7 +367,7 @@ Several tasks may also await **one pending Future at the same time**. Every
 awaiter is registered on the Future and all of them resume, in registration
 order, when it completes:
 
-```rust
+```yo
 { sleep } :: import("std/sys/timer");
 
 shared := io.async((io : Io) => {
@@ -400,7 +400,7 @@ aborted Future".)
 
 **With `handle.await`**: `JoinHandle.await` returns `Option(T)` — `.None` on abort, safely catching the unwind:
 
-```rust
+```yo
 { yield } :: import("std/async");
 { assert } :: import("std/assert");
 { String } :: import("std/string");
@@ -457,7 +457,7 @@ cancelled with it.
 
 The aborted task's locals are dropped when its last reference goes away.
 
-```rust
+```yo
 { sleep } :: import("std/sys/timer");
 
 f := io.async((io : Io) => {
@@ -491,7 +491,7 @@ out, the task and everything it is blocked on are cancelled.
 
 `io.state(future)` returns the current `FutureState` without blocking or starting the Future. This is useful for polling or diagnostics:
 
-```rust
+```yo
 FutureState :: enum(
   Cold = 0,
   // Cold — not started yet
@@ -503,7 +503,7 @@ FutureState :: enum(
 );
 ```
 
-```rust
+```yo
 { assert } :: import("std/assert");
 { yield } :: import("std/async");
 
@@ -539,7 +539,7 @@ The compiler transforms async functions into state machines at each `await` poin
 
 **Input Yo code:**
 
-```rust
+```yo
 task := io.async((io : Io) => {
   response := io.await(http_get(url), io);
   data := io.await(response.read(), io);
@@ -585,14 +585,22 @@ becomes a suspension point exactly where it is written, and the task resumes
 there. Every local, pattern binding and intermediate value lives in the task
 itself, so nothing is lost across the suspension.
 
-```rust
-cond(needs_write => { io.await(write_string(p, data, io), io); }, true => ());
-if(!(io.await(exists(p, io), io)), { ... });              // inside a condition
-cond(c1 => ..., io.await(f, io) => ..., true => ...);      // a later cond branch
-match(io.await(num(io), io), 42 => ..., _ => ...);          // a scrutinee
-x := add(io.await(a, io), io.await(b, io));                 // two in one expression
+```yo
+cond(
+  needs_write => {
+    io.await(write_string(p, data, io), io);
+  },
+  true => ()
+);
+if(!io.await(exists(p, io), io), { ... }); // inside a condition
+cond(c1 => ..., io.await(f, io) => ..., true => ...); // a later cond branch
+match(io.await(num(io), io), 42 => ..., _ => ...); // a scrutinee
+x := add(io.await(a, io), io.await(b, io)); // two in one expression
 while(io.await(more(io), io), { ... });
-while(c, { t := io.await(f, io); i = t; }, { ... });        // the step of a 3-arg while
+while(c, {
+  t := io.await(f, io);
+  i = t;
+}, { ... }); // the step of a 3-arg while
 ```
 
 Evaluation order is the source order. In `add(g(), io.await(f, io))`, `g()`
@@ -612,15 +620,16 @@ that returns it. The lambda's signature is `(io : Io) => …`, so `recur(n, io)`
 there is `E0603: Argument count mismatch: expected 1 arguments, got 2`. Call
 the outer `::` function by name instead:
 
-```rust
+```yo
 { println } :: import("std/fmt");
 
 count_down :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) =>
-    cond(
-      (n == i32(0)) => i32(0),
-      true => (io.await(count_down(n - i32(1), io), io) + i32(1))
-    )
+  io.async(
+    (io : Io) =>
+      cond(
+        (n == i32(0)) => i32(0),
+        true => (io.await(count_down(n - i32(1), io), io) + i32(1))
+      )
   )
 );
 
@@ -640,7 +649,7 @@ heap).
 When the depth is data-dependent (a directory tree, a graph), keep an explicit
 worklist instead: one future in total, and the pending work is an `ArrayList`.
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
@@ -701,7 +710,7 @@ handle is terminal. The `std/async` combinators (`join_all`, `race`,
 `race_first`, `any`, `any_first`, `timeout`) are futures of the same kind, so
 one spelling works in `main` and inside a task alike:
 
-```rust
+```yo
 { println } :: import("std/fmt");
 { join_all, yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
@@ -728,12 +737,24 @@ run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     (sum : i32) = i32(0);
     (i : usize) = usize(0);
     while(i < outs.len(), {
-      match(outs(i), .Some(v) => { sum = (sum + v); }, .None => ());
+      match(
+        outs(i),
+        .Some(v) => {
+          sum = (sum + v);
+        },
+        .None => ()
+      );
       i = (i + usize(1));
     });
     // one handle: the same shape
     h := io.spawn(work(i32(3), io), io);
-    match(io.await(h.join(io), io), .Some(v) => { sum = (sum + v); }, .None => ());
+    match(
+      io.await(h.join(io), io),
+      .Some(v) => {
+        sum = (sum + v);
+      },
+      .None => ()
+    );
     sum
   })
 );
@@ -909,7 +930,7 @@ Futures (async block state machines) are **reference counted** to handle cases w
 
 **Lifetime Pattern: "Event Loop Holds References"**
 
-```rust
+```yo
 main :: (fn(io : Io) -> unit)({
   task := io.async((io : Io) => {
     /* work */
@@ -1097,7 +1118,7 @@ scheduler step, so neither costs a trip through the run queue or the kernel.
 `Iterator` yields values now. `Future` yields one value later. A **`Stream`**
 is both — "a value, later, repeatedly":
 
-```rust
+```yo
 Stream :: trait(
   Item : Type,
   next : (fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
@@ -1107,7 +1128,7 @@ Stream :: trait(
 It lives in `std/async/stream` and `.None` means the stream is finished —
 terminal, and it stays terminal.
 
-```rust
+```yo
 { Stream } :: import("std/async/stream");
 { TcpListener } :: import("std/net/tcp");
 
@@ -1141,7 +1162,7 @@ Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators:
 | `collect(io)` | drive it to its end, gathering the items into an `ArrayList` |
 | `for_await(s, io, x => body)` | the loop form (a macro): `body` runs per item, and `break`, `continue` and `return` work in it |
 
-```rust
+```yo
 // Every third event's name, at most five of them.
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
 io.await(names.for_each(n => println(n), io), io);
@@ -1162,7 +1183,7 @@ future outlives the call, and an `inout` borrow cannot be held across a
 suspension. So a stream source is a reference-semantics type
 (`ref(struct(...))`) and its field writes propagate through the handle:
 
-```rust
+```yo
 Countdown :: ref(struct(_n : i32));
 impl(
   Countdown,
@@ -1199,20 +1220,26 @@ consumer needs no `Exception` handler.
    `await`. Make the chain first, then await it — including from inside a
    spawned task:
 
-   ```rust
-   chain := source.map(x => f(x));            // out here
-   task := io.async((io : Io) => io.await(chain.collect(io), io));   // awaited in there
+   ```yo
+   chain := source.map(x => f(x)); // out here
+   task := io.async((io : Io) => io.await(chain.collect(io), io)); // awaited in there
    ```
 
 2. **`for_await` is the hand-written loop.** Its expansion is this, and its
    await suspends the enclosing task like any other, so it works inside a
    spawned task as well as from `main`:
 
-   ```rust
+   ```yo
    (done : bool) = false;
    while(done == false, {
      nx := io.await(stream.next(io), io);
-     match(nx, .Some(x) => { … }, .None => { done = true; });
+     match(
+       nx,
+       .Some(x) => { … },
+       .None => {
+         done = true;
+       }
+     );
    });
    ```
 
@@ -1230,7 +1257,7 @@ consumer needs no `Exception` handler.
 
 ### Core Operations
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 // io.async: Create a lazy Future (cold, doesn't start until awaited/spawned)
@@ -1252,7 +1279,7 @@ r2 := handle2.await(io);
 
 ### Example: Concurrent Tasks with Spawn
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
@@ -1284,7 +1311,7 @@ export(main);
 
 ### Example: Sequential Await (No Spawn)
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 main :: (fn(io : Io) -> unit)({
@@ -1316,7 +1343,7 @@ export(main);
 task's progress*. That needs a token the other side can fire, and
 `std/async/waker` is it.
 
-```rust
+```yo
 { Park } :: import("std/async/waker");
 
 // The waiter. Create the park, hand its waker to whoever will signal, then
@@ -1349,7 +1376,7 @@ them:
 `park(register, io)` wraps the whole sequence for the common case of a single
 waker:
 
-```rust
+```yo
 { park } :: import("std/async/waker");
 
 io.await(
@@ -1429,7 +1456,7 @@ binds the effect handlers. Subsequent calls to `io.spawn`/`io.await` with
 different `e : E` arguments have no effect — the original handlers are
 retained.
 
-```rust
+```yo
 Log :: (fn(msg : String) -> unit);
 Ctx :: struct(io : Io, log : Log);
 
@@ -1533,7 +1560,7 @@ Yo's async/await provides:
 
 ### Quick Reference
 
-```rust
+```yo
 { yield } :: import("std/async");
 
 // Create lazy async task

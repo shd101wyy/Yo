@@ -22,7 +22,7 @@ yo verify ./src/my_spec.yo --format json
 契约是函数签名里的内建调用。返回值通过 `-> (name : T)` 的标签命名
 —— 没有 `result` 这种魔法标识符。
 
-```rust
+```yo
 abs_i32 :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
   if(x < i32(0), i32(0) - x, x)
 );
@@ -56,7 +56,7 @@ trait 方法可以在签名里携带契约，`impl` 方法也可以为同一方�
 | `trait.requires ⇒ impl.requires` | 逆变（可放宽） | 分发调用方只证明 trait 的前置条件，因此 impl 只能放宽、不能收紧 |
 | `impl.ensures ⇒ trait.ensures` | 协变（可加强） | trait 的承诺是下限，因此 impl 只能加强、不能削弱 |
 
-```rust
+```yo
 ClampBound :: trait(
   get : (
     fn(self : Self, i : i32, requires(i >= i32(0)), ensures(result >= i)) -> (result : i32)
@@ -95,7 +95,7 @@ id 上；调用点会以**具体**实参类型求值签名谓词（在泛型自�
 处，谓词无法求值 —— 作用在类型变量上的运算符没有编译期实现 ——
 正是调用点求值给了验证器带类型的谓词节点）。
 
-```rust
+```yo
 pick :: (
   fn(generic(T : Type), flag : bool, a : T, b : T, ensures((result == a) || (result == b))) -> (result : T)
 )(if(flag, a, b));
@@ -115,7 +115,7 @@ caller :: (fn(ensures((r == i32(1)) || (r == i32(2)))) -> (r : i32))(
 `while` 循环通过不变式来验证。`invariant(...)` 是循环体的第一条语句，接受以逗号
 分隔的谓词；其后可以跟一个只含单个测度的 `decreases(M)`：
 
-```rust
+```yo
 pragma(Pragma.Verify);
 
 sum_to :: (
@@ -169,7 +169,7 @@ sum_to :: (
 是非负整数。它能证明任何单一测度都证明不了的递归，例如降低 `i` 的同时重置
 `j` 的调用：
 
-```rust
+```yo
 walk :: (fn(i : u32, j : u32, decreases(i, j)) -> u32)(
   cond(
     ((i == u32(0)) && (j == u32(0))) => u32(0),
@@ -189,7 +189,7 @@ walk :: (fn(i : u32, j : u32, decreases(i, j)) -> u32)(
 良基域（当各成员的测度分量结构相同时，也可以是字典序测度）。函数组由验证器从任务集的调用图自动推导，因此
 没有递减的边（原样传递 `n`）会被驳倒：
 
-```rust
+```yo
 is_even :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
   if(n == i32(0), true, is_odd(n - i32(1)))
 );
@@ -202,7 +202,7 @@ is_odd :: (fn(n : i32, requires(n >= i32(0)), decreases(n)) -> (r : bool))(
 
 Z3 不做归纳。递归 `ghost_fn` 的某些性质需要归纳才能证明，例如"在 `[0, n)` 上一致的两个列表在该区间内有相同的成员"。这类性质会一直是 `unknown`，直到你把它作为**引理**证明一次：引理是返回 `unit` 且带 `ensures` 的 `ghost_fn`（即 ATS 的 `prfun`）。
 
-```rust
+```yo
 member :: ghost_fn(
   (fn(xs : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
     cond(
@@ -242,10 +242,14 @@ member_frame :: ghost_fn(
 
 `seq_of(xs)` 把 `ArrayList(T)` 的元素当作幽灵 Seq。`seq_append`、`seq_len`、`seq_nth` 都可作用于它，因此 ATS 的 `append` 性质只需一行：
 
-```rust
+```yo
 append :: (
-  fn(a : ArrayList(i32), b : ArrayList(i32), requires((a.len() + b.len()) >= a.len()),
-     ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))) -> (r : ArrayList(i32))
+  fn(
+    a : ArrayList(i32),
+    b : ArrayList(i32),
+    requires((a.len() + b.len()) >= a.len()),
+    ensures(seq_of(r) == seq_append(seq_of(a), seq_of(b)))
+  ) -> (r : ArrayList(i32))
 )({ ... });
 ```
 
@@ -257,7 +261,7 @@ append :: (
 
 对 `ArrayList` 变量的 `for` 像一个幽灵下标上的 `while` 那样验证。循环体开头的 `invariant(...)` 是这个循环的不变式，其中的 `produced(xs)` 表示目前已消费的元素：`xs` 截到该下标为止，与 Creusot 相同。复制循环无需自己的下标：
 
-```rust
+```yo
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
@@ -280,7 +284,7 @@ copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : Array
 
 列表模型让每个名字各自拥有一个列表。`ArrayList` 是引用类型，因此变更两个同列表类型参数之一的函数体是子集错误：调用方可能把同一个列表同时传给两者。`requires(distinct(a, b))` 排除了这种情况：
 
-```rust
+```yo ignore
 append_all :: (
   fn(src : ArrayList(i32), dst : ArrayList(i32),
      requires(distinct(src, dst), (dst.len() + src.len()) >= dst.len()),
@@ -308,7 +312,7 @@ std 中 `ArrayList` 的核心操作（`new`、`with_capacity`、`push`、`insert
 方式消解它 —— 被调方在入口**假设**每个精化参数的精化条件，而每个调用
 点为实参**证明** `refine#N` 义务：
 
-```rust
+```yo
 non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
 
 // 无需手写 `requires`：除零义务由假设的 `denom` 精化条件直接证得。
@@ -330,7 +334,7 @@ caller :: (fn(x : i32, requires(x != i32(0))) -> (r : i32))(safe_div(i32(7), x))
 在 ghost 创建时就在作用域内，因此每次 `NonZero(i32)` 求值都会创建一个
 完全具体的谓词：
 
-```rust
+```yo
 NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
 ```
 
@@ -374,7 +378,7 @@ SMT 调用（汇总中计入 `folded`，绝不算作查询）。折叠是保守�
 契约写在它约束的函数里，这意味着代码的作者同时拥有它的规约。**法则（law）**
 是另一半：关于代码的断言，写在实现碰不到的文件里。
 
-```rust
+```yo
 pragma(Pragma.Verify);
 
 { abs_value } :: import("./math.yo");
@@ -519,7 +523,7 @@ verify: 2 ok, 1 assumed, 0 outside-subset, 0 unproven, 0 refuted, 0 solver-error
 索引边界检查将随切片进入子集而加入。这样在完全未注解的代码上也能
 抓住经典的越界/除零类错误：
 
-```rust
+```yo
 // 没有任何契约 —— 依然是编译期错误：y = 0 时除以零。
 divide_bugged :: (fn(x : i32, y : i32) -> (r : i32))(x / y);
 ```

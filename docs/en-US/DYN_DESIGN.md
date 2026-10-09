@@ -64,7 +64,7 @@ void* data = point;                // Store Point pointer
 
 **Rc Type Definition:**
 
-```rust
+```yo
 Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
@@ -116,11 +116,11 @@ Only these methods get a vtable slot. A trait may still declare others, and a `D
 formed and its callable methods used; calling one of the others through the `Dyn` is error E0614
 (`yo explain E0614`), at the call:
 
-```rust
+```yo
 Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));
 (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));
-d.speak();   // OK: `Self` only as the receiver
-d.me();      // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
+d.speak(); // OK: `Self` only as the receiver
+d.me(); // error[E0614]: Method "me" of trait Sp cannot be called through a Dyn receiver (dyn(Sp)): it returns Self, which the Dyn erases.
 ```
 
 A blanket inherent method over a trait bound (`impl(generic(E), where(E <: Named), E, shout : ...)`)
@@ -150,7 +150,7 @@ written: `d.get()` could not say which trait's method it means.
 
 **Examples:**
 
-```rust
+```yo
 // Value types must be boxed
 dyn(rc(42)); // OK: rc(42) returns Rc(i32), which is an reference-semantics type
 dyn(rc(true)); // OK: rc(true) returns Rc(bool)
@@ -167,9 +167,9 @@ thread and retains and releases the same `data` object from there, so its count 
 For a `Send` target, `dyn(v)` of a value type boxes it with `arc`, not `rc`. A non-atomic
 reference payload is an error:
 
-```rust
-(d : Dyn(Fn() -> unit, Send)) = dyn(k);       // OK: k is boxed with arc
-(e : Dyn(Fn() -> unit, Send)) = dyn(rc(k));  // error: its payload must be atomically reference counted
+```yo
+(d : Dyn(Fn() -> unit, Send)) = dyn(k); // OK: k is boxed with arc
+(e : Dyn(Fn() -> unit, Send)) = dyn(rc(k)); // error: its payload must be atomically reference counted
 ```
 
 ### 4. Static Vtables and Wrappers
@@ -250,7 +250,7 @@ value.vtable->print(value.data);
 
 A `Dyn` erases the concrete type, and `downcast` is how you get it back:
 
-```rust
+```yo
 downcast(dyn_value, T) -> Option(T)
 ```
 
@@ -259,7 +259,7 @@ what `std/error.yo`'s `err.is(T)` on an `AnyError` is built out of. Both argumen
 fixed: the first must have a `Dyn` type, the second must be a TYPE (evaluated at
 compile time, so `T` is never a runtime value).
 
-```rust
+```yo
 Animal :: trait(speak : (fn(self : Self) -> unit));
 // ... impl(Cat, Animal(...)); impl(Dog, Animal(...));
 animal := dyn(Cat.new());
@@ -308,9 +308,9 @@ value — it cannot be used to test a `Dyn` at runtime.
 
 `upcast` gives the same payload behind a `Dyn` with fewer traits:
 
-```rust
+```yo
 (both : Dyn(Speak, Run)) = dyn(Dog());
-(s : Dyn(Speak)) = upcast(both, Dyn(Speak));   // Dyn(Speak)
+(s : Dyn(Speak)) = upcast(both, Dyn(Speak)); // Dyn(Speak)
 (e : AnyError) = dyn(ParseError.Bad);
 (t : Dyn(ToString)) = upcast(e, Dyn(ToString)); // AnyError is Dyn(Error, ToString)
 ```

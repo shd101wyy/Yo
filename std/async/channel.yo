@@ -23,10 +23,13 @@
 //! ```yo
 //! { Channel } :: import("std/async/channel");
 //! ch := Channel(i32).new(usize(8));
-//! producer := io.spawn(io.async((io : Io) => {
-//!   _s := io.await(ch.send(i32(42), io), io);
-//!   return(());
-//! }), io);
+//! producer := io.spawn(
+//!   io.async((io : Io) => {
+//!     _s := io.await(ch.send(i32(42), io), io);
+//!     return(());
+//!   }),
+//!   io
+//! );
 //! v := io.await(ch.recv(io), io); // .Some(42)
 //! ```
 //!
@@ -41,13 +44,13 @@
 //! receiver is gone" a fact a sender can act on.
 //!
 //! ```yo
-//! rx := Channel(i32).receiver(usize(4));   // channel + its one consumer
+//! rx := Channel(i32).receiver(usize(4)); // channel + its one consumer
 //! {
-//!   tx := rx.sender();                     // a counted producer
+//!   tx := rx.sender(); // a counted producer
 //!   io.await(tx.send(i32(1), io), io);
-//! };                                       // last sender dropped -> closed
-//! io.await(rx.recv(io), io);               // .Ok(1)
-//! io.await(rx.recv(io), io);               // .Err(Disconnected)
+//! }; // last sender dropped -> closed
+//! io.await(rx.recv(io), io); // .Ok(1)
+//! io.await(rx.recv(io), io); // .Err(Disconnected)
 //! ```
 //!
 //! A `Sender` captured by an `io.async` body is released when the task and

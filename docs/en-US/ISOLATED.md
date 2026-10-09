@@ -22,10 +22,10 @@ legitimately crosses a thread boundary. The rules are D2 of
 
 ## Constructing an `Iso`: the `^` operator
 
-```rust
+```yo
 xs := ArrayList(i32).new();
 xs.push(i32(1));
-iso_opt := ^xs;                // Option(Iso(ArrayList(i32)))
+iso_opt := ^xs; // Option(Iso(ArrayList(i32)))
 match(
   iso_opt,
   .Some(iso) => { /* send it */ },
@@ -46,10 +46,10 @@ panicking when the value is not unique. It performs:
    not recurse. An ATOMIC object inside the value (an `Arc`, a `Mutex`, an `AtomicI32`) is shared
    by design and stops the walk: capturing a shared counter in an isolated graph is fine.
 
-```rust
+```yo
 shared := ArrayList(i32).new();
-w := Wrap(items : shared);     // Wrap :: ref(struct(items : ArrayList(i32)))
-r := ^w;                       // .None: `shared` still reaches w.items
+w := Wrap(items : shared); // Wrap :: ref(struct(items : ArrayList(i32)))
+r := ^w; // .None: `shared` still reaches w.items
 ```
 
 The cost is one walk over the value's graph, once per hand-off, on the sending thread.
@@ -70,8 +70,8 @@ the `Iso` a compile error.
 
 ## `extract`
 
-```rust
-inner := iso.extract();        // T
+```yo
+inner := iso.extract(); // T
 ```
 
 `extract()` returns the inner `T` directly (not an `Option`), marks the `Iso` extracted, and
@@ -116,7 +116,7 @@ void __yo_iso_dispose_Iso_T(Iso_T iso) {
 
 ## Example: hand a list built on a worker back to the main thread
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
@@ -132,7 +132,7 @@ main :: (fn() -> unit)({
   match(
     t.join(),
     .Some(iso) => {
-      xs := iso.extract();     // the list now lives on the main thread
+      xs := iso.extract(); // the list now lives on the main thread
       // ...
     },
     .None => ()
@@ -142,8 +142,8 @@ main :: (fn() -> unit)({
 
 ## Example: rejected at construction
 
-```rust
+```yo
 x := rc(i32(42));
 y := x;
-iso := ^x;                     // COMPILE ERROR: cannot isolate x, also owned by y
+iso := ^x; // COMPILE ERROR: cannot isolate x, also owned by y
 ```

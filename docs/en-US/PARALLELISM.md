@@ -45,7 +45,7 @@ The runtime automatically initializes the event loop when the thread starts (`__
 
 ### API
 
-```rust
+```yo
 // `T` is what the thread's body produces. `Thread(unit)` is the value-less
 // thread; any `Send + Acyclic` type may be carried out.
 Thread :: (
@@ -72,7 +72,7 @@ to a `sink` parameter or sending it over a channel (the value must be
 `Send`). Any capture it did not move is dropped when the body returns. An
 ordinary closure is accepted too, because `Fn` implies `FnOnce`.
 
-```rust
+```yo
 Job :: struct(id : i32);
 run :: (fn(sink(j) : Job) -> i32)(j.id);
 job := Job(id : i32(7));
@@ -85,7 +85,7 @@ n := t.join(); // 7
 `join()` returns what the body returned, over a capacity-1 `Channel(T)` the
 handle owns:
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 
 t := Thread(i32).spawn((io : Io) => i32(42));
@@ -98,7 +98,7 @@ task's value back over a `Channel`.
 
 ### Usage
 
-```rust
+```yo
 { Thread } :: import("std/thread");
 { yield } :: import("std/async");
 
@@ -140,7 +140,7 @@ program drain each other's work as well.
 
 ### API
 
-```rust
+```yo
 { ThreadPool, spawn } :: import("std/thread");
 
 // Create a pool that requests `num_threads` worker threads
@@ -165,7 +165,7 @@ ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 
 ### Usage
 
-```rust
+```yo
 { ThreadPool, spawn } :: import("std/thread");
 { yield } :: import("std/async");
 
@@ -231,7 +231,7 @@ thread would be busy waiting for its own sentinel.
 
 Channel (`std/sync/channel.yo`) provides bounded, multi-producer multi-consumer communication between threads.
 
-```rust
+```yo
 { Channel } :: import("std/sync/channel");
 
 // Create a bounded channel (capacity 10)
@@ -264,7 +264,7 @@ calls `close()`. When a consumer needs to know that the producers are *finished*
 `Sender`/`Receiver` split instead: the queue counts its live senders, and dropping the last
 one closes the channel by itself.
 
-```rust
+```yo
 { Channel } :: import("std/sync/channel");
 
 rx := Channel(i32).receiver(usize(4)); // the queue and its one consumer
@@ -292,7 +292,7 @@ rx.recv(); // .Err(TryRecvError.Disconnected)
 For producers on other threads, mint each thread's `Sender` inside the thread and keep one
 in the parent until the workers are running:
 
-```rust
+```yo
 rx := Channel(i32).receiver(usize(16));
 {
   keeper := rx.sender(); // holds the count above zero
@@ -333,7 +333,7 @@ implement `Sync` can be shared between threads (an `Arc` payload, a module-level
   `fn(...)` type whose value is not known there (a struct field, a `Channel(fn() -> unit)`
   payload) — see "Functions and Closures Across Threads" in `THREAD_SAFETY.md`
 
-```rust
+```yo
 // ✅ Sendable
 Point :: struct(x : i32, y : i32);
 Thread(unit).spawn(io => {
@@ -391,7 +391,7 @@ thread. To return a result, hand it back over a `Channel`.
 
 ### Quick Reference
 
-```rust
+```yo
 { Thread, ThreadPool, spawn } :: import("std/thread");
 { Channel } :: import("std/sync/channel");
 
