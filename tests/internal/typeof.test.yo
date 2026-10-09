@@ -6,7 +6,7 @@ pragma(Pragma.AllowUnsafe);
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind } :: import("../../src/token.yo");
-{ AstExpr, ast_expr_id, BF_TYPEOF } :: import("../../src/expr.yo");
+{ AstExpr, ast_expr_id, BF_TYPE_OF } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../src/expr_info.yo");
 { Environment } :: import("../../src/env.yo");
@@ -35,10 +35,10 @@ mk_token :: (fn(value : str) -> Token)(
 // Helper: build a typeof(arg_atom) FnCall expression with stable ids.
 mk_typeof_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstExpr)({
   arg_atom := AstExpr.Atom(arg_id, mk_token(arg_value));
-  callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_TYPEOF));
+  callee := AstExpr.Atom(call_id + usize(1000), mk_token(BF_TYPE_OF));
   args := ArrayList(AstExpr).new();
   args.push(arg_atom);
-  AstExpr.FnCall(call_id, callee, args, false, mk_token(BF_TYPEOF))
+  AstExpr.FnCall(call_id, callee, args, false, mk_token(BF_TYPE_OF))
 });
 // A stub `evaluate_expression` used by tests. It pretends every input
 // is an `i32`-typed expression by writing an ExprInfo with `ty = i32` to

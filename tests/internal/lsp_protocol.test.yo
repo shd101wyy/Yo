@@ -359,7 +359,10 @@ test("rename_rejection: only legal binding names pass", {
   // Plain-named builtin dispatch names parse as identifiers but are reserved
   // for bindings (src/token.yo).
   assert(rename_rejection(String.from("clone")).is_some(), "reserved builtin binding name");
-  assert(rename_rejection(String.from("typeof")).is_some(), "reserved builtin binding name");
+  assert(rename_rejection(String.from("type_of")).is_some(), "reserved builtin binding name");
+  // The C-style spelling was deleted with no alias (#1283), so it is an
+  // ordinary name again.
+  assert(rename_rejection(String.from("typeof")).is_none(), "the deleted C-style spelling is a plain identifier");
   assert(rename_rejection(String.from("___drop")).is_some(), "reserved unspellable name");
 });
 
