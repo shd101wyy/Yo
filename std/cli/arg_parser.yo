@@ -224,11 +224,11 @@ impl(
   /// Returns the new sub-parser, which can be configured with its own
   /// flags, options, positionals, and nested subcommands.
   add_subcommand : (fn(imm(self) : Self, imm(name) : String, imm(description) : String) -> Self)({
-    self._subcommand_names.push(name.clone());
-    self._subcommand_descriptions.push(description.clone());
-    self._subcommand_parsers.push(Self.new(name, description));
-    // Read back: the list's element and the returned parser are one handle.
-    self._subcommand_parsers(self._subcommand_parsers.len() - usize(1))
+    sub := Self.new(name, description);
+    self._subcommand_names.push(name);
+    self._subcommand_descriptions.push(description);
+    self._subcommand_parsers.push(sub);
+    return(sub);
   }),
   /// Looks up a subcommand parser by name.
   _find_subcommand : (fn(imm(self) : Self, imm(name) : String) -> Option(usize))({

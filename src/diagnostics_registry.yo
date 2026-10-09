@@ -500,16 +500,16 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   out.push(
     _mk_explain(
       E_MOVED_ON_SOME_PATHS,
-      "value moved on some paths only",
-      "值只在部分路径上被移动",
-      "A value is moved on some paths and not on others where they meet.",
-      "值在一些路径上被移动，在另一些路径上没有，而这些路径随后汇合。",
-      "Yo decides every drop statically, so where the arms of a `cond`/`match` meet, or where the ways out of a loop meet, a value must be moved on all of them or on none. Move it in every arm (or `break` path), or in none and pass a clone where it is consumed. A loop also may not move a value from outside it without giving it a new value before the next iteration: the next iteration would read the moved value.",
-      "Yo 静态地决定每一次 drop，因此在 `cond`/`match` 的各分支汇合处，或循环的各个出口汇合处，一个值必须在所有路径上都被移动，或在所有路径上都不被移动。请在每个分支（或每条 `break` 路径）里都移动它，或都不移动、在消费处传入它的克隆。循环也不能移动来自循环外的值而不在下一次迭代前给它新值：下一次迭代会读到已被移动的值。",
-      "consume_box :: (fn(sink(b) : Rc(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Rc(i32)(42);\n  c := runtime(true);\n  cond(c => consume_box(b), true => ());\n});\nexport(main);\n",
-      "consume_box :: (fn(sink(b) : Rc(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  b := Rc(i32)(42);\n  c := runtime(true);\n  cond(c => consume_box(b), true => consume_box(b));\n});\nexport(main);\n",
-      "Only the first arm moves `b`; after the `cond` it would be dropped on one path only.",
-      "只有第一个分支移动了 `b`；`cond` 之后它只会在一条路径上被 drop。"
+      "value moved on some ways out of a loop only",
+      "值只在循环的部分出口上被移动",
+      "A value is moved on some ways out of a loop and not on others.",
+      "值在循环的一些出口上被移动，在另一些出口上没有。",
+      "Yo decides every drop statically. Where the arms of a `cond`/`match` meet, a value moved in some arms is dropped at the end of the others, so it is gone on every path. The ways out of a loop (each `break`, and the condition turning false) are not arms the compiler can append a drop to, so there a value must be moved on all of them or on none. Move it after the loop instead: record what the loop found and move it once, outside. A loop also may not move a value from outside it without giving it a new value before the next iteration: the next iteration would read the moved value.",
+      "Yo 静态地决定每一次 drop。在 `cond`/`match` 的各分支汇合处，在部分分支中被移动的值会在其余分支末尾被 drop，所以它在每条路径上都已不存在。循环的各个出口（每个 `break`，以及条件变为假时）不是编译器能追加 drop 的分支，因此在那里一个值必须在所有出口上都被移动，或都不被移动。请改为在循环之后移动它：记录循环找到的结果，在循环外移动一次。循环也不能移动来自循环外的值而不在下一次迭代前给它新值：下一次迭代会读到已被移动的值。",
+      "{ ArrayList } :: import(\"std/collections/array_list\");\ntake_list :: (fn(xs : ArrayList(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  xs := ArrayList(i32).new();\n  (i : i32) = 0;\n  while(runtime(i < 3), {\n    if(runtime(i == 1), {\n      take_list(xs);\n      break;\n    });\n    i = (i + 1);\n  });\n});\nexport(main);\n",
+      "{ ArrayList } :: import(\"std/collections/array_list\");\ntake_list :: (fn(xs : ArrayList(i32)) -> unit)(());\nmain :: (fn(io : Io) -> unit)({\n  xs := ArrayList(i32).new();\n  (i : i32) = 0;\n  (found : bool) = false;\n  while(runtime(i < 3), {\n    if(runtime(i == 1), {\n      found = true;\n      break;\n    });\n    i = (i + 1);\n  });\n  if(found, {\n    take_list(xs);\n  });\n});\nexport(main);\n",
+      "The `break` path moves `xs` and the loop's normal exit does not. Moving it after the loop, in an `if`, is fine: the `if`'s other arm drops it.",
+      "`break` 路径移动了 `xs`，而循环的正常出口没有。在循环之后的 `if` 里移动它则没有问题：`if` 的另一个分支会 drop 它。"
     )
   );
   out.push(

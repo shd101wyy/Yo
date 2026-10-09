@@ -2,8 +2,10 @@
 //! and 34): `imm(x)`/`mut(x)` parameters and receivers, `mut(y) := place`,
 //! the call-site markers `&x`/`&mut x` in arguments and `match` scrutinees,
 //! and function types spelled with the modes. Since Generation B's flip a
-//! plain parameter is BY VALUE: a non-`Copy` argument moves into it, a `Copy`
-//! one is copied, and `imm(x)` is the borrow. A mode is part of the function
+//! plain parameter is BY VALUE: an explicit-copy argument moves into it, a
+//! `Copy` one is copied, a still implicitly copyable kind (`String`, the
+//! collections, `Rc`, `ref` handles) is shared as `t := s` shares it, and
+//! `imm(x)` is the borrow. A mode is part of the function
 //! type for every type, `Copy` or not.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
@@ -59,13 +61,21 @@ impl(_PmCounter, _PmShow(show : (fn(imm(self) : Self) -> i32)(self.n * i32(10)))
 _pm_apply_imm :: (fn(imm(f) : Impl(Fn(imm(s) : String) -> usize), imm(s) : String) -> usize)(f(s));
 _pm_apply_mut :: (fn(imm(f) : Impl(Fn(mut(n) : i32) -> unit), mut(v) : i32) -> unit)(f(v));
 
-test("a plain parameter is by value: a non-Copy argument moves into it", {
+test("a plain parameter is by value: an explicit-copy argument moves into it", {
+  r := _PmRes(n : i32(6));
+  assert(_pm_consume(r) == i32(6), "r moved into the by-value parameter");
+  comptime_expect_error(r.n, "use of moved value");
+});
+
+test("a still implicitly copyable kind is shared into a by-value parameter, as `t := s` binds it", {
+  // Until V2b makes `String` explicit-copy, passing it by value is a share
+  // (+1), exactly like `t := s`, and the caller keeps its string.
   s := String.from("hello");
-  assert(_pm_take(s) == usize(5), "s moved into the by-value parameter");
-  comptime_expect_error(s.len(), "use of moved value");
-  t := String.from("ab");
-  assert(_pm_take(t.clone()) == usize(2), "a clone moves instead");
-  assert(t.len() == usize(2), "t stays usable");
+  assert(_pm_take(s) == usize(5), "the callee got its own share");
+  assert(s.len() == usize(5), "s stays usable");
+  xs := ArrayList(String).new();
+  xs.push(s);
+  assert((xs.len() == usize(1)) && (s == "hello"), "pushed by value and still usable");
 });
 
 test("a plain parameter of a Copy type copies", {

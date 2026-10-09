@@ -1046,12 +1046,17 @@ consume_argument_for_parameter :: (
             arg_var.is_ref => {
               set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
             },
-            arg_var.is_owning_the_rc_value => {
-              set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
-            },
+            // A kind that is still implicitly copyable (a `String`, a
+            // collection, an `Rc`, a `ref(...)` handle) is passed the way
+            // `t := s` binds it: a share (+1), and the caller keeps its value.
+            // The move/clone split for these kinds lands with their phase
+            // (V2b for `String` and the collections, V2c for `Rc`/`Arc`, V5
+            // for `ref`), together with `t := s`; until then only an
+            // explicit-copy value moves here (plans/VALUES_BY_DEFAULT.md
+            // §3.14). The dup/drop pair optimizer cancels the share against
+            // the caller's scope-end drop when the argument is not used again.
             true => {
               set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
-              set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
             }
           );
         });
