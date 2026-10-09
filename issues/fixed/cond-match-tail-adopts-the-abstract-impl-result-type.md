@@ -79,12 +79,39 @@ right C type and gives the second-class / `Impl` trait checks the real value
 type. Not closure-specific: the rule is "an existential expected type never
 replaces a concrete arm type".
 
+Once the join carries a concrete closure type, arms yielding two DIFFERENT
+closures must be rejected at check time (static dispatch). `cond` had that rule
+inline but read only a closure LITERAL's `capture_type`, so arms naming closure
+locals (`cond(b => f, true => h)`) passed `check` and died in clang (before the
+fix too, as the `void*` store); `match` had no rule at all. The rule moved to
+`reject_mixed_closure_arms` (`src/evaluator/utils.yo`), which also reads a bound
+closure identity's resolution (`is_bound_closure_identity`), and both joins call
+it on the arms that reach the join.
+
+## Probes (all on the built tree binary)
+
+| shape | before | after |
+| ----- | ------ | ----- |
+| `cond` / `match` tail, by-value capture | clang `void*` error | runs, 42 / 7 |
+| guarded `match` arms | clang error | runs |
+| `cond` nested in a `match` arm, `match` in a `match` arm | clang error | runs |
+| `return(cond(...))` + `match` tail | clang error | runs |
+| generic `-> Impl(Fn() -> T)` at `i32` and `i64` | clang error | runs |
+| borrowing capture: `cond` / `match` / `return(cond)` / fn literal / generic | `check` passes | E0909 "cannot be returned" |
+| borrowing capture bound first (`g := cond(...); g`) | E0909 | E0909 |
+| two different closures via `cond` / `match` | `check` passes, clang error | "different concrete closure types" |
+| `cond`/`match` of `dyn(...)` closure literals into a `Dyn` result | runs | runs |
+
+Found on the way and filed separately (independent of `cond`/`match`, reproduces
+on the seed): `issues/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md`.
+
 ## Tests
 
 - `tests/closure.test.yo`: "a cond or match tail returns its arms' closure as an
   Impl(Fn) result" (cond, match, guarded match, nested, `return(cond)`, generic at
-  two types, a fn literal) and "a closure returned through a cond tail keeps and
-  releases its capture once" (Dispose counter).
+  two types), "a closure returned through a cond tail keeps and releases its
+  capture once" (Dispose counter) and "an Impl(Fn) result joined from two
+  different closures is rejected".
 - `tests/closure_capture_list.test.yo`: "second-class: a cond or match tail
   cannot return a borrowing closure" (cond, match, `return(cond)`).
 - `tests/cli-cases/check-cond-tail-borrowing-closure-is-not-returned`: the
