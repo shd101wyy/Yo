@@ -30,8 +30,13 @@ Nothing failed to type-check, because the cast accepts both.
 The sites that meant the address say so: `unsafe.cast(addr_of(b), *u8)`
 (`addr_of` is Generation A's spelling of the address-of, carried by the
 seed). Every other `&x` that step A turned into a borrow was listed with a
-traced compiler (`YO_TRACE_AMP_PEEL`, not committed) over std, src, tests
-and the CLI fixtures, and each was checked; see the PR for the list.
+traced compiler (a temporary `YO_TRACE_AMP_PEEL` eprintln in
+`apply_call_site_borrow_markers`, not committed): `yo check` of `./std`,
+`./src`, every `tests/*.test.yo` with `--test-bodies`, and every CLI fixture
+(2026-10-10). After the three `Hasher` sites it found five, all tests written
+for the new meaning (`tests/addr_of.test.yo` ×2, `tests/parameter_modes.test.yo`
+×2, `tests/parameter_modes_collisions.test.yo`); `tests/internal` passes `&`
+only inside emitted-C strings. No other site changed meaning.
 
 ## Lesson
 
