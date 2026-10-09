@@ -103,10 +103,35 @@ not part of the type), so a `sink` function fills a by-value slot and the revers
 impl member's receiver may still be written with another self mode than the trait declares (the
 `imm(self)` impl of a plain-`self` trait method in `tests/parameter_modes.test.yo` passes).
 
-Sites the rule surfaced: `tests/type_soundness.test.yo` bound `(inc : Dyn(Fn(y : i32) -> i32))` and
-passed it to `_sound_apply_dyn`'s `imm(f) : Dyn(Fn(imm(x) : A) -> B)` (the V3b spelling sweep gave the
-parameter `imm(x)` but left the local by value); the local is now `Dyn(Fn(imm(y) : i32) -> i32)`.
-`src/` and `std/` had none.
+Sites the rule surfaced (all in tests; `src/` and `std/` had none), each fixed by writing the slot's
+modes:
+
+- `tests/internal/typeof.test.yo`: `stub_evaluate` / `stub_evaluate_raw` took `expr`, `env`, `ctx`
+  (and `exn`) by value for `EvaluateExprFn` / `EvaluateExprRawFn`'s `imm(...)` parameters — the
+  SIGSEGV that found this; now `imm(...)`, like the stubs of the other `tests/internal` files.
+- `tests/type_soundness.test.yo`: `(inc : Dyn(Fn(y : i32) -> i32))` passed to `_sound_apply_dyn`'s
+  `imm(f) : Dyn(Fn(imm(x) : A) -> B)` (the V3b spelling sweep gave the parameter `imm(x)` and left the
+  local by value); now `Dyn(Fn(imm(y) : i32) -> i32)`.
+- `tests/algebraic_effects.test.yo` (three tests) and
+  `tests/codegen-bootstrap/effect_polymorphism_forall_infer.yo`: `might_fail :: (fn(raise : Raise) ->
+  i32)` / `might_log :: (fn(log : Log) -> unit)` passed to `run`/`run_both`'s
+  `f : (fn(imm(e) : E) -> T)`; now `imm(raise)` / `imm(log)`, as the file's later
+  `might_fail :: (fn(imm(raise_mod) : Raise) -> i32)` already was. (`E` binds to the single effect
+  positionally here; a multi-field bundle flattens into more parameters than the slot has, which the
+  rule does not compare.)
+- `tests/fn.test.yo`: the written literal `(fn(y : i32) -> i32)(y + 18)` for
+  `callback : (fn(imm(v) : T) -> T)` — a `fn(...)` literal's modes are as spelled (only a `->`/`=>`
+  lambda adopts the slot's); now `(fn(imm(y) : i32) -> i32)`.
+- `tests/spec/refine_types.test.yo` (`odd_i32`, `non_zero_i32`) and
+  `tests/spec/fixtures/valid/spec_alias_generic.yo` (`nz_i32_ghost`): by-value `ghost_fn` predicates
+  given to `Refine(T, p)`, whose `p : (fn(imm(v) : T) -> bool)`; now `imm(x)`, as std's own `NonZero`
+  writes it.
+
+Found while probing, filed separately: `dyn(f)` of a named function value emits invalid C
+(`issues/dyn-of-a-named-function-value-emits-invalid-c.md`, pre-existing), and a named closure bound
+to an `Impl(Fn(...))` annotation of another parameter TYPE or result is accepted, the annotation
+ignored (`issues/a-named-closure-bound-to-an-impl-fn-annotation-keeps-its-own-signature.md`; the
+modes half is fixed here).
 
 ## Verification
 
@@ -120,3 +145,19 @@ parameter `imm(x)` but left the local by value); the local is now `Dyn(Fn(imm(y)
   the slot's modes, a struct field). Red on the pre-fix compiler (`comptime_expect_error` saw no
   error), green after.
 - `tests/dyn.test.yo`: "dyn of a function value checks its signature against the Dyn's `Fn`".
+- Probes (`yo check`, before → after): a named fn, a fn-typed local, a method value, `sink`→`imm`,
+  `imm`→by value, `imm`→`sink`, plain→`mut`, `imm`→`mut`, a by-value fn for
+  `Impl(Fn(imm(...)))`, a by-value closure for `Impl(Fn(imm(...)))` (argument and binding),
+  `dyn(byval)` into `Dyn(Fn(imm(...)))` and into `Dyn(Fn(x : i32) -> i32)`, a `-> i32` fn and an
+  `i32` for a `fn(...) -> usize` parameter: accepted → E0601. Struct field, `Option.Some` payload,
+  result and binding were already E0601/E0604 and stay so. Accepted before and after: exact modes,
+  `sink`↔by value, a closure literal for `Impl(Fn(...))`/`Dyn(Fn(...))`; a `=>` closure for a bare
+  `fn(...)` slot stays E0605.
+- `yo check ./src` and `yo check ./std` (`--std-path ./std`, the built binary): rc 0. A
+  `check --test-bodies` sweep of every `tests/**/*.test.yo` and `std/**/*.test.yo` outside
+  `tests/internal` and `tests/cli-cases`, and a `check` of every other `.yo` under `tests/`, with the
+  pre-fix and the fixed compiler: the only new rejections were the sites above.
+- `yo test` (one file, `--parallel 1`): `parameter_modes` 22, `fn_once` 22, `closure_capture_list`
+  31, `copy_trait` 23, `move_only` 22, `dyn` 35, `type_soundness` 70, `fn` 26, `algebraic_effects`
+  78, `spec/refine_types` 8, `internal/typeof` 1, `internal/diagnostics_registry_examples` 1 — all
+  passed.
