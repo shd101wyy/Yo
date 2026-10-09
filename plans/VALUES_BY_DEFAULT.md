@@ -2808,8 +2808,9 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   It is the same flag as `own(x)`, so the two spell one function type.
   Printing, messages, the registry and DESIGN say `sink`.
 - **Known limits.**
-  - The old value of `x = y` is disposed at block end
-    (`issues/questions/the-old-value-of-an-assignment-to-a-move-only-variable-is-disposed-at-the-end-of-the-block.md`).
+  - The old value of `x = y` was disposed at block end; since V3b's storing
+    step an explicit-copy old value is dropped at the assignment
+    (`issues/fixed/the-old-value-of-an-assignment-to-a-move-only-variable-is-disposed-at-the-end-of-the-block.md`).
   - The `Box(_MoFd)` assertion in `tests/move_only.test.yo` flips with the
     value `Box`.
 **Compiler, remaining** (none of it is in #1217):
@@ -3280,15 +3281,48 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
      - **std callbacks stay `imm`** (`for_each`, `map`, `filter` items) until
        decision 26's by-value scrutinee; the iterator adapters then take
        Rust's modes.
-     - **Open: the storing APIs.** The step-1 sweep preserved each
-       parameter's meaning, so `ArrayList.push`, `try_push`, `HashMap.insert`
-       and `Mutex.new` now read `imm(value) : T` and still copy inside the
-       callee. A move-only element still cannot be pushed, so §V3's "the gap
-       until V3b" is not closed yet. Closing it turns those parameters by
-       value and adds `.clone()` at each call site whose argument lives on
-       (about 1,000 in `src/`, by §6's estimate). That needs the pass from a
-       stored parameter to its call sites, and it lands as its own PR before
-       the marker sweep.
+     - **The storing APIs, as built (2026-10-09, branch
+       feat/vbd-v3b-storing-by-value, stacked on the flip).** The step-1 sweep
+       had preserved each parameter's meaning, so `ArrayList.push` read
+       `imm(value) : T` and still copied inside the callee. The parameters a
+       callee STORES now take their value by value: `ArrayList.push`,
+       `try_push`, `insert`; `HashMap`/`OrderedMap` `insert`/`try_insert`;
+       `HashSet` `insert`/`try_insert`; `Deque` and `LinkedList` `push_*` and
+       `insert`; `BTreeMap.insert`; `PriorityQueue.push`; both channels'
+       `send`/`try_send`; `Mutex`/`RwLock` `new` and the async `Mutex`
+       `new`/`set`; `Option.replace`; the JSON/TOML `insert`/`push`; and the
+       `std/imm` persistent `insert`/`prepend`/`push`/`set`. Three rules came
+       with it, each decided by the maintainer:
+       - **A still implicitly copyable kind is shared, as `t := s` shares
+         it.** Until V2b (`String`, the collections), V2c (`Rc`/`Arc`) and V5
+         (`ref`), a by-value parameter receives a share (+1) of such an
+         argument and the caller keeps its value; only an explicit-copy value
+         moves. The protocol is one for every by-value parameter (the callee
+         owns and drops it), so only the caller decides: a `sink(x)`
+         parameter (`FuncParam.is_sink`, `FuncMeta.param_is_sink`, caller-side
+         and not part of the type) and a closure or function value always
+         move. The share's dup is never a dup/drop pair candidate
+         (`mark_by_value_param_share_dup`): the callee frees its share at its
+         return, before the caller's later reads.
+       - **A value moved in some arms of a `cond`/`match` is dropped at the
+         end of the others** (the static form of Rust's drop flag;
+         `_drop_in_arms_that_keep`, `src/evaluator/utils.yo`). The join marks
+         it moved at the branch's end, so the early-return pass drops it at a
+         returning arm's `return`; a keeping arm's own window
+         (`UndoneMove.arm_drop`) stops that pass from doubling the arm's drop
+         at a `return` nested in it. A `match` pattern binding the same name
+         keeps E0907, and so do the ways out of a loop.
+       - **An assignment statement drops an explicit-copy old value at the
+         assignment** (Rust's timing), and `old := (x = y)` still keeps it.
+         The implicitly copyable kinds keep the end-of-block release until
+         their phase.
+     - **Found by the adversarial review and filed:** the early-return leak
+       beside arms that all move a value (pre-existing, fixed here),
+       an inner closure moving an enclosing `FnOnce` closure's capture
+       (pre-existing, fixed here), and an `io.async` body disposing a captured
+       move-only value twice
+       (`issues/an-io-async-body-disposes-a-captured-move-only-value-twice.md`,
+       pre-existing, open).
   3. **Deleting** `own`, `sink` and `inout`, and `&x` as address-of: the
      sweep rewrites every raw-pointer `&x` in std, `src/` and tests to
      `addr_of(x)`, then `&x` means only a borrow. Decision 33's mismatch

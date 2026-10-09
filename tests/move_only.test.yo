@@ -247,6 +247,22 @@ test("move-only: a returning arm beside arms that move a value drops it at the r
   assert(_mo_some_move_or_return(i32(2)) == i32(0), "kept, then dropped at the arm's end");
   assert(g_mo_disposed == (before + i32(6)), "and again for a move in some arms");
 });
+_MoPair :: struct(fd : _MoFd, tag : i32);
+test("move-only: an assignment statement drops the old value at the assignment", {
+  before := g_mo_disposed;
+  (x : _MoFd) = _MoFd(n : i32(1));
+  x = _MoFd(n : i32(2));
+  assert(g_mo_disposed == (before + i32(1)), "the variable's old value is gone at once");
+  h := _MoPair(fd : _MoFd(n : i32(3)), tag : i32(0));
+  h.fd = _MoFd(n : i32(4));
+  assert(g_mo_disposed == (before + i32(2)), "a field store's too");
+  xs := ArrayList(_MoFd).new();
+  xs.push(_MoFd(n : i32(5)));
+  xs(usize(0)) = _MoFd(n : i32(6));
+  assert(g_mo_disposed == (before + i32(3)), "an index store's too");
+  old := (x = _MoFd(n : i32(7)));
+  assert((g_mo_disposed == (before + i32(3))) && (old.n == i32(2)), "a used result keeps it");
+});
 test("move-only: a closure capture moves the value, and the closure disposes it", {
   before := g_mo_disposed;
   {
