@@ -170,7 +170,7 @@ tokenize_span :: (
         // `...#(xs)` was the operator spelling of `unquote_splicing(xs)`,
         // deleted 2026-10-10 (one spelling per operation): name the word.
         if((dot_run_len == usize(3)) && (next_after_dots.char == u32(0x23)), {
-          exn.throw(dyn(format_lexer_error(module_path, input, line, col, _REMOVED_SPLICE_OPERATOR_MESSAGE)));
+          exn.throw(dyn(format_lexer_error(module_path, input, line, col, String.from(_REMOVED_SPLICE_OPERATOR_MESSAGE))));
         });
         // A run of four or more dots is not in the closed set: without this
         // check the whole run became ONE Operator token that bypassed the
@@ -237,7 +237,7 @@ tokenize_span :: (
           // `#(x)` was the operator spelling of `unquote(x)`, deleted
           // 2026-10-10 (one spelling per operation): name the word.
           if((tok_len == usize(0)) && (op_str.slice_copy(k .. (k + usize(1))) == "#"), {
-            exn.throw(dyn(format_lexer_error(module_path, input, line, col + k, _REMOVED_UNQUOTE_OPERATOR_MESSAGE)));
+            exn.throw(dyn(format_lexer_error(module_path, input, line, col + k, String.from(_REMOVED_UNQUOTE_OPERATOR_MESSAGE))));
             break;
           });
           if(tok_len == usize(0), {
