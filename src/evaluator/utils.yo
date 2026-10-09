@@ -72,7 +72,8 @@ pragma(Pragma.AllowUnsafe);
   UndoneMove,
   variable_record_undone_move,
   is_fn_capture_value_binding,
-  is_fnonce_capture_frame
+  is_fnonce_capture_frame,
+  is_closure_param_frame
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook } :: import("./context.yo");
@@ -899,22 +900,30 @@ _is_implicit_closure_capture :: (fn(imm(v) : Variable, imm(env) : Environment, i
           return(false);
         });
         body_level := sub.eval_env.frame_count();
+        // The first closure parameter frame below the body, walking down, is
+        // this closure's own: its parameters are not captures. One further
+        // down belongs to an enclosing closure, whose parameters are.
+        (own_params_seen : bool) = false;
         (fi : usize) = env.frames.len();
         while(fi > usize(0), {
           fi = (fi - usize(1));
           match(
             env.frames.get(fi),
             .Some(fr) => {
+              is_own_params := ((fi < body_level) && !own_params_seen && is_closure_param_frame(fr.id));
               (vi : usize) = usize(0);
               while(vi < fr.variables.len(), {
                 match(
                   fr.variables.get(vi),
                   .Some(fv2) => if(fv2.id == v.id, {
-                    return((fi < body_level) && !is_fnonce_capture_frame(fr.id));
+                    return((fi < body_level) && !is_fnonce_capture_frame(fr.id) && !is_own_params);
                   }),
                   .None => ()
                 );
                 vi = (vi + usize(1));
+              });
+              if(is_own_params, {
+                own_params_seen = true;
               });
             },
             .None => ()

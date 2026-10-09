@@ -85,6 +85,7 @@ pragma(Pragma.AllowUnsafe);
   Variable,
   add_variable_to_env,
   mark_fnonce_capture_frame,
+  mark_closure_param_frame,
   mark_fn_capture_value_binding,
   synthetic_token,
   snapshot_env,
@@ -1606,6 +1607,7 @@ evaluate_anonymous_function_implementation :: (
   // Push a new environment frame for the function parameters.
   // -------------------------------------------------------------------------
   _frame_idx := env.push_frame(false);
+  match(env.frames.get(_frame_idx), .Some(pfr) => mark_closure_param_frame(pfr.id), .None => ());
   // -------------------------------------------------------------------------
   // Add generic parameters to the environment.
   // Each generic type variable is bound as a compile-time unknown SomeT.
