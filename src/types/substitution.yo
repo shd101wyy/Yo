@@ -749,7 +749,7 @@ _substitute_node :: (fn(imm(s) : Substitution, imm(ty) : TypeValue, is_root : bo
           // Re-sorted: substituting a trait argument can change its key.
           t_dyn(new_rtt, rtl, new_ntt, ntl)
         },
-        .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, call_param_is_ref : cprf) => {
+        .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, call_param_is_ref : cprf, call_param_is_owning : cpof) => {
           new_cpts := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < cpts.len(), {
@@ -764,7 +764,7 @@ _substitute_node :: (fn(imm(s) : Substitution, imm(ty) : TypeValue, is_root : bo
             new_its.push(_substitute_at(s, elem, false));
             iti = (iti + usize(1));
           });
-          .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, cr, false), implicit_labels : ils, implicit_types : new_its, call_param_is_ref : cprf)
+          .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, cr, false), implicit_labels : ils, implicit_types : new_its, call_param_is_ref : cprf, call_param_is_owning : cpof)
         },
         .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets) => {
           new_ets := ArrayList(TypeValue).new();

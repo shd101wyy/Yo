@@ -2330,7 +2330,7 @@ _gc_collect_binder_sites :: (
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -2621,9 +2621,9 @@ _funcval_try_synthesize_param :: (
 _fv_fn_trait_with_result :: (fn(imm(ftt) : TypeValue, imm(result) : TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(bn, cpl, cpt, cr, il, it, cpr) => if(
+    .FnTraitT(bn, cpl, cpt, cr, il, it, cpr, cpo) => if(
       is_some_type(cr) || (get_all_some_types(cr).len() > usize(0)),
-      TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, cpr),
+      TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, cpr, cpo),
       ftt
     ),
     _ => ftt
@@ -2670,7 +2670,7 @@ _fv_closure_arg_synth_type :: (fn(imm(info) : ExprInfo) -> TypeValue)({
           });
           TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)
         },
-        .FnTraitT(_, _, _, _, _, _, _) => _fv_fn_trait_with_result(info.ty, body),
+        .FnTraitT(_, _, _, _, _, _, _, _) => _fv_fn_trait_with_result(info.ty, body),
         _ => info.ty
       )
     ),
@@ -3818,7 +3818,7 @@ _rre_binder_ids :: (
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -3908,7 +3908,7 @@ _rre_mentions_binder :: (fn(imm(t) : TypeValue, imm(ids) : ArrayList(String)) ->
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -6242,7 +6242,7 @@ Fix: wrap the call:
             try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, exn)
           },
           // FnTraitT (Fn(A, B) -> C as a type) — try closure creation.
-          .FnTraitT(_, _, _, _, _, _, _) => {
+          .FnTraitT(_, _, _, _, _, _, _, _) => {
             result_opt := try_to_implement_closure_by_fn_module_type(
               expr,
               func_type,
@@ -7178,7 +7178,7 @@ Fix: wrap the call:
             // with_lock write-through arm).
             _ => match(
               extract_fn_trait_from_type(ci.ty),
-              .Some(.FnTraitT(_, _, _, _, _, _, fv_cprf)) => fv_cprf,
+              .Some(.FnTraitT(_, _, _, _, _, _, fv_cprf, _)) => fv_cprf,
               .Some(_) => ArrayList(bool).new(),
               .None => ArrayList(bool).new()
             )

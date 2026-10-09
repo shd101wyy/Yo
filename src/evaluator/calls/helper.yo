@@ -615,7 +615,7 @@ _trial_eval_ret_type_expr :: (
 _refine_one_fn_trait_result :: (fn(imm(ftt) : TypeValue, imm(new_result) : TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_cpr) => cond(
+    .FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_cpr, rw_cpo) => cond(
       (!is_some_type(rw_cr) && (get_all_some_types(rw_cr).len() > usize(0))) => TypeValue.FnTraitT(
         rw_bn,
         rw_cpl,
@@ -623,7 +623,8 @@ _refine_one_fn_trait_result :: (fn(imm(ftt) : TypeValue, imm(new_result) : TypeV
         new_result,
         rw_il,
         rw_it,
-        rw_cpr
+        rw_cpr,
+        rw_cpo
       ),
       true => ftt
     ),
@@ -661,7 +662,7 @@ _refine_wrapper_fn_result :: (fn(imm(ty) : TypeValue, imm(new_result) : TypeValu
       });
       TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)
     },
-    .FnTraitT(_, _, _, _, _, _, _) => _refine_one_fn_trait_result(ty, new_result),
+    .FnTraitT(_, _, _, _, _, _, _, _) => _refine_one_fn_trait_result(ty, new_result),
     _ => ty
   )
 );
@@ -3668,7 +3669,7 @@ create_specialized_function_inline :: (
                     extract_fn_trait_from_type(decl_pt),
                     .Some(fn_tr) => match(
                       fn_tr,
-                      .FnTraitT(_, _, _, fn_res, _, _, _) => if(is_some_type(fn_res), {
+                      .FnTraitT(_, _, _, fn_res, _, _, _, _) => if(is_some_type(fn_res), {
                         match(
                           arg_values.args.get(rbp_i),
                           .Some(cl_ae3) => match(
@@ -4293,7 +4294,7 @@ create_specialized_function_inline :: (
                             extract_fn_trait_from_type(declared_pt),
                             .Some(cw_ftt) => match(
                               cw_ftt,
-                              .FnTraitT(_, _, cw_cpt, cw_cres, _, _, _) => {
+                              .FnTraitT(_, _, cw_cpt, cw_cres, _, _, _, _) => {
                                 // Resolve the trait's generic occurrences by
                                 // NAME + OCCURRENCE-LEVEL from the inferred
                                 // forall_args (the ys_ret-bridge pattern):
@@ -5884,7 +5885,7 @@ collect_somes_with_fn_sigs :: (fn(imm(t) : TypeValue) -> ArrayList(TypeValue))({
     extract_fn_trait_from_type(t),
     .Some(ftt) => match(
       ftt,
-      .FnTraitT(_, _, ftt_pts, ftt_res, _, _, _) => {
+      .FnTraitT(_, _, ftt_pts, ftt_res, _, _, _, _) => {
         ft_parts := ArrayList(TypeValue).new();
         (pi : usize) = usize(0);
         while(pi < ftt_pts.len(), {
@@ -6271,7 +6272,7 @@ try_to_call_function_with_arguments :: (
       extract_fn_trait_from_type(func_type),
       .Some(ftt) => match(
         ftt,
-        .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf) => TypeValue.Func(
+        .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => TypeValue.Func(
           ArrayList(TypeValue).new(),
           cpt,
           ArrayList(TypeValue).new(),
@@ -6284,7 +6285,7 @@ try_to_call_function_with_arguments :: (
               implicit_labels : ArrayList(String).new(),
               result_is_comptime_only : false,
               param_is_ref : cprf,
-              param_is_owning : ArrayList(bool).new(),
+              param_is_owning : cpof,
               result_is_ref : false,
               has_variadic : false,
               is_extern : Option(String).None,

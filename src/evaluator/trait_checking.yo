@@ -162,7 +162,7 @@ _trait_type_id :: (fn(imm(ty) : TypeValue) -> String)(
   match(
     ty,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
+    .FnTraitT(base_name, _, _, _, _, _, _, _) => base_name,
     .FutureTraitT(base_name, _, _, _) => base_name,
     _ => String.from("")
   )
@@ -1251,7 +1251,7 @@ type_implements_trait :: (
   if(is_fn_trait_type(trait_type) && is_function_type(target), {
     fn_trait_call_ty := match(
       trait_type,
-      .FnTraitT(_, param_labels, param_types, result, _, _, _) => TypeValue.Func(
+      .FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns) => TypeValue.Func(
         ArrayList(TypeValue).new(),
         param_types,
         ArrayList(TypeValue).new(),
@@ -1264,8 +1264,8 @@ type_implements_trait :: (
             implicit_labels : ArrayList(String).new(),
             result_is_comptime_only : false,
             // Fn-trait call type (runtime)
-            param_is_ref : ArrayList(bool).new(),
-            param_is_owning : ArrayList(bool).new(),
+            param_is_ref : ft_refs,
+            param_is_owning : ft_owns,
             result_is_ref : false,
             has_variadic : false,
             is_extern : Option(String).None,

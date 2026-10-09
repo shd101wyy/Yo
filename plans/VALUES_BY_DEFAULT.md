@@ -129,7 +129,10 @@ Unique ownership removes the question instead of answering it.
     - local borrows: `imm(y) := place` and `mut(y) := place`;
     - re-pointing a borrow: `imm(cur) = place`;
     - projection results: `-> imm(T)` and `-> mut(T)`;
-    - function types: `Fn(imm(String)) -> usize`.
+    - function types: `Fn(imm(s) : String) -> usize`. Parameters of `fn` and
+      `Fn` types keep their labels (the maintainer, 2026-10-09): the mode
+      wraps the label, never the type, so there is one spelling, and a
+      function type reads like the header of a function of that type.
   - Borrows are second-class: they cannot be stored, returned, captured by
     an escaping closure or spawned. So every check is intraprocedural, and
     no lifetimes appear in the language.

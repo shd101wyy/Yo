@@ -864,7 +864,7 @@ Rules:
 | `addr_of(x)` | address-of `&x` → `*(T)` | unsafe-capable files only, like `&x` |
 | `size_of`, `align_of`, `type_of`, `type_id` | (deleted in Generation B) `sizeof`, `alignof`, `typeof`, `typeid` | the only spellings; `std/term.yo`'s `size_of` became `term_size` |
 
-There is no mismatch error for a BARE argument yet (`show(s)` to an `imm` parameter stays legal); Generation B turns decision 33's error on. Not in Generation A: lambda params spelled `(mut(n)) => …` (a lambda takes its modes from the expected `Fn` type), `-> mut(T)` (rejected like `-> inout(T)`), and unlabeled fn-type params (`Fn(imm(String))`).
+There is no mismatch error for a BARE argument yet (`show(s)` to an `imm` parameter stays legal); Generation B turns decision 33's error on. Not in Generation A: lambda params spelled `(mut(n)) => …` (a lambda takes its modes from the expected `Fn` type), `-> mut(T)` (rejected like `-> inout(T)`), and unlabeled fn-type params: `fn` and `Fn` parameters always need labels (`Fn(imm(s) : String) -> usize`, never `Fn(imm(String))`), so a mode wraps the label, not the type.
 
 `inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(inout(self) : Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/archive/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/reference/MEMORY_SAFETY.md`).
 
