@@ -2093,7 +2093,18 @@ Result type: ${type_to_string(result_box)}`
                     match(
                       dts_hidden,
                       .Some(dts_h) => {
-                        register_func_type(fn_val_id.clone(), t_with_func_result(get_func_type(fn_val_id.clone()), t_with_resolution(result_box, dts_h)));
+                        dts_res := t_with_resolution(result_box, dts_h);
+                        register_func_type(fn_val_id.clone(), t_with_func_result(get_func_type(fn_val_id.clone()), dts_res.clone()));
+                        // The definition expression's own type carries it
+                        // too. A module-level callee is reached through its
+                        // FuncVal (the call reads the body's type), but a
+                        // value BOUND from this expression (`mk := (fn ...)`,
+                        // an argument, a capture) is typed from this
+                        // ExprInfo: with the bare SomeT its calls returned
+                        // `void*` while the emitted function returns the
+                        // concrete type BY VALUE
+                        // (issues/fixed/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md).
+                        info.ty = t_with_func_result(info.ty, dts_res);
                       },
                       .None => ()
                     );
