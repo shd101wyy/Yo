@@ -75,7 +75,7 @@ pragma(Pragma.AllowUnsafe);
   is_function_type_and_returns_comptime_value,
   is_never_type
 } :: import("../../types/guards.yo");
-{ type_contains_some_type, mark_generic_independent } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
@@ -282,7 +282,7 @@ _gadt_refined_expected :: (
 /// type unless a concrete expected type is in force).
 _arm_result_type :: (fn(imm(ctx) : EvalContext, imm(body_ty) : TypeValue) -> TypeValue)(
   cond(
-    match(ctx.expected_type, .Some(et) => !(type_contains_some_type(et.ty)), .None => false) =>
+    match(ctx.expected_type, .Some(et) => (!type_contains_some_type(et.ty) && !type_mentions_impl_fn_or_future(et.ty)), .None => false) =>
       match(ctx.expected_type, .Some(et) => et.ty, .None => body_ty),
     true => body_ty
   )

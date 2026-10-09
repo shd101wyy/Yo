@@ -52,7 +52,7 @@ pragma(Pragma.AllowUnsafe);
   is_never_type
 } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
-{ type_contains_some_type, type_contains_some_type_deep, type_requires_comptime_modifier } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep, type_mentions_impl_fn_or_future, type_requires_comptime_modifier } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -349,7 +349,7 @@ evaluate_cond :: (
           }
         );
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => !type_contains_some_type_deep(et.ty), .None => false) =>
+          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(et.ty) && !type_mentions_impl_fn_or_future(et.ty)), .None => false) =>
             match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
           true => body_info.ty
         );
@@ -383,7 +383,7 @@ evaluate_cond :: (
         env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
         env.input_string = body_info.env.input_string;
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => !type_contains_some_type_deep(et.ty), .None => false) =>
+          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(et.ty) && !type_mentions_impl_fn_or_future(et.ty)), .None => false) =>
             match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
           true => body_info.ty
         );
@@ -747,7 +747,7 @@ evaluate_cond :: (
           true => Option(EvalValue).Some(create_unknown_val(vts.ty))
         );
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => !type_contains_some_type_deep(et.ty), .None => false) =>
+          match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(et.ty) && !type_mentions_impl_fn_or_future(et.ty)), .None => false) =>
             match(ctx.expected_type, .Some(et) => et.ty, .None => vts.ty),
           true => vts.ty
         );
