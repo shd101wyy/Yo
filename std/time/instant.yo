@@ -140,10 +140,10 @@ impl(
 impl(
   Instant,
   Eq(Instant)(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
     ),
-    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(lhs == rhs)
     )
   )
@@ -151,19 +151,19 @@ impl(
 impl(
   Instant,
   Ord(Instant)(
-    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       cond(
         (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
         true => (lhs.nanos < rhs.nanos)
       )
     ),
-    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(rhs < lhs)
     ),
-    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       rhs < lhs
     ),
-    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(lhs < rhs)
     )
   )
@@ -302,10 +302,10 @@ impl(
 impl(
   SystemTime,
   Eq(SystemTime)(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
     ),
-    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !((lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos))
     )
   )
@@ -313,14 +313,14 @@ impl(
 impl(
   SystemTime,
   Ord(SystemTime)(
-    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       cond(
         (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
         true => (lhs.nanos < rhs.nanos)
       )
     ),
-    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(!(rhs < lhs)),
-    (>) : (fn(lhs : Self, rhs : Self) -> bool)(rhs < lhs),
-    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(!(lhs < rhs))
+    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(!(rhs < lhs)),
+    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(rhs < lhs),
+    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(!(lhs < rhs))
   )
 );

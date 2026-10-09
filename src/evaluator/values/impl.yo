@@ -3448,7 +3448,7 @@ _materialize_default_body :: (
 /// (plans/reference/TYPE_IDENTITY.md), so conformance compares those.
 /// The parameter-list call `fn(...)` inside a member's value
 /// (`(fn(lhs : T, rhs : T) -> bool)(body)`), searched depth-first.
-_member_fn_param_list :: (fn(e : AstExpr, depth : usize) -> Option(ArrayList(AstExpr)))({
+_member_fn_param_list :: (fn(imm(e) : AstExpr, depth : usize) -> Option(ArrayList(AstExpr)))({
   if(depth > usize(4), {
     return(Option(ArrayList(AstExpr)).None);
   });
@@ -3481,7 +3481,7 @@ _member_fn_param_list :: (fn(e : AstExpr, depth : usize) -> Option(ArrayList(Ast
 });
 /// The bare label atom of a parameter expression (`lhs : T`, `(lhs : T) ?= d`),
 /// or `.None` when the label carries a mode wrapper already.
-_plain_param_label_atom :: (fn(p : AstExpr) -> Option(AstExpr))({
+_plain_param_label_atom :: (fn(imm(p) : AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = p;
   if(ast_expr_is_fn_call_of(cur, "?=", Option(usize).Some(usize(2))), {
     cur = match(_fn_args_of(cur).get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -3497,7 +3497,7 @@ _plain_param_label_atom :: (fn(p : AstExpr) -> Option(AstExpr))({
   });
   if(ast_expr_is_atom(lbl), Option(AstExpr).Some(lbl), Option(AstExpr).None)
 });
-_fn_args_of :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+_fn_args_of :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// `yo fix --migrate params`, the trait-conformance half (decision 34 as
@@ -3506,7 +3506,7 @@ _fn_args_of :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
 /// plain where the trait's are `imm` differs from the trait only in those
 /// modes: record `imm(label)` for each, and report whether that made the
 /// member conform (the caller then does not reject it).
-_migrate_imm_for_trait_mismatch :: (fn(val_expr : AstExpr, actual : TypeValue, expected : TypeValue) -> bool)(
+_migrate_imm_for_trait_mismatch :: (fn(imm(val_expr) : AstExpr, imm(actual) : TypeValue, imm(expected) : TypeValue) -> bool)(
   match(
     actual,
     .Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts }) => match(
