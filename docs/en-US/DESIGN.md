@@ -1314,7 +1314,7 @@ Yo uses `Option(*(T))` for nullable pointers:
 
 ```rust
 // malloc returns Option(*(void)) — it is NOT generic, so cast before use.
-some_ptr := malloc(sizeof(i32));
+some_ptr := malloc(size_of(i32));
 match(
   some_ptr,
   .Some(vp) => {
@@ -1331,15 +1331,15 @@ match(
 
 ### `Option` of a handle is one pointer
 
-`Option(T)` where `T` is a raw pointer OR a reference-semantics handle (`ref(struct(...))` / `ref(enum(...))`, including every `String`, whose bytes live behind an `Option` of a handle newtype) lowers to the bare pointer, with `NULL` as `.None`. The same niche applies to any two-variant enum with one fieldless variant and one single-field handle payload. There is no tag word and no extra padding: `sizeof` is the pointer's own, and a `match` on such a value compiles to a NULL test.
+`Option(T)` where `T` is a raw pointer OR a reference-semantics handle (`ref(struct(...))` / `ref(enum(...))`, including every `String`, whose bytes live behind an `Option` of a handle newtype) lowers to the bare pointer, with `NULL` as `.None`. The same niche applies to any two-variant enum with one fieldless variant and one single-field handle payload. There is no tag word and no extra padding: `size_of` is the pointer's own, and a `match` on such a value compiles to a NULL test.
 
 ```rust
-pragma(Pragma.AllowUnsafe); // only so sizeof may name a pointer type
+pragma(Pragma.AllowUnsafe); // only so size_of may name a pointer type
 
-sz_opt :: sizeof(Option(*i32)); // == sizeof(*i32) — the pointer itself
-sz_str :: sizeof(String);       // == sizeof(*u8)   — the handle itself
+sz_opt :: size_of(Option(*i32)); // == size_of(*i32) — the pointer itself
+sz_str :: size_of(String);       // == size_of(*u8)   — the handle itself
 Tree :: enum(Empty, Node(child : Rc(Self)));
-sz_tree :: sizeof(Tree);        // == sizeof(*u8)   — NULL is Empty
+sz_tree :: size_of(Tree);        // == size_of(*u8)   — NULL is Empty
 ```
 
 ### Memory Safety
@@ -2140,7 +2140,7 @@ impl(
 
 ```rust
 UserId :: newtype(value : i32);
-// sizeof(UserId) == sizeof(i32)
+// size_of(UserId) == size_of(i32)
 // In C: just an i32, no struct wrapper at runtime
 ```
 
@@ -3203,13 +3203,13 @@ takes_fn((y) => (y + k), 5);     // OK
 The closure's body is checked against the result of the `Fn(...) -> R` it is passed as:
 `takes_fn(x => true, 5)` is an E0604.
 
-A closure's type can instantiate a container. `ArrayList(typeof(k))` holds copies of `k`, and
+A closure's type can instantiate a container. `ArrayList(type_of(k))` holds copies of `k`, and
 two closures' lists are two types, so a closure cannot go into another closure's list:
 
 ```rust
 (k1 : Impl(Fn() -> unit)) = (() => println(a));
 (k2 : Impl(Fn() -> unit)) = (() => println(s));
-l1 := ArrayList(typeof(k1)).new();
+l1 := ArrayList(type_of(k1)).new();
 l1.push(k1);    // OK
 l1.push(k2);    // error: k2 is a different closure type
 ```
@@ -3604,7 +3604,7 @@ make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
 ```
 
 Each closure is its own type, so one `Impl(Fn(...))` slot holds one closure
-and a container of them is `ArrayList(typeof(k))` — two different closures in
+and a container of them is `ArrayList(type_of(k))` — two different closures in
 one container need `Dyn(Fn(...))` (see [Closure Type Restrictions](#closure-type-restrictions)).
 `Impl(Future(T, E))` is the same shape for `async` results.
 
@@ -4112,7 +4112,7 @@ test("Expected compile errors", {
     closure1 := (x => (x + 1));
     closure2 := (x => (x + 1));
     // Each closure has unique type
-    (c : typeof(closure1)) = closure2; // Error!
+    (c : type_of(closure1)) = closure2; // Error!
   }, "no two closures have the same type");
 });
 ```

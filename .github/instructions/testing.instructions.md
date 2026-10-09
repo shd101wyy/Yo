@@ -461,10 +461,10 @@ Derive widths instead of writing them:
 
 ```rust
 sh := usize(1);
-while(sh < (sizeof(usize) * usize(8)), { c = (c | (c >> sh)); sh = (sh * usize(2)); });
+while(sh < (size_of(usize) * usize(8)), { c = (c | (c >> sh)); sh = (sh * usize(2)); });
 ```
 
-and in tests, derive the boundary the same way (`bits :: (sizeof(usize) * usize(8))`,
+and in tests, derive the boundary the same way (`bits :: (size_of(usize) * usize(8))`,
 then `usize(1) << (bits - usize(3))`) rather than writing `usize(1) << usize(61)`,
 which is meaningless on a 32-bit target.
 

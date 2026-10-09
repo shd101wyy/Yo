@@ -3071,27 +3071,27 @@ test("Test parser associtivity", {
   comptime_assert(right_2 == quote(a = (b -> c)));
 });
 test("Test sizeof", {
-  comptime_assert(sizeof(Type) == 0);
+  comptime_assert(size_of(Type) == 0);
   // comptime_assert(sizeof(Free) == 0);
   // comptime_assert(sizeof(Linear) == 0);
-  comptime_assert(sizeof(comptime_int) == 0);
-  comptime_assert(sizeof(comptime_float) == 0);
+  comptime_assert(size_of(comptime_int) == 0);
+  comptime_assert(size_of(comptime_float) == 0);
   // `unit` is a true zero-sized type (Rust: `size_of::<()>() == 0`): a unit
   // field emits no C member, so nothing is laid out. See
   // tests/unit_as_value_type.test.yo for the aggregate rule and
   // issues/fixed/unit-should-be-a-true-zero-sized-type-like-rust.md.
-  comptime_assert(sizeof(unit) == 0);
-  comptime_assert(sizeof(u8) == 1);
-  comptime_assert(sizeof(u16) == 2);
-  comptime_assert(sizeof(u32) == 4);
-  comptime_assert(sizeof(u64) == 8);
-  comptime_assert(sizeof(i8) == 1);
-  comptime_assert(sizeof(i16) == 2);
-  comptime_assert(sizeof(i32) == 4);
-  comptime_assert(sizeof(i64) == 8);
-  comptime_assert(sizeof(f32) == 4);
-  comptime_assert(sizeof(f64) == 8);
-  comptime_assert(sizeof(bool) == 1);
+  comptime_assert(size_of(unit) == 0);
+  comptime_assert(size_of(u8) == 1);
+  comptime_assert(size_of(u16) == 2);
+  comptime_assert(size_of(u32) == 4);
+  comptime_assert(size_of(u64) == 8);
+  comptime_assert(size_of(i8) == 1);
+  comptime_assert(size_of(i16) == 2);
+  comptime_assert(size_of(i32) == 4);
+  comptime_assert(size_of(i64) == 8);
+  comptime_assert(size_of(f32) == 4);
+  comptime_assert(size_of(f64) == 8);
+  comptime_assert(size_of(bool) == 1);
   MyTuple :: Tuple(
     u8,
     u16,
@@ -3104,26 +3104,26 @@ test("Test sizeof", {
     f32,
     f64
   );
-  comptime_assert(sizeof(MyTuple) == 48);
+  comptime_assert(size_of(MyTuple) == 48);
   MyArray :: Array(u8, 10);
-  comptime_assert(sizeof(MyArray) == 10);
+  comptime_assert(size_of(MyArray) == 10);
   Point :: struct(
     x : i32,
     y : i32
   );
   derive(Point, Copy, Clone);
-  comptime_assert(sizeof(Point) == 8);
+  comptime_assert(size_of(Point) == 8);
   Color :: enum(
     Red,
     Green,
     Blue
   );
-  comptime_assert(sizeof(Color) == 4);
+  comptime_assert(size_of(Color) == 4);
   Shape :: enum(
     Circle(radius : f32),
     Rectangle(width : f32, height : f32)
   );
-  comptime_assert(sizeof(Shape) == 12);
+  comptime_assert(size_of(Shape) == 12);
   MyUnion :: union(
     a : u8,
     b : u16,
@@ -3136,9 +3136,9 @@ test("Test sizeof", {
     i : f32,
     j : f64
   );
-  comptime_assert(sizeof(MyUnion) == 8);
+  comptime_assert(size_of(MyUnion) == 8);
   test1 :: (fn(comptime(T) : Type) -> unit)({
-    x :: sizeof(T);
+    x :: size_of(T);
   });
   // All pointers now have unknown size
   // comptime_assert(sizeof(test1) == 8);
@@ -3154,16 +3154,16 @@ test("Test sizeof", {
 });
 test("Test alignof", {
   // Test primitive types
-  comptime_assert(alignof(u8) == usize(1));
-  comptime_assert(alignof(u16) == usize(2));
-  comptime_assert(alignof(u32) == usize(4));
-  comptime_assert(alignof(u64) == usize(8));
-  comptime_assert(alignof(i8) == usize(1));
-  comptime_assert(alignof(i16) == usize(2));
-  comptime_assert(alignof(i32) == usize(4));
-  comptime_assert(alignof(i64) == usize(8));
-  comptime_assert(alignof(f32) == usize(4));
-  comptime_assert(alignof(f64) == usize(8));
+  comptime_assert(align_of(u8) == usize(1));
+  comptime_assert(align_of(u16) == usize(2));
+  comptime_assert(align_of(u32) == usize(4));
+  comptime_assert(align_of(u64) == usize(8));
+  comptime_assert(align_of(i8) == usize(1));
+  comptime_assert(align_of(i16) == usize(2));
+  comptime_assert(align_of(i32) == usize(4));
+  comptime_assert(align_of(i64) == usize(8));
+  comptime_assert(align_of(f32) == usize(4));
+  comptime_assert(align_of(f64) == usize(8));
   // Test pointer types
   // A pointer aligns like a machine word, so this is `alignof(usize)` — NOT a
   // hardcoded 8. wasm32 has 4-byte pointers (`usize` is sized from
@@ -3171,14 +3171,14 @@ test("Test alignof", {
   // comptime_assert started firing inside function bodies and both wasm legs
   // went red. The assertion had never executed on ANY target, in either
   // compiler — exactly the class this PR exists to expose.
-  comptime_assert(alignof(*u8) == alignof(usize));
-  comptime_assert(alignof(*i32) == alignof(usize));
+  comptime_assert(align_of(*u8) == align_of(usize));
+  comptime_assert(align_of(*i32) == align_of(usize));
   // Test array types (should be same as element type)
-  comptime_assert(alignof([u32 ; 10]) == usize(4));
-  comptime_assert(alignof([u64 ; 5]) == usize(8));
+  comptime_assert(align_of([u32 ; 10]) == usize(4));
+  comptime_assert(align_of([u64 ; 5]) == usize(8));
   // Test struct types
   S :: struct(x : u64, y : u32);
-  comptime_assert(alignof(S) == usize(8)); // Should be max alignment (u64 = 8)
+  comptime_assert(align_of(S) == usize(8)); // Should be max alignment (u64 = 8)
 });
 test("Test comptime Ptr value", {
   // Test 1: Simple address-of and dereference

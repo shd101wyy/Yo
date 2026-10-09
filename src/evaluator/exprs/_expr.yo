@@ -61,8 +61,6 @@ import("std/fmt");
   BK_ASSIGN,
   BK_INIT_ASSIGN,
   BK_CONST,
-  BF_TYPEOF,
-  BF_SIZEOF,
   BF_TYPE_OF,
   BF_SIZE_OF,
   BF_ALIGN_OF,
@@ -99,8 +97,6 @@ import("std/fmt");
   BF_SET_SINGLE,
   BF_SET_ADD,
   BF_SET_CONTAINS,
-  BF_ALIGNOF,
-  BF_TYPEID,
   BF_RUNTIME,
   BF_YO_BORROW_CHECK,
   BF_UNWIND,
@@ -992,12 +988,8 @@ _evaluate_expression :: (
           evaluate_impl_constraint(expr, env, ctx, exn),
         ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_IMPL_LOWER, .None)) =>
           evaluate_module_value(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEOF, .None)) =>
-          evaluate_typeof(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_SIZEOF, .None)) =>
-          evaluate_size_of(expr, env, ctx, exn),
-        // The snake_case spellings (V3b Generation A): `type_of`, `size_of`
-        // and `type_id` are seven bytes, `align_of` eight; a wrong length
+        // `type_of`, `size_of` and `type_id` are seven bytes, `align_of`
+        // eight (the C-style spellings were deleted in V3b Generation B); a wrong length
         // gate makes the arm dead.
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_TYPE_OF, .None)) =>
           evaluate_typeof(expr, env, ctx, exn),
@@ -1068,10 +1060,6 @@ _evaluate_expression :: (
           evaluate_set_add(expr, env, ctx, exn),
         ((__dk_len == usize(12)) && ast_expr_is_fn_call_of(expr, BF_SET_CONTAINS, .None)) =>
           evaluate_set_contains(expr, env, ctx, exn),
-        ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ALIGNOF, .None)) =>
-          evaluate_align_of(expr, env, ctx, exn),
-        ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEID, .None)) =>
-          evaluate_type_id(expr, env, ctx, exn),
         ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_ALIGN_OF, .None)) =>
           evaluate_align_of(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_TYPE_ID, .None)) =>

@@ -6,7 +6,7 @@ impl(
   generic(T : Type),
   Buf(T),
   grow : (fn(self : Self, cap : usize) -> unit)({
-    m := unsafe(GlobalAllocator.malloc(sizeof(T) * cap));
+    m := unsafe(GlobalAllocator.malloc(size_of(T) * cap));
     match(m, .Some(p) => unsafe(GlobalAllocator.free(.Some(p))), .None => ());
   }),
   mk : (fn() -> Self)(Self(_n : usize(0)))

@@ -8666,7 +8666,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           // `Clone` impl by name: `self.f.clone()` would be decision 32's
           // wrapper/payload clash (E0616) when the payload is `Clone` too.
           part :: cond(
-            Type.impls(fields.get(fi).field_type, Deref) => __s5("(typeof(self.", fname, ") <: Clone).clone(self.", fname, ")"),
+            Type.impls(fields.get(fi).field_type, Deref) => __s5("(type_of(self.", fname, ") <: Clone).clone(self.", fname, ")"),
             true => __s3("self.", fname, ".clone()")
           );
           cond(
@@ -8716,7 +8716,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   part :: cond(
-                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(typeof(__v_", fname, ") <: Clone).clone(__v_", fname, ")"),
+                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(type_of(__v_", fname, ") <: Clone).clone(__v_", fname, ")"),
                     true => __s3("__v_", fname, ".clone()")
                   );
                   cond(
@@ -9788,7 +9788,7 @@ impl(
   return(
     quote({
       unquote(assignment);
-      unquote(temp_type) :: typeof(unquote(temp));
+      unquote(temp_type) :: type_of(unquote(temp));
       cond(
         Type.contains_rc_type(unquote(temp_type)) => // compile-time check
         cond(

@@ -1281,7 +1281,7 @@ Yo 使用 `Option(*(T))` 来表示可空指针：
 
 ```rust
 // malloc 返回 Option(*(T))
-some_ptr := malloc(sizeof(i32));
+some_ptr := malloc(size_of(i32));
 match(
   some_ptr,
   .Some(ptr) => {
@@ -1297,15 +1297,15 @@ match(
 
 ### 句柄的 `Option` 就是一个指针
 
-当 `T` 是裸指针**或**引用语义句柄（`ref(struct(...))` / `ref(enum(...))`，包括每个 `String` —— 它的字节存放在一个句柄 `Option` 的 newtype 之后）时，`Option(T)` 直接编译为裸指针，用 `NULL` 表示 `.None`。同样的 niche 优化也适用于「一个无字段变体 + 一个单字段句柄载荷」的二变体枚举。没有 tag 字、没有额外填充：`sizeof` 就是指针本身的大小，对这类值的 `match` 编译为一次 NULL 判断。
+当 `T` 是裸指针**或**引用语义句柄（`ref(struct(...))` / `ref(enum(...))`，包括每个 `String` —— 它的字节存放在一个句柄 `Option` 的 newtype 之后）时，`Option(T)` 直接编译为裸指针，用 `NULL` 表示 `.None`。同样的 niche 优化也适用于「一个无字段变体 + 一个单字段句柄载荷」的二变体枚举。没有 tag 字、没有额外填充：`size_of` 就是指针本身的大小，对这类值的 `match` 编译为一次 NULL 判断。
 
 ```rust
-pragma(Pragma.AllowUnsafe); // 仅为让 sizeof 能写出指针类型
+pragma(Pragma.AllowUnsafe); // 仅为让 size_of 能写出指针类型
 
-sz_opt :: sizeof(Option(*i32)); // == sizeof(*i32) —— 就是指针本身
-sz_str :: sizeof(String);       // == sizeof(*u8)   —— 就是句柄本身
+sz_opt :: size_of(Option(*i32)); // == size_of(*i32) —— 就是指针本身
+sz_str :: size_of(String);       // == size_of(*u8)   —— 就是句柄本身
 Tree :: enum(Empty, Node(child : Rc(Self)));
-sz_tree :: sizeof(Tree);        // == sizeof(*u8)   —— NULL 即 Empty
+sz_tree :: size_of(Tree);        // == size_of(*u8)   —— NULL 即 Empty
 ```
 
 ### 内存安全
@@ -2076,7 +2076,7 @@ impl(
 
 ```rust
 UserId :: newtype(value : i32);
-// sizeof(UserId) == sizeof(i32)
+// size_of(UserId) == size_of(i32)
 // 对应 C 代码：就是一个 i32，运行时没有结构体包装
 ```
 
@@ -3069,12 +3069,12 @@ takes_fn((y) => (y + k), 5);     // 正确
 
 闭包的函数体会与它所传入的 `Fn(...) -> R` 的返回类型做比较：`takes_fn(x => true, 5)` 是 E0604。
 
-闭包的类型可以用来实例化容器。`ArrayList(typeof(k))` 保存 `k` 的副本；两个闭包的列表是两种类型，因此一个闭包不能放进另一个闭包的列表：
+闭包的类型可以用来实例化容器。`ArrayList(type_of(k))` 保存 `k` 的副本；两个闭包的列表是两种类型，因此一个闭包不能放进另一个闭包的列表：
 
 ```rust
 (k1 : Impl(Fn() -> unit)) = (() => println(a));
 (k2 : Impl(Fn() -> unit)) = (() => println(s));
-l1 := ArrayList(typeof(k1)).new();
+l1 := ArrayList(type_of(k1)).new();
 l1.push(k1);    // OK
 l1.push(k2);    // 错误：k2 是另一种闭包类型
 ```
@@ -3447,7 +3447,7 @@ make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
 ```
 
 每个闭包都是自己的类型，所以一个 `Impl(Fn(...))` 槽只能装一个闭包，装它们的
-容器是 `ArrayList(typeof(k))`——同一个容器里装两个不同的闭包需要
+容器是 `ArrayList(type_of(k))`——同一个容器里装两个不同的闭包需要
 `Dyn(Fn(...))`（见[闭包类型限制](#闭包类型限制)）。`Impl(Future(T, E))` 是
 `async` 结果的同一形态。
 
@@ -3940,7 +3940,7 @@ test("Expected compile errors", {
     closure1 := (x => (x + 1));
     closure2 := (x => (x + 1));
     // 每个闭包都有唯一类型
-    (c : typeof(closure1)) = closure2; // 错误！
+    (c : type_of(closure1)) = closure2; // 错误！
   }, "no two closures have the same type");
 });
 ```

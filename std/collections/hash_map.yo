@@ -51,7 +51,7 @@ CTRL_DELETED :: u8(254);
 /// Default initial capacity (must be power of 2).
 DEFAULT_CAPACITY :: usize(16);
 // `_tombstones`' allocator tag (see the field).
-_OWNED_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_OWNED_TAG :: (usize(1) << ((size_of(usize) * usize(8)) - usize(1)));
 _COUNT_MASK :: (_OWNED_TAG - usize(1));
 /// Maximum load factor numerator (7/8 = 0.875). Resize when `size > capacity * 7 / 8`.
 MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
@@ -183,7 +183,7 @@ impl(
   /// `with_capacity_in`, or `.None` for a map on the global allocator.
   allocator : (fn(self : Self) -> Option(Allocator))(self._alloc_of()),
   _alloc_with_capacity_in : (fn(alloc : Option(Allocator), capacity : usize) -> Result(Self, HashMapError))({
-    bucket_size :: sizeof(MapEntry(K, V));
+    bucket_size :: size_of(MapEntry(K, V));
     // `capacity * bucket_size` is computed in usize and WRAPS, which would hand
     // malloc a tiny size while the map still believes it owns `capacity`
     // buckets. This is the check `CapacityOverflow` was declared for and never
@@ -304,7 +304,7 @@ impl(
         // `with_capacity` really did round wrong there while every native test
         // stayed green (issues/fixed/collection-capacity-overflow-unchecked.md).
         sh := usize(1);
-        while(sh < (sizeof(usize) * usize(8)), {
+        while(sh < (size_of(usize) * usize(8)), {
           c = (c | (c >> sh));
           sh = (sh * usize(2));
         });
@@ -1490,7 +1490,7 @@ hash_map :: (fn(...(quote(entries))) -> unquote(Expr))({
   quote({
     unquote(k_tmp) := unquote(first_key);
     unquote(v_tmp) := unquote(first_val);
-    unquote(tmp) := HashMap(typeof(unquote(k_tmp)), typeof(unquote(v_tmp))).new();
+    unquote(tmp) := HashMap(type_of(unquote(k_tmp)), type_of(unquote(v_tmp))).new();
     unquote(tmp).insert(unquote(k_tmp), unquote(v_tmp));
     unquote_splicing(rest_sets);
     unquote(tmp)

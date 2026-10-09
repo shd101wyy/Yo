@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
 // most 32 children, so the top bit of its `u8` count is free.
 _BRANCH_TAG :: u8(128);
 _BRANCH_MASK :: u8(127);
-_PAIRS_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_PAIRS_TAG :: (usize(1) << ((size_of(usize) * usize(8)) - usize(1)));
 _PAIRS_MASK :: (_PAIRS_TAG - usize(1));
 _branch_tag :: (fn() -> u8)(cond(current_allocator().is_some() => _BRANCH_TAG, true => u8(0)));
 _pairs_tag :: (fn() -> usize)(cond(current_allocator().is_some() => _PAIRS_TAG, true => usize(0)));
@@ -222,7 +222,7 @@ impl(
 );
 // -- MapBranch helpers --
 _alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> *void)({
-  sz := (sizeof(MapNode(K, V)) * usize(count));
+  sz := (size_of(MapNode(K, V)) * usize(count));
   match(
     _alloc_node_buf(sz),
     .Some(p) => p,
@@ -236,12 +236,12 @@ _branch_has_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBra
   (branch.bitmap & bit) != u32(0)
 );
 _branch_child_at :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), idx : u8, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> MapNode(K, V))({
-  offset := (sizeof(MapNode(K, V)) * usize(idx));
+  offset := (size_of(MapNode(K, V)) * usize(idx));
   target := (*MapNode(K, V))(branch._children_ptr.add(offset));
   target.*
 });
 _branch_set_child :: (fn(comptime(K) : Type, comptime(V) : Type, ptr : *void, idx : u8, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> unit)({
-  offset := (sizeof(MapNode(K, V)) * usize(idx));
+  offset := (size_of(MapNode(K, V)) * usize(idx));
   target := (*MapNode(K, V))(ptr.add(offset));
   target.* = child;
 });
@@ -259,7 +259,7 @@ _copy_children :: (
     where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> unit
 )({
-  node_sz := sizeof(MapNode(K, V));
+  node_sz := size_of(MapNode(K, V));
   i := u8(0);
   while(i < count, i = (i + u8(1)), {
     src_ptr := (*MapNode(K, V))(src.add(node_sz * usize(src_offset + i)));
@@ -274,7 +274,7 @@ _branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBr
   if(usize(idx) > usize(0), {
     _copy_children(K, V, new_ptr, branch._children_ptr, u8(0), u8(0), idx);
   });
-  child_offset := (sizeof(MapNode(K, V)) * usize(idx));
+  child_offset := (size_of(MapNode(K, V)) * usize(idx));
   child_target := (*MapNode(K, V))(new_ptr.add(child_offset));
   consume(child_target.* = child);
   remaining := (branch._clen() - idx);
@@ -306,7 +306,7 @@ _branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : Ma
 });
 // -- MapCollision helpers --
 _alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where(K <: (Eq(K), Hash, Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))) -> *MapEntry(K, V))({
-  sz := (sizeof(MapEntry(K, V)) * count);
+  sz := (size_of(MapEntry(K, V)) * count);
   match(
     _alloc_node_buf(sz),
     .Some(p) => (*MapEntry(K, V))(p),

@@ -90,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 // prefix (`std/allocator.yo`); its release routes through it. Every version a
 // mutation creates is placed by the scope current at that moment
 // (plans/archive/EXPLICIT_ALLOCATORS.md P3). Read the capacity with `_capn()`.
-_CAP_TAG :: (usize(1) << ((sizeof(usize) * usize(8)) - usize(1)));
+_CAP_TAG :: (usize(1) << ((size_of(usize) * usize(8)) - usize(1)));
 _CAP_MASK :: (_CAP_TAG - usize(1));
 // The tag for a buffer `_raw_alloc` just placed.
 _scope_tag :: (fn() -> usize)(cond(current_allocator().is_some() => _CAP_TAG, true => usize(0)));
@@ -155,7 +155,7 @@ impl(
     if(size_would_overflow(T, alloc_cap), {
       __yo_panic("imm.Vec: capacity overflow");
     });
-    sz := (sizeof(T) * alloc_cap);
+    sz := (size_of(T) * alloc_cap);
     match(
       match(current_allocator(), .Some(a) => a.alloc(sz), .None => malloc(sz)),
       .Some(p) => (*T)(p),
@@ -196,7 +196,7 @@ impl(
   /// (issues/fixed/imm-vec-leaks-on-grow-and-drops-uninitialized-memory.md).
   _move_elems : (fn(dst : *T, src : *T, count : usize) -> unit)({
     if(count > usize(0), {
-      unsafe(memcpy((*void)(dst), (*void)(src), count * sizeof(T)));
+      unsafe(memcpy((*void)(dst), (*void)(src), count * size_of(T)));
     });
   }),
   /// Create a new empty vector.

@@ -19,10 +19,6 @@ BK_ANON_STRUCT :: "_";
 BK_EXPORT :: "export";
 /// Builtin function name strings used by evaluator handlers.
 ///
-BF_TYPEOF :: "typeof";
-BF_SIZEOF :: "sizeof";
-BF_ALIGNOF :: "alignof";
-BF_TYPEID :: "typeid";
 /// The snake_case spellings of the four C-style builtins
 /// (plans/VALUES_BY_DEFAULT.md V3b). Generation A accepts both spellings as
 /// exact synonyms (`ast_expr_is_size_of_call` and its siblings below);
@@ -646,7 +642,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
   )
 );
 export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT);
-export(BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
+export(BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
 export(BF_SIZE_OF, BF_ALIGN_OF, BF_TYPE_OF, BF_TYPE_ID, BF_ADDR_OF, BK_MUT, BK_IMM, BK_BORROW_MUT);
 export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH, BK_THREAD_LOCAL);
 export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);
@@ -708,19 +704,19 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
 );
 /// `sizeof(T)` or its snake_case synonym `size_of(T)` (V3b Generation A).
 ast_expr_is_size_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
-  ast_expr_is_fn_call_of(e, BF_SIZEOF, arg_count) || ast_expr_is_fn_call_of(e, BF_SIZE_OF, arg_count)
+  ast_expr_is_fn_call_of(e, BF_SIZE_OF, arg_count)
 );
 /// `alignof(T)` or `align_of(T)` (V3b Generation A).
 ast_expr_is_align_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
-  ast_expr_is_fn_call_of(e, BF_ALIGNOF, arg_count) || ast_expr_is_fn_call_of(e, BF_ALIGN_OF, arg_count)
+  ast_expr_is_fn_call_of(e, BF_ALIGN_OF, arg_count)
 );
 /// `typeof(x)` or `type_of(x)` (V3b Generation A).
 ast_expr_is_type_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
-  ast_expr_is_fn_call_of(e, BF_TYPEOF, arg_count) || ast_expr_is_fn_call_of(e, BF_TYPE_OF, arg_count)
+  ast_expr_is_fn_call_of(e, BF_TYPE_OF, arg_count)
 );
 /// `typeid(T)` or `type_id(T)` (V3b Generation A).
 ast_expr_is_type_id_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(
-  ast_expr_is_fn_call_of(e, BF_TYPEID, arg_count) || ast_expr_is_fn_call_of(e, BF_TYPE_ID, arg_count)
+  ast_expr_is_fn_call_of(e, BF_TYPE_ID, arg_count)
 );
 /// The raw-pointer address-of: `&x` or `addr_of(x)` (decision 33).
 ast_expr_is_address_of_call :: (fn(e : AstExpr, arg_count : Option(usize)) -> bool)(

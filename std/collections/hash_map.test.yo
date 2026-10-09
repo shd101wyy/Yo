@@ -20,7 +20,7 @@ test("_alloc_with_capacity rejects a capacity whose byte size would wrap usize",
   // usize — derived from sizeof, so the boundary stays meaningful on wasm32
   // where usize is 32 bits (tests/allocator.test.yo derives its shifts the
   // same way).
-  big := ((SIZE_MAX / sizeof(MapEntry(i64, i64))) + usize(1));
+  big := ((SIZE_MAX / size_of(MapEntry(i64, i64))) + usize(1));
   match(
     HashMap(i64, i64)._alloc_with_capacity(big),
     .Err(.CapacityOverflow) => assert(true, "the wrapped byte size is refused"),
