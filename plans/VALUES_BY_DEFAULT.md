@@ -645,9 +645,18 @@ and every free routes through the owner prefix.
   (`std/collections/array_list.yo`), as in Rust's `Vec<T, A>: Clone`, and
   growth also reallocates through the owner. It is decision 12.
 - **Arenas.** A value built in an arena keeps its blocks there until it
-  dies. Moving it out is explicit:
-  `with_allocator(Allocator.global(), () => v.clone())`.
-  `Arena.deinit` keeps panicking while a block is live.
+  dies. Moving it out is an explicit `clone_in(alloc)` (Rust's
+  `to_vec_in`/`collect` model), added with V2b's `new_in` → `alloc`
+  decision. `Arena.deinit` keeps panicking while a block is live.
+  - **(2026-10-09, std/arena kept after review)** This bullet said
+    `with_allocator(Allocator.global(), () => v.clone())`. That contradicts
+    decision 12: `clone()` lands where its source lives
+    (`ArrayList.clone` and `HashMap.clone` use `self.allocator()`), so the
+    clone stays in the arena and the V2b test below would panic at
+    `Arena.deinit`.
+  - **(2026-10-09, std/arena kept after review)** Follow-up: `scoped` and
+    `with_allocator` should take an `FnOnce` body (decision 37), so a body
+    can move a captured value out.
 - **Placing one cell** uses the constructors' `alloc` parameter (§3.2), an
   ordinary defaulted parameter rather than D2's rejected `alloc_in`
   keyword.
@@ -658,6 +667,14 @@ and every free routes through the owner prefix.
   `with_allocator`, `current_allocator` and the global vtable.
 - **std internals.** `_ScopeGuard` and `Arena` become move-only values in
   V3. `Allocator` stays a plain two-word value.
+  - **(2026-10-09, std/arena kept after review)** `Arena` does not take the
+    `struct(_cell : Box(State))` recipe of §3.4 and V3's std half: its state
+    is pooled and outlives the handle (a stale `Allocator` copy may still
+    reach it), so no handle may own it. It stays a move-only
+    `struct(_state : *_ArenaState, _gen : usize)` with `Dispose`; `_gen` is
+    the incarnation that tells a dead arena's handle and `Allocator` copies
+    from the next arena reusing the state
+    (`issues/fixed/a-deinit-arenas-handle-aliases-the-next-arena-that-reuses-its-state.md`).
 - **Owner bits.** Cell headers keep the `__YO_RC_TAG` bit. When V2b gives
   the collections private buffers, the
   per-container owner bits (the capacity word, `_tombstones`, the `imm`
@@ -2714,6 +2731,12 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   `Clone`, `Eq`/`Hash`/`Default` by payload, and `box(v, alloc)`. It is
   explicit-copy from its first commit, and decision 26's consuming match
   applies to its payloads.
+- **Open requirement (2026-10-09, std/arena kept after review): the free
+  route.** Every free routes through the owner prefix (§3.11), which today
+  lives in the RC header or a container's capacity word. A headerless unique
+  `Box` built with `box(v, alloc : .Some(a))` has neither, so this step must
+  say how its drop finds `a`: a prefix on every `Box` cell, or one only on
+  explicitly placed ones with a bit that says so.
 - **Sites that move back to `Box`** (recursion and size only):
   - `Option(Box(Self))`: `is_owning_the_same_rc_value_as` on `Variable`,
     `CapturedVariable`, `SuspensionCapturedVariable` and
@@ -3018,8 +3041,10 @@ lands after V1 step 2, because its resource cells are the unique `Box`
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`
   implements `Dispose`.
   - The same goes for `RawMutex`, `RwLock`, `Cond`, `Barrier`, `Semaphore`,
-    `WaitGroup`, `Once`, `Arena`, `File`, `TempDir`, `TempFile` and
-    `Watcher`;
+    `WaitGroup`, `Once`, `File`, `TempDir`, `TempFile` and `Watcher`;
+  - **except `Arena` (2026-10-09, std/arena kept after review):** its state
+    is pooled and outlives the handle, so it stays a move-only
+    `struct(_state : *_ArenaState, _gen : usize)` with `Dispose` (§3.11);
   - and for the sockets, `TlsStream`, `HttpClient`, `Child*`, `Thread`,
     `ThreadPool`, and the RAII guards (which hold `*(_State)` into the
     cell).
@@ -3626,8 +3651,10 @@ compiler; the std shapes are plain structs the seed lowers):
     (stated 2026-10-07, second audit #1264 finding 12; §3.5 and this bullet
     assumed a value-type `Trace` the gate rejects).
   - `clone()` is deep and goes through the source's owner (§3.11).
-  - Tests: a list built in an arena, cloned out under the global allocator,
-    after which `Arena.deinit` succeeds.
+  - Tests: a list built in an arena, relocated out with
+    `clone_in(Allocator.global())`, after which `Arena.deinit` succeeds
+    (2026-10-09, std/arena kept after review: a `clone()` under a global
+    scope stays in the arena, §3.11).
 - **The explicit-copy kind is switched on** for `String`, the collections
   and `Dyn` (decision 7), with the migration that the §6 measurement sized:
   - `yo fix` inserts `.clone()` where a copy is wanted, and the diagnostics

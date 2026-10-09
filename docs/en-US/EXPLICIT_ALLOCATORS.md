@@ -135,9 +135,9 @@ owner prefix of its buffer, with one bit of an existing word marking it.
 | `Arena.new(capacity)`  | An arena over a region of `capacity` bytes (rounded up to 16). Panics if the region cannot be allocated. |
 | `arena.allocator()`    | The arena as an `Allocator` value, to pass to `with_allocator` or `new_in`.  |
 | `arena.scoped(f)`      | `with_allocator(arena.allocator(), f)`.                                      |
-| `arena.live_blocks()`  | Blocks allocated here and not yet freed.                                     |
-| `arena.used_bytes()`   | Bytes of the region in use (the bump offset).                                |
-| `arena.capacity()`     | The region's size in bytes.                                                  |
+| `arena.live_blocks()`  | Blocks allocated here and not yet freed (0 once deinit).                     |
+| `arena.used_bytes()`   | Bytes of the region in use, the bump offset (0 once deinit).                 |
+| `arena.capacity()`     | The region's size in bytes (0 once deinit).                                  |
 | `arena.is_released()`  | Whether `deinit` or `abandon` has run.                                       |
 | `arena.deinit()`       | Release the region. **Panics** if any block is still live. Also runs when the last `Arena` handle dies. |
 | `arena.abandon()`      | Stop tracking and never release the region. `deinit` becomes a no-op.        |
@@ -156,6 +156,12 @@ Behavior worth knowing:
   an `Allocator` value after its arena was deinit panics. The arena's
   bookkeeping is never freed, so the stale copy finds a flagged state rather
   than freed memory.
+- **A dead arena stays dead.** A later `Arena.new` may reuse a dead arena's
+  bookkeeping, but every `Arena` handle and every `Allocator` value records
+  which arena it was made for. The dead arena's handle keeps reporting
+  `is_released()`, its `deinit` (and its last reference dying) does nothing,
+  and an allocation through its stale `Allocator` copy still panics: none of
+  them reach the new arena.
 - **Process-lifetime arenas call `abandon()`.** Use it for startup tables and
   interners that live until the program exits: the arena stops tracking, never
   releases its region, and `deinit` does nothing.
