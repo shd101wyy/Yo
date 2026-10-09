@@ -133,9 +133,10 @@ family per measure, every lemma a unit `ghost_fn` with `ensures` (+
 **Rules.**
 
 1. A lemma is an obligation, not an axiom — the library itself verifies
-   under `--strict` in the CI verify job (`negative/lemma_false` already
-   pins that a false lemma is refuted, and the law using it is *not*
-   reported proved).
+   under `--strict` in the CI verify job
+   (`tests/spec/fixtures/negative/lemma_member_frame_false.yo` already pins
+   that a false lemma is refuted, and the law using it is *not* reported
+   proved).
 2. Every library lemma ships a bugged twin in `tests/spec/fixtures/`
    (repo discipline; also the guard against a lemma whose `ensures` is
    subtly stronger than what std's `assumed()` contracts justify — a wrong
