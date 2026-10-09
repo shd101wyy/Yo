@@ -337,7 +337,7 @@ v.pick("s");  // 2 — trait overload, chosen by argument type
 IntResult :: Result(_, i32);
 (r : IntResult(bool)) = .Ok(true);
 
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
 add1 :: add(i32(1), _);
 ```
 
@@ -532,7 +532,7 @@ inc :: (fn() -> unit)({
 
 ```rust
 my_module :: impl({
-  helper :: (fn(x : i32) -> i32)((x + i32(1)));
+  helper :: (fn(x : i32) -> i32)(x + i32(1));
   scale :: i32(2);            // `::` = compile-time member
   runtime_note := i32(0);     // `:=` = module-level runtime static (allowed)
   export(helper, scale);

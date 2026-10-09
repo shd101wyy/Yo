@@ -906,7 +906,7 @@ IntResult :: Result(_, i32);    // fn(comptime(T) : Type) -> comptime(Type)
 (r : IntResult(bool)) = .Ok(true);  // = Result(bool, i32)
 
 // Comptime value functions:
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
 add1 :: add(i32(1), _);  // fn(comptime(y) : i32) -> comptime(i32)
 result :: add1(i32(2));   // 3
 ```

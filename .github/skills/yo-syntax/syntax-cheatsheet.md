@@ -923,7 +923,7 @@ code using them is a compile error. Each binder is `(name : Type)`:
 ensures(forall(k : i32, (k <= i32(0)) ==> (k < result)))
 
 // The type binder is STILL generic — forall binds VALUES now:
-sum :: (fn(generic(T : Type), a : T, b : T) -> T)((a + b));
+sum :: (fn(generic(T : Type), a : T, b : T) -> T)(a + b);
 ```
 
 `exists` outside ghost context is the ORDINARY call path — std/fs's
@@ -1795,7 +1795,7 @@ result := abs_val(i32(3)) + abs_val(i32(1)) + abs_val(i32(4));
 
 // ✅ CORRECT
 arr := [i32(3), i32(1), i32(4)];
-result := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + abs_val(x))));
+result := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)(acc + abs_val(x)));
 ```
 
 **Empty array `[]` in cond branches**: `cond(condition => [x], true => [])` crashes because the empty array type is unknown. Avoid empty array literals in conditional branches inside `flat_map` lambdas.
@@ -1810,7 +1810,7 @@ result := arr.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + abs_val(x))));
 
 ```
 // ❌ WRONG — causes exception
-cubes := arr.map((fn(x : i32) -> i32)((x * x * x)));
+cubes := arr.map((fn(x : i32) -> i32)(x * x * x));
 
 // ✅ CORRECT — use a block with a local binding
 cubes := arr.map((fn(x : i32) -> i32)({
@@ -1823,11 +1823,11 @@ cubes := arr.map((fn(x : i32) -> i32)({
 
 ```
 // ❌ WRONG — crashes in fold on (i32, i32) tuples
-total := pairs.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)((acc + p.0 + p.1)));
+total := pairs.fold(i32(0), (fn(acc : i32, p : (i32, i32)) -> i32)(acc + p.0 + p.1));
 
 // ✅ CORRECT — map to scalars first, then fold
-sums := pairs.map((fn(p : (i32, i32)) -> i32)((p.0 + p.1)));
-total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
+sums := pairs.map((fn(p : (i32, i32)) -> i32)(p.0 + p.1));
+total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)(acc + x));
 ```
 
 **`&&` in `cond` conditions inside `while` body**: Crashes. Avoid by restructuring (e.g., start loop at 1 instead of 0 to eliminate the `&& (i > 0)` guard).

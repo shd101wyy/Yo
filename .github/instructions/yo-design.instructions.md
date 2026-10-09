@@ -622,7 +622,7 @@ IntResult :: Result(_, i32);     // kind: Type -> Type
 StrResult :: Result(str, _);     // kind: Type -> Type
 
 // Comptime value functions:
-add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))((x + y));
+add :: (fn(comptime(x) : i32, comptime(y) : i32) -> comptime(i32))(x + y);
 add1 :: add(i32(1), _);          // fn(comptime(__0) : i32) -> comptime(i32)
 result :: add1(i32(2));           // 3
 ```

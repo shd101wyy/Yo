@@ -313,7 +313,7 @@ the build step is the project-level switch (see the yo-verification skill).
 /// ```rust
 /// add(i32(1), i32(2))
 /// ```
-add :: (fn(a: i32, b: i32) -> i32)((a + b));
+add :: (fn(a: i32, b: i32) -> i32)(a + b);
 ````
 
 Use `///` for item documentation and `//!` at the top of a file for module-level docs.

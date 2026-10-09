@@ -784,7 +784,7 @@ z := mk();                 // E0613：无法推断 T
 运行时值是错误：
 
 ```rust
-scale :: (fn(comptime(factor) : i32, x : i32) -> i32)((factor * x));
+scale :: (fn(comptime(factor) : i32, x : i32) -> i32)(factor * x);
 scale(3, n);               // 正确
 scale(i32.default(), n);   // error[E1101]: Parameter `factor` is `comptime` and requires a compile-time argument
 ```

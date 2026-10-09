@@ -162,7 +162,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Yo deliberately has NO operator precedence. A chain of the SAME operator is fine (`a + b + c`), but as soon as two DIFFERENT operators are adjacent you must choose the grouping explicitly with parentheses.",
       "Yo 刻意不设运算符优先级。同一个运算符的链没有问题（`a + b + c`），但一旦两个不同的运算符相邻，就必须用括号明确指定分组。",
       "y :: (fn(a : i32, b : i32, c : i32) -> i32)(a + b * c);\n",
-      "y :: (fn(a : i32, b : i32, c : i32) -> i32)((a + (b * c)));\n",
+      "y :: (fn(a : i32, b : i32, c : i32) -> i32)(a + (b * c));\n",
       "Yo has no precedence: `+` next to `*` must say which binds first.",
       "Yo 没有优先级：`+` 与 `*` 相邻时必须写明先算哪个。"
     )
@@ -356,8 +356,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "类型不满足 where 子句的约束。",
       "The call site requires `T <: SomeTrait` and the type's impls do not provide it. Add the `impl(T, SomeTrait(...))` near the type (and register it BEFORE first use — impls are bindings too), or relax the bound. If you wrote `must NOT implement`, this is its positive twin.",
       "调用点要求 `T <: SomeTrait`，而该类型的 impl 没有提供。请在类型附近添加 `impl(T, SomeTrait(...))`（并在首次使用之前注册 —— impl 也是绑定），或放宽约束。",
-      "Point :: struct(x : i32);\nsame :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)((a == b));\n_r := same(Point(x : i32(1)), Point(x : i32(1)));\n",
-      "Point :: struct(x : i32);\nderive(Point, Eq(Point));\nsame :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)((a == b));\n_r := same(Point(x : i32(1)), Point(x : i32(1)));\n",
+      "Point :: struct(x : i32);\nsame :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);\n_r := same(Point(x : i32(1)), Point(x : i32(1)));\n",
+      "Point :: struct(x : i32);\nderive(Point, Eq(Point));\nsame :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);\n_r := same(Point(x : i32(1)), Point(x : i32(1)));\n",
       "The bound `T <: Eq(T)` needs an `Eq` impl for `Point`; `derive(Point, Eq(Point))` provides it.",
       "约束 `T <: Eq(T)` 需要 `Point` 的 `Eq` impl；`derive(Point, Eq(Point))` 提供了它。"
     )
@@ -371,8 +371,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "调用传入的参数数量与被调用方不一致。",
       "The message shows `expected N, got M` against the resolved callee, or names the one missing field of a constructor call (`P(x : 1)` for a `P` with fields `x` and `y`). Only a parameter or field declared with a default (`(x : T) ?= v`) may be left out. For closures note that the count includes every parameter, including the receiver for methods.",
       "错误信息会针对解析到的被调用方显示 `expected N, got M`，或指出构造器调用缺少的那个字段（`P` 有字段 `x` 和 `y` 时的 `P(x : 1)`）。只有声明了默认值的参数或字段（`(x : T) ?= v`）可以省略。注意计数包括所有参数（方法的计数含接收者）。",
-      "f :: (fn(a : i32, b : i32) -> i32)((a + b));\nr := f(i32(1), i32(2), i32(3));\n",
-      "f :: (fn(a : i32, b : i32) -> i32)((a + b));\nr := f(i32(1), i32(2));\n",
+      "f :: (fn(a : i32, b : i32) -> i32)(a + b);\nr := f(i32(1), i32(2), i32(3));\n",
+      "f :: (fn(a : i32, b : i32) -> i32)(a + b);\nr := f(i32(1), i32(2));\n",
       "`f` takes two arguments; three were passed.",
       "`f` 接受两个参数，却传了三个。"
     )
@@ -806,8 +806,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "实参的标签指向的形参不是它所在位置的那个。",
       "Arguments are positional. A label (`f(x : 1, y : 2)`) documents which parameter an argument is for and is checked against the parameter at that position; it never reorders the call. Pass the arguments in declaration order with their own labels, or drop the labels. A parameter declared without a label takes an unlabeled argument.",
       "实参是按位置传递的。标签（`f(x : 1, y : 2)`）说明实参对应哪个形参，并与该位置上的形参核对；它从不改变参数顺序。请按声明顺序传参并写对应的标签，或者去掉标签。没有标签的形参只接受不带标签的实参。",
-      "f :: (fn(x : i32, y : i32) -> i32)((x + y));\nr := f(y : i32(2), x : i32(1));\n",
-      "f :: (fn(x : i32, y : i32) -> i32)((x + y));\nr := f(x : i32(1), y : i32(2));\n",
+      "f :: (fn(x : i32, y : i32) -> i32)(x + y);\nr := f(y : i32(2), x : i32(1));\n",
+      "f :: (fn(x : i32, y : i32) -> i32)(x + y);\nr := f(x : i32(1), y : i32(2));\n",
       "The first parameter is `x`; the label `y` does not move the argument to `y`.",
       "第一个形参是 `x`；标签 `y` 不会把实参挪到 `y`。"
     )

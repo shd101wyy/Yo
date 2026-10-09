@@ -1281,7 +1281,7 @@ Yo 支持四种文档注释样式，与 Rust 的约定一致：
 /// result :: add(i32(1), i32(2));
 /// assert((result == i32(3)), "1 + 2 = 3");
 /// ```
-add :: (fn(a : i32, b : i32) -> i32)((a + b));
+add :: (fn(a : i32, b : i32) -> i32)(a + b);
 export(add);
 ````
 

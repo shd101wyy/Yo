@@ -1314,7 +1314,7 @@ Regular comments (`//`, `/* */`) are **not** documentation comments — they are
 /// result :: add(i32(1), i32(2));
 /// assert((result == i32(3)), "1 + 2 = 3");
 /// ```
-add :: (fn(a : i32, b : i32) -> i32)((a + b));
+add :: (fn(a : i32, b : i32) -> i32)(a + b);
 export add;
 ````
 
