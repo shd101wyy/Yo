@@ -680,7 +680,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(mut(x) : i32) -> unit`, `fn(imm(x) : String) -> usize` and `fn(x : String) -> usize` are three different types: a `mut` parameter is an exclusive borrow of the caller's place (`inout` is its old spelling), an `imm` parameter is a read-only borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy; of any other type it consumes its argument, and the caller's binding ends at the call. The mode is part of the type for every parameter type, `Copy` or not, so `fn(imm(x) : i32)` and `fn(x : i32)` differ too. `sink(x)` and `own(x)` are the old spellings of a plain by-value parameter, removed by the next sweep. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
+`fn(mut(x) : i32) -> unit`, `fn(imm(x) : String) -> usize` and `fn(x : String) -> usize` are three different types: a `mut` parameter is an exclusive borrow of the caller's place (`inout` is its old spelling), an `imm` parameter is a read-only borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, or plain data without `Copy`) consumes its argument: the caller's binding ends at the call. A kind that is still implicitly copyable (`String`, the collections, `Rc`, a `ref` handle) is passed the way `t := s` binds it, as a share, and the caller keeps its value; it moves with `t := s` when its phase of the values-by-default plan makes it explicit-copy. Until then the share is an alias, as `t := s` is: a callee that writes a by-value `String` or collection writes the caller's too, so write a `.clone()` instead. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(imm(x) : i32)` and `fn(x : i32)` differ too. `sink(x)` and `own(x)` are the old spellings of a plain by-value parameter, removed by the next sweep. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
 
 ```yo
 bump :: (fn(inout(x) : i32) -> unit)({
@@ -1203,8 +1203,8 @@ impl(
   )
 );
 
-peek :: (fn(f : Fd) -> i32)(f.n); // a by-value parameter borrows: no copy
-keep :: (fn(sink(f) : Fd) -> unit)(()); // a sink parameter moves the value in
+peek :: (fn(imm(f) : Fd) -> i32)(f.n); // an imm parameter borrows: no copy
+keep :: (fn(f : Fd) -> unit)(()); // a by-value parameter moves the value in
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
@@ -1216,7 +1216,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: an `imm` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
+Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: an `imm` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). An assignment statement (`x = y;`, `h.f = y;`, `xs(i) = y;`) drops the old value right after the store, as Rust does; `old := (x = y)` keeps it in `old` instead. Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
 
 A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
 
@@ -2591,8 +2591,8 @@ append_inout :: (fn(inout(out) : String) -> unit)({
   out.push_str("!");
 });
 
-// A by-value parameter is borrowed: write a local clone and return it.
-with_bang :: (fn(s : String) -> String)({
+// An `imm` parameter is borrowed: write a local clone and return it.
+with_bang :: (fn(imm(s) : String) -> String)({
   t := s.clone();
   t.push_str("!");
   t
