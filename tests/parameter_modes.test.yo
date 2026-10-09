@@ -25,6 +25,10 @@ impl(
 );
 _pm_consume :: (fn(r : _PmRes) -> i32)(r.n);
 _pm_run :: (fn(imm(f) : Impl(Fn(r : _PmRes) -> i32)) -> i32)(f(_PmRes(n : i32(5))));
+_pm_pass :: (fn(imm(f) : Impl(Fn(r : _PmRes) -> _PmRes)) -> i32)({
+  out := f(_PmRes(n : i32(7)));
+  out.n
+});
 _pm_ct_inc :: (fn(comptime(imm(n)) : comptime_int) -> comptime(comptime_int))(n + 1);
 _PmV :: struct(n : i32);
 derive(_PmV, Copy, Clone);
@@ -83,6 +87,19 @@ test("a closure's by-value parameter owns its argument and drops it once", {
   before := g_pm_disposed;
   assert(_pm_run(r => r.n) == i32(5), "the closure reads its by-value argument");
   assert(g_pm_disposed == (before + i32(1)), "the closure dropped it: one dispose, no leak");
+});
+
+test("a closure moves its by-value parameter like any owned value", {
+  before := g_pm_disposed;
+  a := _pm_run(r => {
+    x := r;
+    x.n
+  });
+  assert(a == i32(5), "moved into a local (not an implicit capture: no E0913)");
+  assert(g_pm_disposed == (before + i32(1)), "the local dropped it once");
+  b := _pm_pass(r => r);
+  assert(b == i32(7), "moved out as the result");
+  assert(g_pm_disposed == (before + i32(2)), "the caller's result dropped it once");
 });
 
 test("comptime(imm(x)) is a compile-time borrow", {

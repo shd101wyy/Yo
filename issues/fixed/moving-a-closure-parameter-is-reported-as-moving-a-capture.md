@@ -45,5 +45,5 @@ first marked frame is the closure's own; its bindings are not captures. A
 marked frame further down belongs to an enclosing closure, whose parameters
 are captures of this one.
 
-`tests/parameter_modes.test.yo` moves a closure parameter into a local, into
-a collection, and out as the result, counting `Dispose` calls.
+`tests/parameter_modes.test.yo` moves a closure parameter into a local and out
+as the result, counting `Dispose` calls.
