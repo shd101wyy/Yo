@@ -155,6 +155,12 @@ env:
   # liability. Acquire::Retries above cannot help: a hash mismatch is
   # DETERMINISTIC, so each retry re-fetches the same bad file.
   # See issues/fixed/ci-apt-update-fails-on-an-unused-third-party-source.md.
+  #
+  # And every `update` runs under `timeout 300`, up to three tries: on
+  # 2026-10-08 (run 37818650283) one stalled mid-transfer against the Azure
+  # mirror and printed nothing for 4 h 42 min. Neither option below bounds a
+  # stalled download, and the step had no time limit
+  # (issues/fixed/ci-apt-update-stalls-for-hours-on-a-mirror-transfer.md).
   APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
   # The pinned solver, used by the formal-verification job — which OWNS the
   # proofs, including the dogfooded `yo verify ./std/collections` step. The
@@ -453,7 +459,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # Back on env.SEED_VERSION as of the v0.2.16 seed. This was pinned to
@@ -569,7 +575,7 @@ jobs:
           set -euo pipefail
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y unzip
           curl -fsSL -o /tmp/z3.zip \
             "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
@@ -581,7 +587,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler
@@ -710,7 +716,7 @@ jobs:
           set -euo pipefail
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y unzip
           curl -fsSL -o /tmp/z3.zip \
             "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
@@ -776,7 +782,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y unzip
           curl -fsSL -o /tmp/z3.zip \
             "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
@@ -787,7 +793,7 @@ jobs:
       - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler
@@ -878,7 +884,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
@@ -1197,7 +1203,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Download this leg's stage 2
@@ -1274,7 +1280,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
@@ -1361,7 +1367,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Download the candidate
@@ -1715,7 +1721,7 @@ jobs:
       - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1787,7 +1793,7 @@ jobs:
           # APT_OPTS and the Google-source removal, like every apt call here: a
           # dpkg-lock hang would otherwise run out this REQUIRED job's timeout.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update -q && sudo apt-get $APT_OPTS install -y -q libuv1-dev
+          { sudo timeout 300 apt-get $APT_OPTS update -q || sudo timeout 300 apt-get $APT_OPTS update -q || sudo timeout 300 apt-get $APT_OPTS update -q; } && sudo apt-get $APT_OPTS install -y -q libuv1-dev
           YO="$PWD/yo-stage1" YO_STD="$PWD/std" REPS=5 bash scripts/bench-vs-libuv.sh
 
   epoll-corpus:
@@ -1939,7 +1945,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           # + OpenSSL dev: this job compiles stage-2 itself (std/http in the
           # compiler closure puts OpenSSL headers into the emitted C).
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config time
@@ -2076,7 +2082,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y time
 
       - name: Download stage-2 artifacts
@@ -2145,7 +2151,7 @@ jobs:
       - name: Install GNU time
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y time
 
       - name: Download stage-2 artifacts
@@ -2186,7 +2192,7 @@ jobs:
       - name: Install OpenSSL headers
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev
 
       - name: Download stage-2 artifacts
@@ -2270,7 +2276,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
@@ -2419,7 +2425,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
@@ -2696,7 +2702,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
@@ -2987,7 +2993,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 
       # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
