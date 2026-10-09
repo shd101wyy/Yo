@@ -24,6 +24,7 @@ impl(
   )
 );
 _pm_consume :: (fn(r : _PmRes) -> i32)(r.n);
+_pm_run :: (fn(imm(f) : Impl(Fn(r : _PmRes) -> i32)) -> i32)(f(_PmRes(n : i32(5))));
 _pm_ct_inc :: (fn(comptime(imm(n)) : comptime_int) -> comptime(comptime_int))(n + 1);
 _PmV :: struct(n : i32);
 derive(_PmV, Copy, Clone);
@@ -76,6 +77,12 @@ test("the callee drops a by-value argument exactly once", {
     assert(_pm_consume(r) == i32(3), "r moved into the callee");
   };
   assert(g_pm_disposed == (before + i32(1)), "one dispose: the callee's, none in the caller");
+});
+
+test("a closure's by-value parameter owns its argument and drops it once", {
+  before := g_pm_disposed;
+  assert(_pm_run(r => r.n) == i32(5), "the closure reads its by-value argument");
+  assert(g_pm_disposed == (before + i32(1)), "the closure dropped it: one dispose, no leak");
 });
 
 test("comptime(imm(x)) is a compile-time borrow", {
