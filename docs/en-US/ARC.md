@@ -48,8 +48,8 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic)))
   `THREAD_SAFETY.md`).
 
 Many standard-library types no longer need an extra `Arc(...)` wrapper. For
-example, `std/sync` primitives and `std/imm` collections are already implemented
-with `atomic(ref(struct(...)))` and are directly shareable.
+example, the `std/sync` primitives are already implemented with
+`atomic(ref(struct(...)))` and are directly shareable.
 
 If you need shared mutable state, define that state as an `atomic(ref(struct(...)))`
 first, then share it directly or place it inside `Arc(...)` if you specifically
@@ -122,4 +122,3 @@ assert(shared.* == i32(42), "main still sees shared value");
 
 - `docs/en-US/PARALLELISM.md` — thread and thread-pool model
 - `docs/en-US/ISOLATED.md` — unique ownership with `Iso(T)`
-- `docs/en-US/IMMUTABLE_COLLECTIONS.md` — persistent collections built on `atomic(ref(struct(...)))`

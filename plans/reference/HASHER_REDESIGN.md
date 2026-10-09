@@ -37,7 +37,7 @@ Hash :: trait(
 - Byte layout per type: integers write their own width (`i32` → 4 bytes,
   `usize`/`isize` → 8, `char` → its `u32`, `bool` → one byte, the C-int
   aliases their C width, `longdouble` keeps its `i64` truncation); `String`
-  and `ImmString` write the bytes then `0xFF` (prefix-free, as Rust); `Option`
+  and `ImmString` (std/imm was removed 2026-10-09 (maintainer decision); revisit later) write the bytes then `0xFF` (prefix-free, as Rust); `Option`
   writes a `u64` tag (0/1) then the payload, `Result` tag 1/2; `Box` forwards;
   `Duration` writes its nanoseconds as `i64`; `derive(Hash)` writes struct
   fields in order and, for enums, the variant index as `u64` then the fields.
@@ -93,7 +93,7 @@ runs. Once a seed carries C43 the overrides are merely an optimisation.
 
 ## Consumers moved with it
 
-- `std/imm/map.yo` (HAMT) hashes keys with `hash_one`.
+- `std/imm/map.yo` (HAMT) hashed keys with `hash_one` (std/imm was removed 2026-10-09 (maintainer decision); revisit later).
 - `src/expr_info.yo` (`module_global_c_suffix`) and
   `src/codegen/chunk_assembly.yo` (chunk assignment) hash with `hash_one`;
   both are deterministic under the fixed keys, so emitted C is stable across

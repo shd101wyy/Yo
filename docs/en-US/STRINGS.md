@@ -211,7 +211,3 @@ Two comptime-specific points:
   mean "how big is the buffer", say `s.len()`.
 - `Content-Length`-style protocol fields count bytes; `len()` is now the
   right answer by default.
-
-The immutable string in `std/imm` (`ImmString`) follows the same contract:
-`len()` is the byte count at O(1) and `at()` decodes the rune starting at a
-byte offset; see `plans/archive/STD_API_AUDIT_D4_PLAN.md`.

@@ -40,13 +40,13 @@ Raw :: struct(p : ?*u8);
 
 原子对象的所有副本共享同一个载荷，所以只有当该载荷是 `Sync` 时它才是 `Send`。`Mutex(T)` 是一个例外，恰好印证了这条规则：它一次只把 `T` 交给一个线程，所以只要 `T` 是 `Send`，它就是 `Sync`。
 
-标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)`、`RwLock(T)`（并发的读守卫）以及每个 `std/imm` 的元素、键和值类型都要求 `T <: (Send, Sync, Acyclic)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: (Send, Acyclic)`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
+标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)` 和 `RwLock(T)`（并发的读守卫）要求 `T <: (Send, Sync, Acyclic)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: (Send, Acyclic)`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
 
-`String` 和各集合类型目前还不是 `Send`：它们的缓冲区现在是一个共享的、非原子计数的单元，留在发送线程上的副本会在计数上产生竞争。一旦它们的缓冲区变为唯一所有（`plans/VALUES_BY_DEFAULT.md` V2b），移动一个值就是交出它唯一的所有者，`Channel(String)` 无需修改编译器即可工作。在那之前，请使用 `Iso`（见下文）或 `std/imm` 中的类型。
+`String` 和各集合类型目前还不是 `Send`：它们的缓冲区现在是一个共享的、非原子计数的单元，留在发送线程上的副本会在计数上产生竞争。一旦它们的缓冲区变为唯一所有（`plans/VALUES_BY_DEFAULT.md` V2b），移动一个值就是交出它唯一的所有者，`Channel(String)` 无需修改编译器即可工作。在那之前，请使用 `Iso`（见下文）。
 
 ### 手动 Send 与 Sync 实现需要 Pragma
 
-编写 `impl(MyType, Send())` 或 `impl(MyType, Sync())` 需要 `pragma(Pragma.AllowUnsafe)` 和解释该类型为何可以安全地跨线程移动或共享的 `// SAFETY:` 注释。持有裸指针的类型就是这样选择加入的（std 的 `Channel`、`Waker`、`ImmString`），这也让每个这样的声明都可审计。
+编写 `impl(MyType, Send())` 或 `impl(MyType, Sync())` 需要 `pragma(Pragma.AllowUnsafe)` 和解释该类型为何可以安全地跨线程移动或共享的 `// SAFETY:` 注释。持有裸指针的类型就是这样选择加入的（std 的 `Channel`、`Waker`），这也让每个这样的声明都可审计。
 
 ## 原子引用语义类型 vs 普通引用语义类型
 
@@ -282,7 +282,7 @@ match(
 - **死锁预防**：与 Rust 相同，锁的顺序由使用者负责。
 - **`AtomicPtr(T)`**：用于无锁数据结构的泛型原子指针，暂缓。安全代码不能构造或解引用裸指针，这个原语只有带 pragma 的代码才能用；等 `std/` 中出现具体的使用者时再加入。
 - **`Sender(T)` / `Receiver(T)` 拆分**：目前 `Channel(T)` 在同一个句柄上同时暴露发送端和接收端，Rust 式的拆分是之后的易用性改进。
-- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread*.test.yo`、`arc`、`atomic_object`、`iso*`、`send_sync`、`cross_thread_wake`、`spawn_blocking`、`imm_threading`、`parallelism_soundness`、`encoding/html`、`unsafe_cast_rc_borrow`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread_safety.test.yo` 和 `tests/parallelism_soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
+- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread*.test.yo`、`arc`、`atomic_object`、`iso*`、`send_sync`、`cross_thread_wake`、`spawn_blocking`、`parallelism_soundness`、`encoding/html`、`unsafe_cast_rc_borrow`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread_safety.test.yo` 和 `tests/parallelism_soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
 
 ## 已知缺口
 

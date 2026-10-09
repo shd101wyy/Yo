@@ -229,7 +229,7 @@ node := Node(1, .None); // Cycle-forming type, stays on this thread
 // which are single-threaded and do NOT create threads.)
 handle := Thread(unit).spawn(io => {
   // The plain ref(...) `node` above is thread-local and cannot be captured here.
-  // Only Send values cross: value types, Arc(T), and the std/imm structures.
+  // Only Send values cross: value types, Arc(T), and the std/sync primitives.
   ();
 });
 handle.join();
@@ -247,7 +247,7 @@ handle.join();
 | Closures                         | ❌ No     | May capture references          |
 | `*(T)` (pointers)                | ❌ No     | Not safe across threads         |
 
-**Key Design Decision:** PLAIN (non-atomic) reference types (`ref(struct(...))`) are thread-local and never cross thread boundaries. The ATOMIC forms — `atomic(ref(...))`, i.e. `Arc`, `std/sync` and `std/imm` — are `Send` and `Sync` when their payload is `Sync`, and are shared across threads with atomic RC (and are therefore not cycle-collected). This means:
+**Key Design Decision:** PLAIN (non-atomic) reference types (`ref(struct(...))`) are thread-local and never cross thread boundaries. The ATOMIC forms — `atomic(ref(...))`, i.e. `Arc` and `std/sync` — are `Send` and `Sync` when their payload is `Sync`, and are shared across threads with atomic RC (and are therefore not cycle-collected). This means:
 
 - Each thread's GC only tracks objects created on that thread
 - No cross-thread GC coordination needed
@@ -267,7 +267,7 @@ main :: (fn(io : Io) -> unit)({
 
   ch := Channel(i32).new();
   worker := Thread(unit).spawn(io => {
-    // Only Send values cross: value types, Arc(T), std/imm structures.
+    // Only Send values cross: value types, Arc(T), std/sync primitives.
     ch.send(expensive_computation());
     ();
   });

@@ -76,7 +76,7 @@ Three `STD_API_STABILIZATION.md` rows name it directly:
 | --- | --- |
 | `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off `Mutex`'s public surface | a caller can lock a `Mutex` and never unlock it, bypassing the `__MutexUnlocker` guard that makes `with_lock` exception-safe |
 | `ctrl`/`data`/`size` private on `HashMap` | the open-addressing control bytes and the raw bucket array are callable; writing one corrupts the map |
-| `imm/*` internals | `imm/Vec`'s `_raw_alloc`/`_move_elems` (`std/imm/vec.yo:75,114`) hand out and move raw allocations |
+| `imm/*` internals | `imm/Vec`'s `_raw_alloc`/`_move_elems` (`std/imm/vec.yo:75,114`) hand out and move raw allocations. Moot: std/imm was removed 2026-10-09 (maintainer decision); revisit later |
 
 And the same hazard, unrecorded, in every type that owns a resource behind a
 handle: `Watcher._handle`, `File._fd`, `TcpStream._fd`, `Child._stdin_fd`,
@@ -199,7 +199,7 @@ One PR per module group, in this order, because each is a real hazard:
    `Watcher._handle`, `Child._*_fd`, `ChildStdin._fd`. Each prevents a
    double close.
 3. `std/collections/*` — `ctrl`/`data`/`size` and friends. Closes the row.
-4. `std/imm/*` — `_raw_alloc`/`_move_elems`. Closes the row.
+4. `std/imm/*` — `_raw_alloc`/`_move_elems`. Closes the row. Dropped: std/imm was removed 2026-10-09 (maintainer decision); revisit later.
 
 Each step is seed-gated: `std/` cannot use `priv` until a release ships a
 compiler that parses it ([[yo-seed-gate-blocks-std-using-new-runtime-macros]]

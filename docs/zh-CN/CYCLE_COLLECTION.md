@@ -229,7 +229,7 @@ node := Node(1, .None); // 可能形成循环引用的类型，留在当前线�
 // 它们是单线程的，不会创建线程。）
 handle := Thread(unit).spawn(io => {
   // 上面普通的 ref(...) `node` 是线程局部的，无法在这里被捕获。
-  // 只有 Send 值能跨越边界：值类型、Arc(T) 和 std/imm 结构。
+  // 只有 Send 值能跨越边界：值类型、Arc(T) 和 std/sync 原语。
   ();
 });
 handle.join();
@@ -267,7 +267,7 @@ main :: (fn(io : Io) -> unit)({
 
   ch := Channel(i32).new();
   worker := Thread(unit).spawn(io => {
-    // 只有 Send 值能跨越边界：值类型、Arc(T)、std/imm 结构。
+    // 只有 Send 值能跨越边界：值类型、Arc(T)、std/sync 原语。
     ch.send(expensive_computation());
     ();
   });

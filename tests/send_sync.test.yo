@@ -15,7 +15,6 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { RwLock } :: import("std/sync/rwlock");
-imm_vec :: import("std/imm/vec");
 
 // ============================================================================
 // The derivation, by reflection
@@ -307,13 +306,6 @@ comptime_expect_error({
     _l := RwLock(SsNotSync).new(SsNotSync(n : i32(1)));
   });
   _rwlock_not_sync();
-}, "Sync");
-// `std/imm` nodes are shared by every version: elements need `Sync`.
-comptime_expect_error({
-  _imm_not_sync :: (fn() -> unit)({
-    _v := imm_vec.Vec(SsNotSync).new();
-  });
-  _imm_not_sync();
 }, "Sync");
 // Over-rejection canaries: a `Mutex` serializes access and a `Channel` moves
 // its payload, so both keep `T <: Send` and take the non-`Sync` type.

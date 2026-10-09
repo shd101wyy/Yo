@@ -88,7 +88,6 @@ Inside a scope, these come from `a`:
 - `dyn` boxes,
 - `Iso` values,
 - the state machines of `io.async` tasks created there,
-- the buffers of the `imm` collections,
 - the buffers of the mutable containers created there (see
   [Containers](#containers)).
 

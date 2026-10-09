@@ -26,7 +26,6 @@ FILES=(
   tests/send_sync.test.yo
   tests/cross_thread_wake.test.yo
   tests/spawn_blocking.test.yo
-  tests/imm_threading.test.yo
   tests/parallelism_soundness.test.yo
   tests/encoding/html.test.yo
   tests/unsafe_cast_rc_borrow.test.yo

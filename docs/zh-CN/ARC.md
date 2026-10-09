@@ -38,7 +38,7 @@ arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic)))
 - 对函数值（闭包或具名函数）调用 `arc(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 且 `Sync` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
 
 许多标准库类型已经不再需要额外的 `Arc(...)` 包装。例如 `std/sync`
-原语和 `std/imm` 集合本身就基于 `atomic(ref(struct(...)))` 实现，可以直接跨线程共享。
+原语本身就基于 `atomic(ref(struct(...)))` 实现，可以直接跨线程共享。
 
 如果你需要共享可变状态，应该先把这份状态定义成 `atomic(ref(struct(...)))`，
 然后直接共享它；只有在你确实需要“包裹一个单独值”时，再使用 `Arc(...)`。
@@ -110,4 +110,3 @@ assert(shared.* == i32(42), "main still sees shared value");
 
 - `docs/zh-CN/PARALLELISM.md` —— 线程与线程池模型
 - `docs/zh-CN/ISOLATED.md` —— `Iso(T)` 的唯一所有权
-- `docs/zh-CN/IMMUTABLE_COLLECTIONS.md` —— 基于 `atomic(ref(struct(...)))` 的持久化集合

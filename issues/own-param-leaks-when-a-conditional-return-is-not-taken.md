@@ -4,7 +4,7 @@
 
 **Status:** OPEN. **Class**: silent memory leak of every RC type passed by
 `own`. **Found:** 2026-09-14, while root-causing
-`issues/stddoc-coll-imm-vec-dedup-leaks-rc-elements.md` — whose filed diagnosis
+`issues/retired/stddoc-coll-imm-vec-dedup-leaks-rc-elements.md` — whose filed diagnosis
 turned out to be a symptom of this, not the cause.
 
 ## Symptom

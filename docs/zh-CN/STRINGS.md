@@ -193,7 +193,3 @@ comptime_assert(s(3 .. 6) == "中"); // 字节区间
 - 想表达"有多少个字符"时，写 `s.chars().count()`；想表达"缓冲区多大"时，写
   `s.len()`。
 - `Content-Length` 这类协议字段数的是字节；如今 `len()` 默认就是正确答案。
-
-`std/imm` 中的不可变字符串（`ImmString`）遵循同样的契约：`len()` 以 O(1)
-返回字节数，`at()` 解码从给定字节偏移开始的字符；见
-`plans/archive/STD_API_AUDIT_D4_PLAN.md`。

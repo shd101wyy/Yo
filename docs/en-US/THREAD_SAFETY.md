@@ -45,8 +45,7 @@ An atomic object's copies share one payload, so it is `Send` only when that payl
 `Sync` whenever `T` is `Send`.
 
 The std types follow the same split. A type that shares its payload between threads asks for
-`Sync`: `Arc(T)`, `RwLock(T)` (concurrent read guards) and every `std/imm` element, key and value
-type need `T <: (Send, Sync, Acyclic)`. A type that hands its payload to one thread at a time asks
+`Sync`: `Arc(T)` and `RwLock(T)` (concurrent read guards) need `T <: (Send, Sync, Acyclic)`. A type that hands its payload to one thread at a time asks
 only for `Send`: `Mutex(T)` and `Channel(T)` need `T <: (Send, Acyclic)`. So a type that is `Send`
 but opts out of `Sync` with `impl(T, !(Sync()))` can go in a `Mutex` or through a `Channel`, but
 not in an `Arc`.
@@ -54,14 +53,13 @@ not in an `Arc`.
 `String` and the collections are not `Send` yet: today their buffer is a shared, non-atomically
 counted cell, so a copy left on the sending thread would race on its count. Once their buffers
 become uniquely owned (`plans/VALUES_BY_DEFAULT.md` V2b), moving one hands over its only owner and
-`Channel(String)` works with no compiler change. Until then, use `Iso` (below) or an `std/imm`
-type.
+`Channel(String)` works with no compiler change. Until then, use `Iso` (below).
 
 ### Manual Send and Sync Impls Require Pragma
 
 Writing `impl(MyType, Send())` or `impl(MyType, Sync())` requires `pragma(Pragma.AllowUnsafe)`
 and a `// SAFETY:` comment explaining why the type is safe to move or share across threads. This
-is how a type holding a raw pointer opts in (std's `Channel`, `Waker`, `ImmString`), and it keeps
+is how a type holding a raw pointer opts in (std's `Channel`, `Waker`), and it keeps
 every such claim auditable.
 
 ## Atomic Objects vs Regular Objects
@@ -394,7 +392,7 @@ Non-`_`-prefixed fields (like `arc.*`) are readable but not writable in safe cod
 - **Deadlock prevention** — same as Rust. Lock ordering is the user's responsibility.
 - **`AtomicPtr(T)`** — generic atomic pointer for lock-free data structures. Deferred since safe code cannot construct or deref raw pointers, so the primitive would only be usable from pragma'd code. Will be added when a concrete `std/` consumer surfaces.
 - **`Sender(T)` / `Receiver(T)` split** — currently `Channel(T)` exposes both send and receive ends on the same handle. Rust-style split halves are a future ergonomic refinement.
-- **TSan covers the thread corpus, not every program.** The Linux/Clang CI job (a required status check) runs `tests/sync` and, through `scripts/tsan-thread-corpus.sh`, the thread corpus under `--sanitize thread`: `tests/thread*.test.yo`, `arc`, `atomic_object`, `iso*`, `send_sync`, `cross_thread_wake`, `spawn_blocking`, `imm_threading`, `parallelism_soundness`, `encoding/html`, `unsafe_cast_rc_borrow`. Each file must spawn at least one thread (a file that spawns none is reported HOLLOW), and a both-ways ratchet (`scripts/bootstrap/tsan-known-failing.tsv`) fails the job when an unlisted file reports a race or a listed one stops reporting one. The compile-time rules are pinned by `tests/thread_safety.test.yo` and `tests/parallelism_soundness.test.yo`, which carries one rejection block and one over-rejection canary per rule.
+- **TSan covers the thread corpus, not every program.** The Linux/Clang CI job (a required status check) runs `tests/sync` and, through `scripts/tsan-thread-corpus.sh`, the thread corpus under `--sanitize thread`: `tests/thread*.test.yo`, `arc`, `atomic_object`, `iso*`, `send_sync`, `cross_thread_wake`, `spawn_blocking`, `parallelism_soundness`, `encoding/html`, `unsafe_cast_rc_borrow`. Each file must spawn at least one thread (a file that spawns none is reported HOLLOW), and a both-ways ratchet (`scripts/bootstrap/tsan-known-failing.tsv`) fails the job when an unlisted file reports a race or a listed one stops reporting one. The compile-time rules are pinned by `tests/thread_safety.test.yo` and `tests/parallelism_soundness.test.yo`, which carries one rejection block and one over-rejection canary per rule.
 
 ## Known Holes
 

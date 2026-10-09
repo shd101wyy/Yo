@@ -12,9 +12,6 @@ pragma(Pragma.AllowUnsafe);
 { yield } :: import("std/async");
 { AtomicBool, MemoryOrder } :: import("std/sync/atomic");
 Gc :: import("std/gc");
-{ Vec } :: import("std/imm/vec");
-{ Map } :: import("std/imm/map");
-{ ImmString } :: import("std/imm/string");
 { HashMap } :: import("std/collections/hash_map");
 { String } :: import("std/string");
 _Point :: ref(struct(x : i32, y : i32));
@@ -187,51 +184,6 @@ test("with_allocator takes any Allocator value", {
   assert(arena.live_blocks() == usize(1), "placed");
   g := with_allocator(Allocator.global(), () => _Point(x : i32(7), y : i32(8)));
   assert(arena.live_blocks() == usize(1), "the global Allocator value places globally-routed blocks");
-});
-// ===== P3b: the imm family's buffers follow the scope =====
-_push_n :: (fn(imm(v) : Vec(i32), n : i32) -> Vec(i32))({
-  out := v;
-  i := i32(0);
-  while(runtime(i < n), {
-    out = out.push(i);
-    i = (i + i32(1));
-  });
-  out
-});
-test("An imm Vec built in the scope keeps every buffer in the arena", {
-  arena := _arena();
-  {
-    v := arena.scoped(() => _push_n(Vec(i32).new(), i32(100)));
-    assert(v.len() == usize(100), "len");
-    assert(v.get(usize(99)).unwrap() == i32(99), "value");
-    // The Vec object and its one buffer.
-    assert(arena.live_blocks() == usize(2), `object + buffer: ${arena.live_blocks()}`);
-    // A version derived OUTSIDE the scope is the global allocator's.
-    kept := v;
-    w := kept.push(i32(100));
-    assert(w.len() == usize(101), "derived len");
-    assert(arena.live_blocks() == usize(2), "the derived version went global");
-  };
-  assert(arena.live_blocks() == usize(0), `every imm buffer went back to the arena: ${arena.live_blocks()}`);
-});
-test("An imm Map and ImmString built in the scope release into the arena", {
-  arena := _arena();
-  {
-    m := arena.scoped(() => {
-      (acc : Map(i32, i32)) = Map(i32, i32).new();
-      i := i32(0);
-      while(runtime(i < i32(64)), {
-        acc = acc.insert(i, i * i32(3));
-        i = (i + i32(1));
-      });
-      acc
-    });
-    assert(m.get(i32(40)).unwrap() == i32(120), "map lookup");
-    s := arena.scoped(() => ImmString.from("hello, arena"));
-    assert(s.len() == usize(12), "string len");
-    assert(arena.live_blocks() > usize(2), "nodes and buffers are in the arena");
-  };
-  assert(arena.live_blocks() == usize(0), `released: ${arena.live_blocks()}`);
 });
 // ===== P3c: the core containers' default constructors follow the scope =====
 test("A default ArrayList created in the scope keeps growing in the arena after it", {

@@ -22,9 +22,6 @@ log :: import("std/log");
 { DEFAULT_KEY_0, DEFAULT_KEY_1, hash_one_with_keys, hash_one } :: import("std/hash");
 { DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES, FetchOptions } :: import("std/http/client");
 { Waker } :: import("std/async/waker");
-{ Map, MapEntry } :: import("std/imm/map");
-{ SortedMap } :: import("std/imm/sorted_map");
-{ List, ListIter } :: import("std/imm/list");
 // --- crypto/hmac: the named-algorithm wrappers (RFC 2202 / RFC 4231 style
 // vectors, key "key", message "The quick brown fox jumps over the lazy dog").
 test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
@@ -178,37 +175,4 @@ test("a struct holding an Option(Waker) links without any await", {
   s := _WakerSlot(w : .None, n : i32(1));
   assert(s.n == i32(1), "n");
   assert(s.w.is_none(), "no waker");
-});
-// --- imm: the exported surface is the container / entry / iterator names.
-// The internal node types stay off it
-// (issues/fixed/std-imm-exports-nine-internal-node-types-nothing-can-use.md):
-// none of the nine appears in any public signature, so the names were dead
-// surface a user could only spell, never obtain.
-test("imm exports: Map / MapEntry / SortedMap / List / ListIter", {
-  m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
-  assert(m.len() == usize(2), "Map.insert");
-  (e : MapEntry(i32, i32)) = MapEntry(i32, i32)(key : i32(1), value : i32(10));
-  assert(m.get(e.key).unwrap() == e.value, "MapEntry key/value fields");
-  sm := SortedMap(i32, i32).new().insert(i32(1), i32(10));
-  assert(sm.len() == usize(1), "SortedMap.insert");
-  l := List(i32).new().prepend(i32(2)).prepend(i32(1));
-  assert(l.len() == usize(2), "List.prepend");
-  // ListIter by name: `into_iter`'s declared return type, and an import the
-  // other four imm containers make — the one surface name nothing outside
-  // std/imm had bound before this block.
-  (it : ListIter(i32)) = l.into_iter();
-  assert(it.next().unwrap() == i32(1), "ListIter walks head first");
-  assert(it.next().unwrap() == i32(2), "…then the tail");
-  assert(it.next().is_none(), "…and exhausts");
-});
-test("imm internal node types are not exported", {
-  comptime_expect_error({ MapNode } :: import("std/imm/map"), "No member");
-  comptime_expect_error({ MapBranch } :: import("std/imm/map"), "No member");
-  comptime_expect_error({ MapLeaf } :: import("std/imm/map"), "No member");
-  comptime_expect_error({ MapCollision } :: import("std/imm/map"), "No member");
-  comptime_expect_error({ InsertResult } :: import("std/imm/map"), "No member");
-  comptime_expect_error({ RemoveResult } :: import("std/imm/map"), "No member");
-  comptime_expect_error({ RBNode } :: import("std/imm/sorted_map"), "No member");
-  comptime_expect_error({ Color } :: import("std/imm/sorted_map"), "No member");
-  comptime_expect_error({ ListNode } :: import("std/imm/list"), "No member");
 });
