@@ -3323,6 +3323,34 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
        move-only value twice
        (`issues/an-io-async-body-disposes-a-captured-move-only-value-twice.md`,
        pre-existing, open).
+     **Decided 2026-10-09 by the maintainer, for steps 2 and 3:**
+     - **`sink` stays until the phase that makes plain move its kind** (V2b
+       for `String` and the collections, V2c for `Rc`/`Arc`, V5 for `ref`).
+       After the flip a plain parameter SHARES a still implicitly copyable
+       argument while `sink` moves it, and std relies on that move:
+       `imm.Vec`/`imm.String` update in place only at `ref_count == 1`
+       (a share would make `v = v.push(x)` copy every time), and
+       `String.into_bytes` would always clone. Step 3 deletes `own` (its old
+       spelling, swept to `sink`) and `inout` (swept to `mut`) only.
+     - **Markers apply to every type, like Rust.** A bare `x` passed to an
+       `imm` parameter is the mismatch error naming `&x` even when `x` is
+       `Copy` (`fn f(x: &i32)` needs `&n`): the marker always tells the truth.
+     - **Projections are places for the markers.** `&xs(i)`, `&mut xs(i)`
+       and `&p.*` are marked exactly like names and field chains (decision
+       20 makes element access a place); one rule serves the sweep and the
+       error.
+     - **`match(x.f, …)` on an owned local** with an explicit-copy field is
+       E0901 with the repair `match(&x.f, …)` (no partial moves, decision
+       19). A still implicitly copyable field keeps sharing or copying, as a
+       by-value parameter does.
+     - **Order, by the seed.** The marker semantics (`&x` to an `imm`/`mut`
+       parameter is always a borrow, a generic one included; operator
+       operands exempt; closure callees through the same path) and the
+       syntactic `inout`→`mut`/`own`→`sink` sweep land first and ship in a
+       release; the marker sweep with its mismatch error, the consuming
+       `match` with its scrutinee sweep, and `&x`→`addr_of(x)` with the
+       address-of deletion follow on that seed, because the seed compiles
+       `src/` and `std/`.
   3. **Deleting** `own`, `sink` and `inout`, and `&x` as address-of: the
      sweep rewrites every raw-pointer `&x` in std, `src/` and tests to
      `addr_of(x)`, then `&x` means only a borrow. Decision 33's mismatch
