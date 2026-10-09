@@ -1,0 +1,15 @@
+pragma(Pragma.AllowUnsafe); // a raw block from Allocator.alloc is a raw pointer
+{ Arena } :: import("std/arena");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  arena := Arena.new(usize(1024));
+  a := arena.allocator();
+  arena.deinit();
+  // The next arena takes the dead arena's pooled state.
+  next := Arena.new(usize(1024));
+  println(`released: ${arena.is_released()}, next live: ${!next.is_released()}`);
+  // `a` is a stale copy of the dead arena's allocator: it must not reach `next`.
+  block := a.alloc(usize(32));
+  println(`unreachable: ${block.is_some()}, next live blocks: ${next.live_blocks()}`);
+});
+export(main);

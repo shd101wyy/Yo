@@ -172,3 +172,74 @@ test("An Arena handle cannot cross into a spawn body; its Allocator can", {
     "Send"
   );
 });
+// issues/fixed/a-deinit-arenas-handle-aliases-the-next-arena-that-reuses-its-state.md:
+// a dead arena's state is pooled and handed to the next `Arena.new`, so a
+// handle (or `Allocator` copy) of the dead arena must not reach the new one.
+test("A deinit arena stays released after the next arena reuses its state", {
+  a := Arena.new(usize(128));
+  a.deinit();
+  b := Arena.new(usize(128));
+  assert(a.is_released(), "the dead handle stays released");
+  assert(!b.is_released(), "the new arena is live");
+  b.deinit();
+  assert(a.is_released(), "still released after the new arena dies");
+});
+test("A stale Arena handle does not report the next arena's blocks", {
+  a := Arena.new(usize(256));
+  a.deinit();
+  b := Arena.new(usize(512));
+  p := b.allocator().alloc(usize(16));
+  assert(b.live_blocks() == usize(1), "the new arena has one block");
+  assert(a.live_blocks() == usize(0), `stale live_blocks: ${a.live_blocks()}`);
+  assert(a.used_bytes() == usize(0), `stale used_bytes: ${a.used_bytes()}`);
+  assert(a.capacity() == usize(0), `stale capacity: ${a.capacity()}`);
+  assert(b.capacity() == usize(512), "the new arena keeps its capacity");
+  a.deinit();
+  a.abandon();
+  assert(!b.is_released(), "deinit/abandon through the stale handle leave the new arena alone");
+  Allocator.free(p);
+});
+test("Dropping a stale Arena handle does not deinit the next arena", {
+  b := {
+    a := Arena.new(usize(256));
+    a.deinit();
+    // `a`'s last reference dies at the end of this block, after the new
+    // arena took its state; its dispose must not reach the new arena.
+    Arena.new(usize(256))
+  };
+  assert(!b.is_released(), "the new arena survives the stale handle's dispose");
+  p := b.allocator().alloc(usize(16));
+  assert(p.is_some(), "and still allocates");
+  assert(b.live_blocks() == usize(1), "one live block");
+  Allocator.free(p);
+});
+test("A deinit arena's Allocator does not compare equal to the next arena's", {
+  a := Arena.new(usize(128));
+  stale := a.allocator();
+  a.deinit();
+  b := Arena.new(usize(128));
+  assert(!stale.same(b.allocator()), "a stale copy is a different allocator");
+  assert(b.allocator().same(b.allocator()), "one arena, one allocator");
+});
+test("Many arenas alive at once each keep their own state", {
+  // 100 states span the table's first three chunks (16 + 32 + 64).
+  arenas := ArrayList(Arena).new();
+  blocks := ArrayList(*void).new();
+  i := usize(0);
+  while(runtime(i < usize(100)), {
+    arena := Arena.new(usize(64) + (i * usize(16)));
+    blocks.push(arena.allocator().alloc(usize(8)).unwrap());
+    arenas.push(arena);
+    i = (i + usize(1));
+  });
+  j := usize(0);
+  while(runtime(j < usize(100)), {
+    arena := arenas.get(j).unwrap();
+    assert(arena.capacity() == (usize(64) + (j * usize(16))), `arena ${j}: capacity ${arena.capacity()}`);
+    assert(arena.live_blocks() == usize(1), `arena ${j}: one live block`);
+    assert(Allocator.owner_of(blocks.get(j).unwrap()).same(arena.allocator()), `arena ${j}: owns its block`);
+    Allocator.free(.Some(blocks.get(j).unwrap()));
+    arena.deinit();
+    j = (j + usize(1));
+  });
+});

@@ -124,9 +124,9 @@ arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的�
 | `Arena.new(capacity)`  | 创建一个 `capacity` 字节（向上取整到 16）的 arena。无法分配该区域时 panic。   |
 | `arena.allocator()`    | 把 arena 作为 `Allocator` 值，传给 `with_allocator` 或 `new_in`。             |
 | `arena.scoped(f)`      | 即 `with_allocator(arena.allocator(), f)`。                                   |
-| `arena.live_blocks()`  | 在这里分配且尚未释放的块数。                                                 |
-| `arena.used_bytes()`   | 区域中已使用的字节数（bump 偏移）。                                           |
-| `arena.capacity()`     | 区域的大小（字节）。                                                         |
+| `arena.live_blocks()`  | 在这里分配且尚未释放的块数（deinit 之后为 0）。                              |
+| `arena.used_bytes()`   | 区域中已使用的字节数，即 bump 偏移（deinit 之后为 0）。                       |
+| `arena.capacity()`     | 区域的大小（字节；deinit 之后为 0）。                                         |
 | `arena.is_released()`  | 是否已经执行过 `deinit` 或 `abandon`。                                        |
 | `arena.deinit()`       | 释放区域。若仍有活跃的块则 **panic**。最后一个 `Arena` 句柄消失时也会执行。   |
 | `arena.abandon()`      | 停止跟踪且永不释放区域。之后 `deinit` 不做任何事。                            |
@@ -142,6 +142,10 @@ arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的�
 - **过期的 `Allocator` 副本碰不到已释放的内存。** arena deinit 之后再通过
   `Allocator` 值分配会 panic。arena 的簿记永远不会被释放，所以过期副本看到的是一个
   被标记的状态，而不是已释放的内存。
+- **已死的 arena 一直是死的。** 之后的 `Arena.new` 可能复用已死 arena 的簿记，但每个
+  `Arena` 句柄和每个 `Allocator` 值都记录了自己属于哪一个 arena。已死 arena 的句柄
+  仍然报告 `is_released()`，它的 `deinit`（以及它的最后一个引用消失）什么也不做，
+  通过它的过期 `Allocator` 副本分配仍然会 panic：它们都碰不到新的 arena。
 - **与进程同寿命的 arena 调用 `abandon()`。** 用于一直活到程序退出的启动表、字符串
   驻留表等：arena 停止跟踪，永不释放区域，`deinit` 不做任何事。
 - **线程安全。** 每个 arena 操作都会获取 arena 自己的锁，所以块可以在任何线程上

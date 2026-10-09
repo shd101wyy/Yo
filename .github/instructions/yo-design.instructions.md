@@ -200,9 +200,11 @@ The guarantee is data-race freedom for every program that compiles without `prag
   field — the object size is measured and tuned. Read such a word through its
   masked accessor (`_cap()`, `tombstones()`).
 - `Arena` (`std/arena.yo`): its state is never freed (dead states are pooled),
-  so a stale `Allocator` copy panics instead of touching freed memory; the
-  `Arena` handle itself is not `Send` — share the arena through its
-  `Allocator` value.
+  so a stale `Allocator` copy panics instead of touching freed memory. Every
+  handle and `Allocator` value carries the state's generation (an arena's
+  `ctx` is an index+generation word, not a pointer), so a dead arena's handle
+  or copy never reaches the next arena that reuses its state. The `Arena`
+  handle itself is not `Send` — share the arena through its `Allocator` value.
 - User-facing guide: `docs/en-US/EXPLICIT_ALLOCATORS.md` (and zh-CN). Keep it,
   `MEMORY_SAFETY.md`'s section and the core-patterns cheatsheet in step when
   the surface changes.

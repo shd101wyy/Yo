@@ -17,6 +17,10 @@
 //! use-after-free it is in Zig. A process-lifetime arena calls `abandon()`
 //! instead: tracking stops and the region is never released.
 //!
+//! A released arena stays released: a later `Arena.new` may reuse its
+//! bookkeeping, but its handles and `Allocator` values never reach the new
+//! arena (they report released, `deinit` is a no-op, an allocation panics).
+//!
 //! Freeing a block reclaims its bytes only when it is the most recent
 //! allocation; everything else is reclaimed by `deinit`. `realloc` grows the
 //! most recent block in place when the region has room.
@@ -56,11 +60,15 @@ extern(
 );
 // Every block starts on a 16-byte boundary of the region.
 _ALIGN :: usize(16);
-// The arena's state lives in a plain block, not in the `Arena` object, so an
-// `Allocator` value can point at it. A state is never released: a dead
-// arena's state goes back to `_pool` (below), because a stale `Allocator` copy
-// may still reach it — and on a pooled state `dead` makes that a panic
-// instead of a use-after-free.
+// The arena's state lives in the state table below, not in the `Arena`
+// object, so an `Allocator` value can name it. A state is never released: a
+// dead arena's state goes back to `_pool` and is reused by a later
+// `Arena.new`, because a stale `Allocator` copy or `Arena` handle may still
+// reach it. What tells the incarnations apart is `gen`: `deinit` bumps it, and
+// every handle and every `Allocator` value carries the generation it was made
+// for, so one of a dead arena never matches the state again — not even after
+// the state was reused — and acts as released (an allocation through it
+// panics).
 _ArenaState :: struct(
   lock : atomic_bool,
   region : ?*u8,
@@ -69,10 +77,32 @@ _ArenaState :: struct(
   // Offset of the most recent block, while it is still reclaimable.
   last : Option(usize),
   live : usize,
-  dead : bool,
   abandoned : bool,
+  // The state's slot in the table (from 1), fixed for life.
+  index : usize,
+  // The current incarnation; after `deinit`, the next one.
+  gen : usize,
   next : ?*void
 );
+// An arena's `Allocator` context is not a pointer but one word: the state's
+// index in the low half, the generation in the high half. So a stale copy can
+// never alias a later incarnation: a state is retired (kept, never reused)
+// once its generations run out, after 2^32 arenas on a 64-bit target (2^16 on
+// a 32-bit one), and the table is bounded by the peak number of arenas alive
+// at once plus the retired states.
+_INDEX_BITS :: ((size_of(usize) * usize(8)) / usize(2));
+_INDEX_MASK :: ((usize(1) << _INDEX_BITS) - usize(1));
+_GEN_LIMIT :: (usize(1) << _INDEX_BITS);
+// The state table: chunks that double in size and never move or die, so an
+// index found in a context word always reaches its state without a lock.
+// Chunk `c` holds the `_CHUNK0 << c` states from index
+// `_CHUNK0 * (2^c - 1) + 1`. `_dir` (the chunk pointers, `_INDEX_BITS` of
+// them) and every chunk entry are written once, under `_pool_mutex`, before
+// any index that reaches them is handed out.
+_CHUNK0 :: usize(16);
+_dir := Option(*void).None;
+// States created so far: the highest index in use.
+_states := usize(0);
 // Dead states, reused by the next `Arena.new`. Reachable from a global, so
 // they are never reported as leaks; bounded by the peak number of arenas alive
 // at once.
@@ -87,7 +117,45 @@ _abandoned := Option(*void).None;
 _live := Option(*void).None;
 _reporter_installed := false;
 _round_up :: (fn(n : usize) -> usize)((((n + _ALIGN) - usize(1)) / _ALIGN) * _ALIGN);
-_st :: (fn(ctx : ?*void) -> *_ArenaState)((*_ArenaState)(ctx.unwrap()));
+// The chunk holding `index`: floor(log2((index - 1) / _CHUNK0 + 1)).
+_chunk_of :: (fn(index : usize) -> usize)({
+  q := (((index - usize(1)) / _CHUNK0) + usize(1));
+  c := usize(0);
+  while(runtime(q > usize(1)), {
+    q = (q >> usize(1));
+    c = (c + usize(1));
+  });
+  c
+});
+// The state at `index`. The chunk it lives in exists: the index was handed out.
+_state_at :: (fn(index : usize) -> *_ArenaState)({
+  j := (index - usize(1));
+  c := _chunk_of(index);
+  first := (_CHUNK0 * ((usize(1) << c) - usize(1)));
+  // SAFETY: `_dir` and its entry `c` were written before `index` was handed
+  // out, and are never written again.
+  chunk := unsafe((*?*void)(_dir.unwrap()).add(c).*).unwrap();
+  (*_ArenaState)(unsafe((*u8)(chunk).add((j - first) * size_of(_ArenaState))))
+});
+// A context word as the `?*void` an `Allocator` carries, and back. The word
+// is never dereferenced as a pointer; the copy is how its bits cross types.
+_ctx_of :: (fn(word : usize) -> ?*void)({
+  w := word;
+  (p : ?*void) = .None;
+  unsafe(memcpy((*void)(&p), (*void)(&w), size_of(usize)));
+  p
+});
+_word_of :: (fn(ctx : ?*void) -> usize)({
+  c := ctx;
+  (w : usize) = usize(0);
+  unsafe(memcpy((*void)(&w), (*void)(&c), size_of(usize)));
+  w
+});
+_index_of :: (fn(ctx : ?*void) -> usize)(_word_of(ctx) & _INDEX_MASK);
+_gen_of :: (fn(ctx : ?*void) -> usize)(_word_of(ctx) >> _INDEX_BITS);
+_st :: (fn(ctx : ?*void) -> *_ArenaState)(_state_at(_index_of(ctx)));
+// Whether incarnation `gen` of `st` is the current one. Caller holds the lock.
+_current :: (fn(st : *_ArenaState, gen : usize) -> bool)(unsafe(st.*.gen) == gen);
 _lock :: (fn(st : *_ArenaState) -> unit)({
   // SAFETY: `st` is a live arena state (states are never released).
   while(runtime(unsafe(atomic_exchange_explicit(&(st.*.lock), true, memory_order_acquire)) == true), {
@@ -98,13 +166,14 @@ _unlock :: (fn(st : *_ArenaState) -> unit)(
   // SAFETY: as `_lock`.
   unsafe(atomic_store_explicit(&(st.*.lock), false, memory_order_release))
 );
-// Bump `size` bytes off the region. Caller holds the lock.
-_bump :: (fn(st : *_ArenaState, size : usize) -> ?*void)({
+// Bump `size` bytes off the region of incarnation `gen`. Caller holds the
+// lock.
+_bump :: (fn(st : *_ArenaState, gen : usize, size : usize) -> ?*void)({
   // SAFETY: the caller holds the lock on the live state `st`. Fields are
   // read through `st`: the state holds its lock, so it is not `Copy`.
   need := _round_up(size);
   cond(
-    unsafe(st.*.dead) => panic("Arena: allocation from an arena after deinit"),
+    !_current(st, gen) => panic("Arena: allocation from an arena after deinit"),
     ((need < size) || (need > (unsafe(st.*.capacity) - unsafe(st.*.top)))) => .None,
     true => {
       at := unsafe(st.*.top);
@@ -118,7 +187,7 @@ _bump :: (fn(st : *_ArenaState, size : usize) -> ?*void)({
 _arena_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
   st := _st(ctx);
   _lock(st);
-  r := _bump(st, size);
+  r := _bump(st, _gen_of(ctx), size);
   _unlock(st);
   r
 });
@@ -128,6 +197,12 @@ _arena_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)(
     .Some(p) => {
       st := _st(ctx);
       _lock(st);
+      // A live block keeps its incarnation alive (`deinit` panics while one
+      // is), so a mismatch is a block freed twice or forged.
+      cond(
+        !_current(st, _gen_of(ctx)) => panic("Arena: free into an arena after deinit"),
+        true => ()
+      );
       // SAFETY: the lock is held on the live state `st`; `p` is one of its
       // blocks, so it lies inside the region.
       off := usize(unsafe((*u8)(p).offset_from(st.*.region.unwrap())));
@@ -150,14 +225,18 @@ _arena_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(
     .None => _arena_alloc(ctx, new_size),
     .Some(p) => {
       st := _st(ctx);
+      gen := _gen_of(ctx);
       _lock(st);
+      cond(
+        !_current(st, gen) => panic("Arena: reallocation in an arena after deinit"),
+        true => ()
+      );
       // SAFETY: as `_arena_free`.
       off := usize(unsafe((*u8)(p).offset_from(unsafe(st.*.region).unwrap())));
       // `top` before `_bump` below moves it: the old block ends at or before it.
       old_top := unsafe(st.*.top);
       need := _round_up(new_size);
       (r : ?*void) = cond(
-        unsafe(st.*.dead) => panic("Arena: reallocation in an arena after deinit"),
         (need < new_size) => .None,
         // The most recent block grows (or shrinks) in place.
         ((unsafe(st.*.last) == Option(usize).Some(off)) && (need <= (unsafe(st.*.capacity) - off))) => {
@@ -165,7 +244,7 @@ _arena_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(
           .Some(p)
         },
         true => match(
-          _bump(st, new_size),
+          _bump(st, gen, new_size),
           .Some(q) => {
             // The old block's size is not recorded; its bytes end at or
             // before `top`, so copying up to there stays inside the region.
@@ -189,28 +268,60 @@ _ARENA_VTABLE := AllocatorVTable(
   realloc : _arena_realloc,
   free : _arena_free
 );
-// A fresh or recycled state, reset for a region of `capacity` bytes.
+// A new state at the next index of the table, at generation 0. Caller holds
+// `_pool_mutex`.
+_new_state :: (fn() -> *_ArenaState)({
+  index := (_states + usize(1));
+  cond(
+    (index > _INDEX_MASK) => panic("Arena.new: too many arenas"),
+    true => ()
+  );
+  cond(
+    _dir.is_none() => {
+      _dir = match(
+        GlobalAllocator.calloc(_INDEX_BITS, size_of(?*void)),
+        .Some(d) => .Some(d),
+        .None => panic("Arena.new: out of memory")
+      );
+    },
+    true => ()
+  );
+  c := _chunk_of(index);
+  // SAFETY: `_dir` holds `_INDEX_BITS` entries, more than any index needs.
+  slot := unsafe((*?*void)(_dir.unwrap()).add(c));
+  cond(
+    unsafe(slot.*).is_none() => {
+      chunk := match(
+        GlobalAllocator.malloc((_CHUNK0 << c) * size_of(_ArenaState)),
+        .Some(m) => m,
+        .None => panic("Arena.new: out of memory")
+      );
+      unsafe(slot.* = .Some(chunk));
+    },
+    true => ()
+  );
+  _states = index;
+  st := _state_at(index);
+  // SAFETY: nobody can name `st` before this index is handed out.
+  unsafe(atomic_init(&(st.*.lock), false));
+  unsafe(st.*.index = index);
+  unsafe(st.*.gen = usize(0));
+  st
+});
+// A recycled state, or a new one.
 _take_state :: (fn() -> *_ArenaState)({
   unsafe(__yo_mutex_lock(&_pool_mutex));
-  reused := _pool;
-  match(
-    reused,
+  st := match(
+    _pool,
     // SAFETY: pooled states are live blocks owned by the pool.
     .Some(p) => {
       _pool = unsafe((*_ArenaState)(p).*.next);
+      (*_ArenaState)(p)
     },
-    .None => ()
+    .None => _new_state()
   );
   unsafe(__yo_mutex_unlock(&_pool_mutex));
-  match(
-    reused,
-    .Some(p) => (*_ArenaState)(p),
-    .None => match(
-      GlobalAllocator.malloc(size_of(_ArenaState)),
-      .Some(p) => (*_ArenaState)(p),
-      .None => panic("Arena.new: out of memory")
-    )
-  )
+  st
 });
 _give_state :: (fn(st : *_ArenaState) -> unit)({
   unsafe(__yo_mutex_lock(&_pool_mutex));
@@ -282,7 +393,7 @@ _track :: (fn(st : *_ArenaState) -> unit)({
   );
 });
 /// A bump arena over one region. See the module notes.
-Arena :: ref(struct(_state : *_ArenaState));
+Arena :: ref(struct(_state : *_ArenaState, _gen : usize));
 impl(
   Arena,
   /// An arena over a region of `capacity` bytes (rounded up to 16). Panics
@@ -295,53 +406,66 @@ impl(
       .None => panic("Arena.new: out of memory")
     );
     st := _take_state();
-    // SAFETY: `st` is a state block nobody else holds; every field is
-    // written before the arena is visible to anyone.
-    unsafe(atomic_init(&(st.*.lock), false));
+    // A stale handle or `Allocator` copy may still lock the state to check its
+    // generation, so the reset takes the lock too.
+    _lock(st);
+    // SAFETY: `st` is a dead state nobody else owns, locked.
     unsafe(st.*.region = .Some(region));
     unsafe(st.*.capacity = cap);
     unsafe(st.*.top = usize(0));
     unsafe(st.*.last = .None);
     unsafe(st.*.live = usize(0));
-    unsafe(st.*.dead = false);
     unsafe(st.*.abandoned = false);
     unsafe(st.*.next = .None);
+    gen := unsafe(st.*.gen);
+    _unlock(st);
     cond(
       unsafe(__yo_debug_heap_on()) => _track(st),
       true => ()
     );
-    Self(_state : st)
+    Self(_state : st, _gen : gen)
   }),
   /// This arena as an `Allocator` value. Every block it hands out is released
-  /// back here, wherever and whenever its last reference dies.
+  /// back here, wherever and whenever its last reference dies. The value names
+  /// this arena only: once the arena is released, allocating through it (or
+  /// any copy of it) panics, even after a later arena reuses the state.
   allocator : (fn(imm(self) : Self) -> Allocator)(
-    Allocator(ctx : .Some((*void)(self._state)), vtable : &_ARENA_VTABLE)
+    Allocator(
+      // SAFETY: a state's `index` never changes after it is created.
+      ctx : _ctx_of((self._gen << _INDEX_BITS) | unsafe(self._state.*.index)),
+      vtable : &_ARENA_VTABLE
+    )
   ),
   /// `with_allocator(self.allocator(), f)`: evaluate `f()` with this arena as
   /// the current allocator.
   scoped : (fn(generic(T : Type), imm(self) : Self, imm(f) : Impl(Fn() -> T)) -> T)(
     with_allocator(self.allocator(), f)
   ),
-  /// Blocks allocated here and not yet freed.
+  /// Blocks allocated here and not yet freed (0 once deinit).
   live_blocks : (fn(imm(self) : Self) -> usize)({
     _lock(self._state);
-    n := unsafe(self._state.*.live);
+    n := cond(_current(self._state, self._gen) => unsafe(self._state.*.live), true => usize(0));
     _unlock(self._state);
     n
   }),
-  /// Bytes of the region in use (the bump offset).
+  /// Bytes of the region in use, the bump offset (0 once deinit).
   used_bytes : (fn(imm(self) : Self) -> usize)({
     _lock(self._state);
-    n := unsafe(self._state.*.top);
+    n := cond(_current(self._state, self._gen) => unsafe(self._state.*.top), true => usize(0));
     _unlock(self._state);
     n
   }),
-  /// The region's size in bytes.
-  capacity : (fn(imm(self) : Self) -> usize)(unsafe(self._state.*.capacity)),
+  /// The region's size in bytes (0 once deinit).
+  capacity : (fn(imm(self) : Self) -> usize)({
+    _lock(self._state);
+    n := cond(_current(self._state, self._gen) => unsafe(self._state.*.capacity), true => usize(0));
+    _unlock(self._state);
+    n
+  }),
   /// Whether `deinit` or `abandon` has run.
   is_released : (fn(imm(self) : Self) -> bool)({
     _lock(self._state);
-    released := (unsafe(self._state.*.dead) || unsafe(self._state.*.abandoned));
+    released := (!_current(self._state, self._gen) || unsafe(self._state.*.abandoned));
     _unlock(self._state);
     released
   }),
@@ -352,7 +476,7 @@ impl(
     st := self._state;
     _lock(st);
     cond(
-      (unsafe(st.*.dead) || unsafe(st.*.abandoned)) => _unlock(st),
+      (!_current(st, self._gen) || unsafe(st.*.abandoned)) => _unlock(st),
       (unsafe(st.*.live) > usize(0)) => {
         live_n := unsafe(st.*.live);
         top_n := unsafe(st.*.top);
@@ -362,7 +486,10 @@ impl(
       },
       true => {
         region := unsafe(st.*.region);
-        unsafe(st.*.dead = true);
+        // Every handle and `Allocator` value of this incarnation is stale from
+        // here on, whoever takes the state next.
+        next_gen := (self._gen + usize(1));
+        unsafe(st.*.gen = next_gen);
         unsafe(st.*.region = .None);
         _unlock(st);
         GlobalAllocator.aligned_free(.Some((*void)(region.unwrap())));
@@ -374,7 +501,12 @@ impl(
           },
           true => ()
         );
-        _give_state(st);
+        // A state whose generations ran out is retired: it stays in the
+        // table, so stale values still reach it, and is never reused.
+        cond(
+          (next_gen < _GEN_LIMIT) => _give_state(st),
+          true => ()
+        );
       }
     );
   }),
@@ -385,7 +517,7 @@ impl(
     st := self._state;
     _lock(st);
     cond(
-      (unsafe(st.*.dead) || unsafe(st.*.abandoned)) => _unlock(st),
+      (!_current(st, self._gen) || unsafe(st.*.abandoned)) => _unlock(st),
       true => {
         unsafe(st.*.abandoned = true);
         _unlock(st);

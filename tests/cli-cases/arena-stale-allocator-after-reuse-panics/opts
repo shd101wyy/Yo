@@ -1,0 +1,8 @@
+# A stale `Allocator` copy of a deinit arena keeps panicking after the next
+# `Arena.new` reuses the dead arena's pooled state: the copy carries the
+# incarnation it was made for, which the reused state no longer has
+# (issues/fixed/a-deinit-arenas-handle-aliases-the-next-arena-that-reuses-its-state.md).
+# The fixture calls `Allocator.alloc` directly, which returns a raw pointer,
+# hence its AllowUnsafe.
+stdout_keep_match=Arena: allocation from an arena after deinit
+timeout=600
