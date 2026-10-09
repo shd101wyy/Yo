@@ -2319,6 +2319,94 @@ closure (x => ...), an arrow literal ((x) -> ...), a named fn passed by name,
 or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 );
 // ---------------------------------------------------------------------------
+// function_value_slot_mismatch
+// ---------------------------------------------------------------------------
+/// The parameter modes of a function SIGNATURE: a `fn(...)` type's, or the
+/// call signature of the `Fn(...)` trait a type carries (`Impl(Fn(...))`, a
+/// named closure). `complete` is false when the per-parameter flags are not
+/// all recorded (a closure type no `Fn(...)` was written for), so nothing
+/// can be said about its modes.
+_SigModes :: struct(labels : ArrayList(String), refs : ArrayList(bool), owns : ArrayList(bool), n : usize, complete : bool);
+_sig_modes_of :: (fn(imm(ty) : TypeValue) -> Option(_SigModes))(
+  match(
+    ty,
+    .Func({ param_types : sm_pts, meta : sm_meta }) => Option(_SigModes).Some(
+      _SigModes(labels : sm_meta.*.param_labels.clone(), refs : sm_meta.*.param_is_ref.clone(), owns : sm_meta.*.param_is_owning.clone(), n : sm_pts.len(), complete : true)
+    ),
+    _ => match(
+      extract_fn_trait_from_type(ty),
+      .Some(.FnTraitT({ call_param_labels : sm_l, call_param_types : sm_t, call_param_is_ref : sm_r, call_param_is_owning : sm_o })) => Option(_SigModes).Some(
+        _SigModes(labels : sm_l.clone(), refs : sm_r.clone(), owns : sm_o.clone(), n : sm_t.len(), complete : ((sm_r.len() == sm_t.len()) && (sm_o.len() == sm_t.len())))
+      ),
+      _ => Option(_SigModes).None
+    )
+  )
+);
+/// `mut(x)`, `imm(x)` or the by-value `x`: how a parameter is written.
+_param_mode_spelling :: (fn(imm(label) : String, is_ref : bool, is_owning : bool) -> String)(
+  cond(
+    is_ref => `mut(${label})`,
+    is_owning => label.clone(),
+    true => `imm(${label})`
+  )
+);
+/// When a FUNCTION VALUE of type `given` cannot stand in a slot of type
+/// `expected` (a parameter, an `Impl(Fn(...))` parameter), the note naming
+/// why, else `.None`. A parameter's mode is part of the function type
+/// (docs/en-US/DESIGN.md): a `fn(s : String)` OWNS its argument and drops it,
+/// so where the slot's type lends (`imm(s)`) the callee would release a value
+/// its caller still holds — a double free.
+///
+/// Judged, so that every route a function value takes into a slot agrees
+/// with the binding rule (`(h : Hook) = f`, which compares with
+/// `are_types_compatible`):
+///   * the MODES of a function type or an `Fn(...)` carrier against a
+///     function type or an `Fn(...)` carrier, position by position — modes
+///     never depend on a type variable, so this holds for generic slots too;
+///   * a concrete `fn(...)` slot (no type variable anywhere in it) against a
+///     concrete argument, by `are_types_compatible`: the whole signature, so
+///     a function returning `i32` or a non-function cannot fill a slot whose
+///     type says otherwise. Generic slots bind by synthesis and are left to it.
+/// A closure LITERAL adopts the slot's modes when it is typed against it, so
+/// it always agrees.
+function_value_slot_mismatch :: (fn(imm(expected) : TypeValue, imm(given) : TypeValue) -> Option(String))({
+  match(
+    _sig_modes_of(expected),
+    .Some(fm_e) => match(
+      cond(
+        (is_function_type(given) || extract_fn_trait_from_type(given).is_some()) => _sig_modes_of(given),
+        true => Option(_SigModes).None
+      ),
+      .Some(fm_g) => if(fm_e.complete && fm_g.complete && (fm_e.n == fm_g.n), {
+        (fm_i : usize) = usize(0);
+        while(fm_i < fm_e.n, {
+          e_ref := match(fm_e.refs.get(fm_i), .Some(b) => b, .None => false);
+          g_ref := match(fm_g.refs.get(fm_i), .Some(b) => b, .None => false);
+          e_own := match(fm_e.owns.get(fm_i), .Some(b) => b, .None => false);
+          g_own := match(fm_g.owns.get(fm_i), .Some(b) => b, .None => false);
+          if((e_ref != g_ref) || (e_own != g_own), {
+            e_lbl := match(fm_e.labels.get(fm_i), .Some(l) => l, .None => String.from("_"));
+            g_lbl := match(fm_g.labels.get(fm_i), .Some(l) => l, .None => e_lbl.clone());
+            return(
+              Option(String).Some(
+                `\nParameter ${fm_i + usize(1)} is \`${_param_mode_spelling(e_lbl, e_ref, e_own)}\` in the expected type and \`${_param_mode_spelling(g_lbl, g_ref, g_own)}\` in the given one: a parameter's mode is part of the function type.`
+              )
+            );
+          });
+          fm_i = (fm_i + usize(1));
+        });
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  if(is_function_type(expected) && (get_all_some_types(expected).len() == usize(0)) && (get_all_some_types(given).len() == usize(0))
+  && !are_types_compatible(given, expected), {
+    return(Option(String).Some(String.from("")));
+  });
+  Option(String).None
+});
+// ---------------------------------------------------------------------------
 // impl_param_unmet_trait / impl_argument_unmet_trait_message
 // ---------------------------------------------------------------------------
 /// The first trait an `Impl(Trait, ...)` PARAMETER requires that a concrete
@@ -2929,7 +3017,7 @@ export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
-export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message);
+export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message, function_value_slot_mismatch);
 export(impl_param_unmet_trait, impl_argument_unmet_trait_message, FunctionArgMarkers, judge_function_argument_markers);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);

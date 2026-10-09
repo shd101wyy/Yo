@@ -627,7 +627,7 @@ test("soundness: a free fn binds an associated type from its where-clause", {
 // ---------------------------------------------------------------------------
 _sound_apply_dyn :: (fn(generic(A : Type, B : Type), imm(f) : Dyn(Fn(imm(x) : A) -> B), imm(v) : A) -> B)(f(v));
 test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
-  (inc : Dyn(Fn(y : i32) -> i32)) = dyn(y => (y + i32(1)));
+  (inc : Dyn(Fn(imm(y) : i32) -> i32)) = dyn(y => (y + i32(1)));
   assert(_sound_apply_dyn(inc, i32(41)) == i32(42), "B inferred");
 });
 // ---------------------------------------------------------------------------
