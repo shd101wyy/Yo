@@ -394,3 +394,24 @@ test("Copy: a struct of fn pointers derives Copy and Clone", {
   assert((p.get() + p.n) == i32(9), "the derived clone copies each field");
   assert(q.get() == i32(7), "and the implicit copy agrees");
 });
+// A conditional `Clone` impl holds only for type arguments that are `Clone`:
+// its `where(T <: Clone)` names no type parameter of the impl inside the
+// trait, so the trait predicate enforces it
+// (issues/fixed/a-conditional-clone-impl-answers-yes-for-a-type-argument-without-clone.md).
+_CtWrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+derive(generic(T : Type), where(T <: Clone), _CtWrap(T), Clone);
+_CtHand :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(generic(T : Type), where(T <: Clone), _CtHand(T), Clone(clone : (fn(inout(self) : Self) -> Self)(Self(v : self.v.clone()))));
+test("Clone: a conditional Clone impl answers no for a type argument without Clone", {
+  comptime_assert(!Type.impls(_CtNoClone, Clone), "_CtNoClone has no Clone");
+  comptime_assert(!Type.impls(_CtWrap(_CtNoClone), Clone), "a derived conditional Clone");
+  comptime_assert(!Type.impls(_CtHand(_CtNoClone), Clone), "a hand-written conditional Clone");
+  comptime_assert(!Type.impls(Option(_CtNoClone), Clone), "the prelude's Option");
+  // Over-rejection canaries: a Clone argument still answers yes.
+  comptime_assert(Type.impls(_CtWrap(i32), Clone) && Type.impls(_CtWrap(String), Clone), "_CtWrap of a Clone type");
+  comptime_assert(Type.impls(_CtHand(_CtPlain), Clone), "_CtHand of a Clone struct");
+  comptime_assert(Type.impls(Option(String), Clone) && Type.impls(Option(Option(i32)), Clone), "Option of Clone types");
+  w := _CtWrap(String)(v : `hi`);
+  w2 := w.clone();
+  assert(w2.v == `hi`, "the derived clone runs");
+});

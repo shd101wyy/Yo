@@ -73,9 +73,7 @@ test("move-only: Dispose makes a value type move-only, and value aggregates inhe
   comptime_assert(!Type.impls(_MoFd, Copy) && !Type.impls(_MoFd, Clone), "a Dispose value type is move-only");
   comptime_assert(!Type.impls(_MoToken, Copy) && !Type.impls(_MoToken, Clone), "a plain type with neither is move-only");
   comptime_assert(!Type.impls(_MoHolder, Copy) && !Type.impls(_MoHolder, Clone), "a struct holding one is move-only");
-  // Only `Copy` here: a conditional `Clone` impl over-reports
-  // (issues/a-conditional-clone-impl-answers-yes-for-a-type-argument-without-clone.md).
-  comptime_assert(!Type.impls(Option(_MoFd), Copy), "an Option of one is not Copy");
+  comptime_assert(!Type.impls(Option(_MoFd), Copy) && !Type.impls(Option(_MoFd), Clone), "an Option of one is move-only");
   comptime_assert(!Type.impls(Tuple(_MoFd, i32), Copy) && !Type.impls(Tuple(_MoFd, i32), Clone), "a tuple holding one is move-only");
   comptime_assert(!Type.impls(_MoChoice, Copy) && !Type.impls(_MoChoice, Clone), "an enum carrying one is move-only");
   comptime_assert(!Type.impls(Array(_MoFd, 2), Copy) && !Type.impls(Array(_MoFd, 2), Clone), "an array of them is move-only");

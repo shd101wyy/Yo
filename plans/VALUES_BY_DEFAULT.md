@@ -3528,8 +3528,11 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
 - Tests assert `Copy`/`Clone` facts in place of `Type.impls(T, MoveOnly)`.
   The rewrite found that a conditional `Clone` impl answers yes for a type
   argument without `Clone`
-  (`issues/a-conditional-clone-impl-answers-yes-for-a-type-argument-without-clone.md`,
-  S2, predates decision 36).
+  (`issues/fixed/a-conditional-clone-impl-answers-yes-for-a-type-argument-without-clone.md`,
+  S2, predates decision 36): the trait predicate enforced a failed `where`
+  bound only for a marker trait. A bound whose trait names none of the impl's
+  own type parameters (`T <: Clone`) is now enforced too, so
+  `Type.impls(Option(X), Clone)` is false for an `X` without `Clone`.
 
 ### V2: the collections become values
 

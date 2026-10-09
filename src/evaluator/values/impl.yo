@@ -1176,6 +1176,51 @@ _is_marker_trait :: (fn(ty : TypeValue) -> bool)(
     _ => false
   )
 );
+/// A where-bound whose trait mentions none of the impl's own type parameters
+/// (`T <: Clone`, `T <: Hash`): like a marker, the stored TypeValue is the
+/// trait to ask about wherever it is asked, so the trait predicate can enforce
+/// it. A method signature's `Self` is the trait's own variable, not one of the
+/// impl's, so `Clone` qualifies; `Eq(T)` (its `rhs : T` names the impl's `T`)
+/// and `Iterator(Item := A)` do not. Without this, `Type.impls(Option(X),
+/// Clone)` answered true for an `X` without `Clone`
+/// (issues/fixed/a-conditional-clone-impl-answers-yes-for-a-type-argument-without-clone.md).
+_where_trait_mentions_no_forall :: (fn(ty : TypeValue, foralls : ArrayList(TypeValue)) -> bool)(
+  match(
+    ty,
+    .TraitT({ field_types : wf_fts, assoc_constraint_types : wf_acts }) => {
+      parts := ArrayList(TypeValue).new();
+      (wf_i : usize) = usize(0);
+      while(wf_i < wf_fts.len(), wf_i = (wf_i + usize(1)), {
+        match(wf_fts.get(wf_i), .Some(t) => parts.push(t), .None => ());
+      });
+      (wf_j : usize) = usize(0);
+      while(wf_j < wf_acts.len(), wf_j = (wf_j + usize(1)), {
+        match(wf_acts.get(wf_j), .Some(t) => parts.push(t), .None => ());
+      });
+      (wf_p : usize) = usize(0);
+      while(wf_p < parts.len(), wf_p = (wf_p + usize(1)), {
+        part := match(parts.get(wf_p), .Some(t) => t, .None => t_unit());
+        somes := get_all_some_types(part);
+        if(is_some_type(part), {
+          somes.push(part);
+        });
+        (wf_k : usize) = usize(0);
+        while(wf_k < somes.len(), wf_k = (wf_k + usize(1)), {
+          (wf_n, wf_l) := match(somes.get(wf_k), .Some(.SomeT({ name : n, frame_level : l })) => (n, l), _ => (String.new(), usize(0)));
+          (wf_f : usize) = usize(0);
+          while(wf_f < foralls.len(), wf_f = (wf_f + usize(1)), {
+            hit := match(foralls.get(wf_f), .Some(.SomeT({ name : fn_n, frame_level : fn_l })) => ((fn_n == wf_n) && (fn_l == wf_l)), _ => false);
+            if(hit, {
+              return(false);
+            });
+          });
+        });
+      });
+      true
+    },
+    _ => false
+  )
+);
 /// `enforce_all_where` — see the where-constraint pass below. `false` (the
 /// METHOD-DISPATCH callers) enforces a failed where-clause only for BLANKET
 /// impls; `true` (the TRAIT-PREDICATE caller, `find_matching_generic_impl`)
@@ -1439,7 +1484,7 @@ try_match_generic_impl :: (
             // IN PLACE (env.frames swap) — see the hook's doc above.
             wcj_impl := wcj_f(wcj_bound, wcj_trait, match_env);
             if(!wcj_impl && (
-              (enforce_all_where && _is_marker_trait(wcj_trait))
+              (enforce_all_where && (_is_marker_trait(wcj_trait) || _where_trait_mentions_no_forall(wcj_trait, entry.forall_some_types)))
               || is_some_type(entry.receiver_type_pattern)
             ), {
               wc_ok = false;
