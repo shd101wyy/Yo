@@ -9,7 +9,9 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Thread } :: import("std/thread");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 SrpHolder :: struct(p : *i32);
+derive(SrpHolder, Copy, Clone);
 SrpOptIn :: struct(p : *i32);
+derive(SrpOptIn, Copy, Clone);
 // SAFETY: the test only reads through `p` while the pointee is alive and no
 // thread writes it.
 impl(SrpOptIn, Send());

@@ -58,6 +58,8 @@ impl(OnlyNegStruct, !Send);
 
 // Positive: negative impl with multiple types (via generic) works.
 Container :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+derive(generic(T : Type), where(T <: Clone), Container(T), Clone);
+derive(generic(T : Type), where(T <: Copy), Container(T), Copy);
 impl(generic(T : Type), Container(T), !Send);
 comptime_assert(
   Type.impls(Container(i32), Send) == false,

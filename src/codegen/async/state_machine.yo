@@ -22,7 +22,7 @@
 { Token, TokenKind } :: import("../../token.yo");
 { EvalValue } :: import("../../value.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { FunctionGenerationContext, EvidenceParameter, InAsyncStateMachine, InlineSmLowering, InlineSuspension, InlineAwaitResultField } :: import("../functions/context.yo");
 { expr_contains_await, expr_contains_while_with_await, await_fusion_candidate } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, is_any_temp_variable_name, debug_knob } :: import("../../utils.yo");
@@ -524,7 +524,7 @@ compute_cross_boundary_variables :: (
               // a binding it cannot place): keep its field.
               .None => true,
               .Some(lv) => {
-                end := if((lv.to_scope_end || type_contains_rc_type(cv.base.ty)) && (lv.scope_end > lv.last), lv.scope_end, lv.last);
+                end := if((lv.to_scope_end || type_contains_rc_cell_or_move_only(cv.base.ty)) && (lv.scope_end > lv.last), lv.scope_end, lv.last);
                 (hit : bool) = false;
                 (si : usize) = usize(0);
                 while((si < sus.len()) && !hit, si = (si + usize(1)), {
@@ -543,7 +543,7 @@ compute_cross_boundary_variables :: (
             match(
               w.vars.get(id.clone()),
               .Some(lv2) => if(!w.foreign, {
-                end2 := if((lv2.to_scope_end || type_contains_rc_type(cv.base.ty)) && (lv2.scope_end > lv2.last), lv2.scope_end, lv2.last);
+                end2 := if((lv2.to_scope_end || type_contains_rc_cell_or_move_only(cv.base.ty)) && (lv2.scope_end > lv2.last), lv2.scope_end, lv2.last);
                 seg := HashSet(usize).new();
                 seg.insert(usize(lv2.def_end));
                 seg.insert(usize(end2));
@@ -662,7 +662,7 @@ compute_overlapping_slots :: (
         is_local := match(v.kind, .Local => true, .Outer => false);
         vid0 := v.base.id.to_string();
         rc_shareable := (!pattern_binding_ids.contains(vid0.clone()) && is_any_temp_variable_name(v.base.name.clone()) && (v.is_owning_the_same_rc_value_as.is_none() && !rc_owners.contains(vid0.clone())));
-        if(is_local && cross_boundary_ids.contains(vid0.clone()) && !await_future_temp_var_aliases.contains_key(vid0.clone()) && (!type_contains_rc_type(v.base.ty) || rc_shareable), {
+        if(is_local && cross_boundary_ids.contains(vid0.clone()) && !await_future_temp_var_aliases.contains_key(vid0.clone()) && (!type_contains_rc_cell_or_move_only(v.base.ty) || rc_shareable), {
           eligible.push(v);
         });
       },
@@ -1428,7 +1428,7 @@ _emit_await_result_store :: (
   fn(dest : String, src : String, rt : TypeValue, is_reassign : bool, ind : String, context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
-  if(!type_contains_rc_type(rt), {
+  if(!type_contains_rc_cell_or_move_only(rt), {
     em.emit_string_line(`${ind}${dest} = ${src};`);
     return();
   });

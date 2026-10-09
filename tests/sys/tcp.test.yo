@@ -196,6 +196,7 @@ test("a recv future dropped while pending does not complete into freed memory", 
 // SO_NOSIGPIPE is set, send(MSG_NOSIGNAL) on Linux, the ordinary send on
 // Windows.
 _StreamPair :: struct(server : i32, client : i32, accepted : i32);
+derive(_StreamPair, Copy, Clone);
 _stream_pair :: (fn(port : u16, io : Io) -> _StreamPair)({
   server_fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
   optval := (*u8)(malloc(usize(4)).unwrap());

@@ -100,18 +100,18 @@ _unlock :: (fn(st : *_ArenaState) -> unit)(
 );
 // Bump `size` bytes off the region. Caller holds the lock.
 _bump :: (fn(st : *_ArenaState, size : usize) -> ?*void)({
-  // SAFETY: the caller holds the lock on the live state `st`.
-  s := unsafe(st.*);
+  // SAFETY: the caller holds the lock on the live state `st`. Fields are
+  // read through `st`: the state holds its lock, so it is not `Copy`.
   need := _round_up(size);
   cond(
-    s.dead => panic("Arena: allocation from an arena after deinit"),
-    ((need < size) || (need > (s.capacity - s.top))) => .None,
+    unsafe(st.*.dead) => panic("Arena: allocation from an arena after deinit"),
+    ((need < size) || (need > (unsafe(st.*.capacity) - unsafe(st.*.top)))) => .None,
     true => {
-      at := s.top;
+      at := unsafe(st.*.top);
       unsafe(st.*.top = (at + need));
       unsafe(st.*.last = .Some(at));
-      unsafe(st.*.live = (s.live + usize(1)));
-      .Some((*void)(unsafe(s.region.unwrap().add(at))))
+      unsafe(st.*.live = (st.*.live + usize(1)));
+      .Some((*void)(unsafe(st.*.region.unwrap().add(at))))
     }
   )
 });
@@ -130,16 +130,15 @@ _arena_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)(
       _lock(st);
       // SAFETY: the lock is held on the live state `st`; `p` is one of its
       // blocks, so it lies inside the region.
-      s := unsafe(st.*);
-      off := usize(unsafe((*u8)(p).offset_from(s.region.unwrap())));
+      off := usize(unsafe((*u8)(p).offset_from(st.*.region.unwrap())));
       cond(
-        (s.last == Option(usize).Some(off)) => {
+        (unsafe(st.*.last) == Option(usize).Some(off)) => {
           unsafe(st.*.top = off);
           unsafe(st.*.last = .None);
         },
         true => ()
       );
-      unsafe(st.*.live = (s.live - usize(1)));
+      unsafe(st.*.live = (st.*.live - usize(1)));
       _unlock(st);
     },
     .None => ()
@@ -153,14 +152,15 @@ _arena_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(
       st := _st(ctx);
       _lock(st);
       // SAFETY: as `_arena_free`.
-      s := unsafe(st.*);
-      off := usize(unsafe((*u8)(p).offset_from(s.region.unwrap())));
+      off := usize(unsafe((*u8)(p).offset_from(unsafe(st.*.region).unwrap())));
+      // `top` before `_bump` below moves it: the old block ends at or before it.
+      old_top := unsafe(st.*.top);
       need := _round_up(new_size);
       (r : ?*void) = cond(
-        s.dead => panic("Arena: reallocation in an arena after deinit"),
+        unsafe(st.*.dead) => panic("Arena: reallocation in an arena after deinit"),
         (need < new_size) => .None,
         // The most recent block grows (or shrinks) in place.
-        ((s.last == Option(usize).Some(off)) && (need <= (s.capacity - off))) => {
+        ((unsafe(st.*.last) == Option(usize).Some(off)) && (need <= (unsafe(st.*.capacity) - off))) => {
           unsafe(st.*.top = (off + need));
           .Some(p)
         },
@@ -169,7 +169,7 @@ _arena_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(
           .Some(q) => {
             // The old block's size is not recorded; its bytes end at or
             // before `top`, so copying up to there stays inside the region.
-            avail := (s.top - off);
+            avail := (old_top - off);
             n := cond((new_size < avail) => new_size, true => avail);
             unsafe(memcpy(q, p, n));
             // One block replaced by one: `_bump` counted the new one.
@@ -250,11 +250,14 @@ _report_list :: (fn(head : Option(*void), what : str) -> unit)({
   while(runtime(cur.is_some()), {
     st := (*_ArenaState)(cur.unwrap());
     _lock(st);
-    // SAFETY: states on the lists are never released.
-    s := unsafe(st.*);
+    // SAFETY: states on the lists are never released. Read under the lock.
+    live := unsafe(st.*.live);
+    top := unsafe(st.*.top);
+    capacity := unsafe(st.*.capacity);
+    next := unsafe(st.*.next);
     _unlock(st);
-    eprintln(`arena (${what}): live at exit: ${s.live} block(s), ${s.top} of ${s.capacity} bytes in use`);
-    cur = s.next;
+    eprintln(`arena (${what}): live at exit: ${live} block(s), ${top} of ${capacity} bytes in use`);
+    cur = next;
   });
 });
 // The `--debug-heap` exit reporter, installed by the first `Arena.new`.
@@ -338,9 +341,9 @@ impl(
   /// Whether `deinit` or `abandon` has run.
   is_released : (fn(self : Self) -> bool)({
     _lock(self._state);
-    s := unsafe(self._state.*);
+    released := (unsafe(self._state.*.dead) || unsafe(self._state.*.abandoned));
     _unlock(self._state);
-    s.dead || s.abandoned
+    released
   }),
   /// Release the region. PANICS if any block is still live. A second call, or
   /// a call after `abandon`, is a no-op. Also runs when the last `Arena`
@@ -348,18 +351,21 @@ impl(
   deinit : (fn(self : Self) -> unit)({
     st := self._state;
     _lock(st);
-    s := unsafe(st.*);
     cond(
-      (s.dead || s.abandoned) => _unlock(st),
-      (s.live > usize(0)) => {
+      (unsafe(st.*.dead) || unsafe(st.*.abandoned)) => _unlock(st),
+      (unsafe(st.*.live) > usize(0)) => {
+        live_n := unsafe(st.*.live);
+        top_n := unsafe(st.*.top);
+        capacity_n := unsafe(st.*.capacity);
         _unlock(st);
-        panic(`Arena.deinit: ${s.live} block(s) still live (${s.top} of ${s.capacity} bytes in use)`);
+        panic(`Arena.deinit: ${live_n} block(s) still live (${top_n} of ${capacity_n} bytes in use)`);
       },
       true => {
+        region := unsafe(st.*.region);
         unsafe(st.*.dead = true);
         unsafe(st.*.region = .None);
         _unlock(st);
-        GlobalAllocator.aligned_free(.Some((*void)(s.region.unwrap())));
+        GlobalAllocator.aligned_free(.Some((*void)(region.unwrap())));
         cond(
           unsafe(__yo_debug_heap_on()) => {
             unsafe(__yo_mutex_lock(&_pool_mutex));
@@ -378,9 +384,8 @@ impl(
   abandon : (fn(self : Self) -> unit)({
     st := self._state;
     _lock(st);
-    s := unsafe(st.*);
     cond(
-      (s.dead || s.abandoned) => _unlock(st),
+      (unsafe(st.*.dead) || unsafe(st.*.abandoned)) => _unlock(st),
       true => {
         unsafe(st.*.abandoned = true);
         _unlock(st);

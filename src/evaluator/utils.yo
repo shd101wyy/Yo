@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_contains_rc_type, type_is_move_only, type_requires_explicit_copy, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
+{ type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -172,6 +172,10 @@ attach_temp_variable_to_expr :: (
       );
       // Only mark as owning if the effective type actually contains RC.
       _is_owning_rc := (is_owning_the_rc_value && type_contains_rc_type(effective_ty));
+      // A value whose owner is tracked only because decision 36's flip makes
+      // it explicit-copy (plain data, no cell) keeps its compile-time value:
+      // only a value holding a cell is runtime-only.
+      _holds_cell := (_is_owning_rc && type_contains_rc_cell_or_move_only(effective_ty));
       // Compute compile-time-only flag and value: owning RC vars are always runtime.
       // Runtime results are `Some(UnknownVal)` (NOT "no value"), so
       // "has an inlinable value" must read UnknownVal as NO value, or a
@@ -182,8 +186,8 @@ attach_temp_variable_to_expr :: (
         .Some(iv) => !is_unknown_val(iv),
         .None => false
       );
-      is_ctonly := cond(_is_owning_rc => false, true => has_inlinable_value);
-      var_value := cond(_is_owning_rc => Option(EvalValue).None, true => info.value);
+      is_ctonly := cond(_holds_cell => false, true => has_inlinable_value);
+      var_value := cond(_holds_cell => Option(EvalValue).None, true => info.value);
       expr_tok := ast_expr_token(expr);
       match(
         info.variable_name,
@@ -525,6 +529,13 @@ expect_expr_to_have_been_evaluated :: (
 // ---------------------------------------------------------------------------
 // Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, V3)
 // ---------------------------------------------------------------------------
+/// The type a `derive(T, Copy, Clone)` suggestion names: the type's own
+/// spelling without its arguments (`Pair(i32)` → `Pair`), which is what the
+/// user's declaration is called.
+_copy_derive_target :: (fn(ty : TypeValue) -> String)({
+  shown := type_to_string(ty);
+  match(shown.index_of(`(`), .Some(p) => shown.substring(usize(0), p), .None => shown)
+});
 /// The E0901 note for a value named `name` of a type that is not implicitly
 /// copyable (`type_requires_explicit_copy`): for a move-only type, why it is
 /// move-only and the ways to use it without a copy; for an explicit-copy type,
@@ -536,6 +547,9 @@ move_only_help :: (fn(name : String, ty : TypeValue) -> Option(String))(
       `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), pass it \`inout\`, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
     ),
     .None => cond(
+      (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
+        `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
+      ),
       type_requires_explicit_copy(ty) => Option(String).Some(
         `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or pass it \`inout\`. A by-value parameter borrows it without a copy.`
       ),
@@ -553,6 +567,9 @@ move_only_type_help :: (fn(ty : TypeValue) -> Option(String))(
       `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a by-value parameter, pass it \`inout\`, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => cond(
+      (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
+        `\`${type_to_string(ty)}\` is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, call \`.clone()\` on it for a copy, or move its whole owner.`
+      ),
       type_requires_explicit_copy(ty) => Option(String).Some(
         `\`${type_to_string(ty)}\` is copied explicitly: call \`.clone()\` on it for a copy, lend it to a by-value parameter, or move its whole owner.`
       ),
@@ -3659,6 +3676,7 @@ LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 local_borrows_active :: (fn() -> bool)(g_local_borrows.len() > usize(0));
 /// The lengths a begin block restores when it ends (`local_borrows_truncate`).
 LocalBorrowMark :: struct(borrows : usize, patterns : usize);
+derive(LocalBorrowMark, Copy, Clone);
 local_borrows_mark :: (fn() -> LocalBorrowMark)(LocalBorrowMark(borrows : g_local_borrows.len(), patterns : g_local_borrow_patterns.len()));
 local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
   while(g_local_borrows.len() > mark.borrows, {

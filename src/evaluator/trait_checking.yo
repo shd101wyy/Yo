@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
-{ TypeValue, FuncMeta } :: import("../types/definitions.yo");
+{ TypeValue, FuncMeta, t_refine_inner } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
   is_reference_enum_type,
   is_primitive_type
 } :: import("../types/guards.yo");
-{ enum_instance_node_id } :: import("../types/type_key.yo");
+{ enum_instance_node_id, type_key } :: import("../types/type_key.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -56,7 +56,11 @@ pragma(Pragma.AllowUnsafe);
   move_only_declarations_exist,
   is_value_nominal_type,
   set_move_only_nominal_fn,
-  MoveOnlyNominalFn
+  MoveOnlyNominalFn,
+  set_type_lacks_copy_fn,
+  type_is_control_bound,
+  bump_trait_impl_epoch,
+  trait_impl_epoch
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -106,6 +110,24 @@ pragma(Pragma.AllowUnsafe);
 /// registry, which was unqueryable because trait values are nameless.
 (g_type_trait_registry : HashMap(String, ArrayList(TypeValue))) =
   HashMap(String, ArrayList(TypeValue)).new();
+// Decision 36's flip state (`type_lacks_copy_for_flip` below): the prelude
+// environment its `Copy` question is asked in, and the memo the trait-impl
+// epoch (`types/utils.yo`) invalidates.
+(g_flip_env : Option(Environment)) = Option(Environment).None;
+/// The targets of the `derive` being evaluated whose trait list includes
+/// `Copy` (keys from `type_key`). Inside that derive, the target counts as
+/// `Copy` for the flip: its `Clone` impl is registered before its `Copy`
+/// impl (which checks that `Clone` exists), and a derived `clone()` body
+/// copies the target (`Self(self.n.clone())` on a newtype is a copy of the
+/// place `self.n` once the `u32` clone expands to its receiver). The `Copy`
+/// impl registered right after still checks every part.
+(g_copy_pending_keys : ArrayList(String)) = ArrayList(String).new();
+/// Types whose flip answer is being computed: asking `Copy` of a type can ask
+/// `type_contains_rc_type` of it again (through its `Copy` impl's checks),
+/// which asks the flip; an in-progress type answers "not lacking" there.
+(g_lacks_copy_in_progress : ArrayList(String)) = ArrayList(String).new();
+(g_lacks_copy_memo : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_lacks_copy_memo_epoch : u64) = u64(0);
 /// Register that the type `type_id` auto-derives the marker trait named
 /// `trait_name`, resolved to its canonical env trait VALUE. If the trait isn't in
 /// scope yet (rare — e.g. a struct defined before the marker trait), skip
@@ -131,6 +153,7 @@ register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit
   list := match(g_type_trait_registry.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(trait_ty);
   g_type_trait_registry.insert(type_id, list);
+  bump_trait_impl_epoch();
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
 /// `base_name` for Fn/Future traits.
@@ -844,6 +867,106 @@ _copy_without_clone_msg :: (fn(target_type : TypeValue, env : Environment) -> Op
 /// - the parts of a tuple, array, closure or anonymous record;
 /// - a C opaque type, by name.
 ///
+// ---------------------------------------------------------------------------
+// Decision 36's flip: a plain-data type that is not `Copy` is explicit-copy
+// ---------------------------------------------------------------------------
+/// The environment the flip's `Copy` question is asked in: the cached prelude
+/// environment (set by `module_manager.yo` once the prelude is loaded). `Copy`
+/// and its impls are global; the environment only resolves the trait name.
+set_flip_prelude_env :: (fn(env : Environment) -> unit)({
+  g_flip_env = Option(Environment).Some(env);
+});
+/// Mark `ty` as the target of a `derive` that includes `Copy` (see
+/// `g_copy_pending_keys`).
+push_copy_pending :: (fn(ty : TypeValue) -> unit)({
+  g_copy_pending_keys.push(type_key(ty));
+});
+/// Forget every pending `Copy` derive target. Derives do not nest, so a
+/// derive clears the list on entry and on exit (and its guarded caller after
+/// a throw), and a failed derive leaves nothing behind.
+clear_copy_pending :: (fn() -> unit)({
+  g_copy_pending_keys.clear();
+});
+/// True when a value of the plain-data type `ty` is NOT implicitly copyable
+/// under decision 36's flip: it is not `Copy`. Compile-time-only types (their
+/// copies never reach run time), control-bound records (`Exception`, effect
+/// records: a `ctl` handler cannot be `Clone`, so it can never be `Copy`),
+/// unions and C opaque types answer false and keep copying implicitly. The caller
+/// (`type_requires_explicit_copy`) has already excluded owned buffers and
+/// counted cells.
+type_lacks_copy_for_flip :: (fn(ty_in : TypeValue) -> bool)({
+  // A refinement `refine(T, p)` copies as its `T` (the erasure rule).
+  (ty : TypeValue) = ty_in;
+  while(match(ty, .RefineT(_, _) => true, _ => false), {
+    ty = t_refine_inner(ty);
+  });
+  // A type still mentioning a type variable is judged per instantiation (a
+  // generic body is evaluated again for each), as `type_is_move_only` does.
+  // A RESOLVED variable counts too: asking `Copy` of `Option(U)` with `U`
+  // resolved to `Option(i32)` binds the impl's `T` to the variable itself, not
+  // to its resolution, and answers no (`_ww_thrice`,
+  // tests/generic_instantiation_compat.test.yo).
+  if(type_mentions_some_type(ty), {
+    return(false);
+  });
+  env := match(
+    g_flip_env,
+    .Some(e) => e,
+    .None => {
+      return(false);
+    }
+  );
+  // A `union` copies its raw bits, as in C, and `derive` cannot give it
+  // `Copy`, so it keeps copying implicitly, like a C opaque type.
+  if(is_some_type(ty) || match(ty, .ExternOpaqueT(_, _) => true, .Union(name : _, field_labels : _, field_types : _) => true, _ => false), {
+    return(false);
+  });
+  if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
+    g_lacks_copy_memo.clear();
+    g_lacks_copy_memo_epoch = trait_impl_epoch();
+  });
+  key := type_key(ty);
+  // Not memoized: the answer changes once the derive registers `Copy`.
+  (pi : usize) = usize(0);
+  while(pi < g_copy_pending_keys.len(), {
+    if(match(g_copy_pending_keys.get(pi), .Some(pk) => (pk == key), .None => false), {
+      return(false);
+    });
+    pi = (pi + usize(1));
+  });
+  match(
+    g_lacks_copy_memo.get(key.clone()),
+    .Some(known) => {
+      return(known);
+    },
+    .None => ()
+  );
+  (ipi : usize) = usize(0);
+  while(ipi < g_lacks_copy_in_progress.len(), {
+    if(match(g_lacks_copy_in_progress.get(ipi), .Some(ik) => (ik == key), .None => false), {
+      return(false);
+    });
+    ipi = (ipi + usize(1));
+  });
+  g_lacks_copy_in_progress.push(key.clone());
+  answer := cond(
+    (type_is_comptime_only_full(ty, env) || type_is_control_bound(ty)) => false,
+    true => match(
+      get_trait_type_from_env(env, String.from("Copy")),
+      .Some(copy_tt) => !type_implements_trait(ty, copy_tt, env).implemented,
+      .None => false
+    )
+  );
+  _ := g_lacks_copy_in_progress.pop();
+  // The query itself may force pending impls (and bump the epoch); record
+  // the answer under the epoch it was computed at.
+  if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
+    g_lacks_copy_memo.clear();
+    g_lacks_copy_memo_epoch = trait_impl_epoch();
+  });
+  g_lacks_copy_memo.insert(key, answer);
+  answer
+});
 /// Empty when `ty` is `Copy`, and for a compile-time-only type: its copies
 /// never reach run time.
 copy_trait_blockers :: (fn(ty : TypeValue, env : Environment) -> ArrayList(String))({
@@ -1554,7 +1677,16 @@ type_implements_trait :: (
   // calling it from eval-phase trait checks poisoned the cfid registry and
   // split the whole imm-container family's C identities (measured
   // 2026-08-03: imm_map/imm_set/imm_sorted_*/linked_list all RED).
-  guard_key := _type_id_for_trait_check(target).concat(`:`).concat(_trait_type_id(trait_type));
+  // A generic enum instance keys by its id AND its type arguments, as the
+  // marker guard does: `Option(Option(i32))` built inside a generic body
+  // (`wrap(wrap(x))`) nests two `Option` instances under one def-era id, and
+  // an id-only key cut the inner `Option(i32) <: Copy` as recursion, so the
+  // outer read as not `Copy` (decision 36's flip rejected its copy;
+  // `_ww_thrice`, tests/generic_instantiation_compat.test.yo).
+  guard_key := cond(
+    is_enum_type(target) => enum_instance_node_id(target),
+    true => _type_id_for_trait_check(target)
+  ).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
   gn := g_trait_check_recursion_guard.len();
@@ -2783,6 +2915,7 @@ _trait_checking_init := (fn() -> bool)({
   set_receiver_kind_trait_fn(receiver_kind_trait_violation_msg);
   set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
   set_copy_trait_blockers_fn(copy_trait_blockers);
+  set_type_lacks_copy_fn(type_lacks_copy_for_flip);
   set_compat_type_implements_trait_fn(_compat_implements_adapter);
   true
 })();
@@ -2797,6 +2930,7 @@ export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);
 export(type_implements_send, type_implements_sync, type_implements_dispose, type_implements_acyclic);
 export(deref_target_type, copy_structural_parts);
+export(set_flip_prelude_env, push_copy_pending, clear_copy_pending);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);

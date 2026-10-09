@@ -66,11 +66,11 @@ S61 :: struct(a : S60, b : S60);
 S62 :: struct(a : S61, b : S61);
 S63 :: struct(a : S62, b : S62);
 S64 :: struct(a : S63, b : S63);
-ident :: (fn(o : S64) -> S64)(o);
-use :: (fn(o : S64) -> i32)({
+ident :: (fn(sink(o) : S64) -> S64)(o);
+use :: (fn(sink(o) : S64) -> i32)({
   p := ident(o);
   q := p;
-  r := q.a;
+  imm(r) := q.a;
   i32(0)
 });
 export(use);

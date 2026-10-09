@@ -273,6 +273,8 @@ test("Test type auto derive Send", {
   MyBox :: ref(struct(v : i32));
   comptime_assert(Type.impls(MyBox, Send) == false);
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
+  derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
   comptime_assert(Type.impls(GenericPoint(i32), Send) == true);
   comptime_assert(Type.impls(GenericPoint(MyBox), Send) == false);
 });
@@ -416,6 +418,8 @@ test("Test type auto derive Acyclic", {
   //
   // Generic struct: Acyclic depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
+  derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
   comptime_assert(Type.impls(GenericPoint(i32), Acyclic) == true);
   comptime_assert(Type.impls(GenericPoint(Node), Acyclic) == false);
   // Enum types
@@ -485,6 +489,8 @@ test("Test type auto derive Comptime", {
   comptime_assert(Type.impls(MyBox, Comptime) == false);
   // Generic struct: Comptime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
+  derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
   comptime_assert(Type.impls(GenericPoint(i32), Comptime) == true);
   comptime_assert(Type.impls(GenericPoint(MyBox), Comptime) == false);
   // Enum types with comptime-compatible fields are Comptime
@@ -642,6 +648,8 @@ test("Test type auto derive Runtime", {
   comptime_assert(Type.impls(MyBox, Runtime) == true);
   // Generic struct: Runtime depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
+  derive(generic(T : Type), where(T <: Clone), GenericPoint(T), Clone);
+  derive(generic(T : Type), where(T <: Copy), GenericPoint(T), Copy);
   comptime_assert(Type.impls(GenericPoint(i32), Runtime) == true);
   // Enum types with runtime-compatible fields are Runtime
   Direction :: enum(North, South, East, West);
@@ -753,6 +761,7 @@ test("Test 'struct'", {
     // compile-time value and stays legal.
     dbl :: (fn(v : i32) -> i32)(v + i32(1));
     FnHolder :: struct(n : i32, (f : (fn(v : i32) -> i32)) ?= dbl);
+    derive(FnHolder, Copy, Clone);
     fh := FnHolder(n : i32(2));
     assert(fh.f(i32(5)) == i32(6), "a function VALUE default on an fn-typed field stays legal");
   };
@@ -780,7 +789,9 @@ test("Test 'struct'", {
   // nomimal type
   {
     Point1 :: struct(x : i32, y : i32);
+    derive(Point1, Copy, Clone);
     Point2 :: struct(x : i32, y : i32);
+    derive(Point2, Copy, Clone);
     x := Point1(3, 4);
     (y : Point2) = _(5, 6);
     comptime_expect_error(
@@ -842,6 +853,7 @@ test("Test 'struct'", {
       (height : i32) ?= 600,
       (visible : bool) ?= true
     );
+    derive(Config, Copy, Clone);
     // all defaults
     c1 := Config(name : 1);
     assert(c1.name == 1);
@@ -880,6 +892,7 @@ test("Test 'struct'", {
       (b : i32) ?= 20,
       (c : i32) ?= 30
     );
+    derive(Opts, Copy, Clone);
     o1 := Opts();
     assert(o1.a == 10);
     assert(o1.b == 20);
@@ -904,6 +917,7 @@ test("Test 'struct'", {
   // struct default field values — expression defaults
   {
     Base :: struct((x : i32) ?= (3 + 4));
+    derive(Base, Copy, Clone);
     b := Base();
     assert(b.x == 7);
     b2 := Base(x : 99);
@@ -916,6 +930,7 @@ test("Test 'struct'", {
       (b : i32) ?= 100,
       (c : i32) ?= 200
     );
+    derive(Triple, Copy, Clone);
     t1 := Triple(1);
     assert(t1.a == 1);
     assert(t1.b == 100);
@@ -933,6 +948,7 @@ test("Test 'struct'", {
   {
     {
       SomeStruct :: struct(x : i32, y : bool);
+      derive(SomeStruct, Copy, Clone);
       Complex :: Tuple(s : SomeStruct);
       x := SomeStruct(1, true);
       (y : SomeStruct) = _(1, false);
@@ -946,6 +962,7 @@ test("Test 'struct'", {
     };
     {
       Complex :: struct(x : Tuple(i32, bool), y : i32);
+      derive(Complex, Copy, Clone);
       (c : Complex) = _((3, true), 4);
       assert(c.x.0 == 3);
       assert(c.x.1 == true);
@@ -953,6 +970,7 @@ test("Test 'struct'", {
     };
     {
       SomeStruct :: struct(x : i32, y : bool);
+      derive(SomeStruct, Copy, Clone);
       Complex0 :: Tuple(SomeStruct);
       Complex :: Tuple(Complex0);
       (c : SomeStruct) = _(3, false);
@@ -974,6 +992,7 @@ test("Test 'struct'", {
     Withdraw :: struct(
       balance : i32
     );
+    derive(Withdraw, Copy, Clone);
     impl(
       Withdraw,
       withdraw : (fn(self : *Self, amount : i32) -> i32)(
@@ -1005,6 +1024,8 @@ test("Test 'struct'", {
     MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(
       struct(value : T)
     );
+    derive(generic(T : Type), where(T <: Clone), MyStruct(T), Clone);
+    derive(generic(T : Type), where(T <: Copy), MyStruct(T), Copy);
     impl(
       generic(T : Type),
       MyStruct(T),
@@ -1033,12 +1054,14 @@ test("Test 'struct'", {
 test("Test 'enum'", {
   {
     Color :: enum(Red, Green, Blue);
+    derive(Color, Copy, Clone);
     (r : Color) = Color.Red;
     r2 := Color.Blue;
     Shape :: enum(
       Circle(r : i32),
       Rectangle(w : i32, h : i32)
     );
+    derive(Shape, Copy, Clone);
     (c : Shape) = Shape.Circle(5);
     c2 := Shape.Rectangle(h : 1, w : 2);
   };
@@ -1066,6 +1089,7 @@ test("Test 'enum'", {
       Rectangle(width : i32, height : i32),
       Triangle(base : i32, height : i32)
     );
+    derive(Shape, Copy, Clone);
     impl(
       Shape,
       new_circle : (fn(radius : i32) -> Self)(
@@ -1099,11 +1123,13 @@ test("Test 'enum'", {
       Green = 6,
       Blue = 9
     );
+    derive(Color, Copy, Clone);
     Shape :: enum(
       Circle(radius : i32) = 2,
       Square(side : i32) = 4,
       Triangle(base : i32, height : i32) // implicitly 5
     );
+    derive(Shape, Copy, Clone);
     red := i32(Color.Red);
     assert(red == i32(0));
     green := i32(Color.Green);
@@ -1301,6 +1327,7 @@ test("Test 'cond'", {
 });
 test("Test 'match'", {
   Color :: enum(Red, Green, Blue);
+  derive(Color, Copy, Clone);
   color_to_i32 :: (fn(color : Color) -> i32)(
     match(
       color,
@@ -1313,6 +1340,7 @@ test("Test 'match'", {
     Circle(r : i32),
     Rectangle(w : i32, h : i32)
   );
+  derive(Shape, Copy, Clone);
   area :: (fn(shape : Shape) -> i32)(
     match(
       shape,
@@ -2473,6 +2501,7 @@ test("match arm struct literal with `return` in field name", {
     break_flag : bool,
     continue_flag : bool
   );
+  derive(ControlFlowFlags, Copy, Clone);
   ControlFlowKind :: enum(Return, Escape, Break, Continue);
   control_flow_of :: (fn(kind : ControlFlowKind) -> ControlFlowFlags)(
     match(
@@ -2528,7 +2557,9 @@ test("locals named after Windows macros survive codegen", {
 // variant payload field or a closure capture.
 { yo_hm_ub_name } :: c_include("\"header_macro_names.h\"", yo_hm_ub_name : (fn() -> int));
 HeaderMacroNamed :: struct(EOF : i32, BUFSIZ : i32, ub_name : i32);
+derive(HeaderMacroNamed, Copy, Clone);
 HeaderMacroPayload :: enum(Code(ub_name : i32, EOF : i32), Empty);
+derive(HeaderMacroPayload, Copy, Clone);
 HeaderMacroObject :: ref(struct(yo_hm_count : i32, obj : i32));
 _header_macro_param :: (fn(EOF : i32, FILENAME_MAX : i32, ub_name : i32) -> i32)(EOF + FILENAME_MAX + ub_name);
 test("locals, parameters and fields named after header macros are plain names", {
@@ -2557,7 +2588,9 @@ LowAlignPayload :: enum(
   Small(a : u8, b : u8, c : u8, d : u8),
   Wide(segments : Array(u16, 8))
 );
+derive(LowAlignPayload, Copy, Clone);
 TagPadded :: struct(inner : LowAlignPayload, tail : u16);
+derive(TagPadded, Copy, Clone);
 test("enum tag participates in alignment and struct tail padding", {
   // issues/fixed/enum-alignment-ignores-tag-heap-corruption.md: the C tag is
   // int-typed (4-aligned), so the enum aligns to 4 even though its payloads

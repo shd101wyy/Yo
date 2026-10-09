@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 // --- the counting allocator -------------------------------------------------
 _Counts :: struct(allocs : usize, frees : usize, reallocs : usize, bytes : usize);
+derive(_Counts, Copy, Clone);
 _count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
   c := (*_Counts)(ctx.unwrap());
   unsafe(c.*.allocs = (c.*.allocs + usize(1)));

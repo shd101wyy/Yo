@@ -5,9 +5,11 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 _P :: struct(x : i32, y : i32);
+derive(_P, Copy, Clone);
 _K :: _P(x : i32(3), y : i32(4));
 _inc :: (fn(v : i32) -> i32)(v + i32(1));
 _Ops :: struct(f : (fn(v : i32) -> i32), base : i32);
+derive(_Ops, Copy, Clone);
 _OPS :: _Ops(f : _inc, base : i32(10));
 // Returned from a function: automatic storage would dangle here.
 _k_ptr :: (fn() -> *_P)(&_K);
@@ -34,6 +36,7 @@ test("&K of a scalar constant", {
 // (issues/fixed/address-of-an-element-of-a-compile-time-constant-emits-a-placeholder.md).
 _A :: Array(i32, 3)(i32(10), i32(20), i32(30));
 _Pair :: struct(a : _P, b : i32);
+derive(_Pair, Copy, Clone);
 _N :: _Pair(a : _P(x : i32(7), y : i32(8)), b : i32(9));
 _T :: (i32(1), i32(2), i32(3));
 _elem_ptr :: (fn(i : usize) -> *i32)(cond((i == usize(0)) => &_A(0), (i == usize(1)) => &_A(1), true => &_A(2)));

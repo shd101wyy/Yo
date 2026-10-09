@@ -1627,6 +1627,7 @@ test("Test struct-record effect with multiple function members", {
     warn : (fn(msg : String) -> i32),
     count : (fn(current : i32) -> i32)
   );
+  derive(Logger, Copy, Clone);
   log_messages :: (fn(logger : Logger) -> i32)({
     logger.info(`first info`);
     logger.warn(`first warn`);
@@ -1669,6 +1670,7 @@ test("Test multiple struct-record effects in same scope", {
   Log :: struct(
     log : (fn(msg : String) -> i32)
   );
+  derive(Log, Copy, Clone);
   compute :: (fn(x : i32, y : i32, raise_mod : Raise, log_mod : Log) -> i32)({
     log_mod.log(`computing`);
     cond(
@@ -2110,6 +2112,7 @@ test("ctl unwind of a value larger than 64 bytes", {
     i : i64,
     j : i64
   );
+  derive(BigUnwind, Copy, Clone);
   RaiseBig :: (ctl() -> BigUnwind);
   produce :: (fn(raise : RaiseBig) -> BigUnwind)(raise());
   run_big :: (fn() -> BigUnwind)({

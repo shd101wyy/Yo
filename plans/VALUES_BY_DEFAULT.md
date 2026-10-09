@@ -35,7 +35,7 @@ Progress:
     `ThreadPool` `spawn` signatures (the `io.async` slot waits for V3's
     async work);
   - decision 36 Generation B part 1, the `Copy` sweep and structural
-    `clone()` (#1269; the flip waits for the next seed);
+    `clone()` (#1269), and part 2, the flip;
   - V2a (#1204);
   - V3's compiler Generation A (#1217);
   - V3b Generation A (#1240);
@@ -52,8 +52,8 @@ Progress:
   - the §6 measurement (#1220). Its call-site pass is deferred.
 - **In progress:**
   - V3's remaining async work (§3.13).
-- **Next:** the remaining Generation B sweeps (the V3b sweep and flip, the
-  `Copy` flip).
+- **Next:** the remaining Generation B sweeps (the V3b sweep and flip), and
+  decision 36's step 4, deleting `MoveOnly`.
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -3465,6 +3465,67 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     (`ParentType`, `InlineType`, `InlineToken`, `AbbrEntry`, `Delimiter`,
     `LinkMarker`, `_SQEntry`). They need `derive(T, Copy, Clone)` upstream
     before the flip, or `yo build` of the compiler breaks.
+
+**Generation B as built, part 2: the flip (2026-10-09).**
+- **The predicate.** `type_requires_explicit_copy(T)` is
+  `type_is_move_only(T) || _plain_data_lacks_copy(T)`
+  (`src/types/utils.yo`). The second asks `Copy` of a plain-data type through
+  a hook, `type_lacks_copy_for_flip` (`src/evaluator/trait_checking.yo`),
+  memoized by `type_key` under a trait-impl epoch that every impl registration
+  bumps. These types answer "not lacking", so they keep copying implicitly:
+  - compile-time-only types;
+  - control-bound records (`Exception`, `IoExn`, effect records);
+  - C opaque types;
+  - unions (they copy their bits, and `derive` cannot give them `Copy`);
+  - refinements, which copy as their base;
+  - a type that still mentions a type variable, resolved or not. It is judged
+    per instantiation. Asking `Copy` of `Option(U)` with `U` resolved binds the
+    impl's `T` to the variable, not its resolution, so a resolved variable is
+    skipped too.
+- **Ownership, not drops.** A plain-data type lacking `Copy` is owner-tracked
+  like a move-only value: `type_contains_rc_type` answers true for it, so a
+  call or constructor result transfers and a named local is consumed by a
+  move. Its compile-time value is kept: only a value holding a cell is
+  runtime-only (`attach_temp_variable_to_expr`). Codegen keeps the pre-flip
+  predicates (`type_contains_rc_cell_or_move_only`, `type_is_move_only`),
+  because a flip-only value has nothing to drop or dup. The first version
+  shared the predicate, and a fieldless enum (a C int) got a `.tag` switch.
+- **Inside a derive.** While a `derive` that includes `Copy` is evaluated, its
+  target counts as `Copy` (`push_copy_pending`), because its `Clone` impl is
+  registered first, and a derived newtype `clone()` (`Self(self.n.clone())`)
+  copies the target.
+- **The sweep, part 2.** `YO_FLIP_REPORT=1` turns the flip off and prints each
+  type it would make explicit-copy, so one pass over a tree lists every type a
+  sweep still needs. It found what part 1's audit could not see: copies in
+  compile-time function results (`layout_of`'s `Layout`), returned `match`
+  bindings (`Decoded`), and copies inside generic std bodies. Derives were
+  added in std (about 40, plus conditional pairs on `MaybeUninit`,
+  `RangeInclusive` and the iterator adapters), the compiler (15) and the tests
+  (about 230, many function-local, which #1270 made possible).
+  - `_ArrayIter` takes hand-written conditional impls, and `IterPeekable` none:
+    a generic derive cannot find a field's conditional impl under its own
+    `where`
+    (`issues/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md`).
+  - `markdown_yo` took its 11 derives upstream (v0.0.11).
+- **std that moved instead of copying.** The iterator consumers and adapters
+  take `sink(self)`, and adapters `sink` the iterator or closure they store.
+  Before, `iter := self` copied a borrowed receiver, so no non-`Copy` iterator
+  could be folded. The arena's locked state holds an `atomic_bool`, so it is not
+  `Copy`: its fields are read through the pointer, under the lock.
+- **Diagnostics.** The E0901 note for a flip-only type names
+  `derive(T, Copy, Clone)` and `.clone()`.
+- **The gap until V3b: a collection of a non-`Copy` plain type.** std's
+  storing APIs take their value by-value (`push(value : T)`,
+  `insert(key : K, value : V)`, `Mutex.new(value : T)`), and a by-value
+  parameter borrows, so storing it copies. For a plain type without `Copy`
+  that copy is E0901 at the instantiation (with the std note at the user's
+  call), as `push` of a `Dispose` type already was. `sink` cannot fix it here:
+  a `sink` argument always moves, so `xs.push(s)` would consume an `Rc` or
+  `String` the caller keeps using today. V3b's flip makes plain parameters
+  owning, which closes it. Until then a plain element type takes
+  `derive(T, Copy, Clone)`.
+- **Steps 4 and 5.** The step-5 tests are in `tests/copy_trait.test.yo`.
+  Deleting `MoveOnly` (step 4) is its own change.
 
 ### V2: the collections become values
 

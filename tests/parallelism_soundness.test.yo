@@ -224,6 +224,7 @@ _GlobalPusher :: trait(
   push_one : (fn(self : Self) -> unit)
 );
 _PushesToGlobal :: struct(unused : i32);
+derive(_PushesToGlobal, Copy, Clone);
 impl(
   _PushesToGlobal,
   _GlobalPusher(
@@ -404,6 +405,7 @@ _d9_run :: (fn(cb : Impl(Fn() -> unit, Send)) -> unit)({
   t.join();
 });
 _D9Holder :: struct(f : (fn(io : Io) -> unit));
+derive(_D9Holder, Copy, Clone);
 // D9: a NAMED function whose code reaches a non-Send global is not a spawn
 // body (it is never a literal, so D1's creation-time walk never saw it).
 comptime_expect_error({
