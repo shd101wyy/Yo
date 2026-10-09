@@ -10,6 +10,7 @@
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ sleep } :: import("std/sys/timer");
 
 _pm_len :: (fn(imm(s) : String) -> usize)(s.len());
 _pm_plain_len :: (fn(imm(s) : String) -> usize)(s.len());
@@ -76,6 +77,19 @@ test("a still implicitly copyable kind is shared into a by-value parameter, as `
   xs := ArrayList(String).new();
   xs.push(s);
   assert((xs.len() == usize(1)) && (s == "hello"), "pushed by value and still usable");
+});
+
+_PmHandle :: ref(struct(n : i32));
+test("an io.async body shares a handle into a by-value parameter: the slot keeps its own reference", {
+  t := io.async((io : Io) => {
+    xs := ArrayList(_PmHandle).new();
+    q := _PmHandle(n : i32(2));
+    io.await(sleep(u64(1)), io);
+    xs.push(q);
+    (ref_count(q) * usize(10)) + xs.len()
+  });
+  r := io.await(t, io);
+  assert(r == usize(21), `the list and the slot each hold one reference (rc 2, len 1), got ${r}`);
 });
 
 test("a plain parameter of a Copy type copies", {
