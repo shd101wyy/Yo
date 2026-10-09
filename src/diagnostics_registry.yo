@@ -732,7 +732,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "The message lists the arguments as seen by the compiler. Most often the method comes from a trait whose impls live in a std module that is not imported (`to_string` from `std/fmt`), the receiver is a different type than intended, or the type needs a `derive(...)`/`impl(...)` for that trait. Check the receiver's type in the message first. On a `Rc` or `Arc` (a `Deref` type) a method the wrapper lacks is looked up on its payload (auto-dereference, `b.m()` is `b.*.m()`); when the payload lacks it too, the message says so and names the payload.",
       "错误信息会列出编译器看到的参数。最常见的原因：该方法来自某个 trait，而其 impl 位于未导入的 std 模块（`std/fmt` 的 `to_string`）；接收者类型与预期不同；或该类型需要针对此 trait 的 `derive(...)`/`impl(...)`。请先核对信息中接收者的类型。对 `Rc` 或 `Arc`（`Deref` 类型），包装器没有的方法会到其载荷上查找（自动解引用，`b.m()` 即 `b.*.m()`）；若载荷也没有，错误信息会说明这一点并指出载荷。",
       "Point :: struct(x : i32);\np := Point(x : i32(1));\n_s := p.norm();\n",
-      "Point :: struct(x : i32);\nnorm :: (fn(p : Point) -> i32)(p.x);\np := Point(x : i32(1));\n_s := norm(p);\n",
+      "Point :: struct(x : i32);\nnorm :: (fn(imm(p) : Point) -> i32)(p.x);\np := Point(x : i32(1));\n_s := norm(p);\n",
       "`Point` has no `norm` method and no impl provides one, so the method-call syntax finds no candidate; define the function (or an `impl(Point, ...)` method) first. The same code fires when a trait method's impl lives in a std module that was not imported (`to_string` from `std/fmt`).",
       "`Point` 没有 `norm` 方法，也没有 impl 提供它，因此方法调用语法找不到候选者；请先定义该函数（或 `impl(Point, ...)` 方法）。当某个 trait 方法的 impl 位于未导入的 std 模块时（`std/fmt` 的 `to_string`），也会报同一错误码。"
     )
