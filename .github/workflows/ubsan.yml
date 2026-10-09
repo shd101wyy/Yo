@@ -58,7 +58,7 @@ jobs:
       - name: Install OpenSSL dev (for std/http in the compiler closure)
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed

@@ -79,7 +79,7 @@ jobs:
         run: |
           # Drop the runner image's third-party apt sources first — see APT_OPTS.
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
-          sudo apt-get $APT_OPTS update
+          { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config time
 
       - name: Install the seed compiler (previous release)
