@@ -130,9 +130,12 @@ Unique ownership removes the question instead of answering it.
     - re-pointing a borrow: `imm(cur) = place`;
     - projection results: `-> imm(T)` and `-> mut(T)`;
     - function types: `Fn(imm(s) : String) -> usize`. Parameters of `fn` and
-      `Fn` types keep their labels (the maintainer, 2026-10-09): the mode
-      wraps the label, never the type, so there is one spelling, and a
-      function type reads like the header of a function of that type.
+      `Fn` types keep their labels (the maintainer, 2026-10-09): a
+      parameter's mode wraps its label, never its type, and a function type
+      reads like the header of a function of that type. A result's label is
+      optional, as it already is for `inout` and `comptime` results: a
+      labeled result spells its mode on the label, `-> (mut(r) : T)`, and an
+      unlabeled one wraps the type, `-> mut(T)`.
   - Borrows are second-class: they cannot be stored, returned, captured by
     an escaping closure or spawned. So every check is intraprocedural, and
     no lifetimes appear in the language.
