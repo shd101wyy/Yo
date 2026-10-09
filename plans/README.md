@@ -81,6 +81,33 @@ takes the pieces that do not touch the declined matching-logic foundation:
 obligation ids and single re-query, a std conformance corpus, clause-usage
 coverage, a verifier bug-report bundler; the solver-daemon architecture and
 proof-state viewers are rejected with recorded reasons.
+[`RUST_REFERENCE_PATTERNS`](backlog/RUST_REFERENCE_PATTERNS.md) is the
+Rust→Yo porting catalog for VALUES_BY_DEFAULT: every Rust shape that stores a
+borrow (views into owned buffers, `Ctx<'a>` structs, guard objects,
+`Rc<RefCell>` graphs with `Weak`, borrowing iterators, `RefCell`/`Cell`,
+`Cow`, escaping closures, borrowing futures, `&'static`) mapped to its
+post-VBD Yo shape through five replacements — own, share with `Rc`/`Arc`,
+index, pass per call, re-derive — with the cost of each.
+[`CODEGEN_PERFORMANCE`](backlog/CODEGEN_PERFORMANCE.md) is the static-code
+half of the performance story (the async half belongs to the ASYNC plans),
+designed but not started: a paired Yo/Rust/C bench suite, `restrict` on
+exclusive parameters with UBSan canaries, an LTO-edges audit (ThinLTO is
+already the chunked default), finishing the 5b verifier-driven elision, a
+hoisted-walk lowering for the borrowed `for`, `Rc` write-assert elision by
+mutation summary (plus the per-type frozen-cell rule recorded in place of a
+declined `Rc(RefCell(T))` split), field reordering and PGO — sequenced
+around VALUES_BY_DEFAULT's phases.
+[`LANGUAGE_FEATURE_CANDIDATES`](backlog/LANGUAGE_FEATURE_CANDIDATES.md) is
+the 2026-10-08 parking lot of six checked candidates, none adopted: scoped
+parallel iteration as std (the `Sync` machinery is all landed; rayon-shaped
+borrowing is impossible by design — owned chunks or `Arc` sharing are the Yo
+shapes), a portable `std/simd` over clang/gcc vector extensions, pre-design
+of the parked stateful-call/borrow-mode-fields trigger, array-rest and
+str-prefix patterns whose tail bindings borrow, pulling FV Phase V6
+(trait-method contracts, already designed) forward, and a comptime-generated
+`Soa(T)` columnar container (rows are sibling places under one root; the
+wrapper maintains the cross-column length invariant and the verifier can
+prove it) — plus the standing rejections table so nothing is re-proposed.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
