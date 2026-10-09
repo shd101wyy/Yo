@@ -3204,6 +3204,37 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
      Plain parameters of implicitly copyable types stay plain: their
      meaning (a copy) and their C (`T x`) are unchanged. So the sweep
      changes no program's behaviour.
+
+     **As built (2026-10-09, branch feat/vbd-v3b-migrate).** The sweep is
+     `yo fix <path> --migrate params`. It is not a diagnostic repair: the
+     recorder (`_record_param_mode_migration`,
+     `src/evaluator/types/function.yo`) runs inside
+     `evaluate_function_parameter` during a clean evaluation and records two
+     edits. A plain runtime parameter whose type does not implement `Copy`
+     becomes `imm(x)`, with a generic parameter asked through its bounds (an
+     unbounded `T` is `imm`, a `where(T <: Copy)` one stays plain). The
+     `inout` word becomes `mut`. Each edit carries the text its span must
+     still hold, so one recorded through a synthetic token is skipped. A
+     parameter evaluated in several instantiations is `imm` when any of them
+     is not `Copy`. Applied:
+
+     | Tree | `imm(...)` | `inout` → `mut` |
+     | --- | ---: | ---: |
+     | `std/` | 2,280 | 398 |
+     | `src/` | 9,459 | 440 |
+     | `tests/` (no `internal/`, `cli-cases/`) | 1,273 | 157 |
+
+     - Each tree checks afterwards (`std` 178/178 under the tree binary and
+       the stand-in seed, `src` 278/278), the stand-in seed builds the
+       migrated compiler, and a second pass records nothing.
+     - **Not swept yet:** `own`/`sink` → plain waits for the flip (before
+       it, plain still borrows). Local `inout(y) :=` bindings and function
+       types inside generic bodies no instantiation reaches are not
+       parameters the recorder sees; the flip PR handles them with the
+       markers. The 50 `tests/` files that `check` cannot evaluate (they
+       need the test runner) keep their unreached parameters, as do
+       `tests/internal/`, the `tests/cli-cases/` fixtures, and the code
+       blocks in `docs/` and the skills.
   2. **The flip:** a plain parameter is by value, and so is a plain `match`
      scrutinee (decision 26). The sweep first rewrites each `match` on an
      owned local that is used after the match to `match(&x, …)`, and marks
