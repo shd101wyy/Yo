@@ -3613,6 +3613,36 @@ and a container of them is `ArrayList(type_of(k))` — two different closures in
 one container need `Dyn(Fn(...))` (see [Closure Type Restrictions](#closure-type-restrictions)).
 `Impl(Future(T, E))` is the same shape for `async` results.
 
+#### A bare function type never mentions `Impl(Fn(...))`
+
+A `fn(...) -> R` type is one C function pointer, so a slot of that type —
+a runtime parameter, a struct/enum/tuple/union field, a function result —
+must have one representation. `Impl(Fn(...))` does not: every function
+returning `Impl(Fn() -> i32)` returns its own closure struct by value, and a
+function taking an `Impl(Fn(...))` parameter is specialized per closure. Such
+a slot is rejected at `check`, as Rust rejects `fn(i32) -> impl Fn() -> i32`:
+
+```yo
+// error: The function type fn(x : i32) -> Impl(Fn() -> i32) cannot be the
+//        type of parameter "mk" ...
+use_mk :: (fn(mk : (fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+
+// OK: a generic `Impl(Fn(...))` parameter is specialized per argument, so the
+// inner `Impl` is that argument's own result type (a named function or a closure).
+use_mk :: (fn(imm(mk) : Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+// OK, the Rust spelling `F: Fn(i32) -> G, G: Fn() -> i32`:
+use_mk :: (fn(generic(G : Type), imm(mk) : Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)(mk(v)());
+```
+
+To store functions with different closure results in one slot, return
+`Dyn(Fn(...))` (one boxed representation). Not rejected: `Impl(Future(...))`
+(every future is one pointer to a state machine, so
+`fn(x : i32, io : Io) -> Impl(Future(i32, Io))` is a valid parameter type); a
+`comptime(f)` parameter (specialized per value); a local annotation
+`(h : (fn(x : i32) -> Impl(Fn() -> i32))) = mk`, which takes `mk`'s own
+function type the way an `Impl(Fn(...))` annotation takes its closure's (a
+later `h = other` with a different closure result is E0601).
+
 ### Not supported: existential enum constructors
 
 ```yo

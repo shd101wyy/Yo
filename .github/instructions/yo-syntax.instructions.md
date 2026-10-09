@@ -1506,6 +1506,20 @@ A closure's body is checked against the `Fn(...) -> R` it adopts (E0604 when it 
 match), and a `comptime(x) : T` parameter needs a compile-time argument (E1101 for a runtime
 value such as `c(i32.default())`).
 
+## A bare `fn(...)` slot type never mentions `Impl(Fn(...))`
+
+A runtime parameter, a struct/enum/tuple/union field or a function result typed
+`(fn(x : i32) -> Impl(Fn() -> i32))` (or `(fn(imm(f) : Impl(Fn() -> i32)) -> i32)`)
+is rejected at `check` ("cannot be the type of parameter ..."): a function type is
+one function pointer, and each function returning `Impl(Fn(...))` returns its own
+closure struct by value. Until 2026-10-10 it compiled and the call crashed (SIGBUS,
+`issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md`).
+Take the function generically instead, `imm(mk) : Impl(Fn(x : i32) -> Impl(Fn() -> i32))`
+or `generic(G : Type), imm(mk) : Impl(Fn(x : i32) -> G), where(G <: (Fn() -> i32))`,
+or return `Dyn(Fn(...))`. Still valid: `fn(...) -> Impl(Future(...))` (one pointer
+representation), a `comptime(f)` parameter, a local annotation (it takes the
+initializer's own function type).
+
 ## An `Impl(Fn(...))` parameter only accepts a CALLABLE argument (E0606)
 
 Since 2026-09-05 (C67, `issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md`)

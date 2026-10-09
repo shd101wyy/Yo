@@ -3457,6 +3457,34 @@ make_counter :: (fn(start : i32) -> Impl(Fn() -> i32))(() => (start + i32(1)));
 `Dyn(Fn(...))`（见[闭包类型限制](#闭包类型限制)）。`Impl(Future(T, E))` 是
 `async` 结果的同一形态。
 
+#### 裸函数类型中不能出现 `Impl(Fn(...))`
+
+`fn(...) -> R` 类型是一个 C 函数指针，所以这种类型的槽——运行时参数、
+struct/enum/tuple/union 字段、函数结果——必须只有一种表示。`Impl(Fn(...))`
+没有：每个返回 `Impl(Fn() -> i32)` 的函数都按值返回它自己的闭包结构体，
+而接受 `Impl(Fn(...))` 参数的函数会按闭包分别特化。这样的槽在 `check` 时
+被拒绝，正如 Rust 拒绝 `fn(i32) -> impl Fn() -> i32`：
+
+```yo
+// 错误：The function type fn(x : i32) -> Impl(Fn() -> i32) cannot be the
+//        type of parameter "mk" ...
+use_mk :: (fn(mk : (fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+
+// 可以：泛型 `Impl(Fn(...))` 参数按实参特化，内层 `Impl` 就是该实参
+// （具名函数或闭包）自己的结果类型。
+use_mk :: (fn(imm(mk) : Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+// 可以，对应 Rust 写法 `F: Fn(i32) -> G, G: Fn() -> i32`：
+use_mk :: (fn(generic(G : Type), imm(mk) : Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)(mk(v)());
+```
+
+要在一个槽里存放闭包结果各不相同的函数，请返回 `Dyn(Fn(...))`（一种装箱
+表示）。不被拒绝的情形：`Impl(Future(...))`（每个 future 都是指向状态机的
+同一种指针，所以 `fn(x : i32, io : Io) -> Impl(Future(i32, Io))` 是合法的参数
+类型）；`comptime(f)` 参数（按值特化）；局部标注
+`(h : (fn(x : i32) -> Impl(Fn() -> i32))) = mk`，它取 `mk` 自己的函数类型，
+就像 `Impl(Fn(...))` 标注取其闭包的类型一样（之后用闭包结果不同的函数执行
+`h = other` 会报 E0601）。
+
 ### 不支持：存在型枚举构造器
 
 ```yo
