@@ -254,7 +254,7 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
       true => Type.join_fields(
         T,
         (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-          quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+          quote(self.(unquote(field.name.to_expr())).my_eq(other.(unquote(field.name.to_expr()))))
         ),
         quote(&&)
       )
@@ -263,8 +263,8 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
   );
   ctx.make_impl(
     quote(
-      MyEq(...#(trait_params))(
-        my_eq : ((self, other) -> #(eq_body))
+      MyEq(unquote_splicing(trait_params))(
+        my_eq : ((self, other) -> unquote(eq_body))
       )
     )
   )
@@ -297,15 +297,15 @@ info.is_enum() => {
     T,
     (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
       quote(
-        .(#(variant.name.to_expr())) => match(
+        .(unquote(variant.name.to_expr())) => match(
           other,
-          .(#(variant.name.to_expr())) => true,
+          .(unquote(variant.name.to_expr())) => true,
           _ => false
         )
       )
     )
   );
-  quote(match(self, ...#(match_branches)))
+  quote(match(self, unquote_splicing(match_branches)))
 }
 ```
 

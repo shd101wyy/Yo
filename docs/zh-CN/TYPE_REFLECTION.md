@@ -403,7 +403,7 @@ comptime_assert(Type.is_compatible_with(struct(x : i32), A), "but it flows into 
 eq_body :: Type.join_fields(
   Point,
   (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-    quote(self.(#(field.name.to_expr())).eq(other.(#(field.name.to_expr()))))
+    quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
   ),
   quote(&&)
 );
@@ -417,7 +417,7 @@ eq_body :: Type.join_fields(
 branches :: Type.map_variants(
   Color,
   (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
-    quote(.(#(variant.name.to_expr())) => true)
+    quote(.(unquote(variant.name.to_expr())) => true)
   )
 );
 ```
