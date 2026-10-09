@@ -1728,6 +1728,10 @@ evaluate_anonymous_function_implementation :: (
         rp_v_opt,
         .Some(rp_v_own) => {
           rp_v_own.is_owning_the_rc_value = true;
+          // A parameter, so the function-body pass over the parameters
+          // frame (`_schedule_scope_end_drops`, params_only) drops it at
+          // the end of the body, as it drops a `fn`'s by-value parameter.
+          rp_v_own.is_parameter = true;
         },
         .None => ()
       );
