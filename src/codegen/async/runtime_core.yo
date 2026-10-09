@@ -235,11 +235,20 @@ static void __yo_async_blocking_end(void* loop_p) {
 // the loop alive, so no NEW visitor can start, and the ones in flight are a
 // few instructions from done.
 static void __yo_thread_yield(void);
+static void __yo_async_drain_xwakes(void);
 static void __yo_async_loop_quiesce(void) {
   __yo_loop_t* loop = __yo_loop_self();
   while (atomic_load(&loop->visitors) > 0) {
     __yo_thread_yield();
   }
+  // A visitor that finished during the wait may have left a token on the
+  // inbox: a foreign release whose post re-queued it after this loop's drain
+  // had already consumed the release (the drain cleared 'queued', the
+  // release's CAS then won). Nothing else will drain it once the thread
+  // exits, so drain it now: its release is consumed and its inbox reference
+  // dropped, so the token is freed instead of leaked
+  // (issues/fixed/a-release-re-queued-after-the-owners-last-drain-leaks-its-waker-token.md).
+  __yo_async_drain_xwakes();
 }
 static void* __yo_async_loop_self_ptr(void) {
   return (void*)__yo_loop_self();
