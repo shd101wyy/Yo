@@ -369,23 +369,34 @@ test("fmt elision: parenthesized dot-deref sugar still canonicalizes", {
   assert(out.contains(String.from("a.* == 99")), "a.(*) canonicalizes to a.*");
   assert(out.contains(String.from("c.*.count")), "c.(*).count canonicalizes to c.*.count");
 });
-test("fmt elision: quote argument with macro splices unwraps, splices stay tight", {
+test("fmt elision: quote argument with unquotes unwraps, the unquote calls stay", {
   // The group around the whole `==` argument of `quote(...)` is a plain
-  // redundant call argument (`f((a + b))` → `f(a + b)`, D1). It used to
-  // SURVIVE only because eliding the splice's own call paren (`#(field)` →
-  // `#field`) broke the re-parse gate and turned elision off file-wide —
-  // the fallback, not a decision about this group. With the splice call
-  // parens protected (is_non_prefix_operator_call_paren), the gate proves
-  // the unwrapped tree equal and the canonical form wins.
+  // redundant call argument (`f((a + b))` → `f(a + b)`, D1); the re-parse
+  // gate proves the unwrapped tree equal and the canonical form wins.
   src := String.from(
-    "main :: (fn() -> unit)({\n  expr := quote((lhs.(#(field)) == rhs.(#(field))));\n});\nexport(main);\n"
+    "main :: (fn() -> unit)({\n  expr := quote((lhs.(unquote(field)) == rhs.(unquote(field))));\n});\nexport(main);\n"
   );
   out := _fmt(src.clone());
   assert(
-    out.contains(String.from("quote(lhs.(#(field)) == rhs.(#(field)))")),
+    out.contains(String.from("quote(lhs.(unquote(field)) == rhs.(unquote(field)))")),
     "the redundant argument group elides; the splice call parens stay tight"
   );
   assert(_fmt(out.clone()) == out, "and that is a fixed point");
+});
+test("fmt keeps the group of a dynamic member `.(unquote(b))`", {
+  // `a.(unquote(b))` names the member that `b` holds; without the group it
+  // is `a.unquote(b)`, a call of a method named `unquote`. The same holds for
+  // an enum variant pattern `.(unquote(v))` and a chain.
+  src := String.from(
+    "main :: (fn() -> unit)({\n  e := quote(a.(unquote(b)));\n  f := quote(a.(unquote(b)).c.(unquote(d)));\n  g := quote(match(x, .(unquote(v)) => 1, _ => 2));\n  h := quote(((a.(unquote(b)))));\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("e := quote(a.(unquote(b)));")), "a member access keeps its group");
+  assert(out.contains(String.from("f := quote(a.(unquote(b)).c.(unquote(d)));")), "so does a chain");
+  assert(out.contains(String.from("quote(match(x, .(unquote(v)) => 1, _ => 2))")), "and a variant pattern");
+  assert(out.contains(String.from("h := quote(a.(unquote(b)));")), "redundant outer groups go, the member group stays");
+  assert(!out.contains(String.from(".unquote(")), "never a method call");
+  assert(_fmt(out.clone()) == out, "a fixed point");
 });
 test("fmt elision D2: prefix operands are not chain operators", {
   src := String.from(
@@ -491,32 +502,6 @@ test("fmt elision: spread-rest call paren stays and does not disable file-wide e
     "the spread operator's call paren is load-bearing — ...x does not parse"
   );
   assert(out.contains(String.from("T :: ?*i32;")), "elision still runs in the rest of the file");
-  assert(_fmt(out.clone()) == out, "idempotent");
-});
-test("fmt elision: unquote splice call paren stays and does not disable file-wide elision", {
-  src := String.from("m :: (fn(x : Expr) -> Expr)(quote((#(x))));\nprobe :: ((1 + 2) + 3);\n");
-  out := _fmt(src.clone());
-  assert(
-    out.contains(String.from("#(x)")),
-    "the unquote operator's call paren is load-bearing — #x does not parse"
-  );
-  assert(
-    out.contains(String.from("probe :: (1 + 2 + 3);")),
-    "elision still runs in the rest of the file"
-  );
-  assert(_fmt(out.clone()) == out, "idempotent");
-});
-test("fmt elision: unquote-splicing call paren stays and does not disable file-wide elision", {
-  src := String.from("m :: (fn(rest : Expr) -> Expr)(quote((...#(rest))));\nprobe :: ((1 + 2) + 3);\n");
-  out := _fmt(src.clone());
-  assert(
-    out.contains(String.from("...#(rest)")),
-    "the splice operator's call paren is load-bearing — ...#rest does not parse"
-  );
-  assert(
-    out.contains(String.from("probe :: (1 + 2 + 3);")),
-    "elision still runs in the rest of the file"
-  );
   assert(_fmt(out.clone()) == out, "idempotent");
 });
 test("fmt elision: barrel export spread call paren stays", {

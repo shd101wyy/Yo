@@ -4134,14 +4134,14 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
   eq_body :: Type.join_fields(
     T,
     (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-      quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+      quote(self.(unquote(field.name.to_expr())).my_eq(other.(unquote(field.name.to_expr()))))
     ),
     quote(&&)
   );
   ctx.make_impl(
     quote(
-      MyEq(...#(trait_params))(
-        my_eq : ((self, other) -> #(eq_body))
+      MyEq(unquote_splicing(trait_params))(
+        my_eq : ((self, other) -> unquote(eq_body))
       )
     )
   )

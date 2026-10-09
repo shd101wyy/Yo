@@ -152,9 +152,10 @@ Digit              ::= '0'..'9'
 ;; no table, so any use is an "unknown operator" lex error.
 Operator      ::= DotOperator | TableOperator
 
-;; `.` gets its own TokenKind; the rest are Operator tokens. `..#` is NOT a
-;; token — it lexes as `..` followed by `#`.
-DotOperator   ::= '.' | '..' | '..=' | '...' | '...#'
+;; `.` gets its own TokenKind; the rest are Operator tokens. `#` and `...#`
+;; are not tokens: a `#` is a lex error naming `unquote(x)` /
+;; `unquote_splicing(xs)`.
+DotOperator   ::= '.' | '..' | '..=' | '...'
 
 TableOperator ::= ;; three-character (matched first)
                   '==>'
@@ -162,11 +163,11 @@ TableOperator ::= ;; three-character (matched first)
                   '!=' | '&&' | '->' | '::' | ':=' | '<:' | '<<' | '<='
                 | '==' | '=>' | '>=' | '>>' | '?=' | '||'
                   ;; one-character
-                | '!' | '#' | '%' | '&' | '*' | '+' | '-' | '/'
+                | '!' | '%' | '&' | '*' | '+' | '-' | '/'
                 | ':' | '<' | '=' | '>' | '?' | '^' | '|' | '~'
 
 ;; RESERVED operators — lexable but can never be bound or overloaded:
-;; '=' ':=' '::' ':' '=>' '->' '<:' '?=' '&&' '||' '#' '...#' '..' '..=' '...' '==>'
+;; '=' ':=' '::' ':' '=>' '->' '<:' '?=' '&&' '||' '..' '..=' '...' '==>'
 ;; ('==>' is ghost-only implication: contract clauses / ghost bindings only)
 
 ;; There is NO backtick-infix form: a backtick always opens a template
