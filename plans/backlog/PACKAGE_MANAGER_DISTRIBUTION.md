@@ -290,7 +290,7 @@ of the first release. None of §2–§6 ships before this exists:
 | §4 nfpm artifacts                | any user asks to manage Yo with their distro's package manager    | one release job                    |
 | §5 hosted repos                  | repeated explicit requests for `apt upgrade`-style updates        | GPG key lifecycle + index signing  |
 | §6 nix flake                     | first NixOS/nix user request                                      | one file                           |
-| homebrew-core / nixpkgs / Scoop Main / AUR | notability bar realistically met (homebrew-core's guide asks on the order of 750★ + 30 forks; this repo stood at 38★ / 0 forks on 2026-10-08) AND a willing upstream maintainer | upstream contribution obligations |
+| homebrew-core / nixpkgs / Scoop Main / AUR | notability bar met (Homebrew's Package Acceptance Policy, read 2026-10-09: at least 30 forks, 30 watchers or 75 stars — and 90 forks, 90 watchers or 225 stars when the repository owner submits it themself, which is this repo's case; it stood at 38★ / 0 forks on 2026-10-08) AND a willing upstream maintainer | upstream contribution obligations |
 
 ## 9. Docs to update when a phase lands
 
@@ -323,7 +323,8 @@ package-manager install lives in the system prefix, `yo version` keeps
 - **No compiler changes.** This campaign is packaging-only; any compiler gap
   it finds becomes an `issues/` entry, not a rider on a packaging PR.
 - **homebrew-core / Scoop Main / AUR-trusted / nixpkgs submission** — not
-  while notability is far off (§8); the custom channels have no bar.
+  while notability is short of the self-submission bar (§8); the custom
+  channels have no bar.
 - **winget / Chocolatey** — the Windows manager this plan targets is Scoop;
   winget is a natural later addition over the same assets and gets its own §8
   line then.
