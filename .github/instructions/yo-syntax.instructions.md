@@ -1492,7 +1492,7 @@ the `inout` audit note.
 - An `FnOnce` call consumes the closure: a second call (or any later use) is E0901 pointing at the first call. A closure literal takes the trait of its slot, so `(f : Impl(FnOnce() -> R)) = ({ t }() => take(t))` is call-once.
 - Only a capture list's by-value entries are owned by an `FnOnce` body: it may move one out (`sink` argument, binding, tail), and the body drops the rest when the call ends. A move out of an implicit capture is E0913 ("captured implicitly"); a move out of a capture in an `Fn` closure is E0913 too.
 - `Fn` implies `FnOnce`: an `Fn` closure fills an `FnOnce` slot; an `FnOnce` value passed to an `Fn(...)` parameter is E0913.
-- Call it once from an API it ESCAPES into: `sink(f) : Impl(FnOnce(...))`. Calling through a borrowed parameter (`f : Impl(FnOnce(...))`) is E0901. A `sink` closure called on one `cond`/`match` arm must be moved on every arm (E0907, as for any move-only value): forward it, e.g. `cond(go => f(), true => ignore(f))`.
+- Call it once from an API it ESCAPES into: `sink(f) : Impl(FnOnce(...))`. Calling through a borrowed parameter (`f : Impl(FnOnce(...))`) is E0901. A `sink` closure called on one `cond`/`match` arm is dropped, uncalled, at the end of the other arms (as any value moved in some arms is); only the ways out of a loop must still agree (E0907).
 - In Generation A every `match` binding borrows, so a bare `match` on a capture cannot move out yet (decision 37's N5 `match` shapes land with V3b).
 
 ## A `=>` closure never fills a bare `fn(...)` slot (E0605)

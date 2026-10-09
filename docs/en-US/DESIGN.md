@@ -1216,7 +1216,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: a by-value parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. Where the arms of a `cond`/`match` or the ways out of a loop meet, a move-only value is moved on all of them or on none (E0907). Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
+Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: an `imm` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
 
 A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
 
@@ -3159,8 +3159,8 @@ run_once(add); // an `Fn` serves for one call
 - **Only an API the closure escapes into can call it once.** Take it by value,
   `sink(f) : Impl(FnOnce(...))`; calling an `FnOnce` closure through a
   borrowed parameter is E0901. A non-escaping callback keeps
-  `imm(f) : Impl(Fn(...))`. Like every move-only value, a `sink` closure that
-  is moved (called) on some paths must be moved on all of them (E0907).
+  `imm(f) : Impl(Fn(...))`. Like every owned value, a `sink` closure called on
+  some arms of a `cond`/`match` is dropped, uncalled, at the end of the others.
 - **Moving a capture out needs `FnOnce` and a capture list.** Against
   `Fn(...)`, whose call borrows the captures so the closure can run again, a
   move out is E0913 at the moving line. In this release an implicit capture

@@ -1611,7 +1611,7 @@ _insert_inline :: (
   fn(
     imm(table) : TomlValue,
     imm(keys) : ArrayList(String),
-    imm(value) : TomlValue,
+    value : TomlValue,
     mut(dotted) : ArrayList(String),
     pos : usize
   ) -> Result(unit, TomlError)
@@ -1627,10 +1627,11 @@ _insert_inline :: (
     match(
       cur.get(k),
       .None => {
-        t := TomlValue.new_table();
-        _old := cur.insert(k, t);
-        dotted.push(child_path);
-        next_tbl = t;
+        // The inserted table is read back, which shares its lists, so the
+        // next key writes into the table `cur` now holds.
+        _old := cur.insert(k.clone(), TomlValue.new_table());
+        dotted.push(child_path.clone());
+        next_tbl = match(cur.get(k), .Some(nt) => nt, .None => TomlValue.new_table());
       },
       .Some(v) => {
         cond(
@@ -1879,10 +1880,11 @@ _walk_header_path :: (
     match(
       cur.get(k),
       .None => {
-        t := TomlValue.new_table();
-        _old := cur.insert(k, t);
+        // Read back, as in `_insert_inline`: the inserted table and
+        // `next_tbl` share its lists.
+        _old := cur.insert(k.clone(), TomlValue.new_table());
         p.set_kind(child_path, _TableKind.Implicit);
-        next_tbl = t;
+        next_tbl = match(cur.get(k), .Some(nt) => nt, .None => TomlValue.new_table());
       },
       .Some(v) => {
         cond(
@@ -1990,8 +1992,9 @@ _parse_header :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
       existing,
       .None => {
         items := ArrayList(TomlValue).new();
-        elem := TomlValue.new_table();
-        items.push(elem);
+        items.push(TomlValue.new_table());
+        // The element read back shares its lists with the one in `items`.
+        elem := items(usize(0));
         _old := cursor.table.insert(k, TomlValue.Array(items));
         p.set_kind(child_path, _TableKind.ArrayOfTables);
         elem_path := _path_index(child_path, usize(0));
@@ -2008,8 +2011,9 @@ _parse_header :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
         cond(
           is_aot => {
             items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
-            elem := TomlValue.new_table();
-            items.push(elem);
+            items.push(TomlValue.new_table());
+            // Read back: shares its lists with the element now in `items`.
+            elem := items(items.len() - usize(1));
             elem_path := _path_index(child_path, items.len() - usize(1));
             p.set_kind(elem_path, _TableKind.ArrayElem);
             p.cur = elem;
@@ -2024,10 +2028,10 @@ _parse_header :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
     true => match(
       existing,
       .None => {
-        t := TomlValue.new_table();
-        _old := cursor.table.insert(k, t);
+        _old := cursor.table.insert(k.clone(), TomlValue.new_table());
         p.set_kind(child_path, _TableKind.Explicit);
-        p.cur = t;
+        // Read back: shares its lists with the table the parent now holds.
+        p.cur = match(cursor.table.get(k), .Some(nt) => nt, .None => TomlValue.new_table());
         p.cur_path = child_path;
       },
       .Some(v) => {
@@ -2078,10 +2082,10 @@ _insert_keyval :: (
     match(
       cur.get(k),
       .None => {
-        t := TomlValue.new_table();
-        _old := cur.insert(k, t);
+        _old := cur.insert(k.clone(), TomlValue.new_table());
         p.set_kind(child_path, _TableKind.Dotted);
-        next_tbl = t;
+        // Read back: shares its lists with the table `cur` now holds.
+        next_tbl = match(cur.get(k), .Some(nt) => nt, .None => TomlValue.new_table());
       },
       .Some(v) => {
         cond(
