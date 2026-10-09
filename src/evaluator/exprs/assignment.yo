@@ -384,7 +384,7 @@ _check_capture_borrow_write :: (fn(imm(lhs) : AstExpr, imm(tok) : Token, imm(env
 /// The way out E0908 offers for a write into the borrowed binding `bv`.
 _write_through_borrow_fix :: (fn(imm(bv) : Variable) -> String)(
   cond(
-    bv.is_parameter => `take it as \`sink(${bv.name}) : T\` or \`inout(${bv.name}) : T\`, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
+    bv.is_parameter => `take it by value (\`${bv.name} : T\`, without \`imm\`) to own and write it, or as \`mut(${bv.name}) : T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
     true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(xs, inout(${bv.name}) => ...)\``
   )
 );
@@ -516,7 +516,7 @@ require_no_inout_write_through_borrow :: (
         match(
           _borrowed_root_walk(arg, env, ctx, _g_audit_inout_borrow),
           .Some(bv) => if(is_judged || !_is_dispose_receiver(bv, ast_expr_token(arg)), {
-            what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
+            what := cond(bv.is_parameter => "an `imm` parameter", true => "a `match` or `for` binding");
             label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
             target := cond((label == "self") => String.from("the `inout(self)` receiver"), true => `the \`inout\` parameter \`${label}\``);
             pending.push(
@@ -1202,7 +1202,7 @@ evaluate_assignment :: (
         // so the walk cannot tell a local from a borrowed binding there.
         .Some(abv) => if(type_contains_rc_type(abv.ty) && !_is_dispose_receiver(abv, ast_expr_token(lhs)), {
           at := ast_expr_token(lhs);
-          anoun := cond(abv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
+          anoun := cond(abv.is_parameter => "an `imm` parameter", true => "a `match` or `for` binding");
           eprintln(`[inout-borrow] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(lhs)} = (${abv.name}: ${anoun}, ${type_to_string(expected_ty)})`);
         }),
         .None => match(
@@ -1219,7 +1219,7 @@ evaluate_assignment :: (
       match(
         borrowed_value_root_of_place(evaluated_lhs, env, ctx),
         .Some(bv) => {
-          what := cond(bv.is_parameter => "a by-value parameter", true => "a `match` or `for` binding");
+          what := cond(bv.is_parameter => "an `imm` parameter", true => "a `match` or `for` binding");
           place_text := _place_source_text(lhs);
           fix := _write_through_borrow_fix(bv);
           raise_flow_violation(

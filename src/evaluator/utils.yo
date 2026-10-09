@@ -853,7 +853,7 @@ _explicit_copy_kind :: (fn(imm(ty) : TypeValue) -> String)(
   )
 );
 /// Throw E0901 for a copy of the not-implicitly-copyable value `rhs` out of
-/// storage it does not own: a by-value parameter or a `match`/`for` binding (they borrow), an
+/// storage it does not own: an `imm` parameter or a `match`/`for` binding (they borrow), an
 /// `inout` binding, a module-level binding, or a projection (a field, an
 /// element, a dereference). The value cannot be copied, and moving it out
 /// would leave its owner partly moved: Yo has no partial moves, so the owner
@@ -998,13 +998,13 @@ transfer_explicit_copy_value :: (fn(imm(rhs) : AstExpr, imm(ei) : ExprInfo, imm(
           _throw_explicit_copy_violation(rhs, ei.ty, what, ctx, exn);
         });
       },
-      v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
+      v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to an `imm` parameter (a borrow) instead."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, ei.ty, ctx, exn),
       _is_implicit_closure_capture(v, ei.env, ctx) => _throw_implicit_capture_move(rhs, ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
       _move_through_sink_shadow(v, rhs, ei.env) => (),
-      true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
+      true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (an `imm` parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `imm`) to own it."), ctx, exn)
     )
   );
 });

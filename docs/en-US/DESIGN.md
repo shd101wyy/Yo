@@ -680,7 +680,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(inout(x) : i32) -> unit`, `fn(sink(x) : String) -> usize` and `fn(x : i32) -> unit` are three different types: an `inout` parameter is passed by reference, a `sink` parameter is moved into the callee, and a plain parameter is borrowed. A `sink` parameter consumes its argument: the caller's binding ends at the call. `own(x)` is the old spelling of `sink(x)`; it is still accepted, and spells the same type, until a sweep after the next release removes it. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
+`fn(mut(x) : i32) -> unit`, `fn(imm(x) : String) -> usize` and `fn(x : String) -> usize` are three different types: a `mut` parameter is an exclusive borrow of the caller's place (`inout` is its old spelling), an `imm` parameter is a read-only borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy; of any other type it consumes its argument, and the caller's binding ends at the call. The mode is part of the type for every parameter type, `Copy` or not, so `fn(imm(x) : i32)` and `fn(x : i32)` differ too. `sink(x)` and `own(x)` are the old spellings of a plain by-value parameter, removed by the next sweep. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
 
 ```yo
 bump :: (fn(inout(x) : i32) -> unit)({
@@ -1187,7 +1187,7 @@ export(main);
 
 The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. When it is `Copy`, `x.clone()` is the copy, so `f.clone()` on a `fn` pointer works; `clone()` on a record or closure that is `Clone` but not `Copy` is not available yet. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
 
-`Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. A by-value parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter `sink(...)` to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
+`Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. An `imm` parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter by value (`p : Point`, without `imm`) to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
 
 #### Move-only values
 
@@ -2570,11 +2570,11 @@ through a plain copy.
 
 A write lands where it is written:
 
-- **A plain parameter** `fn(out : String)` borrows the caller's value. Writing
-  it (`out.push_str("!")`, or passing it to an `inout` parameter) is E0908. To
-  change the caller's string, take `inout(out) : String`; to produce a new one,
-  return it; to work on a private copy, clone it into a local
-  (`t := out.clone();`) and write the local.
+- **An `imm` parameter** `fn(imm(out) : String)` borrows the caller's value.
+  Writing it (`out.push_str("!")`, or passing it to a `mut` parameter) is
+  E0908. To change the caller's string, take `mut(out) : String`; to produce a
+  new one, take `out` by value (a plain `out : String` owns its argument and
+  may write it) and return it.
 - **A `for` or `match` binding** borrows too: `for(xs, s => s.push_str("!"))`
   is E0908. `for(xs, inout(s) => s.push_str("!"))` writes each element in
   place, and so does `xs(i).push_str("!")`.

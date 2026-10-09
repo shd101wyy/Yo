@@ -665,7 +665,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### 参数模式是函数类型的一部分
 
-`fn(inout(x) : i32) -> unit`、`fn(sink(x) : String) -> usize` 和 `fn(x : i32) -> unit` 是三个不同的类型：`inout` 参数按引用传递，`sink` 参数被移动进被调函数，普通参数是借用。`sink` 参数会消耗其实参：调用方的绑定在调用处结束。`own(x)` 是 `sink(x)` 的旧写法；在下一个版本之后的一次统一替换删除它之前，它仍被接受，并且表示同一个类型。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
+`fn(mut(x) : i32) -> unit`、`fn(imm(x) : String) -> usize` 和 `fn(x : String) -> usize` 是三个不同的类型：`mut` 参数是对调用方位置的独占借用（`inout` 是它的旧写法），`imm` 参数是只读借用，普通参数是**按值**传递。`Copy` 类型的按值参数得到一份副本；其他类型的按值参数会消耗其实参，调用方的绑定在调用处结束。无论参数类型是否为 `Copy`，模式都是类型的一部分，所以 `fn(imm(x) : i32)` 与 `fn(x : i32)` 也不同。`sink(x)` 和 `own(x)` 是普通按值参数的旧写法，将在下一次统一替换中删除。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
 
 ```yo
 bump :: (fn(inout(x) : i32) -> unit)({
@@ -1156,7 +1156,7 @@ export(main);
 
 这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；对是 `Clone` 但不是 `Copy` 的记录或闭包调用 `clone()` 暂不可用。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
 
-`Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。按值参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请把参数写成 `sink(...)`。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
+`Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。`imm` 参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请按值接受参数（`p : Point`，不写 `imm`）。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
 
 #### 只能移动的值
 
@@ -2471,10 +2471,10 @@ s3 := (s + s2); // 创建一个新字符串。
 
 写入落在被写的位置上：
 
-- **普通参数** `fn(out : String)` 借用调用方的值。写入它（`out.push_str("!")`，
-  或把它传给 `inout` 形参）是 E0908。要修改调用方的字符串，请接受
-  `inout(out) : String`；要产生新字符串，请返回它；要在私有副本上操作，请先克隆到
-  局部变量（`t := out.clone();`）再写这个局部变量。
+- **`imm` 参数** `fn(imm(out) : String)` 借用调用方的值。写入它
+  （`out.push_str("!")`，或把它传给 `mut` 形参）是 E0908。要修改调用方的字符串，
+  请接受 `mut(out) : String`；要产生新字符串，请按值接受 `out`（普通的
+  `out : String` 拥有其实参，可以写入）并返回它。
 - **`for` 或 `match` 的绑定**同样是借用：`for(xs, s => s.push_str("!"))` 是
   E0908。`for(xs, inout(s) => s.push_str("!"))` 会就地写入每个元素，
   `xs(i).push_str("!")` 也一样。

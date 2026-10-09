@@ -808,13 +808,13 @@ match(
 )
 ```
 
-## `sink(name) : T` parameters consume their argument
+## A plain parameter `x : T` is BY VALUE
 
-`sink(x) : T` (plans/VALUES_BY_DEFAULT.md decision 15) moves the argument into the callee: the caller's binding ends at the call, and a later use is E0901. `own(x)` is the OLD spelling of `sink(x)`, still accepted (the seed and `std/` use it) and the same function type; the sweep that deletes `own` waits for the next seed. Type printing and messages say `sink`. Write `sink` in new code outside `std/` and `src/`; in `std/` and `src/` keep `own` until `SEED_VERSION` parses `sink`.
+Since V3b Generation B's flip (plans/VALUES_BY_DEFAULT.md decision 30), a plain parameter takes its argument by value: a `Copy` argument is copied, any other argument is MOVED into the callee (the caller's binding ends at the call; a later use is E0901), and the callee owns it (it may write, store or return it, and drops it otherwise). `imm(x) : T` is the read-only borrow (writing it is E0908) and `mut(x) : T` the exclusive one (`inout(x)` is its old spelling). The mode is part of the function type for EVERY type: `fn(imm(x) : i32)` and `fn(x : i32)` differ, and an impl writes exactly the trait's modes (an operator impl on a `Copy` type writes `imm(lhs)` too; decision 34). Types print plain / `imm(x)` / `mut(x)`. `sink(x)` and `own(x)` are the old spellings of a plain by-value parameter (the same type), deleted by the next sweep. Compiler-generated source (codegen glue in backtick templates) must spell `imm(self)` where it borrows: the migration tool does not see inside strings. A lambda `(lhs, rhs) -> …` takes its modes from the expected `Fn`/trait type.
 
 ## Move-only values (`Dispose` on a value type, or neither `Copy` nor `Clone`)
 
-A value type (`struct`/`enum`/`newtype`) that implements `Dispose`, or a plain one that is neither `Copy` nor `Clone` (decision 36; the `MoveOnly` marker is deleted), is move-only, and so is any value aggregate holding one (`Option(Fd)`, `Tuple(Fd, i32)`, a struct field, a closure capture). Every copy point MOVES it (`:=`, `=`, a `sink` argument, a field/element store, a constructor argument, a return, a closure capture); a later read is E0901. It cannot be copied out of a by-value parameter or `match`/`for` binding (they borrow), an `inout` binding, a module-level binding, a field (`h.fd`: no partial moves) or a dereference. Pass it to a by-value parameter to lend it. A reference type (`ref(struct)`, `Rc`, `Arc`) is never move-only. `Dispose` on a primitive, tuple or pointer is rejected at the `impl`.
+A value type (`struct`/`enum`/`newtype`) that implements `Dispose`, or a plain one that is neither `Copy` nor `Clone` (decision 36; the `MoveOnly` marker is deleted), is move-only, and so is any value aggregate holding one (`Option(Fd)`, `Tuple(Fd, i32)`, a struct field, a closure capture). Every copy point MOVES it (`:=`, `=`, a `sink` argument, a field/element store, a constructor argument, a return, a closure capture); a later read is E0901. It cannot be copied out of an `imm` parameter or `match`/`for` binding (they borrow), a `mut`/`inout` binding, a module-level binding, a field (`h.fd`: no partial moves) or a dereference. Pass it to an `imm` parameter to lend it. A reference type (`ref(struct)`, `Rc`, `Arc`) is never move-only. `Dispose` on a primitive, tuple or pointer is rejected at the `impl`.
 
 ## `Copy` (decision 36)
 
@@ -849,12 +849,13 @@ Rules:
 
 ### New spellings (Generation A; std adopts them after the next release)
 
-`plans/VALUES_BY_DEFAULT.md` V3b (decisions 30 and 33). The compiler accepts these with **today's meaning**; `src/`, `std/` and existing tests keep the old spellings until `SEED_VERSION` carries them (the seed cannot compile them), and Generation B sweeps the tree and gives `imm`/plain/`&x` their by-value meanings.
+`plans/VALUES_BY_DEFAULT.md` V3b (decisions 30 and 33). Generation B's flip has landed for parameters (`yo fix --migrate params` swept `src/`, `std/` and `tests/`); the call-site markers and the deletion of `own`/`sink`/`inout` follow.
 
-| New | Means today | Notes |
+| Spelling | Means | Notes |
 | --- | --- | --- |
-| `imm(x) : T`, `imm(self) : Self` | a plain parameter `x : T` | the same function type; types print `x : T` |
-| `mut(x) : T`, `mut(self) : Self` | `inout(x) : T` | types and diagnostics print `inout` |
+| `imm(x) : T`, `imm(self) : Self` | a read-only borrow | a different function type from the by-value `x : T`, for every `T`; types print `imm(x)` |
+| `mut(x) : T`, `mut(self) : Self` | an exclusive borrow (`inout(x) : T`) | types print `mut(x)` |
+| `comptime(imm(x)) : T` | a compile-time borrow | the binding time is outermost; the `Comptime*` operator traits take `comptime(imm(lhs))` |
 | `mut(y) := place` | `inout(y) := place` | `imm(y) := place` is the read-only local borrow (decision 18) |
 | `Fn(imm(s) : String) -> usize`, `fn(mut(n) : i32) -> unit` | the same types with plain / `inout` params | fn-type params still need labels |
 | `f(&mut x)`, `f(&mut s.items)` | `f(x)` to a `mut`/`inout` param | `&mut` is ONE prefix token; to any other param it is an error |
