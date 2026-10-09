@@ -32,8 +32,7 @@ pragma(Pragma.AllowUnsafe);
   branch_group_stack_len,
   truncate_branch_group_stack,
   expr_info_set_case_executed,
-  expr_info_adopt_env,
-  expr_info_capture_type
+  expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -59,6 +58,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message } :: import("../../error.yo");
 {
   merge_and_check_envs,
+  reject_mixed_closure_arms,
   reset_sibling_flow_state,
   keep_last_arm_moves,
   consume_case_body_temp_var,
@@ -673,55 +673,7 @@ evaluate_cond :: (
           );
           fb_i = (fb_i + usize(1));
         });
-        // Impl(...) RESULT rule: arms yielding DIFFERENT closures cannot
-        // unify into one Impl value (static dispatch —
-        // `(c : Impl(Fn...)) = cond(a => closureA, b => closureB)` is rejected).
-        // Per-arm result captures come from the arm bodies' ExprInfos.
-        {
-          (ir_first_cap : Option(TypeValue)) = Option(TypeValue).None;
-          (ir_i : usize) = usize(0);
-          while(ir_i < filtered_bodies.len(), {
-            ir_body := match(filtered_bodies.get(ir_i), .Some(b) => b, .None => make_err_expr());
-            match(
-              expr_info_table_get(ctx.expr_info_table, ast_expr_id(ir_body)),
-              .Some(ir_bi) => match(
-                expr_info_capture_type(ir_bi),
-                .Some(ir_cap) => {
-                  match(
-                    ir_first_cap,
-                    .None => {
-                      ir_first_cap = Option(TypeValue).Some(ir_cap);
-                    },
-                    .Some(ir_fc) => {
-                      ir_conflict := match(
-                        ir_fc,
-                        .Struct({ id : ir_fid }) => match(
-                          ir_cap,
-                          .Struct({ id : ir_cid }) => ((ir_fid.len() > usize(0)) && (ir_fid != ir_cid)),
-                          _ => false
-                        ),
-                        _ => false
-                      );
-                      if(ir_conflict, {
-                        exn.throw(
-                          dyn(
-                            format_error_message(
-                              ast_expr_token(ir_body),
-                              String.from("Branches produce different concrete closure types for an Impl(...) result. Impl(...) uses static dispatch and requires the same concrete type across branches. Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.")
-                            )
-                          )
-                        );
-                      });
-                    }
-                  );
-                },
-                .None => ()
-              ),
-              .None => ()
-            );
-            ir_i = (ir_i + usize(1));
-          });
-        };
+        reject_mixed_closure_arms(filtered_bodies, ctx, exn);
         env = merge_and_check_envs(env, filtered_bodies, group_log_start, arm_ranges, ctx, exn);
         // A runtime condition cannot select a compile-time-only value: a
         // `Type`, a module or a trait has no runtime representation, so
