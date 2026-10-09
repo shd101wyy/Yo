@@ -119,7 +119,7 @@ test("NonEmpty(T) is the bare refinement (no predicate) usable in parameter posi
 });
 
 test("Refine(T, p) is the general constructor and composes over a refinement", {
-  odd_i32 :: ghost_fn((fn(x : i32) -> bool)((x % i32(2)) == i32(1)));
+  odd_i32 :: ghost_fn((fn(imm(x) : i32) -> bool)((x % i32(2)) == i32(1)));
 
   // refine over a refinement: the composed TYPE evaluates (its erasure is
   // the inner type), and a doubly-gated value passes through it. The
@@ -138,7 +138,7 @@ test("Refine(T, p) is the general constructor and composes over a refinement", {
 });
 
 test("unchecked is the trusted cast (no gate, no proof)", {
-  non_zero_i32 :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
+  non_zero_i32 :: ghost_fn((fn(imm(x) : i32) -> bool)(x != i32(0)));
   v := i32(9);
   blind := unchecked(non_zero_i32, v, &v);
   use :: (fn(imm(x) : NonZero(i32)) -> i32)(i32(81) / x);
