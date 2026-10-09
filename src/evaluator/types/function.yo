@@ -11,7 +11,6 @@
 //! spread spelling was removed (2026-10-03) and is reported as an error.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ HashSet } :: import("std/collections/hash_set");
 import("std/fmt");
 {
   AstExpr,
@@ -40,7 +39,7 @@ import("std/fmt");
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
+{ record_migrate_edit, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
@@ -1324,31 +1323,18 @@ _param_default_not_comptime_error :: (fn(imm(label) : Option(String), imm(param_
 // ---------------------------------------------------------------------------
 /// Evaluate a single function parameter expression.
 ///
-/// One source edit of `yo fix --migrate params` (plans/VALUES_BY_DEFAULT.md
-/// V3b Generation B, step 1): `expect` is the text the span must hold, so an
-/// edit recorded through a synthetic token (a derive's generated impl) is
-/// dropped at apply time instead of corrupting the file.
-MigrateEdit :: struct(path : String, row : usize, col : usize, len : usize, replacement : String, expect : String);
-(g_migrate_param_modes : bool) = false;
-(g_migrate_edits : ArrayList(MigrateEdit)) = ArrayList(MigrateEdit).new();
-(g_migrate_edit_keys : HashSet(String)) = HashSet(String).new();
-set_migrate_param_modes :: (fn(on : bool) -> unit)({
-  g_migrate_param_modes = on;
-});
-take_migrate_edits :: (fn() -> ArrayList(MigrateEdit))({
-  out := g_migrate_edits;
-  g_migrate_edits = ArrayList(MigrateEdit).new();
-  g_migrate_edit_keys = HashSet(String).new();
-  out
-});
-_record_migrate_edit :: (fn(imm(tok) : Token, len : usize, imm(replacement) : String, imm(expect) : String) -> unit)({
-  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  if(g_migrate_edit_keys.contains(key), {
-    return(());
-  });
-  g_migrate_edit_keys.insert(key);
-  g_migrate_edits.push(MigrateEdit(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect));
-});
+/// Whether a parameter of type `ty` is `Copy`, asking a generic parameter
+/// through its bounds (an unbounded `T` is not). Before the prelude defines
+/// `Copy`, only a type naming no type variable counts (the early prelude's
+/// concrete parameter types are scalars and pointers): answering `true` there
+/// left the operator intrinsics' and traits' `x : T` / `lhs : Self` plain.
+_param_type_is_copy :: (fn(ty : TypeValue, env : Environment) -> bool)(
+  match(
+    get_trait_type_from_env(env, String.from("Copy")),
+    .Some(copy_tt) => type_implements_trait(ty, copy_tt, env).implemented,
+    .None => !type_mentions_some_type(ty)
+  )
+);
 /// The parameter half of the V3b sweep: `inout(x)` is spelled `mut(x)`, and a
 /// plain runtime parameter whose type is not `Copy` becomes `imm(x)`, which is
 /// what it means today; the flip then makes a plain parameter by value. A
@@ -1358,24 +1344,15 @@ _record_migrate_edit :: (fn(imm(tok) : Token, len : usize, imm(replacement) : St
 _record_param_mode_migration :: (fn(imm(label_tok) : Token, imm(inout_word) : Option(Token), is_plain : bool, imm(ty) : TypeValue, imm(env) : Environment) -> unit)({
   match(
     inout_word,
-    .Some(w) => _record_migrate_edit(w, usize(5), String.from("mut"), String.from("inout")),
+    .Some(w) => record_migrate_edit(w, usize(5), String.from("mut"), String.from("inout")),
     .None => ()
   );
   if(!is_plain, {
     return(());
   });
-  // Before the prelude defines `Copy`, only a type naming no type variable
-  // counts (the early prelude's concrete parameter types are scalars and
-  // pointers); answering `true` there left the operator intrinsics' and
-  // traits' `x : T` / `lhs : Self` plain.
-  is_copy := match(
-    get_trait_type_from_env(env, String.from("Copy")),
-    .Some(copy_tt) => type_implements_trait(ty, copy_tt, env).implemented,
-    .None => !type_mentions_some_type(ty)
-  );
-  if(!is_copy, {
+  if(!_param_type_is_copy(ty, env), {
     lbl := label_tok.value.clone();
-    _record_migrate_edit(label_tok, lbl.len(), `imm(${lbl})`, lbl);
+    record_migrate_edit(label_tok, lbl.len(), `imm(${lbl})`, lbl);
   });
 });
 evaluate_function_parameter :: (
@@ -1939,8 +1916,22 @@ use_id :: (fn(generic(T : Type),
   });
   label_str := match(label, .Some(l) => l, .None => String.from("?"));
   lbl_tok := match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr));
-  if(g_migrate_param_modes && !is_compile_time_only && !is_quote && label_expr.is_some(), {
+  if(migrate_param_modes_on() && !is_compile_time_only && !is_quote && label_expr.is_some(), {
     _record_param_mode_migration(lbl_tok, inout_word, !is_param_ref && !is_owning_rc_value && !has_imm_wrapper, final_param_type, env_mut);
+  });
+  // The flip (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation B step
+  // 2): a plain runtime parameter is BY VALUE, owned by the callee exactly as
+  // `sink(x)` spells it; `imm(x)` keeps the borrow. The flag is set for every
+  // type, so a parameter's mode never depends on whether its type is `Copy`
+  // (which impl registration order can change, and an instantiation decides
+  // for a generic): `fn(imm(x) : T)` and `fn(x : T)` are two function types
+  // for every `T` (decision 34 as amended 2026-10-09). For a `Copy` type the
+  // flag is inert: nothing is dropped and every use copies. An explicit
+  // `comptime(x)` parameter follows the same rule (`comptime(imm(x))` borrows,
+  // `comptime(mut(x))` is exclusive); the implicit `generic(...)`/`using(...)`
+  // parameters are erased and a `Type`-valued one has no mode to speak of.
+  if(!is_parameter_comptime_by_default && !is_quote && !is_param_ref && !is_owning_rc_value && !has_imm_wrapper && !is_type_0(final_param_type), {
+    is_owning_rc_value = true;
   });
   // Check if variable already exists from where clause or pre-add pass
   existing_vars := get_variables_from_env(env_mut, label_str);
@@ -5293,7 +5284,6 @@ export(evaluate_function_return_type_again);
 export(_collect_type_arg_somes);
 export(collect_wrapper_trait_somes, _substitute_wrapper_carriers);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
-export(MigrateEdit, set_migrate_param_modes, take_migrate_edits);
 export(_add_where_clause_constraint, _trait_has_receiver);
 export(
   register_macro_quoted_params,

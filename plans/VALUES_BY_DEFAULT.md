@@ -123,8 +123,8 @@ Unique ownership removes the question instead of answering it.
     temporaries are exempt (`s.len()`, `show(make_name())`).
   - **Operators borrow their operands with no marker** (decision 34):
     `a == b` and `a + b` keep both operands. Each operator's trait declares
-    them `imm`, and an impl on an implicitly copyable type may take them by
-    value instead (`Point op(Point, Point)`).
+    them `imm`, and every impl writes `imm` too, `Copy` types included;
+    codegen passes a small `Copy` operand by value (amended 2026-10-09).
   - The same two words spell:
     - local borrows: `imm(y) := place` and `mut(y) := place`;
     - re-pointing a borrow: `imm(cur) = place`;
@@ -1392,99 +1392,69 @@ and in git, not a silent edit.
       - The range traits (`RangeOp`, `RangeInclusiveOp`) are the exception.
         A range stores its endpoints, so like a constructor it takes them by
         value.
-      - **The `Comptime*` twins are out of scope.** Their operands are
-        `comptime(lhs)`/`comptime(rhs)`, compile-time values with no run-time
-        convention and no C signature, so `imm` has nothing to say about
-        them. They are `ComptimeAdd` through `ComptimeBitXor`, `ComptimeEq`,
-        `ComptimeOrd`, `ComptimeNegate`, `ComptimeLogicalNot`,
-        `ComptimeBitNot` and the two `ComptimeRange*` traits. The sweep
-        leaves them unchanged.
+      - **The `Comptime*` twins follow the same rule** (amended 2026-10-09
+        by the maintainer; they were out of scope). Their operands are
+        `comptime(imm(lhs))`/`comptime(imm(rhs))`: the binding time is
+        outermost and the mode inside, as `ComptimeIndex` already writes
+        `comptime(inout(self))`, and the parser strips `comptime(...)`
+        before it reads a mode. An explicit `comptime(x)` parameter is by
+        value like a run-time one, `comptime(imm(x))` borrows and
+        `comptime(mut(x))` is exclusive; the implicit `generic(...)` and
+        `using(...)` parameters are erased and a `Type`-valued parameter has
+        no mode. The traits are `ComptimeAdd` through `ComptimeBitXor`,
+        `ComptimeEq`, `ComptimeOrd`, `ComptimeNegate`, `ComptimeLogicalNot`
+        and `ComptimeBitNot`; the two `ComptimeRange*` traits are excepted
+        like their run-time twins.
       - **Operand names.** The binary traits name their operands `lhs` and
         `rhs` (`std/prelude.yo`), and the unary traits name theirs `self`.
         An impl may name its first operand `self`, as std's do; the name
         does not change the mode. The rule covers every operand alike, so a
         binary operator has no receiver in decision 30's sense.
-    - **An impl may take an implicitly copyable operand by value**
-      (amended 2026-10-05 by the maintainer). Where the trait declares
-      `imm(x) : T` and `T` is implicitly copyable, the impl may write
-      `x : T` instead:
+    - **Every impl writes the trait's mode, `Copy` or not** (amended
+      2026-10-09 by the maintainer; it replaces the 2026-10-05 amendment
+      that let an impl on an implicitly copyable type take an operand by
+      value). Where the trait declares `imm(x) : T`, the impl writes
+      `imm(x) : T` for every `T`:
       ```rust
       impl(Point, Add(Point)(
         Output : Point,
-        (+) : (fn(lhs : Self, rhs : Self) -> Self)(...)             // Point op(Point, Point)
-      ));
-      impl(String, Add(String)(
-        Output : String,
-        (+) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> Self)(...)   // String op(const String*, const String*)
+        (+) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> Self)(...)
       ));
       ```
-      - **Why it is sound.** For an implicitly copyable type, a copy keeps
-        every promise an `imm` borrow makes: the caller keeps its value,
-        and nothing the callee does reaches it. The by-value impl is the
-        cheaper way to meet the trait's contract.
-      - **Why it is wanted.** Without it, every small value type behind an
-        operator is passed by pointer. A `Point` of two `i32`s fits in one
-        register, but by pointer the caller stores it to memory first, and
-        only inlining removes the indirection.
-      - **The C stays readable.** The impl's own signature is its C
-        signature, as decision 30 requires. The impl's author chooses, and
-        the compiler never picks a lowering.
-      - **The check.** A by-value operand whose type is not implicitly
-        copyable is an error, because it would consume the caller's
-        operand. The error names `imm(x)`. An operand written `mut(x)` is an
-        error, because no operator writes an operand.
-        - **Concrete operand types** are checked at the impl.
-        - **A generic impl's operand** (`Vec2(T)` by value) states its
-          requirement as a bound and is checked at the impl (amended
-          2026-10-05 by decision 36):
-          ```rust
-          impl(generic(T : Type), where(T <: Copy), Vec2(T), Copy());
-          impl(generic(T : Type), where(T <: Copy, T <: Add(T)), Vec2(T), Add(Vec2(T))(
-            Output : Vec2(T),
-            (+) : (fn(lhs : Self, rhs : Self) -> Self)(...)
-          ));
-          ```
-          Without the bound, `Vec2(T)` is not known to be `Copy`, and the
-          by-value operand is the error at the impl, naming
-          `where(T <: Copy)` or `imm(x)`.
-        - Until decision 36 lands, the check runs per instantiation, as
-          the rest of Yo's generic code does (§3.4). That is the interim
-          rule.
-      - **Call sites are the same either way.** An operator takes no marker,
-        and a generic body is specialized per instantiation, so `a + b`
-        calls the concrete impl with its own convention.
-      - **`Dyn` is unaffected.** A vtable slot's type comes from the trait,
-        never from an impl, so an `imm` operand is `const T*` in the slot
-        for every impl.
-        - Each impl already gets a wrapper, `__yo_wrap_<impl>_<method>`
-          (`generate_dyn_wrapper_functions`, `src/codegen/functions/dyn.yo`).
-          The wrapper is defined with the slot's signature and forwards to
-          the impl, adapting where the two spellings differ (`arg_casts`).
-        - A by-value impl adds one more adaptation: its wrapper passes
-          `*argN` where the slot has a pointer. That is one load per call
-          through a `Dyn`, which already pays an indirect call.
-        - The receiver is `void* self_ptr` in every slot already, whatever
-          the impl's receiver mode.
-        - **Which operators have a slot** (corrected 2026-10-05; #1229 said
-          `Eq(String)`'s `(==)` had one, and it does not):
-          - A slot needs a first parameter labelled `self` in the trait
-            (`dyn_member_is_method`, `src/types/utils.yo`). The binary
-            traits label theirs `lhs`, so no binary operator is callable
-            through a `Dyn` today.
-          - `dyn_member_unsafe_reason` also drops a member whose result
-            mentions `Self`, which removes `Negate` and `BitNot`
-            (`Self.Output`).
-          - That leaves `LogicalNot`'s `(!)`, which takes `self` and returns
-            `bool`.
-          - The wrapper rule covers any operator member that gains a slot
-            later.
-        - Test: a `Dyn(LogicalNot)` over a by-value impl negates
-          correctly.
-      - **Only for the operator traits.** A named method's call site carries
-        decision 33's marker. If an impl could change a parameter's mode,
-        `p.eq(&q)` through the trait and `p.eq(q)` against the concrete
-        type would disagree. Extending the rule to every trait method would
-        need its own marker decision.
+      - **A parameter's mode is part of the function type for every
+        type.** `fn(imm(x) : T)` and `fn(x : T)` are two types even when
+        `T` is `Copy`, and the impl check compares modes without asking
+        whether a type is `Copy`. The 2026-10-05 rule made a function
+        type's identity depend on that question, whose answer changes with
+        impl registration order (the prelude evaluates parameters before
+        `Copy` exists) and, for a generic `T`, with the instantiation. Type
+        identity also keys the specialization memo and the C type names.
+      - **The cheap lowering moves to codegen.** For a `Copy` type, a copy
+        keeps every promise an `imm` borrow makes, so passing a small
+        `Copy` operand by value is an ABI choice, not a language one.
+        Codegen lowers `imm(x) : T` to `T x` when `T` is `Copy` and small,
+        and to `const T*` otherwise. The choice is a function of the
+        monomorphized type alone, so the definition, every call site and
+        every `Dyn` slot agree. Today every `imm` lowers to `T x`; the rule
+        matters once a large `imm` lowers to `const T*`.
+      - **`Dyn` needs no adaptation.** Every impl of a member has the
+        trait's modes, so a slot's signature and the impl's agree; the
+        `*argN` load the 2026-10-05 rule needed is gone. The receiver is
+        `void* self_ptr` in every slot, whatever its mode.
+      - **Which operators have a slot** (corrected 2026-10-05; #1229 said
+        `Eq(String)`'s `(==)` had one, and it does not): a slot needs a
+        first parameter labelled `self` (`dyn_member_is_method`,
+        `src/types/utils.yo`), so no binary operator has one, and
+        `dyn_member_unsafe_reason` removes `Negate` and `BitNot` (their
+        result mentions `Self`). That leaves `LogicalNot`'s `(!)`.
+      - **The check.** An impl operand whose mode differs from the trait's
+        is the existing conformance error ("does not implement required
+        trait … as written"). An operand written `mut(x)` is an error,
+        because no operator writes an operand.
+      - **The sweep** is `yo fix --migrate params`: at the conformance
+        check it rewrites an impl's plain operand to `imm(x)` when that is
+        the only difference. An impl whose operands are a lambda
+        (`(lhs, rhs) -> …`) takes the trait's modes and needs no edit.
     - **No marker at the operator.** `a == b` and `a + b` never consume or
       write an operand, whichever mode the impl chose.
       - The operator itself is the marker, as `.` is for a receiver
@@ -1613,8 +1583,8 @@ and in git, not a silent edit.
         `Fd(i32)` without a `Dispose`, a type-state token, an arena index
         that must stay unique, an `Array(u8, 4096)`.
       - **Generic code can state the requirement** (`where(T <: Copy)`),
-        so decision 34's by-value operand check runs at the impl, not per
-        instantiation.
+        so a bound-checked generic body needs no per-instantiation
+        check.
       - "Explicit whenever we can" (the maintainer).
     - **The rule.**
       - `Copy :: trait(where(Self <: Clone))` is a prelude marker with
@@ -2097,8 +2067,9 @@ and in git, not a silent edit.
       36). Its copies are second-class
       too, and a copy carries the same borrows. So:
       - "`Copy`" never implies "may be stored";
-      - decision 34's by-value operand exception needs a first-class
-        `Copy` type;
+      - codegen's by-value lowering of a small `Copy` `imm` operand
+        (decision 34) applies to a second-class `Copy` value too, since it
+        is an ABI choice that stores nothing;
       - the second-class check runs per instantiation even in
         bound-checked generics.
     - **Where it may not go.** A second-class value may not be:
@@ -3219,13 +3190,12 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
     from the expected `Fn` type, and `(inout(n)) => …` is not legal
     either), and `for(xs, mut(x) => …)`.
 - **Generation B,** once `SEED_VERSION` carries Generation A:
-  0. **Decision 34 first:** the prelude's operator traits declare their
-     operands `imm` (`RangeOp`/`RangeInclusiveOp` excepted); the impl check
-     rejects a by-value operand whose type is not implicitly copyable, and
-     a `mut` operand, naming `imm(x)`; and the `Dyn` wrapper passes `*argN`
-     to a by-value impl. It must land with the flip, not before: until a
-     plain operand is by value, the check would reject every existing
-     owning-type impl.
+  0. **Decision 34 first** (as amended 2026-10-09): the prelude's operator
+     traits and their `Comptime*` twins declare their operands `imm`
+     (`RangeOp`/`RangeInclusiveOp` and the `ComptimeRange*` pair excepted),
+     and every impl writes the same mode, which the ordinary conformance
+     check enforces once modes are part of the type for every `T`. It lands
+     with the flip: before it, `imm` and plain are one type.
   1. **The `yo fix` sweep** over `src/`, `std/`, `tests/`, docs and skills:
      - every plain parameter and receiver of a type that is not implicitly
        copyable becomes `imm(...)`;

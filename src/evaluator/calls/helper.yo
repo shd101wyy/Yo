@@ -1014,7 +1014,12 @@ consume_argument_for_parameter :: (
   if(param_is_owning && !param_is_ct, {
     reject_second_class_escape(arg_info.ty, String.from("moved into a by-value (`sink`) parameter"), ast_expr_token(actual_arg), ctx, exn);
   });
-  if(param_is_owning && !param_is_ct && !ctx.is_in_function_call_checking_phase, {
+  // A value with nothing to transfer — no counted payload and implicitly
+  // copyable, a `Copy` value — is COPIED into a by-value parameter and stays
+  // usable: after the flip (decision 30) every plain parameter is by value,
+  // and `f(x); x` on a `u64` is two copies, not a move.
+  arg_is_bitwise_copy := (!type_contains_rc_type(arg_info.ty) && !type_requires_explicit_copy(arg_info.ty));
+  if(param_is_owning && !param_is_ct && !ctx.is_in_function_call_checking_phase && !arg_is_bitwise_copy, {
     match(
       arg_info.variable_name,
       .None => (),

@@ -139,7 +139,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits } :: import("./evaluator/types/function.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -1255,6 +1255,12 @@ run_fix :: (
   // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
   prefer_entry_std_root(files);
   std_path := resolve_std_path();
+  // A migration records from the first evaluated parameter on, the
+  // prelude's included: under the flip the prelude itself only evaluates
+  // with the conformance half of the sweep recording instead of rejecting.
+  if(migrate.len() > usize(0), {
+    set_migrate_param_modes(true);
+  });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only

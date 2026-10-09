@@ -2903,3 +2903,43 @@ expr_side_table_entry_count :: (fn() -> usize)(
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
+// ---------------------------------------------------------------------------
+// `yo fix --migrate params` (plans/VALUES_BY_DEFAULT.md V3b Generation B):
+// the edits the evaluator records, shared by the parameter evaluator
+// (evaluator/types/function.yo) and the trait-conformance check
+// (evaluator/values/impl.yo).
+// ---------------------------------------------------------------------------
+/// One source edit of `yo fix --migrate params` (plans/VALUES_BY_DEFAULT.md
+/// V3b Generation B, step 1): `expect` is the text the span must hold, so an
+/// edit recorded through a synthetic token (a derive's generated impl) is
+/// dropped at apply time instead of corrupting the file.
+MigrateEdit :: struct(path : String, row : usize, col : usize, len : usize, replacement : String, expect : String);
+(g_migrate_param_modes : bool) = false;
+(g_migrate_edits : ArrayList(MigrateEdit)) = ArrayList(MigrateEdit).new();
+(g_migrate_edit_keys : HashSet(String)) = HashSet(String).new();
+set_migrate_param_modes :: (fn(on : bool) -> unit)({
+  g_migrate_param_modes = on;
+});
+take_migrate_edits :: (fn() -> ArrayList(MigrateEdit))({
+  out := g_migrate_edits;
+  g_migrate_edits = ArrayList(MigrateEdit).new();
+  g_migrate_edit_keys = HashSet(String).new();
+  out
+});
+record_migrate_edit :: (fn(imm(tok) : Token, len : usize, imm(replacement) : String, imm(expect) : String) -> unit)({
+  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(g_migrate_edit_keys.contains(key), {
+    return(());
+  });
+  g_migrate_edit_keys.insert(key);
+  g_migrate_edits.push(MigrateEdit(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect));
+});
+/// Whether `yo fix --migrate params` is recording.
+migrate_param_modes_on :: (fn() -> bool)(g_migrate_param_modes);
+/// Record `imm(label)` for a parameter label token (the trait-conformance
+/// half of the sweep, `src/evaluator/values/impl.yo`).
+record_imm_param_migration :: (fn(label_tok : Token) -> unit)({
+  lbl := label_tok.value.clone();
+  record_migrate_edit(label_tok, lbl.len(), `imm(${lbl})`, lbl);
+});
+export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_modes_on, record_migrate_edit, record_imm_param_migration);

@@ -1407,6 +1407,12 @@ set_expr_as_consumed :: (
     .Some(info) => cond(
       // Step 1: type values are reusable, never consumed.
       is_type_value(info.value) => (),
+      // A value with nothing to transfer (no counted payload, implicitly
+      // copyable: a `Copy` value) is copied, never consumed. Since the flip
+      // (decision 30) every plain parameter owns its value, so a `usize`
+      // parameter returned from one `cond` arm would otherwise read as moved
+      // there and not in the others (E0907).
+      (!type_contains_rc_type(info.ty) && !type_requires_explicit_copy(info.ty)) => (),
       true => match(
         info.variable_name,
         // Step 2: no variable name → nothing to consume.
