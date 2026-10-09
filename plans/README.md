@@ -95,8 +95,11 @@ exclusive parameters with UBSan canaries, an LTO-edges audit (ThinLTO is
 already the chunked default), finishing the 5b verifier-driven elision, a
 hoisted-walk lowering for the borrowed `for`, `Rc` write-assert elision by
 mutation summary (plus the per-type frozen-cell rule recorded in place of a
-declined `Rc(RefCell(T))` split), field reordering and PGO — sequenced
-around VALUES_BY_DEFAULT's phases.
+declined `Rc(RefCell(T))` split, which also un-tracks construction-time
+acyclic cells from the cycle collector), a solver-free range pass for the
+overflow guards Rust's release profile does not pay, field reordering and
+PGO — sequenced around VALUES_BY_DEFAULT's phases, with event counters so
+each lever reports events removed beside time saved.
 [`LANGUAGE_FEATURE_CANDIDATES`](backlog/LANGUAGE_FEATURE_CANDIDATES.md) is
 the 2026-10-08 parking lot of six checked candidates, none adopted: scoped
 parallel iteration as std (the `Sync` machinery is all landed; rayon-shaped
