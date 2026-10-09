@@ -69,7 +69,7 @@ impl(
   /// Add an element at the front — O(1), one node allocation. Rust's
   /// `push_front`. Existing element positions shift by one; no pointer or
   /// iterator into another node is disturbed.
-  push_front : (fn(mut(self) : Self, imm(value) : T) -> unit)({
+  push_front : (fn(mut(self) : Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
       next : self.head,
@@ -90,7 +90,7 @@ impl(
   /// Add an element at the back — O(1), one node allocation. Rust's
   /// `push_back`. This is the cheap append; `ArrayList.push` is cheaper
   /// still if you do not need stable node identity.
-  push_back : (fn(mut(self) : Self, imm(value) : T) -> unit)({
+  push_back : (fn(mut(self) : Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
       next : .None,
@@ -217,7 +217,7 @@ impl(
   /// an out-of-range index is a CALLER MISTAKE and stays a `Result` here,
   /// while an allocation failure panics; `ArrayList.insert` panics on the
   /// same mistake, and that difference is deliberate.
-  insert : (fn(mut(self) : Self, index : usize, imm(value) : T) -> Result(unit, LinkedListError))(
+  insert : (fn(mut(self) : Self, index : usize, value : T) -> Result(unit, LinkedListError))(
     cond(
       (index > self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
       (index == usize(0)) => {

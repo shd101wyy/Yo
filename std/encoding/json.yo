@@ -333,7 +333,7 @@ impl(
   /// and a replacement keeps the key's original position.
   ///
   /// Panics when `self` is not an object.
-  insert : (fn(mut(self) : Self, imm(key) : String, imm(value) : JsonValue) -> Option(JsonValue))({
+  insert : (fn(mut(self) : Self, key : String, value : JsonValue) -> Option(JsonValue))({
     // The payload lists are taken into locals, written, and stored back: a
     // `match` binding is a copy of them once collections are values.
     keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
@@ -373,7 +373,7 @@ impl(
   /// Append `value` to an array.
   ///
   /// Panics when `self` is not an array.
-  push : (fn(mut(self) : Self, imm(value) : JsonValue) -> unit)({
+  push : (fn(mut(self) : Self, value : JsonValue) -> unit)({
     items := match(self, .Array(xs) => xs, _ => __yo_panic("JsonValue.push: requires the .Array variant"));
     items.push(value);
     self = Self.Array(items);

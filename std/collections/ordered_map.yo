@@ -106,7 +106,7 @@ impl(
   /// a new key, or `.Err(_)` on allocation failure.
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
-  try_insert : (fn(mut(self) : Self, imm(key) : K, imm(value) : V) -> Result(Option(V), HashMapError))({
+  try_insert : (fn(mut(self) : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     is_new := !self._map.contains_key(key);
     result := self._map.try_insert(key, value);
     cond(
@@ -127,7 +127,7 @@ impl(
   /// position.
   ///
   /// PANICS on allocation failure (D9). Use `try_insert` to handle OOM.
-  insert : (fn(mut(self) : Self, imm(key) : K, imm(value) : V) -> Option(V))(
+  insert : (fn(mut(self) : Self, key : K, value : V) -> Option(V))(
     match(
       Self.try_insert(self, key, value),
       .Ok(prev) => prev,

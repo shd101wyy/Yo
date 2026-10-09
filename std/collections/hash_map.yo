@@ -563,7 +563,7 @@ impl(
   /// The allocator-aware form (D9); `insert` is the one to reach for. An
   /// insertion that crosses the load factor rehashes the table first, which
   /// INVALIDATES every entry pointer previously handed out.
-  try_insert : (fn(mut(self) : Self, imm(key) : K, imm(value) : V) -> Result(Option(V), HashMapError))({
+  try_insert : (fn(mut(self) : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
@@ -704,7 +704,7 @@ impl(
   /// The `.Some(old)` result is a trap worth knowing: `map.insert(k, v)
   /// .unwrap()` used to unwrap a `Result` and now unwraps the OPTION, so it
   /// panics on a FRESH key.
-  insert : (fn(mut(self) : Self, imm(key) : K, imm(value) : V) -> Option(V))(
+  insert : (fn(mut(self) : Self, key : K, value : V) -> Option(V))(
     match(
       Self.try_insert(self, key, value),
       .Ok(prev) => prev,

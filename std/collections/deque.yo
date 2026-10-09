@@ -164,7 +164,7 @@ impl(
   /// A full ring grows (doubling and linearising), which PANICS on allocation
   /// failure or capacity overflow rather than reporting it (D9), and
   /// invalidates every pointer into the buffer.
-  push_back : (fn(mut(self) : Self, imm(val) : T) -> unit)({
+  push_back : (fn(mut(self) : Self, val : T) -> unit)({
     cond(
       (self._len == self._cap()) => self._grow(self._len + usize(1)),
       true => ()
@@ -179,7 +179,7 @@ impl(
   /// `push_front`.
   ///
   /// Grows exactly like `push_back` when the ring is full.
-  push_front : (fn(mut(self) : Self, imm(val) : T) -> unit)({
+  push_front : (fn(mut(self) : Self, val : T) -> unit)({
     cond(
       (self._len == self._cap()) => self._grow(self._len + usize(1)),
       true => ()

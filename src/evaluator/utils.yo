@@ -2722,6 +2722,82 @@ find_variable_by_id :: (fn(imm(env) : Environment, id : usize) -> Option(Variabl
   });
   Option(Variable).None
 });
+/// The first `.Some` token in `toks`.
+_first_some_token :: (fn(imm(toks) : ArrayList(Option(Token))) -> Option(Token))({
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    match(
+      toks.get(i),
+      .Some(.Some(t)) => {
+        return(Option(Token).Some(t));
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(Token).None
+});
+/// A value moved in some arms of a `cond`/`match` and kept in others: attach
+/// `___drop(name)` to the end of each arm that keeps it (the arm body's
+/// deferred drops, which codegen emits inside the arm, after its value).
+/// Where the arms meet, the value is then moved or dropped on every path, so
+/// the caller marks it consumed. True when the drops are attached, or when
+/// the value owns nothing to drop. False leaves the caller's E0907: a value
+/// held through a borrow, a module-level one, or one whose type is not known
+/// enough to drop.
+_drop_in_arms_that_keep :: (
+  fn(
+    imm(v) : Variable,
+    imm(bodies) : ArrayList(AstExpr),
+    imm(consumed_at_tokens) : ArrayList(Option(Token)),
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
+  ) -> bool
+)({
+  if(!v.is_owning_the_rc_value || v.is_ref || v.is_module_level, {
+    return(false);
+  });
+  if(!type_contains_rc_type(v.ty), {
+    return(true);
+  });
+  if(match(
+    v.ty,
+    .SomeT({ required_trait_types : s_rtt, resolution : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    _ => false
+  ), {
+    return(false);
+  });
+  // The drop is evaluated with the value still owned, as the scope-end drop
+  // of an unmoved local is; the join marks it moved afterwards.
+  saved_consumed := v.consumed_at_token;
+  v.consumed_at_token = Option(Rc(Token)).None;
+  (i : usize) = usize(0);
+  while(i < bodies.len(), {
+    keeps := match(consumed_at_tokens.get(i), .Some(.Some(_)) => false, _ => true);
+    if(keeps, {
+      match(
+        bodies.get(i),
+        .Some(body) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(body)),
+          .Some(bi) => {
+            drop_expr := generate_expr_from_code(`${BF_DROP}(${v.name})`, exn);
+            evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+            v.consumed_at_token = Option(Rc(Token)).None;
+            drops := match(bi.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+            drops.push(evaluated);
+            bi.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(drops);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  v.consumed_at_token = saved_consumed;
+  true
+});
 /// Join the arms of a `cond`/`match` into `env`. `bodies` are the arms that
 /// reach the join; `group_log_start` is the flow log's length when the
 /// branch began (its arms' records follow it); `arm_ranges` holds each
@@ -3246,8 +3322,24 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                 .None => ()
               );
             });
-            // Case 3: partial consumption → error
-            if(any_consumed && !all_consumed, {
+            // Case 3: partial consumption. An owned value is dropped at the
+            // end of every arm that does not move it, so where the arms meet
+            // it is gone on every path (the static form of Rust's drop flag:
+            // the arms are structured, so no runtime flag is needed). Only a
+            // value the elaboration cannot drop is still E0907.
+            partial := (any_consumed && !all_consumed);
+            elaborated := (partial && _drop_in_arms_that_keep(base_var, bodies, consumed_at_tokens, env, ctx, exn));
+            if(elaborated, {
+              first_ct := _first_some_token(consumed_at_tokens);
+              match(
+                first_ct,
+                .Some(t) => {
+                  base_var.consumed_at_token = Option(Rc(Token)).Some(rc(t.clone()));
+                },
+                .None => ()
+              );
+            });
+            if(partial && !elaborated, {
               err_list := ArrayList(TokenAndError).new();
               (eci : usize) = usize(0);
               while(eci < n_cases, {

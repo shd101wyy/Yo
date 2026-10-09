@@ -133,7 +133,7 @@ impl(
   /// `.Ok(())` once buffered, or `.Err(value)` if the channel is (or
   /// becomes) closed, or its `Receiver` has been dropped — the failed value
   /// is handed back.
-  send : (fn(imm(self) : Self, imm(value) : T, io : Io) -> Impl(Future(Result(unit, T))))(
+  send : (fn(imm(self) : Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
     io.async((io : Io) => {
       (waiting : bool) = true;
       while(waiting, {
@@ -205,7 +205,7 @@ impl(
   ),
   /// Try to send without suspending: `.Ok(())` if buffered, `.Err(value)`
   /// if the channel is full, closed, or has no `Receiver` any more.
-  try_send : (fn(imm(self) : Self, imm(value) : T) -> Result(unit, T))(
+  try_send : (fn(imm(self) : Self, value : T) -> Result(unit, T))(
     cond(
       self._closed => Result(unit, T).Err(value),
       self._recv_dropped => Result(unit, T).Err(value),
@@ -338,12 +338,12 @@ impl(
   }),
   /// Send a value, suspending while the buffer is full. `.Err(value)` once
   /// the channel is closed or the `Receiver` is gone (Rust's `SendError(T)`).
-  send : (fn(imm(self) : Self, imm(value) : T, io : Io) -> Impl(Future(Result(unit, T))))(
+  send : (fn(imm(self) : Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
     self._ch.send(value, io)
   ),
   /// Send without suspending: `.Err(value)` if the buffer is full, the
   /// channel is closed, or the `Receiver` is gone.
-  try_send : (fn(imm(self) : Self, imm(value) : T) -> Result(unit, T))(
+  try_send : (fn(imm(self) : Self, value : T) -> Result(unit, T))(
     self._ch.try_send(value)
   ),
   /// True once the channel is closed — by an explicit `close()`, or by the

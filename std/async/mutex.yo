@@ -53,7 +53,7 @@ impl(
   generic(T : Type),
   Mutex(T),
   /// A new unlocked mutex protecting `value`.
-  new : (fn(imm(value) : T) -> Self)(
+  new : (fn(value : T) -> Self)(
     Self(_locked : false, _waiters : ArrayList(Waker).new(), _value : value)
   ),
   /// Acquire the lock, suspending while another task holds it.
@@ -146,7 +146,7 @@ impl(
     self._value
   ),
   /// Replace the protected value (same locking contract as `get`).
-  set : (fn(imm(self) : Self, imm(value) : T) -> unit)({
+  set : (fn(imm(self) : Self, value : T) -> unit)({
     self._value = value;
   })
 );

@@ -97,7 +97,7 @@ impl(
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
   /// `.Ok(true)` when the element was NOT already present.
-  try_insert : (fn(mut(self) : Self, imm(element) : T) -> Result(bool, HashSetError))(
+  try_insert : (fn(mut(self) : Self, element : T) -> Result(bool, HashSetError))(
     match(
       self._map.try_insert(element, ()),
       .Ok(prev) => .Ok(prev.is_none()),
@@ -108,7 +108,7 @@ impl(
   ///
   /// PANICS on allocation failure (D9); `try_insert` is the allocator-aware
   /// form.
-  insert : (fn(mut(self) : Self, imm(element) : T) -> bool)(
+  insert : (fn(mut(self) : Self, element : T) -> bool)(
     self._map.insert(element, ()).is_none()
   ),
   /// True when `element` is in the set.
