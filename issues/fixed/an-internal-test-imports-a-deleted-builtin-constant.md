@@ -1,6 +1,6 @@
-# An internal test imports a builtin constant the snake_case rename deleted
+# Two internal tests still name the builtins the snake_case rename deleted
 
-**Severity:** S3: test-only. `tests/internal/typeof.test.yo` stopped compiling on `develop`; no shipped code is affected, but the file's own coverage of `evaluate_typeof` was lost and a `tests/internal` run fails on it.
+**Severity:** S3: test-only. `tests/internal/typeof.test.yo` stopped compiling and `tests/internal/lsp_protocol.test.yo` failed an assertion on `develop` (CI run 37886009263, shard 2); no shipped code is affected.
 
 ## Symptom
 
@@ -14,6 +14,10 @@ C-style builtins become snake_case) deleted `BF_TYPEOF`/`BF_SIZEOF`/
 sweeping `tests/internal/` with `yo fix --migrate params`: the file was the one
 that did not evaluate.
 
+`tests/internal/lsp_protocol.test.yo`'s "rename_rejection: only legal binding
+names pass" asserted that `typeof` is a reserved binding name. It no longer is
+(`type_of` is), so the assertion aborted with "reserved builtin binding name".
+
 ## Root cause
 
 The rename's sweep rewrote call sites (`typeof(x)` → `type_of(x)`) but not
@@ -23,5 +27,6 @@ file before the merge.
 
 ## Fix
 
-`BF_TYPEOF` → `BF_TYPE_OF` (three sites). `yo test tests/internal/typeof.test.yo`
-passes; it is its own regression test.
+`BF_TYPEOF` → `BF_TYPE_OF` (three sites); the rename test asserts that
+`type_of` is reserved and that `typeof` is now an ordinary name. Both files are
+their own regression tests.
