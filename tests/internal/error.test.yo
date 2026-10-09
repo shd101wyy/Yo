@@ -55,7 +55,7 @@ json :: import("std/encoding/json");
   E_DEP_FETCH_FAILED
 } :: import("../../src/diagnostics.yo");
 // Build a dummy token for testing.
-make_token :: (fn(module_path : String, input : String, row : usize, column : usize, value : String) -> Token)(
+make_token :: (fn(imm(module_path) : String, imm(input) : String, row : usize, column : usize, imm(value) : String) -> Token)(
   Token(
     kind : TokenKind.Identifier,
     value : value,
@@ -108,7 +108,7 @@ test("format_error_message's source line is the token's row at every edge", {
   // (issues/derive-clone-costs-17-ms-per-type.md); it must match what a
   // split on "\n" gave: an empty line, the last line with and without a
   // trailing newline, a CRLF line (the `\r` stays), and a row past the end.
-  line_at := (fn(input : String, row : usize) -> String)(
+  line_at := (fn(imm(input) : String, row : usize) -> String)(
     match(
       format_error_message(make_token(`e.yo`, input, row, usize(0), `x`), `msg`).diagnostics.get(usize(0)),
       .Some(d) => d.source_line,
@@ -521,7 +521,7 @@ test("sarif: never colored, even with color forced on", {
 
 // ─── P4: the warnings channel (D15) ──────────────────────────────────────────
 test("warnings: the stash dedupes, takes clean, and honors the enabled flag", {
-  mk :: (fn(name : String) -> Diagnostic)(
+  mk :: (fn(imm(name) : String) -> Diagnostic)(
     Diagnostic(
       code : Option(String).None,
       severity : Severity.Warning,
@@ -546,7 +546,7 @@ test("warnings: the stash dedupes, takes clean, and honors the enabled flag", {
 });
 
 test("take_user_warnings filters std/cache roots by path COMPONENT", {
-  mk_at :: (fn(path : String) -> Diagnostic)(
+  mk_at :: (fn(imm(path) : String) -> Diagnostic)(
     Diagnostic(
       code : Option(String).None,
       severity : Severity.Warning,

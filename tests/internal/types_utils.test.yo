@@ -485,15 +485,15 @@ test("type_contains_rc_type: unresolved SomeT is conservatively true", {
 // form object-graph cycles, and yo-self terminates via the depth cap (40)
 // rather than TS's visited set.
 // ---------------------------------------------------------------------------
-_trp_struct :: (fn(name : String, labels : ArrayList(String), types : ArrayList(TypeValue), is_ref : bool, is_atomic : bool, is_newtype : bool) -> TypeValue)(
+_trp_struct :: (fn(imm(name) : String, imm(labels) : ArrayList(String), imm(types) : ArrayList(TypeValue), is_ref : bool, is_atomic : bool, is_newtype : bool) -> TypeValue)(
   TypeValue.Struct(String.from(""), name, labels, types, is_ref, is_atomic, is_newtype, String.from(""), ArrayList(TypeValue).new(), false)
 );
-_trp_labels1 :: (fn(a : String) -> ArrayList(String))({
+_trp_labels1 :: (fn(imm(a) : String) -> ArrayList(String))({
   l := ArrayList(String).new();
   l.push(a);
   l
 });
-_trp_types1 :: (fn(a : TypeValue) -> ArrayList(TypeValue))({
+_trp_types1 :: (fn(imm(a) : TypeValue) -> ArrayList(TypeValue))({
   l := ArrayList(TypeValue).new();
   l.push(a);
   l

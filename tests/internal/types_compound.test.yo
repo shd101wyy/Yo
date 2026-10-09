@@ -13,7 +13,7 @@
 { Substitution, subst_new, subst_add, subst_lookup, substitute, substitute_all }
 :: import("../../src/types/substitution.yo");
 // Helper: assert two Strings are equal, printing both on failure.
-check_str :: (fn(actual : String, expected : String, label : str) -> unit)(
+check_str :: (fn(imm(actual) : String, imm(expected) : String, label : str) -> unit)(
   if(actual == expected, (), {
     println(`FAIL [${label}]: expected "${expected}", got "${actual}"`);
     assert(false, label);
@@ -308,7 +308,7 @@ test("t_dyn: required + negative traits", {
 // A TypeValue is a shared DAG: each level's two fields are the SAME node. A
 // tree walk visits 2^40 paths; `substitute` must visit each node once
 // (issues/fixed/substitute-walks-a-shared-type-as-a-tree.md).
-_dag_level :: (fn(i : usize, child : TypeValue) -> TypeValue)({
+_dag_level :: (fn(i : usize, imm(child) : TypeValue) -> TypeValue)({
   labels := ArrayList(String).new();
   labels.push(`a`);
   labels.push(`b`);

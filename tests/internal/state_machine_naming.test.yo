@@ -20,7 +20,7 @@
 mk_variable :: (fn(name : str) -> Variable)(
   make_capture_variable(String.from(name), t_usize(), Option(EvalValue).None, String.from("sm_naming_test"))
 );
-mk_entry :: (fn(v : Variable, kind : CapturedVariableKind) -> CapturedVariable)(
+mk_entry :: (fn(imm(v) : Variable, kind : CapturedVariableKind) -> CapturedVariable)(
   CapturedVariable(
     base : SuspensionCapturedVariable(
       id : v.id.to_string(),
@@ -33,7 +33,7 @@ mk_entry :: (fn(v : Variable, kind : CapturedVariableKind) -> CapturedVariable)(
     is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None
   )
 );
-slot_of :: (fn(v : Variable, kind : CapturedVariableKind, aliases : Option(HashMap(String, String)), capture_slot : str) -> String)({
+slot_of :: (fn(imm(v) : Variable, kind : CapturedVariableKind, imm(aliases) : Option(HashMap(String, String)), capture_slot : str) -> String)({
   smv := HashMap(String, CapturedVariable).new();
   smv.insert(v.id.to_string(), mk_entry(v, kind));
   match(
