@@ -70,6 +70,17 @@ state-machine plan's phase 7 design for std's single-await I/O wrappers
 the parked design for installing Yo through Homebrew, Scoop and the
 Linux/nix system package managers — built entirely on the existing release
 bundles, with per-channel start triggers instead of a schedule.
+[`THEOREM_PROVING_NEXT`](backlog/THEOREM_PROVING_NEXT.md) is what remains
+for theorem proving after the landed lemma layer (`law`, lemmas by
+induction, `seq_of`/`produced`/`distinct`): the std lemma library,
+auto-induction retry, calculational chains, trigger observability, and the
+parked certificate / external-prover routes with their revisit triggers.
+Its sibling audit of the K ecosystem's engineering,
+[`K_FRAMEWORK_ENGINEERING_LESSONS`](backlog/K_FRAMEWORK_ENGINEERING_LESSONS.md),
+takes the pieces that do not touch the declined matching-logic foundation:
+obligation ids and single re-query, a std conformance corpus, clause-usage
+coverage, a verifier bug-report bundler; the solver-daemon architecture and
+proof-state viewers are rejected with recorded reasons.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
