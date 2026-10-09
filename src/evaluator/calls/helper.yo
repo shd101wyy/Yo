@@ -792,24 +792,16 @@ audit_borrow_marker_site :: (
     eprintln(line);
   });
 });
-/// Does a `&x` argument to a parameter of declared type `t` keep today's
-/// meaning, the raw-pointer address-of? It does for a raw pointer parameter
-/// and for an open generic or `Impl(...)` one (`SomeT`), where `&x` infers a
-/// pointer type today; any other parameter cannot receive a pointer (there is
-/// no implicit `*(T)` → `Option(*(T))` wrap), so there `&x` is a borrow.
-_param_type_takes_address :: (fn(imm(t) : TypeValue) -> bool)(
-  is_pointer_type(t) || is_some_type(t)
-);
 /// Call-site borrow markers (plans/VALUES_BY_DEFAULT.md decision 33, V3b
 /// Generation A). In argument position the parameter's mode selects what a
 /// marker means:
 ///
-/// - `&mut x` to a `mut`/`inout` parameter is exactly today's bare `x`;
-/// - `&x` to a borrowing (plain or `imm`) parameter is a borrow of `x`,
-///   exactly as passing `x` is today — unless the parameter's declared type
-///   is a raw pointer or generic (`_param_type_takes_address`), where `&x`
-///   stays the address-of;
-/// - `&x` to a `sink` parameter stays the address-of, as today.
+/// - `&mut x` to a `mut` parameter lends the place `x` exclusively;
+/// - `&x` to an `imm` parameter lends `x` read-only, whatever the declared
+///   type, a generic or `Impl(...)` one included (V3b Generation B);
+/// - `&x` to a by-value parameter (plain or `sink`) is still the raw-pointer
+///   address-of, until `&x` loses that meaning to `addr_of(x)` (decision 33);
+///   a pointer or generic by-value parameter infers `*(T)` from it.
 ///
 /// A `&mut x` to any other parameter, and a `&x` to a `mut`/`inout` one, is an
 /// error (neither has ever compiled: the address-of is not a place). There is
@@ -861,7 +853,6 @@ apply_call_site_borrow_markers :: (
       p_is_ref := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
       p_is_owning := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
       p_label := match(param_labels.get(ai), .Some(l) => l, .None => String.new());
-      p_ty := match(param_types.get(ai), .Some(t) => t, .None => t_unit());
       place_text := ast_expr_to_string(ast_expr_strip_borrow_marker(bare));
       cond(
         (is_mut_marker && p_is_ref) => {
@@ -887,7 +878,7 @@ apply_call_site_borrow_markers :: (
             )
           );
         },
-        (p_is_owning || _param_type_takes_address(p_ty)) => (),
+        p_is_owning => (),
         true => {
           peel = true;
         }

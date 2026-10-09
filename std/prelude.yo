@@ -10267,12 +10267,12 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            // Detect `inout(name) => body` — borrow form. Otherwise
+            // Detect `mut(name) => body` (or its old spelling `inout(name)`) — borrow form. Otherwise
             // it's the value form `(name) => body`.
             is_ref_form :: cond(
               variable.is_fn_call() => {
                 v_callee :: variable.get_callee();
-                v_callee.is_atom() && (v_callee == quote(inout))
+                v_callee.is_atom() && ((v_callee == quote(mut)) || (v_callee == quote(inout)))
               },
               true => false
             );
@@ -10290,7 +10290,7 @@ for :: (
                         cond(
                           mv_second.is_fn_call() => {
                             mv_second_callee :: mv_second.get_callee();
-                            mv_second_callee.is_atom() && (mv_second_callee == quote(inout))
+                            mv_second_callee.is_atom() && ((mv_second_callee == quote(mut)) || (mv_second_callee == quote(inout)))
                           },
                           true => false
                         )

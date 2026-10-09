@@ -1186,6 +1186,114 @@ _run_migrate_params :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated parameters were not migrated`));
   });
 });
+/// `yo fix <path> --migrate modes` — the spelling half of V3b step 3
+/// (plans/VALUES_BY_DEFAULT.md): every `inout(x)` becomes `mut(x)` and every
+/// `own(x)` parameter becomes `sink(x)`. Both are synonyms of the new word, so
+/// the sweep is syntactic: each file is parsed, never evaluated, which also
+/// reaches what evaluation never sees (a macro's arguments such as `for`'s
+/// `inout(x) =>` handle, `quote(...)` templates, test bodies, generic bodies
+/// no instantiation reaches). An `asm(...)` operand's `inout(reg, v)` is a
+/// different word and stays. Each edit checks the text it replaces.
+_modes_walk :: (fn(imm(e) : AstExpr, in_asm : bool, mut(out) : ArrayList(_PendingFix)) -> unit)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, callee, args, _, _) => {
+      callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      child_asm := (in_asm || (callee_word == "asm"));
+      if(!in_asm && (callee_word == "inout") && (args.len() == usize(1)), {
+        ct := ast_expr_token(callee);
+        out.push(_PendingFix(row : usize(ct.row), col : usize(ct.column), len : usize(5), replacement : String.from("mut"), description : String.from("inout")));
+      });
+      // `own(x) : T` — the old spelling of `sink(x)`, as a parameter label.
+      if((callee_word == ":") && (args.len() == usize(2)), {
+        match(
+          args.get(usize(0)),
+          .Some(.FnCall(_, oc, oargs, _, _)) => match(
+            oc,
+            .Atom(_, otok) => if((otok.value == "own") && (oargs.len() == usize(1)), {
+              out.push(_PendingFix(row : usize(otok.row), col : usize(otok.column), len : usize(3), replacement : String.from("sink"), description : String.from("own")));
+            }),
+            _ => ()
+          ),
+          _ => ()
+        );
+      });
+      recur(callee, child_asm, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(args.get(i), .Some(a) => recur(a, child_asm, out), .None => ());
+        i = (i + usize(1));
+      });
+    }
+  )
+);
+/// `parse`, or `.None` when the file does not parse.
+_parse_or_none :: (fn(imm(src) : String, imm(file) : String) -> Option(ArrayList(AstExpr)))({
+  local_exn := Exception(throw : (_err -> unwind(Option(ArrayList(AstExpr)).None)));
+  Option(ArrayList(AstExpr)).Some(parse(src, file, local_exn))
+});
+_run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : Io, imm(exn) : Exception) -> unit)({
+  (n_mut : usize) = usize(0);
+  (n_sink : usize) = usize(0);
+  (n_stale : usize) = usize(0);
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    match(
+      _parse_or_none(src, file.clone()),
+      .None => {
+        failed = (failed + usize(1));
+        println(`fix: ${file} does not parse; skipped`);
+      },
+      .Some(asts) => {
+        pending := ArrayList(_PendingFix).new();
+        (ai : usize) = usize(0);
+        while(ai < asts.len(), ai = (ai + usize(1)), {
+          match(asts.get(ai), .Some(a) => _modes_walk(a, false, &mut pending), .None => ());
+        });
+        lines := src.split(String.from("\n"));
+        checked := ArrayList(_PendingFix).new();
+        seen := HashSet(String).new();
+        (pi : usize) = usize(0);
+        while(pi < pending.len(), pi = (pi + usize(1)), {
+          p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
+          key := `${p.row.to_string()}:${p.col.to_string()}`;
+          if(seen.contains(key), {
+            continue;
+          });
+          seen.insert(key);
+          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          if(_rune_slice(line, p.col, p.len) != p.description, {
+            n_stale = (n_stale + usize(1));
+            continue;
+          });
+          if(p.description == "inout", {
+            n_mut = (n_mut + usize(1));
+          }, {
+            n_sink = (n_sink + usize(1));
+          });
+          checked.push(p);
+        });
+        if(!dry_run && (checked.len() > usize(0)), {
+          _apply_fixes_to_file(file.clone(), checked, io, exn);
+          fmt_argv := ArrayList(String).new();
+          fmt_argv.push(String.from("yo"));
+          fmt_argv.push(String.from("fmt"));
+          fmt_argv.push(file.clone());
+          run_fmt(fmt_argv, io, exn);
+        });
+      }
+    );
+  });
+  verb := if(dry_run, String.from("would migrate"), String.from("migrated"));
+  println(`fix: ${verb} ${n_mut.to_string()} inout to mut and ${n_sink.to_string()} own to sink; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
+  });
+});
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -1203,7 +1311,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes]`));
   });
   (target_path : String) = String.new();
   (dry_run : bool) = false;
@@ -1219,8 +1327,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || (argv(next_m) != "params"), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params or modes`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -1235,7 +1343,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes]`));
       },
       true => {
         target_path = a.clone();
@@ -1255,6 +1363,11 @@ run_fix :: (
   // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
   prefer_entry_std_root(files);
   std_path := resolve_std_path();
+  // The spelling sweep is syntactic: nothing is evaluated.
+  if(migrate == "modes", {
+    _run_migrate_modes(files, dry_run, io, exn);
+    return(());
+  });
   // A migration records from the first evaluated parameter on, the
   // prelude's included: under the flip the prelude itself only evaluates
   // with the conformance half of the sweep recording instead of rejecting.

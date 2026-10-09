@@ -7145,10 +7145,17 @@ Fix: wrap the call:
         // default flows through the call EXACTLY like a supplied argument
         // (generic inference, param binding, runtime C args, specialization).
         fv_default_exprs := get_func_param_default_exprs(func_id_fv.clone());
+        // A closure callee is typed by its `Fn` trait (or a SomeT wrapping
+        // it): its call parameters come from the trait, as `fv_param_is_ref`
+        // below does, so the call-site markers see every position.
         fv_param_types := match(
           fv_callee_ty,
           .Func({ param_types : fpts }) => fpts,
-          _ => ArrayList(TypeValue).new()
+          _ => match(
+            extract_fn_trait_from_type(fv_callee_ty),
+            .Some(.FnTraitT(_, _, fv_cpt, _, _, _, _, _)) => fv_cpt,
+            _ => ArrayList(TypeValue).new()
+          )
         );
         // Per-parameter `ref` flags, parallel to `fv_param_types`. A
         // `comptime(inout(n))` / `inout(n)` parameter must be bound as
@@ -7162,7 +7169,11 @@ Fix: wrap the call:
           .Some(ci) => match(
             ci.ty,
             .Func({ meta : __fm5 }) => __fm5.*.param_labels,
-            _ => ArrayList(String).new()
+            _ => match(
+              extract_fn_trait_from_type(ci.ty),
+              .Some(.FnTraitT(_, fv_cpl, _, _, _, _, _, _)) => fv_cpl,
+              _ => ArrayList(String).new()
+            )
           ),
           .None => ArrayList(String).new()
         );
@@ -7198,7 +7209,11 @@ Fix: wrap the call:
           .Some(ci) => match(
             ci.ty,
             .Func({ meta : __fm7 }) => __fm7.*.param_is_owning,
-            _ => ArrayList(bool).new()
+            _ => match(
+              extract_fn_trait_from_type(ci.ty),
+              .Some(.FnTraitT(_, _, _, _, _, _, _, fv_cpof)) => fv_cpof,
+              _ => ArrayList(bool).new()
+            )
           ),
           .None => ArrayList(bool).new()
         );
