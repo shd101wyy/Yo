@@ -42,7 +42,7 @@ impl(
     LocalMapIter(Self, A, B, F)(_inner : self, _f : f)
   )
 );
-double :: (fn(x : i32) -> i32)(x * i32(2));
+double :: (fn(imm(x) : i32) -> i32)(x * i32(2));
 test("where-clause associated-type inference binds A and B from impl + Fn signature", {
   list := ArrayList(i32).new();
   list.push(i32(1));
@@ -50,7 +50,7 @@ test("where-clause associated-type inference binds A and B from impl + Fn signat
   // The annotation forces the result type explicitly. Before the fix, the
   // call would specialize `local_map_to` with A,B left as SomeTypes, producing a
   // distinct shadow LocalMapIter struct that didn't satisfy the annotation.
-  (iter : LocalMapIter(type_of(it1), i32, i32, fn(x : i32) -> i32)) = it1.local_map_to(double);
+  (iter : LocalMapIter(type_of(it1), i32, i32, fn(imm(x) : i32) -> i32)) = it1.local_map_to(double);
   match(
     iter.next(),
     .None => assert(true, "stub returns None"),
@@ -61,8 +61,8 @@ test("where-clause inference with bool callback return type", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   it1 := list.into_iter();
-  is_pos :: (fn(x : i32) -> bool)(x > i32(0));
-  (iter : LocalMapIter(type_of(it1), i32, bool, fn(x : i32) -> bool)) = it1.local_map_to(is_pos);
+  is_pos :: (fn(imm(x) : i32) -> bool)(x > i32(0));
+  (iter : LocalMapIter(type_of(it1), i32, bool, fn(imm(x) : i32) -> bool)) = it1.local_map_to(is_pos);
   match(
     iter.next(),
     .None => assert(true, "stub returns None"),
