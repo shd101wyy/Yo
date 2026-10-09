@@ -383,3 +383,30 @@ test("borrow places: a capture list on an `io.async` body is not supported yet",
   comptime_expect_error(io.async({ k }(io : Io) => k), "not supported yet");
   assert(k == i32(1), "k is untouched");
 });
+// A `cond`/`match` TAIL joins at the arms' concrete closure type, not the
+// declared `Impl(Fn)` result, so a borrowing closure returned through one
+// is second-class like any other
+// (issues/fixed/cond-match-tail-adopts-the-abstract-impl-result-type.md).
+test("second-class: a cond or match tail cannot return a borrowing closure", {
+  comptime_expect_error(
+    (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+      (f : Impl(Fn() -> i32)) = ({ imm(x) }() => x);
+      cond(b => f, true => f)
+    }),
+    "cannot be returned"
+  );
+  comptime_expect_error(
+    (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+      (f : Impl(Fn() -> i32)) = ({ imm(x) }() => x);
+      match(b, true => f, false => f)
+    }),
+    "cannot be returned"
+  );
+  comptime_expect_error(
+    (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+      (f : Impl(Fn() -> i32)) = ({ imm(x) }() => x);
+      return(cond(b => f, true => f));
+    }),
+    "cannot be returned"
+  );
+});

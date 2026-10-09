@@ -518,3 +518,111 @@ test("a unit call through a fn-typed field releases its argument temporary", {
   _cap_send(_CapSinkBundle(sink : s));
   assert((g_cap_disposed - before) == i32(1), `the argument was released once, released ${g_cap_disposed - before}`);
 });
+// A function whose `Impl(Fn)` result is the TAIL `cond`/`match` itself: the
+// join keeps the arms' concrete closure type (it adopted the abstract
+// `Impl`, so the C result temp was `void*` and clang rejected the store)
+// (issues/fixed/cond-match-tail-adopts-the-abstract-impl-result-type.md).
+_impl_tail_cond :: (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ x }() => x);
+  cond(b => f, true => f)
+});
+_impl_tail_match :: (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ x }() => x);
+  match(b, true => f, false => f)
+});
+_impl_tail_guard :: (fn(x : i32, n : i32) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ x }() => x);
+  match(n, (k && (k > i32(0))) => f, _ => f)
+});
+_impl_tail_nested :: (fn(x : i32, b : bool, c : bool) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ x }() => x);
+  match(b, true => cond(c => f, true => f), false => match(c, true => f, false => f))
+});
+_impl_tail_return :: (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ x }() => x);
+  if(b, {
+    return(cond(b => f, true => f));
+  });
+  match(b, true => f, false => f)
+});
+_impl_tail_generic :: (fn(generic(T : Type), x : T, b : bool) -> Impl(Fn() -> T))({
+  (f : Impl(Fn() -> T)) = ({ x }() => x);
+  match(b, true => f, false => f)
+});
+_impl_tail_payload :: (fn(b : bool) -> Impl(Fn(x : i32) -> i32))({
+  p := CapPayload(n : i32(5));
+  (f : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+  cond(b => f, true => f)
+});
+test("a cond or match tail returns its arms' closure as an Impl(Fn) result", {
+  assert(_impl_tail_cond(i32(42), true)() == i32(42), "cond tail, first arm");
+  assert(_impl_tail_cond(i32(7), false)() == i32(7), "cond tail, fallback arm");
+  assert(_impl_tail_match(i32(43), true)() == i32(43), "match tail");
+  assert(_impl_tail_match(i32(44), false)() == i32(44), "match tail, second arm");
+  assert(_impl_tail_guard(i32(5), i32(1))() == i32(5), "guarded match tail");
+  assert(_impl_tail_guard(i32(6), i32(-1))() == i32(6), "guarded match tail, fallback");
+  assert(_impl_tail_nested(i32(3), true, false)() == i32(3), "cond nested in a match arm");
+  assert(_impl_tail_nested(i32(4), false, true)() == i32(4), "match nested in a match arm");
+  assert(_impl_tail_return(i32(1), true)() == i32(1), "return(cond(...))");
+  assert(_impl_tail_return(i32(2), false)() == i32(2), "match tail after a return");
+  assert(_impl_tail_generic(i32(8), true)() == i32(8), "generic, i32");
+  assert(_impl_tail_generic(i64(9), false)() == i64(9), "generic, i64");
+});
+test("a closure returned through a cond tail keeps and releases its capture once", {
+  before := g_cap_disposed;
+  {
+    g := _impl_tail_payload(true);
+    assert(g(i32(1)) == i32(6), "the returned closure reads its capture");
+    assert(g(i32(2)) == i32(7), "and again");
+  };
+  assert((g_cap_disposed - before) == i32(1), `the capture is released exactly once, released ${g_cap_disposed - before}`);
+});
+// A LOCAL function value returning `Impl(Fn)` is called with the concrete
+// closure type the function returns, not `void*`
+// (issues/fixed/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md).
+test("a local function value returning an Impl(Fn) result", {
+  mk := (fn(x : i32) -> Impl(Fn() -> i32))({
+    (f : Impl(Fn() -> i32)) = ({ x }() => (x + i32(1)));
+    f
+  });
+  g := mk(i32(41));
+  h := mk(i32(9));
+  assert(g() == i32(42), "first call");
+  assert(h() == i32(10), "second call");
+  assert(g() == i32(42), "the first closure again");
+  assert(mk(i32(3))() == i32(4), "called directly");
+  (outer : Impl(Fn(y : i32) -> i32)) = ({ mk }(y : i32) => mk(y)());
+  assert(outer(i32(5)) == i32(6), "captured by a closure");
+});
+test("a local function value's Impl(Fn) result keeps and releases its capture once", {
+  before := g_cap_disposed;
+  {
+    mk := (fn(n : i32) -> Impl(Fn(x : i32) -> i32))({
+      p := CapPayload(n : n);
+      (f : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+      f
+    });
+    g := mk(i32(5));
+    assert(g(i32(1)) == i32(6), "the returned closure reads its capture");
+    assert(g(i32(2)) == i32(7), "and again");
+  };
+  assert((g_cap_disposed - before) == i32(1), `the capture is released exactly once, released ${g_cap_disposed - before}`);
+});
+test("an Impl(Fn) result joined from two different closures is rejected", {
+  comptime_expect_error(
+    (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+      (f : Impl(Fn() -> i32)) = ({ x }() => x);
+      (h : Impl(Fn() -> i32)) = ({ x }() => (x + i32(1)));
+      cond(b => f, true => h)
+    }),
+    "different concrete closure types"
+  );
+  comptime_expect_error(
+    (fn(x : i32, b : bool) -> Impl(Fn() -> i32))({
+      (f : Impl(Fn() -> i32)) = ({ x }() => x);
+      (h : Impl(Fn() -> i32)) = ({ x }() => (x + i32(1)));
+      match(b, true => f, false => h)
+    }),
+    "different concrete closure types"
+  );
+});
