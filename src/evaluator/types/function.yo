@@ -60,7 +60,8 @@ import("std/fmt");
   get_all_some_types,
   enum_phantom_type_arg_somes,
   is_bound_closure_identity,
-  resolve_cell_chain
+  resolve_cell_chain,
+  type_mentions_some_type
 }
 :: import("../../types/utils.yo");
 { is_implicitly_unsafe_capable_file, is_macro_def_capable_file } :: import("../memory_safety.yo");
@@ -1363,10 +1364,14 @@ _record_param_mode_migration :: (fn(label_tok : Token, inout_word : Option(Token
   if(!is_plain, {
     return(());
   });
+  // Before the prelude defines `Copy`, only a type naming no type variable
+  // counts (the early prelude's concrete parameter types are scalars and
+  // pointers); answering `true` there left the operator intrinsics' and
+  // traits' `x : T` / `lhs : Self` plain.
   is_copy := match(
     get_trait_type_from_env(env, String.from("Copy")),
     .Some(copy_tt) => type_implements_trait(ty, copy_tt, env).implemented,
-    .None => true
+    .None => !type_mentions_some_type(ty)
   );
   if(!is_copy, {
     lbl := label_tok.value.clone();
