@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
+{ type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -547,6 +547,9 @@ move_only_help :: (fn(name : String, ty : TypeValue) -> Option(String))(
       `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), pass it \`inout\`, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
     ),
     .None => cond(
+      (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
+        `\`${name}\` has type \`${type_to_string(ty)}\`, which is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move it (\`sink(${name})\`).`
+      ),
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
         `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
       ),
@@ -567,6 +570,9 @@ move_only_type_help :: (fn(ty : TypeValue) -> Option(String))(
       `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a by-value parameter, pass it \`inout\`, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => cond(
+      (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
+        `\`${type_to_string(ty)}\` is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move its whole owner.`
+      ),
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
         `\`${type_to_string(ty)}\` is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, call \`.clone()\` on it for a copy, or move its whole owner.`
       ),
@@ -838,7 +844,13 @@ _is_deref_place :: (fn(e : AstExpr) -> bool)(
 /// "is move-only" or "is copied explicitly (`.clone()`)": the kind of a type
 /// that is not implicitly copyable, for a message.
 _explicit_copy_kind :: (fn(ty : TypeValue) -> String)(
-  cond(type_is_move_only(ty) => String.from("is move-only"), true => String.from("is copied only explicitly (`.clone()`)"))
+  cond(
+    type_is_move_only(ty) => String.from("is move-only"),
+    // Decision 36: a plain-data type with neither `Copy` nor `Clone` is
+    // move-only, with no `.clone()` to offer.
+    type_lacks_clone(ty) => String.from("is move-only (it is neither `Copy` nor `Clone`)"),
+    true => String.from("is copied only explicitly (`.clone()`)")
+  )
 );
 /// Throw E0901 for a copy of the not-implicitly-copyable value `rhs` out of
 /// storage it does not own: a by-value parameter or a `match`/`for` binding (they borrow), an

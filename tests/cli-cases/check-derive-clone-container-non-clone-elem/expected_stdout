@@ -1,10 +1,10 @@
 $ yo check main.yo
-error[E0901]: derive on "S" failed: use of moved value: cannot copy `(_ptr.add)(index).*`, whose type `R` is copied only explicitly (`.clone()`), and it cannot be moved either: it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves).
+error[E0901]: derive on "S" failed: use of moved value: cannot copy `(_ptr.add)(index).*`, whose type `R` is move-only (it is neither `Copy` nor `Clone`), and it cannot be moved either: it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves).
     --> <REPO>/std/collections/array_list.yo:449:49
     |
 449 |           .Some(_ptr) => .Some((_ptr.add(index)).*)
     |                                                 ^
-help: `R` is not `Copy` (plans/VALUES_BY_DEFAULT.md decision 36): give it `derive(R, Copy, Clone)` to copy it implicitly, call `.clone()` on it for a copy, or move its whole owner.
+help: `R` is neither `Copy` nor `Clone`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give it `derive(R, Copy, Clone)` to copy it implicitly, or move its whole owner.
 help: run `yo explain E0901` for more information
    --> main.yo:13:11
    |
