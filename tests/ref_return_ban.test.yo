@@ -10,21 +10,21 @@ derive(Point, Copy, Clone);
 
 // Unlabeled `-> inout(T)` is rejected.
 comptime_expect_error(
-  unlabeled_ref_return :: (fn(mut(p) : Point) -> inout(i32))(
+  unlabeled_ref_return :: (fn(mut(p) : Point) -> mut(i32))(
     p.x
   )
 );
 
 // Labeled `-> (inout(name) : T)` is rejected.
 comptime_expect_error(
-  labeled_ref_return :: (fn(mut(p) : Point) -> (inout(out) : i32))(
+  labeled_ref_return :: (fn(mut(p) : Point) -> (mut(out) : i32))(
     p.x
   )
 );
 
 // Labeled `-> (name : inout(T))` is rejected.
 comptime_expect_error(
-  labeled_type_ref_return :: (fn(mut(p) : Point) -> (out : inout(i32)))(
+  labeled_type_ref_return :: (fn(mut(p) : Point) -> (out : mut(i32)))(
     p.x
   )
 );
@@ -33,22 +33,22 @@ comptime_expect_error(
 comptime_expect_error(
   trait_method_ref_return :: trait(
     Element : Type,
-    project_like : (fn(mut(self) : Self, pos : usize) -> inout(Self.Element))
+    project_like : (fn(mut(self) : Self, pos : usize) -> mut(Self.Element))
   )
 );
 
 // `inout(T)` cannot appear as a parameter TYPE either (only as the
 // parameter modifier `inout(name) : T`).
 comptime_expect_error(
-  takes_ref_typed :: (fn(p : inout(i32)) -> i32)(i32(0))
+  takes_ref_typed :: (fn(p : mut(i32)) -> i32)(i32(0))
 );
 
 // `inout(T)` cannot appear inside a generic type — borrows must not flow
 // through type constructors. (The diagnostic surfaces as a resolution
 // error: `inout` is only a keyword in parameter position.)
 comptime_expect_error(
-  ref_inside_option :: (fn(mut(p) : Point) -> Option(inout(i32)))(
-    Option(inout(i32)).None
+  ref_inside_option :: (fn(mut(p) : Point) -> Option(mut(i32)))(
+    Option(mut(i32)).None
   )
 );
 

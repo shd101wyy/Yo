@@ -310,10 +310,10 @@ _p35_by_val :: (fn(x : i32) -> unit)({
   x;
   ()
 });
-_p35_eat :: (fn(own(s) : String) -> usize)(s.len());
+_p35_eat :: (fn(sink(s) : String) -> usize)(s.len());
 _p35_len :: (fn(imm(s) : String) -> usize)(s.len());
 _p35_inout_is_by_val :: Type.eq((fn(mut(x) : i32) -> unit), (fn(x : i32) -> unit));
-_p35_own_is_borrow :: Type.eq((fn(own(s) : String) -> usize), (fn(imm(s) : String) -> usize));
+_p35_own_is_borrow :: Type.eq((fn(sink(s) : String) -> usize), (fn(imm(s) : String) -> usize));
 _p35_inout_flows_by_val :: Type.is_compatible_with((fn(mut(x) : i32) -> unit), (fn(x : i32) -> unit));
 test("soundness: parameter modes are part of a fn type", {
   comptime_expect_error({
@@ -336,7 +336,7 @@ test("soundness: the memo keeps a by-value and an inout instantiation apart", {
 });
 test("soundness canary: a fn value flows into a slot of the same modes", {
   (g : (fn(mut(x) : i32) -> unit)) = _bump;
-  (h : (fn(own(s) : String) -> usize)) = _p35_eat;
+  (h : (fn(sink(s) : String) -> usize)) = _p35_eat;
   (k : (fn(imm(s) : String) -> usize)) = _p35_len;
   (v : i32) = i32(1);
   g(v);
@@ -635,13 +635,13 @@ test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
 // (issues/fixed/a-free-function-call-accepts-an-already-moved-argument.md,
 // issues/fixed/a-folded-comptime-integer-argument-to-a-method-is-lowered-to-i32.md).
 // ---------------------------------------------------------------------------
-_p25_eat :: (fn(own(s) : String) -> usize)(s.len());
+_p25_eat :: (fn(sink(s) : String) -> usize)(s.len());
 _p25_take_u8 :: (fn(a : u8) -> u8)(a);
 _P25Holder :: struct(n : i32);
 derive(_P25Holder, Copy, Clone);
 impl(
   _P25Holder,
-  eat : (fn(self : Self, own(s) : String) -> usize)(s.len()),
+  eat : (fn(self : Self, sink(s) : String) -> usize)(s.len()),
   take_u8 : (fn(self : Self, a : u8) -> u8)(a)
 );
 test("soundness: a moved argument is rejected on both call paths", {
@@ -943,7 +943,7 @@ impl(
     })
   )
 );
-_p5_sink :: (fn(own(b) : _P5Box) -> i32)(b.tag);
+_p5_sink :: (fn(sink(b) : _P5Box) -> i32)(b.tag);
 _p5_early_return :: (fn(c : bool) -> i32)({
   b := _P5Box(tag : i32(5));
   if(c, {

@@ -398,7 +398,7 @@ export(IndexUnchecked);
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Idx) -> comptime(*Self.Output)),
+    index : (fn(comptime(mut(self)) : Self, comptime(idx) : Idx) -> comptime(*Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -7415,7 +7415,7 @@ impl(
   Array(T, N),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
+    index : (fn(comptime(mut(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       __yo_comptime_array_index(self, idx)
     )
   )
@@ -7599,7 +7599,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
+    index : (fn(comptime(mut(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       __yo_comptime_list_index(self, idx)
     )
   )
@@ -7610,7 +7610,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(Range(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*Self.Output))(
+    index : (fn(comptime(mut(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*Self.Output))(
       __yo_comptime_list_index_range(self, idx)
     )
   )
@@ -7621,7 +7621,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*Self.Output))(
+    index : (fn(comptime(mut(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*Self.Output))(
       __yo_comptime_list_index_range_inclusive(self, idx)
     )
   )
@@ -8847,7 +8847,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
   ctx.make_impl(
     quote(
       Hash(
-        hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(#(body.to_expr()))
+        hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(#(body.to_expr()))
       )
     )
   )
@@ -9699,7 +9699,7 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 /// b := a;
 /// assert(b.* == i32(42), "a copy shares the cell");
 /// ```
-rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
 impl(
   generic(T : Type),
   Rc(T),
@@ -9854,7 +9854,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Ty
   )
 );
 /// Allocate a value inside an Arc, returning an `Arc(V)`.
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(Arc(V)(value));
+arc :: (fn(generic(V : Type), sink(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(Arc(V)(value));
 // `Sync` because every handle reads the payload from its own thread; `Send`
 // because the last handle may be dropped on any thread, and the payload's
 // `Dispose` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's
@@ -9947,7 +9947,7 @@ impl(
   /// not initialized.** The `written` witness is the `as_ptr()` result you
   /// initialized through: a raw pointer only unsafe-capable code can hold, so
   /// safe code cannot reach the uninitialized read. It is not inspected.
-  assume_init : (fn(own(self) : Self, imm(written) : *BaseType) -> BaseType)(
+  assume_init : (fn(sink(self) : Self, imm(written) : *BaseType) -> BaseType)(
     __yo_maybe_uninit_assume_init(Self, BaseType, self, written)
   ),
   /// Test-support probe for the member-visibility rule (E0405): a `_`-prefixed
@@ -10029,7 +10029,7 @@ FromIterator :: trait(
   /// The empty collection `collect` starts from.
   from_iter_new : (fn() -> Self),
   /// Add one element to a partially-built collection and return it.
-  from_iter_add : (fn(own(acc) : Self, imm(item) : Self.Elem) -> Self)
+  from_iter_add : (fn(sink(acc) : Self, imm(item) : Self.Elem) -> Self)
 );
 export(FromIterator);
 /// === Array Iterator ===
@@ -10334,7 +10334,7 @@ for :: (
                       match(
                         unquote(temp_var),
                         .Some(unquote(ptr_var)) => {
-                          inout(unquote(elem)) := unquote(ptr_var).*;
+                          mut(unquote(elem)) := unquote(ptr_var).*;
                           unquote(body)
                         },
                         .None => {
@@ -10369,7 +10369,7 @@ for :: (
                         unquote(temp_var),
                         .Some(unquote(ptr_var)) => {
                           unquote(key_name) := (unquote(ptr_var).*).key;
-                          inout(unquote(val_name)) := (unquote(ptr_var).*).value;
+                          mut(unquote(val_name)) := (unquote(ptr_var).*).value;
                           unquote(body)
                         },
                         .None => {

@@ -696,7 +696,7 @@ _dio_call_param :: (fn(mut(y) : i32, imm(cb) : Dyn(Fn(mut(n) : i32) -> unit)) ->
 });
 test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   h := _DioHolder(
-    cb : dyn(inout(n) => {
+    cb : dyn(mut(n) => {
       n = (n + i32(1));
     })
   );
@@ -708,7 +708,7 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   _dio_call_param(x, h.cb);
   assert(x == i32(45), "a Dyn(Fn) parameter called with an inout parameter");
   p := _DioPusher(
-    push : dyn(inout(xs) => {
+    push : dyn(mut(xs) => {
       xs.push(i32(7));
     })
   );

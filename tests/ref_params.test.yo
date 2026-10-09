@@ -105,7 +105,7 @@ test("returning an inout param from inside a nested block", {
 // (+1) of the referenced handle; the referenced slot keeps its own count and
 // the parameter stays usable. (The dup was skipped for the `(*name)` read, so
 // the callee's release over-released the caller's variable.)
-own_len :: (fn(own(v) : String) -> usize)(v.len());
+own_len :: (fn(sink(v) : String) -> usize)(v.len());
 test("inout parameter passed to an own parameter copies, the referenced slot survives", {
   via_param :: (fn(mut(p) : String) -> usize)({
     n := own_len(p);

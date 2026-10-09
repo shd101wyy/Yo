@@ -2458,7 +2458,7 @@ test("Unicode escapes reach control bytes", {
 _append_inout :: (fn(mut(out) : String) -> unit)({
   out.push_str("!");
 });
-_append_own :: (fn(own(out) : String) -> String)({
+_append_own :: (fn(sink(out) : String) -> String)({
   out.push_str("!");
   out
 });
@@ -2493,7 +2493,7 @@ test("Writing a String through inout, own or a local copy is accepted (E0908 ext
   xs := ArrayList(String).new();
   xs.push(String.new());
   xs.push(String.from("n"));
-  for(xs, inout(s) => {
+  for(xs, mut(s) => {
     s.push_str("?");
   });
   assert((xs(usize(0)) == "?") && (xs(usize(1)) == "n?"), "an inout for writes the elements");

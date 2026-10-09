@@ -62,7 +62,7 @@ impl(
 );
 // `own(x)` is the old spelling of `sink(x)` (plans/VALUES_BY_DEFAULT.md
 // decision 15), accepted until the sweep after the next seed.
-_mo_take_old :: (fn(own(f) : _MoFd) -> i32)(f.n);
+_mo_take_old :: (fn(sink(f) : _MoFd) -> i32)(f.n);
 _mo_dup_generic :: (fn(generic(T : Type), imm(x) : T) -> T)(x);
 _mo_move_generic :: (fn(generic(T : Type), sink(x) : T) -> T)(x);
 // ---------------------------------------------------------------------------
@@ -373,8 +373,8 @@ test("move-only: the E0901 note names why the type is move-only", {
   assert((g.tag + u.id) == i32(5), "moved values");
 });
 test("move-only: `own` is the old spelling of `sink`, and both spell one function type", {
-  comptime_assert(Type.is_compatible_with((fn(own(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "own and sink are one parameter mode");
-  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(own(f) : _MoFd) -> i32)), "both directions");
+  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "own and sink are one parameter mode");
+  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "both directions");
   comptime_assert(!Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(imm(f) : _MoFd) -> i32)), "sink is not a borrow");
   before := g_mo_disposed;
   {

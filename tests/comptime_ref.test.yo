@@ -17,7 +17,7 @@
 /// tree, so only the rejection itself is asserted now — the wording is no
 /// longer pinned anywhere.
 // Positive: comptime+ref allows mutation that propagates back.
-bump :: (fn(comptime(inout(n)) : usize) -> comptime(usize))({
+bump :: (fn(comptime(mut(n)) : usize) -> comptime(usize))({
   n = (n + usize(1));
   n
 });
@@ -25,7 +25,7 @@ comptime_assert(bump(usize(5)) == usize(6), "5+1 should be 6");
 comptime_assert(bump(usize(0)) == usize(1), "0+1 should be 1");
 comptime_assert(bump(usize(100)) == usize(101), "100+1 should be 101");
 // Positive: multiple comptime+ref params can compose.
-swap_and_sum :: (fn(comptime(inout(a)) : i32, comptime(inout(b)) : i32) -> comptime(i32))({
+swap_and_sum :: (fn(comptime(mut(a)) : i32, comptime(mut(b)) : i32) -> comptime(i32))({
   tmp :: a;
   a = b;
   b = tmp;
@@ -33,14 +33,14 @@ swap_and_sum :: (fn(comptime(inout(a)) : i32, comptime(inout(b)) : i32) -> compt
 });
 comptime_assert(swap_and_sum(i32(3), i32(7)) == i32(10), "swap then sum");
 // Positive: comptime+ref works alongside ordinary comptime params.
-indexed_bump :: (fn(comptime(inout(v)) : usize, comptime(by) : usize) -> comptime(usize))({
+indexed_bump :: (fn(comptime(mut(v)) : usize, comptime(by) : usize) -> comptime(usize))({
   v = (v + by);
   v
 });
 comptime_assert(indexed_bump(usize(10), usize(5)) == usize(15), "10+5 should be 15");
 // Positive: nested call — comptime+ref values are still purely
 // compile-time, no runtime presence.
-double_bump :: (fn(comptime(inout(n)) : usize) -> comptime(usize))(bump(bump(n)));
+double_bump :: (fn(comptime(mut(n)) : usize) -> comptime(usize))(bump(bump(n)));
 comptime_assert(double_bump(usize(5)) == usize(7), "5 -> 6 -> 7");
 // Smoke: a runtime test body that does nothing — proves the
 // comptime+ref call sites above don't leak any runtime artifacts.
@@ -52,13 +52,13 @@ test("comptime(inout(...)) parameters are runtime-invisible", {
 // ("'inout' cannot combine with 'generic'/'using' parameters").
 test("inout inside generic(...) is rejected", {
   comptime_expect_error(
-    (fn(generic(inout(T) : Type), x : T) -> T)(x)
+    (fn(generic(mut(T) : Type), x : T) -> T)(x)
   );
 });
 // Negative: own and inout are opposite calling conventions
 // ("Cannot combine 'own' and 'inout' on the same parameter").
 test("own(inout(...)) is rejected", {
   comptime_expect_error(
-    (fn(own(inout(x)) : i32) -> i32)(x)
+    (fn(sink(mut(x)) : i32) -> i32)(x)
   );
 });

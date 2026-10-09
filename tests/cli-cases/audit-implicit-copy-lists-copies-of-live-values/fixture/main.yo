@@ -32,7 +32,7 @@ store_field :: (fn(imm(h) : Holder) -> Holder)(
   Holder(name : h.name, items : ArrayList(i32).new())
 );
 // An owning argument from a borrowed binding copies.
-take :: (fn(own(s) : String) -> usize)(s.len());
+take :: (fn(sink(s) : String) -> usize)(s.len());
 pass_borrowed :: (fn(imm(s) : String) -> usize)(take(s));
 // Inside a loop the site runs again: a copy, unless the loop reassigns.
 loop_store :: (fn() -> usize)({
@@ -90,7 +90,7 @@ capture_two :: (fn() -> usize)({
 // A `match` binding is a part of its scrutinee: passing it to an owning
 // parameter copies when the scrutinee lives on (a local read again, or a
 // parameter), and moves out of a call's temporary.
-hold :: (fn(own(s) : String) -> Holder)(
+hold :: (fn(sink(s) : String) -> Holder)(
   Holder(name : s, items : ArrayList(i32).new())
 );
 make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
