@@ -1,15 +1,33 @@
-//! V3b Generation A spellings (plans/VALUES_BY_DEFAULT.md decisions 30 and
-//! 33): `imm(x)`/`mut(x)` parameters and receivers, `mut(y) := place`, the
-//! call-site markers `&x`/`&mut x` in arguments and `match` scrutinees, and
-//! function types spelled with the modes. Generation A keeps today's meaning:
-//! a plain parameter still borrows, so `imm(x) : T` is exactly `x : T` and
-//! `mut(x) : T` is exactly `inout(x) : T`.
+//! V3b parameter conventions (plans/VALUES_BY_DEFAULT.md decisions 30, 33
+//! and 34): `imm(x)`/`mut(x)` parameters and receivers, `mut(y) := place`,
+//! the call-site markers `&x`/`&mut x` in arguments and `match` scrutinees,
+//! and function types spelled with the modes. Since Generation B's flip a
+//! plain parameter is BY VALUE: a non-`Copy` argument moves into it, a `Copy`
+//! one is copied, and `imm(x)` is the borrow. A mode is part of the function
+//! type for every type, `Copy` or not.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 
 _pm_len :: (fn(imm(s) : String) -> usize)(s.len());
 _pm_plain_len :: (fn(imm(s) : String) -> usize)(s.len());
+_pm_take :: (fn(s : String) -> usize)(s.len());
+_pm_add1 :: (fn(n : i32) -> i32)(n + i32(1));
+(g_pm_disposed : i32) = i32(0);
+_PmRes :: struct(n : i32);
+impl(
+  _PmRes,
+  Dispose(
+    dispose : (fn(imm(self) : Self) -> unit)({
+      g_pm_disposed = (g_pm_disposed + i32(1));
+    })
+  )
+);
+_pm_consume :: (fn(r : _PmRes) -> i32)(r.n);
+_pm_ct_inc :: (fn(comptime(imm(n)) : comptime_int) -> comptime(comptime_int))(n + 1);
+_PmV :: struct(n : i32);
+derive(_PmV, Copy, Clone);
+impl(_PmV, Eq(_PmV)((==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(lhs.n == rhs.n)));
 _pm_inc :: (fn(mut(n) : i32) -> unit)({
   n = (n + i32(1));
 });
@@ -36,11 +54,44 @@ impl(_PmCounter, _PmShow(show : (fn(imm(self) : Self) -> i32)(self.n * i32(10)))
 _pm_apply_imm :: (fn(imm(f) : Impl(Fn(imm(s) : String) -> usize), imm(s) : String) -> usize)(f(s));
 _pm_apply_mut :: (fn(imm(f) : Impl(Fn(mut(n) : i32) -> unit), mut(v) : i32) -> unit)(f(v));
 
-test("imm parameters borrow, exactly like plain parameters", {
+test("a plain parameter is by value: a non-Copy argument moves into it", {
+  s := String.from("hello");
+  assert(_pm_take(s) == usize(5), "s moved into the by-value parameter");
+  comptime_expect_error(s.len(), "use of moved value");
+  t := String.from("ab");
+  assert(_pm_take(t.clone()) == usize(2), "a clone moves instead");
+  assert(t.len() == usize(2), "t stays usable");
+});
+
+test("a plain parameter of a Copy type copies", {
+  n := i32(4);
+  assert(_pm_add1(n) == i32(5), "the callee gets a copy");
+  assert(_pm_add1(n) == i32(5), "n is still usable: a Copy value is copied, never moved");
+});
+
+test("the callee drops a by-value argument exactly once", {
+  before := g_pm_disposed;
+  {
+    r := _PmRes(n : i32(3));
+    assert(_pm_consume(r) == i32(3), "r moved into the callee");
+  };
+  assert(g_pm_disposed == (before + i32(1)), "one dispose: the callee's, none in the caller");
+});
+
+test("comptime(imm(x)) is a compile-time borrow", {
+  comptime_assert(_pm_ct_inc(41) == 42, "comptime(imm(n))");
+});
+
+test("an operator impl writes the trait's imm operands, Copy or not", {
+  assert(_PmV(n : i32(1)) == _PmV(n : i32(1)), "imm(lhs)/imm(rhs) on a Copy type");
+  comptime_expect_error(impl(_PmV, Ord(_PmV)((<) : (fn(lhs : Self, rhs : Self) -> bool)(true), (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true), (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true), (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true))), "as written");
+});
+
+test("imm parameters borrow", {
   s := String.from("hello");
   assert(_pm_len(s) == usize(5), "a bare argument to an imm parameter is a borrow");
   assert(_pm_len(&s) == usize(5), "&s lends s to an imm parameter");
-  assert(_pm_plain_len(&s) == usize(5), "&s lends s to a plain parameter");
+  assert(_pm_plain_len(&s) == usize(5), "&s lends s to a second imm parameter");
   assert(s.len() == usize(5), "s stays usable after both borrows");
 });
 
@@ -71,15 +122,16 @@ test("imm and mut receivers", {
   assert(c.show() == i32(70), "an imm(self) impl satisfies a trait's plain self method");
 });
 
-test("fn types spelled with imm and mut are today's fn types", {
-  comptime_assert(Type.is_compatible_with((fn(imm(x) : String) -> usize), (fn(imm(x) : String) -> usize)), "imm(x) is a plain parameter");
-  comptime_assert(Type.is_compatible_with((fn(imm(x) : String) -> usize), (fn(imm(x) : String) -> usize)), "both directions");
+test("a mode is part of the fn type, for every type", {
+  comptime_assert(!Type.is_compatible_with((fn(imm(x) : String) -> usize), (fn(x : String) -> usize)), "imm is not by value");
+  comptime_assert(!Type.is_compatible_with((fn(x : String) -> usize), (fn(imm(x) : String) -> usize)), "both directions");
+  comptime_assert(!Type.is_compatible_with((fn(imm(x) : i32) -> i32), (fn(x : i32) -> i32)), "Copy types too");
   comptime_assert(Type.is_compatible_with((fn(mut(n) : i32) -> unit), (fn(mut(n) : i32) -> unit)), "mut(n) is inout(n)");
   comptime_assert(Type.is_compatible_with((fn(mut(n) : i32) -> unit), (fn(mut(n) : i32) -> unit)), "both directions");
   comptime_assert(!Type.is_compatible_with((fn(mut(n) : i32) -> unit), (fn(n : i32) -> unit)), "mut is not a plain parameter");
   (f : (fn(imm(x) : String) -> usize)) = _pm_len;
   s := String.from("abc");
-  assert(f(s) == usize(3), "an imm-parameter function is a value of the plain fn type");
+  assert(f(s) == usize(3), "an imm-parameter function is a value of its own fn type");
 });
 
 test("Fn traits spelled with imm and mut", {
