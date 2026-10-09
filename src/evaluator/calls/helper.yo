@@ -93,6 +93,7 @@ pragma(Pragma.AllowUnsafe);
   type_contains_some_type_deep,
   mark_generic_independent,
   type_requires_explicit_copy,
+  type_is_bitwise_copy,
   type_contains_rc_type
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
@@ -1019,7 +1020,7 @@ consume_argument_for_parameter :: (
   // copyable, a `Copy` value — is COPIED into a by-value parameter and stays
   // usable: after the flip (decision 30) every plain parameter is by value,
   // and `f(x); x` on a `u64` is two copies, not a move.
-  arg_is_bitwise_copy := (!type_contains_rc_type(arg_info.ty) && !type_requires_explicit_copy(arg_info.ty));
+  arg_is_bitwise_copy := type_is_bitwise_copy(arg_info.ty);
   if(param_is_owning && !param_is_ct && !ctx.is_in_function_call_checking_phase && !arg_is_bitwise_copy, {
     match(
       arg_info.variable_name,

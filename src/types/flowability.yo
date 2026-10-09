@@ -46,7 +46,7 @@
 { TypeValue } :: import("./definitions.yo");
 { is_function_type, is_reference_struct_type, is_atomic_reference_struct_type, is_pointer_type } :: import("./guards.yo");
 { expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
-{ type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy }
+{ type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy }
 :: import("./utils.yo");
 /// A 1-element mutable box holding the error thrown during a swallowed
 /// def-time body eval when it is a deliberate REJECTION (a flow-soundness
@@ -669,7 +669,7 @@ require_ref_own_argument_exclusivity :: (
     is_owning := (
       cond((pi < param_is_owning.len()) => match(param_is_owning.get(pi), .Some(o) => o, .None => false), true => false) && !match(
         args.get(pi),
-        .Some(oa) => match(_info(ctx, oa), .Some(oi) => (!type_contains_rc_type(oi.ty) && !type_requires_explicit_copy(oi.ty)), .None => false),
+        .Some(oa) => match(_info(ctx, oa), .Some(oi) => type_is_bitwise_copy(oi.ty), .None => false),
         .None => false
       )
     );

@@ -1812,6 +1812,14 @@ get_all_some_types :: (fn(imm(ty) : TypeValue) -> ArrayList(TypeValue))({
   _collect_some_types_into(ty, acc, visited_ids);
   acc
 });
+/// A value with nothing to transfer: no counted payload, implicitly
+/// copyable, and a known type (a generic or an opaque `Impl(...)` names no
+/// type to judge, so its value keeps its move: an `Impl(FnOnce(...))` call
+/// still consumes it). Such a value is COPIED into a by-value parameter and
+/// is never consumed (V3b's flip, plans/VALUES_BY_DEFAULT.md decision 30).
+type_is_bitwise_copy :: (fn(ty : TypeValue) -> bool)(
+  !type_mentions_some_type(ty) && !type_contains_rc_type(ty) && !type_requires_explicit_copy(ty)
+);
 /// Does `ty` mention a `SomeT` anywhere — through fields, elements, pointees
 /// AND a generic instantiation's TYPE ARGUMENTS? `get_all_some_types` walks
 /// fields and elements but not `type_arguments`, so it answers `[]` for a
@@ -3083,7 +3091,7 @@ export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);
 export(type_contains_some_type);
-export(get_all_some_types, type_mentions_some_type);
+export(get_all_some_types, type_mentions_some_type, type_is_bitwise_copy);
 /// True when any PARAM of this `Func` type still contains a SomeT under a RAW
 /// scan — the SomeT's own resolution is deliberately NOT consulted
 /// (unlike `type_contains_some_type`). Used to recognise the def-era ORIGINAL
