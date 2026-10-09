@@ -3442,7 +3442,7 @@ collect_yo_files :: (
   cond(
     is_file_p => {
       path_str := target_path.to_string();
-      if(path_str.ends_with(String.from(".yo")), {
+      if(path_str.ends_with(String.from(".yo")) || path_str.ends_with(String.from(".md")), {
         files.push(path_str);
       });
     },
@@ -3548,6 +3548,148 @@ find_yo_format_files :: (
   });
   deduped
 });
+// ---------------------------------------------------------------------------
+// ```yo code blocks in Markdown and in doc comments
+// ---------------------------------------------------------------------------
+/// The prefix a fence line carries before its backticks, or `.None` when the
+/// line cannot open or close a fence in this mode. In Markdown the prefix is
+/// the line's indent (a block inside a list item). In a `.yo` file it is the
+/// indent, a doc-comment marker (`///`, `//!`, or a block comment's `*`) and
+/// at most one space.
+_fence_prefix :: (fn(imm(line) : String, in_comment : bool) -> Option(String))({
+  n := line.len();
+  (i : usize) = usize(0);
+  while((i < n) && ((line.byte_at(i) == u8(32)) || (line.byte_at(i) == u8(9))), i = (i + usize(1)), ());
+  if(!in_comment, {
+    return(Option(String).Some(line.substring(usize(0), i)));
+  });
+  rest := line.substring(i, n);
+  (marker : usize) = cond(
+    rest.starts_with("///") => usize(3),
+    rest.starts_with("//!") => usize(3),
+    (rest.starts_with("*") && !rest.starts_with("*/")) => usize(1),
+    true => usize(0)
+  );
+  if(marker == usize(0), {
+    return(Option(String).None);
+  });
+  (end : usize) = (i + marker);
+  if((end < n) && (line.byte_at(end) == u8(32)), {
+    end = (end + usize(1));
+  });
+  Option(String).Some(line.substring(usize(0), end))
+});
+/// Whether a fence's info string (the text after the opening backticks) names
+/// a checked Yo block: `yo` first, and no `ignore` word. `.Some(true)` is a
+/// `yo ignore` block (left as written), `.None` any other language.
+_yo_fence_info :: (fn(imm(info) : String) -> Option(bool))({
+  words := info.trim().split(" ");
+  first := match(words.get(usize(0)), .Some(w) => w, .None => String.new());
+  if(first != "yo", {
+    return(Option(bool).None);
+  });
+  (ignore : bool) = false;
+  (wi : usize) = usize(1);
+  while(wi < words.len(), wi = (wi + usize(1)), {
+    if(match(words.get(wi), .Some(w) => (w == "ignore"), .None => false), {
+      ignore = true;
+    });
+  });
+  Option(bool).Some(ignore)
+});
+/// Format every ```yo block in `text` with `format_yo_source`. In Markdown
+/// (`in_comment` false) a block is the lines between an opening ```yo fence
+/// and the next ``` at the same indent; in a `.yo` file it is the same inside
+/// a doc comment, each line carrying the fence's comment prefix. A block
+/// whose info string says `yo ignore` is left as written; any other ```yo
+/// block must parse (a parse failure reaches `exn` with the block's line).
+format_yo_fences :: (fn(imm(text) : String, imm(file) : String, in_comment : bool, imm(exn) : Exception) -> String)({
+  lines := text.split("\n");
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    line := match(lines.get(i), .Some(l) => l, .None => String.new());
+    (handled : bool) = false;
+    match(
+      _fence_prefix(line, in_comment),
+      .Some(pre) => {
+        rest := line.substring(pre.len(), line.len());
+        if(rest.starts_with("```"), {
+          match(
+            _yo_fence_info(rest.substring(usize(3), rest.len())),
+            .Some(ignore) => {
+              // The closing fence: the next line with the same prefix whose
+              // rest is exactly ``` (trailing spaces allowed).
+              base := pre.trim_end();
+              (j : usize) = (i + usize(1));
+              (close : Option(usize)) = Option(usize).None;
+              (consistent : bool) = true;
+              while((j < lines.len()) && close.is_none(), j = (j + usize(1)), {
+                lj := match(lines.get(j), .Some(l) => l, .None => String.new());
+                (lj_rest : Option(String)) = cond(
+                  lj.starts_with(pre.clone()) => Option(String).Some(lj.substring(pre.len(), lj.len())),
+                  (lj.trim_end() == base) => Option(String).Some(String.new()),
+                  (!in_comment && (lj.trim().len() == usize(0))) => Option(String).Some(String.new()),
+                  true => Option(String).None
+                );
+                match(
+                  lj_rest,
+                  .Some(r) => if(r.trim_end() == "```", {
+                    close = Option(usize).Some(j);
+                  }),
+                  .None => {
+                    consistent = false;
+                  }
+                );
+              });
+              match(
+                close,
+                .Some(cj) => if(!ignore && consistent, {
+                  body := ArrayList(String).new();
+                  (k : usize) = (i + usize(1));
+                  while(k < cj, k = (k + usize(1)), {
+                    lk := match(lines.get(k), .Some(l) => l, .None => String.new());
+                    body.push(
+                      cond(
+                        lk.starts_with(pre.clone()) => lk.substring(pre.len(), lk.len()),
+                        true => String.new()
+                      )
+                    );
+                  });
+                  src := `${String.from("\n").join(body)}\n`;
+                  formatted := format_yo_source(src, `${file}:${(i + usize(2)).to_string()}`, exn).trim_end();
+                  out.push(line.clone());
+                  fl := formatted.split("\n");
+                  (fi : usize) = usize(0);
+                  while(fi < fl.len(), fi = (fi + usize(1)), {
+                    f := match(fl.get(fi), .Some(x) => x, .None => String.new());
+                    out.push(
+                      cond(
+                        (f.len() == usize(0)) => base.clone(),
+                        true => `${pre}${f}`
+                      )
+                    );
+                  });
+                  out.push(match(lines.get(cj), .Some(l) => l, .None => String.new()));
+                  i = (cj + usize(1));
+                  handled = true;
+                }),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    if(!handled, {
+      out.push(line);
+      i = (i + usize(1));
+    });
+  });
+  String.from("\n").join(out)
+});
 /// Format every `.yo` file found under `input_paths`. Returns the list of
 /// files visited and the subset whose content would change. In `check` mode
 /// no file is written.
@@ -3568,9 +3710,14 @@ format_yo_files :: (
       files.get(fi),
       .None => (),
       .Some(file) => {
-        bytes := io.await(read(Path.new(file), io), IoExn(io : io, exn : exn));
+        bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
         original := String.from_bytes(bytes);
-        formatted := format_yo_source(original, file, exn);
+        // A Markdown file formats only its ```yo blocks; a `.yo` file formats
+        // its code, then the ```yo blocks in its doc comments.
+        formatted := cond(
+          file.ends_with(".md") => format_yo_fences(original, file, false, exn),
+          true => format_yo_fences(format_yo_source(original, file, exn), file, true, exn)
+        );
         if(formatted != original, {
           changed.push(file);
           if(!options.check, {
@@ -3632,6 +3779,7 @@ export(
   read_raw_template_string,
   raw_token_value,
   format_yo_source,
+  format_yo_fences,
   collect_yo_files,
   find_yo_format_files,
   format_yo_files

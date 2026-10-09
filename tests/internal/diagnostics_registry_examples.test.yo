@@ -37,6 +37,7 @@ import("std/fmt");
 { mm_load_file, mm_preload_prelude, mm_invalidate_document, resolve_std_path, _take_load_error } :: import("../../src/module_manager.yo");
 { take_error_diagnostics } :: import("../../src/error.yo");
 { Diagnostic } :: import("../../src/diagnostics.yo");
+{ format_yo_source } :: import("../../src/formatter.yo");
 /// The E13xx/E15xx band: codes raised outside the evaluator (see the header).
 _toolchain_band :: (fn(code : String) -> bool)(
   (code == "E1301") || ((code == "E1501") || ((code == "E1502") || ((code == "E1503") || ((code == "E1504") || (code == "E1505")))))
@@ -106,6 +107,11 @@ test("every registry example reproduces its code, and every good example loads c
     if(!_good_exempt(e.code.clone()), {
       got_good := _load_code(good_path.clone(), e.good.clone(), std_path.clone(), io, exn);
       assert(got_good == "", `${e.code}: the good example must load clean, got "${got_good}"`);
+      // `yo explain` prints the good example as the fix to copy, so it is
+      // written the way `yo fmt` writes code (no redundant parens, one space
+      // before a trailing comment).
+      good_fmt := format_yo_source(e.good.clone(), good_path.clone(), exn);
+      assert(good_fmt.trim_end() == e.good.trim_end(), `${e.code}: the good example is not yo fmt-clean; fmt writes:\n${good_fmt}`);
     });
   });
 });
