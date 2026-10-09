@@ -58,6 +58,10 @@ _CtEnd :: struct(v : i32);
 impl(_CtEnd, Copy());
 // Plain data without `Copy`: still implicitly copied in Generation A.
 _CtPlain :: struct(n : i32);
+// `Clone` without `Copy`: the explicit-copy kind (decision 36).
+derive(_CtPlain, Clone);
+// No `Clone` at all (and so no `Copy`): what a tuple holding it is not.
+_CtNoClone :: struct(n : i32);
 // Rejected impls, each checked in a test below.
 _CtLabel :: struct(id : i32, name : String);
 _CtFd :: struct(fd : i32);
@@ -174,11 +178,46 @@ test("Copy: a derive(T, Copy, Clone) value copies, and the copy is independent",
     .Empty => assert(false, "t is a Dot")
   );
 });
-test("Copy: a plain struct without Copy is still copied implicitly in Generation A", {
+// Generation B's flip: a plain-data type that is not `Copy` is copied
+// explicitly. `b := a` moves `a`; `.clone()` is the copy.
+_ct_take_plain :: (fn(sink(p) : _CtPlain) -> i32)(p.n);
+test("Copy: a plain struct without Copy moves at q := p", {
   comptime_assert(!Type.impls(_CtPlain, Copy), "no Copy without an impl or a derive");
+  comptime_expect_error({
+    a := _CtPlain(n : i32(3));
+    _b := a;
+    _c := a.n;
+  }, "use of moved value: `a`");
+  comptime_expect_error({
+    a := _CtPlain(n : i32(3));
+    _b := a;
+    _c := a.n;
+  }, "derive(_CtPlain, Copy, Clone)");
   a := _CtPlain(n : i32(3));
-  b := a;
-  assert((a.n + b.n) == i32(6), "the flip that moves it is Generation B");
+  b := a.clone();
+  c := a;
+  assert((b.n + c.n) == i32(6), "the clone is the copy; the binding moved a");
+});
+test("Copy: a sink argument of a plain struct without Copy is a move", {
+  comptime_expect_error({
+    a := _CtPlain(n : i32(4));
+    _n := _ct_take_plain(a);
+    _m := a.n;
+  }, "use of moved value: `a`");
+  a := _CtPlain(n : i32(4));
+  assert(_ct_take_plain(a.clone()) == i32(4), "a clone is passed, a stays");
+  assert(a.n == i32(4), "a is still usable");
+});
+test("Copy: a Copy struct keeps copying implicitly after the flip", {
+  p := _CtPoint(x : i32(1), y : i32(2));
+  q := p;
+  assert((p.x + q.y) == i32(3), "both stay usable");
+});
+test("Copy: a closure that only borrows its captures is Copy", {
+  a := _CtPlain(n : i32(5));
+  (f : Impl(Fn() -> i32)) = ({ imm(a) : &a }() => a.n);
+  g := f;
+  assert((f() + g()) == i32(10), "copying an imm-capture closure copies the borrow (decision 38 A)");
 });
 // ---------------------------------------------------------------------------
 // Structural Copy
@@ -197,7 +236,7 @@ test("Copy: a tuple, an array, a fn pointer and an anonymous record are Copy and
   r := _(a : i32(1), b : i32(2));
   comptime_assert(Type.impls(type_of(r), Copy), "an anonymous record of Copy fields");
   comptime_assert(Type.impls(Tuple(i32, bool), Clone) && Type.impls(Tuple(i32, String), Clone), "a tuple of Clone parts is Clone");
-  comptime_assert(!Type.impls(Tuple(i32, _CtPlain), Clone), "a tuple holding a type without Clone is not");
+  comptime_assert(!Type.impls(Tuple(i32, _CtNoClone), Clone), "a tuple holding a type without Clone is not");
   comptime_assert(Type.impls(Array(String, 2), Clone) && Type.impls((fn(x : i32) -> i32), Clone), "an array of Clone elements, a fn pointer");
   comptime_assert(Type.impls(type_of(r), Clone), "an anonymous record of Clone fields");
   w := t.clone();
@@ -251,7 +290,7 @@ test("Copy: a reference type, a tuple and a blanket type parameter cannot declar
 test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) gives T <: Clone", {
   comptime_assert(Type.impls(_CtPoint, Clone), "derive(_CtPoint, Copy, Clone)");
   comptime_assert(Type.impls(_CtPair(i32), Clone), "a generic Copy instance's derived Clone");
-  comptime_assert(!Type.impls(_CtPlain, Clone), "a type with neither has no clone()");
+  comptime_assert(!Type.impls(_CtNoClone, Clone), "a type with neither has no clone()");
   p := _CtPoint(x : i32(4), y : i32(5));
   q := p.clone();
   assert(q == p, "the derived clone is the copy");

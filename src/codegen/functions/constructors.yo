@@ -16,7 +16,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_iso_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField, type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, get_trace_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
@@ -285,7 +285,7 @@ set_traverse_visit_expr :: (fn(expr : String) -> unit)({
 _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Nothing reference-counted anywhere in this value → nothing to trace.
-  if(!type_contains_rc_type(ty), {
+  if(!type_contains_rc_cell_or_move_only(ty), {
     return();
   });
   // Managed handle (ref(struct)/ref(enum)) — one graph edge. Atomic (Iso) RC types
@@ -299,7 +299,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
   });
   cond(
     // Value enum (e.g. Option). A nullable-pointer optimization collapses
-    // Option(handle) to a bare pointer (type_contains_rc_type was true → managed
+    // Option(handle) to a bare pointer (type_contains_rc_cell_or_move_only was true → managed
     // payload) → visit the pointer directly.
     is_enum_type(ty) => {
       is_nullable := match(can_optimize_as_nullable_pointer(ty), .Some(_) => true, .None => false);
@@ -323,7 +323,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
                 while(ci < nvf, {
                   match(
                     vfields.get(ci),
-                    .Some(vt) => if(type_contains_rc_type(vt), {
+                    .Some(vt) => if(type_contains_rc_cell_or_move_only(vt), {
                       has_rc = true;
                     }),
                     .None => ()
@@ -337,7 +337,7 @@ _traverse_value :: (fn(access : String, ty : TypeValue, context : FunctionGenera
                   while(vfi < nvf, {
                     match(
                       vfields.get(vfi),
-                      .Some(vt) => if(type_contains_rc_type(vt), {
+                      .Some(vt) => if(type_contains_rc_cell_or_move_only(vt), {
                         vflabel := match(vlabels.get(vfi), .Some(l) => l, .None => String.from(""));
                         vfname := sanitize_for_c_identifier(vflabel, false);
                         recur(`${access}.data.${c_variant_member_name(vname.clone())}.${vfname}`, vt, context);
@@ -540,7 +540,7 @@ _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, conte
         while(ci < nf, {
           match(
             fields.get(ci),
-            .Some(ft) => if(type_contains_rc_type(ft), {
+            .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
               has_rc = true;
             }),
             .None => ()
@@ -554,7 +554,7 @@ _generate_one_ref_enum_traversal :: (fn(type : TypeValue, c_name : String, conte
           while(fi < nf, {
             match(
               fields.get(fi),
-              .Some(ft) => if(type_contains_rc_type(ft), {
+              .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
                 flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
                 fname := sanitize_for_c_identifier(flabel, false);
                 g_traverse_visit_expr = String.from("visit");

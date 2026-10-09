@@ -26,7 +26,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 /// Generate code for `downcast(dyn_value, T)`.
@@ -160,7 +160,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
           // box's value field when the dyn holds a DIFFERENT type reads
           // foreign memory (a smaller box would be read past its end).
           .None => cond(
-            !type_contains_rc_type(target_type) => extract,
+            !type_contains_rc_cell_or_move_only(target_type) => extract,
             true => {
               uid := fresh_local_name(String.from("u"), context.base.current_function_name);
               ok_var := `__yo_dc_ok_${uid}`;

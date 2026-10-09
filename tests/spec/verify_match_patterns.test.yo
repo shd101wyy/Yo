@@ -13,6 +13,7 @@ pragma(Pragma.Verify);
 { assert } :: import("std/assert");
 
 Shape :: enum(Circle(r : i32), Square(w : i32), Point(x : i32, y : i32));
+derive(Shape, Copy, Clone);
 
 /// Literal payload arms: the constant tests are equalities on the
 /// projections.
@@ -31,6 +32,7 @@ pick_lit :: (fn(s : Shape, ensures(r >= i32(0))) -> (r : i32))(
 Inner :: enum(Val(v : i32), Empty);
 derive(Inner, Copy, Clone);
 Wrap :: enum(W(i : Inner), Z);
+derive(Wrap, Copy, Clone);
 pick_nested :: (fn(w : Wrap, ensures(r >= i32(0))) -> (r : i32))(
   match(
     w,

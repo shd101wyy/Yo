@@ -248,6 +248,7 @@ test("OnceCell get_or_init runs the initializer exactly once", {
 });
 test("OnceCell holds a value struct", {
   Point :: struct(x : i32, y : i32);
+  derive(Point, Copy, Clone);
   cell := OnceCell(Point).new();
   p := cell.get_or_init(() => Point(i32(1), i32(2)));
   assert(p.x == i32(1), "the struct value is stored");

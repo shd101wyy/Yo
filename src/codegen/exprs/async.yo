@@ -31,7 +31,7 @@
   is_reference_struct_type,
   is_rc_type
 } :: import("../../types/guards.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 {
   CapturedVariable,
   CapturedVariableKind,
@@ -1042,7 +1042,7 @@ _rc_field_retain_line :: (fn(field_ref : String, field_type : TypeValue, indent 
       .Some(dup_fn) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { ${dup_fn}(${field_ref.clone()}); }`),
       .None => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_incr_rc((void*)${field_ref.clone()}); }`)
     ),
-    type_contains_rc_type(field_type) => match(
+    type_contains_rc_cell_or_move_only(field_type) => match(
       get_dup_function_for_type(field_type, context),
       .Some(dup_fn) => Option(String).Some(`${indent.clone()}${field_ref.clone()} = ${dup_fn}(${field_ref.clone()});`),
       .None => _inline_rc_field_line(field_ref, field_type, indent, false, context)
@@ -1061,7 +1061,7 @@ _rc_field_drop_line :: (fn(field_ref : String, field_type : TypeValue, indent : 
       .Some(drop_fn) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { ${drop_fn}(${field_ref.clone()}); }`),
       .None => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc((void*)${field_ref.clone()}); }`)
     ),
-    type_contains_rc_type(field_type) => match(
+    type_contains_rc_cell_or_move_only(field_type) => match(
       get_drop_function_for_type(field_type, context),
       .Some(drop_fn) => Option(String).Some(`${indent.clone()}${drop_fn}(${field_ref.clone()});`),
       .None => _inline_rc_field_line(field_ref, field_type, indent, true, context)
@@ -1148,7 +1148,7 @@ generate_async_block_state_dispose_function :: (
   // (issues/fixed/io-async-closure-captures-never-released.md).
   match(
     capture_type,
-    .Some(cap_ty) => if(type_contains_rc_type(cap_ty), {
+    .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(cap_ty), {
       if(!_capture_type_entry_exists(cap_ty, context), {
         codegen_fatal(String.from("the capture struct type of an async block is not registered, so its captures cannot be released"));
       }, {
@@ -1166,7 +1166,7 @@ generate_async_block_state_dispose_function :: (
   );
   em.emit_line("");
   // Drop the result field if it contains GC-managed data (state == -1 = completed).
-  if(!is_unit_type(result_type) && type_contains_rc_type(result_type), {
+  if(!is_unit_type(result_type) && type_contains_rc_cell_or_move_only(result_type), {
     em.emit_line("  // Drop result field if it was set (state == -1 means completed)");
     em.emit_line("  int final_state = sm->state;");
     em.emit_line("  if (final_state == -1) {");
@@ -1236,7 +1236,7 @@ generate_async_block_state_dispose_function :: (
   while(osi < overlapping_slots.len(), osi = (osi + usize(1)), {
     match(
       overlapping_slots.get(osi),
-      .Some(os) => if(type_contains_rc_type(os.ty), {
+      .Some(os) => if(type_contains_rc_cell_or_move_only(os.ty), {
         match(
           _rc_field_drop_line(`sm->${os.field_name.clone()}`, os.ty, String.from("    "), context),
           .Some(line) => {
@@ -1908,7 +1908,7 @@ _emit_fused_site_releases :: (
         );
       });
       // Only a field the dispose would release needs zeroing.
-      if(zero && type_contains_rc_type(ct), {
+      if(zero && type_contains_rc_cell_or_move_only(ct), {
         em.emit_string_line(`${indent}memset(&sm->${site.prefix}capture, 0, sizeof(sm->${site.prefix}capture));`);
       });
     },
@@ -1934,7 +1934,7 @@ _emit_fused_local_release :: (fn(lf : FusedLocalField, indent : String, zero : b
   if(zero, {
     // The block's own scope-end drops released it; zero it when the dispose
     // would release it, so the dispose finds nothing left.
-    if(type_contains_rc_type(lf.ty), {
+    if(type_contains_rc_cell_or_move_only(lf.ty), {
       em.emit_string_line(`${indent}memset(&sm->${lf.field_name.clone()}, 0, sizeof(sm->${lf.field_name.clone()}));`);
     });
   }, {
@@ -3596,8 +3596,8 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_declaration_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_declaration_line("");
   // Dispose function.
-  capture_drop_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_drop_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
-  capture_dup_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_dup_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
+  capture_drop_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(cap_ty), get_drop_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
+  capture_dup_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(cap_ty), get_dup_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
   result_drop_fn := get_drop_function_for_type(result_type, context);
   // INLINE result-drop fallback: no ___drop methods are synthesized (see
   // drop_dup.yo), so `result_drop_fn` is `.None` for every RC result type —
@@ -3610,7 +3610,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   // buffer — capture the side lines through a temp emitter and re-emit them.
   (result_inline_side : String) = String.from("");
   (result_inline_stmt : String) = String.from("");
-  if(match(result_drop_fn, .Some(_) => false, .None => true) && (!is_unit_type(result_type) && type_contains_rc_type(result_type)), {
+  if(match(result_drop_fn, .Some(_) => false, .None => true) && (!is_unit_type(result_type) && type_contains_rc_cell_or_move_only(result_type)), {
     temp_em := Emitter.new();
     saved_em := context.base.emitter;
     context.base.emitter = temp_em;
@@ -3628,14 +3628,14 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   if(match(capture_drop_fn, .Some(_) => false, .None => true), {
     match(
       eff_capture_type,
-      .Some(cap_ty) => if(type_contains_rc_type(cap_ty), {
+      .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(cap_ty), {
         cap_struct_id := match(cap_ty, .Struct({ id : sid }) => sid, _ => String.from(""));
         cap_fields := match(get_struct_fields(cap_struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
         (cfi : usize) = usize(0);
         while(cfi < cap_fields.len(), {
           match(
             cap_fields.get(cfi),
-            .Some(cf) => if(!cf.is_effect_param && type_contains_rc_type(cf.ty), {
+            .Some(cf) => if(!cf.is_effect_param && type_contains_rc_cell_or_move_only(cf.ty), {
               cap_em := Emitter.new();
               cap_saved := context.base.emitter;
               context.base.emitter = cap_em;

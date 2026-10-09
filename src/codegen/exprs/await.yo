@@ -26,7 +26,7 @@
   is_struct_type,
   is_unit_type
 } :: import("../../types/guards.yo");
-{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
 { scope_release_note_hard } :: import("../../expr_info.yo");
@@ -534,7 +534,7 @@ generate_await :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     result_type_str := get_type_string(result_type, context.base);
     var_decl := get_variable_type_string(result_type, result_var.clone(), context.base);
     // Every abort returned above, so the future is Completed here.
-    if(type_contains_rc_type(result_type), {
+    if(type_contains_rc_cell_or_move_only(result_type), {
       match(
         get_dup_function_for_type(result_type, context),
         .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_fn}(${sync_future_var.clone()}->result);`),
@@ -669,7 +669,7 @@ generate_join_handle_await :: (fn(expr : AstExpr, indent : String, context : Fun
     em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
   }, {
     rt := match(result_type_opt, .Some(t) => t, .None => TypeValue.Unit);
-    if(type_contains_rc_type(rt), {
+    if(type_contains_rc_cell_or_move_only(rt), {
       match(
         get_dup_function_for_type(rt, context),
         .Some(dup_fn) => em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_fn}(${header_var.clone()}->result)${some_close.clone()};`),

@@ -21,7 +21,7 @@
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, dyn_slot_param_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
-{ type_contains_rc_type, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
@@ -197,7 +197,7 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
                 // carries RC state: leave a greppable marker instead of a
                 // silent no-op — the silent no-op is the class that hid this
                 // bug for the whole life of the emitter.
-                if((em.code.len() == before_len) && type_contains_rc_type(dyn_concrete_res.clone()), {
+                if((em.code.len() == before_len) && type_contains_rc_cell_or_move_only(dyn_concrete_res.clone()), {
                   em.emit_string_line(`  /* __yo_MISSING_DROP: no drop lowering for ${concrete_c} */`);
                 });
               });

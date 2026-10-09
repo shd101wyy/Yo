@@ -25,7 +25,7 @@
 { EvalValue, is_func_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type, is_array_type, is_tuple_type, is_enum_type, is_newtype_type } :: import("../../types/guards.yo");
-{ type_contains_rc_type, type_requires_explicit_copy, is_value_nominal_type } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, type_is_move_only, is_value_nominal_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -128,11 +128,11 @@ _closure_runtime_arg_zeroinits :: (fn(closure_fid : String, context : FunctionGe
 /// declaration lines.
 ///
 /// `generate_drop_code_for_value` cannot see this content: its early
-/// `!type_contains_rc_type` return makes every RC-less subtree a no-op for
+/// `!type_contains_rc_cell_or_move_only` return makes every RC-less subtree a no-op for
 /// it, and a move-only value holds no RC reference by definition. The two
 /// walks therefore split the field by CONTENT — that one releases the RC
 /// references, this one runs the disposes — and each returns at the other's
-/// territory (`type_contains_rc_type` here mirrors the early return there),
+/// territory (`type_contains_rc_cell_or_move_only` here mirrors the early return there),
 /// so a value that is both (a struct with a user `Dispose` AND an RC field)
 /// is handled exactly once by each.
 ///
@@ -149,11 +149,11 @@ _emit_capture_dispose_lines :: (
   });
   concrete := resolve_enum_shell(resolve_struct_shell(resolve_some_type_to_concrete(ty)));
   // The RC walk owns every subtree that contains an RC reference.
-  if(type_contains_rc_type(concrete), {
+  if(type_contains_rc_cell_or_move_only(concrete), {
     return();
   });
   // Plain data only: no move-only value inside.
-  if(!type_requires_explicit_copy(concrete), {
+  if(!type_is_move_only(concrete), {
     return();
   });
   em := context.base.emitter;
@@ -269,7 +269,7 @@ _emit_capture_dispose_lines :: (
             while(dv_j < dv_fields.len(), {
               match(
                 dv_fields.get(dv_j),
-                .Some(dv_ft) => if(type_requires_explicit_copy(dv_ft) && !type_contains_rc_type(dv_ft), {
+                .Some(dv_ft) => if(type_is_move_only(dv_ft) && !type_contains_rc_cell_or_move_only(dv_ft), {
                   dv_has = true;
                 }),
                 .None => ()
@@ -283,7 +283,7 @@ _emit_capture_dispose_lines :: (
               while(dv_k < dv_fields.len(), {
                 match(
                   dv_fields.get(dv_k),
-                  .Some(dv_ft) => if(type_requires_explicit_copy(dv_ft) && !type_contains_rc_type(dv_ft), {
+                  .Some(dv_ft) => if(type_is_move_only(dv_ft) && !type_contains_rc_cell_or_move_only(dv_ft), {
                     dv_label := match(dv_labels.get(dv_k), .Some(l) => l, .None => String.new());
                     dv_fname := sanitize_for_c_identifier(dv_label.clone(), false);
                     dv_access := String.from("(");
@@ -373,7 +373,7 @@ _emit_capture_drop_lines :: (
         cd_ref.push_string(target.clone());
         cd_ref.push_str(").");
         cd_ref.push_string(sanitize_for_c_identifier(cd_f.label.clone(), false));
-        if(type_contains_rc_type(cd_ty), {
+        if(type_contains_rc_cell_or_move_only(cd_ty), {
           cd_line := generate_drop_code_for_value(cd_ref.clone(), cd_ty, context);
           if(cd_line.len() > usize(0), {
             cd_line.push_str(";");

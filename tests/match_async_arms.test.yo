@@ -9,7 +9,9 @@
 { yield } :: import("std/async");
 runtime_int :: (fn() -> i32)(i32(args().len()));
 Shape :: enum(Circle(radius : i32), Rect(width : i32, height : i32));
+derive(Shape, Copy, Clone);
 Reading2 :: enum(Code(v : i32), Flag2(v : bool));
+derive(Reading2, Copy, Clone);
 Lamp :: enum(On, Off);
 test("literal payload arms with an await in each arm (#661 gap 2)", {
   n := runtime_int();
@@ -174,7 +176,9 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
 // ordinary cond_branch suspension machinery.
 // ---------------------------------------------------------------------------
 Inner2 :: enum(A2(v : i32), B2);
+derive(Inner2, Copy, Clone);
 Outer2 :: enum(Ok2(v : Inner2), Err2(code : i32));
+derive(Outer2, Copy, Clone);
 test("a nested variant pattern in an awaiting arm", {
   n := runtime_int();
   o := Outer2.Ok2(Inner2.A2(i32(6) + n)); // Ok2(A2(7)) at runtime

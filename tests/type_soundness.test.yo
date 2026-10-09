@@ -35,7 +35,11 @@ _Value :: (fn(comptime(T) : Type) -> comptime(Type))(
     PairVal(a : i32, b : bool) -> recur(i32)
   )
 );
+derive(generic(T : Type), _Value(T), Clone);
+derive(generic(T : Type), _Value(T), Copy);
 _Phantom :: (fn(comptime(T) : Type) -> comptime(Type))(enum(A(x : i32), B(y : bool)));
+derive(generic(T : Type), _Phantom(T), Clone);
+derive(generic(T : Type), _Phantom(T), Copy);
 test("soundness: a GADT instantiation does not flow into another index", {
   comptime_expect_error({
     x := _Value(i32).IntVal(i32(77));
@@ -87,6 +91,8 @@ test("soundness: a phantom argument is checked against a bound parameter", {
   assert(_pick(true, _Phantom(bool).A(i32(1))), "a matching phantom argument is accepted");
 });
 _PhantomTag :: (fn(comptime(K) : Type) -> comptime(Type))(enum(A, B(n : u8)));
+derive(generic(K : Type), _PhantomTag(K), Clone);
+derive(generic(K : Type), _PhantomTag(K), Copy);
 _ksize :: (fn(generic(K : Type), _t : _PhantomTag(K)) -> usize)(sizeof(K));
 test("soundness: a body reads a type parameter bound only by a phantom argument", {
   assert(_ksize(_PhantomTag(u8).A) == usize(1), "u8");
@@ -156,6 +162,7 @@ test("soundness canary: a well-typed generic body still specializes", {
 // ---------------------------------------------------------------------------
 _takes_u8 :: (fn(a : u8) -> u8)(a);
 _U8Field :: struct(x : u8);
+derive(_U8Field, Copy, Clone);
 _big_constant :: 300;
 test("soundness: a comptime integer that does not fit its slot is E1102", {
   comptime_expect_error({
@@ -222,6 +229,7 @@ test("soundness: the arm join does not depend on arm order", {
 // an error, never `unit`.
 // ---------------------------------------------------------------------------
 _NoEq :: struct(x : i32);
+derive(_NoEq, Copy, Clone);
 _NoEqE :: enum(A, B);
 _generic_eq :: (fn(generic(T : Type), a : T, b : T, where(T <: Eq(T))) -> bool)(a == b);
 test("soundness: a missing operator impl is an error", {
@@ -283,6 +291,8 @@ _bump :: (fn(inout(x) : i32) -> unit)({
   ()
 });
 _Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+derive(generic(T : Type), where(T <: Clone), _Wrap(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _Wrap(T), Copy);
 test("soundness: an inout call through a fn value mutates the argument", {
   (f : (fn(inout(x) : i32) -> unit)) = _bump;
   (v : i32) = i32(5);
@@ -344,6 +354,7 @@ _ImplP :: struct(x : i32);
 _ImplQ :: struct(x : i32);
 _ImplR :: struct(x : i32);
 _ImplS :: struct(x : i32);
+derive(_ImplS, Copy, Clone);
 impl(_ImplS, _Bar(f : (self -> self.x)));
 test("soundness: an impl must match its trait's members", {
   comptime_expect_error(impl(_ImplP, _Foo(f : (self -> self.x))), "member \"g\" is not provided and has no default");
@@ -367,7 +378,9 @@ test("soundness canary: a trait default fills an omitted member", {
 // ---------------------------------------------------------------------------
 _Speaks :: trait(speak : (fn(self : Self) -> i32));
 _Dog :: struct(x : i32);
+derive(_Dog, Copy, Clone);
 _Rock :: struct(y : i32);
+derive(_Rock, Copy, Clone);
 impl(_Dog, _Speaks(speak : (self -> self.x)));
 _make_dog :: (fn() -> Impl(_Speaks))(_Dog(x : i32(3)));
 _hear :: (fn(v : Impl(_Speaks)) -> i32)(v.speak());
@@ -432,6 +445,7 @@ test("soundness canary: arguments that agree on a type parameter", {
 // ---------------------------------------------------------------------------
 _mk_none :: (fn(generic(T : Type)) -> Option(T))(.None);
 _Maker :: struct(k : i32);
+derive(_Maker, Copy, Clone);
 impl(_Maker, mk : (fn(generic(T : Type), self : Self) -> Option(T))(.None));
 test("soundness: a result-only type parameter with nothing to infer it from", {
   comptime_expect_error({
@@ -460,6 +474,7 @@ test("soundness canary: the expected type infers a result-only type parameter", 
 // came from the OUTER `T` (resolved by name), so the emitted C passed a
 // `usize` index where the closure took a `_Rec`.
 _TwoTRec :: struct(key : i32, tag : i32);
+derive(_TwoTRec, Copy, Clone);
 _inner_at :: (fn(generic(T : Type), a : T, b : T, less : Impl(Fn(x : T, y : T) -> bool)) -> bool)(less(a, b));
 _outer_at :: (fn(generic(T : Type), xs : ArrayList(T), less : Impl(Fn(x : T, y : T) -> bool)) -> bool)(
   _inner_at(usize(0), usize(1), (i, j) => less(xs(i), xs(j)))
@@ -474,6 +489,8 @@ test("soundness canary: a closure keeps the inner instantiation's parameter type
 // calling an `Impl(Fn(io : Io) -> T)` parameter inside a generic body typed the
 // result as an unresolved SomeT (undeclared symbol / clang type error).
 _IoCell :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(struct(v : T));
+derive(generic(T : Type), where(T <: Clone), _IoCell(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _IoCell(T), Copy);
 impl(
   generic(T : Type),
   where(T <: Send),
@@ -522,6 +539,7 @@ test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
 // instance id; the durable `Item` registration was keyed by that id, so the
 // second chain's `min` read the first call's `i32`.
 _SoundRange :: struct(_cur : i32, _end : i32);
+derive(_SoundRange, Copy, Clone);
 impl(
   _SoundRange,
   Iterator(
@@ -539,6 +557,7 @@ impl(
   )
 );
 _SoundRange64 :: struct(_cur : i64, _end : i64);
+derive(_SoundRange64, Copy, Clone);
 impl(
   _SoundRange64,
   Iterator(
@@ -619,6 +638,7 @@ test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
 _p25_eat :: (fn(own(s) : String) -> usize)(s.len());
 _p25_take_u8 :: (fn(a : u8) -> u8)(a);
 _P25Holder :: struct(n : i32);
+derive(_P25Holder, Copy, Clone);
 impl(
   _P25Holder,
   eat : (fn(self : Self, own(s) : String) -> usize)(s.len()),
@@ -688,8 +708,11 @@ test("soundness canary: an anonymous record with the same fields flows into a na
 // instantiation do not depend on what ran first.
 // ---------------------------------------------------------------------------
 _P34A :: struct(x : i32);
+derive(_P34A, Copy, Clone);
 _P34B :: struct(x : i32);
 _P34Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
+derive(generic(T : Type), where(T <: Clone), _P34Wrap(T), Clone);
+derive(generic(T : Type), where(T <: Copy), _P34Wrap(T), Copy);
 impl(_P34A, show : (fn(self : Self) -> i32)(self.x + i32(100)));
 _P34T1 :: trait(t1 : (fn(self : Self) -> i32));
 _P34T2 :: trait(t2 : (fn(self : Self) -> i32));
@@ -836,8 +859,10 @@ _p38_u64_sink :: (fn(x : u64) -> u64)(x);
 _P38DA :: trait(da : (fn(self : Self) -> i32));
 _P38DB :: trait(db : (fn(self : Self) -> i32));
 _P38OnlyA :: struct(n : i32);
+derive(_P38OnlyA, Copy, Clone);
 impl(_P38OnlyA, _P38DA(da : (self -> self.n)));
 _P38Both :: struct(n : i32);
+derive(_P38Both, Copy, Clone);
 impl(_P38Both, _P38DA(da : (self -> self.n)));
 impl(_P38Both, _P38DB(db : (self -> (self.n + i32(1)))));
 _p38_takes_both :: (fn(x : Dyn(_P38DA, _P38DB)) -> i32)(x.db());

@@ -3168,6 +3168,7 @@ truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
 /// (issues/fixed/abandoned-impl-members-survive-the-error.md). Truncating to a
 /// depth that did not change is a no-op, so the restore is unconditional.
 ForcingDepths :: struct(walks : usize, forcing : usize, impls : usize);
+derive(ForcingDepths, Copy, Clone);
 forcing_depths :: (fn() -> ForcingDepths)(
   ForcingDepths(walks : g_module_walks.len(), forcing : g_forcing_stack.len(), impls : g_impls_in_flight.len())
 );

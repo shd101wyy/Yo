@@ -7,6 +7,7 @@ pragma(Pragma.AllowUnsafe);
 // ===== 1. Struct with primitive fields =====
 PrimStruct :: struct(x : i32, y : bool, z : usize);
 derive(PrimStruct, Clone);
+derive(PrimStruct, Copy);
 test("derive Clone for struct with primitive fields", {
   orig := PrimStruct(i32(1), true, usize(42));
   c := orig.clone();
@@ -43,6 +44,7 @@ test("derive Clone for struct with ArrayList field", {
 // ===== 4. Struct with Option(T) field =====
 WithOption :: struct(maybe : Option(i32), required : bool);
 derive(WithOption, Clone);
+derive(WithOption, Copy);
 test("derive Clone for struct with Option field (Some)", {
   orig := WithOption(maybe : .Some(i32(42)), required : true);
   c := orig.clone();
