@@ -10,12 +10,15 @@ replaces each shape?**
 
 The catalog describes the model **at V5**: every declared type a value,
 `ref(...)`/`atomic(...)` gone, sharing only where `Rc`/`Arc` is spelled. It was
-written against the 2026-10-07 tree (landed: the `Rc` rename and canonical
-spelling, decision 32's clash error, the `Send`/`Sync` split, `FnOnce`,
-decision 36 part 1, local borrows and re-points, capture lists, V3b Generation
-A); the shapes that depend on V1 step 2 (the unique `Box`), V2b (projections,
-`with`, `indices`, value collections), V2c (explicit `Rc.clone`) and V5 are
-marked and land with those phases. At V5 this document is the seed of the
+written against the 2026-10-07 tree and re-checked on 2026-10-09 (landed:
+the `Rc` rename with the legacy `Box`/`box` spelling deleted (#1267, #1273),
+decision 32's clash error, the `Send`/`Sync` split, `FnOnce` (Generation B
+in #1273), decision 36's `Copy` sweep and flip (#1269, #1280), local borrows
+and re-points, capture lists, V3b Generation A); the shapes that depend on
+V1 step 2 (the unique `Box` — no `Box` type exists in the tree between
+#1273 and that step), V2b (projections, `with`, `indices`, value
+collections), V2c (explicit `Rc.clone`) and V5 are marked and land with
+those phases. At V5 this document is the seed of the
 user-facing porting guide (`docs/en-US/` + `docs/zh-CN/`, linked from the
 plan's V5 docs list).
 
@@ -360,7 +363,7 @@ D24). Pick by what the caller needs:
 | --- | --- | --- |
 | to read one field now | the call itself borrows: `imm(v) := xs(i)` — a local borrow (V2b places), or `xs(i).field` in place | free |
 | to mutate one entry | a non-escaping closure: `xs.with(i, mut(v) => …)` (D20, V2b) | free (inlines) |
-| the value out | a copy: `get_cloned(i)` for `Copy` payloads, `.clone()` otherwise; or ownership: `take(i)`, `pop`, `remove` (D20) | the copy |
+| the value out | a copy: `get(i)` for `Copy` payloads, `get_cloned(i)` or `xs(i).clone()` otherwise (D20: `get` exists only for implicitly copyable `T`); or ownership: `take(i)`, `pop`, `remove` | the copy |
 | to hold it beside others | a handle: store `Rc(V)` values and return `Rc.clone(v)` | count bump |
 | to find it again later | the key/index: `Option(usize)` / the key (shape 3) | a lookup |
 

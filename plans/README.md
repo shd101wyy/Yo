@@ -94,10 +94,11 @@ designed but not started: a paired Yo/Rust/C bench suite, `restrict` on
 exclusive parameters with UBSan canaries, an LTO-edges audit (ThinLTO is
 already the chunked default), finishing the 5b verifier-driven elision, a
 hoisted-walk lowering for the borrowed `for`, `Rc` write-assert elision by
-mutation summary, field reordering and PGO — sequenced around
-VALUES_BY_DEFAULT's phases.
+mutation summary (plus the per-type frozen-cell rule recorded in place of a
+declined `Rc(RefCell(T))` split), field reordering and PGO — sequenced
+around VALUES_BY_DEFAULT's phases.
 [`LANGUAGE_FEATURE_CANDIDATES`](backlog/LANGUAGE_FEATURE_CANDIDATES.md) is
-the 2026-10-08 parking lot of five checked candidates, none adopted: scoped
+the 2026-10-08 parking lot of six checked candidates, none adopted: scoped
 parallel iteration as std (the `Sync` machinery is all landed; rayon-shaped
 borrowing is impossible by design — owned chunks or `Arc` sharing are the Yo
 shapes), a portable `std/simd` over clang/gcc vector extensions, pre-design

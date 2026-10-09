@@ -79,7 +79,7 @@ cover the corners this would not.
 ```rust
 // sketch; the emitted C is float __attribute__((vector_size(16)))
 { f32x4 } :: import("std/simd");
-dot :: (fn(imm(a : f32x4), imm(b : f32x4) -> f32)((a * b).sum()));
+dot :: (fn(imm(a) : f32x4, imm(b) : f32x4) -> f32)((a * b).sum()));
 ```
 
 **Why it fits.** A language claiming C-comparable speed needs an answer for

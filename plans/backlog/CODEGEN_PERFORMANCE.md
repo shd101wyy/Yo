@@ -199,6 +199,56 @@ while a `for` borrows it must keep panicking).
 Dead `Rc.clone()` elision needs no work here: decision 27 owns it, landing
 with V2b.
 
+### CP2d. Considered and declined (2026-10-09): splitting `Rc(T)` into `Rc(RefCell(T))`
+
+The maintainer asked whether Rust's split — a plain `Rc<T>` with no borrow
+flag and `Rc<RefCell<T>>` only where mutation happens — should replace
+§3.10's one `Rc(T)` with marks in every cell header. Recorded here so the
+question is not re-opened without the measurement.
+
+**What the marks cost today, and what a split would save.** A Yo `Rc(T)`
+costs what Rust's `Rc<RefCell<T>>` costs: the header word for the marks,
+one load-compare-branch at each write through the cell (the §3.10 assert),
+and a mark set/clear around every `imm`/`mut` lend that crosses the cell
+(decision 28's per-call marks). The only thing Rust has that is cheaper is
+`Rc<T>` with a payload nobody can mutate: no flag, no assert, and a read
+through it touches no header. That is the whole saving a split could buy;
+the write path is the same check under either spelling.
+
+**Why not the split.** It is the cost VALUES_BY_DEFAULT chose not to pay:
+decision 4 makes a write through `Rc` a plain write with no annotation,
+§3.10 states "there is no `RefCell`", and the two together are what let the
+compiler's ~3,000 `ref` trees become `Rc(struct(...))` at V4/V5 with
+auto-dereference and no `.borrow()`/`.borrow_mut()` at every use. A split
+puts that spelling on every user, forces a payload type that is mutated in
+one place to be a `RefCell` everywhere, and duplicates the shared-cell
+semantics the plan unified (the peer session carrying the VBD phases holds
+the same position, 2026-10-09).
+
+**The same saving, statically, with no new type.** Yo emits one
+whole-program C translation, so the facts a `RefCell` spelling would carry
+in the type are already visible to codegen:
+
+- **Per-type frozen cells.** If no site in the program writes through an
+  `Rc(T)` deref for a given payload `T` (no field store, no `mut(self)`
+  call, no index place through the cell), then no mark on an `Rc(T)` cell
+  can ever conflict: emit no marks and no assert for that instantiation.
+  That is exactly Rust's `Rc<T>` cost, decided per type at codegen time
+  instead of per declaration by the user. A payload exported from a static
+  library, or reachable from `Dyn`, is conservatively "mutable" unless the
+  consumer's build proves otherwise.
+- **Per-site elision** is CP2c as designed: the write assert and the lend
+  marks go where the mutation summary proves no conflicting borrow is live.
+
+**Sequencing and the reopen condition.** Both levers sit behind V1's
+remaining item (the assert moves to the write site) and CP0's `Rc`-tree
+bench, which must add a mark/assert counter (acquires, releases, asserts
+executed on `check ./src`) so the share of time is a number. Reopen the
+split only if, after CP2c and the frozen-cell rule land, that counter
+shows mark traffic still dominating a hot path, concentrated in payload
+types that are mutated somewhere but read in the hot loop — the one case
+the static levers cannot reach.
+
 ## 4. CP3 — layout and profiles
 
 - **CP3a. Field reordering** in codegen for non-`extern` nominal types
@@ -207,10 +257,12 @@ with V2b.
   `repr(Rust)` reorders — this is the free cache win on hot structs.
   `extern`/C types keep declaration order (ABI); the `Option` one-pointer
   niches must survive; `sizeof` goldens move with this.
-- **CP3b. PGO**: `--profile generate|use` mapped onto clang's
+- **CP3b. PGO**: `--pgo generate|use` mapped onto clang's
   `-fprofile-generate`/`-fprofile-instr-use` (gcc equivalents per target),
-  counter-file placement under `yo-out/`, documented in BUILD docs. BOLT is
-  a later option once PGO exists.
+  counter-file placement under `yo-out/`, documented in BUILD docs. The flag
+  is not `--profile`: that name is already the timing report of `yo build`
+  and `yo compile` (`profile: watch round N <ms> rss=…MB`), and a PGO knob
+  must not shadow it. BOLT is a later option once PGO exists.
 
 ## 5. Gates and sequencing
 
@@ -229,6 +281,7 @@ UBSan language suite. One PR per phase, or a stack with one battery.
 | CP2a (5b) | its own backlog designs | as designed |
 | CP2b (`for` lowering) | V2b | after V2b |
 | CP2c (assert elision) | §3.10's V1 write-site assert | after V1's remainder |
+| CP2d (frozen-cell rule; the declined `RefCell` split's static form) | CP2c's write-site assert; CP0's mark counter | after CP2c |
 | CP3 | everything worth profiling | last |
 
 ## 6. Risks
