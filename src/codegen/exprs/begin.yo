@@ -25,7 +25,7 @@
 { get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position } :: import("../utils/index.yo");
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
-_concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+_concat_drops :: (fn(imm(current) : Option(ArrayList(AstExpr)), imm(prev) : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   match(
     current,
@@ -75,7 +75,7 @@ _concat_drops :: (fn(current : Option(ArrayList(AstExpr)), prev : Option(ArrayLi
 /// minting module path (URL `file:///...` vs relative `./...`), so the scoped
 /// check alone misses cross-form temps. The digits-only suffix keeps user
 /// variables like `await_future_temp_var_aliases` out.
-_looks_like_minted_temp :: (fn(cn : String) -> bool)({
+_looks_like_minted_temp :: (fn(imm(cn) : String) -> bool)({
   marker := String.from("_temp_");
   idx_opt := cn.index_of(marker);
   match(
@@ -102,7 +102,7 @@ _looks_like_minted_temp :: (fn(cn : String) -> bool)({
     }
   )
 });
-_emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGenerationContext) -> unit)(
+_emit_deferred_drops :: (fn(imm(ei) : ExprInfo, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)(
   match(
     ei.deferred_drop_expressions,
     .Some(drops) => {
@@ -168,7 +168,7 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
   )
 );
 /// The `begin` block generation.
-generate_begin :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_begin :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   value_type := ei.ty;
   em := context.base.emitter;

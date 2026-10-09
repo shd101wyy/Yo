@@ -19,7 +19,7 @@ Counter :: struct(n : i32);
 derive(Counter, Copy, Clone);
 impl(
   Counter,
-  bump : (fn(inout(self) : Self) -> unit)({
+  bump : (fn(mut(self) : Self) -> unit)({
     self.n = (self.n + i32(1));
   })
 );
@@ -48,7 +48,7 @@ comptime_expect_error({
   _d3_inout_self_receiver();
 });
 // D3 (Phase 1): an `inout` argument rooted in an `Arc`.
-_bump_by_ten :: (fn(inout(c) : Counter) -> unit)({
+_bump_by_ten :: (fn(mut(c) : Counter) -> unit)({
   c.n = (c.n + i32(10));
 });
 comptime_expect_error({
@@ -91,7 +91,7 @@ test("D3 canary: inout receiver, inout argument and index assignment on a plain 
 // gate decides by the callee's mutation mask, not by the parameter mode.
 impl(
   Counter,
-  describe : (fn(inout(self) : Self) -> i32)(self.n)
+  describe : (fn(mut(self) : Self) -> i32)(self.n)
 );
 test("D3 canary: a read-only inout(self) method and ToString through an Arc are legal", {
   a := arc(Counter(n : i32(4)));
@@ -145,7 +145,7 @@ comptime_expect_error({
   _d4_arc_of_non_send_closure();
 });
 // D4 (Phase 4): ...and through a generic `where(T <: Send)` function.
-_needs_send :: (fn(generic(T : Type), x : T, where(T <: Send)) -> unit)({
+_needs_send :: (fn(generic(T : Type), imm(x) : T, where(T <: Send)) -> unit)({
   x;
 });
 comptime_expect_error({
@@ -221,7 +221,7 @@ comptime_expect_error({
 // D1: ...and through a `Dyn(Trait, Send)` value whose method reaches it — the
 // vtable's methods are walked where the concrete impl is known, at `dyn(...)`.
 _GlobalPusher :: trait(
-  push_one : (fn(self : Self) -> unit)
+  push_one : (fn(imm(self) : Self) -> unit)
 );
 _PushesToGlobal :: struct(unused : i32);
 derive(_PushesToGlobal, Copy, Clone);
@@ -397,7 +397,7 @@ _d9_push :: (fn() -> unit)({
 _d9_call_ptr :: (fn(cb : (fn() -> unit)) -> unit)({
   cb();
 });
-_d9_run :: (fn(cb : Impl(Fn() -> unit, Send)) -> unit)({
+_d9_run :: (fn(imm(cb) : Impl(Fn() -> unit, Send)) -> unit)({
   t := Thread(unit).spawn((io : Io) => {
     cb();
     ()

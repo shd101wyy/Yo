@@ -181,7 +181,7 @@ impl(
   /// the list as given — no sorting, merging or validation, so an empty
   /// `ranges` with `negated : false` is a class that can never match, and the
   /// parser is responsible for not building one.
-  char_class : (fn(ranges : ArrayList(CharRange), negated : bool) -> Self)(
+  char_class : (fn(imm(ranges) : ArrayList(CharRange), negated : bool) -> Self)(
     Self(
       kind : .CharClass,
       children : ArrayList(RegexNode).new(),
@@ -214,7 +214,7 @@ impl(
   /// A concatenation of `nodes`, matched left to right. Takes the list as
   /// given, including an empty one — which is how the empty pattern and the
   /// empty side of `a|` are represented.
-  sequence : (fn(nodes : ArrayList(RegexNode)) -> Self)(
+  sequence : (fn(imm(nodes) : ArrayList(RegexNode)) -> Self)(
     Self(
       kind : .Sequence,
       children : nodes,
@@ -231,7 +231,7 @@ impl(
   /// A `left|right` node. Strictly binary: the parser folds `a|b|c` into
   /// nested alternations, and the compiler's `Split` lowering assumes exactly
   /// two children.
-  alternation : (fn(left : RegexNode, right : RegexNode) -> Self)({
+  alternation : (fn(imm(left) : RegexNode, imm(right) : RegexNode) -> Self)({
     kids := ArrayList(RegexNode).new();
     kids.push(left);
     kids.push(right);
@@ -253,7 +253,7 @@ impl(
   /// `max_val == 0` means UNBOUNDED — that is the sentinel for `*`, `+` and
   /// `{m,}`, so it does not mean "zero times". `greedy : false` is the `?`
   /// suffix (`a*?`), which only reorders the alternatives the compiler emits.
-  quantifier : (fn(child : RegexNode, min_val : usize, max_val : usize, greedy : bool) -> Self)({
+  quantifier : (fn(imm(child) : RegexNode, min_val : usize, max_val : usize, greedy : bool) -> Self)({
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
@@ -272,7 +272,7 @@ impl(
   /// A capturing `(...)` node. `index` is the 1-based capture number the
   /// parser assigned by opening-parenthesis order, which is what `\1`, `$1`
   /// and `RegexMatch.group(i)` all count in.
-  group : (fn(child : RegexNode, index : usize) -> Self)({
+  group : (fn(imm(child) : RegexNode, index : usize) -> Self)({
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
@@ -291,7 +291,7 @@ impl(
   /// A `(?:...)` node — grouping for precedence only, consuming no capture
   /// number. Kept as a distinct kind rather than collapsed into its child so
   /// that a quantifier can wrap the group rather than the last atom in it.
-  non_capturing_group : (fn(child : RegexNode) -> Self)({
+  non_capturing_group : (fn(imm(child) : RegexNode) -> Self)({
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
@@ -328,7 +328,7 @@ impl(
   /// A `(?=...)` (positive) or `(?!...)` (negative) node. `positive` is
   /// stored INVERTED, as the struct's `negated` field. Zero-width: the VM runs
   /// the child, keeps only the yes/no answer, and resumes where it started.
-  lookahead : (fn(child : RegexNode, positive : bool) -> Self)({
+  lookahead : (fn(imm(child) : RegexNode, positive : bool) -> Self)({
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(
@@ -347,7 +347,7 @@ impl(
   /// A `(?<=...)` (positive) or `(?<!...)` (negative) node — the same
   /// zero-width contract as `lookahead`, matched backwards from the current
   /// position. `positive` is stored inverted, as `negated`.
-  lookbehind : (fn(child : RegexNode, positive : bool) -> Self)({
+  lookbehind : (fn(imm(child) : RegexNode, positive : bool) -> Self)({
     kids := ArrayList(RegexNode).new();
     kids.push(child);
     Self(

@@ -36,7 +36,7 @@ impl(
   _RngState,
   /// The next 32 uniformly random bits. THE algorithm — `Rng` and the
   /// per-thread generator both go through this one copy.
-  next_u32 : (fn(inout(self) : Self) -> u32)({
+  next_u32 : (fn(mut(self) : Self) -> u32)({
     old := self.state;
     // PCG's LCG step wraps BY DESIGN (wrapping_mul/add, safe mode D1).
     self.state = old.wrapping_mul(_PCG_MULT).wrapping_add(self.inc);
@@ -47,7 +47,7 @@ impl(
     (xorshifted >> rot) | (xorshifted << (u32(0).wrapping_sub(rot) & u32(31)))
   }),
   /// The next 64 uniformly random bits (two 32-bit draws).
-  next_u64 : (fn(inout(self) : Self) -> u64)({
+  next_u64 : (fn(mut(self) : Self) -> u64)({
     hi := u64(self.next_u32());
     lo := u64(self.next_u32());
     (hi << u64(32)) | lo
@@ -57,7 +57,7 @@ impl(
   /// to fix). Panics for `bound == 0`: there is no value below zero, and the
   /// `% bound` below was a SIGFPE on x86 / a silent 0 on arm64
   /// (issues/fixed/rng-range-and-next-below-divide-by-zero-on-an-empty-range.md).
-  next_below : (fn(inout(self) : Self, bound : u64) -> u64)(
+  next_below : (fn(mut(self) : Self, bound : u64) -> u64)(
     cond(
       (bound == u64(0)) => __yo_panic("Rng.next_below: bound must be non-zero"),
       true => {
@@ -108,22 +108,22 @@ impl(
     Self.new(_entropy_u64())
   ),
   /// The next 32 uniformly random bits.
-  next_u32 : (fn(self : Self) -> u32)(self._st.next_u32()),
+  next_u32 : (fn(imm(self) : Self) -> u32)(self._st.next_u32()),
   /// The next 64 uniformly random bits (two 32-bit draws).
-  next_u64 : (fn(self : Self) -> u64)(self._st.next_u64()),
+  next_u64 : (fn(imm(self) : Self) -> u64)(self._st.next_u64()),
   /// A uniform float in `[0, 1)` (53 bits of precision — an exact division
   /// by 2^53, not a hand-typed epsilon literal, which parsed LOW).
-  next_f64 : (fn(self : Self) -> f64)(
+  next_f64 : (fn(imm(self) : Self) -> f64)(
     f64(self.next_u64() >> u64(11)) / f64(9007199254740992)
   ),
   /// A fair coin. Reads the TOP bit, which is the best-mixed one in a PCG
   /// output word — `x % 2` on the low bit is a classic weak-bit mistake.
-  next_bool : (fn(self : Self) -> bool)(
+  next_bool : (fn(imm(self) : Self) -> bool)(
     (self.next_u32() >> u32(31)) == u32(1)
   ),
   /// A uniform value below `bound`, rejection-sampled. Panics for
   /// `bound == 0`.
-  next_below : (fn(self : Self, bound : u64) -> u64)(self._st.next_below(bound)),
+  next_below : (fn(imm(self) : Self, bound : u64) -> u64)(self._st.next_below(bound)),
   /// A uniform integer in the half-open range `r` — write it with `..`:
   /// `rng.range(i64(1) .. i64(7))` for a d6. Panics if the range is empty
   /// (`r.end <= r.start`), like Rust's `gen_range` — an empty range has no
@@ -132,7 +132,7 @@ impl(
   /// The range is a `Range(i64)` rather than two `i64` parameters so the
   /// half-open bound is visible AT THE CALL SITE: `range(1, 7)` reads as
   /// either `[1, 7)` or `[1, 7]` and the caller has to remember which.
-  range : (fn(self : Self, r : Range(i64)) -> i64)(
+  range : (fn(imm(self) : Self, r : Range(i64)) -> i64)(
     cond(
       (r.end <= r.start) => __yo_panic("Rng.range: empty range (end <= start)"),
       true => {
@@ -157,7 +157,7 @@ impl(
   /// and the alternative — one `range` over a `SampleRange`-style trait —
   /// would put a trait on the public surface to save one word at the call
   /// site.
-  range_inclusive : (fn(self : Self, r : RangeInclusive(i64)) -> i64)(
+  range_inclusive : (fn(imm(self) : Self, r : RangeInclusive(i64)) -> i64)(
     cond(
       (r.end < r.start) => __yo_panic("Rng.range_inclusive: empty range (end < start)"),
       // `end == i64.MAX` would overflow `end + 1`, so the full-width case
@@ -175,7 +175,7 @@ impl(
     )
   ),
   /// Fisher–Yates shuffle, in place.
-  shuffle : (fn(generic(T : Type), self : Self, inout(xs) : ArrayList(T)) -> unit)({
+  shuffle : (fn(generic(T : Type), imm(self) : Self, mut(xs) : ArrayList(T)) -> unit)({
     (i : usize) = xs.len();
     while(i > usize(1), {
       i = (i - usize(1));
@@ -186,7 +186,7 @@ impl(
     });
   }),
   /// A uniformly chosen element, or `.None` for an empty list.
-  choice : (fn(generic(T : Type), self : Self, xs : ArrayList(T)) -> Option(T))(
+  choice : (fn(generic(T : Type), imm(self) : Self, imm(xs) : ArrayList(T)) -> Option(T))(
     cond(
       (xs.len() == usize(0)) => Option(T).None,
       true => xs.get(usize(self.next_below(u64(xs.len()))))

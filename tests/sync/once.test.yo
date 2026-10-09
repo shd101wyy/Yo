@@ -311,7 +311,7 @@ test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles"
 //
 // What IS observable: an `f` that returns early still leaves the mutex
 // released and the `Once` un-done, so the next call can acquire and re-run.
-_early_return_init :: (fn(o : Once, counter : AtomicI32) -> unit)({
+_early_return_init :: (fn(imm(o) : Once, imm(counter) : AtomicI32) -> unit)({
   o.call(() => {
     counter.fetch_add(i32(1), MemoryOrder.SeqCst);
     // Leave the closure before `call` records completion.

@@ -26,7 +26,7 @@
 } :: import("../utils/index.yo");
 /// C integer-literal suffix for an integer type (ValueTag suffix logic, driven
 /// by the threaded type).
-_int_suffix :: (fn(ty : TypeValue) -> str)(
+_int_suffix :: (fn(imm(ty) : TypeValue) -> str)(
   match(
     ty,
     .Int(bits, signed) => cond(
@@ -41,11 +41,11 @@ _int_suffix :: (fn(ty : TypeValue) -> str)(
   )
 );
 /// True if the type is a 32-bit float (needs the `f` suffix).
-_is_f32 :: (fn(ty : TypeValue) -> bool)(
+_is_f32 :: (fn(imm(ty) : TypeValue) -> bool)(
   match(ty, .Float(bits) => (bits == u8(32)), _ => false)
 );
 /// True if `ty` is the comptime_string type.
-_is_comptime_string :: (fn(ty : TypeValue) -> bool)(
+_is_comptime_string :: (fn(imm(ty) : TypeValue) -> bool)(
   match(ty, .ComptimeString => true, _ => false)
 );
 /// Strip the surrounding `"` delimiters that the `StrLit` convention
@@ -55,7 +55,7 @@ _is_comptime_string :: (fn(ty : TypeValue) -> bool)(
 /// before re-escaping / length computation. Defensive: only strips when both
 /// ends are `"` and the string is at least 2 bytes (synthetic StrLits built
 /// without delimiters pass through unchanged).
-_strip_str_delims :: (fn(raw : String) -> String)({
+_strip_str_delims :: (fn(imm(raw) : String) -> String)({
   // BYTE count, NOT String.len() (which counts CHARACTERS — std skips UTF-8
   // continuation bytes): this function walks BYTES, and a char-counted bound
   // made byte_at(n-1) miss the closing quote on multibyte content (strip
@@ -82,7 +82,7 @@ _strip_str_delims :: (fn(raw : String) -> String)({
 /// become unambiguous 3-digit octal. A NUL byte pushed verbatim (the old
 /// behavior) poisons the emitted C — see
 /// issues/fixed/c-string-literal-control-chars-emitted-as-unicode-escapes.md
-_c_string_literal :: (fn(raw : String) -> String)({
+_c_string_literal :: (fn(imm(raw) : String) -> String)({
   out := String.from("\"");
   // BYTE count (see _strip_str_delims note): this loop reads raw BYTES.
   n := raw.len();
@@ -111,7 +111,7 @@ _c_string_literal :: (fn(raw : String) -> String)({
   out
 });
 /// Find a variant's index in an EnumT by name (or `.None`).
-_enum_variant_index :: (fn(enum_ty : TypeValue, name : String) -> Option(usize))(
+_enum_variant_index :: (fn(imm(enum_ty) : TypeValue, imm(name) : String) -> Option(usize))(
   match(
     enum_ty,
     .EnumT({ variant_names }) => {
@@ -138,7 +138,7 @@ _enum_variant_index :: (fn(enum_ty : TypeValue, name : String) -> Option(usize))
 /// JoinHandle.await). These are markers with no C body — every call site is
 /// inlined into direct runtime calls — so a struct-literal field of one of
 /// these types lowers to a NULL fn pointer.
-_is_io_builtin_fn_type :: (fn(t : TypeValue) -> bool)(
+_is_io_builtin_fn_type :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .Func({ meta : __ibm1 }) => match(
@@ -175,7 +175,7 @@ _is_io_builtin_fn_type :: (fn(t : TypeValue) -> bool)(
 /// `can_optimize_as_simple_enum` / `can_optimize_as_nullable_pointer` — both
 /// collapse a ref-enum into a non-allocating form: a plain C enum constant, or
 /// `NULL` / a bare pointer.
-comptime_value_allocates_rc_object :: (fn(value : EvalValue, ty : TypeValue) -> bool)(
+comptime_value_allocates_rc_object :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue) -> bool)(
   match(
     value,
     .EnumVal(_, _) => cond(
@@ -203,7 +203,7 @@ comptime_value_allocates_rc_object :: (fn(value : EvalValue, ty : TypeValue) -> 
 // A value that allocates reference-counted objects cannot be a static
 // initializer, and neither can one with an unrenderable part: both keep the
 // placeholder.
-_static_address :: (fn(value : EvalValue, ty : TypeValue, path : String, context : CodeGenContext) -> String)(
+_static_address :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(path) : String, imm(context) : CodeGenContext) -> String)(
   cond(
     comptime_value_allocates_rc_object(value, ty) => String.from("/* skip generating value */"),
     true => {
@@ -215,7 +215,7 @@ _static_address :: (fn(value : EvalValue, ty : TypeValue, path : String, context
     }
   )
 );
-generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : CodeGenContext) -> String)(
+generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(context) : CodeGenContext) -> String)(
   match(
     value,
     .IntLit(raw) => {

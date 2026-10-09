@@ -9,14 +9,14 @@
 { assert } :: import("std/assert");
 { IoExn, Exception } :: import("std/error");
 AR :: trait(
-  read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
-  twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))
+  read : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn))),
+  twice : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))
 );
 // Trait with a `?=` default of the same awaiting shape (the C16 fix covers the
 // default materialization; this file covers it on a GENERIC implementor).
 ARD :: trait(
-  read_d : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
-  (twice_d : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
+  read_d : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn))),
+  (twice_d : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
     (
       (self, io) ->
         io.async(e => {

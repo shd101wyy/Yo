@@ -74,33 +74,33 @@ impl(
     )
   ),
   // The ring's slot count without the allocator tag.
-  _cap : (fn(self : Self) -> usize)(self._capacity & _CAP_MASK),
+  _cap : (fn(imm(self) : Self) -> usize)(self._capacity & _CAP_MASK),
   // True when the ring came from an explicit `Allocator`.
-  _owned : (fn(self : Self) -> bool)((self._capacity & _CAP_TAG) != usize(0)),
+  _owned : (fn(imm(self) : Self) -> bool)((self._capacity & _CAP_TAG) != usize(0)),
   /// The allocator the ring lives in, or `.None` for the global one.
-  allocator : (fn(self : Self) -> Option(Allocator))(
+  allocator : (fn(imm(self) : Self) -> Option(Allocator))(
     cond(
       self._owned() => .Some(Allocator.owner_of((*void)(self._buf.unwrap()))),
       true => .None
     )
   ),
   // Release a ring buffer the way it was allocated.
-  _free_buf : (fn(self : Self, p : *T) -> unit)(
+  _free_buf : (fn(imm(self) : Self, imm(p) : *T) -> unit)(
     cond(
       self._owned() => Allocator.free(.Some((*void)(p))),
       true => free(.Some((*void)(p)))
     )
   ),
   /// Number of elements. O(1); not the ring's capacity.
-  len : (fn(self : Self) -> usize)(
+  len : (fn(imm(self) : Self) -> usize)(
     self._len
   ),
   /// True when the deque holds no elements.
-  is_empty : (fn(self : Self) -> bool)(
+  is_empty : (fn(imm(self) : Self) -> bool)(
     self._len == usize(0)
   ),
   // Ensure at least `min_cap` slots are available.
-  _grow : (fn(inout(self) : Self, min_cap : usize) -> unit)({
+  _grow : (fn(mut(self) : Self, min_cap : usize) -> unit)({
     new_cap := cond(
       (self._cap() == usize(0)) => usize(8),
       true => (self._cap() * usize(2))
@@ -164,7 +164,7 @@ impl(
   /// A full ring grows (doubling and linearising), which PANICS on allocation
   /// failure or capacity overflow rather than reporting it (D9), and
   /// invalidates every pointer into the buffer.
-  push_back : (fn(inout(self) : Self, val : T) -> unit)({
+  push_back : (fn(mut(self) : Self, imm(val) : T) -> unit)({
     cond(
       (self._len == self._cap()) => self._grow(self._len + usize(1)),
       true => ()
@@ -179,7 +179,7 @@ impl(
   /// `push_front`.
   ///
   /// Grows exactly like `push_back` when the ring is full.
-  push_front : (fn(inout(self) : Self, val : T) -> unit)({
+  push_front : (fn(mut(self) : Self, imm(val) : T) -> unit)({
     cond(
       (self._len == self._cap()) => self._grow(self._len + usize(1)),
       true => ()
@@ -194,7 +194,7 @@ impl(
   }),
   /// Remove and return the front element, or `.None` when empty — O(1). The
   /// capacity is kept.
-  pop_front : (fn(inout(self) : Self) -> Option(T))(
+  pop_front : (fn(mut(self) : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => .None,
       true => {
@@ -209,7 +209,7 @@ impl(
     )
   ),
   /// Remove and return the back element, or `.None` when empty — O(1).
-  pop_back : (fn(inout(self) : Self) -> Option(T))(
+  pop_back : (fn(mut(self) : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => .None,
       true => {
@@ -227,11 +227,11 @@ impl(
     )
   ),
   /// First element, or `.None` when empty — Rust's `VecDeque::front`.
-  front : (fn(self : Self) -> Option(T))(
+  front : (fn(imm(self) : Self) -> Option(T))(
     self.get(usize(0))
   ),
   /// Last element, or `.None` when empty — Rust's `VecDeque::back`.
-  back : (fn(self : Self) -> Option(T))(
+  back : (fn(imm(self) : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => Option(T).None,
       true => self.get(self._len - usize(1))
@@ -242,7 +242,7 @@ impl(
   ///
   /// `self(index)` (the `Index` impl) hands back a pointer into the ring and
   /// asserts the bound instead.
-  get : (fn(self : Self, index : usize) -> Option(T))(
+  get : (fn(imm(self) : Self, index : usize) -> Option(T))(
     cond(
       (index >= self._len) => .None,
       true => {
@@ -257,7 +257,7 @@ impl(
   generic(T : Type),
   Deque(T),
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       match(
         self._buf,
         .Some(p) => {
@@ -300,7 +300,7 @@ impl(
   DequeIter(T),
   Iterator(
     Item : T,
-    next : (fn(inout(self) : Self) -> Option(T))(
+    next : (fn(mut(self) : Self) -> Option(T))(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
@@ -320,7 +320,7 @@ impl(
   DequeIter(T),
   DoubleEndedIterator(
     Item : T,
-    next_back : (fn(inout(self) : Self) -> Option(T))(
+    next_back : (fn(mut(self) : Self) -> Option(T))(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
@@ -342,7 +342,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : DequeIter(T),
-    into_iter : (fn(self : Self) -> DequeIter(T))(
+    into_iter : (fn(imm(self) : Self) -> DequeIter(T))(
       DequeIter(T)(_deque : self, _pos : usize(0), _remaining : self._len)
     )
   )
@@ -365,7 +365,7 @@ impl(
   DequeIterPtr(T),
   Iterator(
     Item : *T,
-    next : (fn(inout(self) : Self) -> Option(*T))(
+    next : (fn(mut(self) : Self) -> Option(*T))(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
@@ -385,7 +385,7 @@ impl(
   Deque(T),
   /// Borrowing walk from the front: yields a `*(T)` into the ring and
   /// leaves the deque intact (D14).
-  iter : (fn(self : Self) -> DequeIterPtr(T))(
+  iter : (fn(imm(self) : Self) -> DequeIterPtr(T))(
     DequeIterPtr(T)(_deque : self, _pos : usize(0), _remaining : self._len)
   )
 );
@@ -394,7 +394,7 @@ impl(
   Deque(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "Deque: index out of bounds");
       buf := self._buf.unwrap();
       physical_idx := ((self._head + idx) % self._cap());
@@ -413,7 +413,7 @@ impl(
     /// POINTER and reads it WITHOUT touching the element's reference count (a
     /// by-value managed handle would be dup'd then dropped, freeing a live
     /// element mid-collection). Mirrors the ArrayList `Trace` impl.
-    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+    trace : (fn(imm(self) : Self, imm(tracer) : GcTracer) -> unit)({
       match(
         self._buf,
         .Some(base) => {
@@ -440,7 +440,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       Deque(T).new()
     ),
-    from_iter_add : (fn(own(acc) : Self, item : T) -> Self)({
+    from_iter_add : (fn(own(acc) : Self, imm(item) : T) -> Self)({
       acc.push_back(item);
       acc
     })

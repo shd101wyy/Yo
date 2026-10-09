@@ -36,7 +36,7 @@
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
 /// a function value registered in the codegen function table.
-_method_c_name :: (fn(type : TypeValue, method_name : str, context : FunctionGenerationContext) -> Option(String))({
+_method_c_name :: (fn(imm(type) : TypeValue, method_name : str, imm(context) : FunctionGenerationContext) -> Option(String))({
   if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type) || is_iso_type(type)), {
     return(Option(String).None);
   });
@@ -44,11 +44,11 @@ _method_c_name :: (fn(type : TypeValue, method_name : str, context : FunctionGen
   match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
 });
 /// The C name of `type`'s `___drop` function, if any.
-get_drop_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
+get_drop_function_for_type :: (fn(imm(type) : TypeValue, imm(context) : FunctionGenerationContext) -> Option(String))(
   _method_c_name(type, BF_DROP, context)
 );
 /// The C name of `type`'s `___dup` function, if any.
-get_dup_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))(
+get_dup_function_for_type :: (fn(imm(type) : TypeValue, imm(context) : FunctionGenerationContext) -> Option(String))(
   _method_c_name(type, BF_DUP, context)
 );
 /// The C name of `type`'s `___dispose` function, if any. Used by the
@@ -60,7 +60,7 @@ get_dup_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationC
 /// HashMap(usize, EvalValue) dispose and dropping its `bool` slot as a reference-
 /// counted value (`__yo_decr_rc(0x1)` crash). `_synthesize_and_register_dispose`
 /// registers under type_key to match (same keying as `get_trace_function_for_type`).
-get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))({
+get_dispose_function_for_type :: (fn(imm(type) : TypeValue, imm(context) : FunctionGenerationContext) -> Option(String))({
   if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type) || is_iso_type(type)), {
     return(Option(String).None);
   });
@@ -90,7 +90,7 @@ get_dispose_function_for_type :: (fn(type : TypeValue, context : FunctionGenerat
 /// None for types that use the auto-derived field-walk traversal. The
 /// specialized `trace` is registered under the concrete type key by
 /// collection.yo's `_specialize_and_register_trace`.
-get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGenerationContext) -> Option(String))({
+get_trace_function_for_type :: (fn(imm(type) : TypeValue, imm(context) : FunctionGenerationContext) -> Option(String))({
   // trace is registered under type_key(type) (instantiation-precise), not the
   // raw shared struct id — see collection.yo _specialize_and_register_trace.
   if(!(is_struct_type(type) || is_enum_type(type) || is_dyn_type(type) || is_some_type(type) || is_iso_type(type)), {
@@ -132,7 +132,7 @@ get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGeneratio
 /// concrete parameter type from the enclosing function signature (the
 /// SomeType.resolvedConcreteType branches are
 /// Gap-6-deferred — no such field exists).
-resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue, context : FunctionGenerationContext) -> TypeValue)({
+resolve_some_type_param_type :: (fn(imm(value_arg) : AstExpr, imm(value_type) : TypeValue, imm(context) : FunctionGenerationContext) -> TypeValue)({
   if(!is_some_type(value_type), {
     return(value_type);
   });
@@ -183,14 +183,14 @@ resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue,
 /// captures, and its dispose drops the field through this walk, which saw an
 /// unresolved SomeT and emitted nothing (Stream.for_each leaked the closure's
 /// captured list).
-_closure_value_type :: (fn(t : TypeValue) -> TypeValue)({
+_closure_value_type :: (fn(imm(t) : TypeValue) -> TypeValue)({
   if(is_bound_closure_identity(t), return(resolve_cell_chain(t)));
   cvt_r := resolve_cell_chain(t);
   if(is_closure_capture_struct(cvt_r), cvt_r, t)
 });
 /// Generate drop code for a value of any type (recursive for arrays/tuples).
 /// Note: emits at column 0 (no indent).
-generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue, context : FunctionGenerationContext) -> String)({
+generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : TypeValue, imm(context) : FunctionGenerationContext) -> String)({
   // Resolve recursive-type SHELLS to their registered finals first (same
   // convention as type_key / get_size_of_type): a shell enum has EMPTY
   // variant lists, so the per-variant RC walk below emits a switch with NO
@@ -467,7 +467,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
   )
 });
 /// Generate dup code for a value of any type (recursive for arrays/tuples).
-generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, context : FunctionGenerationContext) -> String)({
+generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : TypeValue, imm(context) : FunctionGenerationContext) -> String)({
   // Resolve recursive-type SHELLS first — see generate_drop_code_for_value.
   concrete_type := resolve_enum_shell(resolve_struct_shell(_closure_value_type(value_type)));
   em := context.base.emitter;
@@ -804,7 +804,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
 /// The `___drop(name)` / `(name.___drop)()` target ATOM node (mirror of
 /// return.yo's private `_drop_target_atom`; duplicated to avoid a
 /// drop_dup -> return import cycle).
-_dd_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
+_dd_drop_target_atom :: (fn(imm(drop_expr) : AstExpr) -> Option(AstExpr))(
   match(
     drop_expr,
     .FnCall(_, func, args, _, _) => if(
@@ -837,7 +837,7 @@ _dd_drop_target_atom :: (fn(drop_expr : AstExpr) -> Option(AstExpr))(
 /// function-scope drop: the body owns the capture as it owns a `sink`
 /// parameter, so it is emitted only at the function-level points too
 /// (plans/VALUES_BY_DEFAULT.md decision 37).
-_drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+_drop_target_is_parameter :: (fn(imm(drop_expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
   !is_fnonce_post_call_release(ast_expr_id(drop_expr)) && (
     is_fnonce_capture_drop(ast_expr_id(drop_expr)) || match(
       _dd_drop_target_atom(drop_expr),
@@ -866,7 +866,7 @@ _drop_target_is_parameter :: (fn(drop_expr : AstExpr, context : FunctionGenerati
 /// `generate_deferred_drop_expressions`'s closure-capture and undeclared-temp
 /// gates. The bare-expression tail return uses it to decide whether the tail
 /// must be materialized before those drops run.
-has_pending_emittable_drop :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+has_pending_emittable_drop :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -911,9 +911,9 @@ has_pending_emittable_drop :: (fn(expr : AstExpr, context : FunctionGenerationCo
 
 generate_deferred_drop_expressions :: (
   fn(
-    expr : AstExpr,
-    indent : String,
-    context : FunctionGenerationContext,
+    imm(expr) : AstExpr,
+    imm(indent) : String,
+    imm(context) : FunctionGenerationContext,
     (skip_param_drops : bool) ?= false,
     (only_param_drops : bool) ?= false
   ) -> unit
@@ -999,7 +999,7 @@ generate_deferred_drop_expressions :: (
   )
 );
 /// Emit the evaluator-deferred dup expressions for `expr`.
-generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> unit)(
+generate_deferred_dup_expressions :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -1100,7 +1100,7 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
 /// dup-result temp's C name (so the dup'd copy is what gets stored/passed);
 /// otherwise return `fallback_code` unchanged. Shared by the codegen
 /// dup-on-store sites (init-assignment RHS, ref-struct ctor args, ...).
-emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent : String, context : FunctionGenerationContext) -> String)(
+emit_deferred_dup_or_code :: (fn(imm(expr) : AstExpr, imm(fallback_code) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -1265,7 +1265,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
 /// awaited `Option(String)` local — so the payload was owned twice and
 /// released twice at completion; the string came back empty (or freed) to
 /// the caller (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
-arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+arm_value_with_dups :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))({
   bei := match(context.base.get_expr_info(body_expr), .Some(b) => b, .None => return(Option(String).None));
   bdups := match(expr_info_deferred_dup_expressions(bei), .Some(d) => d, .None => return(Option(String).None));
   if(bdups.len() == usize(0), {

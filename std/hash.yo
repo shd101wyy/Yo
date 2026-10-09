@@ -83,7 +83,7 @@ impl(
     )
   ),
   /// Forget everything written so far, keeping the keys.
-  reset : (fn(inout(self) : Self) -> unit)({
+  reset : (fn(mut(self) : Self) -> unit)({
     self.v0 = (self.k0 ^ u64(0x736f6d6570736575));
     self.v1 = (self.k1 ^ u64(0x646f72616e646f6d));
     self.v2 = (self.k0 ^ u64(0x6c7967656e657261));
@@ -92,7 +92,7 @@ impl(
     self.ntail = usize(0);
     self.length = usize(0);
   }),
-  _round : (fn(inout(self) : Self) -> unit)({
+  _round : (fn(mut(self) : Self) -> unit)({
     // SipHash's mixing is DEFINED by two's-complement wrap: every add here
     // is a wrapping_add (safe mode D1 — plain + traps on overflow).
     self.v0 = self.v0.wrapping_add(self.v1);
@@ -111,12 +111,12 @@ impl(
     self.v2 = _rotl64(self.v2, u64(32));
   }),
   /// Absorb one full 8-byte block (little-endian value `m`).
-  _compress : (fn(inout(self) : Self, m : u64) -> unit)({
+  _compress : (fn(mut(self) : Self, m : u64) -> unit)({
     self.v3 = (self.v3 ^ m);
     self._round();
     self.v0 = (self.v0 ^ m);
   }),
-  _push_byte : (fn(inout(self) : Self, b : u8) -> unit)({
+  _push_byte : (fn(mut(self) : Self, b : u8) -> unit)({
     self.tail = (self.tail | (u64(b) << (u64(8) * u64(self.ntail))));
     self.ntail = (self.ntail + usize(1));
     if(self.ntail == usize(8), {
@@ -129,7 +129,7 @@ impl(
 impl(
   SipHasher13,
   Hasher(
-    write : (fn(inout(self) : Self, buf : *u8, size : usize) -> unit)({
+    write : (fn(mut(self) : Self, buf : *u8, size : usize) -> unit)({
       self.length = (self.length + size);
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
@@ -140,7 +140,7 @@ impl(
     }),
     // A whole block at once when nothing is pending — the common case for
     // integer keys, and byte-identical to feeding the 8 little-endian bytes.
-    write_u64 : (fn(inout(self) : Self, v : u64) -> unit)({
+    write_u64 : (fn(mut(self) : Self, v : u64) -> unit)({
       cond(
         (self.ntail == usize(0)) => {
           self.length = (self.length + usize(8));
@@ -160,29 +160,29 @@ impl(
     // SEED compiler carries C43 (issues/fixed/trait-default-inout-self-bound-by-value.md)
     // — the compiler's own HashMaps, compiled BY the seed, must not execute an
     // `inout(self)` trait default (plans/reference/HASHER_REDESIGN.md, "seed gating").
-    write_u8 : (fn(inout(self) : Self, v : u8) -> unit)({
+    write_u8 : (fn(mut(self) : Self, v : u8) -> unit)({
       self.length = (self.length + usize(1));
       self._push_byte(v);
     }),
-    write_u16 : (fn(inout(self) : Self, v : u16) -> unit)({
+    write_u16 : (fn(mut(self) : Self, v : u16) -> unit)({
       self.length = (self.length + usize(2));
       self._push_byte(u8(v & u16(255)));
       self._push_byte(u8(v >> u16(8)));
     }),
-    write_u32 : (fn(inout(self) : Self, v : u32) -> unit)({
+    write_u32 : (fn(mut(self) : Self, v : u32) -> unit)({
       self.length = (self.length + usize(4));
       k := usize(0);
       while(k < usize(4), k = (k + usize(1)), {
         self._push_byte(u8((v >> (u32(8) * u32(k))) & u32(255)));
       });
     }),
-    write_usize : (fn(inout(self) : Self, v : usize) -> unit)(self.write_u64(u64(v))),
-    write_i8 : (fn(inout(self) : Self, v : i8) -> unit)(self.write_u8(u8(v))),
-    write_i16 : (fn(inout(self) : Self, v : i16) -> unit)(self.write_u16(u16(v))),
-    write_i32 : (fn(inout(self) : Self, v : i32) -> unit)(self.write_u32(u32(v))),
-    write_i64 : (fn(inout(self) : Self, v : i64) -> unit)(self.write_u64(u64(v))),
-    write_isize : (fn(inout(self) : Self, v : isize) -> unit)(self.write_u64(u64(v))),
-    finish : (fn(inout(self) : Self) -> u64)({
+    write_usize : (fn(mut(self) : Self, v : usize) -> unit)(self.write_u64(u64(v))),
+    write_i8 : (fn(mut(self) : Self, v : i8) -> unit)(self.write_u8(u8(v))),
+    write_i16 : (fn(mut(self) : Self, v : i16) -> unit)(self.write_u16(u16(v))),
+    write_i32 : (fn(mut(self) : Self, v : i32) -> unit)(self.write_u32(u32(v))),
+    write_i64 : (fn(mut(self) : Self, v : i64) -> unit)(self.write_u64(u64(v))),
+    write_isize : (fn(mut(self) : Self, v : isize) -> unit)(self.write_u64(u64(v))),
+    finish : (fn(mut(self) : Self) -> u64)({
       b := (((u64(self.length) & u64(255)) << u64(56)) | self.tail);
       v0 := self.v0;
       v1 := self.v1;
@@ -213,7 +213,7 @@ impl(
 impl(
   Fnv1aHasher,
   Hasher(
-    write : (fn(inout(self) : Self, buf : *u8, size : usize) -> unit)({
+    write : (fn(mut(self) : Self, buf : *u8, size : usize) -> unit)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
         // SAFETY: `size` readable bytes at `buf`, `i < size`.
@@ -222,7 +222,7 @@ impl(
         self.state = (self.state ^ u64(unsafe((buf.add(i)).*))).wrapping_mul(u64(1099511628211));
       });
     }),
-    finish : (fn(inout(self) : Self) -> u64)(self.state)
+    finish : (fn(mut(self) : Self) -> u64)(self.state)
   )
 );
 /// The hasher `HashMap`/`HashSet`/`hash_one` use.
@@ -233,14 +233,14 @@ DefaultHasher :: SipHasher13;
 /// h := hash_one(String.from("key"));
 /// assert(hash_one(i32(1)) == hash_one(i32(1)), "deterministic");
 /// ```
-hash_one :: (fn(generic(T : Type), inout(value) : T, where(T <: Hash)) -> u64)({
+hash_one :: (fn(generic(T : Type), mut(value) : T, where(T <: Hash)) -> u64)({
   h := DefaultHasher.new();
   value.hash(h);
   h.finish()
 });
 /// Hash one value with `DefaultHasher` keyed by `k0`, `k1` — what a
 /// `HashMap.with_keys(k0, k1)` computes for its keys.
-hash_one_with_keys :: (fn(generic(T : Type), inout(value) : T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
+hash_one_with_keys :: (fn(generic(T : Type), mut(value) : T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
   h := DefaultHasher.new_with_keys(k0, k1);
   value.hash(h);
   h.finish()

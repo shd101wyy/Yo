@@ -7,7 +7,7 @@
 
 non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
 
-safe_div :: (fn(num : i32, denom : refine(i32, non_zero)) -> (r : i32))(num / denom);
+safe_div :: (fn(num : i32, imm(denom) : refine(i32, non_zero)) -> (r : i32))(num / denom);
 
 quotient := safe_div(i32(10), i32(2));
 assert(quotient == i32(5), "the erased denominator computes: 10/2 == 5");

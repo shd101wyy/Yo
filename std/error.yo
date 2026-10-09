@@ -40,7 +40,7 @@ Error :: trait(
   /// `Error` trait on an erased receiver, so a caller could print one link but
   /// not follow it (#521,
   /// `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
-  (source : (fn(inout(self) : Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
+  (source : (fn(mut(self) : Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
   where(Self <: ToString)
 );
 export(Error);
@@ -187,7 +187,7 @@ derive_rule(Error, __derive_error);
 /// builtin this is written over — it returns `Option(T)`.
 impl(
   AnyError,
-  is : (fn(self : Self, comptime(T) : Type) -> bool)(
+  is : (fn(imm(self) : Self, comptime(T) : Type) -> bool)(
     match(
       downcast(self, T),
       .Some(_) => true,
@@ -216,14 +216,14 @@ export(Context);
 impl(
   Context,
   /// Wrap `cause` with `message`.
-  new : (fn(message : String, cause : AnyError) -> Self)(
+  new : (fn(imm(message) : String, imm(cause) : AnyError) -> Self)(
     Self(message : message, cause : cause)
   )
 );
 impl(
   Context,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
+    to_string : (fn(mut(self) : Self) -> String)({
       out := self.message.clone();
       out.push_str(": ");
       out.push_string(self.cause.to_string());
@@ -234,7 +234,7 @@ impl(
 impl(
   Context,
   Error(
-    source : (fn(inout(self) : Self) -> Option(AnyError))(
+    source : (fn(mut(self) : Self) -> Option(AnyError))(
       Option(AnyError).Some(self.cause)
     )
   )
@@ -244,7 +244,7 @@ impl(
 /// `throw` is `ctl(...)` — handler body may contain `unwind`, and the
 /// handler value is frame-bound (see plans/archive/EXPLICIT_EFFECTS.md §4).
 Exception :: struct(
-  throw : (ctl(generic(ResumeType : Type), error : AnyError) -> ResumeType)
+  throw : (ctl(generic(ResumeType : Type), imm(error) : AnyError) -> ResumeType)
 );
 export(Exception);
 /// Creates a resumable exception effect record parameterized by the resume type.
@@ -253,7 +253,7 @@ export(Exception);
 /// regular `fn` returns are also valid via subtyping `fn <: ctl`.
 ResumableException :: (fn(comptime(ResumeType) : Type) -> comptime(Type))(
   struct(
-    throw : (ctl(error : AnyError) -> ResumeType)
+    throw : (ctl(imm(error) : AnyError) -> ResumeType)
   )
 );
 export(ResumableException);
@@ -278,7 +278,7 @@ export(ResumableException);
 /// never emitted, so the C fails to compile
 /// (issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md). That
 /// is a separate open defect; this walk stays clear of it.
-root_cause :: (fn(err : AnyError) -> AnyError)({
+root_cause :: (fn(imm(err) : AnyError) -> AnyError)({
   (cur : AnyError) = err;
   (walking : bool) = true;
   while(walking, {
@@ -320,14 +320,14 @@ export(root_cause);
 /// (issues/fixed/option-of-a-trait-object-never-emits-its-inherent-methods.md).
 ErrorChain :: ref(struct(_cur : Option(AnyError)));
 /// Start a chain at `err`. The first `next()` returns `err` itself.
-error_chain :: (fn(err : AnyError) -> ErrorChain)(
+error_chain :: (fn(imm(err) : AnyError) -> ErrorChain)(
   ErrorChain(_cur : Option(AnyError).Some(err))
 );
 impl(
   ErrorChain,
   Iterator(
     Item : AnyError,
-    next : (fn(inout(self) : Self) -> Option(AnyError))(
+    next : (fn(mut(self) : Self) -> Option(AnyError))(
       match(
         self._cur,
         .Some(cur) => {

@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 Counter :: struct(n : i32, items : ArrayList(i32));
 impl(
   Counter,
-  bump : (fn(inout(self) : Self, by : i32) -> i32)({
+  bump : (fn(mut(self) : Self, by : i32) -> i32)({
     self.n = (self.n + by);
     self.n
   })
@@ -22,13 +22,13 @@ derive(Key, Eq(Key), Clone, Copy, Hash);
 List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
 Cell :: enum(Value(v : Rc(i32)), Empty);
 Probe :: trait(
-  value : (fn(self : *Self) -> i32)
+  value : (fn(imm(self) : *Self) -> i32)
 );
 impl(i32, Probe(value : (self -> self.*)));
 Square :: struct(side : i32);
 derive(Square, Copy, Clone);
 impl(Square, Probe(value : (self -> (self.side * self.side))));
-probe :: (fn(p : Dyn(Probe)) -> i32)(p.value());
+probe :: (fn(imm(p) : Dyn(Probe)) -> i32)(p.value());
 /// A comptime function that builds the cell type: the instance is minted by a
 /// CTFE call of `Rc` inside it, and must be the same cell `rc(...)` builds.
 CellOf :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(T));
@@ -74,7 +74,7 @@ test("auto-dereference reads, writes and calls through an Rc", {
   assert(c.n == i32(11), "a write through one handle is shared");
 });
 test("nested patterns look through an Rc payload", {
-  f :: (fn(l : List) -> i32)(
+  f :: (fn(imm(l) : List) -> i32)(
     match(
       l,
       .Cons(1, .Cons(n, _)) => n,
@@ -85,7 +85,7 @@ test("nested patterns look through an Rc payload", {
   assert(f(List.Cons(1, rc(List.Cons(2, rc(List.Nil))))) == i32(2), "two levels through the cell");
   assert(f(List.Cons(3, rc(List.Nil))) == i32(3), "the second arm");
   assert(f(List.Nil) == i32(0), "the unit variant");
-  h :: (fn(c : Cell) -> i32)(
+  h :: (fn(imm(c) : Cell) -> i32)(
     match(
       c,
       .Value(42) => i32(1),
@@ -95,7 +95,7 @@ test("nested patterns look through an Rc payload", {
   );
   assert(h(Cell.Value(rc(i32(42)))) == i32(1), "a literal sub-pattern through the cell");
   assert(h(Cell.Value(rc(i32(7)))) == i32(2), "the fallback arm");
-  n :: (fn(r : Rc(List)) -> i32)(
+  n :: (fn(imm(r) : Rc(List)) -> i32)(
     match(
       r,
       .Cons(h, _) => h,
@@ -139,7 +139,7 @@ test("Rc implements Clone, Eq, Hash and Default by payload", {
   assert(z.* == i32(0), "the default cell holds the payload's default");
 });
 test("dyn over an rc-wrapped closure types the closure from the Dyn", {
-  use_cb :: (fn(v : i32, cb : Dyn(Fn(u : i32) -> i32)) -> i32)({
+  use_cb :: (fn(v : i32, imm(cb) : Dyn(Fn(u : i32) -> i32)) -> i32)({
     return(cb(v));
   });
   a := 2;

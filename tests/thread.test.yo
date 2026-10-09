@@ -107,7 +107,7 @@ test "Thread spawn and join with multiple boxed captures", {
 // A handle that goes out of scope un-joined must DETACH its thread (Rust's
 // JoinHandle::drop): the thread still runs to completion and the OS reclaims
 // it. The helper exists so the handle drops at a known point.
-_spawn_and_drop_handle :: (fn(out : Channel(i32)) -> unit)({
+_spawn_and_drop_handle :: (fn(imm(out) : Channel(i32)) -> unit)({
   t := Thread(unit).spawn(io => {
     _ := out.send(i32(7));
     ()
@@ -188,7 +188,7 @@ _Tracked :: atomic(ref(struct(tag : i32)));
 impl(
   _Tracked,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       _p := _spawn_dispose_count.fetch_add(usize(1), MemoryOrder.AcqRel);
       ()
     })
@@ -280,7 +280,7 @@ test("Thread spawn releases captures on every iteration of a loop", {
 // See issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md
 // and issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
 _spawn_zst_relay :: (
-  fn(generic(T : Type), cb : Impl(Fn(io : Io) -> T), where(T <: (Send, Acyclic))) -> Channel(T)
+  fn(generic(T : Type), imm(cb) : Impl(Fn(io : Io) -> T), where(T <: (Send, Acyclic))) -> Channel(T)
 )({
   chan := Channel(T).new(usize(1));
   sink := chan;
@@ -511,7 +511,7 @@ _ThOnceTok :: struct(n : i32);
 impl(
   _ThOnceTok,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       _ := g_th_once_disposed.fetch_add(usize(1), MemoryOrder.AcqRel);
     })
   )

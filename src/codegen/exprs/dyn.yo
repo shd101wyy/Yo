@@ -31,7 +31,7 @@
 /// type (`Sq`, the box's single `*` field) while the runtime data type stays
 /// `Rc(Sq)`. Keeps the dyn-box / vtable / impl_key keyed on the
 /// concrete type consistently; a non-boxed value passes through unchanged.
-_unwrap_box_concrete :: (fn(t : TypeValue) -> TypeValue)({
+_unwrap_box_concrete :: (fn(imm(t) : TypeValue) -> TypeValue)({
   (result : TypeValue) = t;
   if(is_boxed_type(t), {
     match(
@@ -49,7 +49,7 @@ _unwrap_box_concrete :: (fn(t : TypeValue) -> TypeValue)({
   result
 });
 /// The C name for `dyn_type` (registered, else `__yo_dyn_<id>`).
-_dyn_c_name :: (fn(dyn_type : TypeValue, context : FunctionGenerationContext) -> String)(
+_dyn_c_name :: (fn(imm(dyn_type) : TypeValue, imm(context) : FunctionGenerationContext) -> String)(
   match(
     context.base.get_type_c_name(type_key(dyn_type)),
     .Some(cn) => cn,
@@ -62,7 +62,7 @@ _dyn_c_name :: (fn(dyn_type : TypeValue, context : FunctionGenerationContext) ->
 );
 /// The C name for the concrete impl type (registered, else the Fn-trait's C
 /// name, else `unknown_<id>`).
-_concrete_c_name :: (fn(concrete_type : TypeValue, context : FunctionGenerationContext) -> String)(
+_concrete_c_name :: (fn(imm(concrete_type) : TypeValue, imm(context) : FunctionGenerationContext) -> String)(
   match(
     context.base.get_type_c_name(type_key(concrete_type)),
     .Some(cn) => cn,
@@ -86,7 +86,7 @@ _concrete_c_name :: (fn(concrete_type : TypeValue, context : FunctionGenerationC
   )
 );
 /// Generate C code for a `dyn()` constructor call.
-generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_dyn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
   trait_values := match(expr_info_dyn_call_trait_values(ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
   args0 := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);

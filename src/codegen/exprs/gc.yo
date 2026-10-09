@@ -9,7 +9,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// `__yo_gc_collect()` — trigger a cycle-GC collection (0 args).
-generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : FunctionGenerationContext) -> String)(
+generate_yo_gc_collect :: (fn(imm(expr) : AstExpr, imm(_indent) : String, imm(_context) : FunctionGenerationContext) -> String)(
   match(
     expr,
     .FnCall(_, _, args, _, _) => if(args.len() == usize(0), String.from("__yo_gc_collect()"), codegen_fatal_expr(String.from("__yo_gc_collect requires exactly 0 arguments"))),
@@ -24,7 +24,7 @@ generate_yo_gc_collect :: (fn(expr : AstExpr, _indent : String, _context : Funct
 /// callback carried as a raw pointer) as the visit callback: a managed child
 /// registers the edge, a value child recurses inline. Passing the slot pointer
 /// (not the element by value) keeps tracing RC-neutral. Returns unit.
-generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+generate_yo_gc_trace_child :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
   match(
     expr,
     .FnCall(_, _, args, _, _) => if(args.len() == usize(2), {

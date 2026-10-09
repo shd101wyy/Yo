@@ -239,7 +239,7 @@ derive(
 impl(
   IoError,
   // Check a raw result code, throwing on error via Exception effect.
-  check : (fn(result : i32, exn : Exception) -> i32)(
+  check : (fn(result : i32, imm(exn) : Exception) -> i32)(
     cond(
       (result >= i32(0)) => result,
       true => exn.throw(dyn(Self.from_errno(i32(0) - result)))

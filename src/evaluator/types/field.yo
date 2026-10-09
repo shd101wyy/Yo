@@ -85,12 +85,12 @@ EvalTypeFieldResult :: struct(
 /// the struct. `get_struct_fields` is used by code that needs field extras
 /// (defaults, is_comptime, doc_comment, etc.).
 (g_struct_field_registry : HashMap(String, ArrayList(TypeField))) = HashMap(String, ArrayList(TypeField)).new();
-register_struct_fields :: (fn(id : String, fields : ArrayList(TypeField)) -> unit)({
+register_struct_fields :: (fn(imm(id) : String, imm(fields) : ArrayList(TypeField)) -> unit)({
   // `insert` returns the previous entry (D9); a re-registration legitimately
   // replaces one, so the value is discarded. `{ e; }` is unit-valued.
   g_struct_field_registry.insert(id, fields);
 });
-get_struct_fields :: (fn(id : String) -> Option(ArrayList(TypeField)))(
+get_struct_fields :: (fn(imm(id) : String) -> Option(ArrayList(TypeField)))(
   g_struct_field_registry.get(id)
 );
 /// The bindings a closure capture struct's fields hold, by declaration site:
@@ -102,17 +102,17 @@ get_struct_fields :: (fn(id : String) -> Option(ArrayList(TypeField)))(
 /// binding declared outside the closure.
 (g_capture_field_decl_sites : HashSet(String)) = HashSet(String).new();
 (g_capture_structs_with_sites : HashSet(String)) = HashSet(String).new();
-register_capture_field_decl_site :: (fn(struct_id : String, label : String, decl_site : String) -> unit)({
+register_capture_field_decl_site :: (fn(imm(struct_id) : String, imm(label) : String, imm(decl_site) : String) -> unit)({
   g_capture_field_decl_sites.insert(`${struct_id}|${label}|${decl_site}`);
   g_capture_structs_with_sites.insert(struct_id);
 });
 /// Whether field `label` of capture struct `struct_id` holds the binding
 /// declared at `decl_site`.
-is_capture_field_binding :: (fn(struct_id : String, label : String, decl_site : String) -> bool)(
+is_capture_field_binding :: (fn(imm(struct_id) : String, imm(label) : String, imm(decl_site) : String) -> bool)(
   g_capture_field_decl_sites.contains(`${struct_id}|${label}|${decl_site}`)
 );
 /// Whether capture struct `struct_id` recorded its fields' declaration sites.
-capture_struct_has_decl_sites :: (fn(struct_id : String) -> bool)(
+capture_struct_has_decl_sites :: (fn(imm(struct_id) : String) -> bool)(
   g_capture_structs_with_sites.contains(struct_id)
 );
 // ---------------------------------------------------------------------------
@@ -134,12 +134,12 @@ capture_struct_has_decl_sites :: (fn(struct_id : String) -> bool)(
 /// `for_type` must be one of `"tuple"`, `"struct"`, `"enum"`, or `"union"`.
 evaluate_type_field :: (
   fn(
-    expr : AstExpr,
+    imm(expr) : AstExpr,
     tuple_field_index : usize,
-    env_in : Environment,
-    ctx : EvalContext,
+    imm(env_in) : Environment,
+    imm(ctx) : EvalContext,
     for_type : str,
-    exn : Exception
+    imm(exn) : Exception
   ) -> EvalTypeFieldResult
 )({
   (env : Environment) = env_in;

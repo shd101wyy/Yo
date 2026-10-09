@@ -23,7 +23,7 @@
 { jb, jstr, jnum, line_at, rune_col_to_client } :: import("./protocol.yo");
 
 _push_fold :: (
-  fn(inout(out) : ArrayList(JsonValue), inout(seen) : HashSet(String), start_line : usize, end_line : usize, kind : str) -> unit
+  fn(mut(out) : ArrayList(JsonValue), mut(seen) : HashSet(String), start_line : usize, end_line : usize, kind : str) -> unit
 )({
   key := `${start_line}:${end_line}:${kind}`;
   if(seen.contains(key.clone()), {
@@ -36,7 +36,7 @@ _push_fold :: (
 });
 
 /// Folding ranges for the document text.
-handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
+handle_folding_ranges :: (fn(imm(text) : String, imm(doc_abs) : String) -> JsonValue)({
   out := ArrayList(JsonValue).new();
   lex_exn := Exception(
     throw : (
@@ -111,10 +111,10 @@ _SEM_COMMENT :: usize(7);
 /// only on first sight (duplicate AST paths classify identically).
 _semantic_walk :: (
   fn(
-    e : AstExpr,
-    roles : AtomRoles,
-    info_table : ExprInfoTable,
-    inout(out) : HashMap(String, usize)
+    imm(e) : AstExpr,
+    imm(roles) : AtomRoles,
+    imm(info_table) : ExprInfoTable,
+    mut(out) : HashMap(String, usize)
   ) -> unit
 )({
   match(
@@ -195,13 +195,13 @@ SemCursor :: struct(
 /// two converted columns). Returns the advanced cursor.
 _emit_sem_segment :: (
   fn(
-    lines : ArrayList(String),
-    inout(data) : ArrayList(JsonValue),
+    imm(lines) : ArrayList(String),
+    mut(data) : ArrayList(JsonValue),
     row : usize,
     col : usize,
     width : usize,
     kind : usize,
-    cur : SemCursor
+    imm(cur) : SemCursor
   ) -> SemCursor
 )({
   line := line_at(lines, row);
@@ -233,7 +233,7 @@ _emit_sem_segment :: (
 /// value rune), so a value-derived length undercounts
 /// (issues/lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md).
 handle_semantic_tokens :: (
-  fn(text : String, doc_abs : String, exprs : ArrayList(AstExpr), info_table : ExprInfoTable) -> JsonValue
+  fn(imm(text) : String, imm(doc_abs) : String, imm(exprs) : ArrayList(AstExpr), imm(info_table) : ExprInfoTable) -> JsonValue
 )({
   lex_exn := Exception(
     throw : (

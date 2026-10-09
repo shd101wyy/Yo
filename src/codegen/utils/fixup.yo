@@ -16,13 +16,13 @@
 /// Does this required trait carry one trait value in a `DynImplEntry`?
 /// (`_resolve_dyn_trait_values`, evaluator/values/dyn.yo, pushes one per
 /// `TraitT` / `FnTraitT` and none for anything else.)
-_carries_trait_value :: (fn(t : TypeValue) -> bool)(
+_carries_trait_value :: (fn(imm(t) : TypeValue) -> bool)(
   match(t, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, .FnTraitT(_, _, _, _, _, _, _) => true, _ => false)
 );
 /// The trait values of `entry` for the traits `tgt` requires, in `tgt`'s
 /// order. Every target trait is one of the source's (the evaluator checked
 /// the upcast), so each is found.
-_upcast_trait_values :: (fn(entry : DynImplEntry, tgt : TypeValue) -> ArrayList(EvalValue))({
+_upcast_trait_values :: (fn(imm(entry) : DynImplEntry, imm(tgt) : TypeValue) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
   src_req := match(entry.dyn_type.clone(), .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
   tgt_req := match(tgt, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
@@ -56,7 +56,7 @@ _upcast_trait_values :: (fn(entry : DynImplEntry, tgt : TypeValue) -> ArrayList(
 /// `fixup_dyn_impl_keys`, on the id-keyed map, so the new entries are
 /// re-keyed with the rest. Iterates until no entry is added, so a chain
 /// (`Dyn(A, B, C)` → `Dyn(A, B)` → `Dyn(A)`) reaches every link.
-register_dyn_upcast_targets :: (fn(context : CodeGenContext) -> unit)({
+register_dyn_upcast_targets :: (fn(imm(context) : CodeGenContext) -> unit)({
   if(context.dyn_upcasts.is_empty(), {
     return(());
   });
@@ -110,7 +110,7 @@ register_dyn_upcast_targets :: (fn(context : CodeGenContext) -> unit)({
   });
 });
 /// Fix up dyn impl keys to use C names instead of ids.
-fixup_dyn_impl_keys :: (fn(context : CodeGenContext) -> unit)({
+fixup_dyn_impl_keys :: (fn(imm(context) : CodeGenContext) -> unit)({
   new_map := HashMap(String, DynImplEntry).new();
   // Drain the current keys (Yo has no for-over-iterator).
   keys := ArrayList(String).new();

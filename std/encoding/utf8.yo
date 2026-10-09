@@ -201,7 +201,7 @@ export(encoded_len);
 // ============================================================================
 /// Read one byte, or `0` past the end. Private: `decode_parts` already knows
 /// how many of its four bytes are real, via `available`.
-_at :: (fn(bytes : ArrayList(u8), i : usize) -> u8)(
+_at :: (fn(imm(bytes) : ArrayList(u8), i : usize) -> u8)(
   match(bytes.get(i), .Some(b) => b, .None => u8(0))
 );
 /// Assemble and validate one UTF-8 sequence from up to four ALREADY-FETCHED
@@ -267,7 +267,7 @@ export(decode_parts);
 ///
 /// The `Err` case names exactly what is wrong and where; `decode_lossy` is the
 /// variant for scanners that must keep going regardless.
-decode :: (fn(bytes : ArrayList(u8), index : usize) -> Result(Decoded, Utf8Error))({
+decode :: (fn(imm(bytes) : ArrayList(u8), index : usize) -> Result(Decoded, Utf8Error))({
   n := bytes.len();
   if(index >= n, {
     return(.Err(.UnexpectedEnd(index, usize(1), usize(0))));
@@ -309,7 +309,7 @@ export(decode);
 ///
 /// Same contract as Go's `utf8.DecodeRune`: never fails, and always makes
 /// forward progress, so a `while` loop over a corrupt buffer still terminates.
-decode_lossy :: (fn(bytes : ArrayList(u8), index : usize) -> Decoded)(
+decode_lossy :: (fn(imm(bytes) : ArrayList(u8), index : usize) -> Decoded)(
   match(
     decode(bytes, index),
     .Ok(d) => d,
@@ -329,7 +329,7 @@ export(decode_lossy);
 /// non-scalar (a surrogate half, or a value above U+10FFFF) still encodes to
 /// the bit pattern its bits ask for; use `encode_lossy_into` when the code
 /// point came from somewhere that can produce one.
-encode_into :: (fn(r : rune, inout(out) : ArrayList(u8)) -> usize)({
+encode_into :: (fn(r : rune, mut(out) : ArrayList(u8)) -> usize)({
   code := r.to_u32();
   cond(
     (code < u32(0x80)) => {
@@ -365,7 +365,7 @@ export(encode_into);
 /// that has not been through `rune.from_u32` — JSON `\uXXXX` escapes, UTF-16
 /// code units, C `towlower`/`towupper` results. Substituting keeps the output
 /// buffer valid UTF-8 instead of quietly emitting CESU-8.
-encode_lossy_into :: (fn(code : u32, inout(out) : ArrayList(u8)) -> usize)(
+encode_lossy_into :: (fn(code : u32, mut(out) : ArrayList(u8)) -> usize)(
   match(
     rune.from_u32(code),
     .Some(r) => encode_into(r, out),
@@ -387,7 +387,7 @@ export(encode);
 /// that would spill past `to` is reported as `UnexpectedEnd`, not accepted.
 ///
 /// `to` is clamped to the buffer length. An empty range is `Ok`.
-validate_range :: (fn(bytes : ArrayList(u8), from : usize, to : usize) -> Result(unit, Utf8Error))({
+validate_range :: (fn(imm(bytes) : ArrayList(u8), from : usize, to : usize) -> Result(unit, Utf8Error))({
   n := bytes.len();
   (end : usize) = cond(
     (to > n) => n,
@@ -440,7 +440,7 @@ validate_range :: (fn(bytes : ArrayList(u8), from : usize, to : usize) -> Result
 });
 export(validate_range);
 /// Check that the whole buffer is well-formed UTF-8.
-validate :: (fn(bytes : ArrayList(u8)) -> Result(unit, Utf8Error))(
+validate :: (fn(imm(bytes) : ArrayList(u8)) -> Result(unit, Utf8Error))(
   validate_range(bytes, usize(0), bytes.len())
 );
 export(validate);

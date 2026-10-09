@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
 /// reason: an `extern(...)` opaque and a `SomeT` that already carries a resolved
 /// concrete are CONCRETE, and counting them as abstract splits one memo entry
 /// into two (the era hazard `_ctfe_types_era_equal` exists to avoid).
-_has_abstract_some :: (fn(ty : TypeValue) -> bool)({
+_has_abstract_some :: (fn(imm(ty) : TypeValue) -> bool)({
   somes := get_all_some_types(ty);
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -119,7 +119,7 @@ _has_abstract_some :: (fn(ty : TypeValue) -> bool)({
 /// instantiation, so `Iter(usize)` and `Iter(String)` share one
 /// (issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md). A recursive
 /// struct's self-shell shares both the id and the arguments, so it still unifies.
-_ctfe_same_id_type_args_agree :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> bool)({
+_ctfe_same_id_type_args_agree :: (fn(imm(aty) : TypeValue, imm(bty) : TypeValue, d : usize) -> bool)({
   a_ta := match(aty, .Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
   b_ta := match(bty, .Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
   if(a_ta.len() != b_ta.len(), {
@@ -136,7 +136,7 @@ _ctfe_same_id_type_args_agree :: (fn(aty : TypeValue, bty : TypeValue, d : usize
   });
   true
 });
-_ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> bool)({
+_ctfe_types_era_equal :: (fn(imm(aty) : TypeValue, imm(bty) : TypeValue, d : usize) -> bool)({
   if(d > usize(6), {
     return(are_types_compatible_exact(aty, bty));
   });
@@ -228,8 +228,8 @@ _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> boo
 });
 _ctfe_args_equal :: (
   fn(
-    cached_av : EvalValue,
-    given_av : EvalValue
+    imm(cached_av) : EvalValue,
+    imm(given_av) : EvalValue
   ) -> bool
 )(
   match(
@@ -352,7 +352,7 @@ RecursiveTypeRef :: ref(
 );
 (g_recursive_type_refs : ArrayList(RecursiveTypeRef)) = ArrayList(RecursiveTypeRef).new();
 /// Look up the recursive-type-ref for a placeholder SomeT id, if any.
-lookup_recursive_type_ref :: (fn(some_id : String) -> Option(RecursiveTypeRef))({
+lookup_recursive_type_ref :: (fn(imm(some_id) : String) -> Option(RecursiveTypeRef))({
   (i : usize) = usize(0);
   n := g_recursive_type_refs.len();
   (found : Option(RecursiveTypeRef)) = Option(RecursiveTypeRef).None;
@@ -371,7 +371,7 @@ lookup_recursive_type_ref :: (fn(some_id : String) -> Option(RecursiveTypeRef))(
 /// Is `v` a TypeVal carrying a RESOLVED type (not a recursion placeholder)?
 /// A placeholder is a `SomeT` whose id is registered in the side-table; any
 /// other TypeVal is resolved. Returns the inner type when resolved.
-_resolved_type_of :: (fn(v : EvalValue) -> Option(TypeValue))(
+_resolved_type_of :: (fn(imm(v) : EvalValue) -> Option(TypeValue))(
   match(
     v,
     .TypeVal(tb) => {
@@ -390,7 +390,7 @@ _resolved_type_of :: (fn(v : EvalValue) -> Option(TypeValue))(
   )
 );
 /// Pairwise-equal two CTFE arg-value lists (same length + `_ctfe_args_equal`).
-_arg_vals_equal :: (fn(a : ArrayList(EvalValue), b : ArrayList(EvalValue)) -> bool)({
+_arg_vals_equal :: (fn(imm(a) : ArrayList(EvalValue), imm(b) : ArrayList(EvalValue)) -> bool)({
   if(a.len() != b.len(), {
     return(false);
   });
@@ -441,7 +441,7 @@ _arg_vals_equal :: (fn(a : ArrayList(EvalValue), b : ArrayList(EvalValue)) -> bo
 /// closure families keep their capture identity), and the abstract memo
 /// entry (SomeT args) can never match a concrete key, so only a genuine
 /// concrete instantiation of the same constructor is ever adopted.
-canonicalize_instantiation_via_ctfe_memo :: (fn(ty : TypeValue) -> TypeValue)({
+canonicalize_instantiation_via_ctfe_memo :: (fn(imm(ty) : TypeValue) -> TypeValue)({
   sid := match(ty, .Struct({ id : x }) => x, _ => String.from(""));
   if(sid.len() == usize(0), {
     return(ty);
@@ -527,7 +527,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : TypeValue) -> TypeValue)({
 /// `ctx.self_type` when it is a struct/object; (3) ANY resolved cache entry of
 /// the same func (all instantiations share the same structure). Returns `.None`
 /// when `some_ty` is not a registered placeholder or nothing has resolved yet.
-resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Option(TypeValue))({
+resolve_recursive_type_ref :: (fn(imm(some_ty) : TypeValue, imm(ctx) : EvalContext) -> Option(TypeValue))({
   sid := match(some_ty, .SomeT(id : x) => x, _ => String.from(""));
   if(sid.len() == usize(0), {
     return(Option(TypeValue).None);
@@ -616,7 +616,7 @@ resolve_recursive_type_ref :: (fn(some_ty : TypeValue, ctx : EvalContext) -> Opt
 /// produced a bare unknown that `__yo_are_types_compatible` rejects
 /// (tests/variadic_comptime.test.yo). Name built without a template
 /// string (hot path — template-string Rc corruption family).
-_ctfe_unknown :: (fn(return_type : TypeValue, env : Environment) -> EvalValue)({
+_ctfe_unknown :: (fn(imm(return_type) : TypeValue, imm(env) : Environment) -> EvalValue)({
   nm := stable_module_id(String.from("ctfe_result_"), env.module_path);
   create_unknown_val_with_name(return_type, nm)
 });
@@ -627,7 +627,7 @@ _ctfe_unknown :: (fn(return_type : TypeValue, env : Environment) -> EvalValue)({
 /// be resolved later. Otherwise it stays a bare `UnknownVal`. `arg_vals` is
 /// the flattened argument-value list of this call.
 _recursive_placeholder :: (
-  fn(return_type : TypeValue, func_id : String, arg_vals : ArrayList(EvalValue)) -> EvalValue
+  fn(imm(return_type) : TypeValue, imm(func_id) : String, imm(arg_vals) : ArrayList(EvalValue)) -> EvalValue
 )(
   cond(
     is_type_0(return_type) => {
@@ -650,14 +650,14 @@ _recursive_placeholder :: (
 ///
 evaluate_comptime_fn_call :: (
   fn(
-    function_callee_expr : Option(AstExpr),
-    function_type : TypeValue,
-    function_value : EvalValue,
-    arg_values : ArgValues,
-    caller_env : Environment,
-    callee_env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(function_callee_expr) : Option(AstExpr),
+    imm(function_type) : TypeValue,
+    imm(function_value) : EvalValue,
+    imm(arg_values) : ArgValues,
+    imm(caller_env) : Environment,
+    imm(callee_env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> ComptimeFnCallResult
 )({
   // Extract the return type from the function type.

@@ -59,7 +59,7 @@
 /// VERDICTS are not hover-computable (they need the solver); refuted
 /// contract obligations already surface as ordinary diagnostics.
 _contract_block :: (
-  fn(val : Option(EvalValue), module_path : String) -> Option(String)
+  fn(imm(val) : Option(EvalValue), imm(module_path) : String) -> Option(String)
 )({
   v := match(
     val,
@@ -87,11 +87,11 @@ _contract_block :: (
 });
 _render_contract_block :: (
   fn(
-    reqs : ArrayList(AstExpr),
-    enss : ArrayList(AstExpr),
-    label : Option(String),
+    imm(reqs) : ArrayList(AstExpr),
+    imm(enss) : ArrayList(AstExpr),
+    imm(label) : Option(String),
     ghost : bool,
-    mode : String
+    imm(mode) : String
   ) -> String
 )({
   sb := StringBuilder.new();
@@ -138,7 +138,7 @@ _render_contract_block :: (
 /// so the identifier after them wins the boundary
 /// (plans/archive/LSP_AUDIT_2026-09-29.md §4).
 _find_token_at :: (
-  fn(tokens : ArrayList(Token), line : usize, character : usize) -> Option(Token)
+  fn(imm(tokens) : ArrayList(Token), line : usize, character : usize) -> Option(Token)
 )({
   (i : usize) = usize(0);
   n := tokens.len();
@@ -171,7 +171,7 @@ _find_token_at :: (
 
 /// Collect Atom exprs matching the target token by (value, row, column).
 _collect_candidates :: (
-  fn(e : AstExpr, target : Token, inout(out) : ArrayList(AstExpr)) -> unit
+  fn(imm(e) : AstExpr, imm(target) : Token, mut(out) : ArrayList(AstExpr)) -> unit
 )({
   match(
     e,
@@ -197,7 +197,7 @@ _collect_candidates :: (
 
 /// Best candidate: prefer one WITH ExprInfo (evaluated), then the first.
 _best_candidate :: (
-  fn(cands : ArrayList(AstExpr), info_table : ExprInfoTable) -> Option(AstExpr)
+  fn(imm(cands) : ArrayList(AstExpr), imm(info_table) : ExprInfoTable) -> Option(AstExpr)
 )({
   (i : usize) = usize(0);
   while(i < cands.len(), {
@@ -218,7 +218,7 @@ _best_candidate :: (
 /// Exact-position match first,
 /// then the LATEST declaration visible at (and same module as) the target.
 _select_best_variable :: (
-  fn(vars : ArrayList(Variable), target : Token) -> Option(Variable)
+  fn(imm(vars) : ArrayList(Variable), imm(target) : Token) -> Option(Variable)
 )({
   (best_visible : Option(Variable)) = Option(Variable).None;
   (best_row : usize) = usize(0);
@@ -282,7 +282,7 @@ AtomRoles :: ref(
 /// parameters and typed declarations. Every other call's colon pairs are
 /// labels (struct literals, labelled arguments, `impl` methods, `struct` /
 /// `enum` field declarations).
-_is_declaring_callee :: (fn(callee : String) -> bool)(
+_is_declaring_callee :: (fn(imm(callee) : String) -> bool)(
   (callee == "fn") || (callee == "unsafe_fn") || (callee == "ctl") ||
     (callee == "Fn") || (callee == "FnOnce") || (callee == "generic") || (callee == "given") ||
       (callee == "=") || (callee == ":=") || (callee == "?=")
@@ -290,7 +290,7 @@ _is_declaring_callee :: (fn(callee : String) -> bool)(
 /// Mark the member position `a` of a `.` call: a bare atom (`p.x`, `.Red`)
 /// or a call whose callee is the member (`p.dist()`, `.Some(v)`) — the
 /// call's ARGUMENTS are ordinary expressions and are classified normally.
-_mark_member :: (fn(a : AstExpr, roles : AtomRoles) -> unit)({
+_mark_member :: (fn(imm(a) : AstExpr, imm(roles) : AtomRoles) -> unit)({
   match(
     a,
     .Atom(id, _) => {
@@ -316,7 +316,7 @@ _mark_member :: (fn(a : AstExpr, roles : AtomRoles) -> unit)({
     }
   );
 });
-_classify_roles :: (fn(e : AstExpr, roles : AtomRoles) -> unit)({
+_classify_roles :: (fn(imm(e) : AstExpr, imm(roles) : AtomRoles) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -400,7 +400,7 @@ _classify_roles :: (fn(e : AstExpr, roles : AtomRoles) -> unit)({
   );
 });
 /// Classify every atom of the program (see the module header).
-classify_atom_roles :: (fn(exprs : ArrayList(AstExpr)) -> AtomRoles)({
+classify_atom_roles :: (fn(imm(exprs) : ArrayList(AstExpr)) -> AtomRoles)({
   roles := AtomRoles(members : HashSet(usize).new(), labels : HashSet(usize).new());
   (i : usize) = usize(0);
   while(i < exprs.len(), {
@@ -415,7 +415,7 @@ classify_atom_roles :: (fn(exprs : ArrayList(AstExpr)) -> AtomRoles)({
 });
 /// True iff atom `id` is a member name or a label — not a variable
 /// reference.
-atom_is_member_or_label :: (fn(roles : AtomRoles, id : usize) -> bool)(
+atom_is_member_or_label :: (fn(imm(roles) : AtomRoles, id : usize) -> bool)(
   roles.members.contains(id) || roles.labels.contains(id)
 );
 
@@ -423,7 +423,7 @@ atom_is_member_or_label :: (fn(roles : AtomRoles, id : usize) -> bool)(
 /// — the type of THAT call is the accessed member's type (`p.x` → the field
 /// type), which is what hover shows for a member.
 _find_member_access :: (
-  fn(e : AstExpr, target : Token, inout(out) : ArrayList(AstExpr)) -> unit
+  fn(imm(e) : AstExpr, imm(target) : Token, mut(out) : ArrayList(AstExpr)) -> unit
 )({
   match(
     e,
@@ -470,11 +470,11 @@ _find_member_access :: (
 /// `lines`.
 handle_hover :: (
   fn(
-    text : String,
-    doc_abs : String,
-    lines : ArrayList(String),
-    exprs : ArrayList(AstExpr),
-    info_table : ExprInfoTable,
+    imm(text) : String,
+    imm(doc_abs) : String,
+    imm(lines) : ArrayList(String),
+    imm(exprs) : ArrayList(AstExpr),
+    imm(info_table) : ExprInfoTable,
     line : usize,
     character : usize
   ) -> Option(JsonValue)

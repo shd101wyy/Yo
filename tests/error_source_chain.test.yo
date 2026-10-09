@@ -55,17 +55,17 @@ test("a one-link error reports no source", {
 // while that trait is being defined. This is the shape from
 // issues/fixed/dyn-selftrait-payload-never-matches-the-named-trait.md.
 _Node :: trait(
-  (parent : (fn(inout(self) : Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
+  (parent : (fn(mut(self) : Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
   where(Self <: ToString)
 );
 _AnyNode :: Dyn(_Node);
 _Root :: struct(tag : String);
-impl(_Root, ToString(to_string : (fn(inout(self) : Self) -> String)(`root(${self.tag})`)));
+impl(_Root, ToString(to_string : (fn(mut(self) : Self) -> String)(`root(${self.tag})`)));
 impl(_Root, _Node());
 _Child :: ref(struct(tag : String, up : _AnyNode));
-impl(_Child, ToString(to_string : (fn(inout(self) : Self) -> String)(`child(${self.tag})`)));
-impl(_Child, _Node(parent : (fn(inout(self) : Self) -> Option(_AnyNode))(Option(_AnyNode).Some(self.up))));
-_handle :: (fn(n : _AnyNode) -> String)(n.to_string());
+impl(_Child, ToString(to_string : (fn(mut(self) : Self) -> String)(`child(${self.tag})`)));
+impl(_Child, _Node(parent : (fn(mut(self) : Self) -> Option(_AnyNode))(Option(_AnyNode).Some(self.up))));
+_handle :: (fn(imm(n) : _AnyNode) -> String)(n.to_string());
 test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)", {
   (r : _AnyNode) = dyn(_Root(tag : `R`));
   (c : _AnyNode) = dyn(_Child(tag : `C`, up : r));

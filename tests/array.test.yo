@@ -346,7 +346,7 @@ impl(
   generic(T : Type),
   where(T <: _Widthy),
   T,
-  _zeros : (fn(self : T) -> Array(u8, T.BYTES))(Array(u8, T.BYTES).fill(u8(0)))
+  _zeros : (fn(imm(self) : T) -> Array(u8, T.BYTES))(Array(u8, T.BYTES).fill(u8(0)))
 );
 test("Test an associated constant resolves as an array length, at two widths", {
   // The length follows the RECEIVER, so one blanket impl covers both. Two
@@ -366,7 +366,7 @@ impl(
   generic(T : Type),
   where(T <: _Widthy),
   T,
-  _twice : (fn(self : T) -> Array(u8, T.BYTES * 2))(Array(u8, T.BYTES * 2).fill(u8(0)))
+  _twice : (fn(imm(self) : T) -> Array(u8, T.BYTES * 2))(Array(u8, T.BYTES * 2).fill(u8(0)))
 );
 _grow :: (fn(generic(N : usize), a : Array(u8, N)) -> Array(u8, N + usize(1)))({
   (r : Array(u8, N + usize(1))) = Array(u8, N + usize(1)).fill(u8(0));
@@ -421,7 +421,7 @@ test("Test an UNRESOLVABLE projection is an error, not a silent zero", {
       generic(T : Type),
       where(T <: _Widthy),
       T,
-      _nope : (fn(self : T) -> Array(u8, T.NOPE))(Array(u8, T.NOPE).fill(u8(0)))
+      _nope : (fn(imm(self) : T) -> Array(u8, T.NOPE))(Array(u8, T.NOPE).fill(u8(0)))
     )
   );
 });
@@ -465,7 +465,7 @@ test("Test fill still accepts every compile-time known argument", {
   assert(b(usize(1)) == 7, "a comptime constant is a legal fill value");
   // Through a generic, which is the path the def-time trial must keep soft:
   // at trial time `T` is unbound, and the trial must not hard-fail.
-  g :: (fn(generic(T : Type), x : T, where(T <: Comptime)) -> Array(T, usize(3)))(
+  g :: (fn(generic(T : Type), imm(x) : T, where(T <: Comptime)) -> Array(T, usize(3)))(
     Array(T, usize(3)).fill(T(0))
   );
   assert(g(i32(1)).len() == 3, "a generic fill with a comptime value still specializes");

@@ -66,7 +66,7 @@ _legacy_set := _build_legacy_set();
 _tables_lock := RawMutex.new();
 /// The decoded replacement for `name`, as a fresh `String` owned by the
 /// caller, or `.None`.
-_lookup_entity :: (fn(name : String) -> Option(String))({
+_lookup_entity :: (fn(imm(name) : String) -> Option(String))({
   _tables_lock.lock();
   found := match(
     _entity_map.get(name),
@@ -77,14 +77,14 @@ _lookup_entity :: (fn(name : String) -> Option(String))({
   found
 });
 /// Whether `name` is a legacy entity (valid without its `;`).
-_is_legacy_entity :: (fn(name : String) -> bool)({
+_is_legacy_entity :: (fn(imm(name) : String) -> bool)({
   _tables_lock.lock();
   hit := _legacy_set.contains(name);
   _tables_lock.unlock();
   hit
 });
 // Parse a hex string to i32
-_parse_hex :: (fn(s : String) -> i32)({
+_parse_hex :: (fn(imm(s) : String) -> i32)({
   (result : i32) = i32(0);
   it := s.chars();
   while(runtime(true), {
@@ -120,7 +120,7 @@ _parse_hex :: (fn(s : String) -> i32)({
   result
 });
 // Parse a decimal string to i32
-_parse_dec :: (fn(s : String) -> i32)({
+_parse_dec :: (fn(imm(s) : String) -> i32)({
   (result : i32) = i32(0);
   it := s.chars();
   while(runtime(true), {
@@ -159,7 +159,7 @@ _is_alpha_numeric :: (fn(c : rune) -> bool)(
 // file `.unwrap()`ed it). And the O(n) rune walk that every `at(i)` performed
 // happens once instead of per character.
 // ---------------------------------------------------------------------------
-_char_table :: (fn(s : String) -> ArrayList(IterPair(usize, rune)))({
+_char_table :: (fn(imm(s) : String) -> ArrayList(IterPair(usize, rune)))({
   out := ArrayList(IterPair(usize, rune)).new();
   it := s.char_indices();
   while(runtime(true), {
@@ -179,7 +179,7 @@ _char_table :: (fn(s : String) -> ArrayList(IterPair(usize, rune)))({
 // `index` is at or past the end. Both are rune boundaries, so `try_substring`
 // between any two of them always succeeds.
 _byte_offset_of :: (
-  fn(table : ArrayList(IterPair(usize, rune)), index : usize, total_bytes : usize) -> usize
+  fn(imm(table) : ArrayList(IterPair(usize, rune)), index : usize, total_bytes : usize) -> usize
 )(
   match(
     table.get(index),
@@ -191,7 +191,7 @@ _byte_offset_of :: (
 // result the character-indexed `substring` gives today, and independent of
 // which basis `substring` itself uses.
 _slice_runes :: (
-  fn(s : String, table : ArrayList(IterPair(usize, rune)), start : usize, end : usize) -> String
+  fn(imm(s) : String, imm(table) : ArrayList(IterPair(usize, rune)), start : usize, end : usize) -> String
 )({
   if(start >= end, {
     return(String.new());
@@ -212,7 +212,7 @@ _slice_runes :: (
 ///
 /// Supports named (`&amp;`), decimal (`&#38;`), and hexadecimal (`&#x26;`) character
 /// references. Legacy mode — entities without trailing semicolons are also decoded.
-decode :: (fn(input : String) -> String)({
+decode :: (fn(imm(input) : String) -> String)({
   if(input.chars().count() == usize(0), {
     return(input);
   });
@@ -391,7 +391,7 @@ decode :: (fn(input : String) -> String)({
 /// multibyte UTF-8 — passes through byte-identically, so
 /// `decode(encode(s)) == s` for any `s`
 /// (plans/archive/STD_API_AUDIT.md D2 + §7 P0).
-encode :: (fn(input : String) -> String)({
+encode :: (fn(imm(input) : String) -> String)({
   out := String.with_capacity(input.len());
   bytes := input;
   n := bytes.len();
@@ -418,7 +418,7 @@ export(decode, encode, is_valid_entity_code, from_code_point);
 // pre-rename spellings compiling for one release, the way `json_parse_result`
 // and `derive(ToString)` were kept in v0.2.28.
 /// DEPRECATED, removed in v0.2.32: call `html.decode`.
-html_decode :: (fn(input : String) -> String)(decode(input));
+html_decode :: (fn(imm(input) : String) -> String)(decode(input));
 /// DEPRECATED, removed in v0.2.32: call `html.encode`.
-html_encode :: (fn(input : String) -> String)(encode(input));
+html_encode :: (fn(imm(input) : String) -> String)(encode(input));
 export(html_decode, html_encode);

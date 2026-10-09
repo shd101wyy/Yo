@@ -61,8 +61,8 @@ extern(
   // (plans/VALUES_BY_DEFAULT.md decision 37), so a relay may move what it
   // captured out of its body.
   __yo_thread_spawn : (fn(own(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> __yo_thread_t),
-  __yo_thread_join : (fn(t : __yo_thread_t) -> unit),
-  __yo_thread_detach : (fn(t : __yo_thread_t) -> unit)
+  __yo_thread_join : (fn(imm(t) : __yo_thread_t) -> unit),
+  __yo_thread_detach : (fn(imm(t) : __yo_thread_t) -> unit)
 );
 extern(
   "Yo",
@@ -118,7 +118,7 @@ impl(
   /// a joined thread; a closed `HANDLE`).
   ///
   /// At `T = unit` this reads as the old value-less `join()`.
-  join : (fn(self : Self) -> T)({
+  join : (fn(imm(self) : Self) -> T)({
     assert(!self._joined, "Thread.join: this thread was already joined");
     self._joined = true;
     __yo_thread_join(self.handle);
@@ -133,7 +133,7 @@ impl(
     )
   }),
   /// True once `join` has returned.
-  is_joined : (fn(self : Self) -> bool)(
+  is_joined : (fn(imm(self) : Self) -> bool)(
     self._joined
   )
 );
@@ -142,7 +142,7 @@ impl(
   Thread(T),
   where(T <: (Send, Acyclic)),
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       cond(
         !self._joined => {
           self._joined = true;
@@ -222,7 +222,7 @@ impl(
     Self.new(__yo_worker_get_num_threads())
   ),
   /// The number of worker threads the runtime pool is using (or will use).
-  num_threads : (fn(self : Self) -> usize)(
+  num_threads : (fn(imm(self) : Self) -> usize)(
     __yo_worker_get_num_threads()
   ),
   /// Block until every task submitted to this pool so far has finished,
@@ -238,7 +238,7 @@ impl(
   ///
   /// Must not be called from inside a task of this pool: the task would be
   /// waiting for itself.
-  join_all : (fn(self : Self) -> unit)({
+  join_all : (fn(imm(self) : Self) -> unit)({
     self._tasks.wait();
   }),
   /// Refuse new work, then block until every outstanding task has finished.
@@ -249,7 +249,7 @@ impl(
   /// queued or running when `main` returns is abandoned, as a detached
   /// `Thread` is, so a program that needs its tasks' effects calls
   /// `join_all` or `shutdown` first.
-  shutdown : (fn(self : Self) -> unit)({
+  shutdown : (fn(imm(self) : Self) -> unit)({
     // Under the submission lock, so a `spawn` that has not yet taken the lock
     // sees `_closed` once it does and cannot queue behind the drain.
     took := _lock_for_submission(self);
@@ -258,7 +258,7 @@ impl(
     self.join_all();
   }),
   /// Whether `shutdown` has been called (lock-free atomic load).
-  is_shutdown : (fn(self : Self) -> bool)(
+  is_shutdown : (fn(imm(self) : Self) -> bool)(
     self._closed.load(MemoryOrder.Acquire)
   )
 );
@@ -289,7 +289,7 @@ impl(
 /// task that itself spawns would then block on the lock it already holds.
 /// `RawMutex.held_by_current_thread` is exact for the caller, which is all the
 /// re-entry needs.
-_lock_for_submission :: (fn(pool : ThreadPool) -> bool)({
+_lock_for_submission :: (fn(imm(pool) : ThreadPool) -> bool)({
   pool;
   cond(
     _submissions.held_by_current_thread() => false,
@@ -299,7 +299,7 @@ _lock_for_submission :: (fn(pool : ThreadPool) -> bool)({
     }
   )
 });
-_unlock_after_submission :: (fn(pool : ThreadPool, took : bool) -> unit)({
+_unlock_after_submission :: (fn(imm(pool) : ThreadPool, took : bool) -> unit)({
   pool;
   cond(
     took => _submissions.unlock(),
@@ -312,7 +312,7 @@ _unlock_after_submission :: (fn(pool : ThreadPool, took : bool) -> unit)({
 /// literal capturing a not-implicitly-copyable value, and a borrow capture is
 /// never `Send`, decision 38 E:
 /// issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md.)
-spawn :: (fn(pool : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit)({
+spawn :: (fn(imm(pool) : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit)({
   // `_closed` is read and the task counted in UNDER the submission lock, so
   // `shutdown` (which sets `_closed` under the same lock, then drains) cannot
   // race a submission that already passed the check. The lock is held across
@@ -382,7 +382,7 @@ spawn :: (fn(pool : ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) 
 /// every specialization — the first `T` won and every other one miscompiled
 /// (this helper is the fix; no issue doc was filed).
 _take_blocking_result :: (
-  fn(generic(T : Type), chan : Channel(T), where(T <: (Send, Acyclic))) -> T
+  fn(generic(T : Type), imm(chan) : Channel(T), where(T <: (Send, Acyclic))) -> T
 )(
   match(
     chan.try_recv(),

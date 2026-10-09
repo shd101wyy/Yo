@@ -48,15 +48,15 @@ BK_UNQUOTE_SPLICING :: "unquote_splicing";
 BK_SPREAD_HASH :: "...#";
 BK_SPREAD :: "...";
 /// Returns true if `expr` is an `unquote` / `#` call with exactly 1 argument.
-_is_unquote :: (fn(e : AstExpr) -> bool)(
+_is_unquote :: (fn(imm(e) : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_UNQUOTE, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_HASH, Option(usize).Some(usize(1)))
 );
 /// Returns true if `expr` is an `unquote_splicing` / `...#` call with 1 arg.
-_is_unquote_splicing :: (fn(e : AstExpr) -> bool)(
+_is_unquote_splicing :: (fn(imm(e) : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_UNQUOTE_SPLICING, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_SPREAD_HASH, Option(usize).Some(usize(1)))
 );
 /// Returns true if `expr` is `...#(x)` — spread(unquote(x)).
-_is_spread_unquote :: (fn(e : AstExpr) -> bool)(
+_is_spread_unquote :: (fn(imm(e) : AstExpr) -> bool)(
   match(
     e,
     .FnCall(_, fb, args, _, _) => {
@@ -85,10 +85,10 @@ _is_spread_unquote :: (fn(e : AstExpr) -> bool)(
 ///
 process_unquotes_in_expr :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   // Atom nodes pass through unchanged.
@@ -268,10 +268,10 @@ process_unquotes_in_expr :: (
 });
 evaluate_quote :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   args := match(

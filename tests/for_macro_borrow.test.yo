@@ -178,7 +178,7 @@ comptime_expect_error(
 
 // --- Borrowed form -------------------------------------------------------------
 Enemy :: struct(hp : i32, name : String);
-bump_i32 :: (fn(inout(v) : i32) -> unit)({
+bump_i32 :: (fn(mut(v) : i32) -> unit)({
   v = (v + i32(1));
 });
 test("for(list, inout(x) => body) mutates ArrayList elements in place", {
@@ -245,7 +245,7 @@ test("borrowed for: element handed to an inout parameter, break and continue", {
 });
 test("borrowed for: return from the body and unwind through the body release the guard", {
   Raise :: (ctl() -> unit);
-  find_first_even :: (fn(xs : ArrayList(i32)) -> i32)({
+  find_first_even :: (fn(imm(xs) : ArrayList(i32)) -> i32)({
     for(xs, inout(x) => {
       if((x % i32(2)) == i32(0), {
         return(x);
@@ -260,7 +260,7 @@ test("borrowed for: return from the body and unwind through the body release the
   assert(find_first_even(list) == i32(4), "returned from inside the borrowed loop");
   list.push(i32(6)); // must not panic: the return path released the flag
   assert(list.len() == usize(4), "push after the early return");
-  unwind_out :: (fn(xs : ArrayList(i32)) -> unit)({
+  unwind_out :: (fn(imm(xs) : ArrayList(i32)) -> unit)({
     (raise : Raise) = (
       () -> {
         unwind(());
@@ -361,7 +361,7 @@ test("borrowed for over Deque, LinkedList, BTreeMap and OrderedMap", {
 // closure (the existing second-class-reference gate).
 comptime_expect_error(
   borrowed_element_captured :: (fn() -> unit)({
-    run :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+    run :: (fn(imm(f) : Impl(Fn() -> unit)) -> unit)(f());
     xs := ArrayList(i32).new();
     xs.push(i32(1));
     for(xs, inout(x) => {
@@ -413,11 +413,11 @@ test("borrowed for: read-only methods on the iterated collection do not trip the
 Bag :: ref(struct(items : ArrayList(i32), version : i32));
 impl(
   Bag,
-  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
-  bump_version : (fn(inout(self) : Self) -> unit)({
+  iter : (fn(imm(self) : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(mut(self) : Self) -> unit)({
     self.version = (self.version + i32(1));
   }),
-  reset : (fn(inout(self) : Self) -> unit)({
+  reset : (fn(mut(self) : Self) -> unit)({
     self = Bag(items : ArrayList(i32).new(), version : i32(0));
   })
 );
@@ -449,7 +449,7 @@ test("borrowed for over a user collection; inout(self) methods assert on the obj
 // issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md).
 impl(
   Bag,
-  first_over : (fn(self : Self, limit : i32) -> Option(i32))({
+  first_over : (fn(imm(self) : Self, limit : i32) -> Option(i32))({
     (found : Option(i32)) = .None;
     i := usize(0);
     while((i < self.items.len()) && found.is_none(), {
@@ -500,21 +500,21 @@ test("borrowed for: read-only methods with typed local declarations do not trip 
 // tests/cli-cases/inout-for-store-fresh-into-self-panics.
 impl(
   Bag,
-  sum_by_value_for : (fn(self : Self) -> i32)({
+  sum_by_value_for : (fn(imm(self) : Self) -> i32)({
     total := i32(0);
     for(self.items, x => {
       total = (total + x);
     });
     total
   }),
-  sum_by_borrowed_for : (fn(self : Self) -> i32)({
+  sum_by_borrowed_for : (fn(imm(self) : Self) -> i32)({
     total := i32(0);
     for(self, inout(x) => {
       total = (total + x);
     });
     total
   }),
-  doubled_copy : (fn(self : Self) -> ArrayList(i32))({
+  doubled_copy : (fn(imm(self) : Self) -> ArrayList(i32))({
     copy := self.items.clone();
     i := usize(0);
     while(i < copy.len(), {

@@ -98,7 +98,7 @@ IntRange :: ref(struct(min : i64, max : u64));
 /// Return the bit-width of an integer type.
 /// Returns `.None` for non-integer types.
 ///
-get_integer_type_bits :: (fn(ty : TypeValue) -> Option(u32))(
+get_integer_type_bits :: (fn(imm(ty) : TypeValue) -> Option(u32))(
   match(
     ty,
     .Int(bits : b, _) => .Some(u32(b)),
@@ -111,7 +111,7 @@ get_integer_type_bits :: (fn(ty : TypeValue) -> Option(u32))(
 /// Returns `.None` for non-integer types.
 /// Uses a precomputed table to avoid overflow from runtime bit-shifts.
 ///
-get_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
+get_integer_type_range :: (fn(imm(ty) : TypeValue) -> Option(IntRange))(
   match(
     ty,
     .Int(bits : b, signed : s) => cond(
@@ -136,7 +136,7 @@ get_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
 /// `get_integer_type_range` with `usize`/`isize` narrowed to the target's
 /// pointer width (32-bit on wasm32), so a comptime integer checked against it
 /// is checked against the type the emitted C actually has.
-target_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
+target_integer_type_range :: (fn(imm(ty) : TypeValue) -> Option(IntRange))(
   match(
     ty,
     .Usize => if(g_target_pointer_size_bits == u32(32), Option(IntRange).Some({ min : i64(0), max : u64(4294967295) }), get_integer_type_range(ty)),
@@ -150,7 +150,7 @@ target_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
 /// magnitude rather than an `i64` because a comptime integer above
 /// `i64::MAX` is carried as its `i64` bit pattern (src/utils.yo
 /// `parse_raw_int`), which would read as negative.
-integer_value_fits_type :: (fn(negative : bool, magnitude : u64, ty : TypeValue) -> Option(bool))(
+integer_value_fits_type :: (fn(negative : bool, magnitude : u64, imm(ty) : TypeValue) -> Option(bool))(
   match(
     target_integer_type_range(ty),
     .Some(r) => Option(bool).Some(
@@ -167,7 +167,7 @@ integer_value_fits_type :: (fn(negative : bool, magnitude : u64, ty : TypeValue)
 );
 /// `min..=max` of a fixed-width integer type at the target, for diagnostics
 /// (empty for a type without a fixed range).
-integer_type_range_string :: (fn(ty : TypeValue) -> String)(
+integer_type_range_string :: (fn(imm(ty) : TypeValue) -> String)(
   match(
     target_integer_type_range(ty),
     .Some(r) => `${r.min.to_string()}..=${r.max.to_string()}`,
@@ -179,12 +179,12 @@ integer_type_range_string :: (fn(ty : TypeValue) -> String)(
 // ---------------------------------------------------------------------------
 /// Check whether a `comptime_int` value can be cast to `target_type`.
 ///
-can_comptime_int_cast_to :: (fn(target_type : TypeValue) -> bool)(
+can_comptime_int_cast_to :: (fn(imm(target_type) : TypeValue) -> bool)(
   is_integer_type(target_type) || is_comptime_int_type(target_type)
 );
 /// Check whether a `comptime_float` value can be cast to `target_type`.
 ///
-can_comptime_float_cast_to :: (fn(target_type : TypeValue) -> bool)(
+can_comptime_float_cast_to :: (fn(imm(target_type) : TypeValue) -> bool)(
   is_float_type(target_type) || is_comptime_float_type(target_type)
 );
 // NOTE: `create_str_type`, `pointer_target_is_byte_`,
@@ -199,7 +199,7 @@ can_comptime_float_cast_to :: (fn(target_type : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// Throw if `ty` is the `Void` type.
 ///
-prohibit_void_type :: (fn(ty : TypeValue, token : Token, exn : Exception) -> unit)(
+prohibit_void_type :: (fn(imm(ty) : TypeValue, imm(token) : Token, imm(exn) : Exception) -> unit)(
   match(
     ty,
     .Void => {
@@ -222,7 +222,7 @@ prohibit_void_type :: (fn(ty : TypeValue, token : Token, exn : Exception) -> uni
 /// No `env` parameter: Runtime-trait lookups in compound types would
 /// need one, and it is dropped to keep `types/utils.yo` free of any
 /// dependency on `env.yo` (see top of file for the cycle context).
-type_is_comptime_only :: (fn(ty : TypeValue) -> bool)(
+type_is_comptime_only :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     type_value_tag(ty),
     .TComptimeInt => true,
@@ -241,7 +241,7 @@ type_is_comptime_only :: (fn(ty : TypeValue) -> bool)(
 ///
 ///
 /// `env` param dropped (was unused on the tag-only path).
-type_requires_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
+type_requires_comptime_modifier :: (fn(imm(ty) : TypeValue) -> bool)(
   // Compound arms: a tuple/array containing a comptime-only member can
   // never be a runtime value, so binding it without `comptime` must be
   // rejected. Availability is decided by structural recursion, not by
@@ -275,7 +275,7 @@ type_requires_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
 ///
 ///
 /// `env` param dropped (was unused on the tag-only path).
-type_prohibits_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
+type_prohibits_comptime_modifier :: (fn(imm(ty) : TypeValue) -> bool)(
   // A type is runtime-only when it implements Runtime but NOT Comptime.
   // Use the tag fast path: these types are definitively runtime-only.
   match(
@@ -303,7 +303,7 @@ type_prohibits_comptime_modifier :: (fn(ty : TypeValue) -> bool)(
 ///   * `.None`       — undecided at the tag level (caller must check the
 ///                     `Runtime` trait in the env, which is Phase 3 work)
 ///
-type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
+type_implements_runtime_builtin :: (fn(imm(ty) : TypeValue) -> Option(bool))({
   // Object types (reference semantics) are always runtime types. Module
   // structs (source namespaces) are comptime-only; the TModule tag arm
   // below already covers them.
@@ -403,7 +403,7 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
 /// consult the `Runtime` trait in `env`).
 ///
 /// `env` param dropped (was unused on the tag-only path).
-type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
+type_implements_runtime :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     type_implements_runtime_builtin(ty),
     .Some(b) => b,
@@ -420,7 +420,7 @@ type_implements_runtime :: (fn(ty : TypeValue) -> bool)(
 /// init (the impl registries live above this module) and consulted only once
 /// `note_move_only_possible` has run, so a program with no such impl pays one
 /// flag test per nominal type visited.
-MoveOnlyNominalFn :: (fn(ty : TypeValue) -> String);
+MoveOnlyNominalFn :: (fn(imm(ty) : TypeValue) -> String);
 (g_move_only_nominal_fn : Option(MoveOnlyNominalFn)) = Option(MoveOnlyNominalFn).None;
 /// Install the nominal move-only answer (`evaluator/trait_checking.yo` does at
 /// init).
@@ -455,7 +455,7 @@ CaptureBorrow :: struct(
 );
 /// Record the borrow entries of the capture struct `struct_id`. A `mut` entry
 /// makes the struct move-only, so the move-only fast path is armed.
-register_capture_borrows :: (fn(struct_id : String, borrows : ArrayList(CaptureBorrow)) -> unit)({
+register_capture_borrows :: (fn(imm(struct_id) : String, imm(borrows) : ArrayList(CaptureBorrow)) -> unit)({
   if(borrows.len() == usize(0), {
     return(());
   });
@@ -469,7 +469,7 @@ register_capture_borrows :: (fn(struct_id : String, borrows : ArrayList(CaptureB
   g_capture_borrows.insert(struct_id, borrows);
 });
 /// The borrow entries recorded for the capture struct `struct_id`.
-capture_struct_borrows :: (fn(struct_id : String) -> Option(ArrayList(CaptureBorrow)))(
+capture_struct_borrows :: (fn(imm(struct_id) : String) -> Option(ArrayList(CaptureBorrow)))(
   cond(
     (g_capture_borrows.len() == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
     true => g_capture_borrows.get(struct_id)
@@ -479,7 +479,7 @@ capture_struct_borrows :: (fn(struct_id : String) -> Option(ArrayList(CaptureBor
 /// looks for one.
 capture_borrows_exist :: (fn() -> bool)(g_capture_borrows.len() > usize(0));
 /// The place a borrow entry names, as written: `s.items`.
-capture_borrow_place_string :: (fn(b : CaptureBorrow) -> String)({
+capture_borrow_place_string :: (fn(imm(b) : CaptureBorrow) -> String)({
   out := b.root_name.clone();
   (i : usize) = usize(0);
   while(i < b.path.len(), {
@@ -495,13 +495,13 @@ capture_borrow_place_string :: (fn(b : CaptureBorrow) -> String)({
 /// type variable (decision 38 A: second-class is structural). A reference
 /// type stops the walk: a cell's payload cannot hold a borrow, because a
 /// second-class type may not be a generic argument of a type constructor.
-collect_type_borrows :: (fn(ty : TypeValue, inout(out) : ArrayList(CaptureBorrow)) -> unit)(
+collect_type_borrows :: (fn(imm(ty) : TypeValue, mut(out) : ArrayList(CaptureBorrow)) -> unit)(
   cond(
     (g_capture_borrows.len() == usize(0)) => (),
     true => _collect_type_borrows_inner(ty, out, u32(0))
   )
 );
-_collect_type_borrows_inner :: (fn(ty_in : TypeValue, inout(out) : ArrayList(CaptureBorrow), depth : u32) -> unit)({
+_collect_type_borrows_inner :: (fn(imm(ty_in) : TypeValue, mut(out) : ArrayList(CaptureBorrow), depth : u32) -> unit)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   if((depth > u32(12)) || is_rc_type(ty), {
     return(());
@@ -555,13 +555,13 @@ _collect_type_borrows_inner :: (fn(ty_in : TypeValue, inout(out) : ArrayList(Cap
 /// or a value struct field) whose `T` is second-class. A pointer's target
 /// outlives any one borrow (a collection's buffer is `?(*(T))`), so decision
 /// 38 A's type-position rule rejects it.
-type_pointee_second_class :: (fn(ty : TypeValue) -> Option(TypeValue))(
+type_pointee_second_class :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))(
   cond(
     (g_capture_borrows.len() == usize(0)) => Option(TypeValue).None,
     true => _pointee_second_class_inner(ty, u32(0))
   )
 );
-_pointee_second_class_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(TypeValue))({
+_pointee_second_class_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> Option(TypeValue))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   if((depth > u32(8)) || is_rc_type(ty), {
     return(Option(TypeValue).None);
@@ -621,7 +621,7 @@ _pointee_second_class_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(Typ
 /// `Dyn`, captured by an escaping closure, spawned or moved into a by-value
 /// (`sink`) parameter, and its type may not be a field type or a type
 /// constructor's argument.
-type_is_second_class :: (fn(ty : TypeValue) -> bool)(
+type_is_second_class :: (fn(imm(ty) : TypeValue) -> bool)(
   cond(
     (g_capture_borrows.len() == usize(0)) => false,
     true => {
@@ -633,7 +633,7 @@ type_is_second_class :: (fn(ty : TypeValue) -> bool)(
 );
 /// The first `mut` capture-list borrow `ty` carries (decision 38 B: such a
 /// value is lent exclusively, and it is move-only), if any.
-type_first_mut_borrow :: (fn(ty : TypeValue) -> Option(CaptureBorrow))({
+type_first_mut_borrow :: (fn(imm(ty) : TypeValue) -> Option(CaptureBorrow))({
   if(g_capture_borrows.len() == usize(0), {
     return(Option(CaptureBorrow).None);
   });
@@ -654,7 +654,7 @@ type_first_mut_borrow :: (fn(ty : TypeValue) -> Option(CaptureBorrow))({
 });
 /// The capture struct `ty` (resolved through type variables) declares a
 /// `mut` capture itself.
-_capture_struct_declares_mut :: (fn(ty : TypeValue) -> bool)(
+_capture_struct_declares_mut :: (fn(imm(ty) : TypeValue) -> bool)(
   cond(
     (g_capture_borrows.len() == usize(0)) => false,
     true => match(
@@ -684,7 +684,7 @@ move_only_declarations_exist :: (fn() -> bool)(g_move_only_possible);
 /// semantics. Only these can declare move-only; a reference type is a shared
 /// cell, so its copies alias and it is never move-only (§3.4: `Rc(T)` and
 /// `Arc(T)` never are).
-is_value_nominal_type :: (fn(ty_in : TypeValue) -> bool)({
+is_value_nominal_type :: (fn(imm(ty_in) : TypeValue) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
     ty,
@@ -695,7 +695,7 @@ is_value_nominal_type :: (fn(ty_in : TypeValue) -> bool)({
 });
 /// The trait through which `ty` (already shell-resolved), a value nominal
 /// type, declares move-only itself, or `""` (see `MoveOnlyNominalFn`).
-_nominal_move_only_trait :: (fn(ty : TypeValue) -> String)(
+_nominal_move_only_trait :: (fn(imm(ty) : TypeValue) -> String)(
   cond(
     !g_move_only_possible => String.new(),
     true => match(
@@ -705,7 +705,7 @@ _nominal_move_only_trait :: (fn(ty : TypeValue) -> String)(
     )
   )
 );
-_nominal_declares_move_only :: (fn(ty : TypeValue) -> bool)(!_nominal_move_only_trait(ty).is_empty());
+_nominal_declares_move_only :: (fn(imm(ty) : TypeValue) -> bool)(!_nominal_move_only_trait(ty).is_empty());
 /// Depth-limited walk for `type_is_move_only`, the shape of
 /// `_type_contains_rc_inner`. A reference type (and `Dyn`/`Iso`, which are
 /// cells too) stops the walk: it shares its payload, so it is copyable
@@ -713,7 +713,7 @@ _nominal_declares_move_only :: (fn(ty : TypeValue) -> bool)(!_nominal_move_only_
 /// A `Dyn(FnOnce(...))` (plans/VALUES_BY_DEFAULT.md decision 37): its call
 /// consumes it, so it is move-only although a `Dyn` is reference counted —
 /// two handles to one payload would run a call-once body twice.
-_is_dyn_fnonce :: (fn(ty : TypeValue) -> bool)(
+_is_dyn_fnonce :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     ty,
     .DynT(required_trait_types : rtt) => {
@@ -729,7 +729,7 @@ _is_dyn_fnonce :: (fn(ty : TypeValue) -> bool)(
     _ => false
   )
 );
-_type_is_move_only_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
+_type_is_move_only_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(
     (depth > u32(8)) => false,
@@ -791,7 +791,7 @@ _type_is_move_only_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
 /// for every move-only type, so the ownership machinery (temps, drops,
 /// moves, joins) tracks these values like RC values; this predicate is what
 /// turns their copies into moves or errors.
-type_is_move_only :: (fn(ty : TypeValue) -> bool)(
+type_is_move_only :: (fn(imm(ty) : TypeValue) -> bool)(
   g_move_only_possible && _type_is_move_only_inner(ty, u32(0))
 );
 /// True if a value of `ty` is not implicitly copyable: an implicit copy of it
@@ -810,7 +810,7 @@ type_is_move_only :: (fn(ty : TypeValue) -> bool)(
 /// environment, which this module cannot reach, so `trait_checking.yo`
 /// installs it (`type_lacks_copy_for_flip`, memoized there). Compile-time-only,
 /// control-bound and C-opaque types answer false: their copies stay implicit.
-(g_type_lacks_copy_fn : Option(fn(ty : TypeValue) -> bool)) = Option(fn(ty : TypeValue) -> bool).None;
+(g_type_lacks_copy_fn : Option(fn(imm(ty) : TypeValue) -> bool)) = Option(fn(imm(ty) : TypeValue) -> bool).None;
 /// Bumped on every trait-impl registration (`register_type_trait_value`,
 /// `register_generic_impl`). A "not `Copy`" answer is only as good as the
 /// impls registered when it was given (an impl placed later in a module
@@ -821,23 +821,23 @@ bump_trait_impl_epoch :: (fn() -> unit)({
   g_trait_impl_epoch = (g_trait_impl_epoch + u64(1));
 });
 trait_impl_epoch :: (fn() -> u64)(g_trait_impl_epoch);
-set_type_lacks_copy_fn :: (fn(f : (fn(ty : TypeValue) -> bool)) -> unit)({
-  g_type_lacks_copy_fn = Option(fn(ty : TypeValue) -> bool).Some(f);
+set_type_lacks_copy_fn :: (fn(f : (fn(imm(ty) : TypeValue) -> bool)) -> unit)({
+  g_type_lacks_copy_fn = Option(fn(imm(ty) : TypeValue) -> bool).Some(f);
 });
 /// Whether a type lacks `Clone` (installed by `evaluator/trait_checking.yo`):
 /// a plain-data type with neither `Copy` nor `Clone` is move-only, which is
 /// how a diagnostic names it (decision 36: move-only is "neither").
-(g_type_lacks_clone_fn : Option(fn(ty : TypeValue) -> bool)) = Option(fn(ty : TypeValue) -> bool).None;
-set_type_lacks_clone_fn :: (fn(f : (fn(ty : TypeValue) -> bool)) -> unit)({
-  g_type_lacks_clone_fn = Option(fn(ty : TypeValue) -> bool).Some(f);
+(g_type_lacks_clone_fn : Option(fn(imm(ty) : TypeValue) -> bool)) = Option(fn(imm(ty) : TypeValue) -> bool).None;
+set_type_lacks_clone_fn :: (fn(f : (fn(imm(ty) : TypeValue) -> bool)) -> unit)({
+  g_type_lacks_clone_fn = Option(fn(imm(ty) : TypeValue) -> bool).Some(f);
 });
-type_lacks_clone :: (fn(ty : TypeValue) -> bool)(match(g_type_lacks_clone_fn, .Some(f) => f(ty), .None => false));
+type_lacks_clone :: (fn(imm(ty) : TypeValue) -> bool)(match(g_type_lacks_clone_fn, .Some(f) => f(ty), .None => false));
 /// `YO_FLIP_REPORT=1`: the flip is off, and each plain-data type it would
 /// make explicit-copy is printed once (`[flip] <type>`) where a copy of it is
 /// decided, so one pass over a tree names every type its sweep still needs.
 (g_flip_report : bool) = debug_knob(`YO_FLIP_REPORT`).is_some();
 (g_flip_reported : HashMap(String, bool)) = HashMap(String, bool).new();
-_plain_data_lacks_copy :: (fn(ty_in : TypeValue) -> bool)({
+_plain_data_lacks_copy :: (fn(imm(ty_in) : TypeValue) -> bool)({
   ty := match(
     ty_in,
     .SomeT({ resolution : sr }) => match(
@@ -868,7 +868,7 @@ _plain_data_lacks_copy :: (fn(ty_in : TypeValue) -> bool)({
 /// A nominal value struct or enum that is not `Copy` under the flip
 /// (`g_type_lacks_copy_fn`). Tuples, arrays and records are walked by
 /// `_type_contains_rc_inner` through their parts.
-_nominal_lacks_copy :: (fn(ty : TypeValue) -> bool)(
+_nominal_lacks_copy :: (fn(imm(ty) : TypeValue) -> bool)(
   !g_flip_report && match(
     ty,
     .Struct({ id : _ }) => match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false),
@@ -876,15 +876,15 @@ _nominal_lacks_copy :: (fn(ty : TypeValue) -> bool)(
     _ => false
   )
 );
-type_requires_explicit_copy :: (fn(ty : TypeValue) -> bool)(type_is_move_only(ty) || _plain_data_lacks_copy(ty));
+type_requires_explicit_copy :: (fn(imm(ty) : TypeValue) -> bool)(type_is_move_only(ty) || _plain_data_lacks_copy(ty));
 /// Why `ty` is move-only, for the E0901 note: the declaring type and trait,
 /// reached through the component path ("`Holder` holds a move-only value in
 /// its field `fd` (`Fd`): `Fd` implements Dispose"). `.None` when it is not
 /// move-only.
-move_only_reason :: (fn(ty : TypeValue) -> Option(String))(
+move_only_reason :: (fn(imm(ty) : TypeValue) -> Option(String))(
   cond(g_move_only_possible => _move_only_reason_inner(ty, u32(0)), true => Option(String).None)
 );
-_move_only_reason_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(String))({
+_move_only_reason_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> Option(String))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   if(_is_dyn_fnonce(ty), {
     return(Option(String).Some(`\`${type_to_string(ty)}\` is a call-once closure: its call consumes it, so a copy could call it twice`));
@@ -967,7 +967,7 @@ _move_only_reason_inner :: (fn(ty_in : TypeValue, depth : u32) -> Option(String)
 ///
 /// Uses a depth limit instead of a checkedTypes set to prevent infinite
 /// recursion on self-referential types (e.g. recursive enums).
-_type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32, flip : bool) -> bool)({
+_type_contains_rc_inner :: (fn(imm(ty_in) : TypeValue, depth : u32, flip : bool) -> bool)({
   // Resolve recursive-type SHELLS to their registered finals first — same
   // reasoning as get_size_of_type (fifth shell-consumption site). An empty
   // shell walks to `false`, and a specialization whose T binding is the
@@ -1106,7 +1106,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32, flip : bool) -> b
 /// `atomic_int`) or resolves, through its resolution chain, to a non-SomeT type. A
 /// rule that applies only to a concrete type must still apply to such a `t`
 /// (issues/fixed/an-atomic-field-exempts-an-iso-graph-from-rule-d9.md).
-type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
+type_has_no_open_some :: (fn(imm(t) : TypeValue) -> bool)({
   hno_somes := get_all_some_types(t);
   (hno_i : usize) = usize(0);
   while(hno_i < hno_somes.len(), {
@@ -1131,14 +1131,14 @@ type_has_no_open_some :: (fn(t : TypeValue) -> bool)({
 ///
 /// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).
 /// Uses a depth limit to handle self-referential types safely.
-type_contains_rc_type :: (fn(ty : TypeValue) -> bool)(
+type_contains_rc_type :: (fn(imm(ty) : TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0), true)
 );
 /// `type_contains_rc_type` before decision 36's flip: an RC cell, `Dyn`,
 /// `Iso` or a move-only value, but not a plain-data value merely lacking
 /// `Copy`. What the flip's own predicate and the compile-time value of a temp
 /// are decided on.
-type_contains_rc_cell_or_move_only :: (fn(ty : TypeValue) -> bool)(
+type_contains_rc_cell_or_move_only :: (fn(imm(ty) : TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0), false)
 );
 /// Does a value of `ty` reach a NON-ATOMIC cell — a `ref(struct)`/`ref(enum)`
@@ -1152,8 +1152,8 @@ type_contains_rc_cell_or_move_only :: (fn(ty : TypeValue) -> bool)(
 /// value that reaches at least one non-atomic cell, the graph `^v` proves
 /// unique. It is also what `Send` refuses: a value is `Send` only if it
 /// reaches none (§3.8), which the marker derivation states field by field.
-type_reaches_non_atomic_cell :: (fn(ty : TypeValue) -> bool)(_reaches_non_atomic_cell_inner(ty, u32(0)));
-_any_reaches_non_atomic_cell :: (fn(fields : ArrayList(TypeValue), depth : u32) -> bool)({
+type_reaches_non_atomic_cell :: (fn(imm(ty) : TypeValue) -> bool)(_reaches_non_atomic_cell_inner(ty, u32(0)));
+_any_reaches_non_atomic_cell :: (fn(imm(fields) : ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
@@ -1167,7 +1167,7 @@ _any_reaches_non_atomic_cell :: (fn(fields : ArrayList(TypeValue), depth : u32) 
   });
   false
 });
-_reaches_non_atomic_cell_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
+_reaches_non_atomic_cell_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   if(depth > u32(8), {
     return(false);
@@ -1213,7 +1213,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
 /// object-identity visited set, which the value-semantic `TypeValue` can't do
 /// cheaply) guards self-referential types — same approach as
 /// `_type_contains_rc_inner`.
-_type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
+_type_is_control_bound_inner :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
   cond(
     (depth > u32(8)) => false,
     true => match(
@@ -1310,15 +1310,15 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
 /// not escape: be bound at module level, captured by a closure, or have a
 /// pointer formed to it (the §4 escape-boundary / ctl rules in the algebraic
 /// effects analysis).
-type_is_control_bound :: (fn(ty : TypeValue) -> bool)(
+type_is_control_bound :: (fn(imm(ty) : TypeValue) -> bool)(
   _type_is_control_bound_inner(ty, u32(0))
 );
 /// The error for a control-bound field of a reference or atomic type.
-control_bound_field_message :: (fn(label : String, ty : TypeValue) -> String)(
+control_bound_field_message :: (fn(imm(label) : String, imm(ty) : TypeValue) -> String)(
   `Field "${label}" of a reference type cannot hold ${type_to_string(ty)}: it is (or contains) a \`ctl\` handler, which unwinds into the frame that installed it. A reference object outlives that frame, so a later call through the object would unwind into a frame that no longer exists. Pass the handler as an argument instead, or keep it in a value struct.`
 );
 /// True iff `id` is already in `visited` (linear scan; visited lists are tiny).
-_id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
+_id_already_visited :: (fn(imm(visited) : ArrayList(String), imm(id) : String) -> bool)({
   (i : usize) = usize(0);
   n := visited.len();
   (found : bool) = false;
@@ -1348,7 +1348,7 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
 /// container to its elements both for cycle detection and for the Acyclic
 /// auto-derive. A bare `*(E)` is intentionally
 /// NOT matched (non-owning raw pointer; doesn't participate in ARC cycles).
-buffer_element_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
+buffer_element_type :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))(
   match(
     ty,
     .EnumT({ variant_fields }) => {
@@ -1381,7 +1381,7 @@ buffer_element_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   )
 );
 _type_refs_back_to_cyclic :: (
-  fn(ty : TypeValue, original_id : String, visited : ArrayList(String)) -> bool
+  fn(imm(ty) : TypeValue, imm(original_id) : String, imm(visited) : ArrayList(String)) -> bool
 )(
   match(
     ty,
@@ -1542,7 +1542,7 @@ _type_refs_back_to_cyclic :: (
 /// is conservative (an explicitly-`Acyclic`-marked but structurally-cyclic type
 /// is still GC-tracked — safe, just not optimized away) and keeps the evaluator
 /// and codegen call sites consistent.
-can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
+can_type_form_rc_cycle :: (fn(imm(ty) : TypeValue) -> bool)(
   cond(
     is_reference_struct_type(ty) => match(
       ty,
@@ -1630,7 +1630,7 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
 /// branches and pass their own atomicity, so this reduces to the predicate
 /// core. See plans/backlog/RC_HEADER_SPLIT.md.
 type_uses_small_rc_header :: (
-  fn(ty : TypeValue, needs_cycle_gc : bool, is_atomic : bool) -> bool
+  fn(imm(ty) : TypeValue, needs_cycle_gc : bool, is_atomic : bool) -> bool
 )(
   cond(
     !needs_cycle_gc => false,
@@ -1648,14 +1648,14 @@ type_uses_small_rc_header :: (
 /// deferred-length mechanism ever be added, this stub should walk
 /// `Array.length` and recurse on `Array.element` /
 /// tuple/struct/enum field types.
-type_requires_inference :: (fn(_ty : TypeValue) -> bool)(false);
+type_requires_inference :: (fn(imm(_ty) : TypeValue) -> bool)(false);
 /// Return `true` if `ty` contains any unresolved generic type variable
 /// (`SomeT` / `TypeAppT`).
 ///
 /// Checks the top-level variant only; the full recursive traversal lives
 /// in `_collect_some_types_into`.
 ///
-type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
+type_contains_some_type :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     ty,
     // A SomeType that
@@ -1695,9 +1695,9 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
 /// (`_id_already_visited` is defined earlier, before `_type_refs_back_to_cyclic`.)
 _collect_some_types_into :: (
   fn(
-    ty_in : TypeValue,
-    inout(acc) : ArrayList(TypeValue),
-    inout(visited_ids) : ArrayList(String)
+    imm(ty_in) : TypeValue,
+    mut(acc) : ArrayList(TypeValue),
+    mut(visited_ids) : ArrayList(String)
   ) -> unit
 )({
   // Resolve struct/enum SHELLS before walking — the SAME convention
@@ -1806,7 +1806,7 @@ _collect_some_types_into :: (
 /// Returns an ArrayList containing each SomeT found (in pre-order traversal).
 /// Phase 3: does not track visited types (safe for acyclic TypeValue trees).
 ///
-get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
+get_all_some_types :: (fn(imm(ty) : TypeValue) -> ArrayList(TypeValue))({
   acc := ArrayList(TypeValue).new();
   visited_ids := ArrayList(String).new();
   _collect_some_types_into(ty, acc, visited_ids);
@@ -1819,11 +1819,11 @@ get_all_some_types :: (fn(ty : TypeValue) -> ArrayList(TypeValue))({
 /// `T` carried only by the instantiation). Decision 36's open-pattern
 /// coverage query (`generic_pattern_implements_trait`,
 /// src/evaluator/values/impl.yo) gates on this wider question.
-type_mentions_some_type :: (fn(ty : TypeValue) -> bool)({
+type_mentions_some_type :: (fn(imm(ty) : TypeValue) -> bool)({
   visited_ids := ArrayList(String).new();
   _mentions_some_type_into(ty, visited_ids)
 });
-_mentions_some_type_into :: (fn(ty_in : TypeValue, inout(visited_ids) : ArrayList(String)) -> bool)({
+_mentions_some_type_into :: (fn(imm(ty_in) : TypeValue, mut(visited_ids) : ArrayList(String)) -> bool)({
   // Same shell/refine conventions and cycle guards as
   // `_collect_some_types_into` above (its sixth-shell comment).
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
@@ -1936,7 +1936,7 @@ _mentions_some_type_into :: (fn(ty_in : TypeValue, inout(visited_ids) : ArrayLis
 /// payloads misses it. Empty for anything else. The payload walk runs only
 /// when some argument is a SomeT, which keeps this cheap on concrete
 /// instantiations.
-enum_phantom_type_arg_somes :: (fn(ty : TypeValue) -> ArrayList(TypeValue))(
+enum_phantom_type_arg_somes :: (fn(imm(ty) : TypeValue) -> ArrayList(TypeValue))(
   match(
     ty,
     .EnumT({ id : eid, type_arguments : ta }) => if(ta.len() == usize(0), ArrayList(TypeValue).new(), enum_phantom_type_args_masked(ty, enum_phantom_positions(eid))),
@@ -1945,7 +1945,7 @@ enum_phantom_type_arg_somes :: (fn(ty : TypeValue) -> ArrayList(TypeValue))(
 );
 /// `enum_phantom_type_arg_somes` with the instantiation's phantom-position
 /// flags already looked up (`type_key` reads them itself).
-enum_phantom_type_args_masked :: (fn(ty : TypeValue, mask : ArrayList(bool)) -> ArrayList(TypeValue))({
+enum_phantom_type_args_masked :: (fn(imm(ty) : TypeValue, imm(mask) : ArrayList(bool)) -> ArrayList(TypeValue))({
   out := ArrayList(TypeValue).new();
   targs := match(ty, .EnumT({ type_arguments : ta }) => ta, _ => ArrayList(TypeValue).new());
   (field_somes : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
@@ -1993,7 +1993,7 @@ enum_phantom_type_args_masked :: (fn(ty : TypeValue, mask : ArrayList(bool)) -> 
 /// prelude newtype when tried), so the direct field scan decides exactly the
 /// definitive cases and stays silent on anything undecided (generic fields,
 /// plain value structs).
-fields_have_incompatible_contexts :: (fn(fts : ArrayList(TypeValue)) -> bool)({
+fields_have_incompatible_contexts :: (fn(imm(fts) : ArrayList(TypeValue)) -> bool)({
   (has_ct_only : bool) = false;
   (has_rt_only : bool) = false;
   (fi : usize) = usize(0);
@@ -2040,7 +2040,7 @@ fields_have_incompatible_contexts :: (fn(fts : ArrayList(TypeValue)) -> bool)({
 /// where `F → __impl_fn → <capture struct>` is codegen-concrete (type_key
 /// hops the same chain) even though `get_all_some_types` is non-empty.
 /// Conservative on any unresolved or cyclic chain (returns false).
-type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
+type_somes_all_resolve_concrete :: (fn(imm(ty) : TypeValue) -> bool)({
   somes := get_all_some_types(ty);
   // ALSO walk a struct instantiation's `type_arguments`: get_all_some_types
   // deliberately skips them, but a nominal record's identity (type_key) is
@@ -2141,7 +2141,7 @@ type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
 /// as the `E` SomeT whose RESOLUTION is the concrete bundle — comparing
 /// or gating on the raw SomeT rejected `Impl(Future(i32, Ctx))` annotations
 /// (the async_await arm-65 family).
-resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
+resolve_cell_chain :: (fn(imm(t_in) : TypeValue) -> TypeValue)({
   (cur : TypeValue) = t_in;
   (seen : ArrayList(String)) = ArrayList(String).new();
   (walk : bool) = true;
@@ -2186,7 +2186,7 @@ resolve_cell_chain :: (fn(t_in : TypeValue) -> TypeValue)({
 /// A closure's capture struct (`capture_<hash>`, evaluator/utils/closure.yo):
 /// the layout of one closure literal's captured state, and, through closure
 /// identity, that closure's type.
-is_closure_capture_struct :: (fn(t : TypeValue) -> bool)(
+is_closure_capture_struct :: (fn(imm(t) : TypeValue) -> bool)(
   match(t, .Struct({ id : ccs_id }) => ccs_id.starts_with("capture_"), _ => false)
 );
 /// A closure's own type used as a type: an annotation wrapper (the reserved
@@ -2201,7 +2201,7 @@ is_closure_capture_struct :: (fn(t : TypeValue) -> bool)(
 /// Not a dyn-coercion wrapper (NAMELESS, values/dyn.yo): the dyn/box pipeline
 /// lowers that to its own fat call/data struct. Not a `Future` wrapper: an
 /// extern future lowers to a pointer, so its C type is not its resolution's.
-is_bound_closure_identity :: (fn(t : TypeValue) -> bool)(
+is_bound_closure_identity :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .SomeT({ name : bci_nm, required_trait_types : bci_rtt }) => (
@@ -2213,11 +2213,11 @@ is_bound_closure_identity :: (fn(t : TypeValue) -> bool)(
 /// The chain ends at a non-SomeT type with no open type variable inside
 /// (`type_has_no_open_some`): a captured `AtomicI32`'s extern `atomic_int`
 /// needs no resolution.
-_resolves_to_concrete_type :: (fn(t : TypeValue) -> bool)({
+_resolves_to_concrete_type :: (fn(imm(t) : TypeValue) -> bool)({
   rtc_term := resolve_cell_chain(t);
   !is_some_type(rtc_term) && type_has_no_open_some(rtc_term)
 });
-_any_future_trait :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+_any_future_trait :: (fn(imm(tys) : ArrayList(TypeValue)) -> bool)({
   (aft_i : usize) = usize(0);
   while(aft_i < tys.len(), {
     if(match(tys.get(aft_i), .Some(aft_t) => is_future_trait_type(aft_t), .None => false), {
@@ -2251,7 +2251,7 @@ _any_future_trait :: (fn(tys : ArrayList(TypeValue)) -> bool)({
 /// predicate gates constructor emission and specialization decisions, and
 /// making it strictly more conservative would REMOVE constructors that are
 /// currently emitted. Used only where the recursive semantics are required.
-type_contains_some_type_deep :: (fn(ty : TypeValue) -> bool)({
+type_contains_some_type_deep :: (fn(imm(ty) : TypeValue) -> bool)({
   if(type_contains_some_type(ty), {
     return(true);
   });
@@ -2284,13 +2284,13 @@ type_contains_some_type_deep :: (fn(ty : TypeValue) -> bool)({
 // functions that call them, yet need to recurse back into them). Same pattern
 // as `hierarchy.yo`'s `g_type_of_type_visited_fn`. Assigned at module top level
 // after both functions are defined.
-SizeFn :: (fn(ty : TypeValue) -> Option(usize));
+SizeFn :: (fn(imm(ty) : TypeValue) -> Option(usize));
 (g_size_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
 (g_alignment_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
-_size_via_slot :: (fn(ty : TypeValue) -> Option(usize))(
+_size_via_slot :: (fn(imm(ty) : TypeValue) -> Option(usize))(
   match(g_size_of_type_fn, .Some(f) => f(ty), .None => Option(usize).None)
 );
-_align_via_slot :: (fn(ty : TypeValue) -> Option(usize))(
+_align_via_slot :: (fn(imm(ty) : TypeValue) -> Option(usize))(
   match(g_alignment_of_type_fn, .Some(f) => f(ty), .None => Option(usize).None)
 );
 /// Larger of two `usize`.
@@ -2316,7 +2316,7 @@ _ceil_log2 :: (fn(n : usize) -> usize)({
 /// Max alignment (bytes) across a field-type list; `.None` if any is unknown.
 /// Recurses into `get_alignment_of_type` via the `g_alignment_of_type_fn` slot
 /// (set at module top level) to break the mutual forward reference.
-_max_field_alignment :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
+_max_field_alignment :: (fn(imm(fts) : ArrayList(TypeValue)) -> Option(usize))({
   (acc : usize) = usize(1);
   (unknown : bool) = false;
   (i : usize) = usize(0);
@@ -2339,7 +2339,7 @@ _max_field_alignment :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
 /// Aggregate size (in BITS) of a sequence of fields laid out with C-style
 /// alignment padding, then padded to the aggregate's own alignment. `.None` if
 /// any field size/alignment is unknown. Recurses via the size/alignment slots.
-_aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
+_aggregate_size :: (fn(imm(fts) : ArrayList(TypeValue)) -> Option(usize))({
   (offset_bytes : usize) = usize(0);
   (max_align : usize) = usize(1);
   (unknown : bool) = false;
@@ -2383,7 +2383,7 @@ _aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
 /// (`generate_struct_declaration` / `generate_tuple_declaration`,
 /// src/codegen/types/generation.yo), which is 1 byte, alignment 1, on every
 /// target — and this is the size that lands. `unit` itself stays 0.
-_c_aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
+_c_aggregate_size :: (fn(imm(fts) : ArrayList(TypeValue)) -> Option(usize))({
   (members : usize) = usize(0);
   (i : usize) = usize(0);
   n := fts.len();
@@ -2410,7 +2410,7 @@ _c_aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
 /// Since `unit` became a true zero-sized type this filter changes no size (a
 /// unit field measures 0 either way); it is kept because it is exactly the
 /// predicate the emitter filters on, so the two stay visibly in step.
-_variant_storage_field_types :: (fn(fts : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+_variant_storage_field_types :: (fn(imm(fts) : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   kept := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
   n := fts.len();
@@ -2429,7 +2429,7 @@ _variant_storage_field_types :: (fn(fts : ArrayList(TypeValue)) -> ArrayList(Typ
 /// Return the alignment of `ty` in bytes, or `.None` if not statically known.
 /// Recurses into itself
 /// via `recur` and into the field helpers defined just above.
-get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
+get_alignment_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
   // Resolve recursive-type SHELLS to their registered finals first — same
   // reasoning as get_size_of_type below (an empty shell walks to alignment 1,
   // mis-laying out any aggregate that embeds the recursive type).
@@ -2541,7 +2541,7 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
 // was bypassed (yield unknown, never overflow the stack).
 // issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md.
 (g_size_walk_stack : ArrayList(String)) = ArrayList(String).new();
-_size_walk_stack_has :: (fn(id : String) -> bool)({
+_size_walk_stack_has :: (fn(imm(id) : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < g_size_walk_stack.len()) && !found, {
@@ -2559,7 +2559,7 @@ _size_walk_stack_has :: (fn(id : String) -> bool)({
 /// The value-enum size computation (tag + largest variant payload), factored
 /// out of `get_size_of_type`'s `.EnumT` arm so the arm can bracket it with the
 /// cycle stack push/pop.
-_enum_value_size :: (fn(evf : ArrayList(ArrayList(TypeValue))) -> Option(usize))({
+_enum_value_size :: (fn(imm(evf) : ArrayList(ArrayList(TypeValue))) -> Option(usize))({
   (max_data : usize) = usize(0);
   (max_align_bits : usize) = usize(0);
   (unknown : bool) = false;
@@ -2603,7 +2603,7 @@ _enum_value_size :: (fn(evf : ArrayList(ArrayList(TypeValue))) -> Option(usize))
     }
   )
 });
-get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
+get_size_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
   // A recursive struct/enum reference inside a type graph is a value-copied
   // SHELL (empty fields/variant names) — TypeValue is value-semantic, so a
   // reference site does not carry the full definition. An
@@ -2785,7 +2785,7 @@ _ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
 /// computed under a cut depends on the path, so it is not memoized. A `true`
 /// is exact either way.
 (g_repr_cut : bool) = false;
-_repr_path_contains :: (fn(ty : TypeValue) -> bool)({
+_repr_path_contains :: (fn(imm(ty) : TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_repr_path.len(), {
     if(match(g_repr_path.get(i), .Some(p) => __yo_ptr_eq(p, ty), .None => false), {
@@ -2795,7 +2795,7 @@ _repr_path_contains :: (fn(ty : TypeValue) -> bool)({
   });
   false
 });
-_repr_memo_lookup :: (fn(key : String, ty : TypeValue) -> Option(bool))({
+_repr_memo_lookup :: (fn(imm(key) : String, imm(ty) : TypeValue) -> Option(bool))({
   bucket := match(g_repr_memo.get(key), .Some(b) => b, .None => return(Option(bool).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
@@ -2810,7 +2810,7 @@ _repr_memo_lookup :: (fn(key : String, ty : TypeValue) -> Option(bool))({
   });
   Option(bool).None
 });
-_repr_memo_store :: (fn(key : String, ty : TypeValue, answer : bool) -> unit)({
+_repr_memo_store :: (fn(imm(key) : String, imm(ty) : TypeValue, answer : bool) -> unit)({
   bucket := match(g_repr_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
   bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
   _ := g_repr_memo.insert(key, bucket);
@@ -2828,7 +2828,7 @@ _repr_memo_reset :: (fn() -> unit)({
 /// backstop.
 /// Field loops are inlined (via `recur`) to avoid a mutual forward reference.
 ///
-_type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
+_type_repr_contains_raw_ptr :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
   cond(
     (depth == usize(0)) => {
       g_repr_cut = true;
@@ -2940,14 +2940,14 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
 );
 /// Does `ty`'s representation transitively contain a raw pointer? `object`/`Dyn`
 /// are safe leaves (Rc-managed). Public entry.
-type_representation_contains_raw_ptr :: (fn(ty : TypeValue) -> bool)({
+type_representation_contains_raw_ptr :: (fn(imm(ty) : TypeValue) -> bool)({
   _repr_memo_reset();
   _type_repr_contains_raw_ptr(ty, usize(1024))
 });
 /// Internal: sibling of `_type_repr_contains_raw_ptr` that ALSO treats
 /// `object`/`Dyn` as a "yes" leaf — used by the slice-flowability arg-source
 /// check.
-_type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
+_type_provides_slice_source :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
   cond(
     (depth == usize(0)) => {
       g_repr_cut = true;
@@ -3057,7 +3057,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
 /// May `ty` provide the source storage for a returned slice's pointer? Like
 /// `type_representation_contains_raw_ptr`, but `object`/`Dyn` ALSO count.
 /// Public entry.
-type_may_provide_slice_source :: (fn(ty : TypeValue) -> bool)({
+type_may_provide_slice_source :: (fn(imm(ty) : TypeValue) -> bool)({
   _repr_memo_reset();
   _type_provides_slice_source(ty, usize(1024))
 });
@@ -3091,7 +3091,7 @@ export(get_all_some_types, type_mentions_some_type);
 /// as whichever capture struct was last registered under its id, so only its
 /// specializations are emitted
 /// (issues/fixed/forwarded-closure-param-shares-specialization.md).
-func_params_have_raw_some_type :: (fn(ty : TypeValue) -> bool)(
+func_params_have_raw_some_type :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     ty,
     .Func({ param_types }) => {
@@ -3124,7 +3124,7 @@ export(type_contains_some_type_deep);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);
 /// Does `ty` mention a trait's `Self` (a SomeT named `Self`)?
-_mentions_trait_self :: (fn(ty : TypeValue) -> bool)({
+_mentions_trait_self :: (fn(imm(ty) : TypeValue) -> bool)({
   somes := get_all_some_types(ty);
   (i : usize) = usize(0);
   while(i < somes.len(), {
@@ -3137,7 +3137,7 @@ _mentions_trait_self :: (fn(ty : TypeValue) -> bool)({
 });
 /// Is the trait member `member_ty` a METHOD: a function whose first parameter
 /// is `self`? Only methods are reached through a `Dyn` receiver.
-dyn_member_is_method :: (fn(member_ty : TypeValue) -> bool)(
+dyn_member_is_method :: (fn(imm(member_ty) : TypeValue) -> bool)(
   match(
     member_ty,
     .Func({ meta : m }) => match(m.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false),
@@ -3151,7 +3151,7 @@ dyn_member_is_method :: (fn(member_ty : TypeValue) -> bool)(
 /// to put in the vtable. Codegen gives a vtable slot exactly to the methods
 /// this accepts, and the evaluator rejects a call to any other with E0614
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.7, docs/en-US/DYN_DESIGN.md).
-dyn_member_unsafe_reason :: (fn(member_ty : TypeValue) -> Option(String))(
+dyn_member_unsafe_reason :: (fn(imm(member_ty) : TypeValue) -> Option(String))(
   match(
     member_ty,
     .Func({ forall_types : fts, param_types : pts, result : res, meta : m }) => {
@@ -3181,7 +3181,7 @@ dyn_member_unsafe_reason :: (fn(member_ty : TypeValue) -> Option(String))(
 /// method call on a `Dyn` receiver that names no slot is an ordinary call to a
 /// method the evaluator resolved elsewhere (a blanket inherent method), not a
 /// vtable dispatch.
-dyn_type_has_vtable_slot :: (fn(dyn_ty : TypeValue, name : String) -> bool)(
+dyn_type_has_vtable_slot :: (fn(imm(dyn_ty) : TypeValue, imm(name) : String) -> bool)(
   match(
     dyn_ty,
     .DynT({ required_trait_types : rtt }) => {
@@ -3219,7 +3219,7 @@ dyn_type_has_vtable_slot :: (fn(dyn_ty : TypeValue, name : String) -> bool)(
 /// indexed like a method call's runtime arguments: `[receiver, explicit...]`
 /// (an Fn `call` slot has no receiver parameter, so its flag 0 is `false`).
 /// Empty when `dyn_ty` has no such slot.
-dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : TypeValue, name : String) -> ArrayList(bool))({
+dyn_vtable_slot_param_is_ref :: (fn(imm(dyn_ty) : TypeValue, imm(name) : String) -> ArrayList(bool))({
   out := ArrayList(bool).new();
   match(
     dyn_ty,
@@ -3274,7 +3274,7 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : TypeValue, name : String) -> ArrayL
 /// never converts a `Dyn`, and the explicit conversion is `upcast`
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phases 2.7 and 2.8,
 /// docs/en-US/DYN_DESIGN.md). Empty for every other pair.
-dyn_upcast_note :: (fn(expected : TypeValue, given : TypeValue) -> String)(
+dyn_upcast_note :: (fn(imm(expected) : TypeValue, imm(given) : TypeValue) -> String)(
   match(
     expected,
     .DynT({ required_trait_types : ert }) => match(
@@ -3301,7 +3301,7 @@ dyn_upcast_note :: (fn(expected : TypeValue, given : TypeValue) -> String)(
   )
 );
 /// The declaration id of a struct / enum / union, for the note below.
-_decl_id_of :: (fn(t : TypeValue) -> String)(
+_decl_id_of :: (fn(imm(t) : TypeValue) -> String)(
   match(
     t,
     .Struct({ id : sid }) => sid.clone(),
@@ -3314,7 +3314,7 @@ _decl_id_of :: (fn(t : TypeValue) -> String)(
 /// different declarations — two modules' `P`, say: `Expected: "P"`, `Given:
 /// "P"` alone reads as a compiler bug (plans/reference/TYPE_IDENTITY.md).
 /// Names each side's declaring module; empty when the spellings differ.
-same_name_note :: (fn(expected : TypeValue, given : TypeValue) -> String)({
+same_name_note :: (fn(imm(expected) : TypeValue, imm(given) : TypeValue) -> String)({
   if(type_to_string(expected) != type_to_string(given), {
     return(String.new());
   });
@@ -3328,7 +3328,7 @@ same_name_note :: (fn(expected : TypeValue, given : TypeValue) -> String)({
 });
 /// `No field "xx" on P. Its fields: x, y.` with a did-you-mean: the E0406
 /// message for a field read, a destructuring label and a pattern label.
-unknown_field_message :: (fn(label : String, base_ty : TypeValue, fields : ArrayList(String)) -> String)({
+unknown_field_message :: (fn(imm(label) : String, imm(base_ty) : TypeValue, imm(fields) : ArrayList(String)) -> String)({
   list := String.new();
   (fi : usize) = usize(0);
   while(fi < fields.len(), {
@@ -3355,20 +3355,20 @@ unknown_field_message :: (fn(label : String, base_ty : TypeValue, fields : Array
 });
 /// The code of `unknown_field_message`'s error: E0403 when the base is a
 /// module (it does not export the name), E0406 otherwise.
-unknown_field_code :: (fn(base_ty : TypeValue) -> str)(
+unknown_field_code :: (fn(imm(base_ty) : TypeValue) -> str)(
   cond(is_module_type(base_ty) => E_MODULE_FIELD_NOT_FOUND, true => E_FIELD_NOT_FOUND)
 );
 /// The sentence E0406/E0610 add when auto-dereference also misses
 /// (plans/VALUES_BY_DEFAULT.md §3.3): `` `b` is an Rc(P); its payload P has
 /// no field "x" either.`` — `payload_ty` is the innermost payload the
 /// auto-dereference reached, `what` is `field` or `field or method`.
-deref_miss_note :: (fn(wrapper_text : String, wrapper_ty : TypeValue, payload_ty : TypeValue, what : str, label : String) -> String)(
+deref_miss_note :: (fn(imm(wrapper_text) : String, imm(wrapper_ty) : TypeValue, imm(payload_ty) : TypeValue, what : str, imm(label) : String) -> String)(
   `\`${wrapper_text}\` is a ${type_to_string(wrapper_ty)}; its payload ${type_to_string(payload_ty)} has no ${what} "${label}" either.`
 );
 /// E0406 for a field read that auto-dereference also misses: the wrapper has
 /// no field `label`, and neither has its payload (`payload_fields`).
 unknown_field_through_deref_message :: (
-  fn(label : String, wrapper_text : String, wrapper_ty : TypeValue, payload_ty : TypeValue, payload_fields : ArrayList(String)) -> String
+  fn(imm(label) : String, imm(wrapper_text) : String, imm(wrapper_ty) : TypeValue, imm(payload_ty) : TypeValue, imm(payload_fields) : ArrayList(String)) -> String
 )({
   list := String.new();
   (fi : usize) = usize(0);
@@ -3388,7 +3388,7 @@ unknown_field_through_deref_message :: (
 });
 /// `Enum variant "Purple" not found in enum Color. Its variants: Red, Green.`
 /// — the E0402 message names the enum and what it has.
-unknown_variant_message :: (fn(variant : String, enum_ty : TypeValue, variants : ArrayList(String)) -> String)({
+unknown_variant_message :: (fn(imm(variant) : String, imm(enum_ty) : TypeValue, imm(variants) : ArrayList(String)) -> String)({
   list := String.new();
   (vi : usize) = usize(0);
   while(vi < variants.len(), {
@@ -3411,7 +3411,7 @@ export(deref_miss_note, unknown_field_through_deref_message);
 /// variable — an array whose length is an unresolved expression
 /// (`Array(u8, T.BYTES)` keeps `T.BYTES` in `length_var`)? `get_all_some_types`
 /// does not see those. Depth-limited like the other structural walkers here.
-_type_mentions_generic_length :: (fn(ty : TypeValue, depth : u32) -> bool)(
+_type_mentions_generic_length :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
   cond(
     (depth > u32(16)) => false,
     true => match(
@@ -3426,7 +3426,7 @@ _type_mentions_generic_length :: (fn(ty : TypeValue, depth : u32) -> bool)(
     )
   )
 );
-_any_mentions_generic_length :: (fn(tys : ArrayList(TypeValue), depth : u32) -> bool)({
+_any_mentions_generic_length :: (fn(imm(tys) : ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < tys.len(), {
     if(match(tys.get(i), .Some(t) => _type_mentions_generic_length(t, depth + u32(1)), .None => false), {
@@ -3436,7 +3436,7 @@ _any_mentions_generic_length :: (fn(tys : ArrayList(TypeValue), depth : u32) -> 
   });
   false
 });
-mark_generic_independent :: (fn(err : YoError, a : TypeValue, b : TypeValue) -> YoError)({
+mark_generic_independent :: (fn(imm(err) : YoError, imm(a) : TypeValue, imm(b) : TypeValue) -> YoError)({
   if((get_all_some_types(a).len() > usize(0)) || (get_all_some_types(b).len() > usize(0)), {
     return(err);
   });

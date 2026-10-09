@@ -7,7 +7,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-pick :: (fn(rows : ArrayList(ArrayList(String)), r : usize, f : usize) -> String)(rows(r)(f));
+pick :: (fn(imm(rows) : ArrayList(ArrayList(String)), r : usize, f : usize) -> String)(rows(r)(f));
 // A counting collection: every index() call bumps `hits`, so a tail
 // `c(i)` that ran twice would show two hits.
 Counter :: ref(struct(items : ArrayList(String), hits : ArrayList(usize)));
@@ -15,13 +15,13 @@ impl(
   Counter,
   Index(usize)(
     Output : String,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
       self.hits.push(idx);
       &self.items(idx)
     })
   )
 );
-first_of :: (fn(c : Counter) -> String)(c(usize(0)));
+first_of :: (fn(imm(c) : Counter) -> String)(c(usize(0)));
 test("chained Index tail compiles and returns the inner element", {
   rows := ArrayList(ArrayList(String)).new();
   inner := ArrayList(String).new();

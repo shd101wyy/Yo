@@ -49,7 +49,7 @@ impl(
   _BorrowCell,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(__yo_array_index(&self.items, idx))
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)(__yo_array_index(&self.items, idx))
   )
 );
 _PlainCell :: ref(struct(items : Array(i32, 4)));
@@ -57,10 +57,10 @@ impl(
   _PlainCell,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(__yo_array_index(&self.items, idx))
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)(__yo_array_index(&self.items, idx))
   )
 );
-_read_through :: (fn(inout(x) : i32) -> i32)(x);
+_read_through :: (fn(mut(x) : i32) -> i32)(x);
 test("a user Index impl reached through an interior inout argument does not trip its own caller's borrow", {
   c := _BorrowCell(items : Array(i32, 4)(i32(1), i32(2), i32(3), i32(4)));
   assert(_read_through(c(usize(1))) == i32(2), "atomic object");

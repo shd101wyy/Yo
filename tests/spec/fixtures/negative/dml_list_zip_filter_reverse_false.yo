@@ -4,7 +4,7 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
 // zip without the equal-length requires: b(i) can read past b's end.
-zip_unchecked :: (fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r.len() == a.len())) -> (r : ArrayList(i32)))({
+zip_unchecked :: (fn(imm(a) : ArrayList(i32), imm(b) : ArrayList(i32), ensures(r.len() == a.len())) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   (i : usize) = usize(0);
   while(i < a.len(), {
@@ -16,7 +16,7 @@ zip_unchecked :: (fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r.len() == 
 });
 
 // filter claimed to keep every element.
-filter_all :: (fn(xs : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))({
+filter_all :: (fn(imm(xs) : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   (i : usize) = usize(0);
   while(i < xs.len(), {
@@ -30,7 +30,7 @@ filter_all :: (fn(xs : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : Arr
 });
 
 // reverse claimed one shorter.
-reverse_short :: (fn(xs : ArrayList(i32), ensures(r.len() < xs.len())) -> (r : ArrayList(i32)))({
+reverse_short :: (fn(imm(xs) : ArrayList(i32), ensures(r.len() < xs.len())) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   (i : usize) = xs.len();
   while(i > usize(0), {

@@ -22,12 +22,12 @@ import("std/fmt");
 // silently hollow (its `unwind` statement was never emitted) —
 // issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md.
 // Echo handler: method, path, a request header and the body, as text.
-_echo :: (fn(req : HttpRequest) -> HttpResponse)({
+_echo :: (fn(imm(req) : HttpRequest) -> HttpResponse)({
   tag := match(req.get_header(`X-Tag`), .Some(v) => v, .None => `-`);
   HttpResponse.with_status(StatusCode.OK()).header(`X-Echo`, `yes`).with_body(`${req.method.to_string()} ${req.path} tag=${tag} body=[${req.body}]`)
 });
 // Read one full response off a raw stream (until the server closes).
-_read_all :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
+_read_all :: (fn(imm(stream) : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
     out := ArrayList(u8).new();
     buf := (*u8)(malloc(usize(4096)).unwrap());
@@ -54,7 +54,7 @@ _read_all :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
 // Send one raw request on a fresh connection and read the whole response.
 // The write count is asserted so a short `send` shows up as a failure here
 // rather than as the server waiting forever for the rest of the body.
-_raw_exchange :: (fn(port : u16, request : String, io : Io) -> Impl(Future(String, IoExn)))(
+_raw_exchange :: (fn(port : u16, imm(request) : String, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
     s := e.io.await(TcpStream.connect(SocketAddr.loopback(port), e.io), e);
     w := e.io.await(s.write_string(request, e.io), e);

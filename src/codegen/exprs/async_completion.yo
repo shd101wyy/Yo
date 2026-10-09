@@ -22,10 +22,10 @@
 /// `debug_label` — optional label for ASYNC_DEBUG messages (e.g. function name).
 emit_async_future_completion :: (
   fn(
-    emitter : Emitter,
-    indent : String,
-    result_code : Option(String),
-    debug_label : Option(String)
+    imm(emitter) : Emitter,
+    imm(indent) : String,
+    imm(result_code) : Option(String),
+    imm(debug_label) : Option(String)
   ) -> unit
 )({
   match(
@@ -56,10 +56,10 @@ emit_async_future_completion :: (
 /// Any task that `io.await`s this Future will panic.
 emit_async_future_escape :: (
   fn(
-    emitter : Emitter,
-    indent : String,
-    result_code : Option(String),
-    debug_label : Option(String)
+    imm(emitter) : Emitter,
+    imm(indent) : String,
+    imm(result_code) : Option(String),
+    imm(debug_label) : Option(String)
   ) -> unit
 )({
   match(
@@ -91,7 +91,7 @@ emit_async_future_escape :: (
 /// holds while that unwind is in flight. `body` is the handler literal's body,
 /// and the id is its source position, so the literal found in its installer's
 /// AST and the function generated from it agree however the two were reached.
-unwind_origin_id :: (fn(body : AstExpr) -> String)({
+unwind_origin_id :: (fn(imm(body) : AstExpr) -> String)({
   tok := ast_expr_token(body);
   h := fnv1a64(`${canonical_module_path(tok.module_path)}:${tok.row.to_string()}:${tok.column.to_string()}`);
   if(h == u64(0), {
@@ -102,7 +102,7 @@ unwind_origin_id :: (fn(body : AstExpr) -> String)({
 /// The body of a function-boundary node (`is_function_boundary_arrow`):
 /// the last argument of `params -> body` / `=>`, the only one of
 /// `(fn(...) -> T)(body)`.
-_boundary_body :: (fn(e : AstExpr) -> Option(AstExpr))(
+_boundary_body :: (fn(imm(e) : AstExpr) -> Option(AstExpr))(
   match(
     e,
     .FnCall(_, func_box, args, _, _) => match(
@@ -116,7 +116,7 @@ _boundary_body :: (fn(e : AstExpr) -> Option(AstExpr))(
 /// Visit the sub-expressions of `e` that belong to the same function: every
 /// argument, and for `cond`/`match` both halves of each branch arrow (which is
 /// not a function boundary).
-_same_frame_children :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
+_same_frame_children :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   match(
     e,
@@ -149,7 +149,7 @@ _same_frame_children :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
   );
   out
 });
-_collect_unwind_catches :: (fn(e : AstExpr, inout(out) : ArrayList(String)) -> unit)({
+_collect_unwind_catches :: (fn(imm(e) : AstExpr, mut(out) : ArrayList(String)) -> unit)({
   if(is_function_boundary_arrow(e) && !(ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None)), {
     match(
       _boundary_body(e),
@@ -176,13 +176,13 @@ _collect_unwind_catches :: (fn(e : AstExpr, inout(out) : ArrayList(String)) -> u
 /// handler and typed by that frame, never by whichever frame happens to see
 /// the abort first
 /// (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
-unwind_catches_of_body :: (fn(body : AstExpr) -> ArrayList(String))({
+unwind_catches_of_body :: (fn(imm(body) : AstExpr) -> ArrayList(String))({
   out := ArrayList(String).new();
   _collect_unwind_catches(body, out);
   out
 });
 /// `(__yo_unwind_target == id1 || ...)` for `catches`, or `.None` when empty.
-unwind_catch_condition :: (fn(catches : ArrayList(String)) -> Option(String))({
+unwind_catch_condition :: (fn(imm(catches) : ArrayList(String)) -> Option(String))({
   if(catches.len() == usize(0), {
     return(Option(String).None);
   });
@@ -218,7 +218,7 @@ SmUnwindCatch :: struct(
 /// At an abort point of a state machine (an awaited child aborted, or a call
 /// escaped): if the in-flight unwind is one of this block's own handlers',
 /// the block completes with the unwound value instead of aborting.
-emit_sm_unwind_catch :: (fn(emitter : Emitter, indent : String, catch : Option(SmUnwindCatch)) -> unit)(
+emit_sm_unwind_catch :: (fn(imm(emitter) : Emitter, imm(indent) : String, imm(catch) : Option(SmUnwindCatch)) -> unit)(
   match(
     catch,
     .Some(c) => {

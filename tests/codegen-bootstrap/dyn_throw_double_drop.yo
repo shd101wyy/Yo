@@ -21,10 +21,10 @@ impl(
   ToString(to_string : (self -> self.msg.clone()))
 );
 impl(ErrObj, Error());
-make_err :: (fn(m : String) -> ErrObj)(
+make_err :: (fn(imm(m) : String) -> ErrObj)(
   ErrObj(msg : m, next : .None)
 );
-fail_op :: (fn(x : i32, exn : Exception) -> i32)({
+fail_op :: (fn(x : i32, imm(exn) : Exception) -> i32)({
   // extra RC locals so the escape drop list is populated
   note := String.from("context note");
   cond(

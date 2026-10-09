@@ -374,15 +374,15 @@ impl(
       )
     )
   ),
-  _emit : (fn(self : Self, instr : Instr) -> usize)({
+  _emit : (fn(imm(self) : Self, instr : Instr) -> usize)({
     idx := self._program.instructions.len();
     self._program.instructions.push(instr);
     idx
   }),
-  _current_pc : (fn(self : Self) -> usize)(
+  _current_pc : (fn(imm(self) : Self) -> usize)(
     self._program.instructions.len()
   ),
-  _add_class : (fn(self : Self, ranges : ArrayList(CharRange), negated : bool) -> usize)({
+  _add_class : (fn(imm(self) : Self, imm(ranges) : ArrayList(CharRange), negated : bool) -> usize)({
     // The program is a handle: push through a local of it, so the argument's
     // `ranges` cannot alias the receiver's container chain.
     prog := self._program;
@@ -394,7 +394,7 @@ impl(
 // Compile methods: _compile_node is self-recursive, quantifier logic inlined
 impl(
   NfaCompiler,
-  _compile_node : (fn(self : Self, node : RegexNode) -> unit)({
+  _compile_node : (fn(imm(self) : Self, imm(node) : RegexNode) -> unit)({
     match(
       node.kind,
       .Literal => {
@@ -552,7 +552,7 @@ impl(
   NfaCompiler,
   // Extract literal bytes from the start of the pattern for fast scanning.
   // Walks past Save/AssertStart instructions, then collects Char instructions.
-  _extract_literal_prefix : (fn(self : Self) -> unit)({
+  _extract_literal_prefix : (fn(imm(self) : Self) -> unit)({
     prefix := ArrayList(u8).new();
     pc := usize(0);
     instrs := self._program.instructions;
@@ -601,7 +601,7 @@ impl(
   /// Finally extracts the literal prefix, so the returned program is complete:
   /// after this call the compiler has no more work to do and the program is
   /// only read.
-  compile : (fn(self : Self, root : RegexNode, n_groups : usize, group_names : ArrayList(GroupNameEntry)) -> NfaProgram)({
+  compile : (fn(imm(self) : Self, imm(root) : RegexNode, n_groups : usize, imm(group_names) : ArrayList(GroupNameEntry)) -> NfaProgram)({
     self._program.n_groups = n_groups;
     self._program.group_names = group_names;
     self._emit(Instr.save_instr(usize(0)));

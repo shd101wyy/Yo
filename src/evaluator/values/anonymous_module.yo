@@ -92,7 +92,7 @@ AnonModuleResult :: ref(
   )
 );
 /// Helper: find the first index of `label` in `field_labels`, or `.None`.
-_find_field_label_index :: (fn(field_labels : ArrayList(String), label : String) -> Option(usize))({
+_find_field_label_index :: (fn(imm(field_labels) : ArrayList(String), imm(label) : String) -> Option(usize))({
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   n := field_labels.len();
@@ -109,7 +109,7 @@ _find_field_label_index :: (fn(field_labels : ArrayList(String), label : String)
   idx
 });
 /// Helper: check if `label` is in `excluded` list.
-_is_excluded_label :: (fn(excluded : ArrayList(String), label : String) -> bool)({
+_is_excluded_label :: (fn(imm(excluded) : ArrayList(String), imm(label) : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := excluded.len();
@@ -145,7 +145,7 @@ _is_excluded_label :: (fn(excluded : ArrayList(String), label : String) -> bool)
 // for the force throws it through the real `exn`.
 // ---------------------------------------------------------------------------
 (g_force_failure : Option(String)) = Option(String).None;
-_flag_force_failure :: (fn(msg : String) -> unit)({
+_flag_force_failure :: (fn(imm(msg) : String) -> unit)({
   g_force_failure = Option(String).Some(msg);
   ()
 });
@@ -154,7 +154,7 @@ _take_force_failure :: (fn() -> Option(String))({
   g_force_failure = Option(String).None;
   r
 });
-_force_eval :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext) -> unit)({
+_force_eval :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> unit)({
   inner_exn := Exception(
     throw : (
       _err -> {
@@ -176,7 +176,7 @@ _force_eval :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext) -> unit
   evaluate_expression_raw(expr, env, ctx, inner_exn);
   ()
 });
-_force_pending_def_impl :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String))({
+_force_pending_def_impl :: (fn(imm(walk) : ModuleWalk, imm(def) : PendingDef) -> Option(String))({
   force_env := module_walk_force_env(walk);
   // A finished walk of a one-shot command has released its context
   // (`end_module_walk`); nothing forces its definitions afterwards, so
@@ -236,13 +236,13 @@ register_pending_definition_forcer :: (fn() -> unit)({
 });
 _evaluate_anonymous_module_begin_exprs_inner :: (
   fn(
-    begin_exprs : ArrayList(AstExpr),
-    init_env : Environment,
-    ctx : EvalContext,
+    imm(begin_exprs) : ArrayList(AstExpr),
+    imm(init_env) : Environment,
+    imm(ctx) : EvalContext,
     allow_partial_module : bool,
     keep_frame_at_end : bool,
     defer_definitions : bool,
-    exn : Exception
+    imm(exn) : Exception
   ) -> AnonModuleResult
 )({
   // Mutable local copy of the incoming env.
@@ -913,7 +913,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
 // unwinds; the public entry then truncates the stacks to their entry depths
 // and re-throws the same object through the caller's `exn`.
 (g_walk_abort : Option(AnyError)) = Option(AnyError).None;
-_flag_walk_abort :: (fn(err : AnyError) -> unit)({
+_flag_walk_abort :: (fn(imm(err) : AnyError) -> unit)({
   g_walk_abort = Option(AnyError).Some(err);
   ()
 });
@@ -924,9 +924,9 @@ _take_walk_abort :: (fn() -> Option(AnyError))({
 });
 _run_module_walk :: (
   fn(
-    begin_exprs : ArrayList(AstExpr),
-    init_env : Environment,
-    ctx : EvalContext,
+    imm(begin_exprs) : ArrayList(AstExpr),
+    imm(init_env) : Environment,
+    imm(ctx) : EvalContext,
     allow_partial_module : bool,
     keep_frame_at_end : bool,
     defer_definitions : bool
@@ -966,13 +966,13 @@ _run_module_walk :: (
 /// `impl({ ... })` block, whose bindings are block-scoped and stay ordered.
 evaluate_anonymous_module_begin_exprs :: (
   fn(
-    begin_exprs : ArrayList(AstExpr),
-    init_env : Environment,
-    ctx : EvalContext,
+    imm(begin_exprs) : ArrayList(AstExpr),
+    imm(init_env) : Environment,
+    imm(ctx) : EvalContext,
     allow_partial_module : bool,
     keep_frame_at_end : bool,
     defer_definitions : bool,
-    exn : Exception
+    imm(exn) : Exception
   ) -> AnonModuleResult
 )({
   depths := forcing_depths();

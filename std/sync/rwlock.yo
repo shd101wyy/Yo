@@ -106,7 +106,7 @@ impl(
   where(T <: (Send, Sync, Acyclic)),
   __RwLockReadUnlocker(T),
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       self._lock._raw_read_unlock();
     })
   )
@@ -124,7 +124,7 @@ impl(
   where(T <: (Send, Sync, Acyclic)),
   __RwLockWriteUnlocker(T),
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       self._lock._raw_write_unlock();
     })
   )
@@ -135,7 +135,7 @@ impl(
   where(T <: (Send, Sync, Acyclic)),
   RwLock(T),
   /// Create a new reader-writer lock protecting `value`.
-  new : (fn(value : T) -> Self)(
+  new : (fn(imm(value) : T) -> Self)(
     Self(
       _readers : i32(0),
       _writer : false,
@@ -151,8 +151,8 @@ impl(
   with_read : (
     fn(
       generic(R : Type),
-      self : Self,
-      body : Impl(Fn(v : T) -> R)
+      imm(self) : Self,
+      imm(body) : Impl(Fn(imm(v) : T) -> R)
     ) -> R
   )({
     self._raw_read_lock();
@@ -165,8 +165,8 @@ impl(
   with_write : (
     fn(
       generic(R : Type),
-      self : Self,
-      body : Impl(Fn(inout(v) : T) -> R)
+      imm(self) : Self,
+      imm(body) : Impl(Fn(mut(v) : T) -> R)
     ) -> R
   )({
     self._raw_write_lock();
@@ -186,8 +186,8 @@ impl(
   try_with_read : (
     fn(
       generic(R : Type),
-      self : Self,
-      body : Impl(Fn(v : T) -> R)
+      imm(self) : Self,
+      imm(body) : Impl(Fn(imm(v) : T) -> R)
     ) -> Option(R)
   )(
     cond(
@@ -210,8 +210,8 @@ impl(
   try_with_write : (
     fn(
       generic(R : Type),
-      self : Self,
-      body : Impl(Fn(inout(v) : T) -> R)
+      imm(self) : Self,
+      imm(body) : Impl(Fn(mut(v) : T) -> R)
     ) -> Option(R)
   )(
     cond(
@@ -228,7 +228,7 @@ impl(
   // with_write.
   //
   // Acquire a read lock. Blocks while a writer holds the lock.
-  _raw_read_lock : (fn(self : Self) -> unit)({
+  _raw_read_lock : (fn(imm(self) : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._writer), {
       self._read_cv.wait_with(self._mutex);
@@ -240,7 +240,7 @@ impl(
   //
   // The `_writer` test and the `_readers` increment happen under the same
   // internal-mutex acquisition, so a writer cannot slip in between them.
-  _raw_try_read_lock : (fn(self : Self) -> bool)({
+  _raw_try_read_lock : (fn(imm(self) : Self) -> bool)({
     self._mutex._raw_lock();
     took := cond(
       self._writer => false,
@@ -254,7 +254,7 @@ impl(
   }),
   // Take a write lock only if no reader and no writer holds one. True when
   // taken.
-  _raw_try_write_lock : (fn(self : Self) -> bool)({
+  _raw_try_write_lock : (fn(imm(self) : Self) -> bool)({
     self._mutex._raw_lock();
     took := cond(
       (self._writer || (self._readers > i32(0))) => false,
@@ -267,7 +267,7 @@ impl(
     took
   }),
   // Release a read lock.
-  _raw_read_unlock : (fn(self : Self) -> unit)({
+  _raw_read_unlock : (fn(imm(self) : Self) -> unit)({
     self._mutex._raw_lock();
     self._readers = (self._readers - i32(1));
     cond(
@@ -277,7 +277,7 @@ impl(
     self._mutex._raw_unlock();
   }),
   // Acquire a write lock. Blocks while readers or a writer hold the lock.
-  _raw_write_lock : (fn(self : Self) -> unit)({
+  _raw_write_lock : (fn(imm(self) : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._writer || (self._readers > i32(0))), {
       self._write_cv.wait_with(self._mutex);
@@ -304,7 +304,7 @@ impl(
   // both: broadcast to every blocked reader (they can all proceed together)
   // and signal one blocked writer (only one can proceed). Both predicates are
   // re-checked in `while` loops, so the extra wakeups are safe.
-  _raw_write_unlock : (fn(self : Self) -> unit)({
+  _raw_write_unlock : (fn(imm(self) : Self) -> unit)({
     self._mutex._raw_lock();
     self._writer = false;
     self._read_cv.broadcast();

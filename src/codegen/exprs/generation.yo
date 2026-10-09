@@ -155,7 +155,7 @@
 { is_io_future_type } :: import("../async/state_machine.yo");
 { panic, assert } :: import("std/assert");
 /// The callee name of a FnCall (empty for an Atom).
-_func_name :: (fn(expr : AstExpr) -> String)(
+_func_name :: (fn(imm(expr) : AstExpr) -> String)(
   match(expr, .FnCall(_, func, _, _, _) => ast_expr_token(func).value, .Atom(_, _) => String.from(""))
 );
 /// Map an infix operator SYMBOL (`+`, `==`, …) to the builtin-inline function
@@ -163,7 +163,7 @@ _func_name :: (fn(expr : AstExpr) -> String)(
 /// lowers to a C operator. `.None` for non-operators. Used to route a primitive
 /// infix-operator call to the inline path WITHOUT resolving the (generic) operator
 /// trait method in codegen — the std numeric/bool/bitwise impls all lower to these.
-_operator_inline_name :: (fn(op : String) -> Option(String))(
+_operator_inline_name :: (fn(imm(op) : String) -> Option(String))(
   cond(
     (op == "+") => Option(String).Some(String.from(BF_YO_OP_ADD)),
     (op == "-") => Option(String).Some(String.from(BF_YO_OP_SUB)),
@@ -202,7 +202,7 @@ _operator_inline_name :: (fn(op : String) -> Option(String))(
 /// `BF_YO_OP_SUB`, so resolving a one-argument `-y` through it emitted
 /// `(y) - ()`. The arity is what decides which lowering a symbol has, and the
 /// caller knows the arity.
-_unary_operator_inline_name :: (fn(op : String) -> Option(String))(
+_unary_operator_inline_name :: (fn(imm(op) : String) -> Option(String))(
   cond(
     (op == "!") => Option(String).Some(String.from(BF_YO_OP_NOT)),
     (op == "~") => Option(String).Some(String.from(BF_YO_OP_BIT_COMPLEMENT)),
@@ -214,7 +214,7 @@ _unary_operator_inline_name :: (fn(op : String) -> Option(String))(
 /// operands) that should lower via the builtin-inline path. Gated to primitive
 /// operands so custom operator overloads on non-primitive types still route to
 /// the trait-method path.
-_is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+_is_primitive_infix_operator :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
   match(
     expr,
     .FnCall(_, _, op_args, is_infix, _) => if(
@@ -283,7 +283,7 @@ _is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGeneration
 /// `// Failed to transpile` marker and then an `__attribute__((error))` stub —
 /// `~self` in a `where(T <: Integer)` blanket impl simply could not be
 /// written (issues/fixed/unary-operator-on-a-generic-parameter-fails-to-transpile.md).
-_is_primitive_unary_operator :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+_is_primitive_unary_operator :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
   match(
     expr,
     .FnCall(_, _, op_args, is_infix, _) => if(
@@ -305,7 +305,7 @@ _is_primitive_unary_operator :: (fn(expr : AstExpr, context : FunctionGeneration
 );
 /// Generate the C for a builtin-inline-function call: each arg's code, with
 /// deferred-dup rewrite, fed to generate_yo_inline_function_call.
-_generate_inline_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+_generate_inline_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
   arg_exprs := match(ei_opt, .Some(ei) => match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())), .None => match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new()));
   args := ArrayList(String).new();
@@ -356,16 +356,16 @@ _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : Function
 });
 /// Lower a transparent wrapper (`unsafe`/`old`/`ghost_fn`/`runtime`) to its
 /// inner expression's code.
-_passthrough_first_arg :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+_passthrough_first_arg :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
   match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(inner) => _call_generate_expr(inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))
 );
 /// The function-value of an anon-fn/closure node → its comptime C reference.
-_anon_fn_value :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, err : str) -> String)(
+_anon_fn_value :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext, err : str) -> String)(
   match(context.base.get_expr_info(expr), .Some(ei) => match(ei.value, .Some(v) => if(is_func_val(v), generate_comptime_value(v, ei.ty, context.base), codegen_fatal_expr(String.from(err))), .None => codegen_fatal_expr(String.from(err))), .None => codegen_fatal_expr(String.from(err)))
 );
 /// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
 /// view).
-_generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+_generate_io_spawn :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
   em := context.base.emitter;
@@ -434,7 +434,7 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
 /// to take its address — see _generate_index_trait_call). Looks the specialized
 /// FuncVal's func_id up in the codegen function registry (populated by
 /// collection.yo's index_method_value pass).
-_index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, index_code : String, context : FunctionGenerationContext) -> String)({
+_index_method_call_by_name :: (fn(imm(method_value) : EvalValue, imm(recv_arg) : String, imm(index_code) : String, imm(context) : FunctionGenerationContext) -> String)({
   fid := match(method_value, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => return(String.from("/* Error: Index method not a FuncVal */")));
   match(
     context.base.get_function_entry(fid),
@@ -448,7 +448,7 @@ _index_method_call_by_name :: (fn(method_value : EvalValue, recv_arg : String, i
 /// pointer-return type on `ei.index_trait_ptr_type`; collection.yo registers the
 /// method for emission. We emit `&receiver`, call the method, and auto-deref the
 /// returned pointer unless this is an `&(value(i))` (is_index_trait_address_of).
-_generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String, context : FunctionGenerationContext) -> String)({
+_generate_index_trait_call :: (fn(imm(expr) : AstExpr, imm(ei) : ExprInfo, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   method_value := match(
     expr_info_index_method_value(ei),
     .Some(v) => if(is_func_val(v), v, return(String.from("/* Error: Index trait method value missing */"))),
@@ -554,11 +554,11 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
 _materialize_owned_rc_comptime_value :: (
   fn(
     key : ExprId,
-    ei : ExprInfo,
-    value : EvalValue,
-    comptime_code : String,
-    indent : String,
-    context : FunctionGenerationContext
+    imm(ei) : ExprInfo,
+    imm(value) : EvalValue,
+    imm(comptime_code) : String,
+    imm(indent) : String,
+    imm(context) : FunctionGenerationContext
   ) -> String
 )({
   var_name := match(ei.variable_name, .Some(vn) => vn, .None => String.from(""));
@@ -592,7 +592,7 @@ _materialize_owned_rc_comptime_value :: (
 /// Without it a `cond`/`if` whose condition is a `match` or `cond` read the
 /// zeroed slot and took the wrong branch whenever the branch awaited
 /// (issues/fixed/a-match-or-cond-condition-inside-io-async-takes-the-wrong-branch-when-the-branch-awaits.md).
-_store_result_temp_in_task :: (fn(expr : AstExpr, code : String, indent : String, context : FunctionGenerationContext) -> String)({
+_store_result_temp_in_task :: (fn(imm(expr) : AstExpr, imm(code) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -613,7 +613,7 @@ _store_result_temp_in_task :: (fn(expr : AstExpr, code : String, indent : String
 /// (issues/fixed/a-comptime-binding-with-an-unknown-value-emits-an-undeclared-identifier.md).
 /// Scalars and pointers only: a type- or function-valued `::` binding is never
 /// read at run time.
-_generate_comptime_binding :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+_generate_comptime_binding :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(String.new()));
   rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(String.new()));
@@ -637,7 +637,7 @@ _generate_comptime_binding :: (fn(expr : AstExpr, indent : String, context : Fun
   em.emit_string_line(`${indent.clone()}const ${cty} ${name} = ${code};`);
   String.new()
 });
-generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_func_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   // The unit value `()` is a 0-arg BK_TUPLE call (parser make_unit_call). The
   // parser-appended begin terminator has NO ExprInfo, so handle it before the
   // get_expr_info lookup below: a unit value emits no C (empty string), which
@@ -975,7 +975,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
 });
 /// Top-level expression dispatch.
 /// The callee of `expr` is a function whose declared result is `never`.
-_calls_a_never_function :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+_calls_a_never_function :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
   match(
     expr,
     .FnCall(_, callee, _, _, _) => match(
@@ -986,7 +986,7 @@ _calls_a_never_function :: (fn(expr : AstExpr, context : FunctionGenerationConte
     _ => false
   )
 );
-_generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)(
+_generate_expr :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
   match(
     expr,
     .FnCall(_, _, _, _, _) => {
@@ -1022,7 +1022,7 @@ _generate_expr :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
 /// enclosing call suspends: the enclosing call reads it after the task
 /// resumed, when the C local no longer holds it, so the read is the temp's
 /// task slot (issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md).
-_sm_arg_temp_read :: (fn(expr : AstExpr, code : String, context : FunctionGenerationContext) -> String)({
+_sm_arg_temp_read :: (fn(imm(expr) : AstExpr, imm(code) : String, imm(context) : FunctionGenerationContext) -> String)({
   if(context.in_async_state_machine.is_none(), return(code));
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(code));
   tn := match(ei.variable_name, .Some(n) => n, .None => return(code));

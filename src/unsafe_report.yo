@@ -86,7 +86,7 @@ _is_ws_byte :: (fn(b : u8) -> bool)(
 /// `// unsafe(...)`. The stripped line is byte-for-byte positionally aligned
 /// with the original (escapes become two spaces), so a byte index in the
 /// stripped line IS the original byte index.
-_strip_comments_and_strings :: (fn(line : String) -> ArrayList(u8))({
+_strip_comments_and_strings :: (fn(imm(line) : String) -> ArrayList(u8))({
   bytes := line;
   out := ArrayList(u8).new();
   (in_str : u8) = u8(0);
@@ -125,7 +125,7 @@ _strip_comments_and_strings :: (fn(line : String) -> ArrayList(u8))({
 });
 /// Index of the matching `)` for the `(` at `open_idx` in `src_bytes`, or
 /// `.None` if unmatched. Skips string-literal contents.
-_find_matching_close :: (fn(src_bytes : ArrayList(u8), open_idx : usize) -> Option(usize))({
+_find_matching_close :: (fn(imm(src_bytes) : ArrayList(u8), open_idx : usize) -> Option(usize))({
   n := src_bytes.len();
   if((open_idx >= n) || (src_bytes(open_idx) != u8(40)), {
     return(Option(usize).None);
@@ -163,7 +163,7 @@ _find_matching_close :: (fn(src_bytes : ArrayList(u8), open_idx : usize) -> Opti
   Option(usize).None
 });
 /// True when the bytes at `i` spell `needle` (ASCII).
-_bytes_at :: (fn(src : ArrayList(u8), i : usize, needle : str) -> bool)({
+_bytes_at :: (fn(imm(src) : ArrayList(u8), i : usize, needle : str) -> bool)({
   nb := String.from(needle);
   if((i + nb.len()) > src.len(), {
     return(false);
@@ -178,7 +178,7 @@ _bytes_at :: (fn(src : ArrayList(u8), i : usize, needle : str) -> bool)({
   true
 });
 /// Read the identifier starting at `i`, or empty when none.
-_ident_at :: (fn(src : ArrayList(u8), i : usize) -> String)({
+_ident_at :: (fn(imm(src) : ArrayList(u8), i : usize) -> String)({
   n := src.len();
   if((i >= n) || !_is_ident_start_byte(src(i)), {
     return(String.new());
@@ -196,7 +196,7 @@ _ident_at :: (fn(src : ArrayList(u8), i : usize) -> String)({
 /// non-identifier byte before, or line start), bound the block with paren
 /// matching, and collect each `name :` field whose RHS (skipping whitespace
 /// and optional `(`s) starts with `fn(`.
-_harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
+_harvest_extern_c_fns :: (fn(imm(srcs) : ArrayList(String)) -> HashSet(String))({
   names := HashSet(String).new();
   (si : usize) = usize(0);
   while(si < srcs.len(), {
@@ -287,7 +287,7 @@ _harvest_extern_c_fns :: (fn(srcs : ArrayList(String)) -> HashSet(String))({
 /// identifier byte → deref; `&+`/`&-`/`&/` → arith; `&(` → addr-of; else
 /// other.
 _classify_unsafe_body :: (
-  fn(src : ArrayList(u8), body_start : usize, body_end : usize, extern_c_fns : HashSet(String)) -> UnsafeFinding
+  fn(imm(src) : ArrayList(u8), body_start : usize, body_end : usize, imm(extern_c_fns) : HashSet(String)) -> UnsafeFinding
 )({
   // Returned as a partial finding carrying only sub_kind + callee_name.
   (k : usize) = body_start;
@@ -365,12 +365,12 @@ _classify_unsafe_body :: (
 /// multi-line wraps.
 _scan_line :: (
   fn(
-    file : String,
+    imm(file) : String,
     line_no : usize,
-    raw_line : String,
-    prev_lines : ArrayList(String),
-    extern_c_fns : HashSet(String),
-    full_src : ArrayList(u8),
+    imm(raw_line) : String,
+    imm(prev_lines) : ArrayList(String),
+    imm(extern_c_fns) : HashSet(String),
+    imm(full_src) : ArrayList(u8),
     line_start_offset : usize
   ) -> ArrayList(UnsafeFinding)
 )({
@@ -474,7 +474,7 @@ _scan_line :: (
 });
 /// Recursively collect .yo files under `p`, skipping node_modules/.git/dist/
 /// yo-out/build and every dot-directory (but not a `.`/`..` root argument).
-_walk_yo_files :: (fn(root : String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))(
+_walk_yo_files :: (fn(imm(root) : String, io : Io, imm(exn) : Exception) -> Impl(Future(ArrayList(String), IoExn)))(
   io.async((e : IoExn) => {
     // Built on std/fs/walker (its stack loop is the proven async-while
     // shape) with post-filtering: an entry is dropped when ANY path segment
@@ -542,7 +542,7 @@ _walk_yo_files :: (fn(root : String, io : Io, exn : Exception) -> Impl(Future(Ar
   })
 );
 /// Generate the report for every .yo file under `root_path`.
-generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> Impl(Future(UnsafeReport, IoExn)))(
+generate_unsafe_report :: (fn(imm(root_path) : String, io : Io, imm(exn) : Exception) -> Impl(Future(UnsafeReport, IoExn)))(
   io.async((e : IoExn) => {
     yo_files := e.io.await(_walk_yo_files(root_path.clone(), e.io, e.exn), e);
     privileged_files := ArrayList(String).new();
@@ -698,7 +698,7 @@ generate_unsafe_report :: (fn(root_path : String, io : Io, exn : Exception) -> I
 );
 /// Format the report for human consumption.
 /// line for line.
-format_unsafe_report :: (fn(report : UnsafeReport) -> String)({
+format_unsafe_report :: (fn(imm(report) : UnsafeReport) -> String)({
   out := StringBuilder.new();
   out.write_str("Unsafe surface report\n");
   out.write_str("=====================\n");
@@ -776,7 +776,7 @@ format_unsafe_report :: (fn(report : UnsafeReport) -> String)({
 });
 /// JSON string escaping (same shape as doc/render_html.yo's _json_str —
 /// duplicated because unsafe_report is a leaf CLI module).
-_json_str :: (fn(text : String) -> String)({
+_json_str :: (fn(imm(text) : String) -> String)({
   out := String.from("\"");
   bytes := text;
   n := bytes.len();
@@ -808,7 +808,7 @@ _json_str :: (fn(text : String) -> String)({
 /// Machine-readable report for the `--json` arm of the `unsafe-report`
 /// subcommand: camelCase keys in declaration order, optional fields OMITTED
 /// when absent.
-unsafe_report_to_json :: (fn(report : UnsafeReport) -> String)({
+unsafe_report_to_json :: (fn(imm(report) : UnsafeReport) -> String)({
   out := StringBuilder.new();
   out.write_str("{\n  \"privilegedFiles\": [");
   (i : usize) = usize(0);

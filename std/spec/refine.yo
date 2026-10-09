@@ -38,13 +38,13 @@ pragma(Pragma.AllowUnsafe);
 /// Most call sites use the named families below (`NonZero(T)`, …), which
 /// keep their historical signatures; `Refine(T, p)` is the escape hatch for
 /// custom predicates.
-Refine :: (fn(comptime(T) : Type, comptime(p) : (fn(v : T) -> bool)) -> comptime(Type))(refine(T, p));
+Refine :: (fn(comptime(T) : Type, comptime(p) : (fn(imm(v) : T) -> bool)) -> comptime(Type))(refine(T, p));
 export(Refine);
 
 /// `NonZero(T)` — values of `T` that are not zero. The predicate is a
 /// ghost spelled INSIDE this alias body: each `NonZero(i32)` evaluation
 /// binds `T := i32` there, creating a fully concrete predicate.
-NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(x : T) -> bool)(x != T(0)))));
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(refine(T, ghost_fn((fn(imm(x) : T) -> bool)(x != T(0)))));
 export(NonZero);
 
 /// `Bounded(T, lo, hi)` — values of `T` in the closed range `[lo, hi]`.
@@ -58,7 +58,7 @@ Bounded :: (
     comptime(hi) : T,
     where(T <: Comptime)
   ) -> comptime(Type)
-)(refine(T, ghost_fn((fn(x : T) -> bool)((x >= lo) && (x <= hi)))));
+)(refine(T, ghost_fn((fn(imm(x) : T) -> bool)((x >= lo) && (x <= hi)))));
 export(Bounded);
 /// `NonEmpty(T)` — a value of `T` that carries at least one element.
 ///
@@ -93,9 +93,9 @@ export(NonEmpty);
 unchecked :: (
   fn(
     generic(T : Type),
-    comptime(p) : (fn(v : T) -> bool),
-    x : T,
-    witness : *T
+    comptime(p) : (fn(imm(v) : T) -> bool),
+    imm(x) : T,
+    imm(witness) : *T
   ) -> Refine(T, p)
 )(x);
 export(unchecked);
@@ -105,7 +105,7 @@ export(unchecked);
 /// so the family check restates it — the verifier proves `x != 0` on the
 /// `Some` arm's path either way).
 check_non_zero :: (
-  fn(generic(T : Type), x : T) -> Option(NonZero(T))
+  fn(generic(T : Type), imm(x) : T) -> Option(NonZero(T))
 )(
   if(
     x != T(0),
@@ -118,7 +118,7 @@ export(check_non_zero);
 /// `unchecked_non_zero(x, &(x))` — the `NonZero` family's trusted cast. The
 /// `witness` pointer is the privilege token; see `unchecked`.
 unchecked_non_zero :: (
-  fn(generic(T : Type), x : T, witness : *T) -> NonZero(T)
+  fn(generic(T : Type), imm(x) : T, imm(witness) : *T) -> NonZero(T)
 )(x);
 export(unchecked_non_zero);
 
@@ -126,7 +126,7 @@ export(unchecked_non_zero);
 check_bounded :: (
   fn(
     generic(T : Type),
-    x : T,
+    imm(x) : T,
     comptime(lo) : T,
     comptime(hi) : T
   ) -> Option(Bounded(T, lo, hi))
@@ -144,10 +144,10 @@ export(check_bounded);
 unchecked_bounded :: (
   fn(
     generic(T : Type),
-    x : T,
+    imm(x) : T,
     comptime(lo) : T,
     comptime(hi) : T,
-    witness : *T
+    imm(witness) : *T
   ) -> Bounded(T, lo, hi)
 )(x);
 export(unchecked_bounded);

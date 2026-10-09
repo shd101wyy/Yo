@@ -366,7 +366,7 @@ impl(
   Countdown,
   Stream(
     Item : i32,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
       io.async(
         (io : Io) =>
           cond(
@@ -393,7 +393,7 @@ impl(
 /// arguments: (s.collect)(io)`), so this helper took the collect future
 /// instead; it is the shape `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
 /// (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) made work.
-_bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
+_bounded :: (fn(generic(S : Type), imm(s) : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
   h := io.spawn(s.collect(io), io);
   match(
     io.await(timeout(h, Duration.from_millis(i64(5000)), io), io),
@@ -412,7 +412,7 @@ _bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32
 /// `_sum_i32`) and a GENERIC one (`Item := A`, as in `_collect_all`) all work
 /// here, for sources and chains alike.
 _count_items :: (
-  fn(generic(S : Type), s : S, io : Io, where(S <: Stream)) -> Impl(Future(usize, Io))
+  fn(generic(S : Type), imm(s) : S, io : Io, where(S <: Stream)) -> Impl(Future(usize, Io))
 )(
   io.async((io : Io) => {
     (n : usize) = usize(0);
@@ -434,13 +434,13 @@ _count_items :: (
 );
 /// Generic over the item type: `A` is bound from the argument's `Stream` impl,
 /// so the body can name `ArrayList(A)` and call the blanket `collect` on `s`.
-_collect_all :: (fn(generic(S : Type, A : Type), s : S, io : Io, where(S <: Stream(Item := A))) -> ArrayList(A))(
+_collect_all :: (fn(generic(S : Type, A : Type), imm(s) : S, io : Io, where(S <: Stream(Item := A))) -> ArrayList(A))(
   io.await(s.collect(io), io)
 );
 /// The same idea with the item type spelled out, so the body can use the
 /// values.
 _sum_i32 :: (
-  fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> Impl(Future(i32, Io))
+  fn(generic(S : Type), imm(s) : S, io : Io, where(S <: Stream(Item := i32))) -> Impl(Future(i32, Io))
 )(
   io.async((io : Io) => {
     (total : i32) = i32(0);
@@ -693,7 +693,7 @@ test("Test for_await inside a spawned task, with continue and break", {
   assert(seen.len() == usize(3), "6, then 5 skipped, 4 and 3, then 2 breaks");
   assert((seen(usize(0)) == i32(6)) && ((seen(usize(1)) == i32(4)) && (seen(usize(2)) == i32(3))), "6 4 3");
 });
-_first_even :: (fn(c : Countdown, io : Io) -> Impl(Future(i32, Io)))(
+_first_even :: (fn(imm(c) : Countdown, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     for_await(c, io, x => {
       if((x % i32(2)) == i32(0), {
@@ -713,7 +713,7 @@ impl(
   Ticker,
   Stream(
     Item : i32,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
       io.async((io : Io) => {
         io.await(yield(io), io);
         cond(
@@ -757,7 +757,7 @@ _FeThing :: ref(struct(n : i32));
 impl(
   _FeThing,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       g_fe_disposed = (g_fe_disposed + i32(1));
     })
   )

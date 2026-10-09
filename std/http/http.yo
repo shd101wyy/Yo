@@ -59,7 +59,7 @@ impl(
   HttpMethod,
   /// Parse a request-line method token (case-sensitive, as RFC 9110 §9.1
   /// requires). `.None` for anything not in the enum.
-  from_string : (fn(s : String) -> Option(HttpMethod))(
+  from_string : (fn(imm(s) : String) -> Option(HttpMethod))(
     cond(
       (s == `GET`) => .Some(HttpMethod.GET),
       (s == `POST`) => .Some(HttpMethod.POST),
@@ -77,7 +77,7 @@ HttpHeader :: ref(struct(name : String, value : String));
 impl(
   HttpHeader,
   /// Create a new header with the given name and value.
-  new : (fn(name : String, value : String) -> Self)(
+  new : (fn(imm(name) : String, imm(value) : String) -> Self)(
     Self(name : name, value : value)
   )
 );
@@ -103,15 +103,15 @@ impl(
     Self(_entries : ArrayList(HttpHeader).new())
   ),
   /// Number of field LINES, counting each repeat of a name separately.
-  len : (fn(self : Self) -> usize)(
+  len : (fn(imm(self) : Self) -> usize)(
     self._entries.len()
   ),
   /// True when there are no field lines.
-  is_empty : (fn(self : Self) -> bool)(
+  is_empty : (fn(imm(self) : Self) -> bool)(
     self._entries.is_empty()
   ),
   /// The first value for `name`, or `.None`. Case-insensitive.
-  get : (fn(self : Self, name : String) -> Option(String))({
+  get : (fn(imm(self) : Self, imm(name) : String) -> Option(String))({
     lower := name.to_lowercase();
     (i : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
@@ -127,7 +127,7 @@ impl(
   }),
   /// Every value for `name`, in the order the field lines appeared. Empty when
   /// the field is absent — which is what makes `Set-Cookie` usable.
-  get_all : (fn(self : Self, name : String) -> ArrayList(String))({
+  get_all : (fn(imm(self) : Self, imm(name) : String) -> ArrayList(String))({
     lower := name.to_lowercase();
     out := ArrayList(String).new();
     (i : usize) = usize(0);
@@ -143,25 +143,25 @@ impl(
     out
   }),
   /// True when `name` has at least one value. Case-insensitive.
-  contains_key : (fn(self : Self, name : String) -> bool)(
+  contains_key : (fn(imm(self) : Self, imm(name) : String) -> bool)(
     self.get(name).is_some()
   ),
   /// Add a value for `name`, KEEPING any existing values. Rust's
   /// `HeaderMap::append`.
-  append : (fn(inout(self) : Self, name : String, value : String) -> unit)({
+  append : (fn(mut(self) : Self, imm(name) : String, imm(value) : String) -> unit)({
     self._entries.push(HttpHeader.new(name, value));
   }),
   /// Set `name` to exactly `value`, dropping every value it had. Rust's
   /// `HeaderMap::insert`. Returns the first previous value, if any — a caller
   /// overwriting a header usually wants to know it was there.
-  insert : (fn(inout(self) : Self, name : String, value : String) -> Option(String))({
+  insert : (fn(mut(self) : Self, imm(name) : String, imm(value) : String) -> Option(String))({
     prev := self.get(name);
     self.remove(name);
     self._entries.push(HttpHeader.new(name, value));
     prev
   }),
   /// Remove every value for `name`, returning how many field lines went.
-  remove : (fn(inout(self) : Self, name : String) -> usize)({
+  remove : (fn(mut(self) : Self, imm(name) : String) -> usize)({
     lower := name.to_lowercase();
     kept := ArrayList(HttpHeader).new();
     (removed : usize) = usize(0);
@@ -182,7 +182,7 @@ impl(
   }),
   /// The field lines in order — for serialization and iteration. The list is a
   /// snapshot: pushing to it does not change the map.
-  entries : (fn(self : Self) -> ArrayList(HttpHeader))({
+  entries : (fn(imm(self) : Self) -> ArrayList(HttpHeader))({
     out := ArrayList(HttpHeader).new();
     (i : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
@@ -197,7 +197,7 @@ impl(
     /// The header section in wire format — each line `Name: value\r\n`,
     /// WITHOUT the blank line that terminates the section (the message
     /// serializers add that, since they also append `Content-Length`).
-    to_string : (fn(self : Self) -> String)({
+    to_string : (fn(imm(self) : Self) -> String)({
       out := String.new();
       (i : usize) = usize(0);
       while(i < self._entries.len(), i = (i + usize(1)), {
@@ -220,38 +220,38 @@ HttpRequest :: ref(
 impl(
   HttpRequest,
   /// Create a new request with the given method and path.
-  new : (fn(method : HttpMethod, path : String) -> Self)(
+  new : (fn(method : HttpMethod, imm(path) : String) -> Self)(
     Self(method : method, path : path, headers : HeaderMap.new(), body : ``)
   ),
   /// Add a header and return the request (builder pattern). APPENDS, so a
   /// repeatable field can be built up by chaining.
-  header : (fn(self : Self, name : String, value : String) -> Self)({
+  header : (fn(imm(self) : Self, imm(name) : String, imm(value) : String) -> Self)({
     self.headers.append(name, value);
     self
   }),
   /// Set the request body and return the request (builder pattern).
-  with_body : (fn(self : Self, body : String) -> Self)({
+  with_body : (fn(imm(self) : Self, imm(body) : String) -> Self)({
     self.body = body;
     self
   }),
   /// Set the Host header, REPLACING any existing one — there is exactly one
   /// Host per request (RFC 9112 SS3.2), and appending a second used to put both
   /// on the wire.
-  set_host : (fn(self : Self, host : String) -> unit)({
+  set_host : (fn(imm(self) : Self, imm(host) : String) -> unit)({
     self.headers.insert(`Host`, host);
   }),
   /// Set a header, REPLACING every existing value for that name. Use
   /// `self.headers.append(...)` for a field that may legitimately repeat.
-  set_header : (fn(self : Self, name : String, value : String) -> unit)({
+  set_header : (fn(imm(self) : Self, imm(name) : String, imm(value) : String) -> unit)({
     self.headers.insert(name, value);
   }),
   /// Set the request body.
-  set_body : (fn(self : Self, body : String) -> unit)({
+  set_body : (fn(imm(self) : Self, imm(body) : String) -> unit)({
     self.body = body;
   }),
   /// Look up a header value by name (case-insensitive). The first value, when
   /// the field repeats — `self.headers.get_all(name)` for all of them.
-  get_header : (fn(self : Self, name : String) -> Option(String))(
+  get_header : (fn(imm(self) : Self, imm(name) : String) -> Option(String))(
     self.headers.get(name)
   )
 );
@@ -263,7 +263,7 @@ impl(
   HttpRequest,
   ToString(
     /// Serialize the request to an HTTP/1.1 wire-format string.
-    to_string : (fn(self : Self) -> String)({
+    to_string : (fn(imm(self) : Self) -> String)({
       result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n${self.headers.to_string()}`;
       result = `${result}\r\n`;
       cond(
@@ -465,29 +465,29 @@ HttpResponse :: ref(
 impl(
   HttpResponse,
   /// Create a response with the given status and reason phrase.
-  new : (fn(status : StatusCode, status_text : String) -> Self)(
+  new : (fn(status : StatusCode, imm(status_text) : String) -> Self)(
     Self(status : status, status_text : status_text, version : `HTTP/1.1`, headers : HeaderMap.new(), body : ``)
   ),
   /// Look up a header value by name (case-insensitive). The first value, when
   /// the field repeats — `self.headers.get_all(name)` for all of them, which
   /// is what `Set-Cookie` needs.
-  get_header : (fn(self : Self, name : String) -> Option(String))(
+  get_header : (fn(imm(self) : Self, imm(name) : String) -> Option(String))(
     self.headers.get(name)
   ),
   /// Set a header, REPLACING every existing value for that name.
-  set_header : (fn(self : Self, name : String, value : String) -> unit)({
+  set_header : (fn(imm(self) : Self, imm(name) : String, imm(value) : String) -> unit)({
     self.headers.insert(name, value);
   }),
   /// True if the status is 2xx.
-  is_ok : (fn(self : Self) -> bool)(
+  is_ok : (fn(imm(self) : Self) -> bool)(
     self.status.is_success()
   ),
   /// True if the status is 3xx.
-  is_redirect : (fn(self : Self) -> bool)(
+  is_redirect : (fn(imm(self) : Self) -> bool)(
     self.status.is_redirection()
   ),
   /// True if the status is 4xx or 5xx.
-  is_error : (fn(self : Self) -> bool)(
+  is_error : (fn(imm(self) : Self) -> bool)(
     self.status.is_error()
   ),
   /// A response with `status` and its registered reason phrase.
@@ -496,12 +496,12 @@ impl(
   ),
   /// Add a header and return the response (builder pattern). APPENDS, so a
   /// repeatable field can be built up by chaining.
-  header : (fn(self : Self, name : String, value : String) -> Self)({
+  header : (fn(imm(self) : Self, imm(name) : String, imm(value) : String) -> Self)({
     self.headers.append(name, value);
     self
   }),
   /// Set the body and return the response (builder pattern).
-  with_body : (fn(self : Self, body : String) -> Self)({
+  with_body : (fn(imm(self) : Self, imm(body) : String) -> Self)({
     self.body = body;
     self
   })
@@ -513,7 +513,7 @@ impl(
     /// parsed response round-trips). A `Content-Length` header is added
     /// when none is present (the byte length of `body`), so the peer can
     /// delimit the message without waiting for close.
-    to_string : (fn(self : Self) -> String)({
+    to_string : (fn(imm(self) : Self) -> String)({
       result := `${self.version} ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
       cond(
         self.get_header(`Content-Length`).is_none() => {
@@ -567,7 +567,7 @@ derive(
 /// splitting the WHOLE message on `\r\n` and re-joining the tail lines one
 /// concatenation at a time: quadratic in the body size, and a `substring` over
 /// a UTF-8 continuation byte panics.
-parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
+parse_response :: (fn(imm(raw) : String) -> Result(HttpResponse, HttpParseError))({
   header_end := match(raw.index_of(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
   head := raw.substring(usize(0), header_end);
   body := cond(
@@ -660,7 +660,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
 /// `HttpRequest`. The body is taken verbatim — `read_http_message` has
 /// already decoded chunked framing when it read the message. Errors name the
 /// defect (`Invalid request line`, unknown method, unsupported HTTP version).
-parse_request :: (fn(raw : String) -> Result(HttpRequest, HttpParseError))({
+parse_request :: (fn(imm(raw) : String) -> Result(HttpRequest, HttpParseError))({
   header_end := match(raw.index_of(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
   head := raw.substring(usize(0), header_end);
   // The body is sliced as BYTES: it may be binary (a body starting with a

@@ -13,31 +13,31 @@ Counter :: ref(struct(n : i32));
 impl(
   Counter,
   // closure param captured by the io.async body
-  apply_async : (fn(self : Self, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
+  apply_async : (fn(imm(self) : Self, imm(f) : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
     io.async((io : Io) => {
       return(f(self.n));
     })
   ),
   // closure param NOT touched by the body — the collapse was signature-level
-  ignore_async : (fn(self : Self, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
+  ignore_async : (fn(imm(self) : Self, imm(f) : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
     io.async((io : Io) => {
       return(self.n);
     })
   ),
   // effectful future
-  apply_exn : (fn(self : Self, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32, IoExn)))(
+  apply_exn : (fn(imm(self) : Self, imm(f) : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32, IoExn)))(
     io.async(e => {
       return(f(self.n + i32(1)));
     })
   ),
   // closure param in a LATER position
-  apply_k : (fn(self : Self, k : i32, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
+  apply_k : (fn(imm(self) : Self, k : i32, imm(f) : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
     io.async((io : Io) => {
       return(f(k));
     })
   ),
   // non-Future Impl return
-  describe : (fn(self : Self, f : Impl(Fn(x : i32) -> i32)) -> Impl(ToString))(
+  describe : (fn(imm(self) : Self, imm(f) : Impl(Fn(x : i32) -> i32)) -> Impl(ToString))(
     f(self.n)
   )
 );
@@ -48,14 +48,14 @@ Holder :: (fn(comptime(T) : Type) -> comptime(Type))(
 impl(
   generic(T : Type),
   Holder(T),
-  new : (fn(value : T) -> Self)(Self(_value : value)),
-  apply_async_t : (fn(self : Self, body : Impl(Fn(inout(v) : T) -> T), io : Io) -> Impl(Future(T)))(
+  new : (fn(imm(value) : T) -> Self)(Self(_value : value)),
+  apply_async_t : (fn(imm(self) : Self, imm(body) : Impl(Fn(mut(v) : T) -> T), io : Io) -> Impl(Future(T)))(
     io.async((io : Io) => {
       r := body(self._value);
       return(r);
     })
   ),
-  apply_async_r : (fn(generic(R : Type), self : Self, body : Impl(Fn(inout(v) : T) -> R), io : Io) -> Impl(Future(R)))(
+  apply_async_r : (fn(generic(R : Type), imm(self) : Self, imm(body) : Impl(Fn(mut(v) : T) -> R), io : Io) -> Impl(Future(R)))(
     io.async((io : Io) => {
       r := body(self._value);
       return(r);

@@ -17,13 +17,13 @@ fs_metadata :: import("std/fs/metadata");
 { Command } :: import("std/process/command");
 // Probe wrappers: the expected-throw tests await through a SEPARATE handler,
 // and a top-level await's IoExn arm needs a fn boundary for unwind to land in.
-read_link_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
+read_link_probe :: (fn(imm(p) : Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     _t := e.io.await(fs_dir.read_link(p, e.io), e);
     ()
   })
 );
-try_exists_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
+try_exists_probe :: (fn(imm(p) : Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     _t := e.io.await(fs_file.try_exists(p, e.io), e);
     ()
@@ -35,10 +35,10 @@ try_exists_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
 // forward slash as a switch, so paths are converted to backslashes first;
 // read_link returns exactly the path mklink stored (issues/fixed/
 // s3-fs-wrappers-windows-semantics-audit.md).
-_winpath :: (fn(p : Path) -> String)(
+_winpath :: (fn(imm(p) : Path) -> String)(
   p.to_string().replace(String.from("/"), String.from("\\"))
 );
-_make_junction :: (fn(link : Path, target : Path, io : Io) -> bool)({
+_make_junction :: (fn(imm(link) : Path, imm(target) : Path, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
@@ -58,7 +58,7 @@ _make_junction :: (fn(link : Path, target : Path, io : Io) -> bool)({
 });
 // Best-effort stale removal, so a failed previous run's leftovers (a
 // junction, its target dir) cannot fail the NEXT one at create_dir/mklink.
-_remove_stale_dir :: (fn(p : Path, io : Io) -> unit)({
+_remove_stale_dir :: (fn(imm(p) : Path, io : Io) -> unit)({
   quiet := Exception(throw : (_err -> unwind(())));
   io.await(fs_dir.remove_dir(p, io), IoExn(io : io, exn : quiet));
 });

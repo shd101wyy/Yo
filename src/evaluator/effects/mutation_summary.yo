@@ -94,7 +94,7 @@ derive(_MsMemo, Copy, Clone);
 (g_ms_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Builtin heads that are pure structure/control flow: walk the arguments,
 /// the head itself mutates nothing.
-_ms_head_is_safe_recurse :: (fn(h : String) -> bool)(
+_ms_head_is_safe_recurse :: (fn(imm(h) : String) -> bool)(
   (h == "begin") || (h == "cond") || (h == "while") || (h == "if") || (h == "&&") || (h == "||") || (h == "return") || (h == "break") || (h == "continue") || (h == "clone") || (h == "%") || (h == "unwind") || (h == "recur") || (h == "dyn") || (h == "runtime") || (h == "quote") || (h == ":") || (h == "consume") || (h == "the") || (h == "as") || (h == ".") || (h == "=>") || (h == "->") || (h == "tuple") || (h == "array") || (h == "___dup") || (h == "unsafe") || (h == "__yo_borrow_check")
 );
 /// RC-DECREMENT primitives. Any of these can release the last reference to
@@ -106,7 +106,7 @@ _ms_head_is_safe_recurse :: (fn(h : String) -> bool)(
 /// assignment rule does not see. Compiler-generated drops never reach this
 /// walk: they live in ExprInfo side-channels, not as AST children, and each
 /// is balanced against a generated dup.
-_ms_head_is_rc_decrement :: (fn(h : String) -> bool)(
+_ms_head_is_rc_decrement :: (fn(imm(h) : String) -> bool)(
   (h == "___drop") || (h == "___dispose") || (h == "dispose") || (h == "__yo_decr_rc") || (h == "__yo_decr_rc_atomic") || (h == "__yo_dyn_drop") || (h == "__yo_sometype_drop") || (h == "__yo_drop_array_element") || (h == "__yo_drop_tuple_element") || (h == "__yo_iso_dispose")
 );
 /// Primitive builtin heads that are pure computations, reads, comptime-only
@@ -114,18 +114,18 @@ _ms_head_is_rc_decrement :: (fn(h : String) -> bool)(
 /// __yo_array_fill, __yo_drop_array_element / __yo_drop_tuple_element (drop
 /// a CONTAINER-held reference — exactly the aliasing hole), buffer writers,
 /// __yo_iso_*, __yo_gc_collect.
-_ms_head_is_pure_builtin :: (fn(h : String) -> bool)({
+_ms_head_is_pure_builtin :: (fn(imm(h) : String) -> bool)({
   if(h.starts_with("__yo_op_") || h.starts_with("__yo_comptime_") || h.starts_with("__yo_expr_") || h.starts_with("__yo_var_") || h.starts_with("__yo_type_"), {
     return(true);
   });
   (h == "__yo_as") || (h == "__yo_ptr_add") || (h == "__yo_ptr_sub") || (h == "__yo_ptr_diff") || (h == "__yo_ptr_eq") || (h == "__yo_ptr_neq") || (h == "__yo_ptr_lt") || (h == "__yo_ptr_lte") || (h == "__yo_ptr_gt") || (h == "__yo_ptr_gte") || (h == "__yo_ptr_deref") || (h == "__yo_str_from_raw_parts") || (h == "__yo_str_len") || (h == "__yo_str_ptr") || (h == "__yo_str_byte") || (h == "__yo_array_index") || (h == "__yo_panic") || (h == "ref_count") || (h == "size_of") || (h == "align_of") || (h == "type_id") || (h == "type_of") || (h == "downcast") || (h == "upcast") || (h == "__yo_noop") || (h == "__yo_return_self") || (h == "__yo_borrow_assert_unborrowed") || (h == "__yo_borrow_acquire") || (h == "__yo_borrow_release") || (h == "__yo_incr_rc") || (h == "__yo_rc_own") || (h == "__yo_dyn_dup") || (h == "__yo_sometype_dup") || (h == "__yo_dup_array_element") || (h == "__yo_dup_tuple_element")
 });
 /// Extern non-runtime C names that free memory Yo values may live in.
-_ms_extern_is_freeing :: (fn(h : String) -> bool)(
+_ms_extern_is_freeing :: (fn(imm(h) : String) -> bool)(
   (h == "free") || (h == "realloc") || (h == "reallocf")
 );
 /// A function-like type (callback channel through an extern).
-_ms_type_is_function_like :: (fn(t : TypeValue) -> bool)({
+_ms_type_is_function_like :: (fn(imm(t) : TypeValue) -> bool)({
   if(is_function_type(t), {
     return(true);
   });
@@ -144,9 +144,9 @@ _ms_type_is_function_like :: (fn(t : TypeValue) -> bool)({
 /// which cannot decrement a reference count.
 _ms_extern_may_mutate :: (
   fn(
-    extern_name : String,
-    param_types : ArrayList(TypeValue),
-    variadic_types : ArrayList(TypeValue)
+    imm(extern_name) : String,
+    imm(param_types) : ArrayList(TypeValue),
+    imm(variadic_types) : ArrayList(TypeValue)
   ) -> bool
 )({
   if(_ms_head_is_pure_builtin(extern_name.clone()), {
@@ -185,7 +185,7 @@ _ms_extern_may_mutate :: (
   });
   found_cb
 });
-_ms_touched_add :: (fn(inout(touched) : ArrayList(String), fid : String) -> unit)({
+_ms_touched_add :: (fn(mut(touched) : ArrayList(String), imm(fid) : String) -> unit)({
   (i : usize) = usize(0);
   n := touched.len();
   (present : bool) = false;
@@ -212,10 +212,10 @@ impl(
   _MsW,
   summary_for : (
     fn(
-      fid : String,
-      body : AstExpr,
-      table : ExprInfoTable,
-      inout(touched) : ArrayList(String)
+      imm(fid) : String,
+      imm(body) : AstExpr,
+      imm(table) : ExprInfoTable,
+      mut(touched) : ArrayList(String)
     ) -> bool
   )({
     match(
@@ -268,9 +268,9 @@ impl(
   /// Walk every argument; true as soon as one may mutate.
   walk_args : (
     fn(
-      args : ArrayList(AstExpr),
-      table : ExprInfoTable,
-      inout(touched) : ArrayList(String)
+      imm(args) : ArrayList(AstExpr),
+      imm(table) : ExprInfoTable,
+      mut(touched) : ArrayList(String)
     ) -> bool
   )({
     (i : usize) = usize(0);
@@ -292,7 +292,7 @@ impl(
   /// (plain calls), falling back to the method-callee side-table (method
   /// calls — the dot node is not stamped with the resolved FuncVal).
   callee_value : (
-    fn(call_expr : AstExpr, func_expr : AstExpr, table : ExprInfoTable) -> Option(EvalValue)
+    fn(imm(call_expr) : AstExpr, imm(func_expr) : AstExpr, imm(table) : ExprInfoTable) -> Option(EvalValue)
   )({
     from_info := match(
       expr_info_table_get(table, ast_expr_id(func_expr)),
@@ -314,11 +314,11 @@ impl(
   /// True when this call is an io builtin (yields to the event loop — other
   /// tasks run mid-call). Detected structurally, via the shape checks in
   /// async/await_analysis.yo.
-  is_io_builtin_call : (fn(e : AstExpr) -> bool)(
+  is_io_builtin_call : (fn(imm(e) : AstExpr) -> bool)(
     is_io_async_call(e) || is_io_await_call(e) || is_io_state_call(e) || is_io_spawn_call(e) || is_join_handle_await_call(e)
   ),
   walk : (
-    fn(e : AstExpr, table : ExprInfoTable, inout(touched) : ArrayList(String)) -> bool
+    fn(imm(e) : AstExpr, imm(table) : ExprInfoTable, mut(touched) : ArrayList(String)) -> bool
   )({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
@@ -620,7 +620,7 @@ impl(
 /// transitively mutate RC container storage reachable from its parameters,
 /// captures, or globals?
 function_may_mutate_rc_storage :: (
-  fn(fid : String, body : AstExpr, ctx : EvalContext) -> bool
+  fn(imm(fid) : String, imm(body) : AstExpr, imm(ctx) : EvalContext) -> bool
 )({
   touched := ArrayList(String).new();
   _MsW.summary_for(fid, body, ctx.expr_info_table, touched)
@@ -706,14 +706,14 @@ ParamMutationMask :: ref(struct(all : bool, deep : ArrayList(bool), shallow : Ar
 param_mutation_mask_new :: (fn() -> ParamMutationMask)(
   ParamMutationMask(all : false, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new())
 );
-_msp_bits_get :: (fn(bits : ArrayList(bool), i : usize) -> bool)(match(bits.get(i), .Some(b) => b, .None => false));
-_msp_bits_set :: (fn(inout(bits) : ArrayList(bool), i : usize) -> unit)({
+_msp_bits_get :: (fn(imm(bits) : ArrayList(bool), i : usize) -> bool)(match(bits.get(i), .Some(b) => b, .None => false));
+_msp_bits_set :: (fn(mut(bits) : ArrayList(bool), i : usize) -> unit)({
   while(bits.len() <= i, {
     bits.push(false);
   });
   bits(i) = true;
 });
-_msp_bits_or :: (fn(inout(dst) : ArrayList(bool), src : ArrayList(bool)) -> unit)({
+_msp_bits_or :: (fn(mut(dst) : ArrayList(bool), imm(src) : ArrayList(bool)) -> unit)({
   (i : usize) = usize(0);
   while(i < src.len(), {
     if(_msp_bits_get(src, i), {
@@ -722,7 +722,7 @@ _msp_bits_or :: (fn(inout(dst) : ArrayList(bool), src : ArrayList(bool)) -> unit
     i = (i + usize(1));
   });
 });
-_msp_mask_or :: (fn(dst : ParamMutationMask, src : ParamMutationMask) -> unit)({
+_msp_mask_or :: (fn(imm(dst) : ParamMutationMask, imm(src) : ParamMutationMask) -> unit)({
   if(src.all, {
     dst.all = true;
   });
@@ -730,7 +730,7 @@ _msp_mask_or :: (fn(dst : ParamMutationMask, src : ParamMutationMask) -> unit)({
   _msp_bits_or(dst.shallow, src.shallow);
 });
 /// Record a mutation of the storage `r` names.
-_msp_mask_add_root :: (fn(m : ParamMutationMask, r : _MspRoot, deep : bool) -> unit)({
+_msp_mask_add_root :: (fn(imm(m) : ParamMutationMask, r : _MspRoot, deep : bool) -> unit)({
   cond(
     (r.kind == MSP_PARAM) => if(deep || r.deep, {
       _msp_bits_set(m.deep, r.param);
@@ -744,10 +744,10 @@ _msp_mask_add_root :: (fn(m : ParamMutationMask, r : _MspRoot, deep : bool) -> u
     true => ()
   );
 });
-param_mutation_mask_hits :: (fn(m : ParamMutationMask, i : usize) -> bool)(
+param_mutation_mask_hits :: (fn(imm(m) : ParamMutationMask, i : usize) -> bool)(
   m.all || _msp_bits_get(m.deep, i) || _msp_bits_get(m.shallow, i)
 );
-param_mutation_mask_is_empty :: (fn(m : ParamMutationMask) -> bool)({
+param_mutation_mask_is_empty :: (fn(imm(m) : ParamMutationMask) -> bool)({
   if(m.all, {
     return(false);
   });
@@ -769,7 +769,7 @@ param_mutation_mask_is_empty :: (fn(m : ParamMutationMask) -> bool)({
 });
 /// Does a value of this type contain a raw pointer (which may point into
 /// parameter storage)? Same shape as `_type_contains_rc_inner`.
-_msp_type_contains_pointer_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
+_msp_type_contains_pointer_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(
     (depth > u32(8)) => true,
@@ -859,14 +859,14 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)
 });
 /// Can a value of this type root storage at all? Inert types (integers,
 /// bools, `str`, `Type`, functions) cannot.
-_msp_type_may_root :: (fn(ty : TypeValue) -> bool)(
+_msp_type_may_root :: (fn(imm(ty) : TypeValue) -> bool)(
   type_contains_rc_type(ty) || _msp_type_contains_pointer_inner(ty, u32(0))
 );
-_msp_labels :: (fn(fid : String) -> ArrayList(String))(
+_msp_labels :: (fn(imm(fid) : String) -> ArrayList(String))(
   match(get_func_type(fid), .Func({ meta : m }) => m.*.param_labels, _ => ArrayList(String).new())
 );
 /// Allocation externs hand back storage nothing else references.
-_msp_extern_returns_fresh :: (fn(h : String) -> bool)(
+_msp_extern_returns_fresh :: (fn(imm(h) : String) -> bool)(
   (h == "__yo_malloc") || (h == "__yo_calloc") || (h == "malloc") || (h == "calloc")
 );
 /// The allocator-family contract for EXPLICIT allocators
@@ -881,7 +881,7 @@ _msp_extern_returns_fresh :: (fn(h : String) -> bool)(
 /// allocator — tripped the borrowed-`for` check
 /// (issues/fixed/an-allocator-vtable-call-counts-as-mutating-everything.md).
 /// The slot's name, or "" for any other call.
-_msp_allocator_slot :: (fn(func_expr : AstExpr, table : ExprInfoTable) -> String)({
+_msp_allocator_slot :: (fn(imm(func_expr) : AstExpr, imm(table) : ExprInfoTable) -> String)({
   if(!ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
     return(String.new());
   });
@@ -937,16 +937,16 @@ _msp_allocator_slot :: (fn(func_expr : AstExpr, table : ExprInfoTable) -> String
 });
 /// Reallocation externs hand back the (possibly moved) block of their FIRST
 /// argument: the result is rooted where that pointer was.
-_msp_extern_reallocs :: (fn(h : String) -> bool)(
+_msp_extern_reallocs :: (fn(imm(h) : String) -> bool)(
   (h == "__yo_realloc") || (h == "realloc") || (h == "reallocf")
 );
 /// Byte writers: their FIRST argument's storage is mutated (no RC effect, so
 /// `_ms_extern_may_mutate` says no — but a moved element slot is exactly what
 /// a borrowed element reference must not survive).
-_msp_extern_writes_first_arg :: (fn(h : String) -> bool)(
+_msp_extern_writes_first_arg :: (fn(imm(h) : String) -> bool)(
   (h == "memmove") || (h == "memcpy") || (h == "memset")
 );
-_msp_extern_has_callback :: (fn(param_types : ArrayList(TypeValue), variadic_types : ArrayList(TypeValue)) -> bool)({
+_msp_extern_has_callback :: (fn(imm(param_types) : ArrayList(TypeValue), imm(variadic_types) : ArrayList(TypeValue)) -> bool)({
   (pi : usize) = usize(0);
   while(pi < param_types.len(), {
     match(
@@ -989,7 +989,7 @@ _MspCtx :: ref(
     changed : bool
   )
 );
-_msp_param_index :: (fn(ctx : _MspCtx, name : String) -> Option(usize))({
+_msp_param_index :: (fn(imm(ctx) : _MspCtx, imm(name) : String) -> Option(usize))({
   (i : usize) = usize(0);
   while(i < ctx.labels.len(), {
     match(
@@ -1004,7 +1004,7 @@ _msp_param_index :: (fn(ctx : _MspCtx, name : String) -> Option(usize))({
   Option(usize).None
 });
 /// Join `r` into the root of local `name`; flags the fixpoint on change.
-_msp_def :: (fn(ctx : _MspCtx, name : String, r : _MspRoot) -> unit)({
+_msp_def :: (fn(imm(ctx) : _MspCtx, imm(name) : String, r : _MspRoot) -> unit)({
   cur := match(ctx.roots.get(name.clone()), .Some(c) => c, .None => _msp_root(MSP_NONE));
   j := _msp_join(cur, r);
   if(!_msp_root_same(cur, j), {
@@ -1019,7 +1019,7 @@ _msp_def :: (fn(ctx : _MspCtx, name : String, r : _MspRoot) -> unit)({
 /// parameter storage (a pointer into param i stays "into param i" — where it
 /// points cannot change, only where else it is referenced from); SHELL only
 /// upgrades a FRESH local (its contents may now be rooted).
-_msp_taint :: (fn(ctx : _MspCtx, name : String, kind : u8) -> unit)({
+_msp_taint :: (fn(imm(ctx) : _MspCtx, imm(name) : String, kind : u8) -> unit)({
   cur := match(ctx.roots.get(name.clone()), .Some(c) => c, .None => _msp_root(MSP_NONE));
   cond(
     (kind == MSP_ROOTED) => if(cur.kind != MSP_PARAM, {
@@ -1035,7 +1035,7 @@ _msp_taint :: (fn(ctx : _MspCtx, name : String, kind : u8) -> unit)({
 /// `target`: into parameter i's storage → reachable from i through a hop
 /// (deep); into unknown storage → unknown (a local that already names
 /// parameter storage keeps its parameter).
-_msp_taint_to :: (fn(ctx : _MspCtx, name : String, target : _MspRoot) -> unit)({
+_msp_taint_to :: (fn(imm(ctx) : _MspCtx, imm(name) : String, target : _MspRoot) -> unit)({
   if(target.kind != MSP_PARAM, {
     _msp_taint(ctx, name, MSP_ROOTED);
     return(());
@@ -1050,7 +1050,7 @@ _msp_taint_to :: (fn(ctx : _MspCtx, name : String, target : _MspRoot) -> unit)({
   );
 });
 /// The root of a variable read.
-_msp_atom_root :: (fn(ctx : _MspCtx, atom : AstExpr) -> _MspRoot)({
+_msp_atom_root :: (fn(imm(ctx) : _MspCtx, imm(atom) : AstExpr) -> _MspRoot)({
   info := match(expr_info_table_get(ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(_msp_root(MSP_ROOTED)));
   if(!_msp_type_may_root(info.ty), {
     return(_msp_root(MSP_NONE));
@@ -1090,7 +1090,7 @@ _msp_atom_root :: (fn(ctx : _MspCtx, atom : AstExpr) -> _MspRoot)({
 });
 /// Is this atom a LOCAL variable (not a parameter, global, or compile-time
 /// value) whose type can root storage? Such locals are what taint tracks.
-_msp_atom_local_name :: (fn(ctx : _MspCtx, atom : AstExpr) -> Option(String))({
+_msp_atom_local_name :: (fn(imm(ctx) : _MspCtx, imm(atom) : AstExpr) -> Option(String))({
   info := match(expr_info_table_get(ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(Option(String).None));
   if(!_msp_type_may_root(info.ty), {
     return(Option(String).None);
@@ -1108,7 +1108,7 @@ _msp_atom_local_name :: (fn(ctx : _MspCtx, atom : AstExpr) -> Option(String))({
 });
 /// Names bound by a match/destructuring pattern: every atom except variant
 /// heads (`.Some`), `_`, and the label side of a `label : alias` pair.
-_msp_pattern_names :: (fn(pat : AstExpr, inout(out) : ArrayList(String)) -> unit)({
+_msp_pattern_names :: (fn(imm(pat) : AstExpr, mut(out) : ArrayList(String)) -> unit)({
   match(
     pat,
     .Atom(_, t) => if(!t.value.starts_with(".") && !(t.value == "_"), {
@@ -1135,7 +1135,7 @@ _msp_pattern_names :: (fn(pat : AstExpr, inout(out) : ArrayList(String)) -> unit
 });
 /// The recorded type of the first use of `name` inside `e` (a pattern
 /// binding's type, read off the arm body).
-_msp_type_of_name_in :: (fn(e : AstExpr, name : String, table : ExprInfoTable) -> Option(TypeValue))(
+_msp_type_of_name_in :: (fn(imm(e) : AstExpr, imm(name) : String, imm(table) : ExprInfoTable) -> Option(TypeValue))(
   match(
     e,
     .Atom(
@@ -1184,7 +1184,7 @@ _msp_type_of_name_in :: (fn(e : AstExpr, name : String, table : ExprInfoTable) -
 );
 /// The object whose storage a place store writes: `a.b = v` → `a`,
 /// `xs(i) = v` → `xs`, `p.* = v` → `p`.
-_msp_store_prefix :: (fn(lhs : AstExpr) -> Option(AstExpr))(
+_msp_store_prefix :: (fn(imm(lhs) : AstExpr) -> Option(AstExpr))(
   match(
     lhs,
     .FnCall(_, f, args, _, _) => if(
@@ -1196,7 +1196,7 @@ _msp_store_prefix :: (fn(lhs : AstExpr) -> Option(AstExpr))(
   )
 );
 /// The local variable at the bottom of a place chain, if any.
-_msp_place_base_atom :: (fn(e : AstExpr) -> Option(AstExpr))({
+_msp_place_base_atom :: (fn(imm(e) : AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = e;
   (walking : bool) = true;
   while(walking, {
@@ -1223,7 +1223,7 @@ _msp_place_base_atom :: (fn(e : AstExpr) -> Option(AstExpr))({
 /// Counter` is exactly the plain-memory race it exists to catch. A local that
 /// shadows a parameter's name over-approximates (an extra shallow hit), which
 /// is the safe direction.
-_msp_inout_param_of_place :: (fn(place : AstExpr, ctx : _MspCtx) -> Option(usize))(
+_msp_inout_param_of_place :: (fn(imm(place) : AstExpr, imm(ctx) : _MspCtx) -> Option(usize))(
   match(
     _msp_place_base_atom(place),
     .Some(atom) => match(
@@ -1240,7 +1240,7 @@ _msp_inout_param_of_place :: (fn(place : AstExpr, ctx : _MspCtx) -> Option(usize
 );
 /// A cond/match arm the evaluator never evaluated (a compile-time-decided
 /// sibling was taken) has no ExprInfo on its body and is never emitted.
-_msp_arm_is_dead :: (fn(arm : AstExpr, table : ExprInfoTable) -> bool)({
+_msp_arm_is_dead :: (fn(imm(arm) : AstExpr, imm(table) : ExprInfoTable) -> bool)({
   arm_off := match(
     expr_info_table_get(table, ast_expr_id(arm)),
     .Some(ai) => match(expr_info_case_executed(ai), .Some(ce) => !ce, .None => false),
@@ -1261,23 +1261,23 @@ _msp_arm_is_dead :: (fn(arm : AstExpr, table : ExprInfoTable) -> bool)({
 });
 /// An argument with its `&mut` call-site marker peeled (decision 33): the
 /// marker lends the place itself, which is what the argument rules root.
-_msp_unmarked_arg :: (fn(a : AstExpr) -> AstExpr)(
+_msp_unmarked_arg :: (fn(imm(a) : AstExpr) -> AstExpr)(
   if(ast_expr_is_fn_call_of(a, BK_BORROW_MUT, Option(usize).Some(usize(1))), ast_expr_strip_borrow_marker(a), a)
 );
-_msp_pass_through_head :: (fn(h : String) -> bool)(
+_msp_pass_through_head :: (fn(imm(h) : String) -> bool)(
   (h == "unsafe") || (h == "the") || (h == "runtime") || (h == "consume") || (h == "___dup") || (h == "clone") || (h == "dyn") || (h == "as") || (h == "recur")
 );
-_msp_statement_head :: (fn(h : String) -> bool)(
+_msp_statement_head :: (fn(imm(h) : String) -> bool)(
   (h == "=") || (h == ":=") || (h == "::") || (h == "return") || (h == "break") || (h == "continue") || (h == "unwind") || (h == "while") || (h == "&&") || (h == "||") || (h == "quote")
 );
 /// `YO_DEBUG_BORROW_MASK=1`: name the expression that made a mask `all`.
-_msp_debug_all :: (fn(why : String, e : AstExpr) -> unit)({
+_msp_debug_all :: (fn(imm(why) : String, imm(e) : AstExpr) -> unit)({
   if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
     eprintln(`[borrow-all] ${why}: ${ast_expr_to_string(e)}`);
   });
 });
 /// `_msp_debug_all` for a site that has no expression in hand.
-_msp_debug_all_reason :: (fn(why : String) -> unit)({
+_msp_debug_all_reason :: (fn(imm(why) : String) -> unit)({
   if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
     eprintln(`[borrow-all] ${why}`);
   });
@@ -1295,7 +1295,7 @@ impl(
   _MsP,
   /// The callee of a call: the recorded index-trait method for `xs(i)`,
   /// else the func node's value / the method side table.
-  callee : (fn(e : AstExpr, func_expr : AstExpr, table : ExprInfoTable) -> Option(EvalValue))({
+  callee : (fn(imm(e) : AstExpr, imm(func_expr) : AstExpr, imm(table) : ExprInfoTable) -> Option(EvalValue))({
     match(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(ci) => match(
@@ -1313,7 +1313,7 @@ impl(
     );
     _MsW.callee_value(e, func_expr, table)
   }),
-  is_index_call : (fn(e : AstExpr, table : ExprInfoTable) -> bool)(
+  is_index_call : (fn(imm(e) : AstExpr, imm(table) : ExprInfoTable) -> bool)(
     match(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(ci) => match(expr_info_index_method_value(ci), .Some(imv) => match(imv, .FuncVal(_, _) => true, _ => false), .None => false),
@@ -1325,11 +1325,11 @@ impl(
   /// call (`f(a)`, `Type.method(a)`). None when the arity does not line up.
   argv : (
     fn(
-      e : AstExpr,
-      func_expr : AstExpr,
-      args : ArrayList(AstExpr),
+      imm(e) : AstExpr,
+      imm(func_expr) : AstExpr,
+      imm(args) : ArrayList(AstExpr),
       labels_len : usize,
-      table : ExprInfoTable
+      imm(table) : ExprInfoTable
     ) -> Option(ArrayList(AstExpr))
   )({
     out := ArrayList(AstExpr).new();
@@ -1379,7 +1379,7 @@ impl(
   /// memoized only when no such edge was crossed — or when the verdict is
   /// already `all`).
   analyze : (
-    fn(fid : String, body : AstExpr, table : ExprInfoTable, inout(touched) : ArrayList(String)) -> _MspAnalysis
+    fn(imm(fid) : String, imm(body) : AstExpr, imm(table) : ExprInfoTable, mut(touched) : ArrayList(String)) -> _MspAnalysis
   )({
     match(
       g_msp_by_fid.get(fid.clone()),
@@ -1512,7 +1512,7 @@ impl(
   }),
   /// Return-position expressions: the body's tail (through begin/cond/match)
   /// and every `return(x)`.
-  return_exprs : (fn(e : AstExpr, table : ExprInfoTable, inout(out) : ArrayList(AstExpr), is_tail : bool) -> unit)({
+  return_exprs : (fn(imm(e) : AstExpr, imm(table) : ExprInfoTable, mut(out) : ArrayList(AstExpr), is_tail : bool) -> unit)({
     match(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(info) => {
@@ -1609,7 +1609,7 @@ impl(
     );
   }),
   /// The root of an expression's VALUE.
-  classify : (fn(e : AstExpr, ctx : _MspCtx) -> _MspRoot)({
+  classify : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx) -> _MspRoot)({
     info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
     match(
       info_opt,
@@ -1809,7 +1809,7 @@ impl(
   /// is still "into parameter i", so `realloc(.Some(p), n)` and the pattern
   /// that unwraps it keep the root). A pointer fabricated from integers is
   /// unknown storage; a pointer CAST keeps the pointer's root.
-  ctor_root : (fn(args : ArrayList(AstExpr), ctx : _MspCtx, result_is_ptr : bool, result_is_struct : bool) -> _MspRoot)({
+  ctor_root : (fn(imm(args) : ArrayList(AstExpr), imm(ctx) : _MspCtx, result_is_ptr : bool, result_is_struct : bool) -> _MspRoot)({
     if(result_is_ptr, {
       if(args.len() == usize(1), {
         match(
@@ -1846,7 +1846,7 @@ impl(
   }),
   /// The LOCALS whose storage the value of `e` may alias (what a store of `e`
   /// makes reachable from the store's target).
-  flowing : (fn(e : AstExpr, ctx : _MspCtx, inout(out) : ArrayList(String)) -> unit)({
+  flowing : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx, mut(out) : ArrayList(String)) -> unit)({
     info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
     match(
       info_opt,
@@ -1980,7 +1980,7 @@ impl(
       }
     );
   }),
-  taint_flowing : (fn(e : AstExpr, ctx : _MspCtx, kind : u8) -> unit)({
+  taint_flowing : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx, kind : u8) -> unit)({
     names := ArrayList(String).new();
     _MsP.flowing(e, ctx, names);
     (i : usize) = usize(0);
@@ -1989,7 +1989,7 @@ impl(
       i = (i + usize(1));
     });
   }),
-  taint_flowing_to : (fn(e : AstExpr, ctx : _MspCtx, target : _MspRoot) -> unit)({
+  taint_flowing_to : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx, target : _MspRoot) -> unit)({
     names := ArrayList(String).new();
     _MsP.flowing(e, ctx, names);
     (i : usize) = usize(0);
@@ -2002,7 +2002,7 @@ impl(
   /// (receiver included) of function type? A closure's captures are storage
   /// the call does not name, so its effects cannot be mapped through the
   /// arguments.
-  call_involves_closure : (fn(fid : String, func_expr : AstExpr, args : ArrayList(AstExpr), table : ExprInfoTable) -> bool)({
+  call_involves_closure : (fn(imm(fid) : String, imm(func_expr) : AstExpr, imm(args) : ArrayList(AstExpr), imm(table) : ExprInfoTable) -> bool)({
     if(is_closure_fn(fid.clone()), {
       return(true);
     });
@@ -2042,7 +2042,7 @@ impl(
   }),
   /// The extern an expression calls, if any (FuncVal channel first, then the
   /// resolved callee TYPE, which is how extern declarations usually resolve).
-  extern_of : (fn(e : AstExpr, func_expr : AstExpr, table : ExprInfoTable) -> Option(_MspExtern))({
+  extern_of : (fn(imm(e) : AstExpr, imm(func_expr) : AstExpr, imm(table) : ExprInfoTable) -> Option(_MspExtern))({
     match(
       _MsP.callee(e, func_expr, table),
       .Some(cv) => match(
@@ -2095,7 +2095,7 @@ impl(
   /// The root of an extern call's result: allocation externs return fresh
   /// storage, pure builtins compute from their arguments (pointer arithmetic
   /// keeps the pointer's root), anything else is unknown.
-  extern_result_root : (fn(ex : _MspExtern, func_expr : AstExpr, args : ArrayList(AstExpr), ctx : _MspCtx) -> _MspRoot)({
+  extern_result_root : (fn(imm(ex) : _MspExtern, imm(func_expr) : AstExpr, imm(args) : ArrayList(AstExpr), imm(ctx) : _MspCtx) -> _MspRoot)({
     if(_msp_extern_returns_fresh(ex.name.clone()), {
       return(_msp_root(MSP_FRESH));
     });
@@ -2134,7 +2134,7 @@ impl(
   }),
   /// An extern that may write through its arguments: a FRESH argument may now
   /// hold rooted bytes (a SHELL); pointers and rooted values are unchanged.
-  extern_taint_args : (fn(func_expr : AstExpr, args : ArrayList(AstExpr), ctx : _MspCtx) -> unit)({
+  extern_taint_args : (fn(imm(func_expr) : AstExpr, imm(args) : ArrayList(AstExpr), imm(ctx) : _MspCtx) -> unit)({
     _MsP.taint_flowing(func_expr, ctx, MSP_SHELL);
     (i : usize) = usize(0);
     while(i < args.len(), {
@@ -2148,7 +2148,7 @@ impl(
   /// same happened to everything `rhs` aliases — `x := y; self.f = x` roots
   /// `y` too. A root the definition itself supplies (`t := it.next()` is
   /// unknown storage by classification) is not an escape of `rhs`.
-  define_from : (fn(ctx : _MspCtx, name : String, r : _MspRoot, rhs : AstExpr) -> unit)({
+  define_from : (fn(imm(ctx) : _MspCtx, imm(name) : String, r : _MspRoot, imm(rhs) : AstExpr) -> unit)({
     _msp_def(ctx, name.clone(), r);
     cur := match(ctx.roots.get(name.clone()), .Some(c) => c, .None => _msp_root(MSP_NONE));
     cond(
@@ -2158,7 +2158,7 @@ impl(
     );
   }),
   /// One fixpoint pass: definitions, pattern bindings, and taint flows.
-  collect : (fn(e : AstExpr, ctx : _MspCtx) -> unit)({
+  collect : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx) -> unit)({
     info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
     match(
       info_opt,
@@ -2526,7 +2526,7 @@ impl(
   }),
   /// An unresolvable or unknown-effect call: every argument (and the receiver)
   /// may end up anywhere.
-  taint_all_args : (fn(func_expr : AstExpr, args : ArrayList(AstExpr), ctx : _MspCtx) -> unit)({
+  taint_all_args : (fn(imm(func_expr) : AstExpr, imm(args) : ArrayList(AstExpr), imm(ctx) : _MspCtx) -> unit)({
     _MsP.taint_flowing(func_expr, ctx, MSP_ROOTED);
     (i : usize) = usize(0);
     while(i < args.len(), {
@@ -2535,7 +2535,7 @@ impl(
     });
   }),
   /// Mutations of every argument's storage (an extern with raw pointers).
-  roots_of_args : (fn(m : ParamMutationMask, func_expr : AstExpr, args : ArrayList(AstExpr), ctx : _MspCtx) -> unit)({
+  roots_of_args : (fn(imm(m) : ParamMutationMask, imm(func_expr) : AstExpr, imm(args) : ArrayList(AstExpr), imm(ctx) : _MspCtx) -> unit)({
     if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
       match(
         func_expr,
@@ -2566,7 +2566,7 @@ impl(
       i = (i + usize(1));
     });
   }),
-  walk_children : (fn(func_expr : AstExpr, args : ArrayList(AstExpr), ctx : _MspCtx) -> ParamMutationMask)({
+  walk_children : (fn(imm(func_expr) : AstExpr, imm(args) : ArrayList(AstExpr), imm(ctx) : _MspCtx) -> ParamMutationMask)({
     m := _MsP.walk(func_expr, ctx);
     (i : usize) = usize(0);
     while(i < args.len(), {
@@ -2575,7 +2575,7 @@ impl(
     });
     m
   }),
-  strict_walk : (fn(e : AstExpr, borrowed_ids : ArrayList(usize), table : ExprInfoTable, inout(out) : ArrayList(TokenAndError)) -> unit)({
+  strict_walk : (fn(imm(e) : AstExpr, imm(borrowed_ids) : ArrayList(usize), imm(table) : ExprInfoTable, mut(out) : ArrayList(TokenAndError)) -> unit)({
     info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
       info_opt,
@@ -2850,7 +2850,7 @@ impl(
     );
   }),
   /// The mask of `e`: which parameters' storage it may mutate.
-  walk : (fn(e : AstExpr, ctx : _MspCtx) -> ParamMutationMask)({
+  walk : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx) -> ParamMutationMask)({
     m := param_mutation_mask_new();
     info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
     match(
@@ -3311,7 +3311,7 @@ impl(
 );
 /// The variable an argument names: the base atom of its place chain
 /// (`xs`, `xs.inner`, `xs(i)` → `xs`), resolved through the atom's env.
-_msp_arg_base_var :: (fn(arg : AstExpr, table : ExprInfoTable) -> Option(Variable))(
+_msp_arg_base_var :: (fn(imm(arg) : AstExpr, imm(table) : ExprInfoTable) -> Option(Variable))(
   match(
     _msp_place_base_atom(arg),
     .Some(ba) => match(
@@ -3327,7 +3327,7 @@ _msp_arg_base_var :: (fn(arg : AstExpr, table : ExprInfoTable) -> Option(Variabl
 );
 /// Does `v` (or a same-frame alias it shares its count with) belong to the
 /// borrowed set?
-_msp_var_is_borrowed :: (fn(v : Variable, borrowed_ids : ArrayList(usize)) -> bool)({
+_msp_var_is_borrowed :: (fn(imm(v) : Variable, imm(borrowed_ids) : ArrayList(usize)) -> bool)({
   (cur : Option(Rc(Variable))) = Option(Rc(Variable)).Some(rc(v));
   (hops : usize) = usize(0);
   while(cur.is_some() && (hops < usize(64)), {
@@ -3363,7 +3363,7 @@ _msp_strict_hint :: "Move the call out of the loop body, copy the collection bef
 /// borrowed argument. Calls in non-strict files — including the prelude's
 /// own loop machinery — are left to the runtime flag.
 strict_borrow_violations :: (
-  fn(loop : AstExpr, borrowed_ids : ArrayList(usize), table : ExprInfoTable) -> ArrayList(TokenAndError)
+  fn(imm(loop) : AstExpr, imm(borrowed_ids) : ArrayList(usize), imm(table) : ExprInfoTable) -> ArrayList(TokenAndError)
 )({
   out := ArrayList(TokenAndError).new();
   _MsP.strict_walk(loop, borrowed_ids, table, out);
@@ -3384,7 +3384,7 @@ strict_borrow_violations :: (
 /// plans/VALUES_BY_DEFAULT.md decision 30). Takes the ExprInfo
 /// table directly because codegen has no EvalContext.
 function_param_mutation_mask :: (
-  fn(fid : String, body : AstExpr, table : ExprInfoTable) -> ParamMutationMask
+  fn(imm(fid) : String, imm(body) : AstExpr, imm(table) : ExprInfoTable) -> ParamMutationMask
 )({
   touched := ArrayList(String).new();
   _MsP.analyze(fid, body, table, touched).mask
@@ -3465,15 +3465,15 @@ _gr_settle_pending :: (fn(start : usize, memoize : bool) -> unit)({
 // value is the site's location, for the diagnostic.
 (g_d1_written : HashMap(String, String)) = HashMap(String, String).new();
 (g_d1_reached : HashMap(String, String)) = HashMap(String, String).new();
-_d1_global_key :: (fn(decl : Token, name : String) -> String)(
+_d1_global_key :: (fn(imm(decl) : Token, imm(name) : String) -> String)(
   `${decl.module_path}:${decl.row.to_string()}:${decl.column.to_string()}:${name}`
 );
-_d1_location :: (fn(t : Token) -> String)(
+_d1_location :: (fn(imm(t) : Token) -> String)(
   `${t.module_path}:${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`
 );
 /// Record a write to the module-level global declared at `decl`; returns where
 /// a closure that runs on another thread reaches it, if one does.
-d1_record_global_write :: (fn(decl : Token, name : String, write_tok : Token) -> Option(String))({
+d1_record_global_write :: (fn(imm(decl) : Token, imm(name) : String, imm(write_tok) : Token) -> Option(String))({
   key := _d1_global_key(decl, name);
   match(
     g_d1_written.get(key.clone()),
@@ -3497,14 +3497,14 @@ _GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(Typ
 /// was rejected (issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md).
 (g_gr_reads_by_fid : HashMap(String, HashMap(String, String))) = HashMap(String, HashMap(String, String)).new();
 (g_gr_callees_by_fid : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
-_gr_note_read :: (fn(fid : String, key : String, loc : String) -> unit)({
+_gr_note_read :: (fn(imm(fid) : String, imm(key) : String, imm(loc) : String) -> unit)({
   reads := match(g_gr_reads_by_fid.get(fid.clone()), .Some(m) => m, .None => HashMap(String, String).new());
   if(!reads.contains_key(key.clone()), {
     reads.insert(key, loc);
   });
   g_gr_reads_by_fid.insert(fid, reads);
 });
-_gr_note_callee :: (fn(ctx : _GrCtx, callee : String) -> unit)({
+_gr_note_callee :: (fn(imm(ctx) : _GrCtx, imm(callee) : String) -> unit)({
   set := match(g_gr_callees_by_fid.get(ctx.fid.clone()), .Some(c) => c, .None => HashSet(String).new());
   set.insert(callee);
   g_gr_callees_by_fid.insert(ctx.fid.clone(), set);
@@ -3523,7 +3523,7 @@ _gr_note_callee :: (fn(ctx : _GrCtx, callee : String) -> unit)({
 /// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
 /// Checking here, where the reads are published, makes the order the two
 /// sites are evaluated in irrelevant on this side too.
-d1_note_thread_reach :: (fn(fid : String) -> Option(String))({
+d1_note_thread_reach :: (fn(imm(fid) : String) -> Option(String))({
   (violation : Option(String)) = Option(String).None;
   seen := HashSet(String).new();
   todo := ArrayList(String).new();
@@ -3593,7 +3593,7 @@ d1_note_thread_reach :: (fn(fid : String) -> Option(String))({
   });
   violation
 });
-_gr_env_of :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(Environment))(
+_gr_env_of :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(Environment))(
   match(
     expr_info_table_get(ctx.table, ast_expr_id(e)),
     .Some(i) => Option(Environment).Some(i.env),
@@ -3602,7 +3602,7 @@ _gr_env_of :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(Environment))(
 );
 /// The violation an ATOM introduces, if it names a non-Sync, non-thread-local
 /// module-level runtime global.
-_gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
+_gr_atom :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
   tok := ast_expr_token(e);
   name := tok.value.clone();
   if(name.is_empty(), {
@@ -3642,7 +3642,7 @@ _gr_atom :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
 /// A call whose callee is an atom bound to a compile-time closure value (a
 /// local `(k : Impl(Fn() -> R)) = (() => ...)` binding, or a captured one):
 /// walk the closure's body like any other callee's.
-_gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
+_gr_walk_closure_callee :: (fn(imm(f) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
   if(!ast_expr_is_atom(f), {
     return(Option(String).None);
   });
@@ -3679,7 +3679,7 @@ _gr_walk_closure_callee :: (fn(f : AstExpr, ctx : _GrCtx) -> Option(String))({
 /// where it is used (issues/fixed/function-values-bypass-the-d1-reach-walk.md).
 /// Resolved from the expression's evaluated value, or — for an atom naming a
 /// local closure — from the binding's value cell.
-_gr_value_function :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
+_gr_value_function :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
   (fv : Option(EvalValue)) = match(
     expr_info_table_get(ctx.table, ast_expr_id(e)),
     .Some(ei) => ei.value,
@@ -3716,7 +3716,7 @@ _gr_value_function :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
     .None => Option(String).None
   )
 });
-_gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
+_gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
   // A macro call: the expansion is what runs.
   match(
     expr_info_table_get(ctx.table, ast_expr_id(e)),
@@ -3854,7 +3854,7 @@ _gr_walk :: (fn(e : AstExpr, ctx : _GrCtx) -> Option(String))({
 /// Does function `fid` (body `body`), or anything it can call, reach a
 /// non-Send module-level global? `.Some(reason)` names the first one.
 function_reaches_non_send_global :: (
-  fn(fid : String, body : AstExpr, table : ExprInfoTable, env : Environment) -> Option(String)
+  fn(imm(fid) : String, imm(body) : AstExpr, imm(table) : ExprInfoTable, imm(env) : Environment) -> Option(String)
 )({
   body_id := ast_expr_id(body);
   match(
@@ -3968,7 +3968,7 @@ function_reaches_non_send_global :: (
 /// closes, and the one order-dependent input — whether a Send global is
 /// written yet — is re-checked when a thread closure publishes its reads
 /// (`d1_note_thread_reach`). `compile` shares one table and never calls this.
-summarize_function_bodies :: (fn(values : ArrayList(EvalValue), table : ExprInfoTable, env : Environment) -> unit)({
+summarize_function_bodies :: (fn(imm(values) : ArrayList(EvalValue), imm(table) : ExprInfoTable, imm(env) : Environment) -> unit)({
   (summarized : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < values.len(), {
@@ -3998,7 +3998,7 @@ summarize_function_bodies :: (fn(values : ArrayList(EvalValue), table : ExprInfo
 });
 /// Drop every memo keyed by one of `fids` (`mm_invalidate_document`: the
 /// functions of a module the LSP / `--watch` evaluates afresh).
-purge_mutation_summaries :: (fn(fids : ArrayList(String)) -> unit)({
+purge_mutation_summaries :: (fn(imm(fids) : ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < fids.len(), {
     match(
@@ -4023,7 +4023,7 @@ mutation_summary_entry_count :: (fn() -> usize)(
 /// closure's own, taken with its DEFINING env (a closure literal is walked
 /// where it is created — `validate_send_closure_global_reach`), for a later
 /// judgement that holds only the closure's type.
-d1_reach_memo :: (fn(fid : String) -> Option(Option(String)))(
+d1_reach_memo :: (fn(imm(fid) : String) -> Option(Option(String)))(
   match(g_gr_by_fid.get(fid), .Some(m) => Option(Option(String)).Some(m.reach), .None => Option(Option(String)).None)
 );
 export(summarize_function_bodies, purge_mutation_summaries, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

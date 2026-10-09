@@ -84,7 +84,7 @@ subst_new :: (fn() -> Substitution)(
 /// Bind a const-generic array LENGTH variable (`N` in `Array(T, N)`) to its
 /// concrete value. Applied by the `.Array` arm of `substitute`. Overwrites an
 /// existing binding of the same name.
-subst_add_len_var :: (fn(s : Substitution, name : String, value : usize) -> unit)({
+subst_add_len_var :: (fn(imm(s) : Substitution, imm(name) : String, value : usize) -> unit)({
   if(name.len() == usize(0), {
     return(());
   });
@@ -115,7 +115,7 @@ subst_add_len_var :: (fn(s : Substitution, name : String, value : usize) -> unit
 /// the SPINE — parameters, results, locals, pointers, tuples — and stops at a
 /// nominal boundary. Shares the other arrays; no copy when there is nothing to
 /// drop.
-_without_len_vars :: (fn(s : Substitution) -> Substitution)(
+_without_len_vars :: (fn(imm(s) : Substitution) -> Substitution)(
   cond(
     (s.len_var_names.len() == usize(0)) => s,
     true => Substitution(
@@ -141,7 +141,7 @@ _without_len_vars :: (fn(s : Substitution) -> Substitution)(
 /// `set_compat_type_implements_trait_fn` (types/compatibility.yo). Unset (e.g. during
 /// early bootstrap) means "cannot resolve", which leaves the length variable
 /// in place exactly as before.
-AssocConstLookupFn :: (fn(recv : TypeValue, label : String) -> Option(usize));
+AssocConstLookupFn :: (fn(imm(recv) : TypeValue, imm(label) : String) -> Option(usize));
 (g_lookup_assoc_const : Option(AssocConstLookupFn)) = Option(AssocConstLookupFn).None;
 set_lookup_assoc_const :: (fn(f : AssocConstLookupFn) -> unit)({
   g_lookup_assoc_const = Option(AssocConstLookupFn).Some(f);
@@ -153,7 +153,7 @@ set_lookup_assoc_const :: (fn(f : AssocConstLookupFn) -> unit)({
 /// a length projection is recorded as the bare text `T.BYTES` and has no level
 /// to offer. First match wins, which matches how the projection was written:
 /// the `T` in `Array(u8, T.BYTES)` is the `T` of the enclosing impl.
-_subst_lookup_by_name :: (fn(s : Substitution, name : String) -> Option(TypeValue))({
+_subst_lookup_by_name :: (fn(imm(s) : Substitution, imm(name) : String) -> Option(TypeValue))({
   i := usize(0);
   n := s.names.len();
   while(i < n, {
@@ -172,7 +172,7 @@ _subst_lookup_by_name :: (fn(s : Substitution, name : String) -> Option(TypeValu
 /// off the bound concrete type. `.None` for a non-dotted name, an unbound
 /// receiver, an unset hook, or a type that does not carry the constant — every
 /// one of which leaves the caller's length untouched.
-_subst_resolve_len_projection :: (fn(s : Substitution, lvar : String) -> Option(usize))({
+_subst_resolve_len_projection :: (fn(imm(s) : Substitution, imm(lvar) : String) -> Option(usize))({
   dot := lvar.index_of(String.from("."));
   if(dot.is_none(), {
     return(Option(usize).None);
@@ -193,7 +193,7 @@ _subst_resolve_len_projection :: (fn(s : Substitution, lvar : String) -> Option(
     .None => Option(usize).None
   )
 });
-subst_lookup_len_var :: (fn(s : Substitution, name : String) -> Option(usize))({
+subst_lookup_len_var :: (fn(imm(s) : Substitution, imm(name) : String) -> Option(usize))({
   i := usize(0);
   n := s.len_var_names.len();
   while(i < n, {
@@ -219,13 +219,13 @@ subst_lookup_len_var :: (fn(s : Substitution, name : String) -> Option(usize))({
 /// and a `fn(self : Self) -> T` keeps the PATTERN's nominal id with a concrete
 /// payload — and types are nominal, so they cannot just be substituted
 /// structurally.
-subst_set_self :: (fn(s : Substitution, from : TypeValue, to : TypeValue) -> unit)({
+subst_set_self :: (fn(imm(s) : Substitution, imm(from) : TypeValue, imm(to) : TypeValue) -> unit)({
   s.self_from.push(from);
   s.self_to.push(to);
   ()
 });
 /// True if `id` is already recorded in the substitution's visited-trait set.
-_subst_trait_visited :: (fn(s : Substitution, id : String) -> bool)({
+_subst_trait_visited :: (fn(imm(s) : Substitution, imm(id) : String) -> bool)({
   i := usize(0);
   n := s.visited_trait_ids.len();
   while(i < n, {
@@ -238,7 +238,7 @@ _subst_trait_visited :: (fn(s : Substitution, id : String) -> bool)({
   false
 });
 /// Add a (name, frame_level) → type binding.  Overwrites if already present.
-subst_add :: (fn(s : Substitution, name : String, level : usize, ty : TypeValue) -> unit)({
+subst_add :: (fn(imm(s) : Substitution, imm(name) : String, level : usize, imm(ty) : TypeValue) -> unit)({
   i := usize(0);
   n := s.names.len();
   while(i < n, {
@@ -254,15 +254,15 @@ subst_add :: (fn(s : Substitution, name : String, level : usize, ty : TypeValue)
   s.levels.push(level);
   s.types.push(ty);
 });
-_is_some_t :: (fn(t : TypeValue) -> bool)(match(t, .SomeT({ id : _ }) => true, _ => false));
+_is_some_t :: (fn(imm(t) : TypeValue) -> bool)(match(t, .SomeT({ id : _ }) => true, _ => false));
 /// Adopt the own resolution of every occurrence of the SomeT `id` that
 /// carries one (see `own_resolution_ids`).
-subst_adopt_own_resolution :: (fn(s : Substitution, id : String) -> unit)({
+subst_adopt_own_resolution :: (fn(imm(s) : Substitution, imm(id) : String) -> unit)({
   if(!_subst_adopts_own(s, id), {
     s.own_resolution_ids.push(id);
   });
 });
-_subst_adopts_own :: (fn(s : Substitution, id : String) -> bool)({
+_subst_adopts_own :: (fn(imm(s) : Substitution, imm(id) : String) -> bool)({
   (i : usize) = usize(0);
   while(i < s.own_resolution_ids.len(), {
     if(match(s.own_resolution_ids.get(i), .Some(v) => (v == id), .None => false), {
@@ -273,7 +273,7 @@ _subst_adopts_own :: (fn(s : Substitution, id : String) -> bool)({
   false
 });
 /// Look up a (name, frame_level) → Option(TypeValue).
-subst_lookup :: (fn(s : Substitution, name : String, level : usize) -> Option(TypeValue))({
+subst_lookup :: (fn(imm(s) : Substitution, imm(name) : String, level : usize) -> Option(TypeValue))({
   i := usize(0);
   n := s.names.len();
   while(i < n, {
@@ -303,7 +303,7 @@ subst_lookup :: (fn(s : Substitution, name : String, level : usize) -> Option(Ty
 /// `subst_set_self`. Struct/EnumT only: a blanket impl's bare-SomeT pattern is
 /// already handled by the generic bindings and replacing there would clobber
 /// them. Exact structural equality keeps this a port, not a shape guess.
-_is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
+_is_self_pattern :: (fn(imm(s) : Substitution, imm(ty) : TypeValue) -> bool)({
   if(s.self_from.len() == usize(0), {
     return(false);
   });
@@ -334,7 +334,7 @@ _is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
 /// struct (C23's last clang error,
 /// issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md).
 /// Returns `s` unchanged (no copy) when no entry collides with a binder.
-_mfb_is_binder :: (fn(labels : ArrayList(String), nm : String) -> bool)({
+_mfb_is_binder :: (fn(imm(labels) : ArrayList(String), imm(nm) : String) -> bool)({
   (bi : usize) = usize(0);
   (hit : bool) = false;
   while((bi < labels.len()) && !hit, {
@@ -349,7 +349,7 @@ _mfb_is_binder :: (fn(labels : ArrayList(String), nm : String) -> bool)({
   });
   hit
 });
-_mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String)) -> Substitution)({
+_mask_func_own_binders :: (fn(imm(s) : Substitution, imm(forall_labels) : ArrayList(String)) -> Substitution)({
   if((forall_labels.len() == usize(0)) || ((s.names.len() == usize(0)) && (s.len_var_names.len() == usize(0))), {
     return(s);
   });
@@ -420,7 +420,7 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
 });
 /// `_substitute_node` through the walk's struct/enum memo (see
 /// `node_memo_from`): a shared node is substituted once per walk.
-_substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeValue)({
+_substitute_at :: (fn(imm(s) : Substitution, imm(ty) : TypeValue, is_root : bool) -> TypeValue)({
   (memoized : bool) = match(ty, .Struct({ id : _ }) => true, .EnumT({ id : _ }) => true, _ => false);
   if(!memoized, {
     return(_substitute_node(s, ty, is_root));
@@ -437,7 +437,7 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
   out
 });
 /// The first `node_memo_from` slot whose address is not below `ty`'s.
-_node_memo_lower_bound :: (fn(s : Substitution, ty : TypeValue) -> usize)({
+_node_memo_lower_bound :: (fn(imm(s) : Substitution, imm(ty) : TypeValue) -> usize)({
   (lo : usize) = usize(0);
   (hi : usize) = s.node_memo_from.len();
   while(lo < hi, {
@@ -450,7 +450,7 @@ _node_memo_lower_bound :: (fn(s : Substitution, ty : TypeValue) -> usize)({
   });
   lo
 });
-_substitute_node :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeValue)(
+_substitute_node :: (fn(imm(s) : Substitution, imm(ty) : TypeValue, is_root : bool) -> TypeValue)(
   // P2 hash-consing: intern each substitution result. `substitute` recurses via
   // `_substitute_at`, so wrapping the body interns EVERY level bottom-up → shared subtrees
   // (and transient duplicates) canonicalize to one instance. Key validated to match
@@ -787,9 +787,9 @@ _substitute_node :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> Typ
 /// forall binders on purpose (`_freshen_io_builtin_callee`'s per-call T/E
 /// re-mint) target the root directly, while binders of Funcs encountered
 /// DEEPER in the walk always shadow (see _mask_func_own_binders).
-substitute :: (fn(s : Substitution, ty : TypeValue) -> TypeValue)(_substitute_at(s, ty, true));
+substitute :: (fn(imm(s) : Substitution, imm(ty) : TypeValue) -> TypeValue)(_substitute_at(s, ty, true));
 /// Apply substitution to every element of a list, returning a new list.
-substitute_all :: (fn(s : Substitution, types : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+substitute_all :: (fn(imm(s) : Substitution, imm(types) : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   result := ArrayList(TypeValue).new();
   i := usize(0);
   while(i < types.len(), {

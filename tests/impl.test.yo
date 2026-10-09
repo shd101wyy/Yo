@@ -3,15 +3,15 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { printf } :: import("std/libc/stdio.yo");
 Id :: trait(
-  id : (fn(self : Self) -> Self)
+  id : (fn(imm(self) : Self) -> Self)
 );
 RetI32 :: trait(
-  return_i32 : (fn(self : *Self) -> i32)
+  return_i32 : (fn(imm(self) : *Self) -> i32)
 );
 use_id :: (
   fn(
     generic(T : Type),
-    value : T,
+    imm(value) : T,
     where(T <: Id)
   ) -> T
 )({
@@ -176,10 +176,10 @@ test("Test function that returns Impl", {
 // When a type implements multiple traits with identically-named methods,
 // where(T <: Trait) should constrain method lookup to only the specified trait.
 TraitDisambigA :: trait(
-  get_number : (fn(self : Self) -> i32)
+  get_number : (fn(imm(self) : Self) -> i32)
 );
 TraitDisambigB :: trait(
-  get_number : (fn(self : Self) -> i32)
+  get_number : (fn(imm(self) : Self) -> i32)
 );
 DisambigPoint :: struct(x : i32, y : i32);
 impl(
@@ -194,13 +194,13 @@ impl(
     get_number : (self -> self.y)
   )
 );
-use_trait_a :: (fn(generic(T : Type), self : T, where(T <: TraitDisambigA)) -> i32)({
+use_trait_a :: (fn(generic(T : Type), imm(self) : T, where(T <: TraitDisambigA)) -> i32)({
   return(self.get_number());
 });
-use_trait_b :: (fn(generic(T : Type), self : T, where(T <: TraitDisambigB)) -> i32)({
+use_trait_b :: (fn(generic(T : Type), imm(self) : T, where(T <: TraitDisambigB)) -> i32)({
   return(self.get_number());
 });
-use_trait_b_explicit :: (fn(generic(T : Type), self : T, where(T <: TraitDisambigB)) -> i32)({
+use_trait_b_explicit :: (fn(generic(T : Type), imm(self) : T, where(T <: TraitDisambigB)) -> i32)({
   return((T <: TraitDisambigB).get_number(self));
 });
 test("Test trait method disambiguation with where-clause constraints", {
@@ -254,7 +254,7 @@ test("Test heterogeneous trait-method overload dispatch (Eq(str) beside Eq(Self)
 DelegateV :: struct(n : i32);
 derive(DelegateV, Copy, Clone);
 DelegatePickStr :: trait(
-  pick : (fn(self : Self, x : str) -> i32)
+  pick : (fn(imm(self) : Self, x : str) -> i32)
 );
 impl(
   DelegateV,
@@ -283,7 +283,7 @@ test("Test inherent method shadows a same-name trait method (inherent-first)", {
 test("Test duplicate inherent method impl is rejected (same signature)", {
   comptime_expect_error({
     DupSameSig :: struct(x : i32);
-    impl(DupSameSig, get : (fn(self : Self) -> i32)(self.x));
+    impl(DupSameSig, get : (fn(imm(self) : Self) -> i32)(self.x));
     impl(DupSameSig, get : (fn(self : Self) -> i32)(self.x + i32(1)));
     ()
   });
@@ -291,7 +291,7 @@ test("Test duplicate inherent method impl is rejected (same signature)", {
 test("Test duplicate inherent method impl is rejected (different arity)", {
   comptime_expect_error({
     DupArity :: struct(x : i32);
-    impl(DupArity, get : (fn(self : Self) -> i32)(self.x));
+    impl(DupArity, get : (fn(imm(self) : Self) -> i32)(self.x));
     impl(DupArity, get : (fn(self : Self, y : i32) -> i32)(self.x + y));
     ()
   });

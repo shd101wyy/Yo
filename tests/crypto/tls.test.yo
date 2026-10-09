@@ -36,7 +36,7 @@ _network_required :: (fn() -> bool)(env.get("CI").is_some());
 /// produce it. Every other error stays fatal under CI, which is what keeps the
 /// anti-vacuity property from
 /// issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md.
-_is_dns_failure :: (fn(err : AnyError) -> bool)(
+_is_dns_failure :: (fn(imm(err) : AnyError) -> bool)(
   match(
     downcast(err, NetError),
     .Some(ne) => match(ne, .DNSFailed => true, _ => false),

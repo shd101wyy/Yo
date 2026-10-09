@@ -17,7 +17,7 @@ import("std/error");
 { jb, jstr, jnum } :: import("./protocol.yo");
 
 /// Is position (row, col) at or after the token's start?
-_at_or_after :: (fn(t : Token, row : usize, col : usize) -> bool)(
+_at_or_after :: (fn(imm(t) : Token, row : usize, col : usize) -> bool)(
   (usize(t.row) < row) || ((usize(t.row) == row) && (usize(t.column) <= col))
 );
 
@@ -26,13 +26,13 @@ _at_or_after :: (fn(t : Token, row : usize, col : usize) -> bool)(
 /// active parameter index).
 _find_enclosing_call :: (
   fn(
-    e : AstExpr,
+    imm(e) : AstExpr,
     row : usize,
     col : usize,
-    inout(best_callee) : ArrayList(AstExpr),
-    inout(best_active) : ArrayList(usize),
-    inout(best_row) : ArrayList(usize),
-    inout(best_col) : ArrayList(usize)
+    mut(best_callee) : ArrayList(AstExpr),
+    mut(best_active) : ArrayList(usize),
+    mut(best_row) : ArrayList(usize),
+    mut(best_col) : ArrayList(usize)
   ) -> unit
 )({
   match(
@@ -85,8 +85,8 @@ _find_enclosing_call :: (
 /// Answer signatureHelp for (line, character), or `.None`.
 handle_signature_help :: (
   fn(
-    exprs : ArrayList(AstExpr),
-    info_table : ExprInfoTable,
+    imm(exprs) : ArrayList(AstExpr),
+    imm(info_table) : ExprInfoTable,
     line : usize,
     character : usize
   ) -> Option(JsonValue)

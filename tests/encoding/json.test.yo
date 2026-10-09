@@ -305,7 +305,7 @@ derive(_TPoint, Copy, Clone);
 impl(
   _TPoint,
   ToJson(
-    to_json : (fn(inout(self) : Self) -> JsonValue)({
+    to_json : (fn(mut(self) : Self) -> JsonValue)({
       keys := ArrayList(String).new();
       values := ArrayList(JsonValue).new();
       keys.push(`x`);
@@ -316,7 +316,7 @@ impl(
     })
   ),
   FromJson(
-    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))({
+    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))({
       xv := match(
         v.get(`x`),
         .Some(j) => match(

@@ -20,7 +20,7 @@ Gc :: import("std/gc");
 _Point :: ref(struct(x : i32, y : i32));
 _Shape :: ref(enum(Circle(r : i32), Square(side : i32)));
 _Node :: ref(struct(value : i32, next : Option(Self)));
-_Speak :: trait(speak : (fn(self : Self) -> i32));
+_Speak :: trait(speak : (fn(imm(self) : Self) -> i32));
 _Dog :: struct(volume : i32);
 derive(_Dog, Copy, Clone);
 impl(_Dog, _Speak(speak : (fn(self : Self) -> i32)(self.volume)));
@@ -189,7 +189,7 @@ test("with_allocator takes any Allocator value", {
   assert(arena.live_blocks() == usize(1), "the global Allocator value places globally-routed blocks");
 });
 // ===== P3b: the imm family's buffers follow the scope =====
-_push_n :: (fn(v : Vec(i32), n : i32) -> Vec(i32))({
+_push_n :: (fn(imm(v) : Vec(i32), n : i32) -> Vec(i32))({
   out := v;
   i := i32(0);
   while(runtime(i < n), {

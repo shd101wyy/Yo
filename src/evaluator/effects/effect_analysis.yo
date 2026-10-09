@@ -88,11 +88,11 @@ EffectCallPointExtra_ :: ref(
 ///
 is_effect_call_ :: (
   fn(
-    expr : AstExpr,
-    effect_param_name : String,
-    effect_field_path : Option(ArrayList(String)),
+    imm(expr) : AstExpr,
+    imm(effect_param_name) : String,
+    imm(effect_field_path) : Option(ArrayList(String)),
     allow_missing_type : bool,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> bool
 )({
   if(!ast_expr_is_fn_call(expr.clone()), {
@@ -322,9 +322,9 @@ is_effect_call_ :: (
 ///
 is_transitive_effect_call_ :: (
   fn(
-    expr : AstExpr,
-    effect_param_name : String,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(expr) : AstExpr,
+    imm(effect_param_name) : String,
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> Option(bool)
 )({
   if(!ast_expr_is_fn_call(expr.clone()), {
@@ -408,15 +408,15 @@ is_transitive_effect_call_ :: (
 /// Internal — not exported.
 detect_effect_expr_ :: (
   fn(
-    expr : AstExpr,
-    parent_expr : Option(AstExpr),
-    inout(points) : ArrayList(SuspensionPoint),
-    inout(effect_extras) : HashMap(String, EffectCallPointExtra_),
-    effect_param_name : String,
-    effect_field_path : Option(ArrayList(String)),
+    imm(expr) : AstExpr,
+    imm(parent_expr) : Option(AstExpr),
+    mut(points) : ArrayList(SuspensionPoint),
+    mut(effect_extras) : HashMap(String, EffectCallPointExtra_),
+    imm(effect_param_name) : String,
+    imm(effect_field_path) : Option(ArrayList(String)),
     include_transitive : bool,
-    effect_param_fn_type : Option(TypeValue),
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(effect_param_fn_type) : Option(TypeValue),
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )({
   if(!ast_expr_is_fn_call(expr.clone()), {
@@ -651,12 +651,12 @@ detect_effect_expr_ :: (
 /// The `get_info` parameter provides per-expression type/env information.
 analyze_effect_call_points :: (
   fn(
-    body : AstExpr,
-    effect_parameter_name : String,
-    effect_parameter_type : TypeValue,
+    imm(body) : AstExpr,
+    imm(effect_parameter_name) : String,
+    imm(effect_parameter_type) : TypeValue,
     include_transitive_calls : bool,
-    effect_field_path : Option(ArrayList(String)),
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(effect_field_path) : Option(ArrayList(String)),
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> EffectAnalysisResult
 )({
   // Check if effect_parameter_type is a function type; used as fallback for type info

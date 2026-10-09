@@ -7,26 +7,26 @@
 /// callee write through to the caller's variable. At codegen time
 /// ref params lower to `T*` in C; the caller automatically passes
 /// `&(arg)`.
-swap_i32 :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+swap_i32 :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
 });
 
-increment :: (fn(inout(n) : i32) -> unit)({
+increment :: (fn(mut(n) : i32) -> unit)({
   n = (n + i32(1));
 });
 
-add_to :: (fn(inout(dst) : i32, src : i32) -> unit)({
+add_to :: (fn(mut(dst) : i32, src : i32) -> unit)({
   dst = (dst + src);
 });
 
-set_both :: (fn(inout(a) : i32, inout(b) : i32, v : i32) -> unit)({
+set_both :: (fn(mut(a) : i32, mut(b) : i32, v : i32) -> unit)({
   a = v;
   b = v;
 });
 
-double_then_swap :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
+double_then_swap :: (fn(mut(x) : i32, mut(y) : i32) -> unit)({
   // Calls ref-param fn passing through ref-params.
   add_to(x, x);
   add_to(y, y);

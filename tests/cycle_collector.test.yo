@@ -12,7 +12,7 @@ List :: ref(
 impl(
   List,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       unsafe(printf("Disposing List with value %d\n", self.value));
     })
   )
@@ -61,7 +61,7 @@ Node :: ref(
 impl(
   Node,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       unsafe(printf("Disposing Node with value %d\n", self.value));
     })
   )
@@ -370,7 +370,7 @@ MNode :: ref(
 impl(
   MNode,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       if(self.store, {
         match(
           self.keeper,
@@ -386,7 +386,7 @@ impl(
   )
 );
 test("A dispose that resurrects a cycle member leaves no dangling handle", {
-  build :: (fn(k : MNode) -> unit)({
+  build :: (fn(imm(k) : MNode) -> unit)({
     a := MNode(1, .None, .Some(k), true, false);
     b := MNode(2, .Some(a), .Some(k), true, false);
     a.next = .Some(b); // a <-> b cycle; both unreachable after return
@@ -426,7 +426,7 @@ test("A resurrected pair is reclaimed once unreachable again", {
   base := Gc.tracked_count();
   do_test :: (fn() -> MNode)({
     k := MNode(0, .None, .None, false, true);
-    build :: (fn(k : MNode) -> unit)({
+    build :: (fn(imm(k) : MNode) -> unit)({
       a := MNode(1, .None, .Some(k), true, false);
       b := MNode(2, .None, .Some(k), false, false);
       a.next = .Some(b);
@@ -464,7 +464,7 @@ test("A resurrected pair is reclaimed once unreachable again", {
   // runs in its own fn because a field reassignment's old-value drop is
   // DEFERRED to the enclosing scope's end -- inline, collect() below would
   // still see k.next's old handle and classify the pair reachable.
-  clear :: (fn(kk : MNode) -> unit)({
+  clear :: (fn(imm(kk) : MNode) -> unit)({
     kk.accept = false;
     kk.next = .None;
   });

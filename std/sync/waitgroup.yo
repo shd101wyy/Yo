@@ -80,7 +80,7 @@ impl(
   /// This briefly takes the group's internal mutex, so it blocks only
   /// against another `add` or the bookkeeping of `wait`, never for the
   /// length of the tasks themselves.
-  add : (fn(self : Self, delta : i32) -> unit)({
+  add : (fn(imm(self) : Self, delta : i32) -> unit)({
     self._mutex._raw_lock();
     new_count := (self._count.load(MemoryOrder.Relaxed) + delta);
     cond(
@@ -96,7 +96,7 @@ impl(
   }),
   /// Mark one counted task finished — Go's `WaitGroup.Done`, and exactly
   /// `add(-1)`, including the clamp at zero.
-  done : (fn(self : Self) -> unit)(
+  done : (fn(imm(self) : Self) -> unit)(
     self.add(i32(-1))
   ),
   /// Block until the counter reaches zero — Go's `WaitGroup.Wait`.
@@ -111,7 +111,7 @@ impl(
   /// calling thread, so calling it on the event-loop thread stalls every
   /// async task in the program. Use it from a thread that owns its own
   /// work.
-  wait : (fn(self : Self) -> unit)({
+  wait : (fn(imm(self) : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._count.load(MemoryOrder.Acquire) > i32(0)), {
       self._cv.wait_with(self._mutex);
@@ -124,7 +124,7 @@ impl(
   /// Advisory only: another thread can change it between the load and the
   /// next line, so branching on `count() == 0` instead of calling `wait()`
   /// is a race. It exists for diagnostics and progress reporting.
-  count : (fn(self : Self) -> i32)(
+  count : (fn(imm(self) : Self) -> i32)(
     self._count.load(MemoryOrder.Acquire)
   )
 );

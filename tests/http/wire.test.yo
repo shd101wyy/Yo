@@ -27,12 +27,12 @@ _ScriptedReader :: ref(
     reads : usize
   )
 );
-_scripted :: (fn(text : String, chunk : usize) -> _ScriptedReader)(
+_scripted :: (fn(imm(text) : String, chunk : usize) -> _ScriptedReader)(
   _ScriptedReader(data : text.to_bytes(), pos : usize(0), chunk : chunk, reads : usize(0))
 );
 impl(
   _ScriptedReader,
-  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
       self.reads = (self.reads + usize(1));
       limit := cond((self.chunk < size) => self.chunk, true => size);
@@ -49,7 +49,7 @@ impl(
 impl(
   _ScriptedReader,
   Reader(
-    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
   )
@@ -252,7 +252,7 @@ _R204 :: "HTTP/1.1 204 No Content\r\nContent-Length: 7\r\n\r\n";
 _R304 :: "HTTP/1.1 304 Not Modified\r\nContent-Length: 99\r\n\r\n";
 _RHEAD :: "HTTP/1.1 200 OK\r\nContent-Length: 42\r\n\r\n";
 _frame_one :: (
-  fn(text : String, chunk : usize, kind : wire.MessageKind, io : Io, e : IoExn) -> String
+  fn(imm(text) : String, chunk : usize, kind : wire.MessageKind, io : Io, imm(e) : IoExn) -> String
 )({
   r := _scripted(text, chunk);
   carry := rc(ArrayList(u8).new());

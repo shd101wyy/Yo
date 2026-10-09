@@ -401,7 +401,7 @@ TypeValue :: ref(
 /// reverse. Not recursive by itself; a guard on a nested
 /// `refine(refine(i32, p), q)` unwraps one level per match, which is
 /// enough for every integer/bool surface.
-t_refine_inner :: (fn(t : TypeValue) -> TypeValue)(
+t_refine_inner :: (fn(imm(t) : TypeValue) -> TypeValue)(
   match(
     t,
     .RefineT(inner, _) => inner,
@@ -461,7 +461,7 @@ impl(
     // values) and it equally breaks the infinite-recursion problem the manual
     // clone existed to solve (returning a handle never re-enters clone). Verified
     // corpus-neutral (96/96). See plans/backlog/TYPEVALUE_HASH_CONSING.md §5.
-    clone : (fn(inout(self) : Self) -> Self)(self)
+    clone : (fn(mut(self) : Self) -> Self)(self)
   )
 );
 // ---------------------------------------------------------------------------
@@ -478,7 +478,7 @@ impl(
   HashMap(String, ArrayList(bool)).new();
 /// Register the per-field compile-time-only flags for a struct id.
 register_struct_field_comptime_flags :: (
-  fn(struct_id : String, flags : ArrayList(bool)) -> unit
+  fn(imm(struct_id) : String, imm(flags) : ArrayList(bool)) -> unit
 )({
   g_struct_field_comptime_flags.insert(struct_id.clone(), flags);
   ()
@@ -486,7 +486,7 @@ register_struct_field_comptime_flags :: (
 /// Get the per-field compile-time-only flags for a struct id (`.None` if the
 /// struct was not registered — treat as all-runtime).
 get_struct_field_comptime_flags :: (
-  fn(struct_id : String) -> Option(ArrayList(bool))
+  fn(imm(struct_id) : String) -> Option(ArrayList(bool))
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );

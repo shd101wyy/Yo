@@ -13,7 +13,7 @@
 { Set } :: import("std/imm/set");
 { SortedMap } :: import("std/imm/sorted_map");
 { SortedSet } :: import("std/imm/sorted_set");
-_drain :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := i32))) -> ArrayList(i32))({
+_drain :: (fn(generic(I : Type), imm(it) : I, where(I <: Iterator(Item := i32))) -> ArrayList(i32))({
   out := ArrayList(i32).new();
   iter := it;
   while(runtime(true), {
@@ -30,7 +30,7 @@ _drain :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := i32))) -> A
   out
 });
 _drain_keys :: (
-  fn(generic(I : Type), it : I, where(I <: Iterator(Item := MapEntry(i32, i32)))) -> ArrayList(i32)
+  fn(generic(I : Type), imm(it) : I, where(I <: Iterator(Item := MapEntry(i32, i32)))) -> ArrayList(i32)
 )({
   out := ArrayList(i32).new();
   iter := it;

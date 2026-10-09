@@ -15,7 +15,7 @@ ParsedDocComment :: struct(
   sections : HashMap(String, String)
 );
 /// Check if a section name is a well-known section heading.
-is_known_section :: (fn(name : String) -> bool)({
+is_known_section :: (fn(imm(name) : String) -> bool)({
   lower := name.to_lowercase();
   cond(
     (lower == `returns`) => true,
@@ -34,7 +34,7 @@ is_known_section :: (fn(name : String) -> bool)({
 // double ones, and the single-`#` sections were silently folded into the
 // description (issues/fixed/doc-sections-require-double-hash-but-std-writes-single-hash.md).
 // An arbitrary `# heading` stays description content.
-is_section_heading_ :: (fn(line : String) -> bool)(
+is_section_heading_ :: (fn(imm(line) : String) -> bool)(
   cond(
     (line.len() < usize(3)) => false,
     line.starts_with(`## `) => (line.len() >= usize(4)),
@@ -43,14 +43,14 @@ is_section_heading_ :: (fn(line : String) -> bool)(
   )
 );
 // Returns the heading text after `## ` / `# ` (trimmed).
-get_section_heading_ :: (fn(line : String) -> String)(
+get_section_heading_ :: (fn(imm(line) : String) -> String)(
   cond(
     line.starts_with(`## `) => line.substring(usize(3), line.len()).trim(),
     true => line.substring(usize(2), line.len()).trim()
   )
 );
 // Trim leading/trailing blank lines from section content; join with \n.
-trim_section_content_ :: (fn(lines : ArrayList(String)) -> String)({
+trim_section_content_ :: (fn(imm(lines) : ArrayList(String)) -> String)({
   count := lines.len();
   // Find start: skip leading blank lines
   start := usize(0);
@@ -100,7 +100,7 @@ trim_section_content_ :: (fn(lines : ArrayList(String)) -> String)({
   `\n`.join(result)
 });
 // Extract the first paragraph (up to first blank line) as the summary.
-extract_summary_ :: (fn(description : String) -> String)({
+extract_summary_ :: (fn(imm(description) : String) -> String)({
   if(description == ``, {
     return(``);
   });
@@ -131,7 +131,7 @@ extract_summary_ :: (fn(description : String) -> String)({
 /// - `## Returns`, `## Errors`, etc. are parsed as named sections.
 /// - Unknown headings are kept as-is (key = lowercase heading text).
 /// - Section content continues until the next `## ` heading or end of text.
-parse_doc_comment :: (fn(text : String) -> ParsedDocComment)({
+parse_doc_comment :: (fn(imm(text) : String) -> ParsedDocComment)({
   if(text.trim() == ``, {
     return(
       ParsedDocComment(

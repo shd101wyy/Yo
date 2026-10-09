@@ -7,7 +7,7 @@ pragma(Pragma.Verify);
 
 // zip: equal lengths in, the same length out (ATS: list(n) -> list(n) -> list(n)).
 zip_max :: (
-  fn(a : ArrayList(i32), b : ArrayList(i32), requires(a.len() == b.len()), ensures(r.len() == a.len())) -> (r : ArrayList(i32))
+  fn(imm(a) : ArrayList(i32), imm(b) : ArrayList(i32), requires(a.len() == b.len()), ensures(r.len() == a.len())) -> (r : ArrayList(i32))
 )({
   out := ArrayList(i32).new();
   (i : usize) = usize(0);
@@ -25,7 +25,7 @@ zip_max :: (
 });
 
 // filter: no longer than the input (ATS: list(n) -> [m | m <= n] list(m)).
-filter_pos :: (fn(xs : ArrayList(i32), ensures(r.len() <= xs.len())) -> (r : ArrayList(i32)))({
+filter_pos :: (fn(imm(xs) : ArrayList(i32), ensures(r.len() <= xs.len())) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   (i : usize) = usize(0);
   while(i < xs.len(), {
@@ -39,7 +39,7 @@ filter_pos :: (fn(xs : ArrayList(i32), ensures(r.len() <= xs.len())) -> (r : Arr
 });
 
 // reverse: the same length, read back to front.
-reverse :: (fn(xs : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))({
+reverse :: (fn(imm(xs) : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   (i : usize) = xs.len();
   while(i > usize(0), {

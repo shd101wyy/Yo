@@ -51,21 +51,21 @@ impl(
     Self(_inner : SortedMap(T, bool).new())
   ),
   /// Number of elements.
-  len : (fn(self : Self) -> usize)(self._inner.len()),
+  len : (fn(imm(self) : Self) -> usize)(self._inner.len()),
   /// Check if the set is empty.
-  is_empty : (fn(self : Self) -> bool)(self._inner.is_empty()),
+  is_empty : (fn(imm(self) : Self) -> bool)(self._inner.is_empty()),
   /// Check if the set contains `elem`.
-  contains : (fn(self : Self, elem : T) -> bool)(
+  contains : (fn(imm(self) : Self, imm(elem) : T) -> bool)(
     self._inner.contains_key(elem)
   ),
   /// Return a new set with `elem` added.
-  insert : (fn(self : Self, elem : T) -> Self)(
+  insert : (fn(imm(self) : Self, imm(elem) : T) -> Self)(
     Self(_inner : self._inner.insert(elem, true))
   ),
   /// Return a new set with `elem` removed — `im`'s `without`. An element that
   /// is not present gives back an equal set, and says nothing about whether
   /// anything was there; `extract` is the form that does.
-  remove : (fn(self : Self, elem : T) -> Self)(
+  remove : (fn(imm(self) : Self, imm(elem) : T) -> Self)(
     Self(_inner : self._inner.remove(elem))
   ),
   /// The set WITHOUT `elem`, or `.None` when `elem` was not a member — `im`'s
@@ -76,26 +76,26 @@ impl(
   /// `.None` means "nothing to remove, and your own set is already correct".
   /// That is what `remove` alone cannot say — its result is
   /// indistinguishable from a no-op.
-  extract : (fn(self : Self, elem : T) -> Option(Self))(
+  extract : (fn(imm(self) : Self, imm(elem) : T) -> Option(Self))(
     cond(
       self.contains(elem) => Option(Self).Some(self.remove(elem)),
       true => Option(Self).None
     )
   ),
   /// Get the minimum element.
-  min : (fn(self : Self) -> Option(T))(
+  min : (fn(imm(self) : Self) -> Option(T))(
     self._inner.min_key()
   ),
   /// Get the maximum element.
-  max : (fn(self : Self) -> Option(T))(
+  max : (fn(imm(self) : Self) -> Option(T))(
     self._inner.max_key()
   ),
   /// Return elements as a sorted List.
-  to_list : (fn(self : Self) -> List(T))(
+  to_list : (fn(imm(self) : Self) -> List(T))(
     self._inner.keys()
   ),
   /// Return the union of two sorted sets.
-  union : (fn(self : Self, other : Self) -> Self)({
+  union : (fn(imm(self) : Self, imm(other) : Self) -> Self)({
     elems := other.to_list();
     (result : Self) = self;
     (cur : List(T)) = elems;
@@ -115,7 +115,7 @@ impl(
     result
   }),
   /// Return the intersection of two sorted sets.
-  intersection : (fn(self : Self, other : Self) -> Self)({
+  intersection : (fn(imm(self) : Self, imm(other) : Self) -> Self)({
     elems := self.to_list();
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
@@ -137,7 +137,7 @@ impl(
     result
   }),
   /// Return the difference (`self \ other`).
-  difference : (fn(self : Self, other : Self) -> Self)({
+  difference : (fn(imm(self) : Self, imm(other) : Self) -> Self)({
     elems := self.to_list();
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
@@ -159,7 +159,7 @@ impl(
     result
   }),
   /// Check if `self` is a subset of `other`.
-  is_subset : (fn(self : Self, other : Self) -> bool)({
+  is_subset : (fn(imm(self) : Self, imm(other) : Self) -> bool)({
     if(self.len() > other.len(), {
       return(false);
     });
@@ -181,7 +181,7 @@ impl(
     result
   }),
   /// Check if two sorted sets are disjoint.
-  is_disjoint : (fn(self : Self, other : Self) -> bool)({
+  is_disjoint : (fn(imm(self) : Self, imm(other) : Self) -> bool)({
     (smaller : Self) = cond(
       (self.len() <= other.len()) => self,
       true => other
@@ -208,7 +208,7 @@ impl(
     result
   }),
   /// Create a sorted set from a slice of elements.
-  from_list : (fn(l : ArrayList(T)) -> Self)({
+  from_list : (fn(imm(l) : ArrayList(T)) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     slen := l.len();
@@ -223,7 +223,7 @@ impl(
   where(T <: (Eq(T), Ord(T), Send, Sync, Acyclic)),
   SortedSet(T),
   Eq(SortedSet(T))(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       lhs._inner == rhs._inner
     )
   )
@@ -237,7 +237,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : ListIter(T),
-    into_iter : (fn(self : Self) -> ListIter(T))(
+    into_iter : (fn(imm(self) : Self) -> ListIter(T))(
       self.to_list().into_iter()
     )
   )

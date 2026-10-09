@@ -8,7 +8,7 @@
 /// `typeid(T)` → a stable `(uintptr_t)&<static>` runtime type id. Registers a
 /// `static const char <var> = 0;` whose ADDRESS is the id (unique per type,
 /// matching vtable typeid naming).
-generate_typeid :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_typeid :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   arg_opt := match(expr, .FnCall(_, _, args, _, _) => args.get(usize(0)), .Atom(_, _) => .None);
   arg := match(arg_opt, .Some(a) => a, .None => return(codegen_fatal_expr(String.from("typeid requires 1 argument"))));
   ty := match(

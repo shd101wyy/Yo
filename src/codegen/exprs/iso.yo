@@ -16,15 +16,15 @@
 { get_type_string } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The `i`-th argument of a FnCall (or `.None`).
-_arg :: (fn(expr : AstExpr, i : usize) -> Option(AstExpr))(
+_arg :: (fn(imm(expr) : AstExpr, i : usize) -> Option(AstExpr))(
   match(expr, .FnCall(_, _, args, _, _) => args.get(i), .Atom(_, _) => Option(AstExpr).None)
 );
 /// The iso type's child type (`.IsoT(child)`), or the type itself otherwise.
-_iso_child :: (fn(t : TypeValue) -> TypeValue)(
+_iso_child :: (fn(imm(t) : TypeValue) -> TypeValue)(
   match(t, .IsoT(c) => c, _ => t)
 );
 /// `__yo_iso_extract(<self>)`.
-generate_yo_iso_extract :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_yo_iso_extract :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("__yo_iso_extract not evaluated"))));
   self_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_iso_extract requires exactly 1 argument"))));
   self_code := _call_generate_expr(self_arg, indent.clone(), context);
@@ -70,7 +70,7 @@ generate_yo_iso_extract :: (fn(expr : AstExpr, indent : String, context : Functi
 /// construction-time uniqueness walk (constructors.yo,
 /// `generate_iso_uniqueness_functions`). The argument is read in place: a dup
 /// here would make a uniquely held value read as count 2.
-generate_yo_iso_unique :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_yo_iso_unique :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   v_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_iso_unique requires exactly 1 argument"))));
   v_code := _call_generate_expr(v_arg, indent.clone(), context);
   v_type := match(context.base.get_expr_info(v_arg), .Some(vei) => vei.ty, .None => return(codegen_fatal_expr(String.from("__yo_iso_unique argument has no type"))));
@@ -80,7 +80,7 @@ generate_yo_iso_unique :: (fn(expr : AstExpr, indent : String, context : Functio
   `__yo_iso_unique_${iso_name}(${v_code})`
 });
 /// `__yo_iso_dispose(<self>)`.
-generate_yo_iso_dispose :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_yo_iso_dispose :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   self_arg := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_iso_dispose requires exactly 1 argument"))));
   self_code := _call_generate_expr(self_arg, indent.clone(), context);
   self_type := match(context.base.get_expr_info(self_arg), .Some(sei) => sei.ty, .None => return(codegen_fatal_expr(String.from("__yo_iso_dispose requires an Iso type"))));
@@ -96,7 +96,7 @@ generate_yo_iso_dispose :: (fn(expr : AstExpr, indent : String, context : Functi
   out
 });
 /// True if `expr` is a call to an Iso type constructor.
-is_iso_type_call :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
+is_iso_type_call :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
   match(
     expr,
     .FnCall(_, func, args, _, _) => if(args.len() == usize(1), match(context.base.get_expr_info(func), .Some(fei) => match(fei.value, .Some(v) => if(is_type_val(v), match(v, .TypeVal(t) => is_iso_type(t), _ => false), false), .None => false), .None => false), false),
@@ -104,7 +104,7 @@ is_iso_type_call :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> 
   )
 );
 /// `Iso(T)(value)` constructor.
-generate_iso_type_call :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_iso_type_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   if(!is_iso_type_call(expr, context), {
     return(String.from("/* Error: generateIsoTypeCall called on non-Iso type call */"));
   });

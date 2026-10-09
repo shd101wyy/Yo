@@ -58,15 +58,15 @@ import("std/fmt");
 // Helpers
 // ---------------------------------------------------------------------------
 /// Get the args of a FnCall expression (empty for non-FnCall).
-_fn_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+_fn_call_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Get the func expression of a FnCall (or the expr itself for Atom).
-_fn_call_func :: (fn(e : AstExpr) -> AstExpr)(
+_fn_call_func :: (fn(imm(e) : AstExpr) -> AstExpr)(
   match(e, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => e)
 );
 /// Check if `variant_names` contains `name`.
-_has_variant :: (fn(variant_names : ArrayList(String), name : String) -> bool)({
+_has_variant :: (fn(imm(variant_names) : ArrayList(String), imm(name) : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while((i < variant_names.len()) && !found, {
@@ -82,7 +82,7 @@ _has_variant :: (fn(variant_names : ArrayList(String), name : String) -> bool)({
   found
 });
 /// Whether `xs` contains `s` (the cycle walker's visited set probe).
-_visited_has :: (fn(xs : ArrayList(String), s : String) -> bool)({
+_visited_has :: (fn(imm(xs) : ArrayList(String), imm(s) : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while((i < xs.len()) && !found, {
@@ -101,7 +101,7 @@ _visited_has :: (fn(xs : ArrayList(String), s : String) -> bool)({
 /// a pointer, so the containing type's size stays finite. This is the
 /// legality rule behind `JsonValue` (plain enum recursive only via
 /// `ArrayList(Self)`) and `ref(enum(...))` (`AstExpr`'s shape).
-_type_is_ref_indirection :: (fn(t : TypeValue) -> bool)(
+_type_is_ref_indirection :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .Struct({ is_reference_semantics : s_ref }) => s_ref,
@@ -119,7 +119,7 @@ _type_is_ref_indirection :: (fn(t : TypeValue) -> bool)(
 /// before this check existed. `visited` cuts re-entered named types (finite
 /// DAGs, and cycles that DO have indirection somewhere on the path).
 _type_reaches_root_by_value :: (
-  fn(t : TypeValue, root : String, shell : String, inout(visited) : ArrayList(String)) -> bool
+  fn(imm(t) : TypeValue, imm(root) : String, imm(shell) : String, mut(visited) : ArrayList(String)) -> bool
 )(
   cond(
     _type_is_ref_indirection(t) => false,
@@ -129,7 +129,7 @@ _type_reaches_root_by_value :: (
 /// The per-type dispatch of `_type_reaches_root_by_value` (separate fn so
 /// no cond arm is a braced single expression — E0007).
 _type_value_cycle_step :: (
-  fn(t : TypeValue, root : String, shell : String, inout(visited) : ArrayList(String)) -> bool
+  fn(imm(t) : TypeValue, imm(root) : String, imm(shell) : String, mut(visited) : ArrayList(String)) -> bool
 )(
   match(
     t,
@@ -207,10 +207,10 @@ _type_value_cycle_step :: (
 /// Evaluate a discriminant expression and return its integer value (or throw).
 _evaluate_discriminant :: (
   fn(
-    discriminant_expr : AstExpr,
-    env_in : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(discriminant_expr) : AstExpr,
+    imm(env_in) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> i64
 )({
   evaluated_disc := evaluate_expression_raw(discriminant_expr, env_in, ctx, exn);
@@ -292,12 +292,12 @@ _evaluate_discriminant :: (
 // ---------------------------------------------------------------------------
 evaluate_enum_type :: (
   fn(
-    expr : AstExpr,
-    env_in : Environment,
-    ctx : EvalContext,
+    imm(expr) : AstExpr,
+    imm(env_in) : Environment,
+    imm(ctx) : EvalContext,
     is_atomic_rc : bool,
     force_reference_semantics : bool,
-    exn : Exception
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

@@ -21,14 +21,14 @@ json :: import("std/encoding/json");
 /// prints or rethrows a rendered diagnostic goes through
 /// `render_diagnostics_for_mode` so the choice is global and consistent.
 (g_error_format : String) = String.from("human");
-set_error_format :: (fn(mode : String) -> unit)({
+set_error_format :: (fn(imm(mode) : String) -> unit)({
   g_error_format = mode;
 });
 error_format :: (fn() -> String)(g_error_format);
 /// Print already-rendered diagnostic text on the right stream: JSON Lines
 /// are DATA (stdout); human/short go to stderr like every compiler's
 /// diagnostics.
-emit_rendered_text :: (fn(text : String) -> unit)({
+emit_rendered_text :: (fn(imm(text) : String) -> unit)({
   cond(
     ((g_error_format == "json") || (g_error_format == "sarif")) => println(text),
     true => eprintln(text)
@@ -36,7 +36,7 @@ emit_rendered_text :: (fn(text : String) -> unit)({
 });
 /// Progress chatter (`check: …`): stdout normally, stderr under
 /// `--error-format json` so the data channel stays pure JSON Lines.
-emit_chatter :: (fn(text : String) -> unit)({
+emit_chatter :: (fn(imm(text) : String) -> unit)({
   cond(
     ((g_error_format == "json") || (g_error_format == "sarif")) => eprintln(text),
     true => println(text)
@@ -59,7 +59,7 @@ warnings_enabled :: (fn() -> bool)(g_warnings_enabled);
 /// walked twice (a re-evaluated generic body) warns once. Linear scan —
 /// per-scope emission keeps N small.
 (g_pending_warnings : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
-emit_warning :: (fn(d : Diagnostic) -> unit)({
+emit_warning :: (fn(imm(d) : Diagnostic) -> unit)({
   if(g_warnings_enabled, {
     (pi : usize) = usize(0);
     while(pi < g_pending_warnings.len(), {
@@ -297,7 +297,7 @@ color_enabled :: (fn() -> bool)(g_color_enabled);
 /// json/sarif renderers color-proof their embedded human text by passing
 /// `false` even when `--color always` is in force.
 /// (`\u{1b}` is ESC: the lexer's escape table has no `\x` form.)
-_colorize :: (fn(text : String, code : str, color : bool) -> String)(
+_colorize :: (fn(imm(text) : String, code : str, color : bool) -> String)(
   cond(
     color => `\u{1b}[${code}m${text}\u{1b}[0m`,
     true => text
@@ -324,7 +324,7 @@ _severity_ansi :: (fn(sev : Severity) -> str)(
 /// Normalize a path for directory-prefix comparison: strip a `file://`
 /// scheme and any trailing separator, so the same resolver output spelled
 /// either way compares equal.
-_normalize_path_prefix :: (fn(p : String) -> String)({
+_normalize_path_prefix :: (fn(imm(p) : String) -> String)({
   out := p;
   if(out.starts_with(String.from("file://")), {
     out = out.substring(usize(7), out.len());
@@ -337,7 +337,7 @@ _normalize_path_prefix :: (fn(p : String) -> String)({
 /// True when `path` IS `dir` or lives UNDER it — a path-COMPONENT check,
 /// not a bare string prefix, so `<repo>/stdlib_extra/x.yo` does not match
 /// a `<repo>/std` root.
-_path_is_under :: (fn(path : String, dir : String) -> bool)({
+_path_is_under :: (fn(imm(path) : String, imm(dir) : String) -> bool)({
   d := _normalize_path_prefix(dir);
   pd := _normalize_path_prefix(path);
   if(d.len() == usize(0), {
@@ -353,7 +353,7 @@ _path_is_under :: (fn(path : String, dir : String) -> bool)({
 /// std's own warnings surface) or `cache_root` (content-addressed
 /// dependency sources) are dropped; everything else comes back and the
 /// stash is cleared. Pure data — edges decide where and whether to render.
-take_user_warnings :: (fn(std_root : String, cache_root : String) -> ArrayList(Diagnostic))({
+take_user_warnings :: (fn(imm(std_root) : String, imm(cache_root) : String) -> ArrayList(Diagnostic))({
   ws := take_warnings();
   kept := ArrayList(Diagnostic).new();
   (kwi : usize) = usize(0);
@@ -378,7 +378,7 @@ take_user_warnings :: (fn(std_root : String, cache_root : String) -> ArrayList(D
 /// filter. Edges call this wherever warnings should surface: the end of
 /// main, after each watch round, and on the error-exit path (before the
 /// error renders — warnings were emitted first).
-flush_user_warnings :: (fn(std_root : String, cache_root : String) -> unit)({
+flush_user_warnings :: (fn(imm(std_root) : String, imm(cache_root) : String) -> unit)({
   if(!g_warnings_enabled, {
     return;
   });
@@ -394,7 +394,7 @@ flush_user_warnings :: (fn(std_root : String, cache_root : String) -> unit)({
 /// A span path as a person reads it: a demand-loaded module's key is a
 /// `file://` URI, which the human and short renderers print as the plain path
 /// (the JSON and SARIF renderers keep the path as recorded).
-_display_path :: (fn(p : String) -> String)(
+_display_path :: (fn(imm(p) : String) -> String)(
   cond(
     p.starts_with(`file://`) => p.slice_copy(usize(7) .. p.len()),
     true => p.clone()
@@ -429,7 +429,7 @@ _min_usize :: (fn(a : usize, b : usize) -> usize)(
 );
 /// Levenshtein distance between two strings (byte-wise — identifier
 /// suggestions are ASCII in practice, and the registry's codes are).
-edit_distance :: (fn(a : String, b : String) -> usize)({
+edit_distance :: (fn(imm(a) : String, imm(b) : String) -> usize)({
   m := a.len();
   n := b.len();
   if(m == usize(0), {
@@ -478,13 +478,13 @@ edit_distance :: (fn(a : String, b : String) -> usize)({
 /// is offered, never a wrong one. Parallel arrays, a few hundred entries.
 (g_std_export_names : ArrayList(String)) = ArrayList(String).new();
 (g_std_export_modules : ArrayList(String)) = ArrayList(String).new();
-register_std_export :: (fn(name : String, module_spec : String) -> unit)({
+register_std_export :: (fn(imm(name) : String, imm(module_spec) : String) -> unit)({
   g_std_export_names.push(name);
   g_std_export_modules.push(module_spec);
 });
 std_export_index_size :: (fn() -> usize)(g_std_export_names.len());
 /// Every std module spec exporting `name`, in registration (sorted-walk) order.
-lookup_std_exporters :: (fn(name : String) -> ArrayList(String))({
+lookup_std_exporters :: (fn(imm(name) : String) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < g_std_export_names.len(), {
@@ -507,7 +507,7 @@ lookup_std_exporters :: (fn(name : String) -> ArrayList(String))({
 /// digit and distance 3 of 5 characters is noise — `E99999` → `E0909`)
 /// pass explicitly.
 suggest_name :: (
-  fn(target : String, candidates : ArrayList(String), (max_distance : usize) ?= usize(3)) -> Option(String)
+  fn(imm(target) : String, imm(candidates) : ArrayList(String), (max_distance : usize) ?= usize(3)) -> Option(String)
 )({
   best := Option(String).None;
   (best_d : usize) = (max_distance + usize(1));
@@ -549,7 +549,7 @@ _row_digits :: (fn(n : usize) -> usize)({
   )
 });
 /// The first line of `message` (the header line of a rendered block).
-_first_message_line :: (fn(message : String) -> String)({
+_first_message_line :: (fn(imm(message) : String) -> String)({
   lines := message.split(String.from("\n"));
   match(
     lines.get(usize(0)),
@@ -564,7 +564,7 @@ _first_message_line :: (fn(message : String) -> String)({
 /// `|` gutters of every block in the group align. `color` wraps the header,
 /// anchor, gutter, carets and `help:` labels in ANSI SGR sequences; with it
 /// off the output is byte-identical to the pre-color renderer.
-_render_block :: (fn(d : Diagnostic, w : usize, color : bool, inout(out) : ArrayList(String)) -> unit)({
+_render_block :: (fn(imm(d) : Diagnostic, w : usize, color : bool, mut(out) : ArrayList(String)) -> unit)({
   prefix := _severity_prefix(d.severity);
   sev_ansi := _severity_ansi(d.severity);
   msg_lines := d.message.split(String.from("\n"));
@@ -630,7 +630,7 @@ _render_block :: (fn(d : Diagnostic, w : usize, color : bool, inout(out) : Array
 /// a blank line. This is what `YoError.to_string()` returns and what the
 /// CLI edges print; one location per entry, exactly once. Colored per the
 /// process-wide `color_enabled()` (P4/D14).
-render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
+render_diagnostics_human :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> String)(
   _render_diagnostics_human_colored(diagnostics, g_color_enabled)
 );
 /// The human rendering with an EXPLICIT color switch — the one true body;
@@ -638,7 +638,7 @@ render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
 /// formats (json/sarif) pass `false` so their embedded human text is never
 /// colored, whatever `--color` says.
 _render_diagnostics_human_colored :: (
-  fn(diagnostics : ArrayList(Diagnostic), color : bool) -> String
+  fn(imm(diagnostics) : ArrayList(Diagnostic), color : bool) -> String
 )({
   out := ArrayList(String).new();
   w := usize(1);
@@ -671,7 +671,7 @@ _render_diagnostics_human_colored :: (
 });
 /// The one-line-per-entry rendering: `path:row:col: severity[code]: msg`
 /// (1-based positions, first message line) — for CI logs and greps.
-render_diagnostics_short :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+render_diagnostics_short :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> String)({
   out := ArrayList(String).new();
   (di : usize) = usize(0);
   while(di < diagnostics.len(), {
@@ -703,7 +703,7 @@ render_diagnostics_short :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
 /// and the caret block for reading, without re-deriving either.
 /// `labels`/`notes`/`help` exist (empty for now) so the schema is stable
 /// when P3 fills them.
-render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+render_diagnostics_json :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> String)({
   out := ArrayList(String).new();
   (di : usize) = usize(0);
   while(di < diagnostics.len(), {
@@ -790,7 +790,7 @@ render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
 /// stated in its doc comment), `endColumn` EXCLUSIVE per SARIF §3.30.8, so
 /// a full-token span is startColumn = col+1, endColumn = col+1+len and a
 /// len-0 span (the insertion repairs) collapses to a zero-width region.
-_sarif_region :: (fn(span : Span) -> JsonValue)({
+_sarif_region :: (fn(imm(span) : Span) -> JsonValue)({
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();
   keys.push(String.from("startLine"));
@@ -808,7 +808,7 @@ _sarif_region :: (fn(span : Span) -> JsonValue)({
 /// `ruleId`. A mechanical `repair` maps to SARIF `fixes` — the field
 /// GitHub code scanning hangs its "apply fix" button on, carrying the same
 /// edit `yo fix` applies. Never colored, whatever `--color` says: data.
-render_diagnostics_sarif :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+render_diagnostics_sarif :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> String)({
   // The distinct codes, first-seen order — the driver's `rules`.
   rule_ids := ArrayList(String).new();
   (ri : usize) = usize(0);
@@ -997,7 +997,7 @@ render_diagnostics_sarif :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
 });
 /// Render a diagnostic group in the process's current format (defined after
 /// the renderers it dispatches to — module-level order matters).
-render_diagnostics_for_mode :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
+render_diagnostics_for_mode :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> String)(
   cond(
     (g_error_format == "short") => render_diagnostics_short(diagnostics),
     (g_error_format == "json") => render_diagnostics_json(diagnostics),

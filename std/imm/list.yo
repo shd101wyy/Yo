@@ -76,22 +76,22 @@ impl(
     Self(_head : .None, _len : usize(0))
   ),
   /// Return the number of elements.
-  len : (fn(self : Self) -> usize)(
+  len : (fn(imm(self) : Self) -> usize)(
     self._len
   ),
   /// Return `true` if the list is empty.
-  is_empty : (fn(self : Self) -> bool)(
+  is_empty : (fn(imm(self) : Self) -> bool)(
     self._len == usize(0)
   ),
   /// Return a new list with `value` at the front. O(1).
-  prepend : (fn(self : Self, value : T) -> Self)(
+  prepend : (fn(imm(self) : Self, imm(value) : T) -> Self)(
     Self(
       _head : .Some(ListNode(T)(_value : value, _next : self._head)),
       _len : (self._len + usize(1))
     )
   ),
   /// Return the first element, or `.None` if empty. O(1).
-  head : (fn(self : Self) -> Option(T))(
+  head : (fn(imm(self) : Self) -> Option(T))(
     match(
       self._head,
       .Some(node) => .Some(node._value),
@@ -100,7 +100,7 @@ impl(
   ),
   /// Return a new list without the first element. O(1).
   /// Returns an empty list if already empty.
-  tail : (fn(self : Self) -> Self)(
+  tail : (fn(imm(self) : Self) -> Self)(
     match(
       self._head,
       .Some(node) => Self(_head : node._next, _len : (self._len - usize(1))),
@@ -109,7 +109,7 @@ impl(
   ),
   /// Access element at `index`. O(n).
   /// Returns `.None` if index is out of bounds.
-  get : (fn(self : Self, index : usize) -> Option(T))({
+  get : (fn(imm(self) : Self, index : usize) -> Option(T))({
     if(index >= self._len, {
       return(.None);
     });
@@ -133,7 +133,7 @@ impl(
     .None
   }),
   /// Return a new list with elements in reverse order. O(n).
-  reverse : (fn(self : Self) -> Self)({
+  reverse : (fn(imm(self) : Self) -> Self)({
     (result : Self) = Self.new();
     (current : Option(ListNode(T))) = self._head;
     while(runtime(current.is_some()), {
@@ -145,7 +145,7 @@ impl(
   }),
   /// Concatenate two lists. O(n) where n = self.len().
   /// The resulting list contains all elements of `self` followed by `other`.
-  concat : (fn(self : Self, other : Self) -> Self)({
+  concat : (fn(imm(self) : Self, imm(other) : Self) -> Self)({
     reversed := self.reverse();
     (result : Self) = other;
     (current : Option(ListNode(T))) = reversed._head;
@@ -157,7 +157,7 @@ impl(
     result
   }),
   /// Apply a function to each element, producing a new list. O(n).
-  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: (Send, Sync, Acyclic))) -> List(U))({
+  map : (fn(generic(U : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> U), where(U <: (Send, Sync, Acyclic))) -> List(U))({
     (result : List(U)) = List(U).new();
     (current : Option(ListNode(T))) = self._head;
     while(runtime(current.is_some()), {
@@ -168,7 +168,7 @@ impl(
     result.reverse()
   }),
   /// Keep only elements satisfying the predicate. O(n).
-  filter : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> Self)({
+  filter : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> bool)) -> Self)({
     (result : Self) = Self.new();
     (current : Option(ListNode(T))) = self._head;
     while(runtime(current.is_some()), {
@@ -181,7 +181,7 @@ impl(
     result.reverse()
   }),
   /// Left fold over the list. O(n).
-  fold : (fn(generic(U : Type), self : Self, init : U, f : Impl(Fn(acc : U, item : T) -> U)) -> U)({
+  fold : (fn(generic(U : Type), imm(self) : Self, imm(init) : U, imm(f) : Impl(Fn(imm(acc) : U, imm(item) : T) -> U)) -> U)({
     (acc : U) = init;
     (current : Option(ListNode(T))) = self._head;
     while(runtime(current.is_some()), {
@@ -192,7 +192,7 @@ impl(
     acc
   }),
   /// Execute a function for each element. O(n).
-  for_each : (fn(self : Self, f : Impl(Fn(a : T) -> unit)) -> unit)({
+  for_each : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> unit)) -> unit)({
     (current : Option(ListNode(T))) = self._head;
     while(runtime(current.is_some()), {
       (node : ListNode(T)) = current.unwrap();
@@ -202,7 +202,7 @@ impl(
   }),
   /// Check if the list contains a value. O(n).
   /// Requires T to implement Eq.
-  contains : (fn(self : Self, value : T, where(T <: Eq(T))) -> bool)({
+  contains : (fn(imm(self) : Self, imm(value) : T, where(T <: Eq(T))) -> bool)({
     (current : Option(ListNode(T))) = self._head;
     while(runtime(true), {
       match(
@@ -221,7 +221,7 @@ impl(
     false
   }),
   /// Build a list from a slice. O(n).
-  from_list : (fn(l : ArrayList(T)) -> Self)({
+  from_list : (fn(imm(l) : ArrayList(T)) -> Self)({
     (result : Self) = Self.new();
     (i : usize) = l.len();
     while(i > usize(0), {
@@ -237,7 +237,7 @@ impl(
   where(T <: (Send, Sync, Acyclic, Eq(T))),
   List(T),
   Eq(List(T))(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)({
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
       if(lhs._len != rhs._len, {
         return(false);
       });
@@ -279,7 +279,7 @@ impl(
   List(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "imm.List: index out of bounds");
       (current : Option(ListNode(T))) = self._head;
       i := usize(0);
@@ -317,7 +317,7 @@ impl(
   ListIter(T),
   Iterator(
     Item : T,
-    next : (fn(inout(self) : Self) -> Option(T))(
+    next : (fn(mut(self) : Self) -> Option(T))(
       match(
         self._node,
         .None => Option(T).None,
@@ -337,7 +337,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : ListIter(T),
-    into_iter : (fn(self : Self) -> ListIter(T))(
+    into_iter : (fn(imm(self) : Self) -> ListIter(T))(
       ListIter(T)(_node : self._head)
     )
   )

@@ -91,7 +91,7 @@ _is_red :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : Option(RBNode(K, V)),
+    imm(node) : Option(RBNode(K, V)),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> bool
 )(
@@ -109,11 +109,11 @@ _new_node :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    key : K,
-    value : V,
+    imm(key) : K,
+    imm(value) : V,
     color : Color,
-    left : Option(RBNode(K, V)),
-    right : Option(RBNode(K, V)),
+    imm(left) : Option(RBNode(K, V)),
+    imm(right) : Option(RBNode(K, V)),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )(
@@ -130,7 +130,7 @@ _rotate_left :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
+    imm(h) : RBNode(K, V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )({
@@ -148,7 +148,7 @@ _rotate_right :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
+    imm(h) : RBNode(K, V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )({
@@ -165,7 +165,7 @@ _flip_colors :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
+    imm(h) : RBNode(K, V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )({
@@ -205,7 +205,7 @@ _fixup :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
+    imm(h) : RBNode(K, V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )({
@@ -235,9 +235,9 @@ _node_insert :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : Option(RBNode(K, V)),
-    key : K,
-    value : V,
+    imm(node) : Option(RBNode(K, V)),
+    imm(key) : K,
+    imm(value) : V,
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )(
@@ -278,8 +278,8 @@ _node_get :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : Option(RBNode(K, V)),
-    key : K,
+    imm(node) : Option(RBNode(K, V)),
+    imm(key) : K,
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Option(V)
 )(
@@ -298,8 +298,8 @@ _node_contains :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : Option(RBNode(K, V)),
-    key : K,
+    imm(node) : Option(RBNode(K, V)),
+    imm(key) : K,
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> bool
 )(
@@ -321,7 +321,7 @@ _move_red_left :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
+    imm(h) : RBNode(K, V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )({
@@ -348,7 +348,7 @@ _move_red_right :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
+    imm(h) : RBNode(K, V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )({
@@ -369,7 +369,7 @@ _node_min :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
+    imm(h) : RBNode(K, V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> RBNode(K, V)
 )(
@@ -384,7 +384,7 @@ _delete_min :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
+    imm(h) : RBNode(K, V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Option(RBNode(K, V))
 )(
@@ -416,8 +416,8 @@ _node_remove :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    h : RBNode(K, V),
-    key : K,
+    imm(h) : RBNode(K, V),
+    imm(key) : K,
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> Option(RBNode(K, V))
 )({
@@ -509,8 +509,8 @@ _collect_entries :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : Option(RBNode(K, V)),
-    acc : List(MapEntry(K, V)),
+    imm(node) : Option(RBNode(K, V)),
+    imm(acc) : List(MapEntry(K, V)),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(MapEntry(K, V))
 )(
@@ -529,8 +529,8 @@ _collect_keys :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : Option(RBNode(K, V)),
-    acc : List(K),
+    imm(node) : Option(RBNode(K, V)),
+    imm(acc) : List(K),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(K)
 )(
@@ -549,8 +549,8 @@ _collect_values :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    node : Option(RBNode(K, V)),
-    acc : List(V),
+    imm(node) : Option(RBNode(K, V)),
+    imm(acc) : List(V),
     where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Send, Sync, Acyclic))
   ) -> List(V)
 )(
@@ -576,19 +576,19 @@ impl(
     Self(_root : .None, _len : usize(0))
   ),
   /// Number of entries.
-  len : (fn(self : Self) -> usize)(self._len),
+  len : (fn(imm(self) : Self) -> usize)(self._len),
   /// Check if the map is empty.
-  is_empty : (fn(self : Self) -> bool)(self._len == usize(0)),
+  is_empty : (fn(imm(self) : Self) -> bool)(self._len == usize(0)),
   /// Look up a value by key.
-  get : (fn(self : Self, key : K) -> Option(V))(
+  get : (fn(imm(self) : Self, imm(key) : K) -> Option(V))(
     _node_get(K, V, self._root, key)
   ),
   /// Check if a key exists.
-  contains_key : (fn(self : Self, key : K) -> bool)(
+  contains_key : (fn(imm(self) : Self, imm(key) : K) -> bool)(
     _node_contains(K, V, self._root, key)
   ),
   /// Return a new map with the key-value pair inserted (or updated).
-  insert : (fn(self : Self, key : K, value : V) -> Self)({
+  insert : (fn(imm(self) : Self, imm(key) : K, imm(value) : V) -> Self)({
     existed := _node_contains(K, V, self._root, key);
     new_root := _node_insert(K, V, self._root, key, value);
     // Root is always black
@@ -604,7 +604,7 @@ impl(
   ///
   /// This deliberately does NOT report what it removed; `extract` is the form
   /// that does.
-  remove : (fn(self : Self, key : K) -> Self)(
+  remove : (fn(imm(self) : Self, imm(key) : K) -> Self)(
     match(
       self._root,
       .None => self,
@@ -630,7 +630,7 @@ impl(
   /// Two walks of the tree, as `remove` itself already does (it asks
   /// `_node_contains` before rebuilding), so this costs one lookup more than
   /// `remove` and nothing more than `get` + `remove` written by hand.
-  extract : (fn(self : Self, key : K) -> Option(Tuple(V, Self)))({
+  extract : (fn(imm(self) : Self, imm(key) : K) -> Option(Tuple(V, Self)))({
     hit := self.get(key);
     match(
       hit,
@@ -639,7 +639,7 @@ impl(
     )
   }),
   /// Get the minimum key in the map.
-  min_key : (fn(self : Self) -> Option(K))(
+  min_key : (fn(imm(self) : Self) -> Option(K))(
     match(
       self._root,
       .None => .None,
@@ -650,7 +650,7 @@ impl(
     )
   ),
   /// Get the maximum key by going right.
-  max_key : (fn(self : Self) -> Option(K))(
+  max_key : (fn(imm(self) : Self) -> Option(K))(
     match(
       self._root,
       .None => .None,
@@ -673,20 +673,20 @@ impl(
     )
   ),
   /// Return in-order list of keys.
-  keys : (fn(self : Self) -> List(K))(
+  keys : (fn(imm(self) : Self) -> List(K))(
     _collect_keys(K, V, self._root, List(K).new())
   ),
   /// Return list of values in key order.
-  values : (fn(self : Self) -> List(V))(
+  values : (fn(imm(self) : Self) -> List(V))(
     _collect_values(K, V, self._root, List(V).new())
   ),
   /// Return in-order list of entries — the counterpart of `imm.Map.entries`,
   /// and what `into_iter` walks.
-  entries : (fn(self : Self) -> List(MapEntry(K, V)))(
+  entries : (fn(imm(self) : Self) -> List(MapEntry(K, V)))(
     _collect_entries(K, V, self._root, List(MapEntry(K, V)).new())
   ),
   /// Create a sorted map from a slice of key-value pairs.
-  from_entries : (fn(pairs : ArrayList(MapEntry(K, V))) -> Self)({
+  from_entries : (fn(imm(pairs) : ArrayList(MapEntry(K, V))) -> Self)({
     (result : Self) = Self.new();
     i := usize(0);
     plen := pairs.len();
@@ -702,7 +702,7 @@ impl(
   where(K <: (Eq(K), Ord(K), Send, Sync, Acyclic), V <: (Eq(V), Send, Sync, Acyclic)),
   SortedMap(K, V),
   Eq(SortedMap(K, V))(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)({
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
       if(lhs._len != rhs._len, {
         return(false);
       });
@@ -726,7 +726,7 @@ impl(
   IntoIterator(
     Item : MapEntry(K, V),
     IntoIter : ListIter(MapEntry(K, V)),
-    into_iter : (fn(self : Self) -> ListIter(MapEntry(K, V)))(
+    into_iter : (fn(imm(self) : Self) -> ListIter(MapEntry(K, V)))(
       self.entries().into_iter()
     )
   )

@@ -626,7 +626,7 @@ test("AtomicI64 fetch_add under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
   counter := AtomicI64(i64(0));
   iterations := i64(5000);
-  spin :: (fn(c : AtomicI64, n : i64) -> unit)({
+  spin :: (fn(imm(c) : AtomicI64, n : i64) -> unit)({
     (i : i64) = i64(0);
     while(runtime(i < n), {
       c.fetch_add(i64(1), MemoryOrder.Relaxed);
@@ -646,7 +646,7 @@ test("AtomicU64 fetch_sub under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
   iterations := u64(5000);
   counter := AtomicU64(iterations * u64(4));
-  drain :: (fn(c : AtomicU64, n : u64) -> unit)({
+  drain :: (fn(imm(c) : AtomicU64, n : u64) -> unit)({
     (i : u64) = u64(0);
     while(runtime(i < n), {
       c.fetch_sub(u64(1), MemoryOrder.Relaxed);
@@ -666,7 +666,7 @@ test("AtomicUsize fetch_add under four-thread contention", {
   if(arch == Arch.Wasm32, return(()));
   counter := AtomicUsize(usize(0));
   iterations := usize(5000);
-  spin :: (fn(c : AtomicUsize, n : usize) -> unit)({
+  spin :: (fn(imm(c) : AtomicUsize, n : usize) -> unit)({
     (i : usize) = usize(0);
     while(runtime(i < n), {
       c.fetch_add(usize(1), MemoryOrder.Relaxed);
@@ -703,7 +703,7 @@ test("AtomicU32 fetch_or / fetch_and under four-thread contention", {
   v2 := AtomicU32(u32(0));
   v3 := AtomicU32(u32(0));
   toggle :: (
-    fn(c : AtomicU32, report : AtomicU32, bit : u32, keep : u32, n : u32) -> unit
+    fn(imm(c) : AtomicU32, imm(report) : AtomicU32, bit : u32, keep : u32, n : u32) -> unit
   )({
     (i : u32) = u32(0);
     while(runtime(i < n), {
@@ -735,7 +735,7 @@ test("AtomicU16 fetch_xor under four-thread contention", {
   // read-modify-write leaves the flip unpaired and the result non-zero.
   flags := AtomicU16(u16(0));
   iterations := u16(5000);
-  flip :: (fn(c : AtomicU16, mask : u16, n : u16) -> unit)({
+  flip :: (fn(imm(c) : AtomicU16, mask : u16, n : u16) -> unit)({
     (i : u16) = u16(0);
     while(runtime(i < n), {
       c.fetch_xor(mask, MemoryOrder.AcqRel);
@@ -769,7 +769,7 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
   v2 := AtomicI32(i32(0));
   v3 := AtomicI32(i32(0));
   push :: (
-    fn(lo : AtomicI32, hi : AtomicI32, report : AtomicI32, base : i32, n : i32) -> unit
+    fn(imm(lo) : AtomicI32, imm(hi) : AtomicI32, imm(report) : AtomicI32, base : i32, n : i32) -> unit
   )({
     (i : i32) = i32(0);
     while(runtime(i < n), {

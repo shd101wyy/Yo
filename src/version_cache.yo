@@ -73,7 +73,7 @@ _releases_download_url :: (fn() -> String)(`https://github.com/${_github_repo()}
 /// Extract the string value of a JSON field named `key`.
 /// Handles both `"key":"value"` and `"key": "value"` forms.
 /// Returns `.None` if the field is not found.
-_json_string_for_key :: (fn(json : String, key : String) -> Option(String))({
+_json_string_for_key :: (fn(imm(json) : String, imm(key) : String) -> Option(String))({
   pat1 := `"${key}":"`;
   pat2 := `"${key}": "`;
   start_opt := match(
@@ -99,7 +99,7 @@ _json_string_for_key :: (fn(json : String, key : String) -> Option(String))({
   )
 });
 /// Compare two semver strings. Returns negative if a < b, 0 if equal, positive if a > b.
-compare_semver :: (fn(a : String, b : String) -> i64)({
+compare_semver :: (fn(imm(a) : String, imm(b) : String) -> i64)({
   pa := a.split(String.from("."));
   pb := b.split(String.from("."));
   na0 := match(pa.get(usize(0)), .None => i64(0), .Some(s) => match(s.parse_i64(), .None => i64(0), .Some(n) => n));
@@ -119,7 +119,7 @@ compare_semver :: (fn(a : String, b : String) -> i64)({
 });
 /// Sort an ArrayList(String) by semver order (ascending) using selection sort.
 /// Returns a new sorted list.
-_sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
+_sort_by_semver :: (fn(imm(versions) : ArrayList(String)) -> ArrayList(String))({
   n := versions.len();
   result := ArrayList(String).with_capacity(n);
   added := ArrayList(bool).with_capacity(n);
@@ -171,7 +171,7 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
 // Public API
 // ---------------------------------------------------------------------------
 /// The cached compiler binary inside a version directory.
-cached_binary_path :: (fn(version_dir : String) -> String)({
+cached_binary_path :: (fn(imm(version_dir) : String) -> String)({
   bin_name := cond(
     is_target_windows(host_target()) => `yo.exe`,
     true => `yo`
@@ -181,7 +181,7 @@ cached_binary_path :: (fn(version_dir : String) -> String)({
 /// The PRE-MUSL release-bundle basename (`yo-v<v>-<os>-<arch>`, no suffix).
 /// Only the Linux glibc-era fallback in `download_version` should use this
 /// directly — everything else goes through `host_bundle_name`.
-_host_bundle_name_base :: (fn(version : String, exn : Exception) -> String)({
+_host_bundle_name_base :: (fn(imm(version) : String, imm(exn) : Exception) -> String)({
   target := host_target();
   os_name := cond(
     is_target_macos(target) => `macos`,
@@ -219,7 +219,7 @@ _host_bundle_name_base :: (fn(version : String, exn : Exception) -> String)({
 /// by falling back to the short `host_bundle_name` form. The triple is the
 /// PUBLISHED asset name only — the compiler's own `--target` vocabulary stays
 /// vendor-less (`aarch64-macos`), see that plan's "what does NOT change".
-host_bundle_triple_name :: (fn(version : String, exn : Exception) -> String)({
+host_bundle_triple_name :: (fn(imm(version) : String, imm(exn) : Exception) -> String)({
   target := host_target();
   triple := cond(
     is_target_macos(target) =>
@@ -262,7 +262,7 @@ host_bundle_triple_name :: (fn(version : String, exn : Exception) -> String)({
 /// bundle is THE Linux bundle and runs on glibc and musl systems alike; the
 /// glibc names exist only on releases that predate the musl legs (x64:
 /// v0.2.7+, arm64: v0.2.12+), which `download_version` falls back to.
-host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
+host_bundle_name :: (fn(imm(version) : String, imm(exn) : Exception) -> String)({
   base := _host_bundle_name_base(version, exn);
   cond(
     is_target_linux(host_target()) => `${base}-musl`,
@@ -282,9 +282,9 @@ host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
 _never_path :: (fn() -> String)(String.from("/nonexistent/.yo-version-never"));
 is_version_cached :: (
   fn(
-    version : String,
+    imm(version) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -318,9 +318,9 @@ is_version_cached :: (
 /// over a downloaded one. `.None` when neither exists.
 resolve_version_dir :: (
   fn(
-    version : String,
+    imm(version) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -345,7 +345,7 @@ resolve_version_dir :: (
 );
 /// Is `name` already in `xs`? Used to de-duplicate a version that exists in
 /// both the install root and the download cache.
-_contains_version :: (fn(xs : ArrayList(String), name : String) -> bool)({
+_contains_version :: (fn(imm(xs) : ArrayList(String), imm(name) : String) -> bool)({
   i := usize(0);
   while(i < xs.len(), {
     match(
@@ -368,10 +368,10 @@ _contains_version :: (fn(xs : ArrayList(String), name : String) -> bool)({
 /// (plans/VALUES_BY_DEFAULT.md §3.13).
 _scan_versions_root :: (
   fn(
-    versions_dir : String,
-    known : ArrayList(String),
+    imm(versions_dir) : String,
+    imm(known) : ArrayList(String),
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -405,7 +405,7 @@ _scan_versions_root :: (
 list_cached_versions :: (
   fn(
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -435,9 +435,9 @@ list_cached_versions :: (
 /// Remove a specific cached version, or all cached versions when `version_opt` is `.None`.
 clean_version_cache :: (
   fn(
-    version_opt : Option(String),
+    imm(version_opt) : Option(String),
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -468,7 +468,7 @@ clean_version_cache :: (
 /// the arity mismatch was invisible to `check` because def-time trial
 /// failures are swallowed.)
 _http_get :: (
-  fn(url : String, io : Io) -> Impl(Future(String, IoExn))
+  fn(imm(url) : String, io : Io) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
     opts := FetchOptions.new();
@@ -497,8 +497,8 @@ _http_get :: (
 /// the status, and only a transport failure throws.
 _download_file :: (
   fn(
-    url : String,
-    dest_path : String,
+    imm(url) : String,
+    imm(dest_path) : String,
     io : Io
   ) -> Impl(Future(String, IoExn))
 )(
@@ -524,7 +524,7 @@ _ReleasePage :: struct(tags : ArrayList(String), object_count : i64);
 /// sliced out (byte-level, so non-ASCII release bodies cannot skew
 /// rune-based indices) and probed for `tag_name` / `draft` / `prerelease`.
 /// Both `"key":value` and `"key": value` spacings are handled.
-_scan_release_page :: (fn(json : String) -> _ReleasePage)({
+_scan_release_page :: (fn(imm(json) : String) -> _ReleasePage)({
   tags := ArrayList(String).new();
   object_count := i64(0);
   bytes := json.to_bytes();
@@ -595,10 +595,10 @@ _scan_release_page :: (fn(json : String) -> _ReleasePage)({
 /// version dir and the staging dir.
 _cleanup_failed_download :: (
   fn(
-    version_dir : String,
-    tmp_path : Path,
+    imm(version_dir) : String,
+    imm(tmp_path) : Path,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -613,9 +613,9 @@ _cleanup_failed_download :: (
 /// cache it. Returns the path to the cached version directory.
 download_version :: (
   fn(
-    version : String,
+    imm(version) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -758,9 +758,9 @@ download_version :: (
 /// Returns the path to the cached version directory.
 ensure_cached_version :: (
   fn(
-    version : String,
+    imm(version) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -784,7 +784,7 @@ ensure_cached_version :: (
 fetch_remote_versions :: (
   fn(
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {

@@ -8,7 +8,7 @@
 { assert } :: import("std/assert");
 // A module-level `rc` collides with the prelude's.
 comptime_expect_error(rc :: (fn(x : i32) -> i32)(x + i32(1)));
-_apply :: (fn(rc : Impl(Fn(v : i32) -> i32), x : i32) -> i32)(rc(x));
+_apply :: (fn(imm(rc) : Impl(Fn(v : i32) -> i32), x : i32) -> i32)(rc(x));
 _status_plus_one :: (fn(rc : i32) -> i32)(rc + i32(1));
 test("the prelude rc(v) builds a cell with ref_count 1", {
   b := rc(i32(7));

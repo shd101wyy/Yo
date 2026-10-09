@@ -9,21 +9,21 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-get :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
+get :: (fn(imm(xs) : ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
 
-first :: (fn(xs : ArrayList(i32), requires(!xs.is_empty())) -> (r : i32))(get(xs, usize(0)));
+first :: (fn(imm(xs) : ArrayList(i32), requires(!xs.is_empty())) -> (r : i32))(get(xs, usize(0)));
 
-sum2 :: (fn(xs : ArrayList(i32), requires(xs.len() >= usize(2))) -> (r : i32))(xs(usize(0)) + xs(usize(1)));
+sum2 :: (fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(2))) -> (r : i32))(xs(usize(0)) + xs(usize(1)));
 
 concat_len :: (
   fn(
-    a : ArrayList(i32),
-    b : ArrayList(i32),
+    imm(a) : ArrayList(i32),
+    imm(b) : ArrayList(i32),
     ensures(r.len() == (a.len() + b.len())),
     assumed()
   ) -> (r : ArrayList(i32))
 )(a);
 
 total :: (
-  fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r == (a.len() + b.len()))) -> (r : usize)
+  fn(imm(a) : ArrayList(i32), imm(b) : ArrayList(i32), ensures(r == (a.len() + b.len()))) -> (r : usize)
 )(concat_len(a, b).len());

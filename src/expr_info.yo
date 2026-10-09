@@ -89,7 +89,7 @@ path_collection_new :: (fn() -> PathCollection)(
 ///   path_contains_path(["x", "a"], ["x"])     => true
 ///   path_contains_path(["x", "a"], ["x", "a"]) => true
 ///   path_contains_path(["x", "a"], ["y"])     => false
-path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) -> bool)({
+path_contains_path :: (fn(imm(path1) : ArrayList(String), imm(path2) : ArrayList(String)) -> bool)({
   n1 := path1.len();
   n2 := path2.len();
   if(n1 < n2, {
@@ -109,7 +109,7 @@ path_contains_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) 
 /// True if `path1` and `path2` are in conflict: one is a prefix of the other.
 ///
 ///
-path_conflicts_with_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(String)) -> bool)(
+path_conflicts_with_path :: (fn(imm(path1) : ArrayList(String), imm(path2) : ArrayList(String)) -> bool)(
   path_contains_path(path2, path1) || path_contains_path(path1, path2)
 );
 /// True if any path in `c1` conflicts with any path in `c2`.
@@ -117,8 +117,8 @@ path_conflicts_with_path :: (fn(path1 : ArrayList(String), path2 : ArrayList(Str
 ///
 path_collection_conflicts_with_path_collection :: (
   fn(
-    c1 : ArrayList(ArrayList(String)),
-    c2 : ArrayList(ArrayList(String))
+    imm(c1) : ArrayList(ArrayList(String)),
+    imm(c2) : ArrayList(ArrayList(String))
   ) -> bool
 )({
   n1 := c1.len();
@@ -224,7 +224,7 @@ has_any_control_flow :: (fn(cf : Option(ControlFlowFlags)) -> bool)({
 /// Union multiple ControlFlowFlags into one (OR of all flags).
 ///
 ///
-merge_control_flows :: (fn(flows : ArrayList(ControlFlowFlags)) -> ControlFlowFlags)({
+merge_control_flows :: (fn(imm(flows) : ArrayList(ControlFlowFlags)) -> ControlFlowFlags)({
   r := false;
   e := false;
   b := false;
@@ -440,14 +440,14 @@ ExprInfo :: ref(
 /// keep the old snapshot. Emission stays byte-identical to the pre-sharing
 /// compiler; only never-adopted snapshots stay shared.
 (g_adopt_env_calls : usize) = usize(0);
-expr_info_adopt_env :: (fn(info : ExprInfo) -> Environment)({
+expr_info_adopt_env :: (fn(imm(info) : ExprInfo) -> Environment)({
   g_adopt_env_calls = (g_adopt_env_calls + usize(1));
   fresh := snapshot_env(info.env);
   info.env = fresh;
   fresh
 });
 /// Create an ExprInfo with the three required fields and all optional fields set to `.None`.
-new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
+new_expr_info :: (fn(imm(env) : Environment, imm(ty) : TypeValue) -> ExprInfo)(
   ExprInfo(
     // Snapshot the env's frame LIST (shallow — shares Frame refs) so this
     // recorded env reflects the scope at evaluation time and survives a later
@@ -485,7 +485,7 @@ new_expr_info :: (fn(env : Environment, ty : TypeValue) -> ExprInfo)(
 /// choice, so fields codegen reads on the inner node's shape (source_variable,
 /// origin_type, early_return_only drops, the rare group's converted type /
 /// dyn traits / async analysis, ...) survive without per-field carries.
-clone_expr_info_for_shared_begin_result :: (fn(src : ExprInfo, env : Environment, ty : TypeValue) -> ExprInfo)(
+clone_expr_info_for_shared_begin_result :: (fn(imm(src) : ExprInfo, imm(env) : Environment, imm(ty) : TypeValue) -> ExprInfo)(
   ExprInfo(
     env : expr_info_env_snapshot(env),
     ty : ty,
@@ -505,7 +505,7 @@ clone_expr_info_for_shared_begin_result :: (fn(src : ExprInfo, env : Environment
 // ExprInfoRare accessors
 /// Deep-copy a rare group (field values by handle) so a cloned ExprInfo does
 /// not share its rare slots with the source.
-_clone_expr_info_rare :: (fn(r : Option(ExprInfoRare)) -> Option(ExprInfoRare))(
+_clone_expr_info_rare :: (fn(imm(r) : Option(ExprInfoRare)) -> Option(ExprInfoRare))(
   match(
     r,
     .None => Option(ExprInfoRare).None,
@@ -542,7 +542,7 @@ _clone_expr_info_rare :: (fn(r : Option(ExprInfoRare)) -> Option(ExprInfoRare))(
     )
   )
 );
-expr_info_doc_comment :: (fn(info : ExprInfo) -> Option(String))(
+expr_info_doc_comment :: (fn(imm(info) : ExprInfo) -> Option(String))(
   match(
     info.rare,
     .Some(r) => r.doc_comment,
@@ -550,7 +550,7 @@ expr_info_doc_comment :: (fn(info : ExprInfo) -> Option(String))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_doc_comment :: (fn(info : ExprInfo, v : Option(String)) -> unit)({
+expr_info_set_doc_comment :: (fn(imm(info) : ExprInfo, imm(v) : Option(String)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -558,7 +558,7 @@ expr_info_set_doc_comment :: (fn(info : ExprInfo, v : Option(String)) -> unit)({
   r.doc_comment = v;
   ()
 });
-expr_info_deferred_dup_expressions :: (fn(info : ExprInfo) -> Option(ArrayList(AstExpr)))(
+expr_info_deferred_dup_expressions :: (fn(imm(info) : ExprInfo) -> Option(ArrayList(AstExpr)))(
   match(
     info.rare,
     .Some(r) => r.deferred_dup_expressions,
@@ -566,7 +566,7 @@ expr_info_deferred_dup_expressions :: (fn(info : ExprInfo) -> Option(ArrayList(A
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_deferred_dup_expressions :: (fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit)({
+expr_info_set_deferred_dup_expressions :: (fn(imm(info) : ExprInfo, imm(v) : Option(ArrayList(AstExpr))) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -574,7 +574,7 @@ expr_info_set_deferred_dup_expressions :: (fn(info : ExprInfo, v : Option(ArrayL
   r.deferred_dup_expressions = v;
   ()
 });
-expr_info_capture_field_inits :: (fn(info : ExprInfo) -> Option(ArrayList(CaptureFieldInit)))(
+expr_info_capture_field_inits :: (fn(imm(info) : ExprInfo) -> Option(ArrayList(CaptureFieldInit)))(
   match(
     info.rare,
     .Some(r) => r.capture_field_inits,
@@ -582,7 +582,7 @@ expr_info_capture_field_inits :: (fn(info : ExprInfo) -> Option(ArrayList(Captur
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_capture_field_inits :: (fn(info : ExprInfo, v : Option(ArrayList(CaptureFieldInit))) -> unit)({
+expr_info_set_capture_field_inits :: (fn(imm(info) : ExprInfo, imm(v) : Option(ArrayList(CaptureFieldInit))) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -590,7 +590,7 @@ expr_info_set_capture_field_inits :: (fn(info : ExprInfo, v : Option(ArrayList(C
   r.capture_field_inits = v;
   ()
 });
-expr_info_capture_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+expr_info_capture_type :: (fn(imm(info) : ExprInfo) -> Option(TypeValue))(
   match(
     info.rare,
     .Some(r) => r.capture_type,
@@ -598,7 +598,7 @@ expr_info_capture_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_capture_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+expr_info_set_capture_type :: (fn(imm(info) : ExprInfo, imm(v) : Option(TypeValue)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -606,7 +606,7 @@ expr_info_set_capture_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> uni
   r.capture_type = v;
   ()
 });
-expr_info_macro_expansion :: (fn(info : ExprInfo) -> Option(AstExpr))(
+expr_info_macro_expansion :: (fn(imm(info) : ExprInfo) -> Option(AstExpr))(
   match(
     info.rare,
     .Some(r) => r.macro_expansion,
@@ -614,7 +614,7 @@ expr_info_macro_expansion :: (fn(info : ExprInfo) -> Option(AstExpr))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_macro_expansion :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit)({
+expr_info_set_macro_expansion :: (fn(imm(info) : ExprInfo, imm(v) : Option(AstExpr)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -622,7 +622,7 @@ expr_info_set_macro_expansion :: (fn(info : ExprInfo, v : Option(AstExpr)) -> un
   r.macro_expansion = v;
   ()
 });
-expr_info_original_expr :: (fn(info : ExprInfo) -> Option(AstExpr))(
+expr_info_original_expr :: (fn(imm(info) : ExprInfo) -> Option(AstExpr))(
   match(
     info.rare,
     .Some(r) => r.original_expr,
@@ -630,7 +630,7 @@ expr_info_original_expr :: (fn(info : ExprInfo) -> Option(AstExpr))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_original_expr :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit)({
+expr_info_set_original_expr :: (fn(imm(info) : ExprInfo, imm(v) : Option(AstExpr)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -638,7 +638,7 @@ expr_info_set_original_expr :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit
   r.original_expr = v;
   ()
 });
-expr_info_comptime_ref :: (fn(info : ExprInfo) -> Option(ComptimeRef))(
+expr_info_comptime_ref :: (fn(imm(info) : ExprInfo) -> Option(ComptimeRef))(
   match(
     info.rare,
     .Some(r) => r.comptime_ref,
@@ -646,7 +646,7 @@ expr_info_comptime_ref :: (fn(info : ExprInfo) -> Option(ComptimeRef))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_comptime_ref :: (fn(info : ExprInfo, v : Option(ComptimeRef)) -> unit)({
+expr_info_set_comptime_ref :: (fn(imm(info) : ExprInfo, imm(v) : Option(ComptimeRef)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -654,7 +654,7 @@ expr_info_set_comptime_ref :: (fn(info : ExprInfo, v : Option(ComptimeRef)) -> u
   r.comptime_ref = v;
   ()
 });
-expr_info_index_trait_ptr_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+expr_info_index_trait_ptr_type :: (fn(imm(info) : ExprInfo) -> Option(TypeValue))(
   match(
     info.rare,
     .Some(r) => r.index_trait_ptr_type,
@@ -662,7 +662,7 @@ expr_info_index_trait_ptr_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_index_trait_ptr_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+expr_info_set_index_trait_ptr_type :: (fn(imm(info) : ExprInfo, imm(v) : Option(TypeValue)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -670,7 +670,7 @@ expr_info_set_index_trait_ptr_type :: (fn(info : ExprInfo, v : Option(TypeValue)
   r.index_trait_ptr_type = v;
   ()
 });
-expr_info_index_method_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+expr_info_index_method_type :: (fn(imm(info) : ExprInfo) -> Option(TypeValue))(
   match(
     info.rare,
     .Some(r) => r.index_method_type,
@@ -678,7 +678,7 @@ expr_info_index_method_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_index_method_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+expr_info_set_index_method_type :: (fn(imm(info) : ExprInfo, imm(v) : Option(TypeValue)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -686,7 +686,7 @@ expr_info_set_index_method_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -
   r.index_method_type = v;
   ()
 });
-expr_info_index_method_value :: (fn(info : ExprInfo) -> Option(EvalValue))(
+expr_info_index_method_value :: (fn(imm(info) : ExprInfo) -> Option(EvalValue))(
   match(
     info.rare,
     .Some(r) => r.index_method_value,
@@ -694,7 +694,7 @@ expr_info_index_method_value :: (fn(info : ExprInfo) -> Option(EvalValue))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_index_method_value :: (fn(info : ExprInfo, v : Option(EvalValue)) -> unit)({
+expr_info_set_index_method_value :: (fn(imm(info) : ExprInfo, imm(v) : Option(EvalValue)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -702,7 +702,7 @@ expr_info_set_index_method_value :: (fn(info : ExprInfo, v : Option(EvalValue)) 
   r.index_method_value = v;
   ()
 });
-expr_info_is_index_trait_address_of :: (fn(info : ExprInfo) -> Option(bool))(
+expr_info_is_index_trait_address_of :: (fn(imm(info) : ExprInfo) -> Option(bool))(
   match(
     info.rare,
     .Some(r) => r.is_index_trait_address_of,
@@ -710,7 +710,7 @@ expr_info_is_index_trait_address_of :: (fn(info : ExprInfo) -> Option(bool))(
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_is_index_trait_address_of :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+expr_info_set_is_index_trait_address_of :: (fn(imm(info) : ExprInfo, v : Option(bool)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -718,7 +718,7 @@ expr_info_set_is_index_trait_address_of :: (fn(info : ExprInfo, v : Option(bool)
   r.is_index_trait_address_of = v;
   ()
 });
-expr_info_is_compile_time_only_assignment :: (fn(info : ExprInfo) -> Option(bool))(
+expr_info_is_compile_time_only_assignment :: (fn(imm(info) : ExprInfo) -> Option(bool))(
   match(
     info.rare,
     .Some(r) => r.is_compile_time_only_assignment,
@@ -726,7 +726,7 @@ expr_info_is_compile_time_only_assignment :: (fn(info : ExprInfo) -> Option(bool
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_is_compile_time_only_assignment :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+expr_info_set_is_compile_time_only_assignment :: (fn(imm(info) : ExprInfo, v : Option(bool)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -734,7 +734,7 @@ expr_info_set_is_compile_time_only_assignment :: (fn(info : ExprInfo, v : Option
   r.is_compile_time_only_assignment = v;
   ()
 });
-expr_info_is_anonymous_function_definition :: (fn(info : ExprInfo) -> Option(bool))(
+expr_info_is_anonymous_function_definition :: (fn(imm(info) : ExprInfo) -> Option(bool))(
   match(
     info.rare,
     .Some(r) => r.is_anonymous_function_definition,
@@ -742,7 +742,7 @@ expr_info_is_anonymous_function_definition :: (fn(info : ExprInfo) -> Option(boo
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_is_anonymous_function_definition :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+expr_info_set_is_anonymous_function_definition :: (fn(imm(info) : ExprInfo, v : Option(bool)) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -750,7 +750,7 @@ expr_info_set_is_anonymous_function_definition :: (fn(info : ExprInfo, v : Optio
   r.is_anonymous_function_definition = v;
   ()
 });
-expr_info_comptime_unrolled_bodies :: (fn(info : ExprInfo) -> Option(ArrayList(AstExpr)))(
+expr_info_comptime_unrolled_bodies :: (fn(imm(info) : ExprInfo) -> Option(ArrayList(AstExpr)))(
   match(
     info.rare,
     .Some(r) => r.comptime_unrolled_bodies,
@@ -758,7 +758,7 @@ expr_info_comptime_unrolled_bodies :: (fn(info : ExprInfo) -> Option(ArrayList(A
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_comptime_unrolled_bodies :: (fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit)({
+expr_info_set_comptime_unrolled_bodies :: (fn(imm(info) : ExprInfo, imm(v) : Option(ArrayList(AstExpr))) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -766,7 +766,7 @@ expr_info_set_comptime_unrolled_bodies :: (fn(info : ExprInfo, v : Option(ArrayL
   r.comptime_unrolled_bodies = v;
   ()
 });
-expr_info_early_return_only_deferred_drop_expressions :: (fn(info : ExprInfo) -> Option(ArrayList(AstExpr)))(
+expr_info_early_return_only_deferred_drop_expressions :: (fn(imm(info) : ExprInfo) -> Option(ArrayList(AstExpr)))(
   match(
     info.rare,
     .Some(r) => r.early_return_only_deferred_drop_expressions,
@@ -774,7 +774,7 @@ expr_info_early_return_only_deferred_drop_expressions :: (fn(info : ExprInfo) ->
   )
 );
 /// Skip-None setter: writing `.None` into an absent rare group is a no-op.
-expr_info_set_early_return_only_deferred_drop_expressions :: (fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit)({
+expr_info_set_early_return_only_deferred_drop_expressions :: (fn(imm(info) : ExprInfo, imm(v) : Option(ArrayList(AstExpr))) -> unit)({
   if(v.is_none() && info.rare.is_none(), {
     return(());
   });
@@ -785,7 +785,7 @@ expr_info_set_early_return_only_deferred_drop_expressions :: (fn(info : ExprInfo
 // ---------------------------------------------------------------------------
 /// Materialise `info.rare` (all fields `.None`) on first write and return it.
 /// Read paths must NOT call this — they would allocate a group for nothing.
-_expr_info_rare_for_write :: (fn(info : ExprInfo) -> ExprInfoRare)(
+_expr_info_rare_for_write :: (fn(imm(info) : ExprInfo) -> ExprInfoRare)(
   match(
     info.rare,
     .Some(r) => r,
@@ -824,21 +824,21 @@ _expr_info_rare_for_write :: (fn(info : ExprInfo) -> ExprInfoRare)(
     }
   )
 );
-expr_info_converted_runtime_type :: (fn(info : ExprInfo) -> Option(TypeValue))(
+expr_info_converted_runtime_type :: (fn(imm(info) : ExprInfo) -> Option(TypeValue))(
   match(info.rare, .Some(r) => r.converted_runtime_type, .None => Option(TypeValue).None)
 );
 expr_info_set_converted_runtime_type :: (
-  fn(info : ExprInfo, v : Option(TypeValue)) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(TypeValue)) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.converted_runtime_type = v;
 });
-expr_info_origin_type :: (fn(info : ExprInfo) -> Option(TypeValue))(info.origin_type);
-expr_info_set_origin_type :: (fn(info : ExprInfo, v : Option(TypeValue)) -> unit)({
+expr_info_origin_type :: (fn(imm(info) : ExprInfo) -> Option(TypeValue))(info.origin_type);
+expr_info_set_origin_type :: (fn(imm(info) : ExprInfo, imm(v) : Option(TypeValue)) -> unit)({
   info.origin_type = v;
 });
 expr_info_runtime_destructurings :: (
-  fn(info : ExprInfo) -> Option(ArrayList(RuntimeDestructuring))
+  fn(imm(info) : ExprInfo) -> Option(ArrayList(RuntimeDestructuring))
 )(
   match(
     info.rare,
@@ -847,13 +847,13 @@ expr_info_runtime_destructurings :: (
   )
 );
 expr_info_set_runtime_destructurings :: (
-  fn(info : ExprInfo, v : Option(ArrayList(RuntimeDestructuring))) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(ArrayList(RuntimeDestructuring))) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.runtime_destructurings = v;
 });
 expr_info_dyn_call_trait_values :: (
-  fn(info : ExprInfo) -> Option(ArrayList(EvalValue))
+  fn(imm(info) : ExprInfo) -> Option(ArrayList(EvalValue))
 )(
   match(
     info.rare,
@@ -862,27 +862,27 @@ expr_info_dyn_call_trait_values :: (
   )
 );
 expr_info_set_dyn_call_trait_values :: (
-  fn(info : ExprInfo, v : Option(ArrayList(EvalValue))) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(ArrayList(EvalValue))) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.dyn_call_trait_values = v;
 });
-expr_info_case_executed :: (fn(info : ExprInfo) -> Option(bool))(
+expr_info_case_executed :: (fn(imm(info) : ExprInfo) -> Option(bool))(
   match(info.rare, .Some(r) => r.case_executed, .None => Option(bool).None)
 );
-expr_info_set_case_executed :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+expr_info_set_case_executed :: (fn(imm(info) : ExprInfo, v : Option(bool)) -> unit)({
   r := _expr_info_rare_for_write(info);
   r.case_executed = v;
 });
-expr_info_is_primitive_match :: (fn(info : ExprInfo) -> Option(bool))(
+expr_info_is_primitive_match :: (fn(imm(info) : ExprInfo) -> Option(bool))(
   match(info.rare, .Some(r) => r.is_primitive_match, .None => Option(bool).None)
 );
-expr_info_set_is_primitive_match :: (fn(info : ExprInfo, v : Option(bool)) -> unit)({
+expr_info_set_is_primitive_match :: (fn(imm(info) : ExprInfo, v : Option(bool)) -> unit)({
   r := _expr_info_rare_for_write(info);
   r.is_primitive_match = v;
 });
 expr_info_primitive_pattern_values :: (
-  fn(info : ExprInfo) -> Option(ArrayList(Option(EvalValue)))
+  fn(imm(info) : ExprInfo) -> Option(ArrayList(Option(EvalValue)))
 )(
   match(
     info.rare,
@@ -891,13 +891,13 @@ expr_info_primitive_pattern_values :: (
   )
 );
 expr_info_set_primitive_pattern_values :: (
-  fn(info : ExprInfo, v : Option(ArrayList(Option(EvalValue)))) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(ArrayList(Option(EvalValue)))) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.primitive_pattern_values = v;
 });
 expr_info_consumed_variable_drop_expressions :: (
-  fn(info : ExprInfo) -> Option(ArrayList(AstExpr))
+  fn(imm(info) : ExprInfo) -> Option(ArrayList(AstExpr))
 )(
   match(
     info.rare,
@@ -906,19 +906,19 @@ expr_info_consumed_variable_drop_expressions :: (
   )
 );
 expr_info_set_consumed_variable_drop_expressions :: (
-  fn(info : ExprInfo, v : Option(ArrayList(AstExpr))) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(ArrayList(AstExpr))) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.consumed_variable_drop_expressions = v;
 });
-expr_info_async_stack_size :: (fn(info : ExprInfo) -> Option(AstExpr))(
+expr_info_async_stack_size :: (fn(imm(info) : ExprInfo) -> Option(AstExpr))(
   match(info.rare, .Some(r) => r.async_stack_size, .None => Option(AstExpr).None)
 );
-expr_info_set_async_stack_size :: (fn(info : ExprInfo, v : Option(AstExpr)) -> unit)({
+expr_info_set_async_stack_size :: (fn(imm(info) : ExprInfo, imm(v) : Option(AstExpr)) -> unit)({
   r := _expr_info_rare_for_write(info);
   r.async_stack_size = v;
 });
-expr_info_async_state_machine_struct_name :: (fn(info : ExprInfo) -> Option(String))(
+expr_info_async_state_machine_struct_name :: (fn(imm(info) : ExprInfo) -> Option(String))(
   match(
     info.rare,
     .Some(r) => r.async_state_machine_struct_name,
@@ -926,12 +926,12 @@ expr_info_async_state_machine_struct_name :: (fn(info : ExprInfo) -> Option(Stri
   )
 );
 expr_info_set_async_state_machine_struct_name :: (
-  fn(info : ExprInfo, v : Option(String)) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(String)) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.async_state_machine_struct_name = v;
 });
-expr_info_await_analysis :: (fn(info : ExprInfo) -> Option(AwaitAnalysisResult))(
+expr_info_await_analysis :: (fn(imm(info) : ExprInfo) -> Option(AwaitAnalysisResult))(
   match(
     info.rare,
     .Some(r) => r.await_analysis,
@@ -939,12 +939,12 @@ expr_info_await_analysis :: (fn(info : ExprInfo) -> Option(AwaitAnalysisResult))
   )
 );
 expr_info_set_await_analysis :: (
-  fn(info : ExprInfo, v : Option(AwaitAnalysisResult)) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(AwaitAnalysisResult)) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.await_analysis = v;
 });
-expr_info_effect_analysis :: (fn(info : ExprInfo) -> Option(EffectAnalysisResult))(
+expr_info_effect_analysis :: (fn(imm(info) : ExprInfo) -> Option(EffectAnalysisResult))(
   match(
     info.rare,
     .Some(r) => r.effect_analysis,
@@ -952,12 +952,12 @@ expr_info_effect_analysis :: (fn(info : ExprInfo) -> Option(EffectAnalysisResult
   )
 );
 expr_info_set_effect_analysis :: (
-  fn(info : ExprInfo, v : Option(EffectAnalysisResult)) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(EffectAnalysisResult)) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.effect_analysis = v;
 });
-expr_info_closure_function_value :: (fn(info : ExprInfo) -> Option(EvalValue))(
+expr_info_closure_function_value :: (fn(imm(info) : ExprInfo) -> Option(EvalValue))(
   match(
     info.rare,
     .Some(r) => r.closure_function_value,
@@ -965,7 +965,7 @@ expr_info_closure_function_value :: (fn(info : ExprInfo) -> Option(EvalValue))(
   )
 );
 expr_info_set_closure_function_value :: (
-  fn(info : ExprInfo, v : Option(EvalValue)) -> unit
+  fn(imm(info) : ExprInfo, imm(v) : Option(EvalValue)) -> unit
 )({
   r := _expr_info_rare_for_write(info);
   r.closure_function_value = v;
@@ -1003,7 +1003,7 @@ ScopeBound :: struct(name : String, env : Environment);
 /// A released env: the body's entry frames, marked by this frame level so a
 /// lookup knows to answer from the records.
 SCOPE_HUSK_MARK :: usize(987654321);
-_is_scope_husk :: (fn(env : Environment) -> bool)(
+_is_scope_husk :: (fn(imm(env) : Environment) -> bool)(
   match(env.function_declaration_frame_level, .Some(l) => (l == SCOPE_HUSK_MARK), .None => false)
 );
 /// Extern-C global name → its declared types (see `register_extern_c_global`).
@@ -1062,7 +1062,7 @@ _is_scope_husk :: (fn(env : Environment) -> bool)(
 (g_scope_unlogged : usize) = usize(0);
 (g_scope_logged_unreleased : usize) = usize(0);
 /// Turn the release on for `compile`'s shared table (or off with `.None`).
-scope_release_set_table :: (fn(t : Option(ExprInfoTable)) -> unit)({
+scope_release_set_table :: (fn(imm(t) : Option(ExprInfoTable)) -> unit)({
   g_scope_table = t;
   g_scope_mode = match(t, .Some(_) => g_scope_mode_wanted, .None => usize(0));
 });
@@ -1071,14 +1071,14 @@ scope_release_active :: (fn() -> bool)(g_scope_mode != usize(0));
 /// destructured field): the atom's info has no `source_variable` and its env
 /// predates the binding, while codegen resolves the name in the binding
 /// node's env. That env is kept until the release records its lookup.
-scope_release_note_binding :: (fn(key : ExprId, env : Environment, name : String) -> unit)(
+scope_release_note_binding :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> unit)(
   if(g_scope_mode != usize(0), {
     g_scope_bound.insert(key, ScopeBound(name : name, env : expr_info_env_snapshot(env)));
   })
 );
 /// Shadow mode: a whole-env read (`kind`) keyed by `key`; counted apart
 /// by whether `key`'s env is released.
-scope_release_note_hard :: (fn(kind : String, key : ExprId) -> unit)(
+scope_release_note_hard :: (fn(imm(kind) : String, key : ExprId) -> unit)(
   if(g_scope_mode == usize(1), {
     k := if(g_scope_husks.contains_key(key), `hard-released/${kind}`, `hard-kept/${kind}`);
     mp := match(g_scope_mm_kinds.get(k.clone()), .Some(c) => c, .None => usize(0));
@@ -1088,7 +1088,7 @@ scope_release_note_hard :: (fn(kind : String, key : ExprId) -> unit)(
 /// Codegen looks a property atom's own token up through it (an extern C
 /// global read as `c.stdout`, the state-machine liveness walk over every
 /// atom), and its info names nothing, so the release records that name.
-scope_release_note_query :: (fn(key : ExprId, name : String) -> unit)(
+scope_release_note_query :: (fn(key : ExprId, imm(name) : String) -> unit)(
   if(g_scope_mode != usize(0), {
     g_scope_queried.insert(key, name);
   })
@@ -1097,7 +1097,7 @@ scope_release_note_query :: (fn(key : ExprId, name : String) -> unit)(
 scope_release_mode :: (fn() -> usize)(g_scope_mode);
 /// Shadow mode: a site that answers from records at the decision level
 /// reports a decision that differs from the env's.
-scope_release_note_mismatch :: (fn(kind : String) -> unit)({
+scope_release_note_mismatch :: (fn(imm(kind) : String) -> unit)({
   g_scope_mismatch = (g_scope_mismatch + usize(1));
   mp := match(g_scope_mm_kinds.get(kind.clone()), .Some(c) => c, .None => usize(0));
   g_scope_mm_kinds.insert(kind, mp + usize(1));
@@ -1107,7 +1107,7 @@ scope_release_set_depth :: (fn(d : usize) -> unit)({
   g_scope_depth = d;
 });
 scope_release_mark :: (fn() -> usize)(g_scope_log_ids.len());
-_scope_log :: (fn(id : ExprId, info : ExprInfo) -> unit)(
+_scope_log :: (fn(id : ExprId, imm(info) : ExprInfo) -> unit)(
   if((g_scope_mode != usize(0)) && (g_scope_depth > usize(0)), {
     g_scope_log_infos.push(info);
     g_scope_log_ids.push(id);
@@ -1118,7 +1118,7 @@ _scope_log :: (fn(id : ExprId, info : ExprInfo) -> unit)(
 );
 /// The target atom of a deferred drop/dup: `___drop(x)` / `___dup(x)`
 /// (first argument) or `(x.___drop)()` (the receiver).
-_drop_target_atom_of :: (fn(d : AstExpr) -> Option(AstExpr))(
+_drop_target_atom_of :: (fn(imm(d) : AstExpr) -> Option(AstExpr))(
   match(
     d,
     .Atom(_, _) => Option(AstExpr).None,
@@ -1132,7 +1132,7 @@ _drop_target_atom_of :: (fn(d : AstExpr) -> Option(AstExpr))(
     )
   )
 );
-_scope_target_names :: (fn(lst : Option(ArrayList(AstExpr)), inout(out) : ArrayList(String)) -> unit)(
+_scope_target_names :: (fn(imm(lst) : Option(ArrayList(AstExpr)), mut(out) : ArrayList(String)) -> unit)(
   match(
     lst,
     .Some(l) => {
@@ -1145,7 +1145,7 @@ _scope_target_names :: (fn(lst : Option(ArrayList(AstExpr)), inout(out) : ArrayL
     .None => ()
   )
 );
-_scope_same_ids :: (fn(a : ArrayList(Variable), b : ArrayList(Variable)) -> bool)({
+_scope_same_ids :: (fn(imm(a) : ArrayList(Variable), imm(b) : ArrayList(Variable)) -> bool)({
   if(a.len() != b.len(), {
     return(false);
   });
@@ -1162,7 +1162,7 @@ _scope_same_ids :: (fn(a : ArrayList(Variable), b : ArrayList(Variable)) -> bool
 /// A call through `t` asks codegen's handler-installation test, which scans
 /// the callee's whole env for the innermost frame binding the handler: a
 /// control fn, or a fn- or control-typed parameter.
-_scope_type_installs :: (fn(t : TypeValue) -> bool)(
+_scope_type_installs :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .Func({ param_types : pts, meta : m }) => {
@@ -1182,7 +1182,7 @@ _scope_type_installs :: (fn(t : TypeValue) -> bool)(
     _ => false
   )
 );
-_scope_value_installs :: (fn(v : Option(EvalValue)) -> bool)(
+_scope_value_installs :: (fn(imm(v) : Option(EvalValue)) -> bool)(
   match(
     v,
     .Some(fv) => match(
@@ -1196,10 +1196,10 @@ _scope_value_installs :: (fn(v : Option(EvalValue)) -> bool)(
 /// `id`'s env is read whole by the handler-installation test, so it is kept:
 /// a callee whose type or value installs a handler, or a method call whose
 /// resolved method does.
-_scope_keeps_env :: (fn(id : ExprId, info : ExprInfo) -> bool)(
+_scope_keeps_env :: (fn(id : ExprId, imm(info) : ExprInfo) -> bool)(
   _scope_type_installs(info.ty) || _scope_value_installs(info.value) || _scope_value_installs(lookup_method_callee_value(id))
 );
-scope_release_body :: (fn(mark : usize, entry : Environment) -> unit)({
+scope_release_body :: (fn(mark : usize, imm(entry) : Environment) -> unit)({
   husk := Environment(frames : copy_env_frames(entry), module_path : entry.module_path.clone(), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), input_string : entry.input_string.clone(), frozen : true);
   (i : usize) = mark;
   while(i < g_scope_log_ids.len(), {
@@ -1341,7 +1341,7 @@ _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
   out
 });
 /// Append each of `vs` not already in `into` (by id).
-_scope_push_new :: (fn(inout(into) : ArrayList(Variable), vs : ArrayList(Variable)) -> unit)({
+_scope_push_new :: (fn(mut(into) : ArrayList(Variable), imm(vs) : ArrayList(Variable)) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
     v := vs.get(i).unwrap();
@@ -1351,7 +1351,7 @@ _scope_push_new :: (fn(inout(into) : ArrayList(Variable), vs : ArrayList(Variabl
     i = (i + usize(1));
   });
 });
-_scope_has_id :: (fn(vs : ArrayList(Variable), id : usize) -> bool)({
+_scope_has_id :: (fn(imm(vs) : ArrayList(Variable), id : usize) -> bool)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
     if(vs.get(i).unwrap().id == id, {
@@ -1362,7 +1362,7 @@ _scope_has_id :: (fn(vs : ArrayList(Variable), id : usize) -> bool)({
   false
 });
 /// What the records say for (`key`, `name`); `husk` is the body's entry env.
-_scope_record_answer :: (fn(key : ExprId, husk : Environment, name : String) -> ArrayList(Variable))({
+_scope_record_answer :: (fn(key : ExprId, imm(husk) : Environment, imm(name) : String) -> ArrayList(Variable))({
   info_opt := match(g_scope_table, .Some(t) => t.data.*.get(key), .None => Option(ExprInfo).None);
   match(
     info_opt,
@@ -1427,10 +1427,10 @@ _scope_record_answer :: (fn(key : ExprId, husk : Environment, name : String) -> 
   );
   base
 });
-type_to_string_short :: (fn(ki : Option(ExprInfo)) -> String)(
+type_to_string_short :: (fn(imm(ki) : Option(ExprInfo)) -> String)(
   match(ki, .Some(k) => match(k.value, .Some(_) => String.from("ct"), .None => String.from("rt")), .None => String.from("none"))
 );
-_scope_shadow_lookup :: (fn(key : ExprId, env : Environment, name : String) -> ArrayList(Variable))({
+_scope_shadow_lookup :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> ArrayList(Variable))({
   truth := get_variables_from_env(env, name);
   g_scope_calls = (g_scope_calls + usize(1));
   // Released only while the table still holds the object that was released:
@@ -1504,7 +1504,7 @@ expr_info_table_new :: (fn() -> ExprInfoTable)(
 /// out sharing `g_empty_path_collection`, so a site about to PUSH a path must
 /// call this first. Detects the shared instance by POINTER identity and swaps in
 /// a private list. Reads can use the field directly.
-expr_info_paths_for_write :: (fn(info : ExprInfo) -> PathCollection)({
+expr_info_paths_for_write :: (fn(imm(info) : ExprInfo) -> PathCollection)({
   cond(
     unsafe(__yo_ptr_eq(info.path_collection, g_empty_path_collection)) => {
       info.path_collection = path_collection_new();
@@ -1540,14 +1540,14 @@ set_name_path_sharing :: (fn(on : bool) -> unit)({
     g_name_path_collections.clear();
   });
 });
-_fresh_name_path_collection :: (fn(name : String) -> PathCollection)({
+_fresh_name_path_collection :: (fn(imm(name) : String) -> PathCollection)({
   p := ArrayList(String).new();
   p.push(name);
   pc := path_collection_new();
   pc.push(p);
   pc
 });
-path_collection_of_name :: (fn(name : String) -> PathCollection)(
+path_collection_of_name :: (fn(imm(name) : String) -> PathCollection)(
   if(
     !g_share_name_paths,
     _fresh_name_path_collection(name),
@@ -1562,7 +1562,7 @@ path_collection_of_name :: (fn(name : String) -> PathCollection)(
     )
   )
 );
-expr_info_table_set :: (fn(table : ExprInfoTable, id : ExprId, info : ExprInfo) -> unit)({
+expr_info_table_set :: (fn(imm(table) : ExprInfoTable, id : ExprId, imm(info) : ExprInfo) -> unit)({
   _scope_log(id, info);
   // §0.4' probe (YO_TYPE_INTERN_PROBE=1): an ExprInfo becomes RETAINED here,
   // which is the population being sized. Deliberately NOT in `new_expr_info`
@@ -1590,14 +1590,14 @@ codegen_read_log_set :: (fn(on : bool) -> unit)({
   g_codegen_read_log_on = on;
 });
 codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys);
-_logged_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
+_logged_table_get :: (fn(imm(table) : ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
   _i := g_codegen_read_keys.insert(id);
   table.data.*.get(id)
 });
 /// Retrieve the ExprInfo for the given expression id, or None. Stays
 /// expression-bodied: a block body on this hot accessor's shape is what
 /// made `new_expr_info` 8x slower (see `expr_info_table_set`).
-expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
+expr_info_table_get :: (fn(imm(table) : ExprInfoTable, id : ExprId) -> Option(ExprInfo))(
   cond(
     g_codegen_read_log_on => _logged_table_get(table, id),
     true => table.data.*.get(id)
@@ -1605,7 +1605,7 @@ expr_info_table_get :: (fn(table : ExprInfoTable, id : ExprId) -> Option(ExprInf
 );
 /// Drop every entry whose key `keep` does not hold; returns how many went.
 /// The Phase 0 step 3 upper-bound experiment (`YO_CODEGEN_KEEP`).
-expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize)) -> usize)({
+expr_info_table_retain_keys :: (fn(imm(table) : ExprInfoTable, imm(keep) : HashSet(usize)) -> usize)({
   data := table.data;
   before := data.*.len();
   data.*.retain((k, _v) => keep.contains(k));
@@ -1630,7 +1630,7 @@ expr_info_table_retain_keys :: (fn(table : ExprInfoTable, keep : HashSet(usize))
 // ---------------------------------------------------------------------------
 (g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
 /// Record the resolved method `Func` type for a method-call expr id.
-record_method_callee_type :: (fn(call_id : ExprId, ty : TypeValue) -> unit)({
+record_method_callee_type :: (fn(call_id : ExprId, imm(ty) : TypeValue) -> unit)({
   record_owned_expr_id(call_id);
   g_method_callee_types.insert(call_id, ty);
   ()
@@ -1656,17 +1656,17 @@ lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
 // ---------------------------------------------------------------------------
 (g_io_builtin_struct_fields : HashMap(String, String)) = HashMap(String, String).new();
 /// Record that `struct_id`.`field_label` holds an io-builtin function.
-record_io_builtin_struct_field :: (fn(struct_id : String, field_label : String, marker : String) -> unit)({
+record_io_builtin_struct_field :: (fn(imm(struct_id) : String, imm(field_label) : String, imm(marker) : String) -> unit)({
   g_io_builtin_struct_fields.insert(`${struct_id}\n${field_label}`, marker);
   ()
 });
 /// Look up the io-builtin marker for `struct_id`.`field_label`, if any.
-lookup_io_builtin_struct_field :: (fn(struct_id : String, field_label : String) -> Option(String))(
+lookup_io_builtin_struct_field :: (fn(imm(struct_id) : String, imm(field_label) : String) -> Option(String))(
   g_io_builtin_struct_fields.get(`${struct_id}\n${field_label}`)
 );
 (g_io_builtin_calls : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
 /// Record the io-builtin marker for a call expr id.
-record_io_builtin_call :: (fn(call_id : ExprId, marker : String) -> unit)({
+record_io_builtin_call :: (fn(call_id : ExprId, imm(marker) : String) -> unit)({
   record_owned_expr_id(call_id);
   g_io_builtin_calls.insert(call_id, marker);
   ()
@@ -1683,7 +1683,7 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 // `<specialized_c_name>(args)`.
 // (`g_method_callee_values` is declared above the scope-release block, which reads it.)
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
-record_method_callee_value :: (fn(call_id : ExprId, v : EvalValue) -> unit)({
+record_method_callee_value :: (fn(call_id : ExprId, imm(v) : EvalValue) -> unit)({
   record_owned_expr_id(call_id);
   g_method_callee_values.insert(call_id, v);
   ()
@@ -1696,7 +1696,7 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 /// node `lhs_id`: codegen declares it (null) beside the binding, each re-point
 /// replaces the cell it holds, and its ordinary scope-end drop releases the
 /// last one on every exit path.
-record_local_borrow_step_pin :: (fn(lhs_id : ExprId, pin : Variable) -> unit)({
+record_local_borrow_step_pin :: (fn(lhs_id : ExprId, imm(pin) : Variable) -> unit)({
   record_owned_expr_id(lhs_id);
   g_local_borrow_step_pins.insert(lhs_id, pin);
   ()
@@ -1717,7 +1717,7 @@ lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
 /// *FILE` in one, `stdout : *(void)` in another; a last-wins slot made the
 /// other module's binding stop matching and get emitted under a mangled
 /// name — plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §4 follow-up).
-_push_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
+_push_extern_c_global :: (fn(imm(name) : String, imm(ty) : TypeValue) -> unit)({
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   list := match(g_extern_c_globals.remove(name.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
@@ -1742,14 +1742,14 @@ _push_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)({
 /// binding that merely shares the name (e.g. an `errno : i32` parameter
 /// shadowing <errno.h>'s `errno : *(int)`) does not match — see
 /// get_extern_c_global_type's consumer in codegen get_variable_name_for_codegen.
-register_extern_c_global :: (fn(name : String, ty : TypeValue) -> unit)(
+register_extern_c_global :: (fn(imm(name) : String, imm(ty) : TypeValue) -> unit)(
   _push_extern_c_global(name, ty)
 );
 /// Bind the Yo name `yo_name` to the extern-C global whose C symbol is
 /// `c_name` (a destructuring rename off a `c_include` module value). The
 /// declared type travels with it so the per-resolved-variable match in
 /// codegen keeps working for the new name.
-register_extern_c_global_alias :: (fn(yo_name : String, c_name : String, ty : TypeValue) -> unit)({
+register_extern_c_global_alias :: (fn(imm(yo_name) : String, imm(c_name) : String, imm(ty) : TypeValue) -> unit)({
   _push_extern_c_global(yo_name.clone(), ty);
   g_extern_c_global_c_names.insert(yo_name, c_name);
   ()
@@ -1758,26 +1758,26 @@ register_extern_c_global_alias :: (fn(yo_name : String, c_name : String, ty : Ty
 /// alias target, or `yo_name` itself when it was never renamed.
 /// Returns a CLONE (never the registry's own String — a caller that appends
 /// to it in place would corrupt the stored name).
-extern_c_global_c_name :: (fn(yo_name : String) -> String)(
+extern_c_global_c_name :: (fn(imm(yo_name) : String) -> String)(
   match(g_extern_c_global_c_names.get(yo_name.clone()), .Some(c) => c.clone(), .None => yo_name)
 );
 /// Every declared type recorded for the extern-C global `name` (empty when
 /// the name was never declared). Consumers match a resolved binding against
 /// this list by `type_key`.
-get_extern_c_global_types :: (fn(name : String) -> ArrayList(TypeValue))(
+get_extern_c_global_types :: (fn(imm(name) : String) -> ArrayList(TypeValue))(
   match(g_extern_c_globals.get(name), .Some(l) => l, .None => ArrayList(TypeValue).new())
 );
 /// True if `name` is a c_include'd extern-C global symbol (name-only check).
-is_extern_c_global :: (fn(name : String) -> bool)(
+is_extern_c_global :: (fn(imm(name) : String) -> bool)(
   g_extern_c_globals.get(name).is_some()
 );
 /// Record `sns_id` as the id of a `c_include(...)` module value.
-register_extern_c_module_id :: (fn(sns_id : String) -> unit)({
+register_extern_c_module_id :: (fn(imm(sns_id) : String) -> unit)({
   g_extern_c_module_ids.insert(sns_id);
   ()
 });
 /// True if `sns_id` names a `c_include(...)` module value.
-is_extern_c_module_id :: (fn(sns_id : String) -> bool)(
+is_extern_c_module_id :: (fn(imm(sns_id) : String) -> bool)(
   g_extern_c_module_ids.contains(sns_id)
 );
 /// Registry of module-level RUNTIME globals, keyed "module_path|#|name".
@@ -1810,7 +1810,7 @@ is_extern_c_module_id :: (fn(sns_id : String) -> bool)(
 /// declaration (one spelling) from the reads (the other). Strip the scheme
 /// and absolutize relative paths against the CWD (the loader folds `.`/`..`
 /// itself via `Path.normalize`, so neither spelling carries them).
-_mg_canon :: (fn(module_path : String) -> String)({
+_mg_canon :: (fn(imm(module_path) : String) -> String)({
   // Normalize separators and the two absolute spellings so record/lookup
   // agree on every platform. Windows mixed forms measured diverging
   // (2026-09-03, PR #396's windows legs): `file:///C:/a/b` strips to
@@ -1886,7 +1886,7 @@ rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
     g_mg_recording_depth = (g_mg_recording_depth - usize(1));
   });
 });
-register_module_level_global :: (fn(module_path : String, name : String) -> unit)({
+register_module_level_global :: (fn(imm(module_path) : String, imm(name) : String) -> unit)({
   mg_key := `${_mg_canon(module_path)}|#|${name}`;
   if((g_mg_recording_depth > usize(0)) && g_module_level_globals.get(mg_key.clone()).is_none(), {
     g_mg_recorded_keys.push(mg_key.clone());
@@ -1896,24 +1896,24 @@ register_module_level_global :: (fn(module_path : String, name : String) -> unit
 });
 /// True if module `module_path` declared the module-level runtime global
 /// `name`.
-is_module_level_global :: (fn(module_path : String, name : String) -> bool)(
+is_module_level_global :: (fn(imm(module_path) : String, imm(name) : String) -> bool)(
   g_module_level_globals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
 );
 /// The C-name suffix for a module-level global declared in `module_path`
 /// (`_m<hash_one-of-canonical-path>`). Hashes the CANONICAL path so the
 /// declaration and every read agree on the suffix regardless of which
 /// spelling the resolved variable's token carries.
-module_global_c_suffix :: (fn(module_path : String) -> String)({
+module_global_c_suffix :: (fn(imm(module_path) : String) -> String)({
   cp := _mg_canon(module_path);
   `_m${hash_one(cp)}`
 });
 /// Record that module `module_path` declared the thread-local `name`.
-register_thread_local :: (fn(module_path : String, name : String) -> unit)({
+register_thread_local :: (fn(imm(module_path) : String, imm(name) : String) -> unit)({
   g_thread_locals.insert(`${_mg_canon(module_path)}|#|${name}`, true);
   ()
 });
 /// True if module `module_path` declared `name` as a thread-local.
-is_thread_local :: (fn(module_path : String, name : String) -> bool)(
+is_thread_local :: (fn(imm(module_path) : String, imm(name) : String) -> bool)(
   g_thread_locals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
 );
 /// A SomeT's resolution: the one it carries on the value (`SomeT.resolution`,
@@ -1924,7 +1924,7 @@ is_thread_local :: (fn(module_path : String, name : String) -> bool)(
 /// specializations; each writer now builds the resolution onto the value
 /// (`t_with_resolution`) or records it on the binding that resolves the binder
 /// (`variable_bound_some_id`).
-some_resolution :: (fn(t : TypeValue) -> Option(TypeValue))(
+some_resolution :: (fn(imm(t) : TypeValue) -> Option(TypeValue))(
   match(
     t,
     .SomeT({ resolution : sr_r }) => sr_r,
@@ -1991,14 +1991,14 @@ BranchInitRecord :: ref(
 record_flow_event :: (
   fn(
     var_id : usize,
-    ty : TypeValue,
-    capture : Option(TypeValue),
+    imm(ty) : TypeValue,
+    imm(capture) : Option(TypeValue),
     kind : FlowEventKind,
-    token : Token,
-    before_init : Option(Token),
-    before_consumed : Option(Token),
-    after_init : Option(Token),
-    after_consumed : Option(Token)
+    imm(token) : Token,
+    imm(before_init) : Option(Token),
+    imm(before_consumed) : Option(Token),
+    imm(after_init) : Option(Token),
+    imm(after_consumed) : Option(Token)
   ) -> unit
 )({
   idx := g_branch_init_log.len();
@@ -2022,7 +2022,7 @@ record_flow_event :: (
 /// An assignment: the variable is initialized (its first initialization's
 /// token is kept) and no longer moved-from.
 record_branch_init :: (
-  fn(var_id : usize, ty : TypeValue, capture : Option(TypeValue), token : Token, before_init : Option(Token), before_consumed : Option(Token)) -> unit
+  fn(var_id : usize, imm(ty) : TypeValue, imm(capture) : Option(TypeValue), imm(token) : Token, imm(before_init) : Option(Token), imm(before_consumed) : Option(Token)) -> unit
 )(
   record_flow_event(
     var_id,
@@ -2037,7 +2037,7 @@ record_branch_init :: (
   )
 );
 /// A move of a user-named variable.
-record_branch_consume :: (fn(var_id : usize, token : Token, before_init : Option(Token), before_consumed : Option(Token)) -> unit)(
+record_branch_consume :: (fn(var_id : usize, imm(token) : Token, imm(before_init) : Option(Token), imm(before_consumed) : Option(Token)) -> unit)(
   record_flow_event(var_id, TypeValue.Unit, Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
 );
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
@@ -2049,7 +2049,7 @@ get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_i
 /// process-wide table keyed by arm id that nothing emptied outside the LSP
 /// purge: 81 K entries at exit on `check src/main.yo`, every one dead once
 /// its construct returned (plans/EVALUATOR_MEMORY_REDUCTION.md §0.21).
-push_arm_init_range :: (fn(inout(ranges) : ArrayList(usize), arm_expr_id : usize, start : usize, end : usize) -> unit)({
+push_arm_init_range :: (fn(mut(ranges) : ArrayList(usize), arm_expr_id : usize, start : usize, end : usize) -> unit)({
   ranges.push(arm_expr_id);
   ranges.push(start);
   ranges.push(end);
@@ -2057,7 +2057,7 @@ push_arm_init_range :: (fn(inout(ranges) : ArrayList(usize), arm_expr_id : usize
 /// The position of the arm body `arm_expr_id`'s triple in `ranges` (its
 /// window is `ranges[p + 1] .. ranges[p + 2]`). The last one wins, as the
 /// table's `insert` did. Arms are few; a scan beats hashing.
-arm_init_range_in :: (fn(ranges : ArrayList(usize), arm_expr_id : usize) -> Option(usize))({
+arm_init_range_in :: (fn(imm(ranges) : ArrayList(usize), arm_expr_id : usize) -> Option(usize))({
   (found : Option(usize)) = Option(usize).None;
   (k : usize) = ranges.len();
   while((k >= usize(3)) && found.is_none(), {
@@ -2118,7 +2118,7 @@ truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
 /// at spec time T is bound concrete so the SomeT walk's trait filter no
 /// longer applies). Stack of id lists; the TOP is the active spec's set, empty = none.
 (g_active_where_trait_ids : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
-push_active_where_trait_ids :: (fn(ids : ArrayList(String)) -> unit)({
+push_active_where_trait_ids :: (fn(imm(ids) : ArrayList(String)) -> unit)({
   g_active_where_trait_ids.push(ids);
 });
 pop_active_where_trait_ids :: (fn() -> unit)({
@@ -2141,7 +2141,7 @@ take_active_where_trait_ids :: (fn() -> ArrayList(ArrayList(String)))({
   g_active_where_trait_ids = ArrayList(ArrayList(String)).new();
   saved
 });
-restore_active_where_trait_ids :: (fn(saved : ArrayList(ArrayList(String))) -> unit)({
+restore_active_where_trait_ids :: (fn(imm(saved) : ArrayList(ArrayList(String))) -> unit)({
   g_active_where_trait_ids = saved;
   ()
 });
@@ -2262,12 +2262,12 @@ first_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Optio
   );
   found
 });
-register_struct_ctor_fid :: (fn(struct_id : String, ctor_fid : String) -> unit)({
+register_struct_ctor_fid :: (fn(imm(struct_id) : String, imm(ctor_fid) : String) -> unit)({
   g_struct_ctor_fids.insert(struct_id, ctor_fid);
   ()
 });
 /// The constructor funcId stamped for `struct_id`, if any.
-lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
+lookup_struct_ctor_fid :: (fn(imm(struct_id) : String) -> Option(String))(
   g_struct_ctor_fids.get(struct_id)
 );
 /// Trait counterpart of the struct ctor-fid table. The generic-impl
@@ -2278,7 +2278,7 @@ lookup_struct_ctor_fid :: (fn(struct_id : String) -> Option(String))(
 /// First stamp wins.
 (g_trait_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the constructor funcId for the trait with `trait_id` (first wins).
-register_trait_ctor_fid :: (fn(trait_id : String, ctor_fid : String) -> unit)({
+register_trait_ctor_fid :: (fn(imm(trait_id) : String, imm(ctor_fid) : String) -> unit)({
   match(
     g_trait_ctor_fids.get(trait_id.clone()),
     .Some(_) => (),
@@ -2288,14 +2288,14 @@ register_trait_ctor_fid :: (fn(trait_id : String, ctor_fid : String) -> unit)({
   );
 });
 /// The constructor funcId stamped for `trait_id`, if any.
-lookup_trait_ctor_fid :: (fn(trait_id : String) -> Option(String))(
+lookup_trait_ctor_fid :: (fn(imm(trait_id) : String) -> Option(String))(
   g_trait_ctor_fids.get(trait_id)
 );
 /// Effective constructor func_id of a struct type: the carried
 /// `constructor_func_id`, falling back to the id-keyed stamp table (a
 /// self-recursive shell or memoized instantiation may predate the ctor
 /// stamp — the same recovery the synthesizer's struct-struct unify uses).
-struct_effective_ctor_fid :: (fn(ty : TypeValue) -> String)(
+struct_effective_ctor_fid :: (fn(imm(ty) : TypeValue) -> String)(
   match(
     ty,
     .Struct({ id : ec_sid, constructor_func_id : ec_cfid }) => cond(
@@ -2309,7 +2309,7 @@ struct_effective_ctor_fid :: (fn(ty : TypeValue) -> String)(
 /// SomeTs, and none hiding in `type_arguments` (which `get_all_some_types`
 /// does NOT walk — the pattern-era instances of the Gap-6 split carry their
 /// unresolved `T#N` ONLY there).
-struct_fully_concrete_instance :: (fn(ty : TypeValue) -> bool)({
+struct_fully_concrete_instance :: (fn(imm(ty) : TypeValue) -> bool)({
   if(get_all_some_types(ty).len() > usize(0), {
     return(false);
   });
@@ -2334,7 +2334,7 @@ struct_fully_concrete_instance :: (fn(ty : TypeValue) -> bool)({
 /// per-call, receiver-derived canonicalization of Gap-6 attempt #8(a).
 /// `.None` when no swap applies (keep the original).
 adopt_receiver_struct_instance :: (
-  fn(ret : TypeValue, recv : TypeValue) -> Option(TypeValue)
+  fn(imm(ret) : TypeValue, imm(recv) : TypeValue) -> Option(TypeValue)
 )({
   ret_cfid := struct_effective_ctor_fid(ret);
   if(ret_cfid.len() == usize(0), {
@@ -2399,20 +2399,20 @@ adopt_receiver_struct_instance :: (
 (g_fid_rtcalls : HashMap(String, usize)) = HashMap(String, usize).new();
 (g_fid_specs : HashMap(String, usize)) = HashMap(String, usize).new();
 /// Count a runtime call dispatch for `fid`.
-record_fid_rtcall :: (fn(fid : String) -> unit)({
+record_fid_rtcall :: (fn(imm(fid) : String) -> unit)({
   n := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
   g_fid_rtcalls.insert(fid, n + usize(1));
   ()
 });
 /// Count a successful call-site specialization of `fid`.
-record_fid_spec :: (fn(fid : String) -> unit)({
+record_fid_spec :: (fn(imm(fid) : String) -> unit)({
   n := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
   g_fid_specs.insert(fid, n + usize(1));
   ()
 });
 /// True when every counted runtime call of `fid` was specialized (and at
 /// least one was) — the original body is dead and must not be emitted.
-fid_fully_specialized :: (fn(fid : String) -> bool)({
+fid_fully_specialized :: (fn(imm(fid) : String) -> bool)({
   specs := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
   calls := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
   (specs > usize(0)) && (specs >= calls)
@@ -2437,19 +2437,19 @@ fid_fully_specialized :: (fn(fid : String) -> bool)({
 /// (issues/fixed/an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md).
 HollowBodyError :: struct(message : String, diagnostics : ArrayList(Diagnostic));
 (g_hollow_body_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
-record_hollow_body_error :: (fn(site : String, message : String, diagnostics : ArrayList(Diagnostic)) -> unit)({
+record_hollow_body_error :: (fn(imm(site) : String, imm(message) : String, imm(diagnostics) : ArrayList(Diagnostic)) -> unit)({
   g_hollow_body_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
   ()
 });
 /// A body's definition succeeded after all (a later trial of the same body):
 /// forget what an earlier trial recorded.
-clear_hollow_body_error :: (fn(site : String) -> unit)({
+clear_hollow_body_error :: (fn(imm(site) : String) -> unit)({
   if(g_hollow_body_errors.len() > usize(0), {
     _removed := g_hollow_body_errors.remove(site);
   });
   ()
 });
-lookup_hollow_body_error :: (fn(site : String) -> Option(HollowBodyError))(g_hollow_body_errors.get(site));
+lookup_hollow_body_error :: (fn(imm(site) : String) -> Option(HollowBodyError))(g_hollow_body_errors.get(site));
 /// The error a GENERIC body's definition-time trial swallowed and kept, keyed
 /// by the body's source position (`module:row:col`): the trial ran with the
 /// type variables abstract, so a call may still resolve it
@@ -2458,38 +2458,38 @@ lookup_hollow_body_error :: (fn(site : String) -> Option(HollowBodyError))(g_hol
 /// a specialization reaches emission hollow and reports it instead of an
 /// abort stub (`codegen/functions/generation.yo`).
 /// A body's source position, the key of both tables above.
-trial_body_site :: (fn(body : AstExpr) -> String)({
+trial_body_site :: (fn(imm(body) : AstExpr) -> String)({
   tok := ast_expr_token(body);
   `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
 });
 (g_generic_trial_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
-record_generic_trial_error :: (fn(site : String, message : String, diagnostics : ArrayList(Diagnostic)) -> unit)({
+record_generic_trial_error :: (fn(imm(site) : String, imm(message) : String, imm(diagnostics) : ArrayList(Diagnostic)) -> unit)({
   g_generic_trial_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
   ()
 });
 /// A later trial of the same generic body succeeded: forget the record.
-clear_generic_trial_error :: (fn(site : String) -> unit)({
+clear_generic_trial_error :: (fn(imm(site) : String) -> unit)({
   if(g_generic_trial_errors.len() > usize(0), {
     _removed := g_generic_trial_errors.remove(site);
   });
   ()
 });
-lookup_generic_trial_error :: (fn(site : String) -> Option(HollowBodyError))(g_generic_trial_errors.get(site));
+lookup_generic_trial_error :: (fn(imm(site) : String) -> Option(HollowBodyError))(g_generic_trial_errors.get(site));
 /// Where a specialization was first requested: the call's position and the
 /// instantiation it asked for (`twice` with T = bool). Keyed by the
 /// specialization's func id; written once, by the first call that minted it.
 SpecInstantiation :: struct(call_token : Token, description : String);
 (g_spec_instantiations : HashMap(String, SpecInstantiation)) = HashMap(String, SpecInstantiation).new();
-record_spec_instantiation :: (fn(spec_fid : String, call_token : Token, description : String) -> unit)({
+record_spec_instantiation :: (fn(imm(spec_fid) : String, imm(call_token) : Token, imm(description) : String) -> unit)({
   if(g_spec_instantiations.get(spec_fid.clone()).is_none(), {
     g_spec_instantiations.insert(spec_fid, SpecInstantiation(call_token : call_token, description : description));
   });
   ()
 });
-lookup_spec_instantiation :: (fn(spec_fid : String) -> Option(SpecInstantiation))(g_spec_instantiations.get(spec_fid));
+lookup_spec_instantiation :: (fn(imm(spec_fid) : String) -> Option(SpecInstantiation))(g_spec_instantiations.get(spec_fid));
 (g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
 /// Record the expanded form for a macro-call expr id.
-record_macro_expansion :: (fn(call_id : ExprId, expanded : AstExpr) -> unit)({
+record_macro_expansion :: (fn(call_id : ExprId, imm(expanded) : AstExpr) -> unit)({
   record_owned_expr_id(call_id);
   g_macro_expansions.insert(call_id, expanded);
   ()
@@ -2509,7 +2509,7 @@ lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
 (g_module_level_init_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
 (g_module_level_init_seen : HashMap(ExprId, bool)) = HashMap(ExprId, bool).new();
 /// Record a module-level `:=` / `(x : T) = v` init expression for codegen.
-record_module_level_init_expr :: (fn(e : AstExpr) -> unit)({
+record_module_level_init_expr :: (fn(imm(e) : AstExpr) -> unit)({
   eid := ast_expr_id(e);
   already := match(g_module_level_init_seen.get(eid), .Some(_) => true, .None => false);
   if(!already, {
@@ -2532,7 +2532,7 @@ get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
 ///
 /// `YO_SCOPE_RELEASE=shadow` keeps every env and checks each answer the
 /// records would give against the env's; `=release` releases.
-scope_variables :: (fn(key : ExprId, env : Environment, name : String) -> ArrayList(Variable))(
+scope_variables :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> ArrayList(Variable))(
   cond(
     (g_scope_mode == usize(0)) => get_variables_from_env(env, name),
     (g_scope_mode == usize(1)) => _scope_shadow_lookup(key, env, name),
@@ -2707,7 +2707,7 @@ is_fnonce_post_call_release :: (fn(id : usize) -> bool)(g_fnonce_post_call_relea
 (g_node_eval_counts : HashMap(usize, usize)) = HashMap(usize, usize).new();
 (g_node_eval_labels : HashMap(usize, String)) = HashMap(usize, String).new();
 /// Count one evaluation of node `id` (no-op unless `YO_SPEC_REPORT` is set).
-record_node_eval :: (fn(id : usize, tok : Token) -> unit)({
+record_node_eval :: (fn(id : usize, imm(tok) : Token) -> unit)({
   if(!g_node_eval_counting, {
     return(());
   });
@@ -2836,7 +2836,7 @@ export(SpecInstantiation, record_spec_instantiation, lookup_spec_instantiation);
 /// `mm_invalidate_document` passes each removed module's ids
 /// (`take_owned_expr_ids`): the nodes they key died with the module
 /// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 5).
-purge_expr_side_tables :: (fn(ids : ArrayList(usize)) -> unit)({
+purge_expr_side_tables :: (fn(imm(ids) : ArrayList(usize)) -> unit)({
   (i : usize) = usize(0);
   while(i < ids.len(), {
     match(
@@ -2868,7 +2868,7 @@ _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
 /// the table. In `compile` that is the whole run (one shared table): for
 /// `src/main.yo`, 119 K entries pinning 1.56 GB of a 6.3 GB front half
 /// (plans/archive/BUILD_ON_8GB_MACHINES.md Phase 2).
-purge_executed_clone_metadata :: (fn(table : ExprInfoTable, root : AstExpr, lo : ExprId, hi : ExprId) -> unit)({
+purge_executed_clone_metadata :: (fn(imm(table) : ExprInfoTable, imm(root) : AstExpr, lo : ExprId, hi : ExprId) -> unit)({
   id := ast_expr_id(root);
   if((id < lo) || (id >= hi), {
     return(());

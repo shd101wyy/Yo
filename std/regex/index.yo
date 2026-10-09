@@ -78,7 +78,7 @@ impl(
   /// *syntax* is limited — `\1`–`\9` backreferences and `$1`–`$9`
   /// replacement references are single-digit, so groups past 9 are reachable
   /// by name (`(?<x>…)` / `\k<x>` / `${x}`) or by `RegexMatch.group(i)`.
-  new_with_flags : (fn(pattern : String, flags_str : String) -> Result(Self, RegexError))({
+  new_with_flags : (fn(imm(pattern) : String, imm(flags_str) : String) -> Result(Self, RegexError))({
     flags_result := RegexFlags.parse(flags_str);
     match(
       flags_result,
@@ -119,7 +119,7 @@ impl(
   /// Rust's `Regex::as_str`. Useful in error messages and logs; it is the
   /// SOURCE, not a canonical form, so it round-trips through `Regex.new` but
   /// says nothing about the compiled program.
-  source : (fn(self : Self) -> String)(
+  source : (fn(imm(self) : Self) -> String)(
     self._pattern
   ),
   /// Compile `pattern` with no flags — Rust's `Regex::new`, and the
@@ -129,7 +129,7 @@ impl(
   /// flagless call had to spell `Regex.new(p, "")` and a sibling `compile(p)`
   /// existed to avoid it. One name per shape, with the common shape getting
   /// the short name, removes both.
-  new : (fn(pattern : String) -> Result(Self, RegexError))(
+  new : (fn(imm(pattern) : String) -> Result(Self, RegexError))(
     Self.new_with_flags(pattern, String.from(""))
   ),
   /// Quote `s` so every character the pattern grammar treats specially
@@ -138,7 +138,7 @@ impl(
   /// other punctuation) and non-ASCII UTF-8 sequences pass through
   /// untouched, so `Regex.new(Regex.escape(s)).unwrap().is_match(s)` and
   /// round-tripping a user string through a larger pattern are both safe.
-  escape : (fn(s : String) -> String)({
+  escape : (fn(imm(s) : String) -> String)({
     metas := ArrayList(u8).new();
     metas.push(u8(92));
     metas.push(u8(94));
@@ -167,7 +167,7 @@ impl(
     });
     String.from_bytes(out)
   }),
-  _extract_substring : (fn(self : Self, bytes : String, start : usize, end_pos : usize) -> String)({
+  _extract_substring : (fn(imm(self) : Self, imm(bytes) : String, start : usize, end_pos : usize) -> String)({
     result_bytes := ArrayList(u8).with_capacity(end_pos - start);
     i := start;
     while(i < end_pos, i = (i + usize(1)), {
@@ -177,7 +177,7 @@ impl(
   }),
   // Fast-scan: find the next byte position where the literal prefix matches.
   // Returns the byte position or input_len if not found.
-  _find_prefix_pos : (fn(self : Self, input_bytes : String, from_byte : usize) -> usize)({
+  _find_prefix_pos : (fn(imm(self) : Self, imm(input_bytes) : String, from_byte : usize) -> usize)({
     prefix := self._program.literal_prefix;
     prefix_len := prefix.len();
     input_len := input_bytes.len();
@@ -227,7 +227,7 @@ impl(
 // Block 2: _build_match (depends on Block 1)
 impl(
   Regex,
-  _build_match : (fn(self : Self, slots : ArrayList(usize), input : String) -> RegexMatch)({
+  _build_match : (fn(imm(self) : Self, imm(slots) : ArrayList(usize), imm(input) : String) -> RegexMatch)({
     bytes := input;
     unset := usize.MAX;
     match_start_byte := slots(usize(0));
@@ -271,7 +271,7 @@ impl(
   /// `Pattern` impl needs for `index_in(haystack, from)`. Sticky: one
   /// anchored attempt at `from_byte`. Otherwise every rune boundary from
   /// `from_byte` on, with the same literal-prefix jump `exec` uses.
-  _find_from : (fn(self : Self, input : String, from_byte : usize) -> Option(RegexMatch))({
+  _find_from : (fn(imm(self) : Self, imm(input) : String, from_byte : usize) -> Option(RegexMatch))({
     bytes := input;
     input_len := bytes.len();
     vm := NfaVm.new(self._program, self._flags, input);
@@ -322,12 +322,12 @@ impl(
   /// plus its groups) because the first is cheaper. Yo's `RegexMatch` always
   /// carries its groups — `group(i)`, `name(n)` — so there is nothing for a
   /// second method to add, and the two collapse into this one.
-  find : (fn(self : Self, input : String) -> Option(RegexMatch))(
+  find : (fn(imm(self) : Self, imm(input) : String) -> Option(RegexMatch))(
     self._find_from(input, usize(0))
   ),
   /// Every non-overlapping match, collected — Rust's `find_iter().collect()`.
   /// `find_iter` is the lazy form and is what a `for` loop should use.
-  find_all : (fn(self : Self, input : String) -> ArrayList(RegexMatch))({
+  find_all : (fn(imm(self) : Self, imm(input) : String) -> ArrayList(RegexMatch))({
     matches := ArrayList(RegexMatch).new();
     bytes := input;
     input_len := bytes.len();
@@ -451,7 +451,7 @@ impl(
   RegexMatchIter,
   Iterator(
     Item : RegexMatch,
-    next : (fn(inout(self) : Self) -> Option(RegexMatch))({
+    next : (fn(mut(self) : Self) -> Option(RegexMatch))({
       re := self._regex;
       bytes := self._input;
       input_len := bytes.len();
@@ -524,7 +524,7 @@ impl(
   /// `Iterator`) yielding the same non-overlapping matches one at a time.
   /// Works with `for m in re.find_iter(s)` and with manual `next()` loops;
   /// see the type's doc for the advance rules.
-  find_iter : (fn(self : Self, input : String) -> RegexMatchIter)({
+  find_iter : (fn(imm(self) : Self, imm(input) : String) -> RegexMatchIter)({
     vm := NfaVm.new(self._program, self._flags, input);
     // The sticky flag only matches at the start/end of previous matches —
     // the literal-prefix scan would skip legal positions, so it is off for
@@ -552,7 +552,7 @@ impl(
   /// the first match's byte offset, which is `find(input)`'s
   /// `RegexMatch.index()`, so it was a strictly-less-informative duplicate
   /// carrying a JavaScript name.
-  is_match : (fn(self : Self, input : String) -> bool)({
+  is_match : (fn(imm(self) : Self, imm(input) : String) -> bool)({
     result := self.find(input);
     result.is_some()
   })
@@ -562,7 +562,7 @@ impl(
   Regex,
   // Process replacement patterns: $& (full match), $1-$9 (groups),
   // ${name} (named groups), $` (pre-match), $' (post-match), $$ (literal $)
-  _apply_replacement : (fn(self : Self, replacement : String, m : RegexMatch) -> String)({
+  _apply_replacement : (fn(imm(self) : Self, imm(replacement) : String, imm(m) : RegexMatch) -> String)({
     rep_bytes := replacement;
     rep_len := rep_bytes.len();
     result := ArrayList(u8).new();
@@ -715,7 +715,7 @@ impl(
   ///
   /// The `g` flag does NOT change this — the engine ignores `g` entirely; the
   /// method name is the only thing that decides one-or-all.
-  replace : (fn(self : Self, input : String, replacement : String) -> String)({
+  replace : (fn(imm(self) : Self, imm(input) : String, imm(replacement) : String) -> String)({
     result := self.find(input);
     match(
       result,
@@ -757,7 +757,7 @@ impl(
   ///
   /// Builds the whole result in one pass over `input`, so it is O(input +
   /// output) rather than one string allocation per match.
-  replace_all : (fn(self : Self, input : String, replacement : String) -> String)({
+  replace_all : (fn(imm(self) : Self, imm(input) : String, imm(replacement) : String) -> String)({
     all_matches := self.find_all(input);
     cond(
       (all_matches.len() == usize(0)) => input,
@@ -799,7 +799,7 @@ impl(
   /// returns the text to splice in. The callback IS the interpretation
   /// layer — its output is inserted verbatim, with no `$1` reference
   /// processing.
-  replace_with : (fn(self : Self, input : String, f : Impl(Fn(m : RegexMatch) -> String)) -> String)({
+  replace_with : (fn(imm(self) : Self, imm(input) : String, imm(f) : Impl(Fn(imm(m) : RegexMatch) -> String)) -> String)({
     result := self.find(input);
     match(
       result,
@@ -828,7 +828,7 @@ impl(
   /// `replace_all` with the replacement computed per match by `f` — same
   /// non-overlapping-match walk as `replace_all`, same verbatim insertion
   /// rule as `replace_with`.
-  replace_all_with : (fn(self : Self, input : String, f : Impl(Fn(m : RegexMatch) -> String)) -> String)({
+  replace_all_with : (fn(imm(self) : Self, imm(input) : String, imm(f) : Impl(Fn(imm(m) : RegexMatch) -> String)) -> String)({
     all_matches := self.find_all(input);
     cond(
       (all_matches.len() == usize(0)) => input,
@@ -884,7 +884,7 @@ impl(
   /// A pattern that never matches yields `[input]` — one piece, never an empty
   /// list. This is also the body behind `String.split(re)`, so the `Pattern`
   /// dispatch inherits both behaviours.
-  split : (fn(self : Self, input : String) -> ArrayList(String))({
+  split : (fn(imm(self) : Self, imm(input) : String) -> ArrayList(String))({
     parts := ArrayList(String).new();
     all_matches := self.find_all(input);
     cond(
@@ -944,12 +944,12 @@ impl(
 impl(
   Regex,
   Pattern(
-    is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool)({
+    is_prefix_of : (fn(imm(self) : Self, imm(haystack) : String, position : usize) -> bool)({
       vm := NfaVm.new(self._program, self._flags, haystack);
       vm.exec_at(position).matched
     }),
     /// A match must END exactly at `end_position` (clamped to `len()`).
-    is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool)({
+    is_suffix_of : (fn(imm(self) : Self, imm(haystack) : String, end_position : usize) -> bool)({
       (n : usize) = haystack.len();
       (eff : usize) = if((end_position > n), n, end_position);
       ms := self.find_all(haystack);
@@ -961,21 +961,21 @@ impl(
       });
       hit
     }),
-    index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+    index_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> Option(usize))(
       match(
         self._find_from(haystack, from_index),
         .Some(m) => .Some(m.index()),
         .None => .None
       )
     ),
-    is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool)(
+    is_contained_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> bool)(
       match(
         self._find_from(haystack, from_index),
         .Some(_) => true,
         .None => false
       )
     ),
-    last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))({
+    last_index_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> Option(usize))({
       (n : usize) = haystack.len();
       (lim : usize) = if((from_index > n), n, from_index);
       ms := self.find_all(haystack);
@@ -992,7 +992,7 @@ impl(
       });
       last
     }),
-    length_in : (fn(self : Self, haystack : String, at : usize) -> usize)({
+    length_in : (fn(imm(self) : Self, imm(haystack) : String, at : usize) -> usize)({
       vm := NfaVm.new(self._program, self._flags, haystack);
       result := vm.exec_at(at);
       cond(
@@ -1000,7 +1000,7 @@ impl(
         true => usize(0)
       )
     }),
-    split_of : (fn(self : Self, haystack : String) -> ArrayList(String))(
+    split_of : (fn(imm(self) : Self, imm(haystack) : String) -> ArrayList(String))(
       self.split(haystack)
     )
   )

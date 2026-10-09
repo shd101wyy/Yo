@@ -11,11 +11,11 @@ pragma(Pragma.StrictBorrow);
 Bag :: ref(struct(items : ArrayList(i32), version : i32));
 impl(
   Bag,
-  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
-  bump_version : (fn(inout(self) : Self) -> unit)({
+  iter : (fn(imm(self) : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(mut(self) : Self) -> unit)({
     self.version = (self.version + i32(1));
   }),
-  total : (fn(self : Self) -> i32)({
+  total : (fn(imm(self) : Self) -> i32)({
     t := i32(0);
     for(self.items, x => {
       t = (t + x);
@@ -90,7 +90,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   closure_call_rejected :: (fn() -> unit)({
-    run :: (fn(xs : ArrayList(i32), f : Impl(Fn() -> unit)) -> unit)({
+    run :: (fn(imm(xs) : ArrayList(i32), imm(f) : Impl(Fn() -> unit)) -> unit)({
       for(xs, inout(x) => {
         f(); // unknown effects
       });

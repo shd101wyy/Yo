@@ -499,7 +499,7 @@ test("taking a stream moves the fd out of the Child", {
 // Dropping a taken stdin handle closes the pipe, so the child sees EOF without
 // an explicit close — `Dispose` on ChildStdin. Without it, `cat` would never
 // exit and `wait` below would hang.
-_feed_and_drop :: (fn(child : Child, payload : String, io : Io, e : IoExn) -> bool)(
+_feed_and_drop :: (fn(imm(child) : Child, imm(payload) : String, io : Io, imm(e) : IoExn) -> bool)(
   match(
     child.take_stdin(),
     .Some(w) => {

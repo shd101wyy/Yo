@@ -7,7 +7,7 @@ import("std/string");
 identity :: (
   fn(
     generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type),
-    x : F(A)
+    imm(x) : F(A)
   ) -> F(A)
 )(x);
 test("Basic HKT identity function", {
@@ -27,14 +27,14 @@ test("Basic HKT identity function", {
 // ─────────────────────────────────────────────────────
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    map : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), imm(self) : F(A), f : (fn(imm(a) : A) -> B)) -> F(B))
   )
 );
 impl(
   generic(A : Type),
   Option(A),
   Functor(Option)(
-    map : (fn(generic(A : Type, B : Type), self : Option(A), f : (fn(a : A) -> B)) -> Option(B))(
+    map : (fn(generic(A : Type, B : Type), imm(self) : Option(A), f : (fn(imm(a) : A) -> B)) -> Option(B))(
       match(
         self,
         .Some(v) => .Some(f(v)),
@@ -83,8 +83,8 @@ test("Functor map changing type", {
 do_map :: (
   fn(
     generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
-    container : F(A),
-    f : (fn(a : A) -> B),
+    imm(container) : F(A),
+    f : (fn(imm(a) : A) -> B),
     where(F(A) <: Functor(F))
   ) -> F(B)
 )(
@@ -130,14 +130,14 @@ test("Partial application Result(str, _)", {
 // ─────────────────────────────────────────────────────
 Container :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    get_value : (fn(generic(A : Type), self : F(A)) -> A)
+    get_value : (fn(generic(A : Type), imm(self) : F(A)) -> A)
   )
 );
 impl(
   generic(A : Type),
   Option(A),
   Container(Option)(
-    get_value : (fn(generic(A : Type), self : Option(A)) -> A)(
+    get_value : (fn(generic(A : Type), imm(self) : Option(A)) -> A)(
       match(
         self,
         .Some(v) => v,
@@ -157,22 +157,22 @@ test("Container get_value on Option", {
 // ─────────────────────────────────────────────────────
 Mappable :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
-    transform : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B)),
-    contains_value : (fn(generic(A : Type), self : F(A)) -> bool)
+    transform : (fn(generic(A : Type, B : Type), imm(self) : F(A), f : (fn(imm(a) : A) -> B)) -> F(B)),
+    contains_value : (fn(generic(A : Type), imm(self) : F(A)) -> bool)
   )
 );
 impl(
   generic(A : Type),
   Option(A),
   Mappable(Option)(
-    transform : (fn(generic(A : Type, B : Type), self : Option(A), f : (fn(a : A) -> B)) -> Option(B))(
+    transform : (fn(generic(A : Type, B : Type), imm(self) : Option(A), f : (fn(imm(a) : A) -> B)) -> Option(B))(
       match(
         self,
         .Some(v) => .Some(f(v)),
         .None => .None
       )
     ),
-    contains_value : (fn(generic(A : Type), self : Option(A)) -> bool)(
+    contains_value : (fn(generic(A : Type), imm(self) : Option(A)) -> bool)(
       match(
         self,
         .Some(_) => true,

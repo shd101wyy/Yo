@@ -10,8 +10,8 @@
 _P :: struct(n : i32, items : ArrayList(i32));
 impl(
   _P,
-  get : (fn(self : Self) -> i32)(self.n),
-  bump : (fn(inout(self) : Self) -> unit)({
+  get : (fn(imm(self) : Self) -> i32)(self.n),
+  bump : (fn(mut(self) : Self) -> unit)({
     self.n = (self.n + i32(1));
   })
 );
@@ -21,7 +21,7 @@ derive(_Q, Copy, Clone);
 impl(
   _Q,
   get : (fn(self : Self) -> i32)(self.n),
-  bump : (fn(inout(self) : Self) -> unit)({
+  bump : (fn(mut(self) : Self) -> unit)({
     self.n = (self.n + i32(1));
   })
 );
@@ -29,7 +29,7 @@ _mk :: (fn(n : i32) -> _P)(_P(n : n, items : ArrayList(i32).new()));
 /// Generic over the receiver: one body reads `x.n` on a `_P` and on a
 /// `Rc(_P)`; each specialization owns its body, so the Rc call's rewrite
 /// must not leak into the plain call.
-_read_n :: (fn(generic(T : Type), x : T) -> i32)(x.n);
+_read_n :: (fn(generic(T : Type), imm(x) : T) -> i32)(x.n);
 _take :: (fn(v : i32) -> i32)(v + i32(1));
 // A payload field holding a function, called through the wrapper.
 _H :: struct(f : (fn(x : i32) -> i32));
@@ -145,7 +145,7 @@ test("auto-deref: a miss names the payload (E0406, E0610)", {
 // callable, so `w.clone()` could call the payload's `clone` field.
 _seven :: (fn() -> i32)(i32(7));
 _HC :: struct(clone : (fn() -> i32));
-impl(_HC, Clone(clone : (fn(self : Self) -> Self)(_HC(clone : self.clone))));
+impl(_HC, Clone(clone : (fn(imm(self) : Self) -> Self)(_HC(clone : self.clone))));
 test("auto-deref: a wrapper method against a payload field is E0616", {
   w := rc(_HC(clone : _seven));
   comptime_expect_error(w.clone(), "is a method of Rc(_HC) and a field of its payload");
@@ -164,7 +164,7 @@ test("auto-deref: an unclashed name forwards unchanged", {
 });
 // A trait-bound call in a generic body is the bound's method, never the
 // clash, even when the type argument is a wrapper.
-_clone_any :: (fn(generic(T : Type), x : T, where(T <: Clone)) -> T)(x.clone());
+_clone_any :: (fn(generic(T : Type), imm(x) : T, where(T <: Clone)) -> T)(x.clone());
 test("auto-deref: a trait-bound call at a wrapper instantiation is not the clash", {
   b := rc(_mk(i32(3)));
   c := _clone_any(b);

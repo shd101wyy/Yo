@@ -11,9 +11,9 @@
 { println } :: import("std/fmt");
 { assert : assert } :: import("std/assert");
 // The param name `msg` deliberately matches the later real handler's param.
-comptime_expect_error((escaped_handler : (ctl(msg : String) -> i32)) = (msg -> begin(unwind(i32(0)), ())));
+comptime_expect_error((escaped_handler : (ctl(imm(msg) : String) -> i32)) = (msg -> begin(unwind(i32(0)), ())));
 main :: (fn() -> unit)({
-  Raise :: (ctl(msg : String) -> i32);
+  Raise :: (ctl(imm(msg) : String) -> i32);
   safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
     cond((y == 0) => raise(`div-by-zero`), true => (x / y))
   );

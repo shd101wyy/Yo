@@ -14,9 +14,9 @@
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 (g_cl_total : i32) = i32(0);
-_cl_call0 :: (fn(f : Impl(Fn() -> i32)) -> i32)(f());
-_cl_call1 :: (fn(f : Impl(Fn(x : i32) -> i32), x : i32) -> i32)(f(x));
-_cl_each :: (fn(n : i32, f : Impl(Fn(i : i32) -> unit)) -> unit)({
+_cl_call0 :: (fn(imm(f) : Impl(Fn() -> i32)) -> i32)(f());
+_cl_call1 :: (fn(imm(f) : Impl(Fn(x : i32) -> i32), x : i32) -> i32)(f(x));
+_cl_each :: (fn(n : i32, imm(f) : Impl(Fn(i : i32) -> unit)) -> unit)({
   (i : i32) = i32(0);
   while(i < n, {
     f(i);
@@ -24,21 +24,21 @@ _cl_each :: (fn(n : i32, f : Impl(Fn(i : i32) -> unit)) -> unit)({
   });
 });
 _cl_keep :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());
-_cl_dyn :: (fn(f : Dyn(Fn() -> i32)) -> i32)(f());
-_cl_with_mut :: (fn(f : Impl(Fn() -> i32), mut(z) : i32) -> i32)({
+_cl_dyn :: (fn(imm(f) : Dyn(Fn() -> i32)) -> i32)(f());
+_cl_with_mut :: (fn(imm(f) : Impl(Fn() -> i32), mut(z) : i32) -> i32)({
   z = (z + i32(1));
   f()
 });
-_cl_reentry :: (fn(a : Impl(Fn() -> i32), b : Impl(Fn() -> i32)) -> i32)(a() + b());
+_cl_reentry :: (fn(imm(a) : Impl(Fn() -> i32), imm(b) : Impl(Fn() -> i32)) -> i32)(a() + b());
 _ClAcc :: struct(total : i32, other : i32);
 derive(_ClAcc, Copy, Clone);
-impl(_ClAcc, run : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)(f()));
+impl(_ClAcc, run : (fn(self : Self, imm(f) : Impl(Fn() -> unit)) -> unit)(f()));
 (g_cl_rc_disposed : i32) = i32(0);
 _ClRc :: ref(struct(v : i32));
 impl(
   _ClRc,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       g_cl_rc_disposed = (g_cl_rc_disposed + i32(1));
     })
   )
@@ -349,11 +349,11 @@ test("a function literal rejects an Impl(Fn(...)) parameter", {
   // site, so the parameter would lower to `void*` while each call passes the
   // argument closure's capture struct.
   comptime_expect_error(
-    (f : Impl(Fn(k : Impl(Fn() -> i32)) -> i32)) = ((k : Impl(Fn() -> i32)) => (k() + n)),
+    (f : Impl(Fn(imm(k) : Impl(Fn() -> i32)) -> i32)) = ((k : Impl(Fn() -> i32)) => (k() + n)),
     "function literal has one body"
   );
   // The boxed spelling remains a literal's way to take a closure argument.
-  (d : Impl(Fn(k : Dyn(Fn() -> i32)) -> i32)) = ((k : Dyn(Fn() -> i32)) => (k() + n));
+  (d : Impl(Fn(imm(k) : Dyn(Fn() -> i32)) -> i32)) = ((k : Dyn(Fn() -> i32)) => (k() + n));
   assert(d(dyn(() => i32(2))) == i32(3), "a Dyn(Fn(...)) parameter works");
 });
 // ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@
 { generate_platform_sys_runtime_wasm } :: import("./runtime_io_wasm.yo");
 { panic, assert } :: import("std/assert");
 /// Emit the shared POSIX sync runtime + dispatch to the platform sys-runtime.
-generate_sys_runtime :: (fn(emitter : Emitter, target_info : TargetInfo) -> unit)({
+generate_sys_runtime :: (fn(imm(emitter) : Emitter, imm(target_info) : TargetInfo) -> unit)({
   if(is_target_windows(target_info), {
     // Windows is self-contained: emit only the Windows platform sys-runtime and
     // skip the POSIX common helpers.
@@ -590,7 +590,7 @@ ${cpu_id_body}
 /// function. macOS + Linux only; Windows/WASM never reach this (WASM is
 /// excluded by `runtime.yo`, Windows panics below).
 generate_async_runtime_io_common :: (
-  fn(emitter : Emitter, target_info : TargetInfo) -> unit
+  fn(imm(emitter) : Emitter, imm(target_info) : TargetInfo) -> unit
 )({
   is_windows := is_target_windows(target_info);
   is_linux := is_target_linux(target_info);
@@ -2039,7 +2039,7 @@ ${poll_tick_select}
   });
 });
 
-generate_tls_runtime :: (fn(emitter : Emitter) -> unit)({
+generate_tls_runtime :: (fn(imm(emitter) : Emitter) -> unit)({
   // The ABI (std/crypto/tls.yo) is OpenSSL-shaped and BIO-based: the Yo pump
   // moves ciphertext between two opaque in-memory buffers and the socket, and
   // asks for plaintext through read/write. Both real backends present that

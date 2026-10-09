@@ -62,7 +62,7 @@ test("constant defined from a later constant", {
   assert(DOUBLE_BASE == i32(42), "BASE * 2");
 });
 // ---------- an enum used above its definition, from a generic fn ----------
-describe :: (fn(generic(T : Type), v : T, c : Color) -> String)(
+describe :: (fn(generic(T : Type), imm(v) : T, imm(c) : Color) -> String)(
   match(
     c,
     .Red => `red`,
@@ -76,13 +76,13 @@ test("enum used above its definition inside a generic fn body", {
 });
 // ---------- impl(T, Trait) BELOW a free fn that calls the trait default ----------
 Greeter :: trait(
-  name : (fn(self : Self) -> String),
-  (greet : (fn(self : Self) -> String)) ?= (self -> (`hi ` + self.name()))
+  name : (fn(imm(self) : Self) -> String),
+  (greet : (fn(imm(self) : Self) -> String)) ?= (self -> (`hi ` + self.name()))
 );
 Dog :: struct(n : String);
-say_hi :: (fn(d : Dog) -> String)(d.greet());
-name_of :: (fn(d : Dog) -> String)(d.name());
-impl(Dog, Greeter(name : (fn(self : Self) -> String)(self.n.clone())));
+say_hi :: (fn(imm(d) : Dog) -> String)(d.greet());
+name_of :: (fn(imm(d) : Dog) -> String)(d.name());
+impl(Dog, Greeter(name : (fn(imm(self) : Self) -> String)(self.n.clone())));
 test("trait default and trait method from an impl below the caller", {
   d := Dog(n : `rex`);
   assert(say_hi(d) == "hi rex", "greet default");
@@ -90,7 +90,7 @@ test("trait default and trait method from an impl below the caller", {
 });
 // ---------- static method from an impl below the caller ----------
 make_dog :: (fn() -> Dog)(Dog.with_name(`fido`));
-impl(Dog, with_name : (fn(n : String) -> Dog)(Dog(n : n)));
+impl(Dog, with_name : (fn(imm(n) : String) -> Dog)(Dog(n : n)));
 test("static method from an impl below the caller", {
   assert(make_dog().n == "fido", "with_name");
 });
@@ -100,7 +100,7 @@ test("static method from an impl below the caller", {
 // method of a LATER `Counter` block is not forced (the in-block sibling
 // machinery owns misses while an impl of the type is being evaluated), so
 // block 2 below references block 1 in source order only.
-twice_then_thrice :: (fn(c : Counter) -> i32)(c.twice_incremented() + c.thrice_incremented());
+twice_then_thrice :: (fn(imm(c) : Counter) -> i32)(c.twice_incremented() + c.thrice_incremented());
 Counter :: struct(v : i32);
 derive(Counter, Copy, Clone);
 Wrapper :: struct(c : Counter);
@@ -108,12 +108,12 @@ derive(Wrapper, Copy, Clone);
 impl(Wrapper, total : (fn(self : Self) -> i32)(self.c.incremented() + self.c.thrice_incremented()));
 impl(
   Counter,
-  incremented : (fn(self : Self) -> i32)(self.v + i32(1)),
-  twice_incremented : (fn(self : Self) -> i32)(self.incremented() + i32(1))
+  incremented : (fn(imm(self) : Self) -> i32)(self.v + i32(1)),
+  twice_incremented : (fn(imm(self) : Self) -> i32)(self.incremented() + i32(1))
 );
 impl(
   Counter,
-  thrice_incremented : (fn(self : Self) -> i32)(self.twice_incremented() + i32(1))
+  thrice_incremented : (fn(imm(self) : Self) -> i32)(self.twice_incremented() + i32(1))
 );
 test("methods from two later impl blocks, used by a free function and another type's impl", {
   c := Counter(v : i32(1));
@@ -121,7 +121,7 @@ test("methods from two later impl blocks, used by a free function and another ty
   assert(Wrapper(c : c).total() == i32(6), "2 + 4");
 });
 // ---------- impl whose receiver type is defined below it ----------
-impl(Later, doubled : (fn(self : Self) -> i32)(self.v * i32(2)));
+impl(Later, doubled : (fn(imm(self) : Self) -> i32)(self.v * i32(2)));
 Later :: struct(v : i32);
 test("impl placed above its receiver type", {
   assert(Later(v : i32(21)).doubled() == i32(42), "doubled");
@@ -137,7 +137,7 @@ test("export of a definition that appears after the export", {
 // read from `ArrayList(Self)` is the declaration's nameless final, so the
 // operator miss forced no impl: E0610 on `a(i) != b(i)`.
 Tree :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
-_kids_eq :: (fn(a : ArrayList(Tree), b : ArrayList(Tree)) -> bool)({
+_kids_eq :: (fn(imm(a) : ArrayList(Tree), imm(b) : ArrayList(Tree)) -> bool)({
   if(a.len() != b.len(), {
     return(false);
   });
@@ -152,14 +152,14 @@ _kids_eq :: (fn(a : ArrayList(Tree), b : ArrayList(Tree)) -> bool)({
 impl(
   Tree,
   Eq(Tree)(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       match(
         lhs,
         .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false),
         .Node(a) => match(rhs, .Node(b) => _kids_eq(a, b), _ => false)
       )
     ),
-    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(!(lhs == rhs))
+    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(!(lhs == rhs))
   )
 );
 test("list elements of a recursive enum compare through its later Eq impl", {
@@ -173,12 +173,12 @@ test("list elements of a recursive enum compare through its later Eq impl", {
   assert(Tree.Node(kids : xs) != Tree.Node(kids : zs), "different children");
 });
 Branch :: ref(struct(v : i32, kids : ArrayList(Self)));
-_first_differs :: (fn(a : ArrayList(Branch), b : ArrayList(Branch)) -> bool)(a(usize(0)) != b(usize(0)));
+_first_differs :: (fn(imm(a) : ArrayList(Branch), imm(b) : ArrayList(Branch)) -> bool)(a(usize(0)) != b(usize(0)));
 impl(
   Branch,
   Eq(Branch)(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(lhs.v == rhs.v),
-    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(!(lhs == rhs))
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(lhs.v == rhs.v),
+    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(!(lhs == rhs))
   )
 );
 test("list elements of a recursive struct compare through its later Eq impl", {
@@ -194,12 +194,12 @@ test("list elements of a recursive struct compare through its later Eq impl", {
 Pt :: struct(x : i32);
 impl(
   Pt,
-  dup_via : (fn(self : Self) -> Pt)({
+  dup_via : (fn(imm(self) : Self) -> Pt)({
     (r : Pt) = self.clone();
     r
   })
 );
-impl(Pt, Clone(clone : (fn(inout(self) : Self) -> Self)(Pt(x : (self.x + i32(1))))));
+impl(Pt, Clone(clone : (fn(mut(self) : Self) -> Self)(Pt(x : (self.x + i32(1))))));
 test("an impl member calls a trait method defined in a later impl of its type", {
   p := Pt(x : i32(3));
   assert(p.dup_via().x == i32(4), "dup_via goes through the later Clone impl");
@@ -208,7 +208,7 @@ test("an impl member calls a trait method defined in a later impl of its type", 
 // issues/fixed/a-named-impl-miss-forces-the-importers-impls-mid-import.md — the
 // fixture's `copy_of` miss forced every pending impl of `LaterS`, this one
 // included, while this module's walk was still on the import: E0906.
-LaterShow :: trait(show : (fn(self : Self) -> i32));
+LaterShow :: trait(show : (fn(imm(self) : Self) -> i32));
 impl(LaterS, LaterShow(show : (fn(self : Self) -> i32)(self.twice())));
 test("an imported module's member miss does not force the importer's impls", {
   s := LaterS(n : i32(2));
@@ -218,7 +218,7 @@ test("an imported module's member miss does not force the importer's impls", {
 // issues/fixed/a-lazy-impl-force-reaches-an-importer-parked-on-the-import.md —
 // the fixture's `later_bumped` misses a trait default; that forced this impl
 // while this module's walk was parked on the import (E0906 on `LaterT`).
-impl(LaterT, LaterShow(show : (fn(self : Self) -> i32)(later_bumped(self))));
+impl(LaterT, LaterShow(show : (fn(imm(self) : Self) -> i32)(later_bumped(self))));
 test("an imported free function's trait-default miss does not force the importer's impls", {
   t := LaterT(n : i32(2));
   assert(t.show() == i32(3), "show goes through the later impl's default");

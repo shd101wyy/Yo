@@ -41,7 +41,7 @@
 /// ExprInfo env; `.None` when the atom was never evaluated or names no
 /// variable.
 _binding_token_of :: (
-  fn(atom : AstExpr, tok : Token, info_table : ExprInfoTable) -> Option(Token)
+  fn(imm(atom) : AstExpr, imm(tok) : Token, imm(info_table) : ExprInfoTable) -> Option(Token)
 )({
   info := match(
     expr_info_table_get(info_table, ast_expr_id(atom)),
@@ -65,7 +65,7 @@ _binding_token_of :: (
   )
 });
 /// Same declaration site: same file (either `file://` spelling) and position.
-_same_declaration :: (fn(a : Token, b : Token) -> bool)(
+_same_declaration :: (fn(imm(a) : Token, imm(b) : Token) -> bool)(
   (a.row == b.row) && (a.column == b.column) &&
     (uri_to_fs_path(a.module_path.clone()) == uri_to_fs_path(b.module_path.clone()))
 );
@@ -81,7 +81,7 @@ _same_declaration :: (fn(a : Token, b : Token) -> bool)(
 /// Position-only labeling: an occurrence is only dropped where it SITS on
 /// the returned token, so same-spelled locals in deferred bodies are
 /// unaffected.
-_top_level_decl_token :: (fn(exprs : ArrayList(AstExpr), name : String) -> Option(Token))({
+_top_level_decl_token :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : String) -> Option(Token))({
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
@@ -150,9 +150,9 @@ _top_level_decl_token :: (fn(exprs : ArrayList(AstExpr), name : String) -> Optio
 /// name or a label.
 collect_symbol_occurrences :: (
   fn(
-    exprs : ArrayList(AstExpr),
-    info_table : ExprInfoTable,
-    target : Token
+    imm(exprs) : ArrayList(AstExpr),
+    imm(info_table) : ExprInfoTable,
+    imm(target) : Token
   ) -> ArrayList(Token)
 )(
   collect_symbol_occurrences_with_decl(exprs, info_table, target, ArrayList(Token).new())
@@ -164,10 +164,10 @@ collect_symbol_occurrences :: (
 /// (issues/fixed/lsp-references-ignore-include-declaration.md).
 collect_symbol_occurrences_with_decl :: (
   fn(
-    exprs : ArrayList(AstExpr),
-    info_table : ExprInfoTable,
-    target : Token,
-    inout(decl_out) : ArrayList(Token)
+    imm(exprs) : ArrayList(AstExpr),
+    imm(info_table) : ExprInfoTable,
+    imm(target) : Token,
+    mut(decl_out) : ArrayList(Token)
   ) -> ArrayList(Token)
 )({
   out := ArrayList(Token).new();
@@ -222,13 +222,13 @@ collect_symbol_occurrences_with_decl :: (
 });
 _collect_occurrences :: (
   fn(
-    e : AstExpr,
-    name : String,
-    roles : AtomRoles,
-    info_table : ExprInfoTable,
-    def : Option(Token),
-    inout(seen) : HashSet(String),
-    inout(out) : ArrayList(Token)
+    imm(e) : AstExpr,
+    imm(name) : String,
+    imm(roles) : AtomRoles,
+    imm(info_table) : ExprInfoTable,
+    imm(def) : Option(Token),
+    mut(seen) : HashSet(String),
+    mut(out) : ArrayList(Token)
   ) -> unit
 )({
   match(
@@ -277,12 +277,12 @@ _collect_occurrences :: (
 /// drops the declaration occurrence (`context.includeDeclaration`, LSP).
 handle_references :: (
   fn(
-    text : String,
-    doc_abs : String,
-    lines : ArrayList(String),
-    uri : String,
-    exprs : ArrayList(AstExpr),
-    info_table : ExprInfoTable,
+    imm(text) : String,
+    imm(doc_abs) : String,
+    imm(lines) : ArrayList(String),
+    imm(uri) : String,
+    imm(exprs) : ArrayList(AstExpr),
+    imm(info_table) : ExprInfoTable,
     line : usize,
     character : usize,
     (include_declaration : bool) ?= true
@@ -338,11 +338,11 @@ handle_references :: (
 /// nothing (an empty array), matching references/rename.
 handle_document_highlight :: (
   fn(
-    text : String,
-    doc_abs : String,
-    lines : ArrayList(String),
-    exprs : ArrayList(AstExpr),
-    info_table : ExprInfoTable,
+    imm(text) : String,
+    imm(doc_abs) : String,
+    imm(lines) : ArrayList(String),
+    imm(exprs) : ArrayList(AstExpr),
+    imm(info_table) : ExprInfoTable,
     line : usize,
     character : usize
   ) -> JsonValue

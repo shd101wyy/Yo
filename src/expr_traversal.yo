@@ -47,7 +47,7 @@ pragma(Pragma.AllowUnsafe);
 /// The cond/match branch traversal is inlined here rather than delegated to a
 /// separate visitor function (historical: it predates order-independent
 /// definitions).
-evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
+evaluated_body_contains_unwind :: (fn(imm(e) : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => (tok.value == BF_UNWIND),
@@ -119,7 +119,7 @@ evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
 /// The macro-expansion case is omitted — `ExprInfo.macro_expansion` lives in
 /// a side table (`ExprInfoTable`) and is not reachable from a raw `AstExpr`,
 /// so this helper is an AST-only baseline.
-expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
+expr_tree_contains_return :: (fn(imm(e) : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => {
@@ -195,7 +195,7 @@ expr_tree_contains_return :: (fn(e : AstExpr) -> bool)(
 /// the `=>` boundary check for those specific arguments.
 ///
 /// Uses `recur` for self-recursion (Yo does not allow direct self-calls).
-expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
+expr_contains_loop_terminator :: (fn(imm(expr) : AstExpr) -> bool)(
   match(
     expr,
     .Atom(_, tok) => {
@@ -279,7 +279,7 @@ expr_contains_loop_terminator :: (fn(expr : AstExpr) -> bool)(
 /// the ExprInfo-only cases (`macroExpansion`, type-value /
 /// `typeImplementsFn` callee skips) are omitted — `ExprInfo` lives in a side
 /// table not reachable from a raw `AstExpr`.
-expr_contains_await :: (fn(expr : AstExpr) -> bool)(
+expr_contains_await :: (fn(imm(expr) : AstExpr) -> bool)(
   match(
     expr,
     .Atom(_, _) => false,
@@ -375,7 +375,7 @@ expr_contains_await :: (fn(expr : AstExpr) -> bool)(
 /// back-edge and no exit label, so its body runs once and control never returns
 /// to it. Honors the same boundaries as `expr_contains_await`.
 ///
-expr_contains_while_with_await :: (fn(expr : AstExpr) -> bool)(
+expr_contains_while_with_await :: (fn(imm(expr) : AstExpr) -> bool)(
   match(
     expr,
     .Atom(_, _) => false,
@@ -461,7 +461,7 @@ expr_contains_while_with_await :: (fn(expr : AstExpr) -> bool)(
 /// Conservative (false when unprovable); honors function/closure boundaries
 /// like `evaluated_body_contains_unwind`. `return(...)` counts as a NORMAL
 /// delivery (false).
-all_paths_unwind :: (fn(e : AstExpr) -> bool)(
+all_paths_unwind :: (fn(imm(e) : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
@@ -547,7 +547,7 @@ all_paths_unwind :: (fn(e : AstExpr) -> bool)(
 // the evaluator sees the callee's body at the call (`_evaluate_funcval_runtime_call`),
 // and codegen reports the verdict at each await under `YO_DEBUG_FUSION`.
 /// The statements of a block (`begin(...)`), or the expression itself.
-_fusion_statements :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
+_fusion_statements :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))({
   if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), {
     return(match(e, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new()));
   });
@@ -556,7 +556,7 @@ _fusion_statements :: (fn(e : AstExpr) -> ArrayList(AstExpr))({
   one
 });
 /// Is `aw` an await whose own arguments do not await?
-_fusion_is_flat_await :: (fn(aw : AstExpr) -> bool)(
+_fusion_is_flat_await :: (fn(imm(aw) : AstExpr) -> bool)(
   if(
     is_io_await_call(aw),
     match(
@@ -579,7 +579,7 @@ _fusion_is_flat_await :: (fn(aw : AstExpr) -> bool)(
 /// Is `stmt` an await in statement position: the await itself, or a binding
 /// whose whole right-hand side is the await (`r := e.io.await(...)`,
 /// `(r : T) = e.io.await(...)`), with no other await inside it?
-_fusion_is_top_level_await :: (fn(stmt : AstExpr) -> bool)(
+_fusion_is_top_level_await :: (fn(imm(stmt) : AstExpr) -> bool)(
   match(
     stmt,
     .FnCall(_, f, args, _, _) => if(
@@ -593,7 +593,7 @@ _fusion_is_top_level_await :: (fn(stmt : AstExpr) -> bool)(
 /// Does `e` contain a function or closure literal whose body names `name`?
 /// A `cond`/`match` arm's `=>` is not a closure: its parts are walked at the
 /// current depth, as `expr_contains_await` does.
-_fusion_closure_mentions :: (fn(e : AstExpr, name : String, inside_closure : bool) -> bool)(
+_fusion_closure_mentions :: (fn(imm(e) : AstExpr, imm(name) : String, inside_closure : bool) -> bool)(
   match(
     e,
     .Atom(_, tok) => (inside_closure && (tok.value == name)),
@@ -635,7 +635,7 @@ _fusion_closure_mentions :: (fn(e : AstExpr, name : String, inside_closure : boo
 );
 /// The name a closure's single parameter binds: `e` for `e => ...` and for
 /// `(e : T) => ...`; empty for any other shape.
-_fusion_param_name :: (fn(pa : AstExpr) -> String)(
+_fusion_param_name :: (fn(imm(pa) : AstExpr) -> String)(
   cond(
     ast_expr_is_atom(pa) => ast_expr_token(pa).value.clone(),
     ast_expr_is_fn_call_of(pa, ":", .None) => match(
@@ -654,7 +654,7 @@ _fusion_param_name :: (fn(pa : AstExpr) -> String)(
 /// wrapper (the plan's §3.1 rules that can be read off the AST). `.None`:
 /// the body does not end in `io.async` at all, so it is no wrapper and gets
 /// no record. `.Some("")`: fusable. Otherwise `.Some(the rule that rejects it)`.
-async_wrapper_fusion_verdict :: (fn(body : AstExpr) -> Option(String))({
+async_wrapper_fusion_verdict :: (fn(imm(body) : AstExpr) -> Option(String))({
   stmts := _fusion_statements(body);
   if(stmts.len() == usize(0), {
     return(Option(String).None);
@@ -740,7 +740,7 @@ FusionCandidate :: struct(func_id : String, callee_at : String, verdict : String
 (g_fusion_candidate_of_fn : HashMap(String, Option(FusionCandidate))) = HashMap(String, Option(FusionCandidate)).new();
 /// Record that `call` invokes the function `func_id` with body `body`, when
 /// that body is an `io.async` wrapper. Called by the evaluator at the call.
-record_await_fusion_candidate :: (fn(call : AstExpr, func_id : String, body : AstExpr) -> unit)({
+record_await_fusion_candidate :: (fn(imm(call) : AstExpr, imm(func_id) : String, imm(body) : AstExpr) -> unit)({
   if(!codegen_tables_enabled(), {
     return(());
   });
@@ -764,7 +764,7 @@ record_await_fusion_candidate :: (fn(call : AstExpr, func_id : String, body : As
   });
 });
 /// The recorded candidate for `call`, if its callee is an `io.async` wrapper.
-await_fusion_candidate :: (fn(call : AstExpr) -> Option(FusionCandidate))(
+await_fusion_candidate :: (fn(imm(call) : AstExpr) -> Option(FusionCandidate))(
   match(
     g_fusion_callee_of_call.get(ast_expr_id(call).to_string()),
     .Some(fid) => match(g_fusion_candidate_of_fn.get(fid), .Some(c) => c, .None => Option(FusionCandidate).None),

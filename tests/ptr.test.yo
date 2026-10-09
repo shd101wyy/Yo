@@ -11,7 +11,7 @@ MyBox :: ref(
 impl(
   MyBox,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       unsafe(printf("Disposing MyBox with value: %d\n", self.*));
     })
   )
@@ -61,7 +61,7 @@ test("sizeof of a nullable-pointer Option is the pointer's", {
 // `&v` of a generic fn's parameter, called with a compile-time argument, is
 // the parameter's runtime address (it was a comptime pointer codegen emitted
 // as `/* skip generating value */`).
-_addr_of_param :: (fn(generic(T : Type), v : T) -> T)({
+_addr_of_param :: (fn(generic(T : Type), imm(v) : T) -> T)({
   (p : *T) = &v;
   p.*
 });

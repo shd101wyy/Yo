@@ -105,7 +105,7 @@ pragma(Pragma.AllowUnsafe);
 /// measure is the `decreases(M1, M2, ...)` call itself (see the signature
 /// parser): each component is evaluated for its ExprInfo and the call node
 /// is kept, so the verifier reads the components back.
-_evaluated_measure_for_verify :: (fn(dm : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+_evaluated_measure_for_verify :: (fn(imm(dm) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
   cond(
     ast_expr_is_fn_call_of(dm, BF_DECREASES, Option(usize).None) => {
       match(
@@ -144,7 +144,7 @@ _reset_pred_eval_failed :: (fn() -> unit)({
   ()
 });
 
-_flag_pred_eval_failed :: (fn(_msg : String) -> unit)({
+_flag_pred_eval_failed :: (fn(imm(_msg) : String) -> unit)({
   g_pred_eval_failed = true;
 
   ()
@@ -166,7 +166,7 @@ _pred_eval_failed :: (fn() -> bool)(g_pred_eval_failed);
 /// An unwind also skips `evaluated_for_verify`'s own restore of
 /// `ctx.is_ghost_context`, so this fn restores it on both paths.
 _soft_evaluated_for_verify :: (
-  fn(p : AstExpr, env : Environment, ctx : EvalContext) -> Option(AstExpr)
+  fn(imm(p) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> Option(AstExpr)
 )({
   _reset_pred_eval_failed();
   saved_ghost := ctx.is_ghost_context;
@@ -175,7 +175,7 @@ _soft_evaluated_for_verify :: (
   out
 });
 _soft_evaluated_for_verify_inner :: (
-  fn(p : AstExpr, env : Environment, ctx : EvalContext) -> Option(AstExpr)
+  fn(imm(p) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> Option(AstExpr)
 )({
   soft_exn := Exception(
     throw : (
@@ -188,7 +188,7 @@ _soft_evaluated_for_verify_inner :: (
   Option(AstExpr).Some(evaluated_for_verify(p, env, ctx, soft_exn))
 });
 /// E0602 text for a body whose type misses a trait of its `Impl(...)` result.
-_impl_result_unmet_message :: (fn(body_ty : TypeValue, trait_ty : TypeValue, result_ty : TypeValue) -> String)(
+_impl_result_unmet_message :: (fn(imm(body_ty) : TypeValue, imm(trait_ty) : TypeValue, imm(result_ty) : TypeValue) -> String)(
   `Function body has type ${type_to_string(body_ty)}, which does not implement required trait ${type_to_string(trait_ty)} of the declared result ${type_to_string(result_ty)}`
 );
 /// Trial-evaluate a function body at definition time, swallowing any eval
@@ -257,14 +257,14 @@ PendingDefEval :: ref(
 /// how a re-raise inherits an unrelated earlier failure's diagnostics, which
 /// is the staleness class §3's attempt counter exists to prevent.
 (g_trial_swallow_diags : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
-_flag_trial_swallow :: (fn(msg : String) -> unit)({
+_flag_trial_swallow :: (fn(imm(msg) : String) -> unit)({
   g_trial_swallow_msg.clear();
   g_trial_swallow_msg.push(msg);
 });
 /// Record the swallowed error's diagnostics. A non-`YoError` (a plain string
 /// thrown by some other layer) carries none, and then every site below
 /// behaves exactly as it did before.
-_flag_trial_swallow_diags :: (fn(err : AnyError) -> unit)({
+_flag_trial_swallow_diags :: (fn(imm(err) : AnyError) -> unit)({
   g_trial_swallow_diags.clear();
   match(
     downcast(err, YoError),
@@ -338,7 +338,7 @@ generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
 // the helpers live in context.yo (module-walk cell + binding-name scan),
 // shared with the anonymous-closure trial in values/anonymous_function.yo.
 _trial_eval_fn_body :: (
-  fn(body : AstExpr, env : Environment, ctx : EvalContext, inout(out) : ArrayList(AstExpr)) -> unit
+  fn(imm(body) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(AstExpr)) -> unit
 )({
   // Reset the flow-violation flag so a stale flag from an earlier (propagated,
   // non-def-time) throw can't be mistaken for a violation in THIS body.
@@ -410,9 +410,9 @@ _trial_eval_fn_body :: (
 /// `comptime(T)` param of the same name would bind different identities.
 _type_binder_env_value :: (
   fn(
-    name : String,
-    sig_some_ts : ArrayList(TypeValue),
-    where_entries : ArrayList(WhereConstraintEntry),
+    imm(name) : String,
+    imm(sig_some_ts) : ArrayList(TypeValue),
+    imm(where_entries) : ArrayList(WhereConstraintEntry),
     level : usize
   ) -> Option(EvalValue)
 )({
@@ -484,7 +484,7 @@ _type_binder_env_value :: (
 /// Read from the trial env BEFORE the body runs, so a body local cannot
 /// shadow a binder.
 _ctor_binder_some_ids :: (
-  fn(env : Environment, forall_labels : ArrayList(String), param_labels : ArrayList(String)) -> ArrayList(String)
+  fn(imm(env) : Environment, imm(forall_labels) : ArrayList(String), imm(param_labels) : ArrayList(String)) -> ArrayList(String)
 )({
   labels := forall_labels.clone();
   labels.append(param_labels.clone());
@@ -505,7 +505,7 @@ _ctor_binder_some_ids :: (
 });
 /// Record a type constructor's PHANTOM positions from its definition-time
 /// `prepare_callsite_contracts` over each evaluated contract clause.
-_stash_clause_callsite_contracts :: (fn(clauses : ArrayList(AstExpr), env : Environment, ctx : EvalContext, exn : Exception) -> unit)({
+_stash_clause_callsite_contracts :: (fn(imm(clauses) : ArrayList(AstExpr), imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < clauses.len(), {
     match(clauses.get(i), .Some(c) => prepare_callsite_contracts(c, env, ctx, exn), .None => ());
@@ -523,7 +523,7 @@ _stash_clause_callsite_contracts :: (fn(clauses : ArrayList(AstExpr), env : Envi
 /// instantiation's type arguments counts it as phantom here, which keys it
 /// redundantly (`ctor_phantom_flags`).
 _record_ctor_phantom_positions :: (
-  fn(fn_id : String, binder_ids : ArrayList(String), out : ArrayList(AstExpr), ctx : EvalContext) -> unit
+  fn(imm(fn_id) : String, imm(binder_ids) : ArrayList(String), imm(out) : ArrayList(AstExpr), imm(ctx) : EvalContext) -> unit
 )({
   body_ty := match(
     out.get(usize(0)),
@@ -597,7 +597,7 @@ _record_ctor_phantom_positions :: (
 /// comptime method binding (the LHS atom's recorded env predates the local's
 /// own binding, so the method was the ONLY match) and silently skipped the
 /// statement — emitted C referenced an undeclared `fd`.
-_share_def_time_frames :: (fn(env : Environment, strip : bool) -> Environment)({
+_share_def_time_frames :: (fn(imm(env) : Environment, strip : bool) -> Environment)({
   new_frames := ArrayList(Frame).new();
   n := env.frames.len();
   (i : usize) = usize(0);
@@ -653,14 +653,14 @@ _share_def_time_frames :: (fn(env : Environment, strip : bool) -> Environment)({
 });
 _build_def_time_body_env :: (
   fn(
-    caller_env : Environment,
-    param_labels : ArrayList(String),
-    param_types : ArrayList(TypeValue),
-    param_is_ref : ArrayList(bool),
+    imm(caller_env) : Environment,
+    imm(param_labels) : ArrayList(String),
+    imm(param_types) : ArrayList(TypeValue),
+    imm(param_is_ref) : ArrayList(bool),
     /// Per-parameter `own(...)` flags (FuncMeta.param_is_owning) — an own
     /// param's def-time binding must be created OWNING so the function-body
     /// begin block's parameters-frame drop pass releases it at scope end.
-    param_is_owning : ArrayList(bool),
+    imm(param_is_owning) : ArrayList(bool),
     /// Per-parameter `comptime(...)` flags (the fn-type side table). A comptime
     /// VALUE param must carry an
     /// UnknownVal or every builtin the body hands it to throws its
@@ -670,7 +670,7 @@ _build_def_time_body_env :: (
     /// issues/fixed/def-eval-swallow-remaining-roots.md). RUNTIME params keep NO
     /// value — binding them UnknownVal breaks the dup accounting (see the
     /// pv comment below).
-    param_is_comptime : ArrayList(bool),
+    imm(param_is_comptime) : ArrayList(bool),
     // The signature's evaluated result type — scanned (with param_types)
     // for the SIGNATURE's own SomeT objects so comptime type params bind
     // the SAME SomeT identity the signature mentions. Minting fresh
@@ -678,7 +678,7 @@ _build_def_time_body_env :: (
     // key than the signature's `*(ZPair(K, V))` → two struct
     // instantiations → match-arm unification failure (std/imm/map.yo
     // `_alloc_pairs`).
-    result_type : TypeValue,
+    imm(result_type) : TypeValue,
     // The fn's registered where-clause constraints (side table keyed by the
     // fn-type expr id — same key as the defaults). A comptime TYPE param
     // (`comptime(V) : Type, where(V <: (Send, Acyclic))`) has its SomeT only
@@ -690,7 +690,7 @@ _build_def_time_body_env :: (
     // atomic-Send enforcement wrongly threw — and the swallowed def-time
     // throw abandoned the whole prelude begin loop ("Variable Option/Dispose
     // not found" cascade).
-    where_entries : ArrayList(WhereConstraintEntry),
+    imm(where_entries) : ArrayList(WhereConstraintEntry),
     /// The fn's own type — read ONLY for its generic binders
     /// (`Func.forall_types` paired with `FuncMeta.forall_labels`). A
     /// `generic(B : Type)` binder is NOT in `param_labels`, so the
@@ -699,7 +699,7 @@ _build_def_time_body_env :: (
     /// definition time — 15 of the 33 distinct def-time swallow roots measured
     /// on a hello-world (all of prelude's Functor/Monad surface:
     /// `Result.map`/`map_err`/`and_then`, `Option.map`, ...).
-    fn_type_for_foralls : TypeValue,
+    imm(fn_type_for_foralls) : TypeValue,
     // True when this fn is being DEFINED inside another function body. The
     // body env then keeps only frame 0 and the caller's comptime variables:
     // outer RUNTIME locals are invisible to a regular (non-closure) fn — `x + a` with a
@@ -989,7 +989,7 @@ _build_def_time_body_env :: (
 /// comptime fn variable is FILLED — the re-run rebuilds the body env from the
 /// CURRENT caller env (fills visible) and refreshes the original body nodes'
 /// ExprInfos via the id-preserving clone.
-_rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> Option(YoError))({
+_rerun_pending_def_evals :: (fn(imm(caller_env) : Environment, imm(ctx) : EvalContext) -> Option(YoError))({
   if(g_rerunning_def_evals || (g_pending_def_evals.len() == usize(0)), {
     return(Option(YoError).None);
   });
@@ -1092,7 +1092,7 @@ register_rerun_pending_def_evals :: (fn() -> unit)({
   set_evaluate_fn_body_fn(_evaluate_as_fn_body);
 });
 /// `call_evaluate_fn_body`'s implementation (evaluator/context.yo).
-_evaluate_as_fn_body :: (fn(body : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+_evaluate_as_fn_body :: (fn(imm(body) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
   evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, exn)
 );
 /// Register a function body expression against a function type, producing a
@@ -1113,11 +1113,11 @@ _evaluate_as_fn_body :: (fn(body : AstExpr, env : Environment, ctx : EvalContext
 ///
 try_to_implement_function_by_function_type :: (
   fn(
-    expr : AstExpr,
-    function_type : TypeValue,
-    caller_env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(function_type) : TypeValue,
+    imm(caller_env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )(
   match(

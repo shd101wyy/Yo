@@ -182,7 +182,7 @@ impl(
   /// Create a new `Command` invoking `program`. The program name is also used
   /// as `argv[0]` unless a different first arg is pushed manually before
   /// invocation.
-  new : (fn(program : String) -> Self)(
+  new : (fn(imm(program) : String) -> Self)(
     Self(
       _program : program,
       _args : ArrayList(String).new(),
@@ -195,12 +195,12 @@ impl(
     )
   ),
   /// Append a single argument to the argv list.
-  arg : (fn(self : Self, a : String) -> Self)({
+  arg : (fn(imm(self) : Self, imm(a) : String) -> Self)({
     self._args.push(a);
     self
   }),
   /// Append multiple arguments to the argv list.
-  args : (fn(self : Self, more : ArrayList(String)) -> Self)({
+  args : (fn(imm(self) : Self, imm(more) : ArrayList(String)) -> Self)({
     n := more.len();
     i := usize(0);
     while(runtime(i < n), {
@@ -216,13 +216,13 @@ impl(
     self
   }),
   /// The program this command will run — Rust's `Command::get_program`.
-  get_program : (fn(self : Self) -> String)(self._program.clone()),
+  get_program : (fn(imm(self) : Self) -> String)(self._program.clone()),
   /// The argv list built so far (a copy) — Rust's `Command::get_args`. The
   /// builder's fields are private to `std/process/` (member visibility), so
   /// this is how a caller reads back what it assembled.
-  get_args : (fn(self : Self) -> ArrayList(String))(self._args.clone()),
+  get_args : (fn(imm(self) : Self) -> ArrayList(String))(self._args.clone()),
   /// Set an environment variable for the child (overrides an inherited one).
-  env : (fn(self : Self, key : String, value : String) -> Self)({
+  env : (fn(imm(self) : Self, imm(key) : String, imm(value) : String) -> Self)({
     entry := key;
     entry.push_str("=");
     entry.push_string(value);
@@ -233,7 +233,7 @@ impl(
   /// posix_spawn_file_actions_addchdir_np (spawn reports ENOSYS on a libc
   /// without it — macOS 10.15+/glibc 2.29+/musl 1.2.5+ all have it);
   /// Windows passes lpCurrentDirectory.
-  current_dir : (fn(self : Self, dir : String) -> Self)({
+  current_dir : (fn(imm(self) : Self, imm(dir) : String) -> Self)({
     self._cwd = Option(String).Some(dir);
     self
   }),
@@ -250,22 +250,22 @@ impl(
   ///
   /// With neither this nor any `env()` call, no `envp` is constructed at
   /// all and the child inherits by the platform's own mechanism.
-  env_clear : (fn(self : Self) -> Self)({
+  env_clear : (fn(imm(self) : Self) -> Self)({
     self._env_clear = true;
     self
   }),
   /// Configure the child's stdin.
-  stdin : (fn(self : Self, mode : Stdio) -> Self)({
+  stdin : (fn(imm(self) : Self, mode : Stdio) -> Self)({
     self._stdin = mode;
     self
   }),
   /// Configure the child's stdout.
-  stdout : (fn(self : Self, mode : Stdio) -> Self)({
+  stdout : (fn(imm(self) : Self, mode : Stdio) -> Self)({
     self._stdout = mode;
     self
   }),
   /// Configure the child's stderr.
-  stderr : (fn(self : Self, mode : Stdio) -> Self)({
+  stderr : (fn(imm(self) : Self, mode : Stdio) -> Self)({
     self._stderr = mode;
     self
   })
@@ -276,7 +276,7 @@ impl(
 // Convert each entry of `(program + args)` into an owned NUL-terminated
 // `ArrayList(u8)`. The returned list owns the C-string storage; callers
 // extract the raw `*(u8)` pointers separately.
-_build_cstr_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
+_build_cstr_storage :: (fn(imm(self) : Command) -> ArrayList(ArrayList(u8)))({
   storage := ArrayList(ArrayList(u8)).new();
   storage.push(self._program.to_cstr());
   n := self._args.len();
@@ -296,7 +296,7 @@ _build_cstr_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
 // Build the child environment as owned NUL-terminated "KEY=VALUE" strings:
 // the parent's `environ` (unless env_clear), with `env()` overrides replacing
 // same-KEY entries and appending new ones.
-_build_env_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
+_build_env_storage :: (fn(imm(self) : Command) -> ArrayList(ArrayList(u8)))({
   { environ } :: import("../libc/unistd");
   storage := ArrayList(ArrayList(u8)).new();
   keys := ArrayList(String).new();
@@ -363,7 +363,7 @@ _build_env_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
 // returns the pid (since the kernel reads argv synchronously inside the syscall).
 _spawn_with_fds :: (
   fn(
-    self : Command,
+    imm(self) : Command,
     stdin_fd : i32,
     stdout_fd : i32,
     stderr_fd : i32,
@@ -497,7 +497,7 @@ _spawn_with_fds :: (
 //    pipes cannot use overlapped I/O), so O_NONBLOCK is neither needed nor
 //    settable there — PIPE_NOWAIT would turn an empty pipe into an error
 //    (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md).
-_mark_parent_end :: (fn(fd : i32, exn : Exception) -> unit)({
+_mark_parent_end :: (fn(fd : i32, imm(exn) : Exception) -> unit)({
   IoError.check(__yo_sync_fcntl_setfd(fd, i32(FD_CLOEXEC)), exn);
   cond(
     (__yo_process_platform() == "windows") => (),
@@ -542,7 +542,7 @@ impl(
   Command,
   /// Spawn the child with stdio inherited from the parent, wait for it to
   /// exit, and return its `ExitStatus`.
-  status : (fn(self : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
+  status : (fn(imm(self) : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
     // `self : Self` is a value-copy of the Rc-counted Command object, so the
     // closure can freely capture it. (Was `inout(self)` previously, which is a
     // second-class reference and can't be captured across an async boundary.)
@@ -558,7 +558,7 @@ impl(
   ),
   /// Spawn the child with stdout and stderr captured through pipes. Waits for
   /// the child to exit and returns the exit status plus the captured bytes.
-  output : (fn(self : Self, io : Io) -> Impl(Future(Output, IoExn)))(
+  output : (fn(imm(self) : Self, io : Io) -> Impl(Future(Output, IoExn)))(
     // `self : Self` is a value-copy of the Rc-counted Command object; the
     // closure can freely capture it instead of needing `inout(self)`.
     io.async(e => {
@@ -675,11 +675,11 @@ ChildStderr :: ref(struct(_fd : i32, _closed : bool));
 impl(
   ChildStdin,
   /// The underlying file descriptor.
-  fd : (fn(self : Self) -> i32)(self._fd),
+  fd : (fn(imm(self) : Self) -> i32)(self._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : Self) -> bool)(self._closed),
+  is_closed : (fn(imm(self) : Self) -> bool)(self._closed),
   /// Write up to `size` bytes. Returns the number written.
-  write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     raw := cond(self._closed => i32(-1), true => self._fd);
     _pipe_write(raw, buf, size, io)
   }),
@@ -688,7 +688,7 @@ impl(
   /// The flag is set INSIDE the async body, after the close, exactly as
   /// `File.close` does: a future that is created and never awaited must leave
   /// the handle closeable, or `dispose` would skip an fd that is still open.
-  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+  close : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     raw := self._fd;
     io.async(
       e =>
@@ -707,14 +707,14 @@ impl(
 impl(
   ChildStdin,
   IoTraits.Writer(
-    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.write(buf, size, io)
     ),
     /// A no-op that always succeeds: a pipe write goes straight to the
     /// kernel, so there is nothing held here to push. Everything `write`
     /// reported as written is already visible to the child, and flushing
     /// is NOT what delivers EOF — `close` (or dropping the handle) is.
-    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    flush : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => ())
     )
   )
@@ -727,7 +727,7 @@ impl(
   ChildStdin,
   /// Write a `String`, in full. `File.write_string` spells the same
   /// convenience.
-  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))(
+  write_string : (fn(imm(self) : Self, imm(data) : String, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
       bytes := data;
       cond(
@@ -745,7 +745,7 @@ impl(
   /// Dropping the handle closes the pipe, so a child waiting on EOF is not
   /// left hanging by a forgotten `close`.
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       cond(
         !self._closed => {
           close_sync(self._fd);
@@ -759,17 +759,17 @@ impl(
 impl(
   ChildStdout,
   /// The underlying file descriptor.
-  fd : (fn(self : Self) -> i32)(self._fd),
+  fd : (fn(imm(self) : Self) -> i32)(self._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : Self) -> bool)(self._closed),
+  is_closed : (fn(imm(self) : Self) -> bool)(self._closed),
   /// Read up to `size` bytes. Returns the number read; 0 means EOF.
-  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     raw := cond(self._closed => i32(-1), true => self._fd);
     _pipe_read(raw, buf, size, io)
   }),
   /// Close the read end. Safe to call multiple times. Sets the flag after the
   /// close, for the reason `ChildStdin.close` records.
-  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+  close : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     raw := self._fd;
     io.async(
       e =>
@@ -788,7 +788,7 @@ impl(
 impl(
   ChildStdout,
   IoTraits.Reader(
-    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
   )
@@ -796,7 +796,7 @@ impl(
 impl(
   ChildStdout,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       cond(
         !self._closed => {
           close_sync(self._fd);
@@ -810,17 +810,17 @@ impl(
 impl(
   ChildStderr,
   /// The underlying file descriptor.
-  fd : (fn(self : Self) -> i32)(self._fd),
+  fd : (fn(imm(self) : Self) -> i32)(self._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : Self) -> bool)(self._closed),
+  is_closed : (fn(imm(self) : Self) -> bool)(self._closed),
   /// Read up to `size` bytes. Returns the number read; 0 means EOF.
-  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     raw := cond(self._closed => i32(-1), true => self._fd);
     _pipe_read(raw, buf, size, io)
   }),
   /// Close the read end. Safe to call multiple times. Sets the flag after the
   /// close, for the reason `ChildStdin.close` records.
-  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+  close : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     raw := self._fd;
     io.async(
       e =>
@@ -839,7 +839,7 @@ impl(
 impl(
   ChildStderr,
   IoTraits.Reader(
-    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
   )
@@ -847,7 +847,7 @@ impl(
 impl(
   ChildStderr,
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       cond(
         !self._closed => {
           close_sync(self._fd);
@@ -861,7 +861,7 @@ impl(
 impl(
   Child,
   /// The child's process id.
-  pid : (fn(self : Self) -> i32)(
+  pid : (fn(imm(self) : Self) -> i32)(
     self._pid
   ),
   /// Take the parent's write end of the child's stdin pipe as a `Writer`.
@@ -872,7 +872,7 @@ impl(
   /// returned handle owns it, and `write_stdin`/`close_stdin` on this `Child`
   /// throw `BadFileDescriptor` from then on. Dropping the handle closes the
   /// pipe, which is the EOF the child is usually waiting for.
-  take_stdin : (fn(self : Self) -> Option(ChildStdin))(
+  take_stdin : (fn(imm(self) : Self) -> Option(ChildStdin))(
     match(
       self._stdin_fd,
       .Some(f) => {
@@ -887,7 +887,7 @@ impl(
   /// was not `Stdio.Piped`, or if it has already been taken.
   ///
   /// Taking MOVES the fd out of the `Child`, exactly as `take_stdin` does.
-  take_stdout : (fn(self : Self) -> Option(ChildStdout))(
+  take_stdout : (fn(imm(self) : Self) -> Option(ChildStdout))(
     match(
       self._stdout_fd,
       .Some(f) => {
@@ -899,7 +899,7 @@ impl(
   ),
   /// Take the parent's read end of the child's stderr pipe as a `Reader`.
   /// `.None` if stderr was not `Stdio.Piped`, or if it has already been taken.
-  take_stderr : (fn(self : Self) -> Option(ChildStderr))(
+  take_stderr : (fn(imm(self) : Self) -> Option(ChildStderr))(
     match(
       self._stderr_fd,
       .Some(f) => {
@@ -911,7 +911,7 @@ impl(
   ),
   /// Write bytes into the child's piped stdin. Requires `stdin(Stdio.Piped)`.
   /// Throws `BadFileDescriptor` once `take_stdin()` has moved the fd out.
-  write_stdin : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
+  write_stdin : (fn(imm(self) : Self, imm(data) : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd_opt := self._stdin_fd;
     io.async(e => {
       fd := match(
@@ -927,7 +927,7 @@ impl(
     })
   }),
   /// Close the child's stdin pipe — the EOF the child is usually waiting for.
-  close_stdin : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+  close_stdin : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd_opt := self._stdin_fd;
     io.async(e => {
       match(
@@ -941,7 +941,7 @@ impl(
     })
   }),
   /// Read the child's piped stdout to EOF. Requires `stdout(Stdio.Piped)`.
-  read_stdout_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
+  read_stdout_to_end : (fn(imm(self) : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
     fd_opt := self._stdout_fd;
     io.async(e => {
       fd := match(
@@ -957,7 +957,7 @@ impl(
     })
   }),
   /// Read the child's piped stderr to EOF. Requires `stderr(Stdio.Piped)`.
-  read_stderr_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
+  read_stderr_to_end : (fn(imm(self) : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
     fd_opt := self._stderr_fd;
     io.async(e => {
       fd := match(
@@ -977,12 +977,12 @@ impl(
   /// `IoError` through `exn`, Rust's `Child::kill -> io::Result<()>`. Until
   /// 2026-09-06 this handed back the raw `-errno` as an `i32`
   /// (issues/fixed/child-kill-returned-a-raw-errno.md).
-  kill : (fn(self : Self, signum : i32, exn : Exception) -> unit)({
+  kill : (fn(imm(self) : Self, signum : i32, imm(exn) : Exception) -> unit)({
     _rc := IoError.check(IO_process.kill(self._pid, signum), exn);
   }),
   /// Wait for the child to exit and return its status. Closes any pipe fds
   /// still open on this handle.
-  wait : (fn(self : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
+  wait : (fn(imm(self) : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
     io.async(e => {
       match(
         self._stdin_fd,
@@ -1017,7 +1017,7 @@ impl(
 );
 // One end-pair of a configured stream: (child_fd, parent_fd), -1 = absent.
 // SYNC — pipe(2) is synchronous and /dev/null opens through the sync shim.
-_stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i32, usize(2)))({
+_stdio_fds :: (fn(mode : Stdio, child_reads : bool, imm(exn) : Exception) -> Array(i32, usize(2)))({
   out := Array(i32, usize(2))(i32(-1), i32(-1));
   match(
     mode,
@@ -1057,7 +1057,7 @@ impl(
   /// pipes whose parent ends live on the returned `Child`; `Inherit` shares
   /// the parent's stream; `Null` redirects to /dev/null. Call `wait()` to
   /// reap.
-  spawn : (fn(self : Self, io : Io) -> Impl(Future(Child, IoExn)))(
+  spawn : (fn(imm(self) : Self, io : Io) -> Impl(Future(Child, IoExn)))(
     io.async(e => {
       in_pair := _stdio_fds(self._stdin, true, e.exn);
       out_pair := _stdio_fds(self._stdout, false, e.exn);

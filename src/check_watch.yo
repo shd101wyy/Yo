@@ -55,7 +55,7 @@ sleep_mod :: import("std/sys/timer");
 /// `"${mtime}:${size}"` for a path, or `.None` when the stat fails (file
 /// deleted / transient editor rename). One string keeps the sweep's compare
 /// and store to a single map.
-_stat_key :: (fn(p : String, io : Io) -> Option(String))({
+_stat_key :: (fn(imm(p) : String, io : Io) -> Option(String))({
   swallow := Exception(throw : (_e -> unwind(Option(String).None)));
   md := io.await(metadata(Path.new(p.clone()), io), IoExn(io : io, exn : swallow));
   Option(String).Some(`${md.modified_time().to_string()}:${md.size().to_string()}`)
@@ -65,11 +65,11 @@ _stat_key :: (fn(p : String, io : Io) -> Option(String))({
 /// (sorted) order of `files`. Returns the number of failed files.
 watch_round :: (
   fn(
-    changed : ArrayList(String),
-    files : ArrayList(String),
-    std_path : String,
+    imm(changed) : ArrayList(String),
+    imm(files) : ArrayList(String),
+    imm(std_path) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> usize
 )({
   round_t0 := Instant.now();
@@ -294,10 +294,10 @@ watch_round :: (
 /// exit with the round's failure count. The harness-facing `--watch-once`.
 run_watch_once :: (
   fn(
-    files : ArrayList(String),
-    std_path : String,
+    imm(files) : ArrayList(String),
+    imm(std_path) : String,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> unit
 )({
   changed := ArrayList(String).new();
@@ -325,7 +325,7 @@ run_watch_once :: (
 });
 /// Fill `stats` with the current `"${mtime}:${size}"` per path.
 watch_snapshot :: (
-  fn(files : ArrayList(String), inout(stats) : HashMap(String, String), io : Io) -> unit
+  fn(imm(files) : ArrayList(String), mut(stats) : HashMap(String, String), io : Io) -> unit
 )({
   (si : usize) = usize(0);
   while(si < files.len(), {
@@ -349,8 +349,8 @@ watch_snapshot :: (
 /// (deleted file) reports the path once, then stops reporting it.
 wait_for_change :: (
   fn(
-    files : ArrayList(String),
-    inout(stats) : HashMap(String, String),
+    imm(files) : ArrayList(String),
+    mut(stats) : HashMap(String, String),
     poll_ms : u64,
     io : Io
   ) -> ArrayList(String)
@@ -393,11 +393,11 @@ wait_for_change :: (
 /// The live watch loop: poll mtime/size at `poll_ms`, debounce, round.
 run_check_watch :: (
   fn(
-    files : ArrayList(String),
-    std_path : String,
+    imm(files) : ArrayList(String),
+    imm(std_path) : String,
     poll_ms : u64,
     io : Io,
-    exn : Exception
+    imm(exn) : Exception
   ) -> unit
 )({
   stats := HashMap(String, String).new();
@@ -437,7 +437,7 @@ run_check_watch :: (
 /// the old code and a broken import still built
 /// (issues/fixed/build-watch-reuses-a-stale-imported-module.md). Returns how
 /// many cached modules were dropped.
-invalidate_changed_files :: (fn(changed : ArrayList(String), std_path : String) -> usize)({
+invalidate_changed_files :: (fn(imm(changed) : ArrayList(String), imm(std_path) : String) -> usize)({
   (total : usize) = usize(0);
   (ci : usize) = usize(0);
   while(ci < changed.len(), {

@@ -24,10 +24,10 @@
 { assert } :: import("std/assert");
 _Pair :: struct(lo : i32, hi : i32);
 derive(_Pair, Copy, Clone);
-_wrap_r :: (fn(generic(R : Type), v : R, io : Io) -> Impl(Future(R, Io)))(
+_wrap_r :: (fn(generic(R : Type), imm(v) : R, io : Io) -> Impl(Future(R, Io)))(
   io.async((io : Io) => v)
 );
-_wrap_t :: (fn(generic(T : Type), v : T, io : Io) -> Impl(Future(T, Io)))(
+_wrap_t :: (fn(generic(T : Type), imm(v) : T, io : Io) -> Impl(Future(T, Io)))(
   io.async((io : Io) => v)
 );
 test("a generic Impl(Future(R)) at two different R in one program", {
@@ -52,7 +52,7 @@ _Holder :: struct(n : i32);
 derive(_Holder, Copy, Clone);
 impl(
   _Holder,
-  run : (fn(generic(R : Type), self : Self, f : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+  run : (fn(generic(R : Type), self : Self, imm(f) : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
     io.async((io : Io) => f())
   )
 );

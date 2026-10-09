@@ -96,6 +96,15 @@ The repairs the compiler computes today:
 | E0401 name not found, exported by exactly one std module | insert `{ name } :: import("std/…");` above the first non-comment line (the help names the module; two exporting modules, or a rename candidate as well, give help only) |
 | E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
 
+`yo fix <path> --migrate params` is a migration rather than a repair: it runs on
+files that already evaluate, and rewrites parameter modes for the
+parameter-convention change (VALUES_BY_DEFAULT V3b). A plain parameter whose
+type is not `Copy` becomes `imm(x)`, which is what a plain parameter means
+today, and `inout(x)` becomes `mut(x)`. A generic parameter becomes `imm(x)`
+unless its `where` bounds make it `Copy`. Neither edit changes what a program
+does. A file that does not evaluate keeps the parameters evaluation never
+reached, and `fix` exits non-zero naming it.
+
 ## Warnings
 
 `check`, `compile` and `build` also carry warning-severity diagnostics for

@@ -28,12 +28,12 @@ Gc :: import("std/gc");
 Env :: ref(struct(x : i32, cyc : Option(Self)));
 Res :: ref(struct(expected_env : Env, given_env : Env));
 
-name_of :: (fn(e : Env) -> String)(`n${e.x}`);
-has_pair :: (fn(a : String, b : String) -> bool)(a == b);
+name_of :: (fn(imm(e) : Env) -> String)(`n${e.x}`);
+has_pair :: (fn(imm(a) : String, imm(b) : String) -> bool)(a == b);
 
 // Mirrors _synthesize_types_impl's shape: owning locals bound from params,
 // used in an early-return constructor, and REASSIGNED in a later arm.
-f :: (fn(expected_env : Env, given_env : Env, deep : bool) -> Res)({
+f :: (fn(imm(expected_env) : Env, imm(given_env) : Env, deep : bool) -> Res)({
   exp_id := name_of(expected_env);
   (ee : Env) = expected_env;
   (ge : Env) = given_env;

@@ -72,7 +72,7 @@ pragma(Pragma.AllowUnsafe);
 /// (`_same_recursion_clique`).
 (g_recursion_cliques : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
 /// True when `a` and `b` sit in the same mutual-recursion clique.
-_same_recursion_clique :: (fn(a : String, b : String) -> bool)({
+_same_recursion_clique :: (fn(imm(a) : String, imm(b) : String) -> bool)({
   (found : bool) = false;
   (ci : usize) = usize(0);
   while((ci < g_recursion_cliques.len()) && !found, {
@@ -96,11 +96,11 @@ _same_recursion_clique :: (fn(a : String, b : String) -> bool)({
 /// resolves, so the edges match what the walk will see.
 _scan_call_edges :: (
   fn(
-    table : ExprInfoTable,
-    e : AstExpr,
-    caller_fid : String,
-    inout(from) : ArrayList(String),
-    inout(to) : ArrayList(String)
+    imm(table) : ExprInfoTable,
+    imm(e) : AstExpr,
+    imm(caller_fid) : String,
+    mut(from) : ArrayList(String),
+    mut(to) : ArrayList(String)
   ) -> unit
 )(
   match(
@@ -161,7 +161,7 @@ _scan_call_edges :: (
 /// Driver prepass: collect the task set's call edges and store the
 /// mutual-recursion cliques (mutually reachable groups with more than
 /// one member). Must run before the first `verify_function_body`.
-register_recursion_cliques :: (fn(tasks : ArrayList(VerifyTask)) -> unit)({
+register_recursion_cliques :: (fn(imm(tasks) : ArrayList(VerifyTask)) -> unit)({
   g_recursion_cliques = ArrayList(ArrayList(String)).new();
   (from : ArrayList(String)) = ArrayList(String).new();
   (to : ArrayList(String)) = ArrayList(String).new();
@@ -257,7 +257,7 @@ register_recursion_cliques :: (fn(tasks : ArrayList(VerifyTask)) -> unit)({
 // ============================================================================
 // Small type probes (local, to keep this module's import fan-in minimal)
 // ============================================================================
-_is_bool_type :: (fn(t : TypeValue) -> bool)(
+_is_bool_type :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .BoolT => true,
@@ -265,7 +265,7 @@ _is_bool_type :: (fn(t : TypeValue) -> bool)(
   )
 );
 /// Width in bits of an integer-ish type; `.None` for non-integers.
-_int_width :: (fn(t : TypeValue) -> Option(usize))(
+_int_width :: (fn(imm(t) : TypeValue) -> Option(usize))(
   match(
     t_refine_inner(t),
     .Int({ bits : b }) => Option(usize).Some(usize(b)),
@@ -280,7 +280,7 @@ _int_width :: (fn(t : TypeValue) -> Option(usize))(
 _pointer_width :: (fn() -> usize)(
   usize(get_current_target().pointer_size_bits)
 );
-_int_is_signed :: (fn(t : TypeValue) -> bool)(
+_int_is_signed :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t_refine_inner(t),
     .Int({ signed : s }) => s,
@@ -293,7 +293,7 @@ _int_is_signed :: (fn(t : TypeValue) -> bool)(
 /// UNSIGNED or the obligation refutes at the high bit
 /// (issues/fixed/verifier-decreases-nonneg-is-signed-for-unsigned-measures.md).
 /// No ExprInfo (untyped measure) defaults to signed, like `_binop_of_ctx`.
-_measure_is_signed :: (fn(ctx : VcCtx, e : AstExpr) -> bool)(
+_measure_is_signed :: (fn(imm(ctx) : VcCtx, imm(e) : AstExpr) -> bool)(
   cond(
     _is_lex_measure(e) => false,
     true => match(
@@ -309,8 +309,8 @@ _measure_is_signed :: (fn(ctx : VcCtx, e : AstExpr) -> bool)(
 /// component. Its term is the bit-vector CONCATENATION m1 ++ m2 ++ ...;
 /// with every component proved non-negative on entry, unsigned order on the
 /// concatenation IS the lexicographic order on the components.
-_is_lex_measure :: (fn(e : AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None));
-_lex_components :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+_is_lex_measure :: (fn(imm(e) : AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None));
+_lex_components :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
     .FnCall(_, _, ca, _, _) => ca,
@@ -337,7 +337,7 @@ _lex_components :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
 (g_list_elem_sorts : ArrayList(VcSort)) = ArrayList(VcSort).new();
 /// The element type of an `ArrayList(T)` (the prelude's ref struct named
 /// `ArrayList` with one type argument), or `.None`.
-_list_elem_type :: (fn(t : TypeValue) -> Option(TypeValue))(
+_list_elem_type :: (fn(imm(t) : TypeValue) -> Option(TypeValue))(
   match(
     t_refine_inner(t),
     .Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, is_reference_semantics : ls_ref, type_arguments : ls_targs }) => cond(
@@ -350,7 +350,7 @@ _list_elem_type :: (fn(t : TypeValue) -> Option(TypeValue))(
 /// The prelude's `ArrayList(T)`: a CTFE instantiation carries no `name`
 /// (its display name, registered by the comptime-fn memo, is
 /// `ArrayList(<T>)`) and exactly the fields `_ptr`, `_length`, `_capacity`.
-_is_array_list_shape :: (fn(id : String, name : String, labels : ArrayList(String)) -> bool)({
+_is_array_list_shape :: (fn(imm(id) : String, imm(name) : String, imm(labels) : ArrayList(String)) -> bool)({
   display := cond(
     (name.len() > usize(0)) => name.clone(),
     true => match(type_display_name(id.clone()), .Some(d) => d, .None => String.new())
@@ -361,7 +361,7 @@ _is_array_list_shape :: (fn(id : String, name : String, labels : ArrayList(Strin
 });
 /// The element SORT of a modeled `ArrayList(T)`: `T` must be an integer or
 /// `bool` (nested lists, structs and enums stay outside the subset).
-_list_elem_sort :: (fn(t : TypeValue) -> Option(VcSort))(
+_list_elem_sort :: (fn(imm(t) : TypeValue) -> Option(VcSort))(
   match(
     _list_elem_type(t),
     .Some(let_t) => match(
@@ -375,13 +375,13 @@ _list_elem_sort :: (fn(t : TypeValue) -> Option(VcSort))(
     .None => Option(VcSort).None
   )
 );
-_list_dt_name :: (fn(elem : VcSort) -> String)(`List_${_msof_key(elem)}`);
-_list_ctor_name :: (fn(elem : VcSort) -> String)(`${_list_dt_name(elem)}_mk`);
-_list_contents_acc :: (fn(elem : VcSort) -> String)(`${_list_ctor_name(elem)}_contents`);
-_list_len_acc :: (fn(elem : VcSort) -> String)(`${_list_ctor_name(elem)}_len`);
+_list_dt_name :: (fn(imm(elem) : VcSort) -> String)(`List_${_msof_key(elem)}`);
+_list_ctor_name :: (fn(imm(elem) : VcSort) -> String)(`${_list_dt_name(elem)}_mk`);
+_list_contents_acc :: (fn(imm(elem) : VcSort) -> String)(`${_list_ctor_name(elem)}_contents`);
+_list_len_acc :: (fn(imm(elem) : VcSort) -> String)(`${_list_ctor_name(elem)}_len`);
 /// The element sort of a list-sorted TERM (a `Var` of a `List_<elem>`
 /// datatype sort), read back from the datatype name.
-_list_sort_elem :: (fn(s : VcSort) -> Option(VcSort))(
+_list_sort_elem :: (fn(imm(s) : VcSort) -> Option(VcSort))(
   match(
     s,
     .DataS(ds_name) => {
@@ -404,7 +404,7 @@ _list_sort_elem :: (fn(s : VcSort) -> Option(VcSort))(
 );
 /// Register `List_<elem>` once per process (the entry format is
 /// `_note_enum_datatype`'s: `<dt>|<ctor> (<acc> <sort>) ...`).
-_register_list_datatype :: (fn(elem : VcSort) -> unit)({
+_register_list_datatype :: (fn(imm(elem) : VcSort) -> unit)({
   dt := _list_dt_name(elem);
   (found : bool) = false;
   (i : usize) = usize(0);
@@ -439,7 +439,7 @@ _register_list_datatype :: (fn(elem : VcSort) -> unit)({
 });
 /// `len(xs)` and `contents(xs)` of a list term.
 /// Whether `acc` is the `len` accessor of a registered list datatype.
-_is_list_len_acc :: (fn(acc : String) -> bool)({
+_is_list_len_acc :: (fn(imm(acc) : String) -> bool)({
   (found : bool) = false;
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.len()) && !found, {
@@ -455,7 +455,7 @@ _is_list_len_acc :: (fn(acc : String) -> bool)({
   found
 });
 /// The element sort of the list datatype whose `contents` accessor is `acc`.
-_list_elem_of_contents_acc :: (fn(acc : String) -> Option(VcSort))({
+_list_elem_of_contents_acc :: (fn(imm(acc) : String) -> Option(VcSort))({
   (found : Option(VcSort)) = Option(VcSort).None;
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.len()) && found.is_none(), {
@@ -471,7 +471,7 @@ _list_elem_of_contents_acc :: (fn(acc : String) -> Option(VcSort))({
   found
 });
 /// The list datatype sort a `List_<elem>_mk(...)` constructor term builds.
-_list_sort_of_ctor :: (fn(name : String) -> Option(VcSort))({
+_list_sort_of_ctor :: (fn(imm(name) : String) -> Option(VcSort))({
   (found : Option(VcSort)) = Option(VcSort).None;
   (li : usize) = usize(0);
   while((li < g_list_elem_sorts.len()) && found.is_none(), {
@@ -486,9 +486,9 @@ _list_sort_of_ctor :: (fn(name : String) -> Option(VcSort))({
   });
   found
 });
-_list_len_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs));
-_list_contents_term :: (fn(elem : VcSort, xs : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs));
-_type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
+_list_len_term :: (fn(imm(elem) : VcSort, imm(xs) : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs));
+_list_contents_term :: (fn(imm(elem) : VcSort, imm(xs) : VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs));
+_type_sort :: (fn(imm(t) : TypeValue) -> Option(VcSort))(
   cond(
     // V6 task 2: a generic type parameter verifies as an UNINTERPRETED
     // sort — values of it support equality and pass-through only (the
@@ -537,7 +537,7 @@ _type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
     )
   )
 );
-_enum_sort_or_none :: (fn(t : TypeValue) -> Option(VcSort))(
+_enum_sort_or_none :: (fn(imm(t) : TypeValue) -> Option(VcSort))(
   match(
     t,
     .EnumT({ id : e_id, is_reference_semantics : e_ref }) => cond(
@@ -549,7 +549,7 @@ _enum_sort_or_none :: (fn(t : TypeValue) -> Option(VcSort))(
 );
 /// The datatype name for an enum id (`enum_decl_<astid>_<module>`): a
 /// sanitized SMT identifier unique per declaration.
-_enum_dt_name :: (fn(enum_id : String) -> String)(
+_enum_dt_name :: (fn(imm(enum_id) : String) -> String)(
   `__yo_d${_smt_sanitize(enum_id.clone())}`
 );
 /// V6 task 2: the declared UNINTERPRETED sorts — one mangled name per
@@ -557,7 +557,7 @@ _enum_dt_name :: (fn(enum_id : String) -> String)(
 /// body. Module-global (like the query dedupe lists): the encoder renders
 /// one `(declare-sort <name> 0)` per entry, and z3 rejects a duplicate
 /// declaration, so the list dedups on insert.
-_register_uninterpreted_sort :: (fn(name : String) -> unit)({
+_register_uninterpreted_sort :: (fn(imm(name) : String) -> unit)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < g_uninterpreted_sorts.len()) && !found, {
@@ -578,7 +578,7 @@ _register_uninterpreted_sort :: (fn(name : String) -> unit)({
   ()
 });
 /// True when the TypeValue is a generic type parameter (SomeT).
-_is_some_t_type :: (fn(t : TypeValue) -> bool)(
+_is_some_t_type :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .SomeT(_, _, _, _, _, _, _, _, _, _) => true,
@@ -590,7 +590,7 @@ _is_some_t_type :: (fn(t : TypeValue) -> bool)(
 /// different sorts and one function's `T` is one sort across its body.
 /// SomeT patterns are FULL-ARITY positional (11 fields) — the id is field
 /// 1, the name field 2.
-_uninterpreted_sort_of :: (fn(t : TypeValue) -> VcSort)(
+_uninterpreted_sort_of :: (fn(imm(t) : TypeValue) -> VcSort)(
   match(
     t,
     .SomeT(id, name, _, _, _, _, _, _, _, _) => VcSort.Uninterpreted(
@@ -600,7 +600,7 @@ _uninterpreted_sort_of :: (fn(t : TypeValue) -> VcSort)(
   )
 );
 /// Map every non-[A-Za-z0-9_] rune of `s` to `_` (SMT identifier rules).
-_smt_sanitize :: (fn(s : String) -> String)({
+_smt_sanitize :: (fn(imm(s) : String) -> String)({
   sb := StringBuilder.new();
   {
     it := s.chars();
@@ -619,7 +619,7 @@ _smt_sanitize :: (fn(s : String) -> String)({
   sb.to_string()
 });
 /// The constructor name for one variant: `<dt>_<variant>`.
-_enum_ctor_name :: (fn(enum_id : String, variant : String) -> String)(
+_enum_ctor_name :: (fn(imm(enum_id) : String, imm(variant) : String) -> String)(
   `${_enum_dt_name(enum_id.clone())}_${variant}`
 );
 // ============================================================================
@@ -642,7 +642,7 @@ GuardSite :: struct(
   class : String
 );
 /// The guard site of the AoRTE obligation an expression `e` emits.
-_guard_site :: (fn(e : AstExpr, class : String) -> Option(GuardSite))({
+_guard_site :: (fn(imm(e) : AstExpr, imm(class) : String) -> Option(GuardSite))({
   tok := ast_expr_token(e);
   Option(GuardSite).Some(
     GuardSite(
@@ -820,7 +820,7 @@ VcCtx :: ref(
     for_frames : ArrayList(ForFrame)
   )
 );
-_new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) -> VcCtx)(
+_new_vc_ctx :: (fn(imm(table) : ExprInfoTable, imm(fn_name) : String, imm(func_id) : String) -> VcCtx)(
   VcCtx(
     table : table,
     fn_name : fn_name,
@@ -860,12 +860,12 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     for_frames : ArrayList(ForFrame).new()
   )
 );
-_next_fresh :: (fn(inout(ctx) : VcCtx) -> usize)({
+_next_fresh :: (fn(mut(ctx) : VcCtx) -> usize)({
   n := ctx.fresh;
   ctx.fresh = (ctx.fresh + usize(1));
   n
 });
-_fail_subset :: (fn(inout(ctx) : VcCtx, construct : String, at : AstExpr) -> unit)({
+_fail_subset :: (fn(mut(ctx) : VcCtx, imm(construct) : String, imm(at) : AstExpr) -> unit)({
   match(
     ctx.subset_error,
     .Some(_) => (),
@@ -916,7 +916,7 @@ _fold_scmp :: (fn(op : VcOp, a : u64, b : u64, w : usize) -> bool)({
   )
 });
 /// Two-argument boolean connective over literal bools.
-_fold_bool2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
+_fold_bool2 :: (fn(op : VcOp, imm(a) : VcTerm, imm(b) : VcTerm) -> Option(VcTerm))({
   ab := match(a, .BoolLit(x) => x, _ => false);
   a_is := match(a, .BoolLit(_) => true, _ => false);
   bb := match(b, .BoolLit(x) => x, _ => false);
@@ -933,7 +933,7 @@ _fold_bool2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
   )
 });
 /// Eq / Distinct over literal bools or equal-width bitvector literals.
-_fold_eq :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
+_fold_eq :: (fn(op : VcOp, imm(a) : VcTerm, imm(b) : VcTerm) -> Option(VcTerm))({
   a_bool := match(a, .BoolLit(_) => true, _ => false);
   b_bool := match(b, .BoolLit(_) => true, _ => false);
   if(a_bool && b_bool, {
@@ -961,7 +961,7 @@ _fold_eq :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
   )
 });
 /// Signed/unsigned comparisons over equal-width bitvector literals.
-_fold_cmp :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
+_fold_cmp :: (fn(op : VcOp, imm(a) : VcTerm, imm(b) : VcTerm) -> Option(VcTerm))({
   av := match(a, .BvLit(v, _) => v, _ => u64(0));
   bv := match(b, .BvLit(v, _) => v, _ => u64(0));
   aw := match(a, .BvLit(_, w) => w, _ => usize(0));
@@ -986,7 +986,7 @@ _fold_cmp :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
 /// literals. Division and remainder are DELIBERATELY NOT folded: a zero
 /// divisor is the AoRTE obligation itself (symbolic by design) and the
 /// SMT division semantics for zero/INT_MIN are what the proof talks about.
-_fold_bv2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
+_fold_bv2 :: (fn(op : VcOp, imm(a) : VcTerm, imm(b) : VcTerm) -> Option(VcTerm))({
   av := match(a, .BvLit(v, _) => v, _ => u64(0));
   bv := match(b, .BvLit(v, _) => v, _ => u64(0));
   aw := match(a, .BvLit(_, w) => w, _ => usize(0));
@@ -1010,7 +1010,7 @@ _fold_bv2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> Option(VcTerm))({
   )
 });
 /// One-argument bitvector folds: negation and bitwise not (wrapping).
-_fold_bv1 :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))({
+_fold_bv1 :: (fn(op : VcOp, imm(a) : VcTerm) -> Option(VcTerm))({
   av := match(a, .BvLit(v, _) => v, _ => u64(0));
   aw := match(a, .BvLit(_, w) => w, _ => usize(0));
   if(aw == usize(0), {
@@ -1026,7 +1026,7 @@ _fold_bv1 :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))({
 });
 /// Width-changing folds: sign/zero extend and extract (all u64-safe; a
 /// widened width past 64 stays symbolic).
-_fold_width :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))(
+_fold_width :: (fn(op : VcOp, imm(a) : VcTerm) -> Option(VcTerm))(
   match(
     op,
     .SignExtendOp(k) => {
@@ -1074,7 +1074,7 @@ _fold_width :: (fn(op : VcOp, a : VcTerm) -> Option(VcTerm))(
 /// `_emit` records the verdict WITHOUT an SMT call. Folding is
 /// deliberately CONSERVATIVE: division/remainder (a zero divisor is the
 /// AoRTE obligation itself) and shifts >= width stay symbolic.
-_fold_term :: (fn(t : VcTerm) -> VcTerm)(
+_fold_term :: (fn(imm(t) : VcTerm) -> VcTerm)(
   match(
     t,
     .App(op, args) => {
@@ -1178,11 +1178,11 @@ _fold_term :: (fn(t : VcTerm) -> VcTerm)(
 /// Emit one obligation: prove `Φ ∧ assumptions ⇒ goal`.
 _emit :: (
   fn(
-    inout(ctx) : VcCtx,
-    label : String,
-    extra_assumptions : ArrayList(VcTerm),
-    goal : VcTerm,
-    (site : Option(GuardSite)) ?= Option(GuardSite).None,
+    mut(ctx) : VcCtx,
+    imm(label) : String,
+    imm(extra_assumptions) : ArrayList(VcTerm),
+    imm(goal) : VcTerm,
+    (imm(site) : Option(GuardSite)) ?= Option(GuardSite).None,
     (elision_only : bool) ?= false
   ) -> unit
 )({
@@ -1458,7 +1458,7 @@ _emit :: (
 });
 /// The strict-decrease comparison for a measure, in its own type's order:
 /// `bvslt` for a signed measure, `bvult` for an unsigned or lexicographic one.
-_measure_lt_op :: (fn(ctx : VcCtx, e : AstExpr) -> VcOp)(
+_measure_lt_op :: (fn(imm(ctx) : VcCtx, imm(e) : AstExpr) -> VcOp)(
   cond(
     _measure_is_signed(ctx, e) => VcOp.BvSlt,
     true => VcOp.BvUlt
@@ -1471,7 +1471,7 @@ _measure_lt_op :: (fn(ctx : VcCtx, e : AstExpr) -> VcOp)(
 /// step under an unsigned nonneg would read a measure growing across the
 /// high bit as shrinking
 /// (issues/fixed/verifier-loop-variant-obligations-are-signed-for-unsigned-measures.md).
-_emit_measure_nonneg :: (fn(inout(ctx) : VcCtx, label : String, dm0 : AstExpr) -> unit)({
+_emit_measure_nonneg :: (fn(mut(ctx) : VcCtx, imm(label) : String, imm(dm0) : AstExpr) -> unit)({
   parts := cond(
     _is_lex_measure(dm0) => _lex_components(dm0),
     true => {
@@ -1500,7 +1500,7 @@ _emit_measure_nonneg :: (fn(inout(ctx) : VcCtx, label : String, dm0 : AstExpr) -
 });
 /// Sort a small string list into a FRESH list (deterministic declaration
 /// order; the std sort API is a comptime trait dance not worth it here).
-_sorted_strings :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
+_sorted_strings :: (fn(imm(xs) : ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < xs.len(), {
@@ -1539,7 +1539,7 @@ _sorted_strings :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
 });
 /// A term-level variable declaration collector: every `Var` in `t` needs a
 /// matching `declare-fun` in the query.
-_collect_declared :: (fn(t : VcTerm, inout(out) : HashMap(String, VcSort)) -> unit)(
+_collect_declared :: (fn(imm(t) : VcTerm, mut(out) : HashMap(String, VcSort)) -> unit)(
   match(
     t,
     .Var(name, sort) => {
@@ -1633,7 +1633,7 @@ _collect_declared :: (fn(t : VcTerm, inout(out) : HashMap(String, VcSort)) -> un
   )
 );
 /// Rewrite Var names per `map` (leaves unmapped names alone).
-_rename_vars :: (fn(t : VcTerm, map : HashMap(String, String)) -> VcTerm)(
+_rename_vars :: (fn(imm(t) : VcTerm, imm(map) : HashMap(String, String)) -> VcTerm)(
   match(
     t,
     .Var(name, sort) => match(
@@ -1739,7 +1739,7 @@ _rename_vars :: (fn(t : VcTerm, map : HashMap(String, String)) -> VcTerm)(
 // Literal folding
 // ============================================================================
 /// IntLit raw text ("-5", "42", "0xFF") → two's-complement bit pattern.
-_int_lit_bits :: (fn(raw : String) -> Option(u64))(
+_int_lit_bits :: (fn(imm(raw) : String) -> Option(u64))(
   match(
     raw.parse_i64_radix(u32(10)),
     .Some(n) => Option(u64).Some(u64(n)),
@@ -1747,7 +1747,7 @@ _int_lit_bits :: (fn(raw : String) -> Option(u64))(
   )
 );
 /// A comptime-known EvalValue as a literal term of sort `sort`.
-_lit_term :: (fn(v : EvalValue, sort : VcSort) -> Option(VcTerm))(
+_lit_term :: (fn(imm(v) : EvalValue, imm(sort) : VcSort) -> Option(VcTerm))(
   match(
     v,
     .BoolVal(b) => Option(VcTerm).Some(VcTerm.BoolLit(b)),
@@ -1766,26 +1766,26 @@ _lit_term :: (fn(v : EvalValue, sort : VcSort) -> Option(VcTerm))(
 // ============================================================================
 // The term builder
 // ============================================================================
-_app1 :: (fn(op : VcOp, a : VcTerm) -> VcTerm)({
+_app1 :: (fn(op : VcOp, imm(a) : VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   VcTerm.App(op, args)
 });
-_app2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> VcTerm)({
+_app2 :: (fn(op : VcOp, imm(a) : VcTerm, imm(b) : VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
   VcTerm.App(op, args)
 });
 /// `((_ int2bv 64) (seq.len a))` — the length as a 64-bit vector.
-_seq_len_bv :: (fn(a : VcTerm) -> VcTerm)({
+_seq_len_bv :: (fn(imm(a) : VcTerm) -> VcTerm)({
   inner := ArrayList(VcTerm).new();
   inner.push(a);
   outer := ArrayList(VcTerm).new();
   outer.push(VcTerm.App(VcOp.SeqLen, inner));
   VcTerm.App(VcOp.IntToBvOp(width : usize(64)), outer)
 });
-_app3 :: (fn(op : VcOp, a : VcTerm, b : VcTerm, c : VcTerm) -> VcTerm)({
+_app3 :: (fn(op : VcOp, imm(a) : VcTerm, imm(b) : VcTerm, imm(c) : VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
@@ -1794,14 +1794,14 @@ _app3 :: (fn(op : VcOp, a : VcTerm, b : VcTerm, c : VcTerm) -> VcTerm)({
 });
 /// The best-effort sort of a term (for Array domains when the operand is
 /// a derived expression rather than a Var).
-_term_sort_of :: (fn(t : VcTerm) -> VcSort)(
+_term_sort_of :: (fn(imm(t) : VcTerm) -> VcSort)(
   cond(
     (_term_width(t) > usize(1)) => VcSort.BvS(width : _term_width(t)),
     true => VcSort.BoolS
   )
 );
 /// A comptime str literal's bytes as a right-nested seq.++ of seq.unit.
-_str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
+_str_bytes_term :: (fn(imm(info) : ExprInfo) -> Option(VcTerm))({
   quoted := match(
     info.value,
     .Some(.StrLit(r)) => r.clone(),
@@ -1835,7 +1835,7 @@ _str_bytes_term :: (fn(info : ExprInfo) -> Option(VcTerm))({
 _zero_of :: (fn(w : usize) -> VcTerm)(VcTerm.BvLit(value : u64(0), width : w));
 /// The ExprInfo-free forms `_expr_term` accepts (see its gate), else
 /// `.None` without recording anything.
-_untyped_opaque_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
+_untyped_opaque_term :: (fn(mut(ctx) : VcCtx, imm(e) : AstExpr) -> Option(VcTerm))({
   if(ast_expr_is_atom(e), {
     return(ctx.vars.get(ast_expr_token(e).value));
   });
@@ -1868,7 +1868,7 @@ _untyped_opaque_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))(
   )
 });
 /// Build the term for `e`. `.None` = outside the subset (already recorded).
-_expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
+_expr_term :: (fn(mut(ctx) : VcCtx, imm(e) : AstExpr) -> Option(VcTerm))({
   // `xs.len()` / `xs.is_empty()` on a NAME bound to a list term needs no
   // ExprInfo (a contract clause's nodes may carry none): answer from the
   // term before the typed-expression gate (R1 slice 1).
@@ -2021,7 +2021,7 @@ _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
 /// context (idempotent by dt name). The entry format is
 /// `<dt-name>|<ctor0> <ctor1> (f0 <sort>) ...` — encode_content splits at
 /// the `|` and renders the combined declare-datatypes block.
-_note_enum_datatype :: (fn(inout(ctx) : VcCtx, t : TypeValue) -> unit)(
+_note_enum_datatype :: (fn(mut(ctx) : VcCtx, imm(t) : TypeValue) -> unit)(
   match(
     t,
     .EnumT({
@@ -2097,7 +2097,7 @@ _note_enum_datatype :: (fn(inout(ctx) : VcCtx, t : TypeValue) -> unit)(
     _ => ()
   )
 );
-_dt_registered :: (fn(entries : ArrayList(String), dt : String) -> bool)({
+_dt_registered :: (fn(imm(entries) : ArrayList(String), imm(dt) : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < entries.len()) && !found, {
@@ -2121,7 +2121,7 @@ _dt_registered :: (fn(entries : ArrayList(String), dt : String) -> bool)({
   found
 });
 /// Whether `t` is a non-ref, non-anonymous enum type.
-_is_value_enum_type :: (fn(t : TypeValue) -> bool)(
+_is_value_enum_type :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .EnumT({ id : e_id, is_reference_semantics : e_ref }) => (!e_ref && (e_id.len() > usize(0))),
@@ -2130,7 +2130,7 @@ _is_value_enum_type :: (fn(t : TypeValue) -> bool)(
 );
 /// Whether call `e`'s callee is a bare atom (`.(Variant, ...)`, `f(x)`),
 /// not itself a call (`(xs.get)(i)`).
-_callee_is_atom :: (fn(e : AstExpr) -> bool)(
+_callee_is_atom :: (fn(imm(e) : AstExpr) -> bool)(
   match(
     e,
     .FnCall(_, f, _, _, _) => ast_expr_is_atom(f),
@@ -2140,7 +2140,7 @@ _callee_is_atom :: (fn(e : AstExpr) -> bool)(
 /// The variant atom of `Enum.Variant` spelled as `.(Enum, Variant)`: two
 /// atom dot arguments where the first names no variant of the enum and the
 /// second does.
-_qualified_nullary_variant :: (fn(info : ExprInfo, dot_args : ArrayList(AstExpr)) -> Option(AstExpr))(
+_qualified_nullary_variant :: (fn(imm(info) : ExprInfo, imm(dot_args) : ArrayList(AstExpr)) -> Option(AstExpr))(
   match(
     info.ty,
     .EnumT({ variant_names : q_names }) => cond(
@@ -2157,7 +2157,7 @@ _qualified_nullary_variant :: (fn(info : ExprInfo, dot_args : ArrayList(AstExpr)
 /// `(Enum.Variant)(...)`, else `.None`. An instance method call
 /// (`xs.get(i)`) has the same shape; its callee is recorded in the
 /// method-callee table, which rules it out.
-_payload_ctor_variant :: (fn(e : AstExpr) -> Option(AstExpr))(
+_payload_ctor_variant :: (fn(imm(e) : AstExpr) -> Option(AstExpr))(
   match(
     e,
     .FnCall(_, f, _, _, _) => match(
@@ -2176,7 +2176,7 @@ _payload_ctor_variant :: (fn(e : AstExpr) -> Option(AstExpr))(
 );
 /// `.(Variant, args...)` construction as a datatype Ctor term.
 _enum_ctor_term :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, dot_args : ArrayList(AstExpr), info : ExprInfo) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(dot_args) : ArrayList(AstExpr), imm(info) : ExprInfo) -> Option(VcTerm)
 )(
   match(
     dot_args.get(usize(0)),
@@ -2198,7 +2198,7 @@ _enum_ctor_term :: (
   )
 );
 _enum_ctor_first :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, info : ExprInfo, v_atom : AstExpr, dot_args : ArrayList(AstExpr)) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(info) : ExprInfo, imm(v_atom) : AstExpr, imm(dot_args) : ArrayList(AstExpr)) -> Option(VcTerm)
 )(
   cond(
     ast_expr_is_atom(v_atom) => _enum_ctor_named(ctx, e, info, ast_expr_token(v_atom).value, dot_args),
@@ -2209,7 +2209,7 @@ _enum_ctor_first :: (
   )
 );
 _enum_ctor_named :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, info : ExprInfo, variant : String, dot_args : ArrayList(AstExpr)) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(info) : ExprInfo, imm(variant) : String, imm(dot_args) : ArrayList(AstExpr)) -> Option(VcTerm)
 )(
   match(
     info.ty,
@@ -2222,14 +2222,14 @@ _enum_ctor_named :: (
 );
 _build_enum_ctor :: (
   fn(
-    inout(ctx) : VcCtx,
-    e : AstExpr,
-    ety : TypeValue,
-    e_id : String,
-    e_names : ArrayList(String),
-    e_fields : ArrayList(ArrayList(TypeValue)),
-    variant : String,
-    dot_args : ArrayList(AstExpr)
+    mut(ctx) : VcCtx,
+    imm(e) : AstExpr,
+    imm(ety) : TypeValue,
+    imm(e_id) : String,
+    imm(e_names) : ArrayList(String),
+    imm(e_fields) : ArrayList(ArrayList(TypeValue)),
+    imm(variant) : String,
+    imm(dot_args) : ArrayList(AstExpr)
   ) -> Option(VcTerm)
 )(
   cond(
@@ -2276,12 +2276,12 @@ _build_enum_ctor :: (
   )
 );
 /// Whether `vname` (bare, no dot) names a variant.
-_variant_named :: (fn(e_names : ArrayList(String), vname : String) -> bool)(
+_variant_named :: (fn(imm(e_names) : ArrayList(String), imm(vname) : String) -> bool)(
   _variant_index_of(e_names, vname) < e_names.len()
 );
 /// The variant index for a BARE variant name; the list length when not
 /// found.
-_variant_index_of :: (fn(e_names : ArrayList(String), vname : String) -> usize)({
+_variant_index_of :: (fn(imm(e_names) : ArrayList(String), imm(vname) : String) -> usize)({
   (i : usize) = usize(0);
   (hit : usize) = e_names.len();
   while((i < e_names.len()) && (hit == e_names.len()), {
@@ -2300,7 +2300,7 @@ _variant_index_of :: (fn(e_names : ArrayList(String), vname : String) -> usize)(
 /// `.Variant(b1, b2) => body` contributes
 /// `(ite (is-Ctor S) body[b := Ctor-i S] ...)`; a wildcard arm is the
 /// else. Nested patterns are outside the V3 subset.
-_match_term :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+_match_term :: (fn(mut(ctx) : VcCtx, imm(at) : AstExpr, imm(args) : ArrayList(AstExpr)) -> Option(VcTerm))({
   if(args.len() < usize(2), {
     _fail_subset(ctx, String.from("match with too few arguments"), at);
     return(Option(VcTerm).None);
@@ -2337,7 +2337,7 @@ _match_term :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) 
 /// arm contributes `ite(test_and_guard, body[binds], tail)`; the final arm
 /// must be unguarded (an exhaustive match's last arm holds when reached).
 _match_arms_ir :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, scrut : VcTerm, arms : ArrayList(Arm), from : usize, e_ty : TypeValue) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(at) : AstExpr, imm(scrut) : VcTerm, imm(arms) : ArrayList(Arm), from : usize, imm(e_ty) : TypeValue) -> Option(VcTerm)
 )(
   cond(
     (from >= arms.len()) => {
@@ -2360,7 +2360,7 @@ _match_arms_ir :: (
 /// matched. A GUARDED final arm can fail, which the ite tree cannot
 /// express without a bottom value: outside the subset, loudly.
 _match_last_arm_ir :: (
-  fn(inout(ctx) : VcCtx, scrut : VcTerm, arms : ArrayList(Arm), idx : usize, e_ty : TypeValue) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(scrut) : VcTerm, imm(arms) : ArrayList(Arm), idx : usize, imm(e_ty) : TypeValue) -> Option(VcTerm)
 )({
   arm := arms.get(idx).unwrap();
   if(arm.guard.is_some(), {
@@ -2383,7 +2383,7 @@ _match_last_arm_ir :: (
 /// to projections of `scrut`, build the conjunctive pattern test, conjoin
 /// the guard, and wrap the body in `ite(test, body, tail)`.
 _match_arm_conditioned_ir :: (
-  fn(inout(ctx) : VcCtx, arm : Arm, scrut : VcTerm, tail : VcTerm, e_ty : TypeValue) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(arm) : Arm, imm(scrut) : VcTerm, imm(tail) : VcTerm, imm(e_ty) : TypeValue) -> Option(VcTerm)
 )({
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
@@ -2428,7 +2428,7 @@ _match_arm_conditioned_ir :: (
 });
 /// Restore ctx.vars to the pre-arm scope (bindings pop in reverse).
 _restore_vars :: (
-  fn(inout(ctx) : VcCtx, saved_names : ArrayList(String), saved_vals : ArrayList(Option(VcTerm))) -> unit
+  fn(mut(ctx) : VcCtx, imm(saved_names) : ArrayList(String), imm(saved_vals) : ArrayList(Option(VcTerm))) -> unit
 )({
   (si : usize) = saved_names.len();
   while(si > usize(0), {
@@ -2461,12 +2461,12 @@ _restore_vars :: (
 /// walk cannot encode.
 _arm_ir_bind :: (
   fn(
-    p : Pattern,
-    scrut : VcTerm,
-    e_ty : TypeValue,
-    inout(ctx) : VcCtx,
-    saved_names : ArrayList(String),
-    inout(saved_vals) : ArrayList(Option(VcTerm))
+    imm(p) : Pattern,
+    imm(scrut) : VcTerm,
+    imm(e_ty) : TypeValue,
+    mut(ctx) : VcCtx,
+    imm(saved_names) : ArrayList(String),
+    mut(saved_vals) : ArrayList(Option(VcTerm))
   ) -> Option(VcTerm)
 )({
   parts := ArrayList(VcTerm).new();
@@ -2478,11 +2478,11 @@ _arm_ir_bind :: (
 });
 _bind_one :: (
   fn(
-    name : String,
-    term : VcTerm,
-    inout(ctx) : VcCtx,
-    inout(saved_names) : ArrayList(String),
-    inout(saved_vals) : ArrayList(Option(VcTerm))
+    imm(name) : String,
+    imm(term) : VcTerm,
+    mut(ctx) : VcCtx,
+    mut(saved_names) : ArrayList(String),
+    mut(saved_vals) : ArrayList(Option(VcTerm))
   ) -> unit
 )({
   saved_names.push(name.clone());
@@ -2491,13 +2491,13 @@ _bind_one :: (
 });
 _arm_ir_bind_into :: (
   fn(
-    p : Pattern,
-    scrut : VcTerm,
-    e_ty : TypeValue,
-    inout(ctx) : VcCtx,
-    inout(saved_names) : ArrayList(String),
-    inout(saved_vals) : ArrayList(Option(VcTerm)),
-    inout(parts) : ArrayList(VcTerm)
+    imm(p) : Pattern,
+    imm(scrut) : VcTerm,
+    imm(e_ty) : TypeValue,
+    mut(ctx) : VcCtx,
+    mut(saved_names) : ArrayList(String),
+    mut(saved_vals) : ArrayList(Option(VcTerm)),
+    mut(parts) : ArrayList(VcTerm)
   ) -> bool
 )(
   match(
@@ -2607,12 +2607,12 @@ _arm_ir_bind_into :: (
 /// construction (no str theory), which is exactly the plan's rule.
 _subject_test :: (
   fn(
-    p : Pattern,
-    scrut : VcTerm,
-    inout(ctx) : VcCtx,
-    inout(saved_names) : ArrayList(String),
-    inout(saved_vals) : ArrayList(Option(VcTerm)),
-    inout(parts) : ArrayList(VcTerm)
+    imm(p) : Pattern,
+    imm(scrut) : VcTerm,
+    mut(ctx) : VcCtx,
+    mut(saved_names) : ArrayList(String),
+    mut(saved_vals) : ArrayList(Option(VcTerm)),
+    mut(parts) : ArrayList(VcTerm)
   ) -> bool
 )({
   subject := _pattern_subject_name(p);
@@ -2627,7 +2627,7 @@ _subject_test :: (
     .None => false
   )
 });
-_pattern_subject_name :: (fn(p : Pattern) -> String)(
+_pattern_subject_name :: (fn(imm(p) : Pattern) -> String)(
   match(
     p,
     .Const(_, _, _, subject, _) => subject.clone(),
@@ -2635,7 +2635,7 @@ _pattern_subject_name :: (fn(p : Pattern) -> String)(
     _ => String.new()
   )
 );
-_pattern_test_ast :: (fn(p : Pattern) -> AstExpr)(
+_pattern_test_ast :: (fn(imm(p) : Pattern) -> AstExpr)(
   match(
     p,
     .Const(_, _, _, _, test) => test,
@@ -2646,7 +2646,7 @@ _pattern_test_ast :: (fn(p : Pattern) -> AstExpr)(
 /// The IR's enum type is the one the EVALUATOR finalised; when it is not
 /// an EnumT (a defensive default — every Variant node carries one), fall
 /// back to the scrutinee position's type.
-resolve_verifier_enum :: (fn(outer : TypeValue, inner : TypeValue) -> TypeValue)(
+resolve_verifier_enum :: (fn(imm(outer) : TypeValue, imm(inner) : TypeValue) -> TypeValue)(
   match(
     inner,
     .EnumT(_, _, _, _, _, _, _, _, _, _) => inner,
@@ -2656,11 +2656,11 @@ resolve_verifier_enum :: (fn(outer : TypeValue, inner : TypeValue) -> TypeValue)
 /// A source-anchored expression for diagnostics when only the IR node is
 /// at hand (the Pattern IR carries no source; the walk's caller reports at
 /// the match node anyway — this only keeps `_fail_subset`'s signature).
-arm_expr_of :: (fn(p : Pattern) -> AstExpr)(make_err_expr());
+arm_expr_of :: (fn(imm(p) : Pattern) -> AstExpr)(make_err_expr());
 /// The MANGLED constructor name for `variant` of enum type `e_ty`
 /// (Unit/non-enum → the bare name; the walk on those is outside the
 /// subset anyway).
-_variant_ctor_name :: (fn(e_ty : TypeValue, variant : String) -> String)(
+_variant_ctor_name :: (fn(imm(e_ty) : TypeValue, imm(variant) : String) -> String)(
   match(
     e_ty,
     .EnumT({ id : e_id }) => _enum_ctor_name(e_id.clone(), variant.clone()),
@@ -2672,7 +2672,7 @@ _variant_ctor_name :: (fn(e_ty : TypeValue, variant : String) -> String)(
 /// share the datatype's whole namespace, so `<ctor>_<label>` keeps two
 /// variants that both have an `n` field from colliding; a missing label
 /// falls back to the field index.
-_variant_accessors :: (fn(e_ty : TypeValue, variant : String, count : usize) -> ArrayList(String))({
+_variant_accessors :: (fn(imm(e_ty) : TypeValue, imm(variant) : String, count : usize) -> ArrayList(String))({
   out := ArrayList(String).new();
   ctor := _variant_ctor_name(e_ty, variant.clone());
   vls := match(
@@ -2714,7 +2714,7 @@ _variant_accessors :: (fn(e_ty : TypeValue, variant : String, count : usize) -> 
 /// with the guard lost them: `ensures((r >= 1) && (f(x) < 1000))` was
 /// refuted with `f`'s result unconstrained
 /// (issues/fixed/a-callee-fact-in-the-right-operand-of-and-is-dropped.md).
-_pop_guard_keep_facts :: (fn(inout(ctx) : VcCtx, mark : usize) -> unit)({
+_pop_guard_keep_facts :: (fn(mut(ctx) : VcCtx, mark : usize) -> unit)({
   if(ctx.path.len() <= mark, {
     return(());
   });
@@ -2735,7 +2735,7 @@ _pop_guard_keep_facts :: (fn(inout(ctx) : VcCtx, mark : usize) -> unit)({
   });
 });
 /// Conjoin a non-empty term list with AndOp (single terms pass through).
-_and_terms :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
+_and_terms :: (fn(imm(ts) : ArrayList(VcTerm)) -> VcTerm)({
   r := ts.get(usize(0)).unwrap();
   (i : usize) = usize(1);
   while(i < ts.len(), {
@@ -2746,7 +2746,7 @@ _and_terms :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
   r
 });
 /// Disjoin a non-empty term list with OrOp (single terms pass through).
-_or_terms :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
+_or_terms :: (fn(imm(ts) : ArrayList(VcTerm)) -> VcTerm)({
   r := ts.get(usize(0)).unwrap();
   (i : usize) = usize(1);
   while(i < ts.len(), {
@@ -2762,7 +2762,7 @@ _or_terms :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
 /// lives in the expansion, not the macro call; the optimizer-family
 /// discipline from issues/fixed/where-constraints-arraylist-96b-leak.md).
 /// Names already in `out` are skipped (idempotent).
-_scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList(String)) -> unit)(
+_scan_assigned :: (fn(imm(table) : ExprInfoTable, imm(e) : AstExpr, mut(out) : ArrayList(String)) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
@@ -2840,7 +2840,7 @@ _scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList
 );
 /// The receiver NAME of a bare `name.pop()` — the walk rebinds it (R1
 /// slice 3); shape-only, a false positive is a sound extra havoc.
-_pop_receiver_name :: (fn(e : AstExpr) -> Option(String))({
+_pop_receiver_name :: (fn(imm(e) : AstExpr) -> Option(String))({
   callee := match(
     e,
     .FnCall(_, f, cargs, _, _) => cond(
@@ -2877,7 +2877,7 @@ _pop_receiver_name :: (fn(e : AstExpr) -> Option(String))({
 });
 /// The receiver NAME of a method call whose callee's contract mentions
 /// `old(self...)` — a call that mutates its receiver (R1 slice 2).
-_mutated_receiver_name :: (fn(table : ExprInfoTable, e : AstExpr) -> Option(String))({
+_mutated_receiver_name :: (fn(imm(table) : ExprInfoTable, imm(e) : AstExpr) -> Option(String))({
   callee := match(
     e,
     .FnCall(_, f, _, _, _) => f,
@@ -2940,7 +2940,7 @@ _mutated_receiver_name :: (fn(table : ExprInfoTable, e : AstExpr) -> Option(Stri
 /// optional trailing `decreases(...)` measure; every other statement is
 /// the executable body. Returns `.None` when no invariant leads the body.
 _loop_annotations :: (
-  fn(body : AstExpr) -> Option(LoopAnnotations)
+  fn(imm(body) : AstExpr) -> Option(LoopAnnotations)
 )(
   match(
     body,
@@ -2989,20 +2989,20 @@ LoopAnnotations :: struct(invariants : ArrayList(AstExpr), decreases : Option(As
 /// are shared refs (the IR is immutable once built).
 BreakSite :: struct(path : VcTerm, vals : HashMap(String, VcTerm));
 /// `break` parses as a plain atom or a zero-arg call (like `continue`).
-_is_break_stmt :: (fn(e : AstExpr) -> bool)(
+_is_break_stmt :: (fn(imm(e) : AstExpr) -> bool)(
   cond(
     ast_expr_is_atom(e) => (ast_expr_token(e).value == "break"),
     true => ast_expr_is_fn_call_of(e, "break", Option(usize).None)
   )
 );
-_is_continue_stmt :: (fn(e : AstExpr) -> bool)(
+_is_continue_stmt :: (fn(imm(e) : AstExpr) -> bool)(
   cond(
     ast_expr_is_atom(e) => (ast_expr_token(e).value == "continue"),
     true => ast_expr_is_fn_call_of(e, "continue", Option(usize).None)
   )
 );
 /// Snapshot the current state as one break site.
-_record_break_site :: (fn(inout(ctx) : VcCtx) -> unit)({
+_record_break_site :: (fn(mut(ctx) : VcCtx) -> unit)({
   vals := HashMap(String, VcTerm).new();
   it := ctx.vars.keys();
   (go : bool) = true;
@@ -3023,7 +3023,7 @@ _record_break_site :: (fn(inout(ctx) : VcCtx) -> unit)({
 /// A `continue` site jumps to the head, so the invariant must hold (and
 /// the measure strictly decrease) over the state AT the statement — an
 /// obligation emitted here, not only at the back-edge.
-_continue_obligations :: (fn(inout(ctx) : VcCtx, at : AstExpr) -> bool)({
+_continue_obligations :: (fn(mut(ctx) : VcCtx, imm(at) : AstExpr) -> bool)({
   (ok : bool) = true;
   // A `for`'s continue still consumes the element: the head sees idx + 1.
   saved_idx := match(ctx.loop_for_idx, .Some(nm) => ctx.vars.get(nm.clone()), .None => Option(VcTerm).None);
@@ -3088,7 +3088,7 @@ _continue_obligations :: (fn(inout(ctx) : VcCtx, at : AstExpr) -> bool)({
 /// own, a list constructor (a popped list) or an `ite` over bindings (a
 /// branch that pushed) has the sort of what it builds, and anything else
 /// keeps the term's bit width (width 1 = bool).
-_havoc_binding_sort :: (fn(old : VcTerm) -> VcSort)(
+_havoc_binding_sort :: (fn(imm(old) : VcTerm) -> VcSort)(
   match(
     old,
     .Var(_, s) => s,
@@ -3110,7 +3110,7 @@ _havoc_binding_sort :: (fn(old : VcTerm) -> VcSort)(
 );
 /// Rebind every assigned name to a fresh unconstrained constant under a
 /// NEW havoc generation (nested/back-to-back loops never share constants).
-_havoc_assigned :: (fn(inout(ctx) : VcCtx, assigned : ArrayList(String)) -> unit)({
+_havoc_assigned :: (fn(mut(ctx) : VcCtx, imm(assigned) : ArrayList(String)) -> unit)({
   ctx.havoc = (ctx.havoc + usize(1));
   (ai : usize) = usize(0);
   while(ai < assigned.len(), {
@@ -3149,7 +3149,7 @@ _havoc_assigned :: (fn(inout(ctx) : VcCtx, assigned : ArrayList(String)) -> unit
 /// `at <= i`) are owed only where the earlier ones hold. The path is
 /// restored afterwards; the caller decides whether the terms are a goal or
 /// an assumption.
-_walk_invariants_in_order :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr)) -> Option(ArrayList(VcTerm)))({
+_walk_invariants_in_order :: (fn(mut(ctx) : VcCtx, imm(invs) : ArrayList(AstExpr)) -> Option(ArrayList(VcTerm)))({
   out := ArrayList(VcTerm).new();
   mark := ctx.path.len();
   (i : usize) = usize(0);
@@ -3175,7 +3175,7 @@ _walk_invariants_in_order :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr)) 
   Option(ArrayList(VcTerm)).Some(out)
 });
 /// A call node's arguments (empty for an atom).
-_fn_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
+_fn_call_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
     .FnCall(_, _, cargs, _, _) => cargs.clone(),
@@ -3185,7 +3185,7 @@ _fn_call_args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
 /// The loop inside a `for`'s value-form expansion: its hoisted invariant
 /// (if any) and the statements of the `.Some(x)` arm, which are the
 /// user's body.
-_for_expansion_loop :: (fn(xp : AstExpr) -> Option(LoopAnnotations))({
+_for_expansion_loop :: (fn(imm(xp) : AstExpr) -> Option(LoopAnnotations))({
   // The block ends in a unit after the loop: find the `while` statement.
   outer := _fn_call_args(xp);
   (wl_opt : Option(AstExpr)) = Option(AstExpr).None;
@@ -3247,7 +3247,7 @@ _for_expansion_loop :: (fn(xp : AstExpr) -> Option(LoopAnnotations))({
 /// bound to `xs[idx]` in the body, `idx <= len(xs)` an implicit invariant,
 /// and `produced(xs)` naming `xs[0..idx)`. The body may not change xs (the
 /// model reads its elements by index), and the invariant is optional.
-_for_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+_for_term :: (fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(args) : ArrayList(AstExpr)) -> Option(VcTerm))({
   if(args.len() != usize(2), {
     _fail_subset(ctx, String.from("for with other than (collection, x => body)"), e);
     return(Option(VcTerm).None);
@@ -3300,7 +3300,7 @@ _for_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -> 
   _ := ctx.for_frames.pop();
   r
 });
-_while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+_while_term :: (fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(args) : ArrayList(AstExpr)) -> Option(VcTerm))({
   if(args.len() != usize(2), {
     _fail_subset(ctx, String.from("while with unexpected arity"), e);
     return(Option(VcTerm).None);
@@ -3319,7 +3319,7 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
 });
 /// The invariant terms of a loop, in order; a `for` adds its own bound
 /// `idx <= len(list)`.
-_loop_invariant_terms :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr), frame : Option(ForFrame)) -> Option(ArrayList(VcTerm)))(
+_loop_invariant_terms :: (fn(mut(ctx) : VcCtx, imm(invs) : ArrayList(AstExpr), imm(frame) : Option(ForFrame)) -> Option(ArrayList(VcTerm)))(
   match(
     _walk_invariants_in_order(ctx, invs),
     .Some(ws) => match(
@@ -3335,7 +3335,7 @@ _loop_invariant_terms :: (fn(inout(ctx) : VcCtx, invs : ArrayList(AstExpr), fram
   )
 );
 /// A loop's head condition: the `while`'s own, or a `for`'s `idx < len(list)`.
-_loop_cond_term :: (fn(inout(ctx) : VcCtx, cond_ast : Option(AstExpr), frame : Option(ForFrame)) -> Option(VcTerm))(
+_loop_cond_term :: (fn(mut(ctx) : VcCtx, imm(cond_ast) : Option(AstExpr), imm(frame) : Option(ForFrame)) -> Option(VcTerm))(
   match(
     frame,
     .Some(fr) => Option(VcTerm).Some(_app2(VcOp.BvUlt, ctx.vars.get(fr.idx_name.clone()).unwrap(), _list_len_term(fr.elem, fr.list))),
@@ -3344,7 +3344,7 @@ _loop_cond_term :: (fn(inout(ctx) : VcCtx, cond_ast : Option(AstExpr), frame : O
 );
 /// The havoc-invariant rule shared by `while` and a verified `for`.
 _loop_core :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, a : LoopAnnotations, cond_ast : Option(AstExpr), frame : Option(ForFrame)) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(a) : LoopAnnotations, imm(cond_ast) : Option(AstExpr), imm(frame) : Option(ForFrame)) -> Option(VcTerm)
 )({
   // 1. ENTRY: Inv over the current state.
   inv_entry_terms := match(
@@ -3607,7 +3607,7 @@ _loop_core :: (
 /// MBQI for now — explicit `:pattern` triggers are deferred until a
 /// real benchmark needs them (recorded in the plan's V5 banner).
 _quant_term :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, head : String, args : ArrayList(AstExpr)) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(at) : AstExpr, imm(head) : String, imm(args) : ArrayList(AstExpr)) -> Option(VcTerm)
 )({
   kind := cond(
     (head == "forall") => VcQuantKind.Forall,
@@ -3730,7 +3730,7 @@ _quant_term :: (
 /// (contents array + length): z3's `Seq` theory with `bv2nat` indices
 /// leaves `seq_of(r) == seq_append(seq_of(a), seq_of(b))` unknown, while the
 /// same goal over arrays proves (measured 2026-10-01, z3 5.1.0).
-_list_operand_elem :: (fn(inout(ctx) : VcCtx, a : AstExpr) -> Option(VcSort))(
+_list_operand_elem :: (fn(mut(ctx) : VcCtx, imm(a) : AstExpr) -> Option(VcSort))(
   match(
     expr_info_table_get(ctx.table, ast_expr_id(a)),
     .Some(ai) => _list_elem_sort(ai.ty),
@@ -3741,7 +3741,7 @@ _list_operand_elem :: (fn(inout(ctx) : VcCtx, a : AstExpr) -> Option(VcSort))(
 /// `seq_append`, defined elementwise by a triggered axiom
 /// (`select(lapp(c1, l1, c2), i) == ite(i < l1, select(c1, i), select(c2, i - l1))`).
 /// Declared once per element sort.
-_list_append_contents :: (fn(inout(ctx) : VcCtx, elem : VcSort, c1 : VcTerm, l1 : VcTerm, c2 : VcTerm) -> VcTerm)({
+_list_append_contents :: (fn(mut(ctx) : VcCtx, imm(elem) : VcSort, imm(c1) : VcTerm, imm(l1) : VcTerm, imm(c2) : VcTerm) -> VcTerm)({
   fname := `__yo_lapp_${_msof_key(elem)}`;
   arr := VcSort.ArrS(elem : elem, len : usize(0));
   if(!ctx.gfn_keys.contains(fname.clone()), {
@@ -3784,7 +3784,7 @@ _list_append_contents :: (fn(inout(ctx) : VcCtx, elem : VcSort, c1 : VcTerm, l1 
 /// Two list values are equal when their lengths are and every element
 /// below the length is (the slots past the length are not part of the
 /// value). The datatype's own `=` would also compare those slots.
-_list_ext_eq :: (fn(inout(ctx) : VcCtx, elem : VcSort, a : VcTerm, b : VcTerm) -> VcTerm)({
+_list_ext_eq :: (fn(mut(ctx) : VcCtx, imm(elem) : VcSort, imm(a) : VcTerm, imm(b) : VcTerm) -> VcTerm)({
   la := _list_len_term(elem, a);
   kn := `__yo_lk${_next_fresh(ctx).to_string()}`;
   k := VcTerm.Var(name : kn.clone(), sort : VcSort.BvS(width : usize(64)));
@@ -3802,7 +3802,7 @@ _list_ext_eq :: (fn(inout(ctx) : VcCtx, elem : VcSort, a : VcTerm, b : VcTerm) -
 });
 /// The operator/cast/call dispatch.
 _call_term :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, head : String, args : ArrayList(AstExpr), info : ExprInfo)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(head) : String, imm(args) : ArrayList(AstExpr), imm(info) : ExprInfo)
   -> Option(VcTerm)
 )({
   n := args.len();
@@ -4691,7 +4691,7 @@ _call_term :: (
 /// `name.len()` / `name.is_empty()` where `name` is bound to a list term:
 /// the accessor term, else `.None` (any other shape falls through to the
 /// typed walk).
-_list_len_read_by_var :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
+_list_len_read_by_var :: (fn(mut(ctx) : VcCtx, imm(e) : AstExpr) -> Option(VcTerm))({
   callee := match(
     e,
     .FnCall(_, f, cargs, _, _) => cond(
@@ -4753,7 +4753,7 @@ _list_len_read_by_var :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))
 /// `ite(i < len, Some(select(contents, i)), None)` as the call's own
 /// `Option(T)` datatype (`ty` is the call's ExprInfo type).
 _list_option_term :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, ty : TypeValue, elem : VcSort, xs : VcTerm, i64_t : VcTerm, len_t : VcTerm) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(ty) : TypeValue, imm(elem) : VcSort, imm(xs) : VcTerm, imm(i64_t) : VcTerm, imm(len_t) : VcTerm) -> Option(VcTerm)
 )({
   e_id := match(
     t_refine_inner(ty),
@@ -4774,7 +4774,7 @@ _list_option_term :: (
   none_t := VcTerm.Ctor(name : _enum_ctor_name(e_id, String.from("None")), args : ArrayList(VcTerm).new());
   Option(VcTerm).Some(_app3(VcOp.IteOp, _lt_unsigned_term(i64_t, len_t), some_t, none_t))
 });
-_two_terms :: (fn(a : VcTerm, b : VcTerm) -> ArrayList(VcTerm))({
+_two_terms :: (fn(imm(a) : VcTerm, imm(b) : VcTerm) -> ArrayList(VcTerm))({
   out := ArrayList(VcTerm).new();
   out.push(a);
   out.push(b);
@@ -4783,7 +4783,7 @@ _two_terms :: (fn(a : VcTerm, b : VcTerm) -> ArrayList(VcTerm))({
 /// A method call's receiver when it is a modeled `ArrayList(T)`: the callee
 /// is the dot-call `.(recv, method)` and `recv`'s ExprInfo type is a list.
 ListReceiver :: struct(recv : AstExpr, method : String, elem : VcSort);
-_list_receiver :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(ListReceiver))({
+_list_receiver :: (fn(mut(ctx) : VcCtx, imm(e) : AstExpr) -> Option(ListReceiver))({
   callee := match(
     e,
     .FnCall(_, f, _, _, _) => f,
@@ -4840,7 +4840,7 @@ _list_receiver :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(ListReceiver))(
   )
 });
 /// Cast head → target width (i8..i64/u8..u64/isize/usize).
-_cast_width :: (fn(head : String) -> Option(usize))(
+_cast_width :: (fn(imm(head) : String) -> Option(usize))(
   cond(
     (head == "i8") => Option(usize).Some(usize(8)),
     (head == "u8") => Option(usize).Some(usize(8)),
@@ -4856,7 +4856,7 @@ _cast_width :: (fn(head : String) -> Option(usize))(
   )
 );
 /// Operator head → VcOp with signedness resolved by `signed`.
-_binop_of_with_sign :: (fn(head : String, signed : bool) -> Option(VcOp))(
+_binop_of_with_sign :: (fn(imm(head) : String, signed : bool) -> Option(VcOp))(
   cond(
     (head == "+") => Option(VcOp).Some(VcOp.BvAdd),
     (head == "-") => Option(VcOp).Some(VcOp.BvSub),
@@ -4880,7 +4880,7 @@ _binop_of_with_sign :: (fn(head : String, signed : bool) -> Option(VcOp))(
   )
 );
 /// Signedness comes from the FIRST argument's type.
-_binop_of_ctx :: (fn(inout(ctx) : VcCtx, head : String, args : ArrayList(AstExpr)) -> Option(VcOp))({
+_binop_of_ctx :: (fn(mut(ctx) : VcCtx, imm(head) : String, imm(args) : ArrayList(AstExpr)) -> Option(VcOp))({
   signed := match(
     args.get(usize(0)),
     .Some(a) => match(
@@ -4892,7 +4892,7 @@ _binop_of_ctx :: (fn(inout(ctx) : VcCtx, head : String, args : ArrayList(AstExpr
   );
   _binop_of_with_sign(head, signed)
 });
-_widen_or_trunc :: (fn(t : VcTerm, src_w : usize, dst_w : usize, src_signed : bool) -> VcTerm)({
+_widen_or_trunc :: (fn(imm(t) : VcTerm, src_w : usize, dst_w : usize, src_signed : bool) -> VcTerm)({
   if(dst_w == src_w, {
     return(t);
   });
@@ -4908,7 +4908,7 @@ _widen_or_trunc :: (fn(t : VcTerm, src_w : usize, dst_w : usize, src_signed : bo
 /// An array index term in the arrays' BV64 index sort: zero-extended from
 /// its own width (an in-bounds index is non-negative, so zero-extension
 /// preserves it). Widths ≥ 64 pass through.
-_idx64 :: (fn(t : VcTerm) -> VcTerm)({
+_idx64 :: (fn(imm(t) : VcTerm) -> VcTerm)({
   w := _term_width(t);
   cond(
     (w >= usize(64)) => t,
@@ -4921,7 +4921,7 @@ _idx64 :: (fn(t : VcTerm) -> VcTerm)({
 /// keeping everything ABOVE them (stacked off and restored in order).
 /// The cond-arm guards are arm-local; assumptions pushed DURING the arm
 /// walk — callee ensures at call sites — must survive the arm.
-_unwind_path_guards :: (fn(inout(ctx) : VcCtx, base : usize, guard_count : usize) -> unit)({
+_unwind_path_guards :: (fn(mut(ctx) : VcCtx, base : usize, guard_count : usize) -> unit)({
   keep := ArrayList(VcTerm).new();
   (k : usize) = (ctx.path.len() - (base + guard_count));
   while(k > usize(0), {
@@ -4948,7 +4948,7 @@ _unwind_path_guards :: (fn(inout(ctx) : VcCtx, base : usize, guard_count : usize
     );
   });
 });
-_cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+_cond_ite :: (fn(mut(ctx) : VcCtx, imm(at) : AstExpr, imm(args) : ArrayList(AstExpr)) -> Option(VcTerm))({
   // Pair up (condition, value); the trailing `true => v` arm is the else.
   // An arm may ASSIGN (a block value): every arm walks from the SAME
   // pre-cond state, and each assigned name's post-cond binding is the
@@ -5191,7 +5191,7 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
 /// begin block: sequence statements; `name := expr` binds; the LAST expr is
 /// the value.
 /// The first argument's name when it is a plain atom.
-_atom_arg_name :: (fn(args : ArrayList(AstExpr)) -> Option(String))(
+_atom_arg_name :: (fn(imm(args) : ArrayList(AstExpr)) -> Option(String))(
   match(
     args.get(usize(0)),
     .Some(first) => cond(
@@ -5202,7 +5202,7 @@ _atom_arg_name :: (fn(args : ArrayList(AstExpr)) -> Option(String))(
   )
 );
 /// A `(name : T)` lhs's name: the `:`-call's first argument.
-_typed_binding_lhs_name :: (fn(lhs : AstExpr) -> Option(String))(
+_typed_binding_lhs_name :: (fn(imm(lhs) : AstExpr) -> Option(String))(
   match(
     lhs,
     .FnCall(_, _, la, _, _) => _atom_arg_name(la),
@@ -5213,7 +5213,7 @@ _typed_binding_lhs_name :: (fn(lhs : AstExpr) -> Option(String))(
 /// the declared form `(x : T) = v` (`:`-call lhs). `.None` for anything
 /// else (field writes stay outside the subset; index writes are handled
 /// by `_index_write_target`).
-_binding_name_of :: (fn(lhs : AstExpr) -> Option(String))(
+_binding_name_of :: (fn(imm(lhs) : AstExpr) -> Option(String))(
   cond(
     ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_token(lhs).value),
     ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))) => _typed_binding_lhs_name(lhs),
@@ -5223,7 +5223,7 @@ _binding_name_of :: (fn(lhs : AstExpr) -> Option(String))(
 /// The array name of an index-write LHS `a(i)` by SHAPE alone — a
 /// one-arg call on a bare name. The havoc scan uses this without a
 /// binding table; a false positive only havocs one extra name (sound).
-_index_write_name_shape :: (fn(lhs : AstExpr) -> Option(String))(
+_index_write_name_shape :: (fn(imm(lhs) : AstExpr) -> Option(String))(
   match(
     lhs,
     .FnCall(_, f, a, _, _) => cond(
@@ -5235,7 +5235,7 @@ _index_write_name_shape :: (fn(lhs : AstExpr) -> Option(String))(
 );
 /// The name an index-write LHS `a(i)` targets, when `a` is bound to an
 /// array value in this context; `.None` otherwise.
-_index_write_target :: (fn(inout(ctx) : VcCtx, lhs : AstExpr) -> Option(String))(
+_index_write_target :: (fn(mut(ctx) : VcCtx, imm(lhs) : AstExpr) -> Option(String))(
   match(
     _index_write_name_shape(lhs),
     .Some(nm) => match(
@@ -5253,7 +5253,7 @@ _index_write_target :: (fn(inout(ctx) : VcCtx, lhs : AstExpr) -> Option(String))
 /// fires E-matching exactly where a ground select of this multiset
 /// appears (a negated goal's skolem, an instantiated invariant).
 _note_ms_of :: (
-  fn(inout(ctx) : VcCtx, msf : VcTerm, arr : VcTerm, elem : VcSort, len : usize) -> unit
+  fn(mut(ctx) : VcCtx, imm(msf) : VcTerm, imm(arr) : VcTerm, imm(elem) : VcSort, len : usize) -> unit
 )({
   key := encode_term(arr);
   dup := ctx.ms_axiom_keys.contains(key.clone());
@@ -5301,7 +5301,7 @@ _note_ms_of :: (
 /// indexable. A missing ExprInfo leaves the table alone.
 /// Records `name` in `ctx.list_alias_locals` when `rhs` is a list that is
 /// not freshly constructed (see the field).
-_note_list_alias :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> unit)(
+_note_list_alias :: (fn(mut(ctx) : VcCtx, imm(name) : String, imm(rhs) : AstExpr) -> unit)(
   match(
     expr_info_table_get(ctx.table, ast_expr_id(rhs)),
     .Some(ri) => if(_list_elem_type(ri.ty).is_some(), {
@@ -5322,7 +5322,7 @@ _note_list_alias :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> uni
 /// from: two different plain names, neither ever bound from an existing
 /// list, and one of them a fresh local or the pair stated by the caller's
 /// own requires.
-_lists_distinct :: (fn(ctx : VcCtx, x : String, y : String) -> bool)(
+_lists_distinct :: (fn(imm(ctx) : VcCtx, imm(x) : String, imm(y) : String) -> bool)(
   cond(
     ((x == "") || (y == "")) => false,
     (x == y) => false,
@@ -5332,7 +5332,7 @@ _lists_distinct :: (fn(ctx : VcCtx, x : String, y : String) -> bool)(
   )
 );
 /// True when one of `reqs` is `distinct(a, b)` or `distinct(b, a)`.
-_requires_state_distinct :: (fn(reqs : ArrayList(AstExpr), a : String, b : String) -> bool)({
+_requires_state_distinct :: (fn(imm(reqs) : ArrayList(AstExpr), imm(a) : String, imm(b) : String) -> bool)({
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     r := reqs.get(i).unwrap();
@@ -5354,7 +5354,7 @@ _requires_state_distinct :: (fn(reqs : ArrayList(AstExpr), a : String, b : Strin
 });
 /// `ArrayList(T).new()` / `ArrayList(T).with_capacity(n)`: a list no other
 /// name can refer to yet.
-_is_fresh_list_ctor :: (fn(rhs : AstExpr) -> bool)(
+_is_fresh_list_ctor :: (fn(imm(rhs) : AstExpr) -> bool)(
   match(
     rhs,
     .FnCall(_, f, _, _, _) => match(
@@ -5383,7 +5383,7 @@ _is_fresh_list_ctor :: (fn(rhs : AstExpr) -> bool)(
   )
 );
 /// The SMT datatype name of a modeled list type, else `.None`.
-_list_dt_of_type :: (fn(t : TypeValue) -> Option(String))(
+_list_dt_of_type :: (fn(imm(t) : TypeValue) -> Option(String))(
   cond(
     _list_elem_type(t).is_some() => match(
       _type_sort(t),
@@ -5393,7 +5393,7 @@ _list_dt_of_type :: (fn(t : TypeValue) -> Option(String))(
     true => Option(String).None
   )
 );
-_note_array_binding :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> unit)(
+_note_array_binding :: (fn(mut(ctx) : VcCtx, imm(name) : String, imm(rhs) : AstExpr) -> unit)(
   match(
     expr_info_table_get(ctx.table, ast_expr_id(rhs)),
     .Some(ri) => match(
@@ -5420,14 +5420,14 @@ _note_array_binding :: (fn(inout(ctx) : VcCtx, name : String, rhs : AstExpr) -> 
 /// The `()` unit literal — the parser's trailing element of blocks that
 /// end in a statement (parser.yo's make_unit_call: a zero-arg `tuple`
 /// call).
-_is_unit_lit :: (fn(e : AstExpr) -> bool)(
+_is_unit_lit :: (fn(imm(e) : AstExpr) -> bool)(
   match(
     e,
     .Atom(_, at) => (at.value == "()"),
     .FnCall(_, f, a, _, _) => ((ast_expr_token(f).value == BK_TUPLE) && (a.len() == usize(0)))
   )
 );
-_begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+_begin_term :: (fn(mut(ctx) : VcCtx, imm(args) : ArrayList(AstExpr)) -> Option(VcTerm))({
   (i : usize) = usize(0);
   result := Option(VcTerm).None;
   while(i < args.len(), {
@@ -5590,7 +5590,7 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
 /// the body walks as a term under the caller's path. A predicate outside
 /// the subset (or unregistered) fails it loudly.
 _refine_pred_term :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, vt : VcTerm, pred_fid : String) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(at) : AstExpr, imm(vt) : VcTerm, imm(pred_fid) : String) -> Option(VcTerm)
 )({
   gfd := match(
     ghost_fn_def_of(pred_fid.clone()),
@@ -5629,7 +5629,7 @@ _refine_pred_term :: (
 /// only itself (the same partial-assume direction the single-predicate
 /// walk has: assuming less is the sound direction).
 _refine_pred_chain_term :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, vt : VcTerm, pred_fid : String) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(at) : AstExpr, imm(vt) : VcTerm, imm(pred_fid) : String) -> Option(VcTerm)
 )({
   out := _refine_pred_term(ctx, at, vt, pred_fid.clone());
   chain := refine_pred_chain_of(pred_fid.clone());
@@ -5660,7 +5660,7 @@ _refine_pred_chain_term :: (
   out
 });
 /// A fresh list holding the same sorts (`VcSort` has no `Clone`).
-_sorts_copy :: (fn(src : ArrayList(VcSort)) -> ArrayList(VcSort))({
+_sorts_copy :: (fn(imm(src) : ArrayList(VcSort)) -> ArrayList(VcSort))({
   out := ArrayList(VcSort).new();
   (si : usize) = usize(0);
   while(si < src.len(), {
@@ -5680,7 +5680,7 @@ _sorts_copy :: (fn(src : ArrayList(VcSort)) -> ArrayList(VcSort))({
 /// consistent. Without one, `spin(x) = spin(x) + 1` would be an axiom that
 /// proves anything.
 _transparent_call_term :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(args) : ArrayList(AstExpr), imm(fid) : String) -> Option(VcTerm)
 )({
   if(g_transparent_defining.contains(fid.clone()) && get_func_decreases_expr(fid.clone()).is_none(), {
     g_transparent_reason = String.from("it calls itself without decreases(...), so its definition need not terminate");
@@ -5739,7 +5739,7 @@ _transparent_call_term :: (
 /// call proves `decreases-step`; a caller assumes the axiom whatever that
 /// task's verdict, the same modular rule as a callee's `ensures`.
 _ghost_fn_app_term :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(at) : AstExpr, imm(args) : ArrayList(AstExpr), imm(fid) : String) -> Option(VcTerm)
 )({
   callee_atom := match(
     at,
@@ -5883,7 +5883,7 @@ _ghost_fn_app_term :: (
   Option(VcTerm).Some(VcTerm.Ctor(name : fname, args : arg_terms))
 });
 _ghost_fn_inline_term :: (
-  fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr), fid : String) -> Option(VcTerm)
+  fn(mut(ctx) : VcCtx, imm(at) : AstExpr, imm(args) : ArrayList(AstExpr), imm(fid) : String) -> Option(VcTerm)
 )({
   // R2: a ghost_fn with `decreases` may recurse. It is not inlined: it is
   // an uninterpreted function defined by a triggered axiom.
@@ -6008,7 +6008,7 @@ _ghost_fn_inline_term :: (
 /// Calls to a contracted callee: prove requires under the caller path,
 /// then assume ensures with a fresh result var bound.
 _callee_call_term :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), info : ExprInfo)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(args) : ArrayList(AstExpr), imm(info) : ExprInfo)
   -> Option(VcTerm)
 )({
   // The callee's FuncVal rides the callee atom's ExprInfo.
@@ -6487,7 +6487,7 @@ _callee_call_term :: (
 /// (`ArrayList(i32).new()`, receiver is a TYPE, no `self` param) and a plain
 /// call bind `args` as written.
 _method_effective_args :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), callee_params : ArrayList(String)) -> ArrayList(AstExpr)
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, imm(args) : ArrayList(AstExpr), imm(callee_params) : ArrayList(String)) -> ArrayList(AstExpr)
 )({
   first_is_self := match(callee_params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
   if(!first_is_self, {
@@ -6536,7 +6536,7 @@ _method_effective_args :: (
   out
 });
 /// Does any contract clause mention `old(...)` over the param `label`?
-_contracts_mention_old_of :: (fn(reqs : ArrayList(AstExpr), enss : ArrayList(AstExpr), label : String) -> bool)({
+_contracts_mention_old_of :: (fn(imm(reqs) : ArrayList(AstExpr), imm(enss) : ArrayList(AstExpr), imm(label) : String) -> bool)({
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     if(_old_mentions(reqs.get(i).unwrap(), label.clone()), {
@@ -6553,7 +6553,7 @@ _contracts_mention_old_of :: (fn(reqs : ArrayList(AstExpr), enss : ArrayList(Ast
   });
   false
 });
-_old_mentions :: (fn(e : AstExpr, label : String) -> bool)(
+_old_mentions :: (fn(imm(e) : AstExpr, imm(label) : String) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
@@ -6571,7 +6571,7 @@ _old_mentions :: (fn(e : AstExpr, label : String) -> bool)(
     }
   )
 );
-_expr_mentions_atom :: (fn(e : AstExpr, name : String) -> bool)(
+_expr_mentions_atom :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
   match(
     e,
     .Atom(_, _) => (ast_expr_token(e).value == name),
@@ -6606,7 +6606,7 @@ _all_ones_lit :: (fn(w : usize) -> VcTerm)(
 /// widening (one bit for `+ -`, to twice the width for `*`) and comparing
 /// with the widened wrapped result. Any other operation adds nothing.
 _emit_binop_elision_obligation :: (
-  fn(inout(ctx) : VcCtx, e : AstExpr, op : VcOp, at : VcTerm, bt : VcTerm, ty : TypeValue) -> unit
+  fn(mut(ctx) : VcCtx, imm(e) : AstExpr, op : VcOp, imm(at) : VcTerm, imm(bt) : VcTerm, imm(ty) : TypeValue) -> unit
 )(
   match(
     _int_width(ty),
@@ -6642,7 +6642,7 @@ _emit_binop_elision_obligation :: (
     .None => ()
   )
 );
-_nonzero_term :: (fn(t : VcTerm) -> VcTerm)(
+_nonzero_term :: (fn(imm(t) : VcTerm) -> VcTerm)(
   match(
     t,
     .BoolLit(_) => t,
@@ -6652,11 +6652,11 @@ _nonzero_term :: (fn(t : VcTerm) -> VcTerm)(
     }
   )
 );
-_lt_unsigned_term :: (fn(a : VcTerm, b : VcTerm) -> VcTerm)(_app2(VcOp.BvUlt, a, b));
+_lt_unsigned_term :: (fn(imm(a) : VcTerm, imm(b) : VcTerm) -> VcTerm)(_app2(VcOp.BvUlt, a, b));
 /// The sort of a term when it is directly carried (Var) or implied by a
 /// literal; `None` for compound terms (the callers only need the check on
 /// leaf operands).
-_term_sort :: (fn(t : VcTerm) -> Option(VcSort))(
+_term_sort :: (fn(imm(t) : VcTerm) -> Option(VcSort))(
   match(
     t,
     .Var(_, sort) => Option(VcSort).Some(sort),
@@ -6668,7 +6668,7 @@ _term_sort :: (fn(t : VcTerm) -> Option(VcSort))(
 /// The bit width of an operator application (1 = Bool). Comparisons and
 /// connectives are Bool whatever their operands; an `ite` has its branches'
 /// width, not its condition's; the casts carry their own.
-_app_width :: (fn(op : VcOp, args : ArrayList(VcTerm)) -> usize)(
+_app_width :: (fn(op : VcOp, imm(args) : ArrayList(VcTerm)) -> usize)(
   match(
     op,
     (.BvUlt | .BvUle | .BvUgt | .BvUge | .BvSlt | .BvSle | .BvSgt | .BvSge) => usize(1),
@@ -6687,14 +6687,14 @@ _app_width :: (fn(op : VcOp, args : ArrayList(VcTerm)) -> usize)(
     _ => _arg_width(args, usize(0))
   )
 );
-_arg_width :: (fn(args : ArrayList(VcTerm), i : usize) -> usize)(
+_arg_width :: (fn(imm(args) : ArrayList(VcTerm), i : usize) -> usize)(
   match(
     args.get(i),
     .Some(a) => _term_width(a),
     .None => usize(1)
   )
 );
-_sort_width :: (fn(s : VcSort) -> usize)(
+_sort_width :: (fn(imm(s) : VcSort) -> usize)(
   match(
     s,
     .BvS(w) => w,
@@ -6703,7 +6703,7 @@ _sort_width :: (fn(s : VcSort) -> usize)(
 );
 /// The element width of an array-valued term: a declared array or set, a
 /// list's contents projection, or a store / ite over one of those.
-_array_elem_width :: (fn(t : VcTerm) -> usize)(
+_array_elem_width :: (fn(imm(t) : VcTerm) -> usize)(
   match(
     t,
     .Var(_, .ArrS(ael, _)) => _sort_width(ael),
@@ -6723,7 +6723,7 @@ _array_elem_width :: (fn(t : VcTerm) -> usize)(
     _ => usize(1)
   )
 );
-_term_width :: (fn(t : VcTerm) -> usize)(
+_term_width :: (fn(imm(t) : VcTerm) -> usize)(
   match(
     t,
     .Var(_, .BvS(w)) => w,
@@ -6776,7 +6776,7 @@ VerifyFnInput :: ref(
 );
 /// Symbolically execute one function definition. Always returns a result —
 /// subset violations land in `.error`, never thrown.
-verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
+verify_function_body :: (fn(imm(input) : VerifyFnInput) -> VcBodyResult)({
   ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
   ctx.elision_obligations = input.elision_obligations;
   ctx.body_abstract = input.body_abstract;

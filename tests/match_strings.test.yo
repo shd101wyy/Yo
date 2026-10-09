@@ -20,7 +20,7 @@ test("a str scrutinee against string literals", {
   assert(code("fmt") == i32(0));
 });
 test("a String scrutinee against string literals", {
-  code :: (fn(s : String) -> i32)(
+  code :: (fn(imm(s) : String) -> i32)(
     match(
       s,
       "a" => i32(1),
@@ -45,7 +45,7 @@ test("or-of-strings", {
   assert(!is_yes("no"));
 });
 test("a string literal in a payload position compares", {
-  f :: (fn(t : Tagged) -> i32)(
+  f :: (fn(imm(t) : Tagged) -> i32)(
     match(
       t,
       .Tag("a") => i32(1),
@@ -58,7 +58,7 @@ test("a string literal in a payload position compares", {
   assert(f(Tagged.Empty) == i32(0));
 });
 test("a String payload against a literal", {
-  g :: (fn(n : Named) -> i32)(
+  g :: (fn(imm(n) : Named) -> i32)(
     match(
       n,
       .Name("root") => i32(1),
@@ -71,7 +71,7 @@ test("a String payload against a literal", {
   assert(g(Named.Anon) == i32(0));
 });
 test("string match with a binding catch-all used in the body", {
-  describe :: (fn(s : String) -> String)(
+  describe :: (fn(imm(s) : String) -> String)(
     match(
       s,
       "" => `empty`,

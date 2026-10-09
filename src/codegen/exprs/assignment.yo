@@ -33,14 +33,14 @@
 { expr_info_is_compile_time_only_assignment, scope_variables } :: import("../../expr_info.yo");
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
-_last_is_module_level :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
+_last_is_module_level :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
 });
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// compile-time-only variable.
-_last_is_compile_time_only :: (fn(key : ExprId, env : Environment, name : String) -> bool)({
+_last_is_compile_time_only :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
@@ -50,7 +50,7 @@ _last_is_compile_time_only :: (fn(key : ExprId, env : Environment, name : String
 /// recorded `variable_name` is `name` (a temp holding a call result), else
 /// `lhs` itself. Its record resolves the place's base variable (scope-exit
 /// release, plans/CODEGEN_MEMORY_REDUCTION.md §6).
-_lhs_root_binder :: (fn(lhs : AstExpr, name : String, context : FunctionGenerationContext) -> AstExpr)({
+_lhs_root_binder :: (fn(imm(lhs) : AstExpr, imm(name) : String, imm(context) : FunctionGenerationContext) -> AstExpr)({
   (cur : AstExpr) = lhs;
   while(runtime(true), {
     binds := match(context.base.get_expr_info(cur), .Some(ci) => match(ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
@@ -72,7 +72,7 @@ _lhs_root_binder :: (fn(lhs : AstExpr, name : String, context : FunctionGenerati
   lhs
 });
 /// Generate an assignment / initialization.
-generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
+generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).
   if(match(expr_info_is_compile_time_only_assignment(ei), .Some(b) => b, .None => false), {

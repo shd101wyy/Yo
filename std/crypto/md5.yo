@@ -232,7 +232,7 @@ impl(
   /// Absorb `data` and return the same hasher, so calls chain. O(len).
   /// Buffers a partial 64-byte block, so how the input is split cannot
   /// change the digest.
-  update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
+  update : (fn(imm(self) : Self, imm(data) : ArrayList(u8)) -> Self)({
     i := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
@@ -256,7 +256,7 @@ impl(
   /// **Single use** — the padding is written into the hasher's own buffer,
   /// so a second `finish` digests the padded state rather than the
   /// message.
-  finish : (fn(self : Self) -> Array(u8, usize(16)))({
+  finish : (fn(imm(self) : Self) -> Array(u8, usize(16)))({
     bit_len := (self._total * u64(8));
     self._buf(self._buflen) = u8(0x80);
     self._buflen = (self._buflen + usize(1));
@@ -305,10 +305,10 @@ impl(
   Md5,
   Digest(
     new : (fn() -> Self)(Self.new()),
-    update : (fn(self : Self, data : ArrayList(u8)) -> Self)(self.update(data)),
+    update : (fn(imm(self) : Self, imm(data) : ArrayList(u8)) -> Self)(self.update(data)),
     digest_size : (fn() -> usize)(usize(16)),
     block_size : (fn() -> usize)(usize(64)),
-    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
+    finish_bytes : (fn(imm(self) : Self) -> ArrayList(u8))({
       d := self.finish();
       out := ArrayList(u8).with_capacity(usize(16));
       (fbi : usize) = usize(0);
@@ -331,7 +331,7 @@ impl(
 /// Computed by an open-coded loop rather than by driving `Md5` — the two
 /// paths in this file agree, and `tests/crypto/digest.test.yo` is what
 /// keeps them agreeing.
-md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
+md5 :: (fn(imm(data) : ArrayList(u8)) -> Array(u8, usize(16)))({
   h := Array(u32, usize(4))(
     u32(0x67452301),
     u32(0xefcdab89),
@@ -401,7 +401,7 @@ md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
 export(md5);
 /// MD5 of `data` as 32 lowercase hex characters — the form checksum files
 /// publish. Same "broken, legacy interop only" caveat as `md5`.
-md5_hex :: (fn(data : ArrayList(u8)) -> String)({
+md5_hex :: (fn(imm(data) : ArrayList(u8)) -> String)({
   digest := md5(data);
   bytes := ArrayList(u8).with_capacity(usize(16));
   i := usize(0);

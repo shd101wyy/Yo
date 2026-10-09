@@ -123,7 +123,7 @@ _InoutPlaceHop :: struct(node : AstExpr, field : AstExpr);
 /// the OUTERMOST (the full place) to the INNERMOST (the hop on the root).
 /// `.None` when the chain does not root at an atom (a call, an index, a
 /// literal, a nested rvalue).
-_inout_place_chain :: (fn(place : AstExpr, inout(hops) : ArrayList(_InoutPlaceHop)) -> Option(AstExpr))({
+_inout_place_chain :: (fn(imm(place) : AstExpr, mut(hops) : ArrayList(_InoutPlaceHop)) -> Option(AstExpr))({
   (cur : AstExpr) = place;
   (walking : bool) = true;
   while(walking, {
@@ -181,13 +181,13 @@ _inout_place_chain :: (fn(place : AstExpr, inout(hops) : ArrayList(_InoutPlaceHo
 /// read by anything else.
 _evaluate_inout_local_binding :: (
   fn(
-    expr : AstExpr,
-    lhs : AstExpr,
-    rhs : AstExpr,
+    imm(expr) : AstExpr,
+    imm(lhs) : AstExpr,
+    imm(rhs) : AstExpr,
     is_compile_time_only : bool,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   lhs_tok := ast_expr_token(lhs);
@@ -515,7 +515,7 @@ _evaluate_inout_local_binding :: (
 /// Codegen channel (init_assignment.yo `generate_local_borrow_repoint`): the
 /// `mut(cur)` node's ExprInfo carries the step: `source_variable` = the step
 /// pin, `macro_expansion` = the cell expression it takes.
-evaluate_local_borrow_repoint :: (fn(expr : AstExpr, env_in : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+evaluate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(env_in) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
   (env : Environment) = env_in;
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -750,8 +750,8 @@ evaluate_local_borrow_repoint :: (fn(expr : AstExpr, env_in : Environment, ctx :
   expr
 });
 /// `.V` or `.V(…)` on the right of `:=` — see `local_variant_hint`.
-_rhs_is_bare_variant_literal :: (fn(e : AstExpr) -> bool)({
-  head_ok := (fn(h : AstExpr) -> bool)(
+_rhs_is_bare_variant_literal :: (fn(imm(e) : AstExpr) -> bool)({
+  head_ok := (fn(imm(h) : AstExpr) -> bool)(
     ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
       h,
       .FnCall(_, _, hargs, _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false),
@@ -769,10 +769,10 @@ _rhs_is_bare_variant_literal :: (fn(e : AstExpr) -> bool)({
 });
 evaluate_initialization_assignment :: (
   fn(
-    expr : AstExpr,
-    env_in : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env_in) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

@@ -3,7 +3,7 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-past_end_wrong :: (fn(xs : ArrayList(i32), ensures(r == i32(0))) -> (r : i32))(
+past_end_wrong :: (fn(imm(xs) : ArrayList(i32), ensures(r == i32(0))) -> (r : i32))(
   match(
     xs.get(xs.len()),
     .Some(_) => i32(0),
@@ -12,7 +12,7 @@ past_end_wrong :: (fn(xs : ArrayList(i32), ensures(r == i32(0))) -> (r : i32))(
 );
 
 pop_wrong :: (
-  fn(xs : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == old(xs.len()))) -> (r : i32)
+  fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == old(xs.len()))) -> (r : i32)
 )(
   match(
     xs.pop(),

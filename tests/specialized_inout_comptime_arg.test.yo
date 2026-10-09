@@ -17,15 +17,15 @@
 /// (src/evaluator/calls/helper.yo) used `add_variable_to_env`, which hardcodes
 /// `is_ref : false`; the same defect was fixed once before in
 /// src/evaluator/calls/function.yo:5265.
-show :: (fn(generic(T : Type), inout(x) : Option(T), where(T <: ToString)) -> String)(
+show :: (fn(generic(T : Type), mut(x) : Option(T), where(T <: ToString)) -> String)(
   match(x, .Some(v) => `Some(${v})`, .None => `None`)
 );
 
-forward :: (fn(generic(T : Type), inout(x) : Option(T), where(T <: ToString)) -> String)(
+forward :: (fn(generic(T : Type), mut(x) : Option(T), where(T <: ToString)) -> String)(
   show(x)
 );
 
-bump :: (fn(generic(T : Type), inout(n) : i32, tag : T, where(T <: ToString)) -> i32)({
+bump :: (fn(generic(T : Type), mut(n) : i32, imm(tag) : T, where(T <: ToString)) -> i32)({
   n = (n + i32(1));
   n
 });

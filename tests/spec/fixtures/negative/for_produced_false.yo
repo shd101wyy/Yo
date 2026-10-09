@@ -4,7 +4,7 @@ pragma(Pragma.Verify);
 
 // REFUTED at the back-edge: two pushes per element outgrow what was
 // produced.
-copy_twice :: (fn(xs : ArrayList(i32), ensures(true)) -> (r : ArrayList(i32)))({
+copy_twice :: (fn(imm(xs) : ArrayList(i32), ensures(true)) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   for(xs, x => {
     invariant(out.len() <= produced(xs).len());
@@ -16,7 +16,7 @@ copy_twice :: (fn(xs : ArrayList(i32), ensures(true)) -> (r : ArrayList(i32)))({
 
 // REFUTED at the continue: a skipped element is still produced, so a
 // count of the kept ones falls behind it.
-count_all :: (fn(xs : ArrayList(i32), ensures(true)) -> (r : usize))({
+count_all :: (fn(imm(xs) : ArrayList(i32), ensures(true)) -> (r : usize))({
   (n : usize) = usize(0);
   for(xs, x => {
     invariant(n == produced(xs).len());
@@ -29,7 +29,7 @@ count_all :: (fn(xs : ArrayList(i32), ensures(true)) -> (r : usize))({
 });
 
 // SUBSET ERROR: the body changes the list it walks.
-grow :: (fn(xs : ArrayList(i32), ensures(true)) -> unit)({
+grow :: (fn(imm(xs) : ArrayList(i32), ensures(true)) -> unit)({
   for(xs, x => {
     xs.push(x);
   });

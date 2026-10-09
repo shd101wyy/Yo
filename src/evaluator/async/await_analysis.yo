@@ -77,7 +77,7 @@ AwaitPointExtra :: ref(
 /// Io builtin calls like `io.await(task, io)` parse as:
 ///   FnCall(func=FnCall(func=Atom(dot), args=[Atom("io"), Atom("await")],
 ///                      is_infix=true), args=[Atom("task")])
-_is_dot_access :: (fn(expr : AstExpr, obj_name : str, method_name : str) -> bool)(
+_is_dot_access :: (fn(imm(expr) : AstExpr, obj_name : str, method_name : str) -> bool)(
   match(
     expr,
     .Atom(_, _) => false,
@@ -155,7 +155,7 @@ IO_BUILTIN_NONE :: "-";
 /// a call recorded as resolved to something else (any other marker,
 /// `IO_BUILTIN_NONE` included) is not; a call evaluation never saw (the
 /// pre-recording contexts) falls back to the spelling.
-_is_builtin_call :: (fn(expr : AstExpr, marker : str, spelled : bool) -> bool)(
+_is_builtin_call :: (fn(imm(expr) : AstExpr, marker : str, spelled : bool) -> bool)(
   match(
     lookup_io_builtin_call(ast_expr_id(expr)),
     .Some(m) => (m == marker),
@@ -163,24 +163,24 @@ _is_builtin_call :: (fn(expr : AstExpr, marker : str, spelled : bool) -> bool)(
   )
 );
 /// Checks if an expression is an io.async(closure) call.
-is_io_async_call :: (fn(expr : AstExpr) -> bool)(
+is_io_async_call :: (fn(imm(expr) : AstExpr) -> bool)(
   _is_builtin_call(expr, "__yo_io_async", _is_dot_access(expr, "io", "async"))
 );
 /// Checks if an expression is an io.await(future, io) call.
-is_io_await_call :: (fn(expr : AstExpr) -> bool)(
+is_io_await_call :: (fn(imm(expr) : AstExpr) -> bool)(
   _is_builtin_call(expr, "__yo_io_await", _is_dot_access(expr, "io", "await"))
 );
 /// Checks if an expression is an io.state(future) call.
-is_io_state_call :: (fn(expr : AstExpr) -> bool)(
+is_io_state_call :: (fn(imm(expr) : AstExpr) -> bool)(
   _is_builtin_call(expr, "__yo_io_state", _is_dot_access(expr, "io", "state"))
 );
 /// Checks if an expression is an io.spawn(future) call.
-is_io_spawn_call :: (fn(expr : AstExpr) -> bool)(
+is_io_spawn_call :: (fn(imm(expr) : AstExpr) -> bool)(
   _is_builtin_call(expr, "__yo_io_spawn", _is_dot_access(expr, "io", "spawn"))
 );
 /// Checks if an expression is a JoinHandle.await(io, JoinHandle) call.
 /// Structurally: any `x.await(..., x)` where x is NOT "io".
-is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
+is_join_handle_await_call :: (fn(imm(expr) : AstExpr) -> bool)({
   // Check if this is any X.await(..., X) method call. Match `expr` directly —
   // a read-only structural match does NOT consume it (the sibling
   // `_is_dot_access` matches the same shape without cloning, and `expr` is still
@@ -225,8 +225,8 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
 /// returns the variable ID (or its RC-owner's ID). Otherwise returns None.
 get_future_variable_id_ :: (
   fn(
-    await_arg : AstExpr,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(await_arg) : AstExpr,
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> Option(String)
 )({
   // Extract the token from the await_arg; must be an Identifier Atom
@@ -278,11 +278,11 @@ get_future_variable_id_ :: (
 /// Called from the `detect_fn` dyn closure inside `analyze_await_points`.
 detect_await_expr_ :: (
   fn(
-    expr : AstExpr,
-    parent_expr : Option(AstExpr),
-    inout(points) : ArrayList(SuspensionPoint),
-    inout(await_extras) : HashMap(String, AwaitPointExtra),
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(expr) : AstExpr,
+    imm(parent_expr) : Option(AstExpr),
+    mut(points) : ArrayList(SuspensionPoint),
+    mut(await_extras) : HashMap(String, AwaitPointExtra),
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )({
   if(!is_io_await_call(expr.clone()), {
@@ -377,8 +377,8 @@ detect_await_expr_ :: (
 /// The extra `get_info` parameter provides per-expression type/env information.
 analyze_await_points :: (
   fn(
-    body : AstExpr,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(body) : AstExpr,
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> AwaitAnalysisResult
 )({
   // Side-channel: stores async-specific fields for each await suspension point.
@@ -523,10 +523,10 @@ analyze_await_points :: (
 /// always reach the recursive calls at the bottom of the FnCall arm.
 collect_variable_bindings_ :: (
   fn(
-    expr : AstExpr,
-    inout(variables) : ArrayList(CapturedVariable),
-    inout(seen) : HashMap(String, bool),
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(expr) : AstExpr,
+    mut(variables) : ArrayList(CapturedVariable),
+    mut(seen) : HashMap(String, bool),
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )(
   match(
@@ -647,8 +647,8 @@ collect_variable_bindings_ :: (
 ///
 get_local_variables_from_body :: (
   fn(
-    body : AstExpr,
-    get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
+    imm(body) : AstExpr,
+    imm(get_info) : Impl(Fn(imm(e) : AstExpr) -> Option(ExprInfo))
   ) -> ArrayList(CapturedVariable)
 )({
   variables := ArrayList(CapturedVariable).new();
@@ -675,14 +675,14 @@ get_local_variables_from_body :: (
 /// Register a closure's await analysis by func_id (only when it has awaits).
 /// Record `result` for codegen; a command that never generates code records
 /// nothing (`codegen_tables_enabled`).
-register_closure_await_analysis :: (fn(func_id : String, result : AwaitAnalysisResult) -> unit)({
+register_closure_await_analysis :: (fn(imm(func_id) : String, imm(result) : AwaitAnalysisResult) -> unit)({
   if(!codegen_tables_enabled(), {
     return(());
   });
   g_closure_await_analysis.insert(func_id, result);
 });
 /// The await analysis recorded for `func_id`, if any.
-get_closure_await_analysis :: (fn(func_id : String) -> Option(AwaitAnalysisResult))(
+get_closure_await_analysis :: (fn(imm(func_id) : String) -> Option(AwaitAnalysisResult))(
   g_closure_await_analysis.get(func_id.clone())
 );
 export(

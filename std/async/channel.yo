@@ -130,7 +130,7 @@ impl(
   /// `.Ok(())` once buffered, or `.Err(value)` if the channel is (or
   /// becomes) closed, or its `Receiver` has been dropped — the failed value
   /// is handed back.
-  send : (fn(self : Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
+  send : (fn(imm(self) : Self, imm(value) : T, io : Io) -> Impl(Future(Result(unit, T))))(
     io.async((io : Io) => {
       (waiting : bool) = true;
       while(waiting, {
@@ -171,7 +171,7 @@ impl(
   ),
   /// Receive the oldest value, suspending while the channel is empty.
   /// Resolves to `.None` once the channel is closed AND drained.
-  recv : (fn(self : Self, io : Io) -> Impl(Future(Option(T))))(
+  recv : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(T))))(
     io.async((io : Io) => {
       (waiting : bool) = true;
       while(waiting, {
@@ -202,7 +202,7 @@ impl(
   ),
   /// Try to send without suspending: `.Ok(())` if buffered, `.Err(value)`
   /// if the channel is full, closed, or has no `Receiver` any more.
-  try_send : (fn(self : Self, value : T) -> Result(unit, T))(
+  try_send : (fn(imm(self) : Self, imm(value) : T) -> Result(unit, T))(
     cond(
       self._closed => Result(unit, T).Err(value),
       self._recv_dropped => Result(unit, T).Err(value),
@@ -226,7 +226,7 @@ impl(
   ///
   /// A closed channel with buffered values still yields them: `Disconnected`
   /// means closed AND drained.
-  try_recv : (fn(self : Self) -> Result(T, TryRecvError))(
+  try_recv : (fn(imm(self) : Self) -> Result(T, TryRecvError))(
     cond(
       (self._buf.len() > usize(0)) => {
         v := self._buf.remove(usize(0));
@@ -239,7 +239,7 @@ impl(
   ),
   /// Close the channel: pending and future `send`s fail with `.Err`;
   /// `recv` keeps draining buffered values, then resolves `.None`.
-  close : (fn(self : Self) -> unit)({
+  close : (fn(imm(self) : Self) -> unit)({
     self._closed = true;
     // Wake EVERY waiter on both sides, not one: after a close each of them has
     // an answer waiting — a blocked `send` fails, a blocked `recv` drains and
@@ -251,7 +251,7 @@ impl(
   /// Record that this channel's `Receiver` handle is gone: every further
   /// `send` fails, and a task suspended on a full buffer finds out on its
   /// next tick. Internal — `Receiver`'s `dispose` is the only caller.
-  _mark_receiver_dropped : (fn(self : Self) -> unit)({
+  _mark_receiver_dropped : (fn(imm(self) : Self) -> unit)({
     self._recv_dropped = true;
     // Every suspended sender now fails; none of them will be woken by a
     // receive that is never going to happen.
@@ -259,7 +259,7 @@ impl(
   }),
   /// Wake the longest-waiting receiver, if any. Called wherever a value
   /// becomes available.
-  _wake_one_receiver : (fn(self : Self) -> unit)({
+  _wake_one_receiver : (fn(imm(self) : Self) -> unit)({
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
     (woken : bool) = false;
@@ -270,7 +270,7 @@ impl(
     });
   }),
   /// Wake the longest-waiting sender, if any. Called wherever a slot frees up.
-  _wake_one_sender : (fn(self : Self) -> unit)({
+  _wake_one_sender : (fn(imm(self) : Self) -> unit)({
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
     (woken : bool) = false;
@@ -281,14 +281,14 @@ impl(
     });
   }),
   /// Wake every suspended sender and drop the queue.
-  _wake_all_senders : (fn(self : Self) -> unit)({
+  _wake_all_senders : (fn(imm(self) : Self) -> unit)({
     while(runtime(self._send_waiters.len() > usize(0)), {
       w := self._send_waiters.remove(usize(0));
       w.wake();
     });
   }),
   /// Wake every suspended task on both sides.
-  _wake_all : (fn(self : Self) -> unit)({
+  _wake_all : (fn(imm(self) : Self) -> unit)({
     self._wake_all_senders();
     while(runtime(self._recv_waiters.len() > usize(0)), {
       w := self._recv_waiters.remove(usize(0));
@@ -296,11 +296,11 @@ impl(
     });
   }),
   /// True once `close()` has been called.
-  is_closed : (fn(self : Self) -> bool)(
+  is_closed : (fn(imm(self) : Self) -> bool)(
     self._closed
   ),
   /// Number of values currently buffered.
-  len : (fn(self : Self) -> usize)(
+  len : (fn(imm(self) : Self) -> usize)(
     self._buf.len()
   )
 );
@@ -329,31 +329,31 @@ impl(
   Sender(T),
   /// Attach a new producer to `ch` and count it. Internal: `Channel.receiver`,
   /// `Channel.pair`, `Receiver.sender` and `clone` are the callers.
-  _attach : (fn(ch : Channel(T)) -> Self)({
+  _attach : (fn(imm(ch) : Channel(T)) -> Self)({
     ch._senders = (ch._senders + usize(1));
     Self(_ch : ch)
   }),
   /// Send a value, suspending while the buffer is full. `.Err(value)` once
   /// the channel is closed or the `Receiver` is gone (Rust's `SendError(T)`).
-  send : (fn(self : Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
+  send : (fn(imm(self) : Self, imm(value) : T, io : Io) -> Impl(Future(Result(unit, T))))(
     self._ch.send(value, io)
   ),
   /// Send without suspending: `.Err(value)` if the buffer is full, the
   /// channel is closed, or the `Receiver` is gone.
-  try_send : (fn(self : Self, value : T) -> Result(unit, T))(
+  try_send : (fn(imm(self) : Self, imm(value) : T) -> Result(unit, T))(
     self._ch.try_send(value)
   ),
   /// True once the channel is closed — by an explicit `close()`, or by the
   /// last `Sender` being dropped.
-  is_closed : (fn(self : Self) -> bool)(
+  is_closed : (fn(imm(self) : Self) -> bool)(
     self._ch.is_closed()
   ),
   /// Number of values currently buffered.
-  len : (fn(self : Self) -> usize)(
+  len : (fn(imm(self) : Self) -> usize)(
     self._ch.len()
   ),
   /// Close the channel now, without waiting for the other senders to go.
-  close : (fn(self : Self) -> unit)(
+  close : (fn(imm(self) : Self) -> unit)(
     self._ch.close()
   )
 );
@@ -362,7 +362,7 @@ impl(
   Sender(T),
   /// Another producer over the same channel, counted.
   Clone(
-    clone : (fn(inout(self) : Self) -> Self)({
+    clone : (fn(mut(self) : Self) -> Self)({
       self._ch._senders = (self._ch._senders + usize(1));
       Self(_ch : self._ch)
     })
@@ -379,7 +379,7 @@ impl(
   /// thread with no suspension point between them, so no other task can
   /// observe the count between the two.
   Dispose(
-    dispose : (fn(self : Self) -> unit)({
+    dispose : (fn(imm(self) : Self) -> unit)({
       self._ch._senders = (self._ch._senders - usize(1));
       if(self._ch._senders == usize(0), {
         self._ch.close();
@@ -392,7 +392,7 @@ impl(
   Receiver(T),
   /// Attach the consumer to `ch`. Internal: `Channel.receiver` and
   /// `Channel.pair` are the only callers.
-  _attach : (fn(ch : Channel(T)) -> Self)(
+  _attach : (fn(imm(ch) : Channel(T)) -> Self)(
     Self(_ch : ch)
   ),
   /// Mint a producer for this channel, counted like every other `Sender`.
@@ -400,7 +400,7 @@ impl(
   /// This is how the first sender is created after `Channel(T).receiver(...)`
   /// and how a fan-in of producer tasks is set up. A sender minted after the
   /// channel has already closed does not reopen it — its sends fail.
-  sender : (fn(self : Self) -> Sender(T))(
+  sender : (fn(imm(self) : Self) -> Sender(T))(
     Sender(T)._attach(self._ch)
   ),
   /// Receive the oldest value, suspending while the channel is empty.
@@ -413,7 +413,7 @@ impl(
   ///
   /// Values already buffered when the last sender went away are still handed
   /// out, one per call, BEFORE the disconnect is reported.
-  recv : (fn(self : Self, io : Io) -> Impl(Future(Result(T, TryRecvError))))(
+  recv : (fn(imm(self) : Self, io : Io) -> Impl(Future(Result(T, TryRecvError))))(
     io.async((io : Io) => {
       // Bound first, matched second: an `io.await` in a match SCRUTINEE is one
       // of the async-body shapes that miscompiles to an empty value.
@@ -428,22 +428,22 @@ impl(
   /// Receive without suspending: `.Ok(value)`, `Empty` while the channel is
   /// open but has nothing buffered, `Disconnected` once it is closed and
   /// drained.
-  try_recv : (fn(self : Self) -> Result(T, TryRecvError))(
+  try_recv : (fn(imm(self) : Self) -> Result(T, TryRecvError))(
     self._ch.try_recv()
   ),
   /// True once the channel is closed — including by the last `Sender` being
   /// dropped. Buffered values may still be waiting; `try_recv` answering
   /// `Disconnected` is the closed-AND-drained test.
-  is_closed : (fn(self : Self) -> bool)(
+  is_closed : (fn(imm(self) : Self) -> bool)(
     self._ch.is_closed()
   ),
   /// Number of values currently buffered.
-  len : (fn(self : Self) -> usize)(
+  len : (fn(imm(self) : Self) -> usize)(
     self._ch.len()
   ),
   /// Stop accepting values now. Buffered values still come out of `recv`,
   /// then it reports `Disconnected`.
-  close : (fn(self : Self) -> unit)(
+  close : (fn(imm(self) : Self) -> unit)(
     self._ch.close()
   )
 );
@@ -459,7 +459,7 @@ impl(
   /// apart is what lets a `Sender` that outlives the receiver report the
   /// honest failure.
   Dispose(
-    dispose : (fn(self : Self) -> unit)(
+    dispose : (fn(imm(self) : Self) -> unit)(
       self._ch._mark_receiver_dropped()
     )
   )
@@ -516,7 +516,7 @@ impl(
   Channel(T),
   Stream(
     Item : T,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(T), Io)))(
+    next : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(T), Io)))(
       self.recv(io)
     )
   )
