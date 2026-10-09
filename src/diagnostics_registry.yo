@@ -462,7 +462,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "The message lists the branches where it MIGHT and where it is NOT initialized. Initialize before the branch (`x : T = default`), or provide the binding in every arm, or restructure so the join always has a value.",
       "错误信息会列出可能初始化与未初始化的分支。请在分支前初始化（`x : T = default`），或在每个分支都提供绑定，或重构为汇合点总有值。",
       "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
-      "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32) = i32(0);\n  cond(c => {\n    v = i32(1);\n  }, true => {\n    ();\n  });\n  _y := v;\n});\nexport(main);\n",
+      "main :: (fn(io : Io) -> unit)({\n  c := runtime(true);\n  (v : i32) = i32(0);\n  cond(\n    c => {\n      v = i32(1);\n    },\n    true => {\n      ();\n    }\n  );\n  _y := v;\n});\nexport(main);\n",
       "Only the first arm assigns `v`, so after the `cond` it is initialized on one path only.",
       "只有第一个分支给 `v` 赋值，因此 `cond` 之后它只在一条路径上被初始化。"
     )
@@ -612,7 +612,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "The comptime builtins (`comptime_assert`, `comptime_expect_error`, …) check their argument kinds at compile time, and a parameter declared `comptime(x) : T` needs a compile-time argument — the function is specialized on its value. Give it the shape it names: for `comptime_assert` a comptime-known bool, for a `comptime` parameter a literal, a `::` constant or the result of a comptime function, never a runtime value.",
       "comptime 内建函数（`comptime_assert`、`comptime_expect_error` 等）在编译期检查参数种类；声明为 `comptime(x) : T` 的参数需要编译期实参 —— 函数会按其值特化。请提供它所要求的形状：`comptime_assert` 需要编译期已知的 bool，`comptime` 参数需要字面量、`::` 常量或 comptime 函数的结果，而不是运行时值。",
       "x := i32(1);\ncomptime_assert((x > i32(0)));\n",
-      "comptime_assert((1 > 0));\n",
+      "comptime_assert(1 > 0);\n",
       "`x` is a runtime value; `comptime_assert` needs a compile-time `bool`.",
       "`x` 是运行时值；`comptime_assert` 需要编译期 `bool`。"
     )
@@ -657,7 +657,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "`:=` and `(name : T) = …` (or a bare `name : T`) declare runtime variables, and `inout(name) := place` binds a reference to runtime storage. The body of a function declared to return a compile-time value (`-> comptime(T)`, `-> Type`, `-> Expr`, …) has no runtime, so its locals use the compile-time forms: `name :: value`, `(comptime(name) : T) = value`, `comptime(name) := value` or `comptime(name) : T`. They are still mutable: reassign them with `=` in a loop as usual. A function literal nested inside such a body is judged by its own return type, so a runtime method or closure defined there keeps its runtime locals. `yo fix` rewrites `:=` to `::` and `name` to `comptime(name)`.",
       "`:=` 与 `(name : T) = …`（以及单独的 `name : T`）声明运行时变量，`inout(name) := place` 绑定指向运行时存储的引用。声明为返回编译期值的函数（`-> comptime(T)`、`-> Type`、`-> Expr` 等）的函数体没有运行时，因此其局部变量要用编译期形式：`name :: value`、`(comptime(name) : T) = value`、`comptime(name) := value` 或 `comptime(name) : T`。它们依然可变：可以像平常一样在循环中用 `=` 重新赋值。嵌套在这种函数体内的函数字面量按它自己的返回类型判断，所以在其中定义的运行时方法或闭包可以保留运行时局部变量。`yo fix` 会把 `:=` 改写为 `::`，把 `name` 改写为 `comptime(name)`。",
       "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc := i32(0);\n  (step : i32) = n;\n  (acc + step)\n});\n",
-      "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc :: i32(0);\n  (comptime(step) : i32) = n;\n  (acc + step)\n});\n",
+      "sum :: (fn(comptime(n) : i32) -> comptime(i32))({\n  acc :: i32(0);\n  (comptime(step) : i32) = n;\n  acc + step\n});\n",
       "`acc` and `step` are locals of a compile-time function body, so they use the compile-time forms `::` and `comptime(step)`.",
       "`acc` 与 `step` 是编译期函数体的局部变量，因此使用编译期形式 `::` 与 `comptime(step)`。"
     )
