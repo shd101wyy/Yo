@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_trait_ptr_type,
   record_branch_consume
 } :: import("../../expr_info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop } :: import("../../expr_info.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating, is_fnonce_capture_frame } :: import("../../env.yo");
 {
   EvalContext,
@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { is_flowable_expr, flow_options_default, FlowOptions }
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy } :: import("../../types/utils.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -329,7 +329,12 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
     ),
     .None => ()
   );
-  // The node itself is a dup call?
+  // The node itself is a dup call? A by-value parameter's share is never a
+  // pair candidate: the callee frees it at its return, before the caller's
+  // later reads (`_mark_by_value_param_shares`, calls/helper.yo).
+  if(is_by_value_param_share_dup(ast_expr_id(expr)), {
+    return(());
+  });
   match(
     _dup_call_target_name(expr),
     .Some(vn) => {
@@ -724,6 +729,37 @@ _m3_last_comparable_token_in_expr :: (fn(imm(expr) : AstExpr, imm(reference) : T
   init2 := if(!_m3_tokens_comparable(init, reference), reference, init);
   _m3_max_comparable_token(expr, reference, init2)
 });
+/// `stmt` is an assignment statement, so its value, the old value it replaced,
+/// is unused. An explicit-copy old value (a move-only value, or plain data
+/// without `Copy`) is dropped right after the store, as Rust drops it: its
+/// temp is marked moved, so the scope-end pass skips it, and codegen emits
+/// the recorded drop after the store (`lookup_immediate_old_value_drop`,
+/// codegen/exprs/assignment.yo). Nothing can alias such a value (a copy of it
+/// would have been E0901), and the right side was evaluated before the
+/// store. A still implicitly copyable kind (a `String`, a collection, an
+/// `Rc`, a `ref` handle) keeps the end-of-block release until its own phase
+/// makes it explicit-copy: its right side may share the old value through a
+/// dup the pair optimizer elided (plans/VALUES_BY_DEFAULT.md §3.14).
+_drop_unused_old_value_now :: (fn(imm(stmt) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)(
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(stmt)),
+    .None => (),
+    .Some(ai) => match(
+      ai.variable_name,
+      .None => (),
+      .Some(tname) => match(
+        get_variables_from_env(env, tname.clone()).last(),
+        .Some(tv) => if(tv.is_owning_the_rc_value && tv.consumed_at_token.is_none() && type_requires_explicit_copy(tv.ty), {
+          drop_expr := generate_expr_from_code(`${BF_DROP}(${tname})`, exn);
+          evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+          tv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(stmt)));
+          record_immediate_old_value_drop(ast_expr_id(stmt), evaluated);
+        }),
+        .None => ()
+      )
+    )
+  )
+);
 /// A local that CAN need a scope-end drop, ignoring consumed status.
 _variable_can_need_drop_ignoring_consumed :: (fn(imm(v) : Variable) -> bool)({
   if(!v.is_owning_the_rc_value, {
@@ -2732,6 +2768,11 @@ _evaluate_begin_expression_impl :: (
             ),
             .None => ()
           );
+        });
+        // An assignment statement's value (the old value) is unused: drop
+        // an explicit-copy old value right after the store, as Rust does.
+        if(!is_last_in_loop && ast_expr_is_fn_call_of(evaluated, BK_ASSIGN, .None), {
+          _drop_unused_old_value_now(evaluated, env, ctx, exn);
         });
         // Track runtime side effects for non-last expressions.
         // A begin block with any runtime non-last expression cannot be

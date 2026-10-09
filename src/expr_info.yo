@@ -1682,6 +1682,19 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 // method FuncVal, keyed by the CALL expr id, so codegen can emit
 // `<specialized_c_name>(args)`.
 // (`g_method_callee_values` is declared above the scope-release block, which reads it.)
+/// Assignment statement `=` node id → the `___drop(old-value temp)` to emit
+/// right after its store: the statement's value (the old value) is unused and
+/// explicit-copy, so it is dropped at the assignment, as Rust drops it
+/// (`record_immediate_old_value_drop`, evaluator/exprs/begin.yo).
+(g_immediate_old_value_drops : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
+record_immediate_old_value_drop :: (fn(assign_id : ExprId, imm(drop_expr) : AstExpr) -> unit)({
+  record_owned_expr_id(assign_id);
+  g_immediate_old_value_drops.insert(assign_id, drop_expr);
+  ()
+});
+lookup_immediate_old_value_drop :: (fn(assign_id : ExprId) -> Option(AstExpr))(
+  g_immediate_old_value_drops.get(assign_id)
+);
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, imm(v) : EvalValue) -> unit)({
   record_owned_expr_id(call_id);
@@ -2605,7 +2618,7 @@ export(expr_info_closure_function_value, expr_info_set_closure_function_value);
 export(ExprInfoTable, expr_info_table_new, expr_info_table_set, expr_info_table_get, codegen_read_log_set, codegen_read_keys, expr_info_table_retain_keys);
 export(record_method_callee_type, lookup_method_callee_type);
 export(record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, lookup_io_builtin_call);
-export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin);
+export(record_method_callee_value, lookup_method_callee_value, record_local_borrow_step_pin, lookup_local_borrow_step_pin, record_immediate_old_value_drop, lookup_immediate_old_value_drop);
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
@@ -2675,6 +2688,14 @@ node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.contain
 /// scope-end drop (the pair is a move only while the container outlives the
 /// local's uses — the AGENTS.md pitfall).
 (g_call_once_capture_dup_ids : HashSet(usize)) = HashSet(usize).new();
+/// Dups that share a still implicitly copyable argument into a by-value
+/// parameter (`_mark_by_value_param_shares`, evaluator/calls/helper.yo): the
+/// dup/drop pair optimizer never cancels them.
+(g_by_value_param_share_dup_ids : HashSet(usize)) = HashSet(usize).new();
+mark_by_value_param_share_dup :: (fn(id : usize) -> unit)({
+  _m := g_by_value_param_share_dup_ids.insert(id);
+});
+is_by_value_param_share_dup :: (fn(id : usize) -> bool)(g_by_value_param_share_dup_ids.contains(id));
 mark_call_once_capture_dup :: (fn(id : usize) -> unit)({
   _m := g_call_once_capture_dup_ids.insert(id);
 });
@@ -2827,6 +2848,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
   });
 });
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
+export(mark_by_value_param_share_dup, is_by_value_param_share_dup);
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated, mark_call_once_capture_dup, is_call_once_capture_dup, mark_fnonce_capture_drop, is_fnonce_capture_drop, mark_fnonce_post_call_release, is_fnonce_post_call_release);
 export(record_macro_expansion, lookup_macro_expansion);
 export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);
@@ -2853,6 +2875,7 @@ _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
   _v := g_method_callee_values.remove(id);
   _m := g_macro_expansions.remove(id);
   _p := g_local_borrow_step_pins.remove(id);
+  _d := g_immediate_old_value_drops.remove(id);
 });
 /// Drop the metadata an EXECUTED fresh-id clone left behind: every node of
 /// `root`'s tree whose id lies in `[lo, hi)` (the ids the clone minted, see
@@ -2899,7 +2922,7 @@ purge_executed_clone_metadata :: (fn(imm(table) : ExprInfoTable, imm(root) : Ast
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
-  g_method_callee_types.len() + g_io_builtin_calls.len() + g_method_callee_values.len() + g_macro_expansions.len()
+  g_method_callee_types.len() + g_io_builtin_calls.len() + g_method_callee_values.len() + g_macro_expansions.len() + g_immediate_old_value_drops.len()
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);

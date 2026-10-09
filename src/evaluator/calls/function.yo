@@ -7202,6 +7202,15 @@ Fix: wrap the call:
           ),
           .None => ArrayList(bool).new()
         );
+        fv_param_is_sink := match(
+          callee_info_opt,
+          .Some(ci_s) => match(
+            ci_s.ty,
+            .Func({ meta : __fm7s }) => match(__fm7s.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new()),
+            _ => ArrayList(bool).new()
+          ),
+          .None => ArrayList(bool).new()
+        );
         // Call-site borrow markers (`&x`, `&mut x`, decision 33): peeled once,
         // before any rule reads the arguments (helper.yo's shared rule).
         fv_args = apply_call_site_borrow_markers(fv_args, fv_param_types, fv_param_is_ref, fv_param_is_owning, fv_param_labels, false, exn);
@@ -7740,6 +7749,7 @@ Fix: wrap the call:
             // `_eat(a)` with `own(s)` read the moved value
             // (issues/fixed/a-free-function-call-accepts-an-already-moved-argument.md).
             fv_p_owning := match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false);
+            fv_p_sink := match(fv_param_is_sink.get(ai), .Some(o) => o, .None => false);
             fv_p_is_ct := (
               match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
               || match(resolved_param_types.get(ai), .Some(apt2) => is_type_hierarchy_type(apt2), .None => false)
@@ -7780,7 +7790,8 @@ Fix: wrap the call:
                   env,
                   ctx,
                   exn,
-                  argument_is_aliased_by_inout(arg_expr_eff, fv_p_is_ref, inout_argument_roots(fv_args, fv_param_is_ref))
+                  argument_is_aliased_by_inout(arg_expr_eff, fv_p_is_ref, inout_argument_roots(fv_args, fv_param_is_ref)),
+                  fv_p_sink
                 ),
                 .Some(fv_s0d) => {
                   fv_s0_drops.push(fv_s0d);

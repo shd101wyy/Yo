@@ -932,7 +932,13 @@ FuncParam :: struct(
   /// this is how two impls of the same parameterized trait are told apart
   /// (`TryInto(i32)` vs `TryInto(i64)`). Defaulted so the
   /// synthetic `FuncParam(...)` constructions need no change.
-  (assigned_value : Option(EvalValue)) ?= Option(EvalValue).None
+  (assigned_value : Option(EvalValue)) ?= Option(EvalValue).None,
+  /// Declared `sink(x)` (or its old spelling `own(x)`): an explicit move. A
+  /// plain by-value parameter also owns its argument, but a caller SHARES a
+  /// still implicitly copyable kind into it (`consume_argument_for_parameter`);
+  /// a `sink` parameter always takes the value. Only the caller reads it: the
+  /// callee owns the parameter either way, so it is not part of the type.
+  (is_sink : bool) ?= false
 );
 /// Pending where-clause constraint that failed to evaluate.
 PendingConstraint :: struct(
@@ -1369,6 +1375,7 @@ evaluate_function_parameter :: (
   (is_compile_time_only : bool) = is_parameter_comptime_by_default;
   (is_quote : bool) = false;
   (is_owning_rc_value : bool) = false;
+  (is_sink_param : bool) = false;
   (is_param_ref : bool) = false;
   // `yo fix --migrate params`: an explicit `imm(...)` and the `inout` word.
   (has_imm_wrapper : bool) = false;
@@ -1493,6 +1500,7 @@ evaluate_function_parameter :: (
       // both set the same flag, so the two spell one function type.
       if(ast_expr_is_fn_call_of(lhs_mut, "sink", Option(usize).None) || ast_expr_is_fn_call_of(lhs_mut, "own", Option(usize).None), {
         is_owning_rc_value = true;
+        is_sink_param = true;
         o_args := _fn_call_args(lhs_mut);
         if(!(o_args.len() == usize(1)), {
           exn.throw(
@@ -2168,7 +2176,8 @@ use_id :: (fn(generic(T : Type),
     is_param_ref,
     default_value_expr,
     type_expr,
-    assigned_value
+    assigned_value,
+    is_sink_param
   )
 });
 /// The E0602 text for a concrete type that fails a where-clause bound. When
@@ -4322,6 +4331,7 @@ evaluate_function_type :: (
   param_types := ArrayList(TypeValue).new();
   param_is_ref := ArrayList(bool).new();
   param_is_owning := ArrayList(bool).new();
+  param_is_sink := ArrayList(bool).new();
   implicit_labels := ArrayList(String).new();
   implicit_types := ArrayList(TypeValue).new();
   where_types := ArrayList(TypeValue).new();
@@ -4375,6 +4385,7 @@ evaluate_function_type :: (
     param_types.push(pp.ty);
     param_is_ref.push(pp.is_ref);
     param_is_owning.push(pp.is_owning_rc_value);
+    param_is_sink.push(pp.is_sink);
     param_defaults.push(pp.default_value);
     param_default_exprs.push(pp.default_value_expr);
     param_type_exprs.push(pp.ty_expr);
@@ -4619,7 +4630,9 @@ evaluate_function_type :: (
         // ever sees the TYPE — an anonymous function checked against it —
         // re-key those tables onto its own FuncVal id, the way the `::` path
         // does explicitly.
-        origin_id : Option(String).Some(ast_expr_id(expr).to_string())
+        origin_id : Option(String).Some(ast_expr_id(expr).to_string()),
+        // param_is_sink — the `sink(x)` flags, read by callers only.
+        param_is_sink : Option(ArrayList(bool)).Some(param_is_sink)
       )
     ),
     vts_mint

@@ -902,21 +902,31 @@ _is_implicit_closure_capture :: (fn(imm(v) : Variable, imm(env) : Environment, i
         body_level := sub.eval_env.frame_count();
         // The first closure parameter frame below the body, walking down, is
         // this closure's own: its parameters are not captures. One further
-        // down belongs to an enclosing closure, whose parameters are.
+        // down belongs to an enclosing closure, whose parameters are. The
+        // same holds for an `FnOnce` capture-list frame: only this closure's
+        // own (below its parameter frame, above any enclosing closure's) is
+        // the body's to move from; an enclosing closure's captures are
+        // captures here.
         (own_params_seen : bool) = false;
+        (enclosing_seen : bool) = false;
         (fi : usize) = env.frames.len();
         while(fi > usize(0), {
           fi = (fi - usize(1));
           match(
             env.frames.get(fi),
             .Some(fr) => {
-              is_own_params := ((fi < body_level) && !own_params_seen && is_closure_param_frame(fr.id));
+              is_param_frame := ((fi < body_level) && is_closure_param_frame(fr.id));
+              is_own_params := (is_param_frame && !own_params_seen);
+              if(is_param_frame && own_params_seen, {
+                enclosing_seen = true;
+              });
+              is_own_capture := (is_fnonce_capture_frame(fr.id) && !enclosing_seen);
               (vi : usize) = usize(0);
               while(vi < fr.variables.len(), {
                 match(
                   fr.variables.get(vi),
                   .Some(fv2) => if(fv2.id == v.id, {
-                    return((fi < body_level) && !is_fnonce_capture_frame(fr.id) && !is_own_params);
+                    return((fi < body_level) && !is_own_capture && !is_own_params);
                   }),
                   .None => ()
                 );
@@ -2770,6 +2780,30 @@ _drop_in_arms_that_keep :: (
   ), {
     return(false);
   });
+  // The drop names the value, so an arm that binds the same name (a
+  // `.Some(x)` pattern) would drop its own binding instead: keep E0907 there.
+  (si : usize) = usize(0);
+  while(si < bodies.len(), {
+    keeps_s := match(consumed_at_tokens.get(si), .Some(.Some(_)) => false, _ => true);
+    if(keeps_s, {
+      match(
+        bodies.get(si),
+        .Some(sb) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(sb)),
+          .Some(sbi) => match(
+            get_variables_from_env(sbi.env, v.name.clone()).last(),
+            .Some(sv) => if(sv.id != v.id, {
+              return(false);
+            }),
+            .None => ()
+          ),
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    si = (si + usize(1));
+  });
   // The drop is evaluated with the value still owned, as the scope-end drop
   // of an unmoved local is; the join marks it moved afterwards.
   saved_consumed := v.consumed_at_token;
@@ -2811,7 +2845,11 @@ merge_and_check_envs :: (
     group_log_start : usize,
     imm(arm_ranges) : ArrayList(usize),
     imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    imm(exn) : Exception,
+    /// The whole `cond`/`match`, every arm included (a returning arm is not
+    /// in `bodies`): a value moved in some arms is moved at its end, so the
+    /// early-return drop pass covers the returns inside it.
+    (imm(branch_expr) : Option(AstExpr)) ?= Option(AstExpr).None
   ) -> Environment
 )({
   if(bodies.len() == usize(0), {
@@ -3332,9 +3370,19 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             partial := (any_consumed && !all_consumed);
             elaborated := (partial && _drop_in_arms_that_keep(base_var, bodies, consumed_at_tokens, env, ctx, exn));
             if(elaborated, {
+              // Moved where the branch ends: every arm has either moved it
+              // or dropped it by then. A `return` inside the branch is before
+              // that point, so the early-return drop pass gives it the drop
+              // unless the flow log shows a move earlier in its own arm
+              // (`variable_moved_at_cleanup_point`), whatever the arm order.
               first_ct := _first_some_token(consumed_at_tokens);
+              end_ct := match(
+                branch_expr,
+                .Some(be) => match(first_ct, .Some(fct) => Option(Token).Some(_last_token_of(be, fct)), .None => Option(Token).None),
+                .None => first_ct
+              );
               match(
-                first_ct,
+                end_ct,
                 .Some(t) => {
                   base_var.consumed_at_token = Option(Rc(Token)).Some(rc(t.clone()));
                 },

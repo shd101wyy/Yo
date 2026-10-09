@@ -88,7 +88,12 @@ FuncMeta :: struct(
   /// field fixes that: it travels with the type through the same
   /// `meta.clone()` an expected-type spread performs. Defaulted so the 20+
   /// existing construction sites are unaffected.
-  (origin_id : Option(String)) ?= Option(String).None
+  (origin_id : Option(String)) ?= Option(String).None,
+  /// Per-parameter `sink(x)` flags (see `FuncParam.is_sink`): the caller
+  /// moves the argument instead of sharing a still implicitly copyable kind.
+  /// Caller-side only, so not part of the function type's identity; `.None`
+  /// means none is `sink`.
+  (param_is_sink : Option(ArrayList(bool))) ?= Option(ArrayList(bool)).None
 );
 derive(FuncMeta, Clone);
 /// The Yo type universe.

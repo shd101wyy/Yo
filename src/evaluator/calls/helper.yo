@@ -161,7 +161,9 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_deferred_dup_expressions,
   has_any_control_flow,
   some_resolution,
-  record_spec_instantiation
+  record_spec_instantiation,
+  expr_info_deferred_dup_expressions,
+  mark_by_value_param_share_dup
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -981,6 +983,37 @@ argument_is_aliased_by_inout :: (fn(imm(arg) : AstExpr, param_is_ref : bool, imm
   });
   false
 });
+/// A closure or function value: one with an `Fn` trait, a `fn` type, or a
+/// closure capture struct (what a forwarded closure is typed as). It always
+/// moves into a by-value parameter (see `consume_argument_for_parameter`).
+_is_callable_value_type :: (fn(imm(ty) : TypeValue) -> bool)(
+  is_function_type(ty) || is_fn_trait_type(ty) || extract_fn_trait_from_type(ty).is_some() || match(
+    ty,
+    .Struct({ id : cs_id }) => cs_id.starts_with("capture_"),
+    _ => false
+  )
+);
+/// Mark the dups a by-value parameter's share just put on `arg` so the
+/// dup/drop pair optimizer never cancels them against the caller's
+/// scope-end drop (that "move" would let the callee free a value the caller
+/// still reads).
+_mark_by_value_param_shares :: (fn(imm(arg) : AstExpr, imm(ctx) : EvalContext) -> unit)(
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)),
+    .Some(ai) => match(
+      expr_info_deferred_dup_expressions(ai),
+      .Some(dl) => {
+        (i : usize) = usize(0);
+        while(i < dl.len(), {
+          match(dl.get(i), .Some(d) => mark_by_value_param_share_dup(ast_expr_id(d)), .None => ());
+          i = (i + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
 /// The argument-side ownership rule, one call per argument:
 ///
 /// - 4a: the argument must not already be CONSUMED (moved). Unconditional.
@@ -1005,7 +1038,9 @@ consume_argument_for_parameter :: (
     imm(exn) : Exception,
     /// `argument_is_aliased_by_inout`: the argument is a whole variable that
     /// the same call also passes `inout`.
-    (aliased_by_inout : bool) ?= false
+    (aliased_by_inout : bool) ?= false,
+    /// The parameter is declared `sink(x)`: the argument moves, never shared.
+    (param_is_sink : bool) ?= false
   ) -> Option(AstExpr)
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
@@ -1046,17 +1081,30 @@ consume_argument_for_parameter :: (
             arg_var.is_ref => {
               set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
             },
+            // A `sink(x)` parameter takes the value, and so does every
+            // parameter for a closure or function value: sharing an `FnOnce`
+            // closure would let it run twice.
+            (param_is_sink || _is_callable_value_type(arg_info.ty)) => cond(
+              arg_var.is_owning_the_rc_value => {
+                set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
+              },
+              true => {
+                set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
+                set_expr_as_consumed(evaled_arg, caller_env, true, ctx, exn);
+              }
+            ),
             // A kind that is still implicitly copyable (a `String`, a
-            // collection, an `Rc`, a `ref(...)` handle) is passed the way
-            // `t := s` binds it: a share (+1), and the caller keeps its value.
-            // The move/clone split for these kinds lands with their phase
-            // (V2b for `String` and the collections, V2c for `Rc`/`Arc`, V5
-            // for `ref`), together with `t := s`; until then only an
-            // explicit-copy value moves here (plans/VALUES_BY_DEFAULT.md
-            // §3.14). The dup/drop pair optimizer cancels the share against
-            // the caller's scope-end drop when the argument is not used again.
+            // collection, an `Rc`, a `ref(...)` handle) is passed to a plain
+            // by-value parameter the way `t := s` binds it: a share (+1), and
+            // the caller keeps its value. The move/clone split for these kinds
+            // lands with their phase (V2b for `String` and the collections,
+            // V2c for `Rc`/`Arc`, V5 for `ref`), together with `t := s`
+            // (plans/VALUES_BY_DEFAULT.md §3.14). The share is never a
+            // dup/drop pair candidate: the callee drops it at its return, and
+            // the caller may still read its value after the call.
             true => {
               set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn, "param");
+              _mark_by_value_param_shares(evaled_arg, ctx);
             }
           );
         });
@@ -1239,7 +1287,9 @@ check_if_function_parameter_matches_argument :: (
     /// projection dup.
     (callee_is_extern : bool) ?= false,
     /// `argument_is_aliased_by_inout` for this argument.
-    (aliased_by_inout : bool) ?= false
+    (aliased_by_inout : bool) ?= false,
+    /// The parameter is declared `sink(x)`: the argument moves, never shared.
+    (param_is_sink : bool) ?= false
   ) -> CheckParamResult
 )({
   // Step 1: labels are readability-only (see `strip_argument_label`).
@@ -1315,7 +1365,7 @@ check_if_function_parameter_matches_argument :: (
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
   // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
-  s0_drop_captured := consume_argument_for_parameter(evaled_arg, actual_arg, arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, caller_env_r, ctx, exn, aliased_by_inout);
+  s0_drop_captured := consume_argument_for_parameter(evaled_arg, actual_arg, arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, caller_env_r, ctx, exn, aliased_by_inout, param_is_sink);
   s0_marked_arg_captured := if(s0_drop_captured.is_some(), Option(AstExpr).Some(evaled_arg), Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
   // check that the argument value matches it. This is used for overload
@@ -4203,6 +4253,7 @@ create_specialized_function_inline :: (
               sp_rico := __fm5.*.result_is_comptime_only;
               sp_pir := __fm5.*.param_is_ref;
               sp_pio := __fm5.*.param_is_owning;
+              sp_pis := match(__fm5.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new());
               sp_rir := __fm5.*.result_is_ref;
               sp_hv := __fm5.*.has_variadic;
               sp_ie := __fm5.*.is_extern;
@@ -4760,6 +4811,7 @@ create_specialized_function_inline :: (
               (sp_pl_f : ArrayList(String)) = ArrayList(String).new();
               (sp_pir_f : ArrayList(bool)) = ArrayList(bool).new();
               (sp_pio_f : ArrayList(bool)) = ArrayList(bool).new();
+              (sp_pis_f : ArrayList(bool)) = ArrayList(bool).new();
               {
                 (sp_mi : usize) = usize(0);
                 while(sp_mi < sp_pl.len(), {
@@ -4768,6 +4820,7 @@ create_specialized_function_inline :: (
                     sp_pl_f.push(match(sp_pl.get(sp_mi), .Some(l) => l, .None => String.new()));
                     sp_pir_f.push(match(sp_pir.get(sp_mi), .Some(b) => b, .None => false));
                     sp_pio_f.push(match(sp_pio.get(sp_mi), .Some(b) => b, .None => false));
+                    sp_pis_f.push(match(sp_pis.get(sp_mi), .Some(b) => b, .None => false));
                   });
                   sp_mi = (sp_mi + usize(1));
                 });
@@ -4792,7 +4845,8 @@ create_specialized_function_inline :: (
                     extern_name : sp_en,
                     is_control : sp_ic,
                     variadic_label : Option(String).None,
-                    variadic_comptime : false
+                    variadic_comptime : false,
+                    param_is_sink : Option(ArrayList(bool)).Some(sp_pis_f)
                   )
                 ),
                 ArrayList(TypeValue).new()
@@ -6362,6 +6416,7 @@ try_to_call_function_with_arguments :: (
       fl := __fm8.*.forall_labels;
       pl := __fm8.*.param_labels;
       pio := __fm8.*.param_is_owning;
+      pis := match(__fm8.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new());
       pref := __fm8.*.param_is_ref;
       il := __fm8.*.implicit_labels;
       fn_has_variadic := __fm8.*.has_variadic;
@@ -7496,6 +7551,7 @@ try_to_call_function_with_arguments :: (
         plabel := match(pl.get(pi), .Some(l) => l, .None => String.from(""));
         ptype := match(pt.get(pi), .Some(t) => t, .None => t_unit());
         p_owning := match(pio.get(pi), .Some(o) => o, .None => false);
+        p_sink := match(pis.get(pi), .Some(o) => o, .None => false);
         // Omitted optional parameter (no corresponding argument): clone the
         // recorded default VALUE EXPRESSION and route it through the SAME
         // matching flow as an explicit argument. The omitted branch merges
@@ -7624,7 +7680,8 @@ try_to_call_function_with_arguments :: (
           exn,
           match(call_param_assigned.get(pi), .Some(a) => a, .None => Option(EvalValue).None),
           callee_is_extern,
-          argument_is_aliased_by_inout(parg, match(pref.get(pi), .Some(b) => b, .None => false), s7_inout_roots)
+          argument_is_aliased_by_inout(parg, match(pref.get(pi), .Some(b) => b, .None => false), s7_inout_roots),
+          p_sink
         );
         if(!(is_method_call && (pi == usize(0))), {
           audit_borrow_marker_site(_unlabeled_argument(parg), pr.arg_type, match(pref.get(pi), .Some(b) => b, .None => false), p_owning, match(call_param_comptime.get(pi), .Some(f) => f, .None => false), ctx);
