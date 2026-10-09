@@ -14,8 +14,8 @@ this plan is the other half: **what the emitted C is worth at run time.**
 
 Post-VBD, Yo's *semantics* are near-Rust by construction for unshared code:
 unique buffers, no hidden counts, implicit moves, static exclusivity for
-value-rooted borrows. The remaining gap to Rust has exactly two causes, and
-this plan attacks both:
+value-rooted borrows. The remaining gap to Rust has three causes, and
+this plan attacks all three:
 
 1. **What clang is allowed to see.** Rust tells LLVM `noalias` on every
    `&mut`; Yo lowers `mut(x) : T` to a plain `T*` and discards the
@@ -30,8 +30,33 @@ this plan attacks both:
    the audit edges of CP1b.
 2. **Checks the language could discharge itself.** Per-step bounds checks on
    index walks (decision 39 accepted them), the `Rc` write-site borrow assert
-   (§3.10), container guards — each has a proof path that removes it: static
-   exclusivity, the runtime pin, or the verifier.
+   (§3.10), container guards, and the integer overflow traps safe mode emits
+   on every `+ - *` and negation at every `-O`
+   ([`SAFE_MODE.md`](../SAFE_MODE.md) D1; Rust's release profile wraps
+   instead, so this is the one check Rust does not pay) — each has a proof
+   path that removes it: static exclusivity, the runtime pin, the verifier,
+   or a range pass (CP2f).
+3. **Collector work on cells that can never be on a cycle** (added
+   2026-10-09). A tracked `Rc` cell pays a list link at allocation and
+   unlink at free, a `gc_flags` test plus a first-time buffer push on every
+   non-final decrement, the `gc_prev`/`gc_next`/mark bytes in its header,
+   and its share of every tracked-list scan. The tracking predicate
+   (`can_type_form_rc_cycle`, `src/types/utils.yo`) is "the payload type
+   can reach itself through `Rc` edges", so every recursive type is
+   tracked — the compiler's `AstExpr` and `TypeValue` trees in full — though
+   a tree built once and never written through a shared handle cannot form
+   a cycle. Rust's `Rc<Expr>` pays nothing for the same data. CP2e removes
+   that tax statically; the collector itself stays (the maintainer's
+   constraint, 2026-10-09: cycles through `Rc` must keep collecting).
+
+**Not gaps** (checked 2026-10-09, so nobody chases them): cross-TU inlining
+(above); monomorphized `Impl(Fn)` bodies and `Dyn` vtable dispatch (the
+same shapes as Rust's generics and `dyn`); the allocator (mimalloc or TLSF
+versus Rust's default system malloc); panics (`abort()` with no unwinding
+tables, where Rust's default `panic=unwind` carries landing pads); the
+async runtime (measured at libuv parity, owned by the ASYNC plans); large
+values passed by pointer under decision 30/34 (a Rust move of a large
+struct is the same `memcpy`).
 
 **Non-goals.** No direct LLVM backend: the portable-C identity is
 load-bearing ([`PORTABLE_C_DISTRIBUTION.md`](../reference/PORTABLE_C_DISTRIBUTION.md),
@@ -79,6 +104,17 @@ unprovable. Two layers:
   reference), Yo with `--optimize 2`. Results land in this file, dated, per
   phase that claims a change — the same discipline VBD applies to
   `check ./src` time.
+- **Event counters, not only wall clock** (added 2026-10-09). A build-time
+  knob (`-Dyo_perf_counters=1`-shaped, off in every gate) makes the
+  runtime count, per process, the events each CP2 lever claims to remove:
+  borrow-mark acquires and releases, write asserts executed, overflow and
+  index guards executed, `Rc` increments and decrements, collector
+  registrations and tracked-list scans. Printed at exit, recorded beside
+  each bench row and for `check ./src`. A lever's PR then shows two
+  deltas — events removed and time saved — so a lever that removes many
+  events for no time is dropped, and a time win is attributed to the
+  events it removed rather than to noise (the macOS footprint lesson:
+  single-binary wall clock swings run to run).
 - **The macro-benchmark you already own**: the fixpoint battery's wall clock
   (`scripts/bootstrap/fixpoint_only.sh`, `gates_fast.sh`) is a large real Yo
   program running its own test suite through a self-compiled binary. Record
@@ -249,6 +285,83 @@ shows mark traffic still dominating a hot path, concentrated in payload
 types that are mutated somewhere but read in the hot loop — the one case
 the static levers cannot reach.
 
+### CP2e. Collector tracking only for cells that can form a cycle (2026-10-09)
+
+The maintainer's constraint: Rust-level performance **with** the cycle
+collector kept for `Rc` graphs that do form cycles. The collector's cost is
+per *tracked* cell (§0, cause 3), so the lever is the tracking predicate,
+not the algorithm.
+
+**The rule: construction-time acyclicity.** A cell can only point at values
+that existed before it was built, so a cycle through `Rc(T)` requires a
+*later* write, through a shared handle, into a field of `T`'s payload that
+reaches an `Rc`. If no site in the whole program performs such a write for
+payload type `T` — no field store, no `mut(self)` call, no index place, no
+`take`/`replace`, through an `Rc(T)` deref — then no `Rc(T)` cell is ever
+on a cycle, and it needs no registration, no buffer push on decrement, no
+mark bytes and no scan. That is the same per-type "frozen" fact CP2d
+computes for the borrow marks: one whole-program pass feeds both, and a
+frozen type's cells cost exactly what Rust's `Rc<T>` costs.
+
+- **What stays tracked:** payload types with a shared-handle write that
+  reaches an `Rc` (parent pointers, open graphs, mutable registries), plus
+  the conservative cases — a `Dyn` payload, a closure capture record, and
+  any type reachable from them (their field writes are not enumerable per
+  type). The existing `Acyclic` trait (`std/prelude.yo`) remains the user's
+  assertion where the analysis is conservative, as `arc`'s bound today.
+- **What changes in the runtime:** nothing. The Bacon-Rajan buffered
+  decrement and the allocation-driven full scan
+  (`src/codegen/functions/gc_runtime.yo`) keep their shape for the tracked
+  set; `__yo_gc_register` is simply not emitted for frozen types' cells.
+  `tracked_count()` (`std/gc`) reports the smaller set.
+- **Why it is sound without mutation summaries:** the fact is a syntactic
+  whole-program property of the emitted program (is there any write site
+  of that shape), not a flow property; chunked emission computes it once
+  in the evaluator before splitting, as CP2d does. A static library
+  exporting `Rc(T)` treats `T` as mutable unless the consumer's build
+  proves otherwise.
+- **Canaries:** the move-formed-cycle reproducer recorded in
+  `issues/fixed/yo-gc-full-heap-scan-bottleneck.md` and the cycle-collection
+  language tests (`tests/cycle_collection*.test.yo`) must keep passing for a
+  tracked type, and a frozen type's
+  cells must show zero registrations in CP0's counter; a type that becomes
+  writable through a handle in one new site must flip back to tracked (a
+  negative test per write shape).
+
+**Phase:** with CP2d — the same pass — after V1's write-site assert and
+CP0's counters. Expected to be the largest collector-side win for the
+compiler's own trees (V4 makes every tree node an `Rc` cell).
+
+### CP2f. A range pass for overflow and index guards, without the solver (2026-10-09)
+
+Safe mode's overflow traps are the one check Rust's release profile does not
+pay (§0, cause 2). CP2a removes them where the *verifier* proves them, which
+needs a verify-mode build and Z3. The common loop shapes need neither:
+`i + 1` where `i < xs.len()`, `acc + x` under a stated bound, an index
+`i * stride + j` inside a bounds-checked walk. Emit those bare from a
+codegen-side pass over intervals and difference bounds — the L7 lever of
+[`SELF_VERIFICATION.md`](../SELF_VERIFICATION.md) (decision D3 there:
+zones plus intervals), run as an elision pass instead of an invariant
+generator — keyed to the same `guard_site_is_proved` sites CP2a uses, so a
+site is elided once by whichever proof reaches it first.
+
+- **Scope:** `+ - *` and negation on the integer widths, and the index
+  guards decision 39 keeps on cursor walks, inside loops whose bound is a
+  container length or a comparison the pass can read. Division, shift and
+  the general case stay with CP2a.
+- **Soundness gate:** the elided guard's trap must be unreachable by the
+  pass's own proof; the UBSan language suite (`-fwrapv` keeps signed
+  overflow defined, so a wrong elision is a wrong value, not UB) plus a
+  mutation-tested negative corpus (perturb each rule, assert the guard
+  returns) are the canaries. The `wrapping_*` hatch is unchanged.
+- **The policy question this does not decide** is in §7: whether a build
+  knob that *wraps* instead of trapping (Rust's release behavior) should
+  exist at all. The position recorded here: not before CP2f's numbers;
+  safe mode's D1 stands, and a knob is a last resort for a measured kernel
+  the range pass cannot reach.
+
+**Phase:** after CP0 (it needs the guard counters); independent of VBD.
+
 ## 4. CP3 — layout and profiles
 
 - **CP3a. Field reordering** in codegen for non-`extern` nominal types
@@ -282,6 +395,8 @@ UBSan language suite. One PR per phase, or a stack with one battery.
 | CP2b (`for` lowering) | V2b | after V2b |
 | CP2c (assert elision) | §3.10's V1 write-site assert | after V1's remainder |
 | CP2d (frozen-cell rule; the declined `RefCell` split's static form) | CP2c's write-site assert; CP0's mark counter | after CP2c |
+| CP2e (collector tracking by the frozen rule) | the CP2d pass; CP0's registration counter | with CP2d |
+| CP2f (range pass for overflow/index guards) | CP0's guard counters | after CP0; independent of VBD |
 | CP3 | everything worth profiling | last |
 
 ## 6. Risks
@@ -300,9 +415,28 @@ UBSan language suite. One PR per phase, or a stack with one battery.
 - **Elision by summary is only as sound as the summaries.** CP2c reuses
   machinery that already gates D3 checks; its negative tests (the panic
   canaries) must fail before the elision exists.
+- **An un-tracked cycle is a silent leak, not a crash.** CP2e's frozen
+  fact must be recomputed on every build from the whole program; a cached
+  or per-module answer is wrong the moment a new write site appears. The
+  negative test per write shape and CP0's registration counter are the only
+  detectors, because a leaked cycle produces no failure.
+- **A wrong range fact is a wrong value.** CP2f elides a trap, and under
+  `-fwrapv` the result silently wraps; the mutation-tested negative corpus
+  is mandatory before any rule ships, and the pass starts with the three
+  loop shapes above, nothing more.
 
 ## 7. Open questions
 
 - Whether `imm` parameters may earn `restrict` where Stage-1 summaries prove
   an argument disjoint from every other alias in the call (a per-call proof,
   unlike CP1a's per-rule one).
+- **Whether a wrap-instead-of-trap build knob should exist** (the
+  maintainer's call, after CP2f's numbers). Rust release wraps; safe mode
+  traps at every `-O` by D1. If a measured integer kernel still exceeds the
+  tolerance after CP2f and `wrapping_*` at the hot sites, the candidates
+  are a per-module `pragma` or a `--overflow wrap` compile flag; both
+  change what a safe program means, so neither lands without a dated
+  amendment to SAFE_MODE.
+- **The tolerance itself.** The maintainer's target (2026-10-09) is within
+  0–5% of Rust's release profile per paired workload. CP0's table carries
+  that column; a workload outside it names the cause from §0.
