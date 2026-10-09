@@ -3343,6 +3343,24 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
        E0901 with the repair `match(&x.f, …)` (no partial moves, decision
        19). A still implicitly copyable field keeps sharing or copying, as a
        by-value parameter does.
+     - **Decided by the implementer under the maintainer's 2026-10-09
+       delegation** ("strict, explicit and sound; match Rust where we can"):
+       - **A module-level scrutinee** of an explicit-copy type is E0901
+         naming `match(&g, …)` (Rust cannot move out of a `static`); a still
+         implicitly copyable kind shares, as at a parameter.
+       - **A projection scrutinee** (`match(xs(i), …)`, `match(p.*, …)`) of
+         an explicit-copy type is E0901 naming `&xs(i)` (Rust: "cannot move
+         out of index").
+       - **`&temp` is allowed** (`match(&make(), …)`, `show(&make())`): it
+         borrows the temporary, which lives to the end of the enclosing
+         statement or `match` (Rust's temporary lifetime).
+       - **An `imm`/`mut` binding is passed bare** to an `imm`/`mut`
+         parameter or scrutinee: it already holds a borrow (Rust passes a
+         `&T` binding bare). `&p` / `&mut p` are accepted as reborrows, as
+         Rust's deref coercion accepts them.
+       - **`(name := p)` with sub-bindings** in a consuming `match` is
+         allowed only when the sub-bindings are `Copy` (Rust's bindings after
+         `@` in a by-move pattern); otherwise E0901.
      - **Order, by the seed.** The marker semantics (`&x` to an `imm`/`mut`
        parameter is always a borrow, a generic one included; operator
        operands exempt; closure callees through the same path) and the
