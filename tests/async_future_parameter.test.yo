@@ -20,6 +20,7 @@
 //! future — so nothing ever produced an awaited future that was an outer
 //! capture rather than a local or an `await_future_<n>` slot.
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 _take :: (fn(imm(fut) : Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
   io.async(e => e.io.await(fut, e.io))
 );
@@ -38,4 +39,20 @@ _twice :: (fn(imm(a) : Impl(Future(i32, Io)), imm(b) : Impl(Future(i32, Io)), io
 test("two future parameters each keep their own capture slot", {
   r := io.await(_twice(_work(io), _work(io), io), io);
   assert(r == i32(84), `expected 84, got ${r.to_string()}`);
+});
+// A bare function type returning `Impl(Future(...))` IS one representation —
+// every future is a pointer to a state machine — so it stays a valid
+// parameter type, unlike one returning `Impl(Fn(...))`
+// (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
+_fp_twice :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => (x * i32(2))));
+_fp_plus :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    s := String.from("abc");
+    x + i32(s.len())
+  })
+);
+_fp_run :: (fn(f : (fn(x : i32, io : Io) -> Impl(Future(i32, Io))), io : Io) -> i32)(io.await(f(i32(21), io), io));
+test("two async functions through one function-typed parameter", {
+  assert(_fp_run(_fp_twice, io) == i32(42), "first function");
+  assert(_fp_run(_fp_plus, io) == i32(24), "second function");
 });

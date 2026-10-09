@@ -2933,9 +2933,18 @@ Result type: ${type_to_string(decl_result_ty)}`
                   if(w_fn_trait.is_none(), {
                     w_fn_trait = Option(TypeValue).Some(w_rt);
                   });
+                  // An `Impl(Fn(...))` RESULT (`Impl(Fn(x : i32) ->
+                  // Impl(Fn() -> i32))`) counts as concrete: the closure's
+                  // body fixed it (its registered type carries the body's
+                  // result, above), so the binding is this closure's own
+                  // type. Without it the binding lowered to `void*` and
+                  // received the capture struct by value — invalid C
+                  // (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
                   match(
                     w_rt,
-                    .FnTraitT({ call_result : w_cr }) => if(!is_some_type(w_cr), {
+                    .FnTraitT({ call_result : w_cr }) => if(!is_some_type(w_cr) || (
+                      match(w_cr, .SomeT({ name : w_cr_nm }) => (w_cr_nm == "Impl"), _ => false) && _is_unresolved_impl_fn_type(w_cr)
+                    ), {
                       w_has_concrete_fn = true;
                     }),
                     _ => ()

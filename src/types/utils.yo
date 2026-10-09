@@ -2333,28 +2333,45 @@ type_mentions_impl_fn_or_future :: (fn(imm(ty) : TypeValue) -> bool)({
 /// `fn(...) -> Impl(Future(i32, Io))` parameter run correctly). A RESOLVED
 /// `Impl` (a definition's own type, carrying its hidden concrete type) names
 /// one type and is exempt too.
-fn_type_unrepresentable_impl :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))({
+fn_type_unrepresentable_impl :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))(
   // Only a MONOMORPHIC function type is one function pointer: a generic one
   // (`fn(generic(T, E), action : Impl(Fn(e : E) -> T)) -> ...`, the builtin
   // `Io` slots) is compile-time only, and a runtime parameter of one is
   // already rejected (`evaluate_function_parameter`).
-  if(!match(ty, .Func({ forall_types : fu_ft, meta : fu_meta }) => ((fu_ft.len() == usize(0)) && (fu_meta.*.forall_labels.len() == usize(0))), _ => false), {
-    return(Option(TypeValue).None);
-  });
-  sts := get_all_some_types(ty);
-  (i : usize) = usize(0);
-  while(i < sts.len(), {
-    match(
-      sts.get(i),
-      .Some(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(rtt), {
-        return(sts.get(i));
-      }),
-      _ => ()
-    );
-    i = (i + usize(1));
-  });
-  Option(TypeValue).None
-});
+  match(
+    ty,
+    .Func({ forall_types : fu_ft, param_types : fu_pt, result : fu_res, meta : fu_meta }) => {
+      if((fu_ft.len() > usize(0)) || (fu_meta.*.forall_labels.len() > usize(0)), {
+        return(Option(TypeValue).None);
+      });
+      // The signature's OWN parameter and result types, and those of a
+      // function type nested there (`fn() -> (fn() -> Impl(...))`). Not the
+      // fields of a struct named there: `Io`'s generic method slots mention
+      // `Impl(Fn(...))` and are no part of this function's representation.
+      (i : usize) = usize(0);
+      while(i <= fu_pt.len(), {
+        fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t, .None => TypeValue.Unit), true => fu_res);
+        match(
+          fu_t,
+          .SomeT({ name : nm, required_trait_types : rtt, resolution : res }) => if((nm == "Impl") && res.is_none() && !_any_future_trait(rtt), {
+            return(Option(TypeValue).Some(fu_t));
+          }),
+          .Func(_, _, _, _, _, _, _) => match(
+            recur(fu_t),
+            .Some(fu_inner) => {
+              return(Option(TypeValue).Some(fu_inner));
+            },
+            .None => ()
+          ),
+          _ => ()
+        );
+        i = (i + usize(1));
+      });
+      Option(TypeValue).None
+    },
+    _ => Option(TypeValue).None
+  )
+);
 /// The diagnostic for `fn_type_unrepresentable_impl`; `what` names the slot
 /// (`parameter "mk"`, `field "mk"`, ...).
 fn_type_unrepresentable_impl_message :: (fn(imm(what) : String, imm(fn_ty) : TypeValue, imm(impl_ty) : TypeValue) -> String)(

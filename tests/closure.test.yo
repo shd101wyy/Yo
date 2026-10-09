@@ -626,3 +626,69 @@ test("an Impl(Fn) result joined from two different closures is rejected", {
     "different concrete closure types"
   );
 });
+// A function returning `Impl(Fn)` passed to a GENERIC `Impl(Fn(...) -> ...)`
+// parameter is called with its concrete result: each specialization types
+// `mk(v)` from the argument's own function type, not from the parameter's
+// open `Impl(Fn() -> i32)` / `G`, which lowered `g := mk(v)` to `void*`
+// (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
+_nim_use :: (fn(imm(mk) : Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)({
+  g := mk(v);
+  g()
+});
+_nim_use_where :: (fn(generic(G : Type), imm(mk) : Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)({
+  g := mk(v);
+  g()
+});
+_nim_pass :: (fn(generic(R : Type), imm(mk) : Impl(Fn(x : i32) -> R), v : i32) -> R)({
+  return(mk(v));
+});
+_nim_double :: (fn(x : i32) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ x }() => (x * i32(2)));
+  f
+});
+_nim_boxed :: (fn(n : i32) -> Impl(Fn() -> i32))({
+  p := CapPayload(n : n);
+  (f : Impl(Fn() -> i32)) = (() => (p.n + i32(100)));
+  f
+});
+test("a function returning Impl(Fn) through a generic Impl(Fn) parameter", {
+  assert(_nim_use(_nim_double, i32(21)) == i32(42), "nested Impl(Fn) parameter");
+  assert(_nim_use(_nim_boxed, i32(1)) == i32(101), "a second argument function: its own specialization");
+  assert(_nim_use_where(_nim_double, i32(5)) == i32(10), "a where-bound G");
+  assert(_nim_use_where(_nim_boxed, i32(2)) == i32(102), "a where-bound G, second argument");
+  g := _nim_pass(_nim_double, i32(4));
+  assert(g() == i32(8), "R bound to the concrete result");
+});
+test("a closure returning Impl(Fn) through a nested Impl(Fn) slot", {
+  k := i32(1);
+  (mk : Impl(Fn(x : i32) -> Impl(Fn() -> i32))) = ({ k }(x : i32) => {
+    (f : Impl(Fn() -> i32)) = ({ x, k }() => ((x * i32(2)) + k));
+    f
+  });
+  assert(mk(i32(4))() == i32(9), "called directly");
+  h := mk(i32(10));
+  assert(h() == i32(21), "bound, then called");
+  assert(_nim_use(mk, i32(21)) == i32(43), "passed to a nested Impl(Fn) parameter");
+});
+test("a function's Impl(Fn) result through a generic parameter releases its capture once", {
+  before := g_cap_disposed;
+  {
+    assert(_nim_use(_nim_boxed, i32(3)) == i32(103), "first call");
+    assert(_nim_use_where(_nim_boxed, i32(4)) == i32(104), "second call");
+  };
+  assert((g_cap_disposed - before) == i32(2), `each capture is released exactly once, released ${g_cap_disposed - before}`);
+});
+// A LOCAL annotated with a bare function type takes its initializer's
+// concrete function type (as an `Impl(Fn(...))` annotation takes its
+// closure's), so it stays a valid slot; a `comptime` parameter of that type
+// is specialized per argument.
+_nim_use_ct :: (fn(comptime(mk) : (fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)({
+  g := mk(v);
+  g()
+});
+test("a local or comptime slot of a function type returning Impl(Fn)", {
+  (h : (fn(x : i32) -> Impl(Fn() -> i32))) = _nim_double;
+  g := h(i32(21));
+  assert(g() == i32(42), "local annotation");
+  assert(_nim_use_ct(_nim_double, i32(6)) == i32(12), "comptime parameter");
+});
