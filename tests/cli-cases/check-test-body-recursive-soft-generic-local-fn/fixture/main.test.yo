@@ -5,7 +5,7 @@
 // issues/fixed/check-of-a-test-body-with-a-recursive-soft-generic-local-fn-grows-without-bound.md
 { assert } :: import("std/assert");
 test("a recursive soft-generic local fn", {
-  w2 :: (fn(depth : i32, get_info : Impl(Fn(k : i32) -> i32)) -> i32)(
+  w2 :: (fn(depth : i32, imm(get_info) : Impl(Fn(k : i32) -> i32)) -> i32)(
     cond((depth <= i32(0)) => i32(0), true => (get_info(depth) + recur(depth - i32(1), get_info)))
   );
   assert(w2(i32(2), (k : i32) => (k + i32(1))) == i32(5), "3 + 2");

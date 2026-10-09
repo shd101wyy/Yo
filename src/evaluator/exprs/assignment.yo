@@ -518,7 +518,7 @@ require_no_inout_write_through_borrow :: (
           .Some(bv) => if(is_judged || !_is_dispose_receiver(bv, ast_expr_token(arg)), {
             what := cond(bv.is_parameter => "an `imm` parameter", true => "a `match` or `for` binding");
             label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
-            target := cond((label == "self") => String.from("the `inout(self)` receiver"), true => `the \`inout\` parameter \`${label}\``);
+            target := cond((label == "self") => String.from("the `mut(self)` receiver"), true => `the \`mut\` parameter \`${label}\``);
             pending.push(
               D3PendingInout(
                 param_index : i,

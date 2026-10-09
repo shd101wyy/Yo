@@ -2,11 +2,11 @@ import("std/libc/stdio");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 
-is_cached :: (fn(v : String, io : Io, extra : i32) -> Impl(Future(bool, Io)))(
+is_cached :: (fn(imm(v) : String, io : Io, extra : i32) -> Impl(Future(bool, Io)))(
   io.async((io : Io) => true)
 );
 
-do_call :: (fn(v : String, io : Io) -> Impl(Future(bool, Io)))(
+do_call :: (fn(imm(v) : String, io : Io) -> Impl(Future(bool, Io)))(
   io.async((io : Io) => {
     // WRONG ARITY: two args for the three-param is_cached. This exact shape
     // (an async helper called with a missing parameter from another async

@@ -5,9 +5,9 @@
 pragma(Pragma.AllowUnsafe);
 K :: i32(5);
 f :: (fn((x : i32) ?= K) -> i32)(x);
-g :: (fn(generic(T : Type), v : T, (x : i32) ?= K) -> i32)(x);
+g :: (fn(generic(T : Type), imm(v) : T, (x : i32) ?= K) -> i32)(x);
 Counter :: struct(n : i32);
-impl(Counter, bump : (fn(self : Self, (by : i32) ?= K) -> i32)(self.n + by));
+impl(Counter, bump : (fn(imm(self) : Self, (by : i32) ?= K) -> i32)(self.n + by));
 named_alloc :: (fn((alloc : Option(Allocator)) ?= Option(Allocator).None) -> bool)(alloc.is_none());
 short_alloc :: (fn((alloc : Option(Allocator)) ?= .None) -> bool)(alloc.is_none());
 // `LATE` is defined after its use: `::` definitions are order-independent.

@@ -3,8 +3,8 @@
 Bag :: ref(struct(items : ArrayList(i32)));
 impl(
   Bag,
-  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
-  rebuild : (fn(self : Self) -> unit)({
+  iter : (fn(imm(self) : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  rebuild : (fn(imm(self) : Self) -> unit)({
     fresh := ArrayList(i32).new();
     fresh.push(i32(1)); // fresh storage: mutating it is not a mutation of the bag
     self.items = fresh; // now reachable from self
