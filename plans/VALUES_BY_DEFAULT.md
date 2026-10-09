@@ -3247,6 +3247,48 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
      owned local that is used after the match to `match(&x, …)`, and marks
      every borrowed argument that is a named place `&x` or `&mut x`
      (decision 33).
+     **As built, the flip (2026-10-09, branch feat/vbd-v3b-flip-2).** The
+     markers and the by-value scrutinee are not in it; they are the next PR.
+     - **The rule.** `evaluate_function_parameter` sets the owning flag on
+       every runtime parameter that is neither `imm`, `mut`, quoted nor
+       `Type`-valued, explicit `comptime(x)` included. A `Copy` argument
+       binds as a copy no move rule tracks (`type_is_bitwise_copy`: not a
+       `SomeT` at the top level, no counted payload, not explicit-copy). The
+       same predicate gates `bind_parameter`, the consume and consumed
+       marks, exclusivity and the closure binder.
+     - **Modes are part of the type for every `T`.** `FnTraitT` carries the
+       by-value flags (`call_param_is_owning`) beside `call_param_is_ref`, in
+       substitution, interning and conformance, and the printer writes
+       `x`/`imm(x)`/`mut(x)`. Callbacks are strict: a named `fn` passed where
+       `Fn(imm(x) : T)` is expected must declare `imm(x)`, `Copy` or not.
+       Parameters of `fn` and `Fn` types keep their labels; a result keeps
+       an optional label slot (`-> (mut(r) : T)` or `-> mut(T)`).
+     - **Decision 34** landed with it: the operator traits and their
+       `Comptime*` twins take `imm` operands (`comptime(imm(lhs))` for the
+       twins), and `yo fix --migrate params` gained a conformance hook that
+       rewrites an impl's member to the trait's modes.
+     - **Swept:** the prelude (390 `imm`, 132 `mut`, its operator impls
+       included), 97 operator impls elsewhere in std, `markdown_yo` v0.0.13,
+       `tests/internal/` (349 `imm`), the CLI-case fixtures and the
+       diagnostics registry's examples. The synthesized `Dispose` glue takes
+       `imm(self)`, and `GcTracer` derives `Copy`.
+     - **Closures.** A closure parameter typed by value owns its argument,
+       is a parameter for the function-body drop pass, and is not an
+       implicit capture
+       (`issues/fixed/a-closures-by-value-parameter-is-never-dropped.md`,
+       `issues/fixed/moving-a-closure-parameter-is-reported-as-moving-a-capture.md`).
+     - **std callbacks stay `imm`** (`for_each`, `map`, `filter` items) until
+       decision 26's by-value scrutinee; the iterator adapters then take
+       Rust's modes.
+     - **Open: the storing APIs.** The step-1 sweep preserved each
+       parameter's meaning, so `ArrayList.push`, `try_push`, `HashMap.insert`
+       and `Mutex.new` now read `imm(value) : T` and still copy inside the
+       callee. A move-only element still cannot be pushed, so §V3's "the gap
+       until V3b" is not closed yet. Closing it turns those parameters by
+       value and adds `.clone()` at each call site whose argument lives on
+       (about 1,000 in `src/`, by §6's estimate). That needs the pass from a
+       stored parameter to its call sites, and it lands as its own PR before
+       the marker sweep.
   3. **Deleting** `own`, `sink` and `inout`, and `&x` as address-of: the
      sweep rewrites every raw-pointer `&x` in std, `src/` and tests to
      `addr_of(x)`, then `&x` means only a borrow. Decision 33's mismatch
