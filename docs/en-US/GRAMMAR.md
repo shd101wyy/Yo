@@ -318,13 +318,14 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
 
 Placement rules for `&` and `&mut`:
 
-- They are a **mode**, not a type, in this generation: they prefix a
-  parameter's type and a local borrow's place. `T :: &i32`, `ArrayList(&T)`,
-  `Option(&T)`, a struct field `f : &T` and `&&T` are errors ("a borrow mode,
-  not a type"); references become types with decision 43.
+- They are a **mode**, not a type: they prefix a parameter's type and a local
+  borrow's place. `T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field
+  `f : &T` and `&&T` are errors ("a borrow mode, not a type"). Decision 43
+  (confirmed 2026-10-10) makes `&T`/`&mut T` second-class types, which lifts
+  these errors and the return-type ban; until its phase lands, they are a mode.
 - They are **rejected in return-type position** (`-> &T`, `-> &mut T`,
-  `-> (name : &mut T)`): a function cannot return a borrow (projections,
-  decision 24, are not implemented).
+  `-> (name : &mut T)`): a function cannot return a borrow until decision 43's
+  phase lands (projections, decision 24, are not implemented either).
 - `mut` is a reserved word: a binding or parameter named `mut` is an error.
 - The deleted mode-word spellings `imm(x) : T`, `mut(x) : T`, `inout(x) : T`,
   `comptime(imm(x)) : T`, `-> imm(T)`, `imm(y) := place`, `mut(cur) = place`,
