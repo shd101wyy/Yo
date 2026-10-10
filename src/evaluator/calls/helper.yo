@@ -866,14 +866,15 @@ check_call_site_borrow_marker :: (
     return(());
   });
   place_text := ast_place_text(place_arg);
-  mode := if(param_is_ref, String.from("mut"), String.from("imm"));
+  mode := if(param_is_ref, String.from("&mut"), String.from("&"));
+  mode_ty := if(param_is_ref, String.from("&mut T"), String.from("&T"));
   keeps := if(param_is_ref, String.from("lends it exclusively and the callee may write it"), String.from("lends it read-only and the caller keeps it"));
   exn.throw(
     dyn(
       with_code(
         format_error_message(
           ast_expr_token(place_arg),
-          `Parameter "${param_label}" is \`${mode}\`: lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value; \`${marker}${place_text}\` ${keeps}. \`yo fix <path> --migrate markers\` inserts the markers.`
+          `Parameter "${param_label}" is a \`${mode}\` borrow (\`${param_label} : ${mode_ty}\`): lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value; \`${marker}${place_text}\` ${keeps}. \`yo fix <path> --migrate markers\` inserts the markers.`
         ),
         E_BORROW_MARKER_MISMATCH
       )

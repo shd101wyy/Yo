@@ -52,7 +52,7 @@ marker_answer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     return(i32(41));
   })
 );
-// `io.await` and `io.spawn` borrow their future (`imm(fut)`), so a named
+// `io.await` and `io.spawn` borrow their future (`fut : &Impl(Future(T, E))`), so a named
 // future is lent with `&f` (decision 33). Codegen and the await analysis read
 // the raw call, and used to find the un-annotated `&f` node: an internal
 // compiler error, "await argument must be a Future type"

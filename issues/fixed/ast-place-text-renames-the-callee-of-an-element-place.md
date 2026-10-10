@@ -11,8 +11,8 @@
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
-is_one :: (fn(imm(v) : i32) -> bool)(v == i32(1));
-first_is_one :: (fn(imm(xs) : ArrayList(i32), comptime(k) : i32) -> bool)(is_one(&xs(usize(0))));
+is_one :: (fn(v : &i32) -> bool)(v == i32(1));
+first_is_one :: (fn(xs : &ArrayList(i32), comptime(k) : i32) -> bool)(is_one(&xs(usize(0))));
 main :: (fn() -> unit)({
   xs := ArrayList(i32).new();
   xs.push(i32(1));

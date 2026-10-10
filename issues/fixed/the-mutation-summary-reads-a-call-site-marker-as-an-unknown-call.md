@@ -1,10 +1,10 @@
 # The mutation summary read a call-site marker (`&x`, `&mut x`) as an unknown call
 
-**Severity:** S2 — an `imm` binding passed to a `mut` parameter that the callee never writes was rejected with E0908 as soon as the callee's body lent anything through a marker (and every such body got the conservative "may write everything" mask).
+**Severity:** S2 — a `&T` binding passed to a `&mut T` parameter that the callee never writes was rejected with E0908 as soon as the callee's body lent anything through a marker (and every such body got the conservative "may write everything" mask).
 
 > Found 2026-10-10 by the marker sweep (plans/VALUES_BY_DEFAULT.md V3b,
 > branch feat/vbd-v3b-marker-sweep): after `HashMap._hash`'s body became
-> `key.hash(&mut h)`, `HashMap.get(imm(key))`'s `self._hash(key)` was E0908
+> `key.hash(&mut h)`, `HashMap.get(key : &K)`'s `self._hash(key)` was E0908
 > under the stand-in seed, v0.2.57 and the tree compiler alike, and the
 > compiler itself (`token.yo`'s `g_token_intern.get(s)`) stopped building.
 > **FIXED same day** in the tree; a seed must carry it before std and the
@@ -18,18 +18,17 @@
 Table :: struct(n : u64);
 impl(
   Table,
-  _digest : (fn(imm(self) : Self, mut(key) : String) -> u64)({
+  _digest : (fn(self : &Self, key : &mut String) -> u64)({
     h := DefaultHasher.new();
     key.hash(&mut h);
     (h.finish() % self.n)
   }),
-  lookup : (fn(imm(self) : Self, imm(key) : String) -> u64)(self._digest(key))
+  lookup : (fn(self : &Self, key : &String) -> u64)(self._digest(key))
 );
 ```
 
 With `key.hash(h)` (the pre-marker spelling) `lookup` compiles; with
-`key.hash(&mut h)` it is E0908 ("`key` is an `imm` parameter ... The callee
-writes it").
+`key.hash(&mut h)` it is E0908 ("`key` is a `&` borrow ... The callee writes it").
 
 ## Root cause
 
@@ -48,4 +47,4 @@ Since V3b step 3 a `&x` is never the address-of (`addr_of(x)` is), so every
 walker reads through both markers as through a field step
 (`_msp_is_borrow_marker`), `_msp_unmarked_arg` strips both, and the place base
 is found under the marker. Test: `tests/parameter_modes.test.yo` ("a callee
-lending through markers does not write its mut parameter").
+lending through markers does not write its &mut T parameter").

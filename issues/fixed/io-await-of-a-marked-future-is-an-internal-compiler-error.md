@@ -1,6 +1,6 @@
 # `io.await(&f, io)` / `io.spawn(&g, io)` were an internal compiler error
 
-**Severity:** S1 — a valid call that lends a named future with its call-site marker (decision 33: `io.await`'s `fut` is `imm`) crashed codegen with E1301 "await argument must be a Future type".
+**Severity:** S1 — a valid call that lends a named future with its call-site marker (decision 33: `io.await`'s `fut` is a `&` borrow) crashed codegen with E1301 "await argument must be a Future type".
 
 > Found 2026-10-10 by the marker sweep (plans/VALUES_BY_DEFAULT.md V3b,
 > branch feat/vbd-v3b-marker-sweep): the swept `std/async/index.yo`

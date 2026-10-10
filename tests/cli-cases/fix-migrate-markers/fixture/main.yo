@@ -1,15 +1,15 @@
-//! `yo fix --migrate markers`: every bare named place passed to an `imm`
-//! parameter takes `&`, one passed to a `mut` parameter `&mut`; the
+//! `yo fix --migrate markers`: every bare named place passed to a `&T`
+//! parameter takes `&`, one passed to a `&mut T` parameter `&mut`; the
 //! exemptions stay bare.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 Pair :: struct(name : String, items : ArrayList(i32));
-show :: (fn(imm(s) : String) -> usize)(s.len());
-grow :: (fn(mut(xs) : ArrayList(i32)) -> unit)(xs.push(i32(1)));
-peek :: (fn(imm(n) : i32) -> i32)(n);
+show :: (fn(s : &String) -> usize)(s.len());
+grow :: (fn(xs : &mut ArrayList(i32)) -> unit)(xs.push(i32(1)));
+peek :: (fn(n : &i32) -> i32)(n);
 take :: (fn(s : String) -> usize)(s.len());
-twice :: (fn(comptime(k) : i32, imm(s) : String) -> usize)(s.len() * usize(2));
-relay :: (fn(imm(s) : String, mut(xs) : ArrayList(i32)) -> usize)({
+twice :: (fn(comptime(k) : i32, s : &String) -> usize)(s.len() * usize(2));
+relay :: (fn(s : &String, xs : &mut ArrayList(i32)) -> usize)({
   grow(xs);
   show(s)
 });

@@ -233,7 +233,7 @@ test("&xs(i) lends an element from a body evaluated per specialization", {
   assert(_pm_first_by(&xs, v => (v == i32(1))), "closure-taking body");
 });
 // A callee whose body lends through markers (`&key`, `&mut h`) still reads
-// as not writing its `mut` parameter, so an `imm` binding may be handed to it
+// as not writing its `&mut T` parameter, so a `&T` binding may be handed to it
 // as before (the mutation summary saw a marker as an unknown call;
 // issues/fixed/the-mutation-summary-reads-a-call-site-marker-as-an-unknown-call.md).
 _PmTable :: struct(n : u64);
@@ -246,10 +246,10 @@ impl(
   }),
   lookup : (fn(imm(self) : Self, imm(key) : String) -> u64)(self._digest(key))
 );
-test("a callee lending through markers does not write its mut parameter", {
+test("a callee lending through markers does not write its &mut T parameter", {
   t := _PmTable(n : u64(7));
   s := String.from("abc");
-  assert(t.lookup(&s) < u64(7), "an imm binding handed to a mut parameter nothing writes");
+  assert(t.lookup(&s) < u64(7), "a &T binding handed to a &mut T parameter nothing writes");
 });
 test("a marker that does not fit the parameter is an error", {
   s := String.from("x");

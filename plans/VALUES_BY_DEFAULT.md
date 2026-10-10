@@ -4030,7 +4030,7 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
        place. With the recorder on (`record_marker_site`, `src/expr_info.yo`),
        `check_call_site_borrow_marker` (`src/evaluator/calls/helper.yo`, on
        both call paths beside the peel) records every bare named place passed
-       to an `imm` parameter (`&` goes before it) or a `mut` parameter
+       to a `&T` parameter (`&` goes before it) or a `&mut T` parameter
        (`&mut `). The marker is inserted at the place's leftmost token, only
        when the text from there parses on one line to the evaluated place AND,
        with the marker, to a borrow of exactly that place (so `&` cannot bind a
@@ -4049,20 +4049,20 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
        `sink`) and compile-time parameters, a `Type`-valued parameter, a
        raw-pointer parameter (its argument is a pointer value, and `&x` there is
        the `addr_of(x)` error), and variadic positions.
-     - **A borrow binding** is an `imm`/`mut` parameter (a `fn`'s, a
-       receiver's, a closure's, a trait default body's) or an `imm`/`mut` local
-       binding. `Variable.is_imm_borrow` (new, beside `is_ref`) marks the
-       `imm` parameters at every binder (`bind_parameter`, the closure binder,
+     - **A borrow binding** is a `&T`/`&mut T` parameter (a `fn`'s, a
+       receiver's, a closure's, a trait default body's) or a local borrow
+       (`y := &place`, `y := &mut place`). `Variable.is_imm_borrow` (new, beside `is_ref`) marks the
+       `&T` parameters at every binder (`bind_parameter`, the closure binder,
        the closure re-evaluation, trait default bodies). Only the WHOLE name is
-       exempt: `p.items` through an `imm(p)` is a place that takes `&`
+       exempt: `p.items` through `p : &T` is a place that takes `&`
        (Rust: `&p.items`).
      - **E0914** (`E_BORROW_MARKER_MISMATCH`) is decision 33's one code for a
        marker that does not match the parameter's mode: the bare-argument
-       error (``Parameter "s" is `imm`: lend `s` with `&s`. The call-site marker
+       error (``Parameter "s" is a `&` borrow (`s : &T`): lend `s` with `&s`. The call-site marker
        says what the call does to its argument: a bare `s` would pass it by
        value; `&s` lends it read-only and the caller keeps it. `yo fix <path>
-       --migrate markers` inserts the markers.``, and for a `mut` parameter
-       `&mut xs` ... "lends it exclusively and the callee may write it"), and
+       --migrate markers` inserts the markers.``, and for a `&mut T` parameter
+       (``is a `&mut` borrow (`xs : &mut T`)``) `&mut xs` ... "lends it exclusively and the callee may write it"), and
        step 3's four `&x`/`&mut x` mismatches, which now carry the code too.
        Registry entry with the `show(s)` → `show(&s)` pair. **Until part 2
        the bare-argument half is on only under `YO_STRICT_MARKERS=1`, for
@@ -4072,9 +4072,9 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
        cli-case runs it.
      - **Decided by the implementer** (the 2026-10-09 delegation, "strict,
        explicit and sound; match Rust"):
-       - **Markers apply to `Copy` arguments of `imm` parameters too**
+       - **Markers apply to `Copy` arguments of `&T` parameters too**
          (`u64(0).wrapping_sub(&x)`, `m.get(&k)` with `K = i32`), as decided
-         for every type: the std methods whose `imm` operand is a `Copy`
+         for every type: the std methods whose `&T` operand is a `Copy`
          scalar keep their mode; changing them to by-value is a separate API
          decision, not the sweep's.
        - **`::` constants and function names pass bare** (Rust value
@@ -4091,7 +4091,7 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
          (`issues/fixed/ast-place-text-renames-the-callee-of-an-element-place.md`);
        - the parameter mutation summary read `&x`/`&mut x` as a call to an
          unknown function, so a callee lending through a marker "may write
-         everything" and an `imm` binding handed to its never-written `mut`
+         everything" and a `&T` binding handed to its never-written `&mut T`
          parameter was E0908 (`HashMap.get` after `_hash`'s
          `key.hash(&mut h)`;
          `issues/fixed/the-mutation-summary-reads-a-call-site-marker-as-an-unknown-call.md`);
@@ -4110,7 +4110,7 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
        | `markdown_yo` `src/` | 25 | 0 | 0 |
 
        Far below the 2026-10-05 audit (36,677 in `src/`), which counted
-       arguments that are `imm` parameters themselves; those pass bare now.
+       arguments that are `&T` parameters themselves; those pass bare now.
        A trial sweep of std, `src/` and `markdown_yo` checks clean under
        `YO_STRICT_MARKERS=1` (278/278, 171/171, 54/54), and `check ./src`
        stays flat: 175.4 s / 1,019 MB footprint unswept, 172.1 s / 990 MB

@@ -128,6 +128,14 @@ spelling (decision 42):
   parameter meant before the flip. A generic parameter becomes a `&T` borrow
   unless its `where` bounds make it `Copy`. It writes the old `imm(x)`
   spelling; `--migrate borrow-spelling` then turns it into `x : &T`.
+- `--migrate markers` inserts the call-site borrow markers: `&x` before a
+  bare named place (a variable, a field path, an element `xs(i)`) passed to a
+  `&T` parameter, and `&mut x` before one passed to a `&mut T` parameter. It
+  evaluates every file, because only the evaluator knows a parameter's mode;
+  receivers, temporaries, operator operands, by-value and compile-time
+  parameters, and a borrow binding passed whole stay bare. A missing marker
+  is E0914, on under `YO_STRICT_MARKERS=1` for code outside std until std and
+  the compiler are migrated.
 
 None of them changes what a program does. A file that does not evaluate keeps
 what evaluation never reached, and `fix` exits non-zero naming it.
