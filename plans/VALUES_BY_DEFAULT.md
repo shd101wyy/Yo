@@ -661,11 +661,18 @@ Each kind of root gets its own check:
   API is closure- and projection-shaped, never a guard value (decision 38
   A): `with(body : Impl(Fn(v : &T) -> R))`,
   `with_mut(body : Impl(FnMut(v : &mut T) -> R))`, and the projections
-  `get() -> &T` and `get_mut() -> &mut T` (decision 24; bindable since
-  decision 43, rooted at the cell for their life).
-  `cell.get_mut().field = x` is Rust's `cell.borrow_mut().field = x`; a
-  conflict panics at `with_mut`/`get_mut` entry as `RefCell::borrow_mut`
-  does. `RefCell(T)` is `Send` iff `T <: Send` and never `Sync`;
+  `get() -> &T` and `get_mut() -> &mut T`. The two projections are
+  **expression-scoped**: the mark is acquired at the projection and
+  released when the enclosing expression ends, so `cell.get_mut().field = x`
+  is Rust's `cell.borrow_mut().field = x` while binding one
+  (`r := cell.get_mut()`) is an error naming `with_mut` — a bound
+  projection would hold the mark to its last use, a guard in all but name.
+  This is the one exception to decision 43's "a projection result is
+  bindable", and it holds whether the cell is reached through an `Rc`
+  deref (no pin is taken beyond the expression) or sits inside a plain
+  value (`issues/questions/refcell-inside-a-plain-value.md`: the
+  expression is rooted at the value's place). A conflict panics at
+  `with_mut`/`get_mut` entry as `RefCell::borrow_mut` does. `RefCell(T)` is `Send` iff `T <: Send` and never `Sync`;
   `Arc(RefCell(T))` is rejected; `Arc(Mutex(T))`/`Arc(RwLock(T))` stay the
   cross-thread forms (decision 5, D3). Whether a `RefCell` may sit inside
   a plain value, not only behind `Rc`/`Arc`:
@@ -673,10 +680,11 @@ Each kind of root gets its own check:
   anywhere, verifier-excluded).
 - **Why a type and not a per-site marker.** A marker leaves every `Rc`
   cell carrying marks because some site elsewhere might write; the type
-  makes the fact modular: the collector's tracking predicate becomes "the
-  payload reaches a `RefCell`/`Mutex`/`RwLock` that reaches an `Rc`" with
-  no whole-program pass (CP2e, §3.12), it works across static libraries,
-  and a struct definition shows which fields are dynamically checked.
+  makes the fact modular: it works across static libraries, and a struct
+  definition shows which fields are dynamically checked. (It does NOT by
+  itself narrow the cycle collector's tracking predicate: an outcome-(a)
+  write through a plain `Rc` can complete a cycle with no `RefCell`
+  anywhere — §3.12.)
 - **A `&T` lend means "unchanged" only for `RefCell`-free types**
   (interior mutability, Rust's `&` over `UnsafeCell`); the verifier
   excludes `RefCell`-reaching values as it excludes `Rc` (§3.12).
@@ -771,13 +779,22 @@ and every free routes through the owner prefix.
     `src/verifier/vc.yo` (`list_alias_locals`, `distinct_pairs`) go away
     once the collections are values.
   - An `Rc(ArrayList(T))` parameter is outside the verifier subset.
-- **The cycle collector.** A cell can only point at values older than
-  itself, so a cycle needs a later write through a shared handle, and in
-  safe code that write exists only inside a `RefCell`, `Mutex` or `RwLock`
-  (decision 41). So only `Rc` cells whose payload reaches one of those
-  that reaches an `Rc` are tracked, with no analysis (CODEGEN_PERFORMANCE.md
-  CP2e); values, `Box` trees and collections are never tracked; `Dyn` and
-  closure payloads stay conservative unless `Acyclic` is declared.
+- **The cycle collector.** Only `Rc` cells whose payload reaches an `Rc`
+  are tracked; values, `Box` trees and collections are never tracked, and
+  a declared `Acyclic` exempts a type (decision 21's trees). A cell can
+  only point at values older than itself, so a cycle needs a later write
+  through a shared handle — but such a write is NOT confined to `RefCell`/
+  `Mutex`/`RwLock`: §3.10's outcome (a) admits a plain write through an
+  `Rc` wherever no borrow is live, and two cells whose only handles are
+  each other's fields (`a.*.child = b; a.*.child.*.child = a;`, each write
+  proved exclusive because the count is 1 through a field) form a cycle no
+  `RefCell` ever sees. So the type-level predicate stays "reaches an
+  `Rc`"; the refinement is CODEGEN_PERFORMANCE.md CP2e's whole-program
+  scan of write sites (a `RefCell`/`Mutex`/`RwLock` write, or an
+  outcome-(a) write, into a field of the payload that reaches an `Rc`).
+  **Open:** whether outcome (a) can be strengthened to a cycle-free proof
+  (it is exclusivity against borrows, not an absence-of-other-handles
+  proof) — until it is, no cell is untracked on (a)'s account.
   - The compiler's trees have `Rc` children (decision 21), so V4 makes
     `can_type_form_rc_cycle` honour a declared `Acyclic`. Trees with no
     back edges then stay untracked.
@@ -2500,10 +2517,18 @@ and in git, not a silent edit.
         bare form starts consuming.
       - **Ordering.** Generation A needs V3b step 3 first: until it lands,
         `y := &place` in a binding is the raw-pointer address-of.
-      - **Writes versus re-points.** With a local borrow `cur`, `cur = v`
-        writes `v` through the borrow into the lent place; `cur = &mut place`
-        (or `y = &place`) re-points it (decision 25). The sigil on the
-        right decides; a bare right-hand side never re-points.
+      - **Writes versus re-points.** `cur = &mut place` (or `y = &place`)
+        re-points a local borrow (decision 25); a whole-value write goes
+        through `.*`: `cur.* = v`. The same holds for a `&mut` parameter
+        and a `&mut` capture field (`n.* = (n.* + x)`). A bare `cur = v`
+        with `v : T` is a type error once references are types (decision
+        43): a reference is a value, and an operator or a bare assignment
+        never auto-derefs it — only `.field` and `.method()` do. (In the
+        window between this decision's Generation B and decision 43's
+        phase, where a borrow is still a mode, `cur = v` writes through;
+        decision 43's sweep inserts the `.*` at every whole-value read and
+        write through a reference — the V3b tooling knows every borrow
+        site.)
     - **Rollout, two generations (the seed gate, nothing else).**
       Generation A: parser, formatter, LSP and diagnostics accept and emit
       `&T` / `&mut T`; tests, docs and cheatsheets use it; the old forms
@@ -2544,8 +2569,10 @@ and in git, not a silent edit.
       `RUST_ADOPTION_CANDIDATES.md` L1 (`View(u8)` in the examples; whether
       `str` becomes that view in borrow position is L1's open question).
       A `&` is written only where a lend of an owned value happens.
-    - **Access.** `.*` reads or writes the whole value (`x.* = y.*`);
-      `.field` and `.method()` auto-deref through any number of `&`; a
+    - **Access.** `.*` reads or writes the whole value (`x.* = y.*`,
+      `tmp := a.*`, `n.* + x`); operators and bare assignment never
+      auto-deref; `.field` and `.method()` auto-deref through any number
+      of `&`; a
       method whose receiver is `&Self`/`&mut Self` auto-borrows an owned
       receiver (`xs.len()` and `s.left` are unchanged); a method declared
       `self : Self` still consumes its receiver and resolution never
@@ -2566,8 +2593,21 @@ and in git, not a silent edit.
       and every buffer-owning container over a `&` are legal and
       second-class, with a borrow set that **grows**: every `&` lent into a
       `&mut self` method of the container (`push`, `insert`, `extend`,
-      `set`, an `Index` place write) joins its roots; a `&self` method
-      joins nothing; a `depends` clause on the method narrows the rule.
+      `set`, an `Index` place write) joins its roots — and the rule is stated over **every
+      call**, a method call being receiver sugar: at any call, each `&`
+      argument joins the borrow set of every `&mut`-lent argument whose
+      type is (or contains) a root-joining container, unless the callee's
+      `depends` clause says otherwise (`push_all(&mut out, &vals)` grows
+      `out`'s roots by `vals` at the caller; a `&self` method joins
+      nothing). The `depends` grammar is one clause with two forms
+      (`NON_ESCAPABLE_TYPES.md` R3/R7): `depends(a, b)` on a
+      reference-returning function names the result's roots;
+      `depends(dst : a, b)` names what flows into a `&mut` container
+      parameter, and `depends(dst :)` says nothing does — the spelling
+      every non-storing lookup (`remove(&k)`, `binary_search(&probe)`,
+      `contains(&x)`) must carry, a std obligation checked by a test that
+      a probe key is usable after the call. A later refinement may derive
+      the joins from the mutation summaries instead.
       Joined roots keep their mode: a `&mut x` pushed in freezes `x`
       exclusively for the container's live range, so a second `&mut x` or
       a read of `x` while it lives is E0911; a `&x` freezes `x` against
@@ -2612,7 +2652,10 @@ and in git, not a silent edit.
       the types, `.*`, auto-deref and auto-borrow, `impl(&T, …)`,
       root-joining, `FnMut` (decision 37) and the tests in user code;
       Generation B lets std adopt (`iter`, `slice`, `entry`, the borrowed
-      `for` by `impl(&C, IntoIterator)`, the `FnMut` slots).
+      `for` by `impl(&C, IntoIterator)`, the `FnMut` slots) and rewrites
+      every whole-value read or write through a reference in `std/` and
+      `src/` to `.*` (the V3b tooling knows every borrow site; field and
+      method access needs nothing).
     - **Tests.** `impl(&T, M)` versus `impl(T, M)` dispatch; `&&T` reached
       through a generic; reborrow versus move of a `&mut T`; the `.*`
       swap; auto-deref on a field and a method; `&mut T` through a `&`

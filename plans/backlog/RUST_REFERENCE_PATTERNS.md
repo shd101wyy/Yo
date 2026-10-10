@@ -217,15 +217,18 @@ Two Yo forms, the closure one preferred:
 n := m.with_lock(v => (v.* + i32(1)));                        // Mutex(T): the borrow is the closure's scope
 cell.with_mut(v => { v.* = (v.* + i32(1)); });              // RefCell(T) (D41)
 g := m.lock();                                               // a guard VALUE: LockGuard(T) holds m : &mut Mutex(T) (R1, R3)
-g.* = (g.* + i32(1));                                        // dropped at scope end, which unlocks (Dispose is an access, D38 A)
+v := g.get_mut();                                            // the payload, a projection rooted at g
+v.* = (v.* + i32(1));                                        // g dropped at scope end, which unlocks (Dispose is an access, D38 A)
 ```
 
 - `with_lock`'s body is `Impl(FnMut(v : &mut T) -> R)`: the lend is exactly
   the `&mut` the guard held, scoped structurally, and an `Impl(Fn)` body
   inlines — the zero-cost property Rust gets from stack guards.
-- A guard value is a second-class struct holding `&mut Mutex(T)`: it cannot
-  be stored in a cell or returned past its root, so lock-then-hold APIs
-  read as in Rust within one frame. `RefCell` keeps the closure and
+- A guard value is a second-class struct holding `&mut Mutex(T)` with
+  `get`/`get_mut` projections to the payload (there is no `Deref`, so
+  `g.*` is not defined; `g.get_mut().*` is the payload): it cannot be
+  stored in a cell or returned past its root, so lock-then-hold APIs read
+  as in Rust within one frame. `RefCell` keeps the closure and
   projection forms only (`with_mut`, `get_mut() -> &mut T`), since its
   dynamic borrow is call-scoped (D41).
 - std's own RAII guards over raw pointers (`__MutexUnlocker`,
@@ -299,7 +302,7 @@ scrutinee binds borrows) carry both idioms with no struct change:
 self.state = match(take(&mut self.state), .Running(j) => step(j), .Empty => .Empty);   // leaves Default
 old := replace(&mut self.state, .Empty);                                                  // Rust's mem::replace
 match(&mut self.conn, .Some(c) => c.send(msg), .None => ());                              // `as_mut` + `if let`
-n := match(&self.name, .Some(s) => s, .None => "?");                                      // `as_deref`: a str view
+n := match(&self.name, .Some(s) => s.clone(), .None => String.from("?"));                 // `as_deref().unwrap_or`: own it (see below)
 ```
 
 - `take(&mut place)` needs `Default` on the field type, like `mem::take`;
@@ -308,9 +311,13 @@ n := match(&self.name, .Some(s) => s, .None => "?");                            
   scrutinee: the bindings are `&`/`&mut` places and `x` stays usable
   afterwards. A bare `match(self.conn, …)` would be a consuming match and
   is a partial move, which decision 19 rejects.
-- `Option.as_ref()`/`as_mut()`/`as_deref()` therefore have no Yo
-  spelling: `Option(&T)` would put a borrow inside a type constructor
-  (decision 38 A). The `match` **is** the method.
+- `Option.as_ref() -> Option(&T)` and `as_mut() -> Option(&mut T)` are
+  expressible since D43 (`Option(&T)` is an inline instantiation over a
+  reference, returned under R3 rooted at `self`); whether std adds them
+  beside the `match` is a std question, and the `match` form above needs
+  neither. `as_deref().unwrap_or("?")` has no direct transliteration:
+  `.Some(s)` binds `s : &String` and `"?"` is a `str`, and nothing coerces
+  between them (D43), so the honest row is re-derive or clone, as shown.
 
 ### 3.7 Builders — `fn name(&mut self, ..) -> &mut Self`
 
@@ -466,7 +473,8 @@ returned by `entry(self : &mut Self, k : K) -> Entry(K, V)` under R3 (root
 Rust lines read the same:
 
 ```yo
-counts.entry(word).or_insert(i32(0)).* = (counts.entry(word).or_insert(i32(0)).* + i32(1));
+c := counts.entry(word).or_insert(i32(0));            // c : &mut i32, one lend of counts
+c.* = (c.* + i32(1));
 counts.update_with(word, n => (n + i32(1)));          // the closure form, shorter
 cache.entry(k).or_insert_with(() => compute(k));
 ```
@@ -601,7 +609,7 @@ says `Impl(FnMut(…))`):
 
 ```yo
 n := i32(0);
-xs.for_each({ n : &mut n }(x : i32) => { n = (n + x); });   // no Rc counter needed
+xs.for_each({ n : &mut n }(x : i32) => { n.* = (n.* + x); });   // a FnMut; `.*` because operators never auto-deref (D43)
 ```
 
 ### 7.2 Listener/observer registries — `Vec<Box<dyn Fn(&Event) + 'a>>`
@@ -801,7 +809,7 @@ it has, or needs, a Yo spelling:
 | `Cell<T>` | §4.2 (a `RefCell(T)` over a `Copy` payload) |
 | `Weak<T>` | §4.1 |
 | `Cow<'a, T>` | §4.4 |
-| `as_ref`/`as_mut`/`as_deref` | `Option(&T)` exists (D43); `match(&opt, …)` binds it (§3.6) |
+| `as_deref` | no coercion from `&String` to `str`: re-derive or clone (§3.6); `as_ref`/`as_mut` are expressible (`Option(&T)`, D43) |
 
 ## 14. What Yo does not cover, and what each costs instead
 

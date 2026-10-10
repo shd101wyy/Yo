@@ -77,9 +77,10 @@ StrArg :: enum(Borrowed(&String), Owned(String));
 - **Reading a `&` component** through a value lent as `&` yields `&T`
   whatever the field's mode (a `&mut T` reached through a `&` path is
   read-only, decision 43); through `&mut` or an owned value it yields the
-  field's mode. **Writing** one: `v.xs = &other` re-points it, `v.xs = ys`
-  is a write through it (a type error unless the field is `&mut`) — the
-  sigil on the right decides (decision 42).
+  field's mode. **Writing** one: `v.xs = &other` re-points it,
+  `v.xs.* = ys` writes through it (an error unless the field is `&mut`),
+  and `v.xs = ys` with `ys : ArrayList(T)` is a type error — a reference is
+  a value, and only `.field`/`.method()` auto-deref (decision 43).
 - **`match`** follows decision 26: through a borrowed scrutinee a `&`
   payload binds as a reference capped by the scrutinee's mode; a by-value
   scrutinee consumes the enum and a `&` payload bound by value re-borrows
@@ -134,9 +135,21 @@ pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(a)) -> View(u8))(...
 
 - At the call site the result borrows the argument places lent to the
   parameters it depends on, in their modes, frozen until the result's
-  last use (A2's caller-side mapping). The clause is part of the type for
-  `Impl`/`Dyn` purposes. Result types may be composites over references
-  (`-> Option(&T)`, `-> (View(T), usize)`, `-> Result((View(u8), T), E)`).
+  last use (A2's caller-side mapping). Result types may be composites over
+  references (`-> Option(&T)`, `-> (View(T), usize)`,
+  `-> Result((View(u8), T), E)`).
+- **The `depends` clause, one grammar.** It is a signature clause written
+  in the parameter list, exactly where `requires`/`ensures`/`assumed` go
+  (that *is* "beside the contract clauses" in Yo). Two forms:
+  `depends(a, b)` names the roots of a reference-holding **result**;
+  `depends(dst : a, b)` names what flows into a `&mut` container
+  **parameter** (R7), and `depends(dst :)` with an empty list says nothing
+  does. Absent, the conservative defaults apply (a result depends on every
+  `&`/`&mut` parameter; every `&` argument joins every `&mut` container
+  argument). It is part of the function type: an `Impl(Fn(…) -> &U)` slot
+  with no clause means "depends on all", a value with a narrower clause
+  coerces into it, a value with a wider one does not — so two closures
+  differing only in `depends` have distinct types, ordered by subtyping.
 
 ### R4. Methods and iterators
 
@@ -155,8 +168,10 @@ A `&` component whose place crosses an `Rc`/`Arc` deref is allowed only
 through the pin the borrowed `for` uses (§3.10: the cell's guard held for
 the value's life), never `&mut` across a suspension; an `Arc` root follows
 §3.8's `Sync` rules. The default root is a value place. A `RefCell(T)` root
-is a `with`/`with_mut` body, never a component (the dynamic borrow is
-call-scoped, decision 41).
+is a `with`/`with_mut` body or an expression-scoped `get`/`get_mut`
+projection, never a component and never a bound projection (the dynamic
+borrow is call- or expression-scoped, decision 41; binding `cell.get_mut()`
+is an error naming `with_mut`).
 
 ### R6. Async and threads
 
@@ -168,12 +183,26 @@ may be held across an `await` only when its roots may be (A2's
 ### R7. Root-joining containers — `ArrayList(&T)` and every buffer over a `&`
 
 A buffer container instantiated over a `&` is legal and second-class, and
-unlike a struct (R2) its borrow set **grows**. Every `&` lent into a
-`&mut self` method of the container (`push`, `insert`, `extend`, `set`, an
-`Index` place write) joins the container's roots for the rest of its life;
-a `&self` method joins nothing; a `depends` clause on the method narrows it
-(`push(self : &mut Self, v : &T, depends(self : v))` says only `v` flows
-in). Joined roots keep their mode: a `&mut x` pushed in freezes `x`
+unlike a struct (R2) its borrow set **grows**. The rule is stated over
+**every call**, a method call being receiver sugar: at any call, each `&`
+argument joins the borrow set of every `&mut`-lent argument whose type is
+(or contains) a root-joining container, for the rest of that container's
+life, unless the callee's `depends` clause says otherwise. So
+`out.push(&x)` grows `out`'s roots by `x`, and so does
+`push_all(&mut out, &vals)` at the caller — a unit-returning helper that
+grows a `&mut` argument's container cannot escape the tracker, because the
+join is recorded at the call, not inside the callee. A `&self` method, or
+a call with no `&mut` container argument, joins nothing.
+
+The default is conservative on purpose and would freeze a transient key
+for the container's life (`map.remove(&k)`, `list.binary_search(&probe)`),
+so **every non-storing method whose signature has a `&` parameter beside
+a `&mut` container declares `depends(self :)`** — a std obligation, tested
+by "the probe key is usable after the call" — and a storing one may narrow
+(`push(self : &mut Self, v : &T, depends(self : v))`). A later refinement
+may derive the joins from the mutation summaries (§3.10's machinery)
+instead of the declaration; the clause stays the spelling. Joined roots
+keep their mode: a `&mut x` pushed in freezes `x`
 exclusively for the container's live range, so a second `&mut x` or a read
 of `x` while it lives is E0911; a `&x` freezes `x` against writes only.
 Returning the container is R3 over the joined set:
@@ -184,7 +213,8 @@ Returning the container is R3 over the joined set:
 // `ArrayList(str)` are ordinary first-class values.
 words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
   out := ArrayList(View(u8)).new();
-  for(&self.word_ranges(), r => { out.push(self.text.view(r)); });   // every root is self
+  ranges := self.word_ranges();                                     // a named binding: a borrow never crosses a temporary (decision 35)
+  for(&ranges, r => { out.push(self.text.view(r)); });              // every root of `out` is self
   out                                                               // R3: depends on self
 });
 ```
@@ -262,7 +292,9 @@ already obey. The places a reference could escape, and what stops it:
 2. **Through a component write** — a re-point follows decision 25, which
    forbids pointing at a shorter-lived place.
 3. **Through storage** — the inline rule keeps cells and `Dyn` payloads
-   reference-free; a container's roots grow with what flows in (R7).
+   reference-free; a container's roots grow with what flows in at every
+   call that lends it `&mut` (R7), so a helper function cannot grow it
+   unseen.
 4. **Through a copy** — an all-`&` value's copies carry the same roots; a
    `&mut`-holding value is move-only.
 
@@ -277,7 +309,12 @@ consumed scrutinee; return `.Some(&local)`; `derive(Copy)` on an enum with
 a `&mut` payload; `ArrayList(&mut T)` with two pushes of one root (E0911);
 a read of `x` while `ArrayList(&mut T)` holding `&mut x` lives; a return
 of a container with a non-parameter root; an `Rc`-rooted element in a
-container; a `&mut T` through a `&` path written (error). Positive
+container; a `&mut T` through a `&` path written (error);
+`push_all(&mut out, &vals)` then `vals` dropped while `out` lives (E0911
+at the drop); `r := cell.get_mut()` (error naming `with_mut`); a bare
+`cur = v` with `v : T` (type error). Positive controls add:
+`map.remove(&k)` followed by a use of `k` (the `depends(self :)`
+obligation). Positive
 controls: a local `Array(&T, 3)` from three lends; `(a, n) := t`
 re-borrowing; `-> Result((View(u8), T), E)`; `f(v)` copying an all-`&`
 view; `words`.
@@ -299,9 +336,11 @@ view; `words`.
   builtin spelling only if the verifier or codegen needs a primitive.
   Decided in L1's PR. Related: whether `str` becomes the view of an owned
   `String`'s bytes in borrow position (L1).
-- **`depends` spelling.** Position: a signature clause beside
-  `requires`/`ensures`, since the caller must know it and `yo doc` must
-  print it.
+- **`depends` and type identity.** Settled above as a clause in the
+  parameter list with subtyping between narrower and wider clauses; what
+  remains open is whether `yo doc` prints the inferred default clause on
+  every reference-returning signature (position: yes, so a reader sees
+  the roots without reading the body).
 - **Whether a `&`-holding value may be a `match` scrutinee by value.**
   Position: yes, decision 26's by-value match consumes it; bindings borrow
   through it.

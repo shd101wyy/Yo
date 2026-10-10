@@ -425,19 +425,33 @@ not the algorithm.
 **The rule: construction-time acyclicity.** A cell can only point at values
 that existed before it was built, so a cycle through `Rc(T)` requires a
 later write, through a shared handle, into a field of `T`'s payload that
-reaches an `Rc`. In safe code such a write exists only inside a `RefCell`,
-`Mutex` or `RwLock`, so the predicate is a type property with no analysis:
-**track a cell iff its payload reaches a `RefCell`/`Mutex`/`RwLock` that
-reaches an `Rc`.** A payload with none needs no registration, no buffer
-push on decrement, no mark bytes and no scan; its cells cost exactly what
-Rust's `Rc<T>` costs.
+reaches an `Rc`. Such a write has two shapes in safe code: inside a
+`RefCell`/`Mutex`/`RwLock`, or a plain write through an `Rc` that §3.10's
+outcome (a) proved free of live borrows — and the second CAN complete a
+cycle (`a.*.child = b; a.*.child.*.child = a;` with each count 1 through a
+field). So the predicate is a **whole-program scan of write sites**, not a
+type property: **track `Rc(T)` iff some site in the program writes, through
+an `Rc(T)` deref — a `RefCell`/`Mutex`/`RwLock` write or an outcome-(a)
+write — into a field of the payload that reaches an `Rc`.** A payload type
+with no such site needs no registration, no buffer push on decrement, no
+mark bytes and no scan; its cells cost exactly what Rust's `Rc<T>` costs.
+Chunked emission computes the scan once in the evaluator before splitting;
+a static library exporting `Rc(T)` treats `T` as writable unless the
+consumer's build proves otherwise.
 
-- **What stays tracked:** payloads reaching one of those cells that reaches
-  an `Rc` (parent pointers, open graphs, mutable registries), plus the
-  conservative cases — a `Dyn` payload, a closure capture record, and any
-  type reachable from them (their field writes are not enumerable per
-  type). The `Acyclic` trait (`std/prelude.yo`) remains the user's
-  assertion where the predicate is conservative, as `arc`'s bound today.
+- **What stays tracked:** payload types with a shared-handle write site
+  that reaches an `Rc` (parent pointers, open graphs, mutable registries),
+  plus the conservative cases — a `Dyn` payload, a closure capture record,
+  and any type reachable from them (their field writes are not enumerable
+  per type). The `Acyclic` trait (`std/prelude.yo`) remains the user's
+  assertion where the scan is conservative, as `arc`'s bound today.
+- **Why it is sound without mutation summaries:** the fact is a syntactic
+  whole-program property (is there any write site of that shape), not a
+  flow property; it must be recomputed on every build — a cached or
+  per-module answer is wrong the moment a new write site appears.
+- **Open (VALUES_BY_DEFAULT §3.12):** whether outcome (a) can be
+  strengthened into a cycle-free proof so that `RefCell`-free payloads
+  need no scan at all; until then the scan is the predicate.
 - **What changes in the runtime:** nothing. The Bacon-Rajan buffered
   decrement and the allocation-driven full scan
   (`src/codegen/functions/gc_runtime.yo`) keep their shape for the tracked
@@ -446,11 +460,13 @@ Rust's `Rc<T>` costs.
 - **Canaries:** the move-formed-cycle reproducer recorded in
   `issues/fixed/yo-gc-full-heap-scan-bottleneck.md` and the cycle-collection
   language tests (`tests/cycle_collection*.test.yo`) must keep passing for a
-  tracked type; an untracked type's cells must show zero registrations in
-  CP0's counter; a type that gains a `RefCell` field must flip to tracked.
+  tracked type; the outcome-(a) two-cell cycle above must be collected; an
+  untracked type's cells must show zero registrations in CP0's counter; a
+  type that gains a shared-handle write site in one new file must flip to
+  tracked (a negative test per write shape).
 
-**Phase:** with CP2d (`RefCell(T)` is the predicate's input), after CP0's
-counters. Expected to be the largest collector-side win for the compiler's
+**Phase:** after §3.10's rollout (the scan needs the (a)/(b)/(c)
+classification) and CP0's counters. Expected to be the largest collector-side win for the compiler's
 own trees (V4 makes every tree node an `Rc` cell, almost all immutable).
 
 ### CP2f. A range pass for overflow and index guards, without the solver (2026-10-09)
@@ -571,7 +587,7 @@ UBSan language suite. One PR per phase, or a stack with one battery.
 | CP2b (`for` lowering) | V2b | after V2b |
 | CP2c (which `Rc(T)` writes compile; marks only inside `RefCell`) | §3.10's rollout (Generation A with V1, Generation B on the next seed) | with V1's remainder |
 | CP2d (`Rc(T)` markless, `Rc(RefCell(T))` where handle mutation happens) | V1 adds `RefCell(T)`; the header word goes with V2b | with V1 / V2b |
-| CP2e (collector tracking by the `RefCell`/`Mutex`/`RwLock`-reach predicate) | `RefCell(T)`; CP0's registration counter | with CP2d |
+| CP2e (collector tracking by the whole-program write-site scan) | §3.10's (a)/(b)/(c) classification; CP0's registration counter | after §3.10's rollout |
 | CP2f (range pass for overflow/index guards) | CP0's guard counters | **first after CP0** (2026-10-10: the measured 5.7×/7× integer-loop gap); independent of VBD |
 | CP2g (erase proved std contracts in every build) | CP0's assert counter; a §7 ruling on 5b's recommendation 1 | after CP0; independent of VBD |
 | CP2h (std sort in place) | V2b unique buffers | after V2b |

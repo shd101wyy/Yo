@@ -19,15 +19,19 @@ redo them.
 
 A candidate survives only if it passes all four:
 
-1. **Not already rejected.** The standing rejections (§5 here and
-   `LANGUAGE_FEATURE_CANDIDATES.md` §0): lifetimes or borrow types,
-   operator precedence and overloading, `FnMut`, `Pin`, order-free named
-   arguments, literal inference through bindings, `yo run`, deprecation
-   windows and editions (no backward compatibility, single user).
-2. **Fits the model.** A borrow is a mode, never a type (VALUES_BY_DEFAULT
-   decisions 30 and 38 A); values by default; sharing is spelled `Rc`/`Arc`
-   and the dynamic check `RefCell(T)` (decision 41); comptime is the
-   metaprogramming layer; everything lowers to portable C11.
+1. **Not already rejected.** The standing rejections (§5 here,
+   `LANGUAGE_FEATURE_CANDIDATES.md` §0, and VALUES_BY_DEFAULT decision 43's
+   rejected list): named lifetimes, regions or origins, deref coercions,
+   guard values for `RefCell`, `Cell`/`Cow`/`Weak`, operator precedence
+   and overloading, `Pin`, order-free named arguments, literal inference
+   through bindings, `yo run`, deprecation windows and editions (no
+   backward compatibility, single user).
+2. **Fits the model.** Mutable value semantics for owned values;
+   references `&T`/`&mut T` as second-class types with lifetimes elided
+   (decisions 42 and 43, `NON_ESCAPABLE_TYPES.md`); sharing spelled
+   `Rc`/`Arc` and the dynamic check `RefCell(T)` (decision 41); `Fn`/
+   `FnMut`/`FnOnce` (decision 37); comptime as the metaprogramming layer;
+   everything lowers to portable C11.
 3. **Pays for an LLM author.** Yo's users are mostly models; a feature
    earns its place by removing a class of mistakes or a class of
    boilerplate they produce, not by matching Rust's surface.
