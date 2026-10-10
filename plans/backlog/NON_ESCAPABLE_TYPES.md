@@ -140,6 +140,24 @@ Found :: (fn(comptime(T) : Type) -> comptime(Type))(
   type, an R3 result type, a block or arm result — never a field of a
   first-class type, an element, a generic argument of a cell or buffer
   constructor, or a `Dyn` payload.
+- **This amends decision 38 A's "type positions" bullet, and splits
+  its tests.** Today a second-class type may not be a generic argument of
+  *any* type constructor, and the compiler enforces it:
+  `Option(type_of(f)).Some(f)`, `Rc(type_of(f)).new(f)` and
+  `ArrayList(type_of(f))` are all E0909, pinned by the escape-audit tests
+  in `tests/closure_capture_list.test.yo` (PR #1297); only a composite
+  *value* built without naming the type (`.Some(f)`, `(f, 1)`) is legal
+  and second-class. The inline rule narrows that ban: an instantiation of
+  an **inline** constructor (`Option`, `Result`, tuples, `Array`, a user
+  enum or struct) over a second-class argument becomes legal and is itself
+  second-class, usable wherever a non-escapable type may stand; an
+  instantiation of a **cell or buffer** constructor (`Box`, `Rc`, `Arc`,
+  `RefCell`, `Dyn`, `ArrayList`, `HashMap`, …) stays E0909. When this
+  lands, 38 A's bullet gets the dated amendment and those audit tests
+  split accordingly: the `Option` case flips to "legal, second-class, and
+  still rejected at every storage position", the `Rc` and `ArrayList`
+  cases keep their E0909 expectation. (Recorded 2026-10-10 from the VBD
+  session's review of this rule.)
 - **Passing.** A non-escapable value is passed by lend, `f(&v)` /
   `f(&mut v)` into `imm(v) : View(T)` / `mut(v) : View(T)`, never by
   value: decision 38 A bans a second-class value in a by-value parameter
@@ -291,7 +309,9 @@ their catalog answers (indices, `Rc`, ownership).
   `SEED_VERSION` carries it: Generation A lands the rules and a user-level
   test corpus; Generation B converts std's `slice`, `iter`, `entry`.
 - **Docs.** The catalog's §5.1, §4.5, §3.2 and §2.4 are rewritten; the
-  two parked decisions get their dated resolution.
+  two parked decisions get their dated resolution; decision 38 A's
+  type-position bullet and decision 39's `Option(imm(T))` sentence get
+  their dated amendments (R1's inline rule, R3's result-type rule).
 
 ## 5. Soundness argument
 
