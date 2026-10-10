@@ -47,7 +47,7 @@ _is_ident_start :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || (b == u8(95))
 );
 /// Length of the C identifier at `start` in `s` (0 if none).
-_scan_ident :: (fn(imm(s) : String, start : usize) -> usize)({
+_scan_ident :: (fn(s : &String, start : usize) -> usize)({
   // BYTE count — the loop reads byte_at (see _split_top_level_args_list).
   n := s.len();
   if((start >= n) || !_is_ident_start(s.byte_at(start)), usize(0), {
@@ -60,7 +60,7 @@ _scan_ident :: (fn(imm(s) : String, start : usize) -> usize)({
 });
 /// Index of the matching close-bracket for the open at `open_idx` (`open_b` /
 /// `close_b` bytes), or `s.len()` if unbalanced.
-_match_bracket :: (fn(imm(s) : String, open_idx : usize, open_b : u8, close_b : u8) -> usize)({
+_match_bracket :: (fn(s : &String, open_idx : usize, open_b : u8, close_b : u8) -> usize)({
   // BYTE count — the loop reads byte_at (see _split_top_level_args_list).
   n := s.len();
   (depth : usize) = usize(0);
@@ -83,7 +83,7 @@ _match_bracket :: (fn(imm(s) : String, open_idx : usize, open_b : u8, close_b : 
 /// Byte-exact slice `[from, to)` of `s` — `substring` is RUNE-indexed and
 /// cannot take the BYTE indices these C-code scanners produce (see
 /// _split_top_level_args_list's note).
-_byte_slice :: (fn(imm(s) : String, from : usize, to : usize) -> String)({
+_byte_slice :: (fn(s : &String, from : usize, to : usize) -> String)({
   bytes := s;
   out := ArrayList(u8).new();
   (i : usize) = from;
@@ -95,7 +95,7 @@ _byte_slice :: (fn(imm(s) : String, from : usize, to : usize) -> String)({
 });
 /// Whether `code` is an lvalue C expression whose address can be taken (a
 /// deref, or an identifier head + `.`/`->`/`[]` chain).
-_is_addressable_c_expr :: (fn(imm(code) : String) -> bool)({
+_is_addressable_c_expr :: (fn(code : &String) -> bool)({
   (s : String) = code.trim();
   // Strip balanced fully-enclosing parens. BYTE indices throughout — the
   // scanners read byte_at, and substring is rune-indexed (see _byte_slice).
@@ -170,7 +170,7 @@ _is_addressable_c_expr :: (fn(imm(code) : String) -> bool)({
   true
 });
 /// Split a C arg list at top-level commas, respecting ()/[]/{} nesting.
-_split_top_level_args_list :: (fn(imm(s) : String) -> ArrayList(String))({
+_split_top_level_args_list :: (fn(s : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   (depth : usize) = usize(0);
   cur := String.from("");
@@ -240,7 +240,7 @@ _split_top_level_args_list :: (fn(imm(s) : String) -> ArrayList(String))({
 /// this stub at it would change behaviour at every call site below, which is a
 /// separate change from the `return(<hoisted local>)` fix that needed it —
 /// see issues/fixed/async-await-in-nested-match-arms.md.
-_resolve_var_name_in_context :: (fn(imm(var_name) : String, imm(context) : FunctionGenerationContext) -> String)(
+_resolve_var_name_in_context :: (fn(var_name : &String, context : &FunctionGenerationContext) -> String)(
   var_name
 );
 /// SM temp-var store. Inside a state machine, a local temp declared as a C
@@ -249,7 +249,7 @@ _resolve_var_name_in_context :: (fn(imm(var_name) : String, imm(context) : Funct
 /// scrutinee leak family). A no-op stub here surfaced as mi_free
 /// invalid-pointer crashes the moment a SELF-BUILT binary compiled the
 /// compiler — see issues/fixed/seed-built-stage1-miscompiles-current-source.md.
-_store_temp_var_to_state_machine_if_needed :: (fn(imm(temp_var) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
+_store_temp_var_to_state_machine_if_needed :: (fn(temp_var : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
   if(context.in_async_state_machine.is_none(), return(()));
   smv := match(
     context.state_machine_variables,
@@ -292,7 +292,7 @@ _store_temp_var_to_state_machine_if_needed :: (fn(imm(temp_var) : String, imm(in
 });
 /// The container-pointer C code for an interior `ref` argument (an Index-trait
 /// expression), or `.None`.
-_get_interior_ref_container_code :: (fn(imm(arg_expr) : AstExpr, param_is_ref : bool, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))(
+_get_interior_ref_container_code :: (fn(arg_expr : &AstExpr, param_is_ref : bool, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
   if(
     !param_is_ref,
     Option(String).None,
@@ -336,7 +336,7 @@ _get_interior_ref_container_code :: (fn(imm(arg_expr) : AstExpr, param_is_ref : 
 /// Is the container an interior `ref` argument points into an ATOMIC object?
 /// Its borrow counter is then touched with the atomic primitives — the object
 /// is shared across threads by design.
-_interior_ref_container_is_atomic :: (fn(imm(arg_expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
+_interior_ref_container_is_atomic :: (fn(arg_expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(
     arg_expr,
     .FnCall(_, func, _, _, _) => match(
@@ -349,7 +349,7 @@ _interior_ref_container_is_atomic :: (fn(imm(arg_expr) : AstExpr, imm(context) :
 );
 /// Emit `__yo_borrow_acquire` for each interior-ref arg's container; returns the
 /// matching release CALLS (caller emits them via `_emit_borrow_releases`).
-_emit_borrow_acquires :: (fn(imm(runtime_arg_exprs) : ArrayList(AstExpr), imm(runtime_param_is_ref) : ArrayList(bool), imm(indent) : String, imm(context) : FunctionGenerationContext) -> ArrayList(String))({
+_emit_borrow_acquires :: (fn(runtime_arg_exprs : &ArrayList(AstExpr), runtime_param_is_ref : &ArrayList(bool), indent : &String, context : &FunctionGenerationContext) -> ArrayList(String))({
   containers := ArrayList(String).new();
   em := context.base.emitter;
   na := runtime_arg_exprs.len();
@@ -376,7 +376,7 @@ _emit_borrow_acquires :: (fn(imm(runtime_arg_exprs) : ArrayList(AstExpr), imm(ru
   containers
 });
 /// Emit the release calls `_emit_borrow_acquires` returned (LIFO).
-_emit_borrow_releases :: (fn(imm(containers) : ArrayList(String), imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
+_emit_borrow_releases :: (fn(containers : &ArrayList(String), indent : &String, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   n := containers.len();
   if(n > usize(0), {
@@ -400,18 +400,18 @@ _emit_borrow_releases :: (fn(imm(containers) : ArrayList(String), imm(indent) : 
 });
 /// Whether the current function is a method of an RC-managed object type
 /// (`self` parameter of object type).
-_is_inside_object_method :: (fn(imm(context) : FunctionGenerationContext) -> bool)(
+_is_inside_object_method :: (fn(context : &FunctionGenerationContext) -> bool)(
   match(context.current_function_type, .Some(ft) => match(ft, .Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)), .Some(l) => if(l == "self", match(pts.get(usize(0)), .Some(t) => is_reference_struct_type(t), .None => false), false), .None => false)), _ => false), .None => false)
 );
 /// Is the current function's `self` an `inout(self)` receiver? Such a receiver
 /// is passed as `T** self` (a pointer to the caller's handle slot), so the
 /// object is `*self`.
-_current_self_param_is_ref :: (fn(imm(context) : FunctionGenerationContext) -> bool)(
+_current_self_param_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
   match(context.current_function_type, .Some(ft) => match(ft, .Func({ meta : __fm1 }) => match(__fm1.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
 );
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
 /// inside an RC-managed object method.
-_maybe_emit_auto_borrow_assert :: (fn(imm(extern_func_name) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)(
+_maybe_emit_auto_borrow_assert :: (fn(extern_func_name : &String, indent : &String, context : &FunctionGenerationContext) -> unit)(
   if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
     em := context.base.emitter;
     // `self` is the method's Yo parameter, spelled as every parameter is.
@@ -422,25 +422,25 @@ _maybe_emit_auto_borrow_assert :: (fn(imm(extern_func_name) : String, imm(indent
   })
 );
 /// The C function name registered for a func id, if any.
-_c_func_name :: (fn(imm(func_id) : String, imm(context) : FunctionGenerationContext) -> Option(String))(
+_c_func_name :: (fn(func_id : &String, context : &FunctionGenerationContext) -> Option(String))(
   match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
 );
 /// The last binding for `name` (in node `key`'s recorded scope `env`) whose
 /// value is a registered FuncVal → its C name.
-_arg_fn_value_c_name :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String, imm(context) : FunctionGenerationContext) -> Option(String))({
+_arg_fn_value_c_name :: (fn(key : ExprId, env : &Environment, name : &String, context : &FunctionGenerationContext) -> Option(String))({
   vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)), .Some(v) => match(v.value.get(usize(0)), .Some(val) => if(is_func_val(val), match(val, .FuncVal(__fvd1, _) => _c_func_name(__fvd1.*.func_id, context), _ => Option(String).None), Option(String).None), .None => Option(String).None), .None => Option(String).None))
 });
 /// Whether the last binding for `name` (in node `key`'s recorded scope `env`)
 /// is compile-time-only.
-_last_is_comptime_only :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> bool)({
+_last_is_comptime_only :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
 /// Whether `c` is a bare C literal (int/float/true/false) — `&literal` is invalid.
-_is_bare_literal :: (fn(imm(c) : String) -> bool)({
+_is_bare_literal :: (fn(c : &String) -> bool)({
   n := c.len();
   if(
     n == usize(0),
@@ -482,7 +482,7 @@ _is_bare_literal :: (fn(imm(c) : String) -> bool)({
 /// Materialize one runtime argument into its C code (temp-var decl for named
 /// non-ref values; closure-capture / SM / dyn-method handling is gated for the
 /// corpus).
-_materialize_arg :: (fn(imm(arg) : AstExpr, param_is_ref : bool, imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
+_materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     context.base.get_expr_info(arg),
     .Some(arg_ei) => match(
@@ -576,7 +576,7 @@ _materialize_arg :: (fn(imm(arg) : AstExpr, param_is_ref : bool, imm(expr) : Ast
   )
 );
 /// Does `arg` carry the dup of a by-value parameter's share?
-_arg_carries_param_share :: (fn(imm(arg) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
+_arg_carries_param_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(arg),
     .Some(aei) => match(
@@ -611,7 +611,7 @@ _arg_carries_param_share :: (fn(imm(arg) : AstExpr, imm(context) : FunctionGener
 /// caller's own drop of the field freed it a second time, and a receiver
 /// projection was not held while the callee replaced it
 /// (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
-_dispatch_arg_code :: (fn(imm(arg) : AstExpr, param_is_ref : bool, imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+_dispatch_arg_code :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   has_dup := match(
     context.base.get_expr_info(arg),
     .Some(aei) => match(expr_info_deferred_dup_expressions(aei), .Some(d) => (d.len() > usize(0)), .None => false),
@@ -622,7 +622,7 @@ _dispatch_arg_code :: (fn(imm(arg) : AstExpr, param_is_ref : bool, imm(expr) : A
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
 /// spill to a temp).
-_apply_ref_amp :: (fn(imm(args) : ArrayList(String), imm(param_is_ref) : ArrayList(bool), imm(runtime_args) : ArrayList(AstExpr), imm(indent) : String, imm(context) : FunctionGenerationContext) -> ArrayList(String))({
+_apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool), runtime_args : &ArrayList(AstExpr), indent : &String, context : &FunctionGenerationContext) -> ArrayList(String))({
   em := context.base.emitter;
   out := ArrayList(String).new();
   na := args.len();
@@ -714,7 +714,7 @@ _apply_ref_amp :: (fn(imm(args) : ArrayList(String), imm(param_is_ref) : ArrayLi
 /// upcast. Any other field's code is returned unchanged
 /// (issues/fixed/impl-future-struct-field-emits-incompatible-pointer.md,
 /// option 2).
-_future_field_upcast :: (fn(imm(field_ty) : Option(TypeValue), imm(code) : String, imm(context) : FunctionGenerationContext) -> String)(
+_future_field_upcast :: (fn(field_ty : &Option(TypeValue), code : &String, context : &FunctionGenerationContext) -> String)(
   match(
     field_ty,
     .Some(ft) => if(type_implements_future(ft), {
@@ -732,7 +732,7 @@ _future_field_upcast :: (fn(imm(field_ty) : Option(TypeValue), imm(code) : Strin
 /// over the closure identity an `Impl(Fn)`-typed field received
 /// (`_instantiate_struct_over_closure_args`, calls/function.yo), so the callee
 /// type still has that field abstract and would lower it to `void*`.
-_constructed_struct_type :: (fn(imm(callee_ty) : TypeValue, imm(call_ty) : TypeValue) -> TypeValue)(
+_constructed_struct_type :: (fn(callee_ty : &TypeValue, call_ty : &TypeValue) -> TypeValue)(
   match(
     callee_ty,
     .Struct({ id : c_id }) => match(
@@ -750,7 +750,7 @@ _constructed_struct_type :: (fn(imm(callee_ty) : TypeValue, imm(call_ty) : TypeV
 /// method body (e.g. `ArrayList(u8).new`'s `Self(_ptr:.None, _length:0, ...)`),
 /// where the spec body re-eval does not record `runtime_arg_exprs`. Returns the
 /// value exprs in runtime-field order (so positional `__yo_new_(...)` matches).
-_ctor_args_from_labeled :: (fn(imm(wrapped) : TypeValue, imm(fncall_args) : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+_ctor_args_from_labeled :: (fn(wrapped : &TypeValue, fncall_args : &ArrayList(AstExpr)) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   rfs := get_runtime_struct_fields(wrapped);
   n := rfs.len();
@@ -797,7 +797,7 @@ _ctor_args_from_labeled :: (fn(imm(wrapped) : TypeValue, imm(fncall_args) : Arra
 /// issues/fixed/async-closure-value-struct-param-emits-invalid-c-cast.md crash).
 /// The argument expression already carries the parameter's type (the
 /// evaluator type-checked the call), so no conversion is needed.
-_no_cast_by_value_param :: (fn(imm(t) : TypeValue) -> bool)(
+_no_cast_by_value_param :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Struct({ is_reference_semantics : s_ref }) => !s_ref,
@@ -812,7 +812,7 @@ _no_cast_by_value_param :: (fn(imm(t) : TypeValue) -> bool)(
 /// storage type of a by-value parameter (a `unit` is the one-byte
 /// placeholder), and `T*` for a `ref`/`inout` one — the callee's prototype.
 _fn_pointer_param_type_string :: (
-  fn(imm(param_types) : ArrayList(TypeValue), imm(param_is_ref) : ArrayList(bool), i : usize, imm(context) : FunctionGenerationContext) -> String
+  fn(param_types : &ArrayList(TypeValue), param_is_ref : &ArrayList(bool), i : usize, context : &FunctionGenerationContext) -> String
 )(
   match(
     param_types.get(i),
@@ -829,7 +829,7 @@ _fn_pointer_param_type_string :: (
 /// spelled the C parameter from (`current_function_type`), so its SomeTs
 /// carry the specialization's resolutions where the call's ExprInfo copy
 /// does not.
-_callee_param_fn_type :: (fn(imm(func_expr) : AstExpr, imm(context) : FunctionGenerationContext) -> Option(TypeValue))({
+_callee_param_fn_type :: (fn(func_expr : &AstExpr, context : &FunctionGenerationContext) -> Option(TypeValue))({
   if(!ast_expr_is_atom(func_expr), {
     return(Option(TypeValue).None);
   });
@@ -856,7 +856,7 @@ _callee_param_fn_type :: (fn(imm(func_expr) : AstExpr, imm(context) : FunctionGe
     _ => Option(TypeValue).None
   )
 });
-_per_arg_cast :: (fn(imm(args_list) : String, imm(param_types) : ArrayList(TypeValue), imm(param_is_ref) : ArrayList(bool), imm(context) : FunctionGenerationContext) -> String)(
+_per_arg_cast :: (fn(args_list : &String, param_types : &ArrayList(TypeValue), param_is_ref : &ArrayList(bool), context : &FunctionGenerationContext) -> String)(
   if(args_list.len() == usize(0), args_list, {
     parts := _split_top_level_args_list(args_list);
     np := param_types.len();
@@ -900,7 +900,7 @@ _per_arg_cast :: (fn(imm(args_list) : String, imm(param_types) : ArrayList(TypeV
   })
 );
 /// Join arg codes with ", ".
-_join_args :: (fn(imm(args) : ArrayList(String)) -> String)({
+_join_args :: (fn(args : &ArrayList(String)) -> String)({
   out := String.from("");
   n := args.len();
   (i : usize) = usize(0);
@@ -915,7 +915,7 @@ _join_args :: (fn(imm(args) : ArrayList(String)) -> String)({
 });
 /// Index of `name` in an EnumT's `variant_names` (local copy — comptime_value's
 /// is not exported). `name` must be the clean variant (no leading `.`).
-_enum_variant_index :: (fn(imm(enum_ty) : TypeValue, imm(name) : String) -> Option(usize))(
+_enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize))(
   match(
     enum_ty,
     .EnumT({ variant_names }) => {
@@ -944,7 +944,7 @@ _enum_variant_index :: (fn(imm(enum_ty) : TypeValue, imm(name) : String) -> Opti
 /// field VALUE from the recorded runtime arg exprs. The runtime args are aligned
 /// by index with the variant's declared fields (unit fields are skipped).
 _generate_runtime_enum_construct :: (
-  fn(imm(enum_ty) : TypeValue, imm(variant_raw) : String, imm(rt_args) : ArrayList(AstExpr), imm(indent) : String, imm(context) : FunctionGenerationContext) -> String
+  fn(enum_ty : &TypeValue, variant_raw : &String, rt_args : &ArrayList(AstExpr), indent : &String, context : &FunctionGenerationContext) -> String
 )({
   // The EnumVal variant carries the leading `.` of the `.Variant` source form;
   // strip it (variant_names are clean, and `.data.<variant>` must be valid C).
@@ -1031,7 +1031,7 @@ _generate_runtime_enum_construct :: (
   )
 });
 /// FuncVal func_id, or empty if not a FuncVal.
-_func_val_id :: (fn(imm(v) : EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()));
+_func_val_id :: (fn(v : &EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()));
 /// Whether a call to this callee might trigger an effect escape (it directly is
 /// a control/effect-record fn, its resolved type is `ctl(...)`, it has a
 /// fn-typed / ctl-bound param a handler may be threaded through, its body has
@@ -1045,7 +1045,7 @@ _func_val_id :: (fn(imm(v) : EvalValue) -> String)(match(v, .FuncVal(__fvd2, _) 
 /// throws (`unwind(<literal>)` has no call and really unwinds). The evaluator's
 /// def-time trial-eval swallow-and-continue behavior depends on reproducing
 /// this exactly (issues/fixed/yo-self-stage2-dyn-closure-divergence.md).
-_call_may_unwind :: (fn(imm(func_ei_value) : Option(EvalValue), imm(function_type) : TypeValue, imm(param_types) : ArrayList(TypeValue), callee_is_atom : bool, imm(context) : FunctionGenerationContext) -> bool)({
+_call_may_unwind :: (fn(func_ei_value : &Option(EvalValue), function_type : &TypeValue, param_types : &ArrayList(TypeValue), callee_is_atom : bool, context : &FunctionGenerationContext) -> bool)({
   fid_is_control := match(func_ei_value, .Some(v) => if(is_func_val(v), is_control_fn(_func_val_id(v)), false), .None => false);
   fid_is_effect_member := match(func_ei_value, .Some(v) => if(is_func_val(v), is_effect_record_member(_func_val_id(v)), false), .None => false);
   ft_is_control := match(function_type, .Func({ meta : __fm2 }) => __fm2.*.is_control, _ => false);
@@ -1074,7 +1074,7 @@ _call_may_unwind :: (fn(imm(func_ei_value) : Option(EvalValue), imm(function_typ
 /// value is extracted, vs merely propagated): the direct-control-fn
 /// given-binding check plus the Phase-2 explicit-param fallback. There is no
 /// specialized-evidence branch (FuncVal has no specializedType — Gap 2).
-_call_is_handler_installation :: (fn(key : ExprId, imm(func_ei) : ExprInfo, imm(function_type) : TypeValue, imm(param_types) : ArrayList(TypeValue), imm(runtime_args) : ArrayList(AstExpr), imm(context) : FunctionGenerationContext, imm(callee_name) : Option(String)) -> bool)({
+_call_is_handler_installation :: (fn(key : ExprId, func_ei : &ExprInfo, function_type : &TypeValue, param_types : &ArrayList(TypeValue), runtime_args : &ArrayList(AstExpr), context : &FunctionGenerationContext, callee_name : &Option(String)) -> bool)({
   env := func_ei.env;
   fdfl := match(env.function_declaration_frame_level, .Some(l) => l, .None => usize(0));
   // (1) Direct call to a control/effect-record handler fn bound via a local
@@ -1088,7 +1088,7 @@ _call_is_handler_installation :: (fn(key : ExprId, imm(func_ei) : ExprInfo, imm(
   //     A ctl-marked type (the Func meta's is_control — the same flag
   //     _call_may_unwind reads) accepts the valueless callee, and the
   //     binding search then falls back to the callee ATOM's name.
-  _fn_meta_is_ctl := (fn(imm(t) : TypeValue) -> bool)(
+  _fn_meta_is_ctl := (fn(t : &TypeValue) -> bool)(
     match(t, .Func({ meta : __m }) => __m.*.is_control, _ => false)
   );
   callee_is_ctl := (_fn_meta_is_ctl(function_type) || _fn_meta_is_ctl(func_ei.ty));
@@ -1158,7 +1158,7 @@ _call_is_handler_installation :: (fn(key : ExprId, imm(func_ei) : ExprInfo, imm(
 /// conversion — but C requires the cast spelled, and clang 16+ C hard-errors
 /// on the bare incompatible-pointer initializer (the windows-arm cross-emit
 /// leg; a warning on every other leg). Empty for everything else.
-_future_init_cast :: (fn(imm(ty) : TypeValue, imm(context) : FunctionGenerationContext) -> String)({
+_future_init_cast :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -> String)({
   if(!type_implements_future(ty), {
     return(String.new());
   });
@@ -1176,7 +1176,7 @@ _future_init_cast :: (fn(imm(ty) : TypeValue, imm(context) : FunctionGenerationC
 /// path with evidence; specialization uses the call-site Func type directly
 /// (FuncVal has no specializedType — Gap 2); `ref`-arg atom temp skip
 /// (Variable has no is_ref). The cFuncName direct-call path is the live corpus path.
-generate_other_function_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))({
+generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   // Compile-time value → generate it directly.
   //

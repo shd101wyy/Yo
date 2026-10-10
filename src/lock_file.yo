@@ -60,11 +60,11 @@ LockEntry :: ref(
 impl(
   LockEntry,
   /// True for a `git+…` source.
-  is_git : (fn(imm(self) : Self) -> bool)(
+  is_git : (fn(self : &Self) -> bool)(
     self.source.starts_with("git+")
   ),
   /// The repository URL of a git source ("" otherwise).
-  url : (fn(imm(self) : Self) -> String)({
+  url : (fn(self : &Self) -> String)({
     if(!self.is_git(), return(String.new()));
     rest := self.source.substring(usize(4), self.source.len());
     match(
@@ -74,7 +74,7 @@ impl(
     )
   }),
   /// The ref (tag, branch, commit) of a git source ("" otherwise).
-  ref : (fn(imm(self) : Self) -> String)({
+  ref : (fn(self : &Self) -> String)({
     if(!self.is_git(), return(String.new()));
     rest := self.source.substring(usize(4), self.source.len());
     match(
@@ -84,16 +84,16 @@ impl(
     )
   }),
   /// The path of a `path+…` source ("" otherwise).
-  path : (fn(imm(self) : Self) -> String)(
+  path : (fn(self : &Self) -> String)(
     if(self.source.starts_with("path+"), self.source.substring(usize(5), self.source.len()), String.new())
   )
 );
 /// `git+<url>#<ref>`.
-git_source :: (fn(imm(url) : String, imm(ref) : String) -> String)(
+git_source :: (fn(url : &String, ref : &String) -> String)(
   `git+${url}#${ref}`
 );
 /// `path+<path>`.
-path_source :: (fn(imm(path) : String) -> String)(
+path_source :: (fn(path : &String) -> String)(
   `path+${path}`
 );
 /// In-memory representation of a `yo.lock` file.
@@ -112,7 +112,7 @@ impl(
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
-_string_or_empty :: (fn(imm(table) : TomlValue, key : str) -> String)(
+_string_or_empty :: (fn(table : &TomlValue, key : str) -> String)(
   match(
     table.get(String.from(key)),
     .Some(v) => match(v.as_string(), .Some(s) => s, .None => String.new()),
@@ -121,7 +121,7 @@ _string_or_empty :: (fn(imm(table) : TomlValue, key : str) -> String)(
 );
 /// Parse a `yo.lock` document. `.Err` for a document that is not TOML, has no
 /// `version = 2`, or has a malformed `[[package]]` entry.
-parse_lock_file :: (fn(imm(content) : String) -> Result(LockFile, String))({
+parse_lock_file :: (fn(content : &String) -> Result(LockFile, String))({
   if(content.trim().len() == usize(0), {
     return(Result(LockFile, String).Ok(LockFile.empty()));
   });
@@ -201,7 +201,7 @@ parse_lock_file :: (fn(imm(content) : String) -> Result(LockFile, String))({
 // Serialisation
 // ---------------------------------------------------------------------------
 /// The packages sorted by name (insertion sort — a lock holds a handful).
-_sorted :: (fn(imm(packages) : ArrayList(LockEntry)) -> ArrayList(LockEntry))({
+_sorted :: (fn(packages : &ArrayList(LockEntry)) -> ArrayList(LockEntry))({
   out := ArrayList(LockEntry).new();
   (i : usize) = usize(0);
   while(i < packages.len(), {
@@ -221,7 +221,7 @@ _sorted :: (fn(imm(packages) : ArrayList(LockEntry)) -> ArrayList(LockEntry))({
 });
 /// Serialise a `LockFile` to TOML text: the header comment, `version`, then
 /// one `[[package]]` per entry sorted by name. Empty fields are omitted.
-write_lock_file_content :: (fn(imm(lock) : LockFile) -> String)({
+write_lock_file_content :: (fn(lock : &LockFile) -> String)({
   root := TomlValue.new_table();
   _ := root.insert(String.from("version"), TomlValue.Int(LOCK_VERSION));
   items := ArrayList(TomlValue).new();
@@ -277,9 +277,9 @@ LockRead :: ref(
 /// the flags telling which.
 read_lock_file :: (
   fn(
-    imm(project_dir) : Path,
+    project_dir : &Path,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(LockRead, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -299,10 +299,10 @@ read_lock_file :: (
 /// Write `lock` to `<project_dir>/yo.lock` atomically (temp file + rename).
 save_lock_file :: (
   fn(
-    imm(project_dir) : Path,
-    imm(lock) : LockFile,
+    project_dir : &Path,
+    lock : &LockFile,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -317,7 +317,7 @@ save_lock_file :: (
 // Queries
 // ---------------------------------------------------------------------------
 /// The entry named `name`, or `.None`.
-find_lock_entry :: (fn(imm(lock) : LockFile, imm(name) : String) -> Option(LockEntry))({
+find_lock_entry :: (fn(lock : &LockFile, name : &String) -> Option(LockEntry))({
   (i : usize) = usize(0);
   while(i < lock.packages.len(), {
     p := lock.packages(i);
@@ -330,7 +330,7 @@ find_lock_entry :: (fn(imm(lock) : LockFile, imm(name) : String) -> Option(LockE
 });
 /// True when the two locks record the same packages (name, source, commit,
 /// integrity, version, dependencies) — what `--locked` compares.
-lock_files_equal :: (fn(imm(a) : LockFile, imm(b) : LockFile) -> bool)({
+lock_files_equal :: (fn(a : &LockFile, b : &LockFile) -> bool)({
   if(a.packages.len() != b.packages.len(), return(false));
   sa := _sorted(a.packages);
   sb := _sorted(b.packages);

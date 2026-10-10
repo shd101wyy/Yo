@@ -6,7 +6,7 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
 // The copy is the elements produced so far, at every iteration.
-copy :: (fn(imm(xs) : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
+copy :: (fn(xs : &ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
   out := ArrayList(i32).new();
   for(xs, x => {
     invariant(out == produced(xs));

@@ -59,10 +59,10 @@ R :: struct(v : i32);
 derive(R, Copy, Clone);
 impl(
   R,
-  outer : (fn(self : *Self, imm(exn) : Exception) -> i32)(
+  outer : (fn(self : *Self, exn : &Exception) -> i32)(
     self.inner(exn)
   ),
-  inner : (fn(self : *Self, imm(exn) : Exception) -> i32)(
+  inner : (fn(self : *Self, exn : &Exception) -> i32)(
     cond(
       (self.v < i32(0)) => exn.throw(dyn(MyErr(msg : `neg`))),
       true => self.v
@@ -92,13 +92,13 @@ test("forward call with effect params", {
 S :: ref(struct(tag : i32));
 impl(
   S,
-  s_even : (fn(self : *Self, i : i32, imm(exn) : Exception) -> bool)(
+  s_even : (fn(self : *Self, i : i32, exn : &Exception) -> bool)(
     cond(
       (i == i32(0)) => true,
       true => self.s_odd(i - i32(1), exn)
     )
   ),
-  s_odd : (fn(self : *Self, i : i32, imm(exn) : Exception) -> bool)(
+  s_odd : (fn(self : *Self, i : i32, exn : &Exception) -> bool)(
     cond(
       (i == i32(0)) => false,
       true => self.s_even(i - i32(1), exn)
@@ -137,10 +137,10 @@ impl(
   new : (fn(val : i32) -> Self)(
     Self(data : rc(val))
   ),
-  get_implicit : (fn(imm(self) : Self) -> Rc(i32))(
+  get_implicit : (fn(self : &Self) -> Rc(i32))(
     self.data
   ),
-  get_explicit : (fn(imm(self) : Self) -> Rc(i32))({
+  get_explicit : (fn(self : &Self) -> Rc(i32))({
     return(self.data);
   })
 );
@@ -186,7 +186,7 @@ Abandoned :: struct(n : i32);
 comptime_expect_error(
   impl(
     Abandoned,
-    bad : (fn(imm(self) : Abandoned) -> i32)(String.from("not an i32")),
+    bad : (fn(self : &Abandoned) -> i32)(String.from("not an i32")),
     good : (fn(self : Abandoned) -> i32)(self.n + i32(1))
   )
 );

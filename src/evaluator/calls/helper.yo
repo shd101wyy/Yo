@@ -236,7 +236,7 @@ pragma(Pragma.AllowUnsafe);
 /// Extract a FuncVal from an optional EvalValue.
 /// Closures are runtime-only and have no FuncVal at compile time.
 ///
-extract_function_value :: (fn(imm(value) : Option(EvalValue)) -> Option(EvalValue))(
+extract_function_value :: (fn(value : &Option(EvalValue)) -> Option(EvalValue))(
   match(
     value,
     .None => Option(EvalValue).None,
@@ -257,8 +257,8 @@ extract_function_value :: (fn(imm(value) : Option(EvalValue)) -> Option(EvalValu
 /// control-function flag.
 _module_type_contains_ctl_field :: (
   fn(
-    imm(module_type) : TypeValue,
-    imm(module_val) : Option(EvalValue)
+    module_type : &TypeValue,
+    module_val : &Option(EvalValue)
   ) -> bool
 )(
   match(
@@ -335,10 +335,10 @@ _module_type_contains_ctl_field :: (
 ///
 generate_deferred_drop_expressions :: (
   fn(
-    imm(variables_to_drop) : ArrayList(Variable),
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    variables_to_drop : &ArrayList(Variable),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> Option(ArrayList(AstExpr))
 )({
   n := variables_to_drop.len();
@@ -382,11 +382,11 @@ generate_deferred_drop_expressions :: (
 ///
 validate_function_return_type :: (
   fn(
-    imm(return_type) : TypeValue,
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    return_type : &TypeValue,
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   // Skip validation if inside function-type evaluation or when expected type is set.
@@ -492,7 +492,7 @@ validate_function_return_type :: (
 // ---------------------------------------------------------------------------
 // Local helper: extract the args ArrayList from a FnCall AstExpr.
 // ---------------------------------------------------------------------------
-_h_get_fn_call_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+_h_get_fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
     .FnCall(_, _, args, _, _) => args,
@@ -535,7 +535,7 @@ CheckParamResult :: ref(
 /// wrap the len-var-bearing Array field (`_ArrayIter(T, N)._arr : Array(T,
 /// N)`), and struct graphs can be recursive — bound the descent instead of
 /// tracking visited ids.
-_type_has_array_len_var_d :: (fn(imm(t) : TypeValue, d : usize) -> bool)(
+_type_has_array_len_var_d :: (fn(t : &TypeValue, d : usize) -> bool)(
   cond(
     (d > usize(6)) => false,
     true => match(
@@ -585,7 +585,7 @@ _type_has_array_len_var_d :: (fn(imm(t) : TypeValue, d : usize) -> bool)(
     )
   )
 );
-_type_has_array_len_var :: (fn(imm(t) : TypeValue) -> bool)(_type_has_array_len_var_d(t, usize(0)));
+_type_has_array_len_var :: (fn(t : &TypeValue) -> bool)(_type_has_array_len_var_d(t, usize(0)));
 /// Trial-evaluate a declared return-type EXPR in the mint env (SWALLOWING —
 /// the local `->` exn cannot capture, so a failing eval just leaves `out`
 /// empty). On success pushes the evaluated TypeValue. Re-EVALUATING the
@@ -594,7 +594,7 @@ _type_has_array_len_var :: (fn(imm(t) : TypeValue) -> bool)(_type_has_array_len_
 /// as the body's own calls — one instantiation lineage (the imm_map
 /// `_alloc_pairs` expected/actual struct-id split).
 _trial_eval_ret_type_expr :: (
-  fn(imm(ret_texpr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(TypeValue)) -> unit
+  fn(ret_texpr : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(TypeValue)) -> unit
 )({
   inner_exn := Exception(throw : (_err -> unwind(())));
   evaluated := evaluate_expression_raw(ret_texpr, env, ctx, inner_exn);
@@ -622,7 +622,7 @@ _trial_eval_ret_type_expr :: (
 /// def-era `Option(B)` instead of the CANONICAL `Option(i32)` and codegen
 /// aborts with "no C type name found for <enum:…>" — substitution keeps the
 /// def-era enum id, so only the closure's own (canonical) body type will do.
-_refine_one_fn_trait_result :: (fn(imm(ftt) : TypeValue, imm(new_result) : TypeValue) -> TypeValue)(
+_refine_one_fn_trait_result :: (fn(ftt : &TypeValue, new_result : &TypeValue) -> TypeValue)(
   match(
     ftt,
     .FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_cpr, rw_cpo) => cond(
@@ -643,7 +643,7 @@ _refine_one_fn_trait_result :: (fn(imm(ftt) : TypeValue, imm(new_result) : TypeV
 );
 /// True iff `ty` carries an Fn-trait whose result is the refinable
 /// `-> Option(B)` shape (not itself a type variable, but containing one).
-_wrapper_fn_result_needs_refine :: (fn(imm(ty) : TypeValue) -> bool)(
+_wrapper_fn_result_needs_refine :: (fn(ty : &TypeValue) -> bool)(
   match(
     extract_fn_trait_from_type(ty),
     .Some(nr_ftt) => match(
@@ -654,7 +654,7 @@ _wrapper_fn_result_needs_refine :: (fn(imm(ty) : TypeValue) -> bool)(
     .None => false
   )
 );
-_refine_wrapper_fn_result :: (fn(imm(ty) : TypeValue, imm(new_result) : TypeValue) -> TypeValue)(
+_refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> TypeValue)(
   match(
     ty,
     .SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc) => {
@@ -691,7 +691,7 @@ _refine_wrapper_fn_result :: (fn(imm(ty) : TypeValue, imm(new_result) : TypeValu
 /// Strip and validate a `label : value` argument. Labels are readability-only:
 /// a label that is written must match the declared parameter label at that
 /// position. Returns the value expression (the argument itself when unlabeled).
-strip_argument_label :: (fn(imm(arg) : AstExpr, imm(param_label) : String, imm(exn) : Exception) -> AstExpr)({
+strip_argument_label :: (fn(arg : &AstExpr, param_label : &String, exn : &Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(arg);
   });
@@ -756,7 +756,7 @@ strip_argument_label :: (fn(imm(arg) : AstExpr, imm(param_label) : String, imm(e
 /// already has the spelling Generation B wants). Inert unless the knob is set.
 (g_audit_borrow_markers : bool) = debug_knob(`YO_AUDIT_BORROW_MARKERS`).is_some();
 (g_borrow_marker_printed : HashSet(String)) = HashSet(String).new();
-_arg_is_named_place :: (fn(imm(e) : AstExpr) -> bool)(
+_arg_is_named_place :: (fn(e : &AstExpr) -> bool)(
   cond(
     ast_expr_is_atom(e) => (ast_expr_token(e).kind == TokenKind.Identifier),
     ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => match(
@@ -774,7 +774,7 @@ _arg_is_named_place :: (fn(imm(e) : AstExpr) -> bool)(
 /// Report one argument for YO_AUDIT_BORROW_MARKERS (see above). `raw_arg` is
 /// the argument with its label stripped.
 audit_borrow_marker_site :: (
-  fn(imm(raw_arg) : AstExpr, imm(arg_ty) : TypeValue, param_is_ref : bool, param_is_owning : bool, param_is_ct : bool, imm(ctx) : EvalContext) -> unit
+  fn(raw_arg : &AstExpr, arg_ty : &TypeValue, param_is_ref : bool, param_is_owning : bool, param_is_ct : bool, ctx : &EvalContext) -> unit
 )({
   if(!g_audit_borrow_markers || param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase, {
     return(());
@@ -829,13 +829,13 @@ audit_borrow_marker_site :: (
 /// `runtime_arg_exprs_in_order` all see the place.
 apply_call_site_borrow_markers :: (
   fn(
-    imm(args) : ArrayList(AstExpr),
-    imm(param_types) : ArrayList(TypeValue),
-    imm(param_is_ref) : ArrayList(bool),
-    imm(param_is_owning) : ArrayList(bool),
-    imm(param_labels) : ArrayList(String),
+    args : &ArrayList(AstExpr),
+    param_types : &ArrayList(TypeValue),
+    param_is_ref : &ArrayList(bool),
+    param_is_owning : &ArrayList(bool),
+    param_labels : &ArrayList(String),
     first_is_receiver : bool,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ArrayList(AstExpr)
 )({
   (any_marker : bool) = false;
@@ -963,14 +963,14 @@ apply_call_site_borrow_markers :: (
   out
 });
 /// The argument without its readability label (`x : e` → `e`).
-_unlabeled_argument :: (fn(imm(arg) : AstExpr) -> AstExpr)(
+_unlabeled_argument :: (fn(arg : &AstExpr) -> AstExpr)(
   cond(
     ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))) => match(_h_get_fn_call_args(arg).get(usize(1)), .Some(a) => a, .None => arg),
     true => arg
   )
 );
 /// The variable a place argument is rooted in: `x`, `x.f.g`, `x.a(i)` → `x`.
-argument_root_name :: (fn(imm(arg) : AstExpr) -> Option(String))({
+argument_root_name :: (fn(arg : &AstExpr) -> Option(String))({
   (cur : AstExpr) = _unlabeled_argument(arg);
   (walking : bool) = true;
   while(walking, {
@@ -992,7 +992,7 @@ argument_root_name :: (fn(imm(arg) : AstExpr) -> Option(String))({
   )
 });
 /// The root variables of a call's arguments bound to `inout` parameters.
-inout_argument_roots :: (fn(imm(args) : ArrayList(AstExpr), imm(param_is_ref) : ArrayList(bool)) -> ArrayList(String))({
+inout_argument_roots :: (fn(args : &ArrayList(AstExpr), param_is_ref : &ArrayList(bool)) -> ArrayList(String))({
   out := ArrayList(String).new();
   (ai : usize) = usize(0);
   while(ai < args.len(), {
@@ -1009,7 +1009,7 @@ inout_argument_roots :: (fn(imm(args) : ArrayList(AstExpr), imm(param_is_ref) : 
 /// (`clobber(x, x)`, issues/fixed/borrowed-arg-invalidated-by-aliased-container-mutation.md
 /// addendum): the argument gets a caller-owned +1 for the call, like an
 /// aliased projection (Aliasing Stage 0).
-argument_is_aliased_by_inout :: (fn(imm(arg) : AstExpr, param_is_ref : bool, imm(inout_roots) : ArrayList(String)) -> bool)({
+argument_is_aliased_by_inout :: (fn(arg : &AstExpr, param_is_ref : bool, inout_roots : &ArrayList(String)) -> bool)({
   if(param_is_ref, {
     return(false);
   });
@@ -1030,7 +1030,7 @@ argument_is_aliased_by_inout :: (fn(imm(arg) : AstExpr, param_is_ref : bool, imm
 /// A closure or function value: one with an `Fn` trait, a `fn` type, or a
 /// closure capture struct (what a forwarded closure is typed as). It always
 /// moves into a by-value parameter (see `consume_argument_for_parameter`).
-_is_callable_value_type :: (fn(imm(ty) : TypeValue) -> bool)(
+_is_callable_value_type :: (fn(ty : &TypeValue) -> bool)(
   is_function_type(ty) || is_fn_trait_type(ty) || extract_fn_trait_from_type(ty).is_some() || match(
     ty,
     .Struct({ id : cs_id }) => cs_id.starts_with("capture_"),
@@ -1041,7 +1041,7 @@ _is_callable_value_type :: (fn(imm(ty) : TypeValue) -> bool)(
 /// dup/drop pair optimizer never cancels them against the caller's
 /// scope-end drop (that "move" would let the callee free a value the caller
 /// still reads).
-_mark_by_value_param_shares :: (fn(imm(arg) : AstExpr, imm(ctx) : EvalContext) -> unit)(
+_mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(arg)),
     .Some(ai) => match(
@@ -1070,16 +1070,16 @@ _mark_by_value_param_shares :: (fn(imm(arg) : AstExpr, imm(ctx) : EvalContext) -
 ///   caller-owned +1 for the call (Aliasing Stage 0). Returns that drop.
 consume_argument_for_parameter :: (
   fn(
-    imm(evaled_arg) : AstExpr,
-    imm(actual_arg) : AstExpr,
-    imm(arg_info) : ExprInfo,
+    evaled_arg : &AstExpr,
+    actual_arg : &AstExpr,
+    arg_info : &ExprInfo,
     param_is_owning : bool,
     param_is_ct : bool,
     param_is_ref : bool,
     callee_is_extern : bool,
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception,
+    caller_env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception,
     /// `argument_is_aliased_by_inout`: the argument is a whole variable that
     /// the same call also passes `inout`.
     (aliased_by_inout : bool) ?= false,
@@ -1165,20 +1165,20 @@ consume_argument_for_parameter :: (
 /// propagate mode, and when a flag is already pending).
 /// The base name of the closure trait a type carries (`"Fn"`, `"FnOnce"`),
 /// or `""` when it carries none.
-_fn_trait_base_of :: (fn(imm(ty) : TypeValue) -> String)(
+_fn_trait_base_of :: (fn(ty : &TypeValue) -> String)(
   match(
     extract_fn_trait_from_type(ty),
     .Some(ft) => match(ft, .FnTraitT(base_name : fb) => fb.clone(), _ => String.from("")),
     .None => String.from("")
   )
 );
-_arg_rule_throw :: (fn(imm(tok) : Token, imm(msg) : String, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_arg_rule_throw :: (fn(tok : &Token, msg : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
   raise_flow_violation(format_error_message(tok, msg), ctx, exn);
 });
 /// `_arg_rule_throw` for a mismatch between the two types `a` and `b`
 /// (`mark_generic_independent`: a generic body's trial re-raises it when
 /// neither contains a type variable).
-_arg_rule_throw_types :: (fn(imm(tok) : Token, imm(msg) : String, imm(a) : TypeValue, imm(b) : TypeValue, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_arg_rule_throw_types :: (fn(tok : &Token, msg : &String, a : &TypeValue, b : &TypeValue, ctx : &EvalContext, exn : &Exception) -> unit)({
   raise_flow_violation(mark_generic_independent(format_error_message(tok, msg), a, b), ctx, exn);
 });
 /// The argument-side value/type rule. Returns the argument's type as this
@@ -1198,15 +1198,15 @@ _arg_rule_throw_types :: (fn(imm(tok) : Token, imm(msg) : String, imm(a) : TypeV
 ///   (judged on the lowered type: `i32` implements what `comptime_int` may not).
 check_argument_for_parameter :: (
   fn(
-    imm(param_label) : String,
-    imm(resolved_pt) : TypeValue,
+    param_label : &String,
+    resolved_pt : &TypeValue,
     param_is_ct : bool,
-    imm(arg_ty) : TypeValue,
-    imm(arg_info) : ExprInfo,
-    imm(arg_tok) : Token,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    arg_ty : &TypeValue,
+    arg_info : &ExprInfo,
+    arg_tok : &Token,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> TypeValue
 )({
   // An `Impl(Future(T))` parameter binds per call through the trait check,
@@ -1318,23 +1318,23 @@ check_argument_for_parameter :: (
 /// the parameter variable to callee_env.
 check_if_function_parameter_matches_argument :: (
   fn(
-    imm(param_label) : String,
-    imm(param_type) : TypeValue,
+    param_label : &String,
+    param_type : &TypeValue,
     is_ct_only : bool,
     param_is_owning : bool,
     param_is_ref : bool,
     skip_expected_type : bool,
     use_param_type_directly : bool,
-    imm(arg_expr_raw) : AstExpr,
-    imm(callee_env) : Environment,
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
-    mut(runtime_arg_exprs_in_order) : ArrayList(AstExpr),
-    imm(exn) : Exception,
+    arg_expr_raw : &AstExpr,
+    callee_env : &Environment,
+    caller_env : &Environment,
+    ctx : &EvalContext,
+    runtime_arg_exprs_in_order : &mut ArrayList(AstExpr),
+    exn : &Exception,
     /// The parameter's `= <value>` ASSIGNED value, or `.None`. Appended last
     /// with a default so existing call sites need no change. See the Step-5b
     /// guard below.
-    (imm(param_assigned_value) : Option(EvalValue)) ?= Option(EvalValue).None,
+    (param_assigned_value : &Option(EvalValue)) ?= Option(EvalValue).None,
     /// Aliasing Stage 0: true when the CALLEE is extern/builtin (no Yo code
     /// runs inside — its borrows cannot dangle), so Step 4c skips the
     /// projection dup.
@@ -1642,7 +1642,7 @@ ${ast_expr_to_string(actual_arg)}`
 /// Used to make compile-time signature strings safe as C identifier suffixes.
 /// Only the character-replacement aspect is handled (no C keyword avoidance
 /// needed here since the signature is a suffix appended to a valid func_id).
-sanitize_for_sig :: (fn(imm(s) : String) -> String)({
+sanitize_for_sig :: (fn(s : &String) -> String)({
   bytes := s;
   n := bytes.len();
   result := String.new();
@@ -1680,7 +1680,7 @@ sanitize_for_sig :: (fn(imm(s) : String) -> String)({
 /// For function values, returns `fn_<func_id>`.
 /// For other values, falls back to value_to_string.
 ///
-value_to_signature_string :: (fn(imm(value) : EvalValue) -> String)(
+value_to_signature_string :: (fn(value : &EvalValue) -> String)(
   match(
     value,
     // The human-readable type string ALONE is not instantiation-precise — an
@@ -1715,12 +1715,12 @@ value_to_signature_string :: (fn(imm(value) : EvalValue) -> String)(
 ///
 compute_compile_time_signature :: (
   fn(
-    imm(func_type) : TypeValue,
-    imm(arg_values) : ArgValues,
-    imm(callee_env) : Environment,
-    imm(runtime_param_tys) : ArrayList(TypeValue),
-    imm(param_comptime) : ArrayList(bool),
-    imm(exn) : Exception
+    func_type : &TypeValue,
+    arg_values : &ArgValues,
+    callee_env : &Environment,
+    runtime_param_tys : &ArrayList(TypeValue),
+    param_comptime : &ArrayList(bool),
+    exn : &Exception
   ) -> String
 )({
   parts := ArrayList(String).new();
@@ -1879,7 +1879,7 @@ compute_compile_time_signature :: (
 /// Whether `var`, a concrete binding of `label`, belongs to THIS call's binder:
 /// recorded for the binder's self-marker id, or unrecorded and in the call's
 /// own top frame. A caller's same-named binder bound in an outer frame is not.
-_binding_is_for_call_binder :: (fn(imm(var) : Variable, imm(env) : Environment, imm(label) : String) -> bool)({
+_binding_is_for_call_binder :: (fn(var : &Variable, env : &Environment, label : &String) -> bool)({
   recorded := variable_bound_some_id(var);
   cond(
     (recorded.len() > usize(0)) => (recorded == _self_marker_id(env, label)),
@@ -1888,7 +1888,7 @@ _binding_is_for_call_binder :: (fn(imm(var) : Variable, imm(env) : Environment, 
 });
 /// The id of the SomeT a type binder's self-marker (`T := SomeT(T)`, the
 /// placeholder a call installs for its own binder) holds in `env`, or "".
-_self_marker_id :: (fn(imm(env) : Environment, imm(label) : String) -> String)({
+_self_marker_id :: (fn(env : &Environment, label : &String) -> String)({
   vars := get_variables_from_env(env, label);
   (i : usize) = vars.len();
   while(i > usize(0), {
@@ -1916,7 +1916,7 @@ _self_marker_id :: (fn(imm(env) : Environment, imm(label) : String) -> String)({
 /// binder of another lineage (the caller's own `T`) neither reads it nor
 /// overwrites it (`variable_bound_some_id`,
 /// issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-_record_prebound_binder :: (fn(imm(bound) : Option(Variable), imm(some_id) : String) -> unit)(
+_record_prebound_binder :: (fn(bound : &Option(Variable), some_id : &String) -> unit)(
   match(
     bound,
     .Some(bv) => if(some_id.len() > usize(0), {
@@ -1927,10 +1927,10 @@ _record_prebound_binder :: (fn(imm(bound) : Option(Variable), imm(some_id) : Str
 );
 _find_specialization_cache :: (
   fn(
-    imm(ctx) : EvalContext,
-    imm(func_id) : String,
-    imm(compile_time_arg_values) : ArrayList(EvalValue),
-    imm(runtime_parameter_types) : ArrayList(TypeValue)
+    ctx : &EvalContext,
+    func_id : &String,
+    compile_time_arg_values : &ArrayList(EvalValue),
+    runtime_parameter_types : &ArrayList(TypeValue)
   ) -> Option(EvalValue)
 )({
   n_entries := g_specialized_fn_caches.len();
@@ -2066,11 +2066,11 @@ _find_specialization_cache :: (
 /// Store a specialization in the cache.
 _store_specialization_cache :: (
   fn(
-    imm(ctx) : EvalContext,
-    imm(func_id) : String,
-    imm(compile_time_arg_values) : ArrayList(EvalValue),
-    imm(runtime_parameter_types) : ArrayList(TypeValue),
-    imm(specialized_func_val) : EvalValue
+    ctx : &EvalContext,
+    func_id : &String,
+    compile_time_arg_values : &ArrayList(EvalValue),
+    runtime_parameter_types : &ArrayList(TypeValue),
+    specialized_func_val : &EvalValue
   ) -> unit
 )({
   new_cache := SpecializedFunctionCache(
@@ -2153,7 +2153,7 @@ specialization_recording_take :: (fn(start : usize) -> ArrayList(EvalValue))({
 /// (issues/fixed/build-watch-reuses-a-stale-imported-module.md). Dropping the
 /// entry makes the re-evaluation specialize afresh. Entries outside any module
 /// load (`""`) stay.
-purge_specialization_caches_owned_by :: (fn(imm(owner) : String) -> unit)({
+purge_specialization_caches_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
@@ -2271,7 +2271,7 @@ specialization_flat_capture_count :: (fn() -> usize)({
 /// self-recursion, skips specialization, and the call site emits the BARE
 /// generic fid ("call to undeclared function 'yo_id_NNNN'" — the collections
 /// batch residual). Empty for plain generic functions and non-FuncVals.
-_impl_type_captures_sig :: (fn(imm(fv) : EvalValue) -> String)({
+_impl_type_captures_sig :: (fn(fv : &EvalValue) -> String)({
   out := String.new();
   match(
     fv,
@@ -2308,7 +2308,7 @@ _impl_type_captures_sig :: (fn(imm(fv) : EvalValue) -> String)({
 /// `bindings_sig` (see `_impl_type_captures_sig`) must ALSO match: a stack hit
 /// for the same func_id at a DIFFERENT impl instantiation is not recursion.
 _find_mutual_specializing_info :: (
-  fn(imm(ctx) : EvalContext, imm(fid) : String, imm(bindings_sig) : String) -> Option(SpecializingFunctionInfo)
+  fn(ctx : &EvalContext, fid : &String, bindings_sig : &String) -> Option(SpecializingFunctionInfo)
 )({
   top_is_fid := match(
     ctx.currently_specializing_function,
@@ -2355,7 +2355,7 @@ _find_mutual_specializing_info :: (
 /// because the value is a reference (never re-evaluated) and `EvalValue`
 /// is not clonable.
 _build_forward_ref_funcval :: (
-  fn(imm(func_val) : Option(EvalValue), imm(specialized_func_id) : String) -> EvalValue
+  fn(func_val : &Option(EvalValue), specialized_func_id : &String) -> EvalValue
 )(
   match(
     func_val,
@@ -2385,7 +2385,7 @@ _build_forward_ref_funcval :: (
 // create_specialized_function_inline
 /// Resolve a type-argument SomeT the way `type_key` keys it
 /// (`_tk_resolve_arg_slot`): the snapshot must agree with the key.
-_spec_resolve_slot_cell :: (fn(imm(t_in) : TypeValue) -> TypeValue)(_tk_resolve_arg_slot(t_in));
+_spec_resolve_slot_cell :: (fn(t_in : &TypeValue) -> TypeValue)(_tk_resolve_arg_slot(t_in));
 /// SNAPSHOT a ctor-stamped record's generic slots at SPECIALIZATION time:
 /// resolve each `type_arguments`/`field_types` SomeT through its resolution
 /// chain NOW, so the registered spec signature names the CALL era's concrete
@@ -2396,7 +2396,7 @@ _spec_resolve_slot_cell :: (fn(imm(t_in) : TypeValue) -> TypeValue)(_tk_resolve_
 /// minted for (`IterFilter(_, capture-A)` at the call site vs
 /// `IterFilter(_, capture-B)` in the spec signature — the arm-18 clang
 /// mismatch).
-_bake_record_slots :: (fn(imm(ty) : TypeValue) -> TypeValue)(
+_bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
     .Struct({
@@ -2472,7 +2472,7 @@ _bake_record_slots :: (fn(imm(ty) : TypeValue) -> TypeValue)(
 /// module-level channel), for its caller's re-raise.
 (g_reeval_closure_err : ArrayList(YoError)) = ArrayList(YoError).new();
 _reeval_closure_body_swallow :: (
-  fn(imm(body) : AstExpr, imm(benv) : Environment, imm(ctx) : EvalContext) -> unit
+  fn(body : &AstExpr, benv : &Environment, ctx : &EvalContext) -> unit
 )({
   g_reeval_closure_err.clear();
   // YO_DEBUG_SWALLOW=1 prints `[reeval-swallow] <err>` (Phase 6 census: this
@@ -2495,7 +2495,7 @@ _reeval_closure_body_swallow :: (
 /// runtime parameter type still mentions a type variable? (Not the whole
 /// cache key: it also carries the declared result, which stays abstract
 /// until the body is evaluated.)
-_spec_bindings_are_concrete :: (fn(imm(forall_args) : ArrayList(ArgEntry), imm(runtime_param_tys) : ArrayList(TypeValue)) -> bool)({
+_spec_bindings_are_concrete :: (fn(forall_args : &ArrayList(ArgEntry), runtime_param_tys : &ArrayList(TypeValue)) -> bool)({
   (fi : usize) = usize(0);
   while(fi < forall_args.len(), {
     match(
@@ -2542,7 +2542,7 @@ _spec_bindings_are_concrete :: (fn(imm(forall_args) : ArrayList(ArgEntry), imm(r
 /// shape), so a caller holding a concrete capture struct called the void*
 /// spec — `(void*)(<struct value>)`, the stage-2 dyn-capture clang cluster
 /// (issues/fixed/yo-self-stage2-get-type-string-cycle.md).
-_spec_resolve_arg_ty :: (fn(imm(t_in) : TypeValue) -> TypeValue)({
+_spec_resolve_arg_ty :: (fn(t_in : &TypeValue) -> TypeValue)({
   (cur : TypeValue) = t_in;
   (seen : ArrayList(String)) = ArrayList(String).new();
   (walk : bool) = true;
@@ -2587,7 +2587,7 @@ _spec_resolve_arg_ty :: (fn(imm(t_in) : TypeValue) -> TypeValue)({
 /// A forwarded closure param has no FuncVal; when its type resolved to a
 /// `capture_*` struct, push `clcap<i>_<struct id>` onto the specialization
 /// cache key so two layout-identical capture structs never share a spec.
-_push_forwarded_closure_key :: (fn(mut(compile_time_args) : ArrayList(EvalValue), cfi : usize, imm(arg_ty) : TypeValue) -> unit)(
+_push_forwarded_closure_key :: (fn(compile_time_args : &mut ArrayList(EvalValue), cfi : usize, arg_ty : &TypeValue) -> unit)(
   match(
     _spec_resolve_arg_ty(arg_ty),
     .Struct({ id : cap_sid }) => if(cap_sid.starts_with("capture_"), {
@@ -2600,7 +2600,7 @@ _push_forwarded_closure_key :: (fn(mut(compile_time_args) : ArrayList(EvalValue)
 /// (an `Impl(Fn(...))` type bound to a generic parameter)? Such a SomeT is
 /// the call's instantiation, not an unresolved type variable, so a return type
 /// re-evaluated to carry it is as settled as a concrete one.
-_somes_are_closure_forall_args :: (fn(imm(somes) : ArrayList(TypeValue), imm(forall_args) : ArrayList(ArgEntry)) -> bool)({
+_somes_are_closure_forall_args :: (fn(somes : &ArrayList(TypeValue), forall_args : &ArrayList(ArgEntry)) -> bool)({
   ids := ArrayList(String).new();
   (fi : usize) = usize(0);
   while(fi < forall_args.len(), {
@@ -2648,13 +2648,13 @@ _somes_are_closure_forall_args :: (fn(imm(somes) : ArrayList(TypeValue), imm(for
 });
 create_specialized_function_inline :: (
   fn(
-    imm(original_func_val) : EvalValue,
-    imm(func_type) : TypeValue,
-    imm(arg_values) : ArgValues,
-    imm(callee_env) : Environment,
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    original_func_val : &EvalValue,
+    func_type : &TypeValue,
+    arg_values : &ArgValues,
+    callee_env : &Environment,
+    caller_env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> EvalValue
 )({
   result := match(
@@ -4933,7 +4933,7 @@ create_specialized_function_inline :: (
 });
 /// "`twice` with T = bool": the instantiation a call asked for, for the
 /// note that names it.
-_instantiation_description :: (fn(imm(callee) : String, imm(names) : ArrayList(String), imm(forall_args) : ArrayList(ArgEntry)) -> String)({
+_instantiation_description :: (fn(callee : &String, names : &ArrayList(String), forall_args : &ArrayList(ArgEntry)) -> String)({
   out := `\`${callee}\``;
   (n_bound : usize) = usize(0);
   (i : usize) = usize(0);
@@ -4961,13 +4961,13 @@ _instantiation_description :: (fn(imm(callee) : String, imm(names) : ArrayList(S
 /// the specialization goes to `out`.
 _create_specialization_trapped :: (
   fn(
-    imm(fv) : EvalValue,
-    imm(ft) : TypeValue,
-    imm(av) : ArgValues,
-    imm(callee_env) : Environment,
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
-    mut(out) : ArrayList(EvalValue)
+    fv : &EvalValue,
+    ft : &TypeValue,
+    av : &ArgValues,
+    callee_env : &Environment,
+    caller_env : &Environment,
+    ctx : &EvalContext,
+    out : &mut ArrayList(EvalValue)
   ) -> Option(AnyError)
 )({
   trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
@@ -4981,7 +4981,7 @@ _create_specialization_trapped :: (
 /// library (`evaluate_function_call` reports those at the user's call). A
 /// flagged rejection that is this error gets the note too: the
 /// definition-time re-raise throws the flag, not the error this frame sees.
-_with_instantiation_note :: (fn(imm(err) : AnyError, imm(call_tok) : Token, imm(description) : String, callee_in_std : bool) -> AnyError)({
+_with_instantiation_note :: (fn(err : &AnyError, call_tok : &Token, description : &String, callee_in_std : bool) -> AnyError)({
   ye := match(downcast(err, YoError), .Some(y) => y, .None => return(err));
   prim_at_call := match(
     ye.diagnostics.get(usize(0)),
@@ -5005,7 +5005,7 @@ _with_instantiation_note :: (fn(imm(err) : AnyError, imm(call_tok) : Token, imm(
   );
   dyn(noted)
 });
-_same_primary_span :: (fn(imm(a) : YoError, imm(b) : YoError) -> bool)(
+_same_primary_span :: (fn(a : &YoError, b : &YoError) -> bool)(
   match(
     a.diagnostics.get(usize(0)),
     .Some(da) => match(
@@ -5022,16 +5022,16 @@ _same_primary_span :: (fn(imm(a) : YoError, imm(b) : YoError) -> bool)(
 /// its body raises (`_with_instantiation_note`).
 create_specialization_at_call :: (
   fn(
-    imm(fv) : EvalValue,
-    imm(ft) : TypeValue,
-    imm(av) : ArgValues,
-    imm(callee_env) : Environment,
-    imm(caller_env) : Environment,
-    imm(call_tok) : Token,
-    imm(callee_name) : String,
-    imm(names) : ArrayList(String),
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    fv : &EvalValue,
+    ft : &TypeValue,
+    av : &ArgValues,
+    callee_env : &Environment,
+    caller_env : &Environment,
+    call_tok : &Token,
+    callee_name : &String,
+    names : &ArrayList(String),
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> EvalValue
 )({
   callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(ast_expr_token(fvd.*.body).module_path, ctx.std_path.clone()), _ => false);
@@ -5082,12 +5082,12 @@ create_specialization_at_call :: (
 /// type (not from the arguments).
 evaluate_ctl_function_body_inline :: (
   fn(
-    imm(original_func_val) : EvalValue,
-    imm(func_type) : TypeValue,
-    imm(callee_env) : Environment,
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    original_func_val : &EvalValue,
+    func_type : &TypeValue,
+    callee_env : &Environment,
+    caller_env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> EvalValue
 )({
   // Extract FuncVal fields individually to avoid tuple destructuring.
@@ -5433,11 +5433,11 @@ evaluate_ctl_function_body_inline :: (
 /// at instantiation (issues/fixed/yo-self-where-clause-full-enforcement.md).
 validate_where_constraints_for_call :: (
   fn(
-    imm(func_id) : String,
-    imm(callee_env) : Environment,
-    imm(tok) : Token,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    func_id : &String,
+    callee_env : &Environment,
+    tok : &Token,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   where_constraint_list := get_func_where_constraints(func_id);
@@ -5588,10 +5588,10 @@ validate_where_constraints_for_call :: (
 /// Called from BOTH call paths, like `validate_where_constraints_for_call`.
 reapply_where_clause_exprs_for_call :: (
   fn(
-    imm(func_id) : String,
-    imm(callee_env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    func_id : &String,
+    callee_env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   wce_exprs := get_func_where_clause_exprs(func_id);
@@ -5679,17 +5679,17 @@ reapply_where_clause_exprs_for_call :: (
 /// the results ride out via `out`, exactly like `_trial_eval_fn_body`).
 resolve_param_types_from_expected :: (
   fn(
-    imm(func_type) : TypeValue,
-    imm(expected_ty) : TypeValue,
-    imm(expected_env) : Environment,
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
-    mut(out) : ArrayList(TypeValue),
+    func_type : &TypeValue,
+    expected_ty : &TypeValue,
+    expected_env : &Environment,
+    caller_env : &Environment,
+    ctx : &EvalContext,
+    out : &mut ArrayList(TypeValue),
     /// OUT: each `generic(...)` binder the expected type binds to a CONCRETE
     /// type, and that type — for a caller whose arguments cannot bind a
     /// result-only binder.
-    mut(forall_out_names) : ArrayList(String),
-    mut(forall_out_types) : ArrayList(TypeValue)
+    forall_out_names : &mut ArrayList(String),
+    forall_out_types : &mut ArrayList(TypeValue)
   ) -> unit
 )({
   default_pts := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
@@ -5752,7 +5752,7 @@ resolve_param_types_from_expected :: (
     pj = (pj + usize(1));
   });
 });
-_func_type_has_runtime_some_param :: (fn(imm(t) : TypeValue) -> bool)(
+_func_type_has_runtime_some_param :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Func({ param_types : pts }) => {
@@ -5786,7 +5786,7 @@ _func_type_has_runtime_some_param :: (fn(imm(t) : TypeValue) -> bool)(
 /// specialization pass). Validation still happens at Step 8b.
 /// Collect every Atom token value in `e` into `out` (pre-order). Used by the
 /// Step-6c prebind to find which forall labels a constraint expr references.
-_collect_atom_names_into :: (fn(imm(e) : AstExpr, mut(out) : ArrayList(String)) -> unit)(
+_collect_atom_names_into :: (fn(e : &AstExpr, out : &mut ArrayList(String)) -> unit)(
   match(
     e,
     .Atom(_, a_tok) => {
@@ -5807,7 +5807,7 @@ _collect_atom_names_into :: (fn(imm(e) : AstExpr, mut(out) : ArrayList(String)) 
   )
 );
 _try_apply_early_where_clauses :: (
-  fn(imm(constraint_exprs) : ArrayList(AstExpr), imm(callee_env) : Environment, imm(ctx) : EvalContext) -> unit
+  fn(constraint_exprs : &ArrayList(AstExpr), callee_env : &Environment, ctx : &EvalContext) -> unit
 )({
   eaw_exn := Exception(throw : (_eaw_e -> unwind(())));
   apply_where_clause_constraints(constraint_exprs, callee_env, ctx, eaw_exn);
@@ -5818,7 +5818,7 @@ _try_apply_early_where_clauses :: (
 /// `e.io.async(...)` (the bundle is `e`), the receiver itself for a bare
 /// `io.async(...)` variable receiver (the bundle IS that `Io` value).
 /// `.None` for any other receiver shape.
-_io_async_receiver_bundle_expr :: (fn(imm(expr) : AstExpr) -> Option(AstExpr))(
+_io_async_receiver_bundle_expr :: (fn(expr : &AstExpr) -> Option(AstExpr))(
   match(
     expr,
     .Atom(_, _) => Option(AstExpr).None,
@@ -5866,7 +5866,7 @@ _io_async_receiver_bundle_expr :: (fn(imm(expr) : AstExpr) -> Option(AstExpr))(
 /// through the argument-unification path, and the receiver-derived bind must
 /// yield to it — pre-binding `E := Io` from the receiver made the annotated
 /// `Ctx` param fail unification ("Cannot unify incompatible struct types").
-_io_async_closure_param_is_annotated :: (fn(imm(expr) : AstExpr) -> bool)(
+_io_async_closure_param_is_annotated :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
     .Atom(_, _) => false,
@@ -5888,7 +5888,7 @@ _io_async_closure_param_is_annotated :: (fn(imm(expr) : AstExpr) -> bool)(
 /// The already-evaluated type of `e`, from its stamped ExprInfo, falling back
 /// to the env binding for a bare variable. `.None` when unknown.
 _evaluated_expr_type :: (
-  fn(imm(e) : AstExpr, imm(caller_env) : Environment, imm(ctx) : EvalContext) -> Option(TypeValue)
+  fn(e : &AstExpr, caller_env : &Environment, ctx : &EvalContext) -> Option(TypeValue)
 )({
   from_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
@@ -5924,7 +5924,7 @@ _evaluated_expr_type :: (
 /// overload trials rely on that distinction to pick `comptime_not` or `not`.
 /// A value of a comptime-only type is compile-time by construction, and a
 /// SomeT-typed one is still generic.
-runtime_value_for_comptime_param :: (fn(imm(ty) : TypeValue, imm(value) : Option(EvalValue)) -> bool)(
+runtime_value_for_comptime_param :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> bool)(
   !type_requires_comptime_modifier(ty) && (get_all_some_types(ty).len() == usize(0)) && match(
     value,
     .None => true,
@@ -5940,7 +5940,7 @@ runtime_value_for_comptime_param :: (fn(imm(ty) : TypeValue, imm(value) : Option
 /// A definition-time trial and a CTFE-capability analysis bind the caller's
 /// own parameters to unknowns by construction, so only a real call is judged.
 reject_runtime_comptime_arguments :: (
-  fn(imm(fv) : EvalValue, imm(args) : ArrayList(ArgEntry), imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
+  fn(fv : &EvalValue, args : &ArrayList(ArgEntry), tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit
 )({
   if(in_def_time_trial() || ctx.is_analyzing_ctfe_capability, {
     return(());
@@ -5980,7 +5980,7 @@ reject_runtime_comptime_arguments :: (
 /// function literal (`(x) -> …`)? Only `=>` makes a closure, but both take
 /// their parameter types from an expected `Impl(Fn(...))`, which is what the
 /// "evaluated after the other arguments" rule is about.
-_is_fn_literal_arg :: (fn(imm(arg) : AstExpr) -> bool)({
+_is_fn_literal_arg :: (fn(arg : &AstExpr) -> bool)({
   (a : AstExpr) = arg;
   if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
     a = match(a, .FnCall(_, _, cl_as, _, _) => match(cl_as.get(usize(1)), .Some(v) => v, .None => a), _ => a);
@@ -5990,7 +5990,7 @@ _is_fn_literal_arg :: (fn(imm(arg) : AstExpr) -> bool)({
 /// Does `t` mention a SomeT named after one of `forall_names`?
 /// Every SomeT `t` mentions, including those inside an `Impl(Fn(...))`
 /// SomeT's signature constraint, which the structural walk does not enter.
-collect_somes_with_fn_sigs :: (fn(imm(t) : TypeValue) -> ArrayList(TypeValue))({
+collect_somes_with_fn_sigs :: (fn(t : &TypeValue) -> ArrayList(TypeValue))({
   somes := get_all_some_types(t);
   // An `Impl(Fn(...))` SomeT carries its signature as a constraint, which the
   // structural walk does not enter.
@@ -6026,7 +6026,7 @@ collect_somes_with_fn_sigs :: (fn(imm(t) : TypeValue) -> ArrayList(TypeValue))({
   somes
 });
 /// Does `t` mention a SomeT named after one of `forall_names`?
-_mentions_forall_binder :: (fn(imm(t) : TypeValue, imm(forall_names) : ArrayList(String)) -> bool)({
+_mentions_forall_binder :: (fn(t : &TypeValue, forall_names : &ArrayList(String)) -> bool)({
   somes := collect_somes_with_fn_sigs(t);
   (i : usize) = usize(0);
   while(i < somes.len(), {
@@ -6050,14 +6050,14 @@ _mentions_forall_binder :: (fn(imm(t) : TypeValue, imm(forall_names) : ArrayList
 /// rejected (`Cannot unify unit and i32`) or its body was never checked against
 /// the solved `T`
 /// (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
-fn_literal_arg_is_deferred :: (fn(imm(args) : ArrayList(AstExpr), i : usize, n_p : usize, imm(param_types) : ArrayList(TypeValue), imm(forall_names) : ArrayList(String)) -> bool)({
+fn_literal_arg_is_deferred :: (fn(args : &ArrayList(AstExpr), i : usize, n_p : usize, param_types : &ArrayList(TypeValue), forall_names : &ArrayList(String)) -> bool)({
   a := match(args.get(i), .Some(x) => x, .None => make_err_expr());
   pt := match(param_types.get(i), .Some(t) => t, .None => t_unit());
   (i < n_p) && _is_fn_literal_arg(a) && is_some_type(pt) && extract_fn_trait_from_type(pt).is_some() && _mentions_forall_binder(pt, forall_names)
 });
 /// Step 7's parameter order: every parameter in order, the deferred function
 /// literals (`fn_literal_arg_is_deferred`) last.
-_step7_param_order :: (fn(imm(args) : ArrayList(AstExpr), n_args : usize, n_params : usize, imm(param_types) : ArrayList(TypeValue), imm(forall_labels) : ArrayList(String)) -> ArrayList(usize))({
+_step7_param_order :: (fn(args : &ArrayList(AstExpr), n_args : usize, n_params : usize, param_types : &ArrayList(TypeValue), forall_labels : &ArrayList(String)) -> ArrayList(usize))({
   first := ArrayList(usize).new();
   last := ArrayList(usize).new();
   (i : usize) = usize(0);
@@ -6076,7 +6076,7 @@ _step7_param_order :: (fn(imm(args) : ArrayList(AstExpr), n_args : usize, n_para
   });
   first
 });
-_order_is_permuted :: (fn(imm(order) : ArrayList(usize)) -> bool)({
+_order_is_permuted :: (fn(order : &ArrayList(usize)) -> bool)({
   (i : usize) = usize(0);
   while(i < order.len(), {
     if(match(order.get(i), .Some(o) => (o != i), .None => false), {
@@ -6088,7 +6088,7 @@ _order_is_permuted :: (fn(imm(order) : ArrayList(usize)) -> bool)({
 });
 /// `list[q]` belongs to parameter `idx[q]` (each parameter once): return the
 /// entries in parameter order.
-_restore_argentries_by_index :: (fn(imm(list) : ArrayList(ArgEntry), imm(idx) : ArrayList(usize)) -> ArrayList(ArgEntry))({
+_restore_argentries_by_index :: (fn(list : &ArrayList(ArgEntry), idx : &ArrayList(usize)) -> ArrayList(ArgEntry))({
   out := ArrayList(ArgEntry).new();
   (t : usize) = usize(0);
   while(t < list.len(), {
@@ -6106,7 +6106,7 @@ _restore_argentries_by_index :: (fn(imm(list) : ArrayList(ArgEntry), imm(idx) : 
 /// The runtime argument expressions a parameter's matching pushed are the
 /// span `[start, end)` of `list`; return the spans concatenated in parameter
 /// order.
-_restore_rt_spans :: (fn(imm(list) : ArrayList(AstExpr), imm(span_param) : ArrayList(usize), imm(span_start) : ArrayList(usize), imm(span_end) : ArrayList(usize)) -> ArrayList(AstExpr))({
+_restore_rt_spans :: (fn(list : &ArrayList(AstExpr), span_param : &ArrayList(usize), span_start : &ArrayList(usize), span_end : &ArrayList(usize)) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   (covered : usize) = usize(0);
   (t : usize) = usize(0);
@@ -6153,7 +6153,7 @@ _restore_rt_spans :: (fn(imm(list) : ArrayList(AstExpr), imm(span_param) : Array
 /// The name of a binder among `binder_ids` that `t` still mentions with no
 /// resolution (none of its own, nothing registered) and that no inference channel
 /// bound (`bound_names`), or `.None`.
-unresolved_own_binder :: (fn(imm(t) : TypeValue, imm(binder_ids) : ArrayList(String), imm(bound_names) : ArrayList(String)) -> Option(String))({
+unresolved_own_binder :: (fn(t : &TypeValue, binder_ids : &ArrayList(String), bound_names : &ArrayList(String)) -> Option(String))({
   somes := get_all_some_types(t);
   match(t, .SomeT(_, _, _, _, _, _, _, _, _, _) => somes.push(t), _ => ());
   (si : usize) = usize(0);
@@ -6195,7 +6195,7 @@ unresolved_own_binder :: (fn(imm(t) : TypeValue, imm(binder_ids) : ArrayList(Str
 /// `env` right now, or `.None` while it is still a type variable. Reads the
 /// binding the way Step 8 extracts it (last binding; a SomeT through its
 /// own resolution, then the id registry).
-_forall_binding_now :: (fn(imm(env) : Environment, imm(label) : String) -> Option(TypeValue))({
+_forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))({
   vars := get_variables_from_env(env, label);
   if(vars.len() == usize(0), {
     return(Option(TypeValue).None);
@@ -6229,7 +6229,7 @@ _forall_binding_now :: (fn(imm(env) : Environment, imm(label) : String) -> Optio
 /// Is `label`'s binding in `env` still the signature's own binder `sig_id`,
 /// bound to nothing — no concrete type, no resolution, and not even another
 /// type variable (a generic caller's `U` flowing in is a binding)?
-_forall_binder_unbound :: (fn(imm(env) : Environment, imm(label) : String, imm(sig_id) : String) -> bool)({
+_forall_binder_unbound :: (fn(env : &Environment, label : &String, sig_id : &String) -> bool)({
   vars := get_variables_from_env(env, label);
   if(vars.len() == usize(0), {
     return(false);
@@ -6255,7 +6255,7 @@ _forall_binder_unbound :: (fn(imm(env) : Environment, imm(label) : String, imm(s
 /// The concrete VALUE a call's `generic(N : usize)` binder `label` is bound
 /// to in `env` right now (the synthesizer's Array-length arm binds it to an
 /// `IntLit`), or `.None` while it is unbound or a type binder.
-_forall_len_binding_now :: (fn(imm(env) : Environment, imm(label) : String) -> Option(String))({
+_forall_len_binding_now :: (fn(env : &Environment, label : &String) -> Option(String))({
   vars := get_variables_from_env(env, label);
   if(vars.len() == usize(0), {
     return(Option(String).None);
@@ -6288,13 +6288,13 @@ ForallBindingSeen :: struct(label : String, ty : TypeValue, arg_index : usize, l
 /// (issues/fixed/a-usize-generic-binder-rebinds-per-argument.md).
 _check_forall_bindings_after_arg :: (
   fn(
-    imm(forall_labels) : ArrayList(String),
-    imm(env) : Environment,
+    forall_labels : &ArrayList(String),
+    env : &Environment,
     arg_index : usize,
-    imm(param_labels) : ArrayList(String),
-    mut(seen) : ArrayList(ForallBindingSeen),
-    imm(tok) : Token,
-    imm(exn) : Exception
+    param_labels : &ArrayList(String),
+    seen : &mut ArrayList(ForallBindingSeen),
+    tok : &Token,
+    exn : &Exception
   ) -> unit
 )({
   (fi : usize) = usize(0);
@@ -6365,7 +6365,7 @@ _check_forall_bindings_after_arg :: (
 /// while `mk` returned its closure struct by value — invalid C
 /// (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
 /// Otherwise `declared`.
-_impl_fn_callee_result :: (fn(imm(callee_ty) : TypeValue, imm(declared) : TypeValue) -> TypeValue)({
+_impl_fn_callee_result :: (fn(callee_ty : &TypeValue, declared : &TypeValue) -> TypeValue)({
   if(type_has_no_open_some(declared), {
     return(declared);
   });
@@ -6388,17 +6388,17 @@ _impl_fn_callee_result :: (fn(imm(callee_ty) : TypeValue, imm(declared) : TypeVa
 });
 try_to_call_function_with_arguments :: (
   fn(
-    imm(func_val) : Option(EvalValue),
-    imm(func_type) : TypeValue,
-    imm(expr) : AstExpr,
-    imm(callee_expr) : AstExpr,
-    imm(arg_exprs) : ArrayList(AstExpr),
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
+    func_val : &Option(EvalValue),
+    func_type : &TypeValue,
+    expr : &AstExpr,
+    callee_expr : &AstExpr,
+    arg_exprs : &ArrayList(AstExpr),
+    caller_env : &Environment,
+    ctx : &EvalContext,
     is_method_call : bool,
     skip_specialization : bool,
     skip_ctfe_execution : bool,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> FuncCallResult
 )({
   callee_expr;
@@ -6780,7 +6780,7 @@ try_to_call_function_with_arguments :: (
       // last-binding-wins), routing fold's `F` to filter's predicate.
       (self_only_ids : ArrayList(String)) = ArrayList(String).new();
       if(is_method_call && (pt.len() > usize(0)), {
-        _sx_push_ids :: (fn(imm(ty) : TypeValue, mut(out_ids) : ArrayList(String)) -> unit)({
+        _sx_push_ids :: (fn(ty : &TypeValue, out_ids : &mut ArrayList(String)) -> unit)({
           sx_all := get_all_some_types(ty);
           (sx_i : usize) = usize(0);
           while(sx_i < sx_all.len(), {
@@ -9009,7 +9009,7 @@ try_to_call_function_with_arguments :: (
 });
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
-forall_binding_now :: (fn(imm(env) : Environment, imm(label) : String) -> Option(TypeValue))(_forall_binding_now(env, label));
+forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))(_forall_binding_now(env, label));
 export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, audit_borrow_marker_site, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);

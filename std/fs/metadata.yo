@@ -60,7 +60,7 @@ impl(
   /// filesystem's own bookkeeping size, not the number of entries; for a
   /// symlink read through `symlink_metadata` it is the length of the target
   /// string.
-  size : (fn(imm(self) : Self) -> i64)(
+  size : (fn(self : &Self) -> i64)(
     self._statx.size()
   ),
   /// The raw `st_mode` word — permission bits AND the file-type bits
@@ -69,23 +69,23 @@ impl(
   /// writability. On Windows the CRT synthesises it from the file attributes
   /// and the filename extension, so a real POSIX mode is only available on
   /// Linux, macOS and wasm.
-  mode : (fn(imm(self) : Self) -> u32)(
+  mode : (fn(self : &Self) -> u32)(
     self._statx.mode()
   ),
   /// True for a regular file — Rust's `Metadata::is_file`. Through
   /// `metadata` (which follows symlinks) a link to a file answers true;
   /// through `symlink_metadata` it does not.
-  is_file : (fn(imm(self) : Self) -> bool)(
+  is_file : (fn(self : &Self) -> bool)(
     self._statx.is_file()
   ),
   /// True for a directory — Rust's `Metadata::is_dir`.
-  is_dir : (fn(imm(self) : Self) -> bool)(
+  is_dir : (fn(self : &Self) -> bool)(
     self._statx.is_directory()
   ),
   /// True for a symbolic link — Rust's `Metadata::is_symlink`. This can only
   /// ever be true for metadata obtained through `symlink_metadata`, because
   /// `metadata` follows the final link and reports the target.
-  is_symlink : (fn(imm(self) : Self) -> bool)(
+  is_symlink : (fn(self : &Self) -> bool)(
     self._statx.is_symlink()
   ),
   /// Last content-modification time as a wall-clock `SystemTime` — Rust's
@@ -99,20 +99,20 @@ impl(
   /// promises the ordering — only that the two readings are close — which is
   /// why `SystemTime.duration_since` hands back a `Result` rather than
   /// clamping to zero.
-  modified : (fn(imm(self) : Self) -> SystemTime)(
+  modified : (fn(self : &Self) -> SystemTime)(
     SystemTime.from_unix_parts(self._statx.mtime_sec(), i64(self._statx.mtime_nsec()))
   ),
   /// Last access time as a `SystemTime` — Rust's `Metadata::accessed`. Read
   /// this expecting it to be stale: `relatime`/`noatime` mounts are the
   /// default on Linux, so atime often only moves when the file is also
   /// written.
-  accessed : (fn(imm(self) : Self) -> SystemTime)(
+  accessed : (fn(self : &Self) -> SystemTime)(
     SystemTime.from_unix_parts(self._statx.atime_sec(), i64(self._statx.atime_nsec()))
   ),
   /// POSIX ctime — the last INODE change — as a `SystemTime`. NOT a creation
   /// time; see `status_changed_time` below for why, and for what Windows
   /// reports here instead.
-  status_changed : (fn(imm(self) : Self) -> SystemTime)(
+  status_changed : (fn(self : &Self) -> SystemTime)(
     SystemTime.from_unix_parts(self._statx.ctime_sec(), i64(self._statx.ctime_nsec()))
   ),
   /// Last modification time in WHOLE SECONDS since the Unix epoch.
@@ -123,12 +123,12 @@ impl(
   /// integer means. The two agree by construction —
   /// `modified_time() == modified().as_unix_secs()` is asserted by
   /// `tests/fs/metadata.test.yo`.
-  modified_time : (fn(imm(self) : Self) -> i64)(
+  modified_time : (fn(self : &Self) -> i64)(
     self._statx.mtime_sec()
   ),
   /// Last access time in whole seconds since the Unix epoch. See `accessed()`
   /// for the nanosecond-carrying form and the staleness caveat.
-  accessed_time : (fn(imm(self) : Self) -> i64)(
+  accessed_time : (fn(self : &Self) -> i64)(
     self._statx.atime_sec()
   ),
   /// Status change time in whole seconds since the Unix epoch — POSIX ctime.
@@ -144,7 +144,7 @@ impl(
   /// time (and only on NTFS), so on that platform this answers a different
   /// question from the POSIX one — treat it as "some timestamp about the
   /// file" rather than as a change marker.
-  status_changed_time : (fn(imm(self) : Self) -> i64)(
+  status_changed_time : (fn(self : &Self) -> i64)(
     self._statx.ctime_sec()
   ),
   /// True when NO write bit is set for owner, group or other — Rust's
@@ -152,19 +152,19 @@ impl(
   /// about whether THIS process can write: root ignores them, and an ACL, a
   /// read-only mount or an immutable flag can deny a write that the bits
   /// permit. Attempt the write if the answer has to be authoritative.
-  is_readonly : (fn(imm(self) : Self) -> bool)({
+  is_readonly : (fn(self : &Self) -> bool)({
     m := self._statx.mode();
     (m & (S_IWUSR | S_IWGRP | S_IWOTH)) == u32(0)
   }),
   /// Owning user id. POSIX only — on Windows the CRT's `_wstat64` leaves
   /// `st_uid` at 0, so this reports 0 for every file there rather than
   /// mapping the security descriptor's owner SID.
-  uid : (fn(imm(self) : Self) -> u32)(
+  uid : (fn(self : &Self) -> u32)(
     self._statx.uid()
   ),
   /// Owning group id. POSIX only — 0 on Windows, for the same reason as
   /// `uid`.
-  gid : (fn(imm(self) : Self) -> u32)(
+  gid : (fn(self : &Self) -> u32)(
     self._statx.gid()
   ),
   /// Inode number — with the device id, the filesystem's identity for this
@@ -174,7 +174,7 @@ impl(
   /// permission, or a filesystem that has no index). The device id itself is
   /// not exposed yet, so an identity comparison is only sound within one
   /// filesystem.
-  ino : (fn(imm(self) : Self) -> u64)(
+  ino : (fn(self : &Self) -> u64)(
     self._statx.ino()
   ),
   /// Number of hard links to this inode — 1 for an ordinary file, ≥2 once
@@ -182,14 +182,14 @@ impl(
   /// entry). On Windows it comes from `GetFileInformationByHandle`, so it is
   /// the real NTFS link count when that succeeds and the CRT's constant 1
   /// otherwise.
-  nlink : (fn(imm(self) : Self) -> u64)(
+  nlink : (fn(self : &Self) -> u64)(
     self._statx.nlink()
   )
 );
 impl(
   Metadata,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       free(.Some((*void)(self._buf_ptr)));
     })
   )
@@ -205,7 +205,7 @@ extern(
 // ============================================================================
 // Internal helper to stat a path
 // ============================================================================
-_stat_path :: (fn(imm(path) : Path, flags : i32, io : Io) -> Impl(Future(Metadata, IoExn)))(
+_stat_path :: (fn(path : &Path, flags : i32, io : Io) -> Impl(Future(Metadata, IoExn)))(
   io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -225,11 +225,11 @@ _stat_path :: (fn(imm(path) : Path, flags : i32, io : Io) -> Impl(Future(Metadat
   })
 );
 /// Get metadata for a path (follows symlinks).
-metadata :: (fn(imm(path) : Path, io : Io) -> Impl(Future(Metadata, IoExn)))(_stat_path(path, AT_STATX_SYNC_AS_STAT, io));
+metadata :: (fn(path : &Path, io : Io) -> Impl(Future(Metadata, IoExn)))(_stat_path(path, AT_STATX_SYNC_AS_STAT, io));
 /// Get metadata for a path given as a raw string (follows symlinks).
 metadata_str :: (fn(path : str, io : Io) -> Impl(Future(Metadata, IoExn)))(metadata(Path.new(String.from(path)), io));
 /// Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(imm(path) : Path, io : Io) -> Impl(Future(Metadata, IoExn)))(_stat_path(path, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, io));
+symlink_metadata :: (fn(path : &Path, io : Io) -> Impl(Future(Metadata, IoExn)))(_stat_path(path, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, io));
 /// Get metadata for a path given as a raw string (does NOT follow symlinks).
 symlink_metadata_str :: (fn(path : str, io : Io) -> Impl(Future(Metadata, IoExn)))(symlink_metadata(Path.new(String.from(path)), io));
 /// Get metadata for an ALREADY-OPEN descriptor (`fstat`) — Rust's

@@ -10,13 +10,13 @@ pragma(Pragma.AllowUnsafe);
 _ao_write :: (fn(p : *i32, v : i32) -> unit)({
   p.* = v;
 });
-_ao_id :: (fn(generic(T : Type), imm(x) : T) -> T)(x);
+_ao_id :: (fn(generic(T : Type), x : &T) -> T)(x);
 _ao_own :: (fn(generic(T : Type), x : T) -> T)(x);
-_ao_len :: (fn(imm(s) : String) -> usize)(s.len());
+_ao_len :: (fn(s : &String) -> usize)(s.len());
 _ao_take :: (fn(s : String) -> usize)(s.len());
 _ao_sink :: (fn(sink(s) : String) -> usize)(s.len());
 _AoBox :: struct(n : i32);
-impl(_AoBox, get : (fn(imm(self) : Self) -> i32)(self.n));
+impl(_AoBox, get : (fn(self : &Self) -> i32)(self.n));
 
 test("addr_of produces a raw pointer", {
   (n : i32) = i32(1);

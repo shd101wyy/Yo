@@ -55,16 +55,16 @@ impl(
     Self(_entries : ArrayList(MapEntry(K, V)).new())
   ),
   /// Number of entries. O(1).
-  len : (fn(imm(self) : Self) -> usize)(
+  len : (fn(self : &Self) -> usize)(
     self._entries.len()
   ),
   /// True when the map holds no entries.
-  is_empty : (fn(imm(self) : Self) -> bool)(
+  is_empty : (fn(self : &Self) -> bool)(
     self._entries.len() == usize(0)
   ),
   // Binary search: returns the index of the entry with key `k`,
   // or the insertion point if not found.
-  _find : (fn(imm(self) : Self, imm(k) : K, where(K <: Ord(K))) -> _FindResult)({
+  _find : (fn(self : &Self, k : &K, where(K <: Ord(K))) -> _FindResult)({
     lo := usize(0);
     hi := self._entries.len();
     while(lo < hi, {
@@ -87,7 +87,7 @@ impl(
   /// Copy of the value stored under `k`, or `.None` — O(log n) binary
   /// search. `self(k)` (the `Index` impl) asserts the key is present
   /// instead.
-  get : (fn(imm(self) : Self, imm(k) : K, where(K <: Ord(K))) -> Option(V))({
+  get : (fn(self : &Self, k : &K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => .Some(self._entries(r.idx).value),
@@ -100,7 +100,7 @@ impl(
   /// `push`'s `Result` before computing `len() - 1`
   /// (issues/fixed/btree-map-insert-dropped-the-old-value-and-push-results-were-ignored.md).
   /// For new keys: append at end then shift-left to the sorted position.
-  insert : (fn(mut(self) : Self, k : K, v : V, where(K <: Ord(K))) -> Option(V))({
+  insert : (fn(self : &mut Self, k : K, v : V, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => {
@@ -129,7 +129,7 @@ impl(
   }),
   /// Remove the entry for `k` and return its value, or `.None` — O(log n)
   /// to find it, O(n) to close the gap, and the key order is preserved.
-  remove : (fn(mut(self) : Self, imm(k) : K, where(K <: Ord(K))) -> Option(V))({
+  remove : (fn(self : &mut Self, k : &K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => {
@@ -142,11 +142,11 @@ impl(
   }),
   /// Whether `k` is present — Rust's `contains_key`. O(log n), and it does
   /// not touch the value.
-  contains_key : (fn(imm(self) : Self, imm(k) : K, where(K <: Ord(K))) -> bool)(
+  contains_key : (fn(self : &Self, k : &K, where(K <: Ord(K))) -> bool)(
     match(self.get(k), .Some(_) => true, .None => false)
   ),
   /// Remove and return the lowest entry — Rust's `pop_first`.
-  pop_first : (fn(mut(self) : Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
+  pop_first : (fn(self : &mut Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
     match(
       self.first_entry(),
       .Some(e) => {
@@ -157,7 +157,7 @@ impl(
     )
   ),
   /// Remove and return the highest entry — Rust's `pop_last`.
-  pop_last : (fn(mut(self) : Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
+  pop_last : (fn(self : &mut Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
     match(
       self.last_entry(),
       .Some(e) => {
@@ -173,14 +173,14 @@ impl(
   /// Named `first_entry`/`last_entry` rather than `min`/`max` because this is
   /// a MAP: it returns a whole `MapEntry`, not a key. Sets keep `min`/`max`,
   /// which do return the element (plans/archive/STD_API_AUDIT.md §5).
-  first_entry : (fn(imm(self) : Self) -> Option(MapEntry(K, V)))(
+  first_entry : (fn(self : &Self) -> Option(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries(usize(0)))
     )
   ),
   /// Return the entry with the largest key, or `.None`.
-  last_entry : (fn(imm(self) : Self) -> Option(MapEntry(K, V)))(
+  last_entry : (fn(self : &Self) -> Option(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries(self._entries.len() - usize(1)))
@@ -205,7 +205,7 @@ impl(
   BTreeMapIter(K, V),
   Iterator(
     Item : MapEntry(K, V),
-    next : (fn(mut(self) : Self) -> Option(MapEntry(K, V)))(
+    next : (fn(self : &mut Self) -> Option(MapEntry(K, V)))(
       cond(
         (self._index >= self._entries.len()) => .None,
         true => {
@@ -223,7 +223,7 @@ impl(
   IntoIterator(
     Item : MapEntry(K, V),
     IntoIter : BTreeMapIter(K, V),
-    into_iter : (fn(imm(self) : Self) -> BTreeMapIter(K, V))(
+    into_iter : (fn(self : &Self) -> BTreeMapIter(K, V))(
       BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
     )
   )
@@ -245,7 +245,7 @@ impl(
   BTreeMapIterPtr(K, V),
   Iterator(
     Item : *MapEntry(K, V),
-    next : (fn(mut(self) : Self) -> Option(*MapEntry(K, V)))(
+    next : (fn(self : &mut Self) -> Option(*MapEntry(K, V)))(
       cond(
         (self._index >= self._entries.len()) => .None,
         true =>
@@ -267,7 +267,7 @@ impl(
   BTreeMap(K, V),
   /// Borrowing walk in key order: yields a `*(MapEntry(K, V))` into the
   /// backing array and leaves the map intact (D14).
-  iter : (fn(imm(self) : Self) -> BTreeMapIterPtr(K, V))(
+  iter : (fn(self : &Self) -> BTreeMapIterPtr(K, V))(
     BTreeMapIterPtr(K, V)(_entries : self._entries, _index : usize(0))
   )
 );
@@ -283,7 +283,7 @@ impl(
   BTreeMapKeys(K, V),
   Iterator(
     Item : K,
-    next : (fn(mut(self) : Self) -> Option(K))(
+    next : (fn(self : &mut Self) -> Option(K))(
       match(
         self._inner.next(),
         .None => .None,
@@ -296,7 +296,7 @@ impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
   /// Walk the keys in ascending order — Rust's `keys`.
-  keys : (fn(imm(self) : Self) -> BTreeMapKeys(K, V))(
+  keys : (fn(self : &Self) -> BTreeMapKeys(K, V))(
     BTreeMapKeys(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
@@ -312,7 +312,7 @@ impl(
   BTreeMapValues(K, V),
   Iterator(
     Item : V,
-    next : (fn(mut(self) : Self) -> Option(V))(
+    next : (fn(self : &mut Self) -> Option(V))(
       match(
         self._inner.next(),
         .None => .None,
@@ -325,7 +325,7 @@ impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
   /// Walk the values in key order — Rust's `values`.
-  values : (fn(imm(self) : Self) -> BTreeMapValues(K, V))(
+  values : (fn(self : &Self) -> BTreeMapValues(K, V))(
     BTreeMapValues(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
@@ -347,7 +347,7 @@ impl(
   BTreeMapRange(K, V),
   Iterator(
     Item : MapEntry(K, V),
-    next : (fn(mut(self) : Self) -> Option(MapEntry(K, V)))(
+    next : (fn(self : &mut Self) -> Option(MapEntry(K, V)))(
       cond(
         (self._index >= self._end) => .None,
         true => {
@@ -378,7 +378,7 @@ impl(
   /// The bounds do NOT have to be present in the map: `_find` reports the
   /// insertion point for an absent key, which is exactly the first entry at or
   /// past it.
-  range : (fn(imm(self) : Self, imm(r) : Range(K), where(K <: Ord(K))) -> BTreeMapRange(K, V))({
+  range : (fn(self : &Self, r : &Range(K), where(K <: Ord(K))) -> BTreeMapRange(K, V))({
     lo := self._find(r.start).idx;
     hi := self._find(r.end).idx;
     BTreeMapRange(K, V)(
@@ -403,7 +403,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       BTreeMap(K, V).new()
     ),
-    from_iter_add : (fn(sink(acc) : Self, imm(item) : MapEntry(K, V)) -> Self)({
+    from_iter_add : (fn(sink(acc) : Self, item : &MapEntry(K, V)) -> Self)({
       acc.insert(item.key, item.value);
       acc
     })
@@ -414,7 +414,7 @@ impl(
   BTreeMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(mut(self) : Self, imm(idx) : K, where(K <: Ord(K))) -> *Self.Output)({
+    index : (fn(self : &mut Self, idx : &K, where(K <: Ord(K))) -> *Self.Output)({
       r := self._find(idx);
       assert(r.found, "BTreeMap: key not found");
       entry_ptr := addr_of(self._entries(r.idx));

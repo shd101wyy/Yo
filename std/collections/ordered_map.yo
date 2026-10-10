@@ -90,13 +90,13 @@ impl(
     )
   ),
   /// Number of entries.
-  len : (fn(imm(self) : Self) -> usize)(self._map.len()),
+  len : (fn(self : &Self) -> usize)(self._map.len()),
   /// Whether the map is empty.
-  is_empty : (fn(imm(self) : Self) -> bool)(self._map.is_empty()),
+  is_empty : (fn(self : &Self) -> bool)(self._map.is_empty()),
   /// Returns `true` if `key` is present.
-  contains_key : (fn(imm(self) : Self, imm(key) : K) -> bool)(self._map.contains_key(key)),
+  contains_key : (fn(self : &Self, key : &K) -> bool)(self._map.contains_key(key)),
   /// Returns the value for `key`, or `.None`.
-  get : (fn(imm(self) : Self, imm(key) : K) -> Option(V))(self._map.get(key)),
+  get : (fn(self : &Self, key : &K) -> Option(V))(self._map.get(key)),
   /// Insert or update `key -> value`.
   ///
   /// - For a new key, appends `key` to the insertion order.
@@ -106,7 +106,7 @@ impl(
   /// a new key, or `.Err(_)` on allocation failure.
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
-  try_insert : (fn(mut(self) : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+  try_insert : (fn(self : &mut Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     is_new := !self._map.contains_key(key);
     result := self._map.try_insert(key, value);
     cond(
@@ -127,7 +127,7 @@ impl(
   /// position.
   ///
   /// PANICS on allocation failure (D9). Use `try_insert` to handle OOM.
-  insert : (fn(mut(self) : Self, key : K, value : V) -> Option(V))(
+  insert : (fn(self : &mut Self, key : K, value : V) -> Option(V))(
     match(
       Self.try_insert(self, key, value),
       .Ok(prev) => prev,
@@ -140,7 +140,7 @@ impl(
   /// O(n) in the number of keys AFTER the removed one: they each shift down a
   /// slot, and the position index has to learn where they went. Use
   /// `swap_remove` when the order does not matter.
-  remove : (fn(mut(self) : Self, imm(key) : K) -> Option(V))({
+  remove : (fn(self : &mut Self, key : &K) -> Option(V))({
     removed := self._map.remove(key);
     match(
       removed,
@@ -170,7 +170,7 @@ impl(
   /// preserves insertion order and pays O(n) to rebuild the key list, while
   /// this touches three slots and is done. Reach for it when you are draining
   /// a map, or when order stops mattering once a key is gone.
-  swap_remove : (fn(mut(self) : Self, imm(key) : K) -> Option(V))({
+  swap_remove : (fn(self : &mut Self, key : &K) -> Option(V))({
     removed := self._map.remove(key);
     match(
       removed,
@@ -201,10 +201,10 @@ impl(
   /// The position of `key` in the iteration order, or `.None` if it is
   /// absent — Rust's `IndexMap::get_index_of`. O(1): the position index that
   /// `swap_remove` needs already answers this.
-  index_of : (fn(imm(self) : Self, imm(key) : K) -> Option(usize))(self._index.get(key)),
+  index_of : (fn(self : &Self, key : &K) -> Option(usize))(self._index.get(key)),
   /// The `(key, value)` pair at position `i` in the iteration order, or
   /// `.None` when `i` is out of range — Rust's `IndexMap::get_index`.
-  get_index : (fn(imm(self) : Self, i : usize) -> Option(MapEntry(K, V)))(
+  get_index : (fn(self : &Self, i : usize) -> Option(MapEntry(K, V)))(
     match(
       self._order.get(i),
       .Some(k) => match(
@@ -216,7 +216,7 @@ impl(
     )
   ),
   /// Remove all entries.
-  clear : (fn(mut(self) : Self) -> unit)({
+  clear : (fn(self : &mut Self) -> unit)({
     self._map.clear();
     self._order = ArrayList(K).new();
     self._index = HashMap(K, usize).new();
@@ -247,7 +247,7 @@ impl(
   /// The keys are yielded by value (dup'd for a refcounted `K`). Inserting a
   /// new key during the walk appends to that list and so extends the walk;
   /// removing one rebuilds it and shifts everything after the removed key.
-  next : (fn(mut(self) : Self) -> Option(K))({
+  next : (fn(self : &mut Self) -> Option(K))({
     cond(
       (self._index >= self._map._order.len()) => {
         return(.None);
@@ -284,7 +284,7 @@ impl(
   /// then asks the backing map for its value — where `keys()` is a plain
   /// array read. `iter()` yields entry pointers and pays the lookup once per
   /// entry too, but hands back the key alongside the value.
-  next : (fn(mut(self) : Self) -> Option(V))({
+  next : (fn(self : &mut Self) -> Option(V))({
     cond(
       (self._index >= self._map._order.len()) => {
         return(.None);
@@ -324,7 +324,7 @@ impl(
   OrderedMapIter(K, V),
   Iterator(
     Item : MapEntry(K, V),
-    next : (fn(mut(self) : Self) -> Option(MapEntry(K, V)))({
+    next : (fn(self : &mut Self) -> Option(MapEntry(K, V)))({
       cond(
         (self._index >= self._map._order.len()) => {
           return(.None);
@@ -380,7 +380,7 @@ impl(
   OrderedMapIterPtr(K, V),
   Iterator(
     Item : *MapEntry(K, V),
-    next : (fn(mut(self) : Self) -> Option(*MapEntry(K, V)))({
+    next : (fn(self : &mut Self) -> Option(*MapEntry(K, V)))({
       cond(
         (self._index >= self._map._order.len()) => {
           return(.None);
@@ -412,7 +412,7 @@ impl(
     IntoIter : OrderedMapIter(K, V),
     /// Iterate `(key, value)` pairs BY VALUE in insertion order — the shape
     /// `iter()` had before D14, and what `for(map, ...)` expands to.
-    into_iter : (fn(imm(self) : Self) -> OrderedMapIter(K, V))(
+    into_iter : (fn(self : &Self) -> OrderedMapIter(K, V))(
       OrderedMapIter(K, V)(_map : self, _index : usize(0))
     )
   )
@@ -422,17 +422,17 @@ impl(
   where(K <: (Eq(K), Hash)),
   OrderedMap(K, V),
   /// Iterator over keys in insertion order.
-  keys : (fn(imm(self) : Self) -> OrderedMapKeys(K, V))(
+  keys : (fn(self : &Self) -> OrderedMapKeys(K, V))(
     OrderedMapKeys(K, V)(_map : self, _index : usize(0))
   ),
   /// Iterator over values in insertion order.
-  values : (fn(imm(self) : Self) -> OrderedMapValues(K, V))(
+  values : (fn(self : &Self) -> OrderedMapValues(K, V))(
     OrderedMapValues(K, V)(_map : self, _index : usize(0))
   ),
   /// Iterator over `(key, value)` pairs in insertion order, yielding a
   /// `*(MapEntry(K, V))` into the map's own storage (D14). Use `into_iter()`
   /// for the by-value form.
-  iter : (fn(imm(self) : Self) -> OrderedMapIterPtr(K, V))(
+  iter : (fn(self : &Self) -> OrderedMapIterPtr(K, V))(
     OrderedMapIterPtr(K, V)(_map : self, _index : usize(0))
   )
 );

@@ -152,9 +152,9 @@ pragma(Pragma.AllowUnsafe);
 ///     store name + updated env back in the ExprInfo table.
 attach_temp_variable_to_expr :: (
   fn(
-    imm(expr) : AstExpr,
+    expr : &AstExpr,
     is_owning_the_rc_value : bool,
-    imm(ctx) : EvalContext
+    ctx : &EvalContext
   ) -> unit
 )({
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
@@ -283,7 +283,7 @@ attach_temp_variable_to_expr :: (
 ///
 /// Note: the atom branch requires an `Identifier` token, while the operator
 /// branch applies to both Atom and FnCall shapes.
-is_valid_variable_name :: (fn(imm(expr) : AstExpr) -> bool)({
+is_valid_variable_name :: (fn(expr : &AstExpr) -> bool)({
   tok := ast_expr_token(expr);
   (ast_expr_is_atom(expr) && (tok.kind == TokenKind.Identifier)) ||
     (tok.kind == TokenKind.Operator)
@@ -297,9 +297,9 @@ is_valid_variable_name :: (fn(imm(expr) : AstExpr) -> bool)({
 /// Returns `.None` if no owner is found or if the chain cycles.
 find_rc_value_owner_relationship :: (
   fn(
-    imm(rhs) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    rhs : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
   ) -> Option(Variable)
 )({
   name_opt := match(
@@ -365,10 +365,10 @@ find_rc_value_owner_relationship :: (
 ///
 throw_expr_is_implicit_variable_error :: (
   fn(
-    imm(rhs) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    rhs : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   // Determine which variable name to check.
@@ -434,10 +434,10 @@ throw_expr_is_implicit_variable_error :: (
 ///
 require_expr_not_consumed :: (
   fn(
-    imm(rhs) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    rhs : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   name_opt := match(
@@ -498,7 +498,7 @@ require_expr_not_consumed :: (
 /// Unreachable placeholder for `expect_expr_to_have_been_evaluated`'s
 /// `.None` branch. `exn.throw` unwinds before this is hit; the call
 /// only exists so the match arms unify to `ExprInfo`.
-new_expr_info_placeholder_for_unreachable_ :: (fn(imm(_expr) : AstExpr) -> ExprInfo)(
+new_expr_info_placeholder_for_unreachable_ :: (fn(_expr : &AstExpr) -> ExprInfo)(
   __yo_panic("unreachable: expect_expr_to_have_been_evaluated placeholder")
 );
 /// Throw if `expr` has no `ExprInfo` attached — i.e. the evaluator
@@ -507,10 +507,10 @@ new_expr_info_placeholder_for_unreachable_ :: (fn(imm(_expr) : AstExpr) -> ExprI
 /// default) and reads the ExprInfo from `ctx.expr_info_table`.
 expect_expr_to_have_been_evaluated :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(error_message) : String,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    error_message : &String,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> ExprInfo
 )(
   match(
@@ -538,7 +538,7 @@ expect_expr_to_have_been_evaluated :: (
 /// The type a `derive(T, Copy, Clone)` suggestion names: the type's own
 /// spelling without its arguments (`Pair(i32)` → `Pair`), which is what the
 /// user's declaration is called.
-_copy_derive_target :: (fn(imm(ty) : TypeValue) -> String)({
+_copy_derive_target :: (fn(ty : &TypeValue) -> String)({
   shown := type_to_string(ty);
   match(shown.index_of(`(`), .Some(p) => shown.substring(usize(0), p), .None => shown)
 });
@@ -546,7 +546,7 @@ _copy_derive_target :: (fn(imm(ty) : TypeValue) -> String)({
 /// copyable (`type_requires_explicit_copy`): for a move-only type, why it is
 /// move-only and the ways to use it without a copy; for an explicit-copy type,
 /// the `.clone()` that copies it. `.None` for an implicitly copyable type.
-move_only_help :: (fn(imm(name) : String, imm(ty) : TypeValue) -> Option(String))(
+move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
@@ -569,7 +569,7 @@ move_only_help :: (fn(imm(name) : String, imm(ty) : TypeValue) -> Option(String)
 /// The E0901 note for a value that has no name of its own (a field, an
 /// element, a dereference) and is not implicitly copyable: why its type is
 /// move-only, or the `.clone()` that copies an explicit-copy value.
-move_only_type_help :: (fn(imm(ty) : TypeValue) -> Option(String))(
+move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
@@ -600,7 +600,7 @@ consuming_match_scrutinee_at :: (fn(imm(tok) : Token) -> bool)(
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
 /// with the move-only note when `ty` is move-only.
-use_of_moved_value_error :: (fn(imm(name) : String, imm(ty) : TypeValue, imm(use_tok) : Token, imm(moved_tok) : Token) -> YoError)({
+use_of_moved_value_error :: (fn(name : &String, ty : &TypeValue, use_tok : &Token, moved_tok : &Token) -> YoError)({
   entries := ArrayList(TokenAndError).new();
   entries.push(TokenAndError(token : use_tok, error_message : `use of moved value: \`${name}\``));
   by_match := consuming_match_scrutinee_at(moved_tok);
@@ -642,7 +642,7 @@ migrate_borrowed_match_at :: (fn(imm(moved_tok) : Token) -> bool)(
 /// borrow marker is dropped (`&mut x` names `x`), and other expressions keep
 /// the source rendering without the one pair of parentheses the printer
 /// wraps a call in.
-_place_text :: (fn(imm(e) : AstExpr) -> String)({
+_place_text :: (fn(e : &AstExpr) -> String)({
   (s : AstExpr) = ast_expr_strip_borrow_marker(e);
   cond(
     ast_expr_is_fn_call_of(s, BF_DOT, Option(usize).Some(usize(2))) => match(
@@ -657,7 +657,7 @@ _place_text :: (fn(imm(e) : AstExpr) -> String)({
     true => _place_text_of_other(s)
   )
 });
-_place_text_of_other :: (fn(imm(e) : AstExpr) -> String)({
+_place_text_of_other :: (fn(e : &AstExpr) -> String)({
   t := ast_expr_to_string(e);
   if(!(t.starts_with("(") && t.ends_with(")")), {
     return(t);
@@ -692,7 +692,7 @@ _place_text_of_other :: (fn(imm(e) : AstExpr) -> String)({
 /// `own(cb)` binding the caller's transfer handed the reference to sits in
 /// an OUTER frame of the same env. A capture that moves `cb` takes THAT
 /// binding's reference; this finds it.
-_owning_param_binding_for_capture_move :: (fn(imm(env) : Environment, imm(name) : String) -> Option(Variable))({
+_owning_param_binding_for_capture_move :: (fn(env : &Environment, name : &String) -> Option(Variable))({
   vars := get_variables_from_env(env, name.clone());
   (i : usize) = vars.len();
   while(i > usize(0), {
@@ -718,7 +718,7 @@ _owning_param_binding_for_capture_move :: (fn(imm(env) : Environment, imm(name) 
 /// API cannot take `FnOnce`), an `inout` binding, a module-level binding, and
 /// the by-value capture of a closure typed `Fn(...)` (E0913). A re-evaluation
 /// of the same call site is not a second call.
-consume_called_fnonce_closure :: (fn(imm(callee) : AstExpr, imm(v) : Variable, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   tok := ast_expr_token(callee);
   same_site := match(
     v.consumed_at_token,
@@ -801,7 +801,7 @@ consume_called_fnonce_closure :: (fn(imm(callee) : AstExpr, imm(v) : Variable, i
 /// one callee frame). Restricted to that frame so a nested function's
 /// borrowed parameter never resolves to an unrelated outer `sink` parameter
 /// of the same name.
-_owning_param_binding_beside :: (fn(imm(env) : Environment, imm(v) : Variable) -> Option(Variable))({
+_owning_param_binding_beside :: (fn(env : &Environment, v : &Variable) -> Option(Variable))({
   (fi : usize) = env.frames.len();
   while(fi > usize(0), {
     fi = (fi - usize(1));
@@ -840,7 +840,7 @@ _owning_param_binding_beside :: (fn(imm(env) : Environment, imm(v) : Variable) -
   });
   Option(Variable).None
 });
-move_captured_explicit_copy_variable :: (fn(imm(v) : Variable, imm(tok) : Token, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   match(
     v.consumed_at_token,
     .Some(ct) => {
@@ -879,7 +879,7 @@ move_captured_explicit_copy_variable :: (fn(imm(v) : Variable, imm(tok) : Token,
   );
 });
 /// `e` is `p.*`: a dereference.
-_is_deref_place :: (fn(imm(e) : AstExpr) -> bool)(
+_is_deref_place :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(
     e,
     .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(1)), .Some(lbl) => (ast_expr_is_atom(lbl) && (ast_expr_token(lbl).value == "*")), .None => false),
@@ -888,7 +888,7 @@ _is_deref_place :: (fn(imm(e) : AstExpr) -> bool)(
 );
 /// "is move-only" or "is copied explicitly (`.clone()`)": the kind of a type
 /// that is not implicitly copyable, for a message.
-_explicit_copy_kind :: (fn(imm(ty) : TypeValue) -> String)(
+_explicit_copy_kind :: (fn(ty : &TypeValue) -> String)(
   cond(
     type_is_move_only(ty) => String.from("is move-only"),
     // Decision 36: a plain-data type with neither `Copy` nor `Clone` is
@@ -903,7 +903,7 @@ _explicit_copy_kind :: (fn(imm(ty) : TypeValue) -> String)(
 /// element, a dereference). The value cannot be copied, and moving it out
 /// would leave its owner partly moved: Yo has no partial moves, so the owner
 /// is moved whole or not at all.
-_throw_explicit_copy_violation :: (fn(imm(rhs) : AstExpr, imm(ty) : TypeValue, imm(what) : String, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_throw_explicit_copy_violation :: (fn(rhs : &AstExpr, ty : &TypeValue, what : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
   name := _place_text(rhs);
   msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}, and it cannot be moved either: ${what}`;
   help := cond(ast_expr_is_atom(rhs) => move_only_help(name, ty), true => move_only_type_help(ty));
@@ -918,7 +918,7 @@ _throw_explicit_copy_violation :: (fn(imm(rhs) : AstExpr, imm(ty) : TypeValue, i
 /// captures so the closure can run again, and a closure that moves one out is
 /// call-once. The error names the moving line; the fix is the `FnOnce(...)`
 /// type, whose call consumes the closure.
-_throw_fn_closure_moves_capture :: (fn(imm(rhs) : AstExpr, imm(ty) : TypeValue, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : &Exception) -> unit)({
   name := _place_text(rhs);
   msg := `Cannot move \`${name}\` out of the closure: it is a by-value capture, and the closure is typed \`Fn(...)\`, whose call borrows its captures so it can run again. A closure that moves a capture out is called once.`;
   help := `type the closure \`FnOnce(...)\`: its call consumes the closure, whose body then owns its captures and may move \`${name}\` (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}) out`;
@@ -933,7 +933,7 @@ _throw_fn_closure_moves_capture :: (fn(imm(rhs) : AstExpr, imm(ty) : TypeValue, 
 /// list's frame (an `Fn` closure's by-value entries are checked first; an
 /// `FnOnce` closure's, which the body owns, are excluded here).
 /// `io.async` bodies are excluded: their state machine owns its captures.
-_is_implicit_closure_capture :: (fn(imm(v) : Variable, imm(env) : Environment, imm(ctx) : EvalContext) -> bool)(
+_is_implicit_closure_capture :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .Some(sub) => match(
@@ -999,7 +999,7 @@ _is_implicit_closure_capture :: (fn(imm(v) : Variable, imm(env) : Environment, i
 /// THAT binding, so its scope-end drop is skipped. Both moves are logged for
 /// the `cond`/`match` joins. False (no move) when there is no such owner.
 /// (issues/fixed/forwarding-a-sink-closure-parameter-to-a-sink-parameter-is-rejected.md)
-_move_through_sink_shadow :: (fn(imm(v) : Variable, imm(rhs) : AstExpr, imm(env) : Environment) -> bool)({
+_move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environment) -> bool)({
   if(!v.is_parameter || v.is_ref || v.is_module_level, {
     return(false);
   });
@@ -1019,7 +1019,7 @@ _move_through_sink_shadow :: (fn(imm(v) : Variable, imm(rhs) : AstExpr, imm(env)
 /// E0913 for a move out of an implicit capture (Generation A of decision 37,
 /// as amended 2026-10-07): a closure body owns, and so may move out, only the
 /// by-value entries of a capture list, in a closure typed `FnOnce(...)`.
-_throw_implicit_capture_move :: (fn(imm(rhs) : AstExpr, imm(ty) : TypeValue, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : &Exception) -> unit)({
   name := _place_text(rhs);
   msg := `Cannot move \`${name}\` out of the closure: it is captured implicitly, and a closure body moves a capture out only from a capture list. A closure that moves a capture out is called once.`;
   help := `list the capture and type the closure \`FnOnce(...)\`: \`{ ${name} }(...) => ...\`, whose call consumes the closure (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)})`;
@@ -1042,7 +1042,7 @@ _throw_implicit_capture_move :: (fn(imm(rhs) : AstExpr, imm(ty) : TypeValue, imm
 ///   is E0901, and its scope-end drop is skipped;
 /// - anything else is borrowed storage, and the copy is E0901
 ///   (`_throw_explicit_copy_violation`).
-transfer_explicit_copy_value :: (fn(imm(rhs) : AstExpr, imm(ei) : ExprInfo, imm(variable_name) : String, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
   match(
     find_variable_in_env(ei.env, variable_name.clone()),
     .None => (),
@@ -1077,7 +1077,7 @@ transfer_explicit_copy_value :: (fn(imm(rhs) : AstExpr, imm(ei) : ExprInfo, imm(
 /// Log a move of a user-named variable in the flow log (before the variable
 /// is marked): per-path move state for `cond`/`match` joins and loops. A
 /// compiler temp's "consumed" mark is ownership bookkeeping, not a move.
-_log_user_move :: (fn(imm(v) : Variable, imm(tok) : Token, imm(env) : Environment) -> unit)({
+_log_user_move :: (fn(v : &Variable, tok : &Token, env : &Environment) -> unit)({
   if(!is_temp_variable_name(env.module_path, v.name), {
     record_branch_consume(v.id, tok, v.initialized_at_token, match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct.*), .None => Option(Token).None));
   });
@@ -1102,7 +1102,7 @@ _log_user_move :: (fn(imm(v) : Variable, imm(tok) : Token, imm(env) : Environmen
 // ---------------------------------------------------------------------------
 /// How a capture-list borrow reads in a message: "`s.items` (the capture
 /// `items : &s.items` at m.yo:3:5)".
-_capture_borrow_note :: (fn(imm(b) : CaptureBorrow) -> String)({
+_capture_borrow_note :: (fn(b : &CaptureBorrow) -> String)({
   sig := if(b.is_mut, String.from("&mut "), String.from("&"));
   `\`${capture_borrow_place_string(b)}\` (the capture \`${b.label} : ${sig}${capture_borrow_place_string(b)}\` at ${b.site})`
 });
@@ -1110,7 +1110,7 @@ _capture_borrow_note :: (fn(imm(b) : CaptureBorrow) -> String)({
 /// transitively) may not be `how` — returned, stored in a field or a `Dyn`,
 /// moved into a `sink` parameter, spawned, or named as a type argument. A
 /// no-op for any other type.
-reject_second_class_escape :: (fn(imm(ty) : TypeValue, imm(how) : String, imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
   if(!type_is_second_class(ty), {
     return(());
   });
@@ -1131,7 +1131,7 @@ reject_second_class_escape :: (fn(imm(ty) : TypeValue, imm(how) : String, imm(to
   );
 });
 /// The binding with id `id` in `env`, and its (frame, position).
-_find_var_by_id :: (fn(imm(env) : Environment, id : usize) -> Option(Tuple(Variable, usize, usize)))({
+_find_var_by_id :: (fn(env : &Environment, id : usize) -> Option(Tuple(Variable, usize, usize)))({
   (fi : usize) = env.frames.len();
   while(fi > usize(0), {
     fi = (fi - usize(1));
@@ -1165,7 +1165,7 @@ _CaptureFreeze :: struct(holder_id : usize, holder_name : String, borrow : Captu
 /// is second-class, check that every place it borrows outlives the holder
 /// (decision 38 A: a binding may not outlive any place its value borrows),
 /// and freeze those places for the holder's scope.
-note_second_class_binding :: (fn(imm(holder) : Variable, imm(ty) : TypeValue, imm(tok) : Token, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   if(!type_is_second_class(ty), {
     return(());
   });
@@ -1218,7 +1218,7 @@ note_second_class_binding :: (fn(imm(holder) : Variable, imm(ty) : TypeValue, im
 /// Decision 38 A, "results": a block, arm or `cond` result of type `ty` may
 /// not carry a borrow of a binding declared at or inside frame `scope_frame`
 /// of `env` (the scope the result is leaving).
-reject_second_class_result_outliving :: (fn(imm(ty) : TypeValue, scope_frame : usize, imm(tok) : Token, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+reject_second_class_result_outliving :: (fn(ty : &TypeValue, scope_frame : usize, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   if(!type_is_second_class(ty), {
     return(());
   });
@@ -1253,7 +1253,7 @@ reject_second_class_result_outliving :: (fn(imm(ty) : TypeValue, scope_frame : u
 /// access, an `imm` capture freezes writes and moves (decision 18 rule 2).
 /// A field of `v` is the same root. A no-op unless some capture-list closure
 /// borrows `v`.
-check_capture_freeze_access :: (fn(imm(v) : Variable, is_write : bool, imm(tok) : Token, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   if(g_capture_freezes.len() == usize(0), {
     return(());
   });
@@ -1297,7 +1297,7 @@ _ArgPlace :: struct(root_id : usize, path : ArrayList(String), text : String);
 /// The places argument `arg` (evaluated) reaches: the place it names, when it
 /// is a field chain rooted at a runtime binding (`z`, `s.items`), and every
 /// place a capture-list closure it holds borrows, transitively (decision 38 B).
-_arg_places :: (fn(imm(arg) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(_ArgPlace)) -> unit)({
+_arg_places :: (fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(_ArgPlace)) -> unit)({
   fields_rev := ArrayList(String).new();
   (cur : AstExpr) = arg;
   (walking : bool) = true;
@@ -1357,7 +1357,7 @@ _arg_places :: (fn(imm(arg) : AstExpr, imm(env) : Environment, imm(ctx) : EvalCo
 });
 /// Two places overlap when they share a root and one path is a prefix of the
 /// other (decision 28): `s` and `s.items` do, `s.left` and `s.right` do not.
-_places_overlap :: (fn(imm(a) : _ArgPlace, imm(b) : _ArgPlace) -> bool)({
+_places_overlap :: (fn(a : &_ArgPlace, b : &_ArgPlace) -> bool)({
   if(a.root_id != b.root_id, {
     return(false);
   });
@@ -1381,7 +1381,7 @@ _places_overlap :: (fn(imm(a) : _ArgPlace, imm(b) : _ArgPlace) -> bool)({
 /// errors, and a `for_each` literal that borrows a fresh local is not.
 /// `extra` is the called closure value, when the callee is one.
 require_capture_borrow_exclusivity :: (
-  fn(imm(param_is_ref) : ArrayList(bool), imm(args) : ArrayList(AstExpr), imm(extra) : Option(AstExpr), imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
+  fn(param_is_ref : &ArrayList(bool), args : &ArrayList(AstExpr), extra : &Option(AstExpr), env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit
 )({
   if(!capture_borrows_exist(), {
     return(());
@@ -1456,11 +1456,11 @@ require_capture_borrow_exclusivity :: (
 });
 set_expr_as_consumed :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
+    expr : &AstExpr,
+    env : &Environment,
     allow_consume_again : bool,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
@@ -1616,7 +1616,7 @@ ImplicitCopyRoot :: struct(kind : String, root_id : usize);
 (g_implicit_copy_match_roots : HashMap(usize, ImplicitCopyRoot)) = HashMap(usize, ImplicitCopyRoot).new();
 /// Record what `binding`, a pattern binding of a `match` whose evaluated
 /// scrutinee is described by `scr_info`, borrows from.
-audit_note_match_binding :: (fn(imm(binding) : Variable, imm(scr_info) : ExprInfo) -> unit)({
+audit_note_match_binding :: (fn(binding : &Variable, scr_info : &ExprInfo) -> unit)({
   root := match(
     scr_info.variable_name,
     .Some(sn) => match(
@@ -1648,7 +1648,7 @@ audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(Implicit
     true => g_implicit_copy_pending.remove(id)
   )
 );
-audit_print_implicit_copy :: (fn(imm(line) : String) -> unit)({
+audit_print_implicit_copy :: (fn(line : &String) -> unit)({
   if(g_implicit_copy_printed.insert(line.clone()), {
     eprintln(line);
   });
@@ -1656,7 +1656,7 @@ audit_print_implicit_copy :: (fn(imm(line) : String) -> unit)({
 _IC_COLLECTIONS :: "ArrayList|HashMap|HashSet|BTreeMap|Deque|LinkedList|OrderedMap|PriorityQueue";
 /// The std collection a struct type name denotes (`ArrayList` or
 /// `ArrayList(String)` → `ArrayList`), or none.
-_implicit_copy_collection_name :: (fn(imm(name) : String) -> Option(String))({
+_implicit_copy_collection_name :: (fn(name : &String) -> Option(String))({
   bases := String.from(_IC_COLLECTIONS).split("|");
   (i : usize) = usize(0);
   while(i < bases.len(), {
@@ -1672,7 +1672,7 @@ _implicit_copy_collection_name :: (fn(imm(name) : String) -> Option(String))({
   Option(String).None
 });
 /// The category of the first RC-bearing member, for an aggregate.
-_implicit_copy_first_member :: (fn(imm(members) : ArrayList(TypeValue), depth : u32) -> Option(String))({
+_implicit_copy_first_member :: (fn(members : &ArrayList(TypeValue), depth : u32) -> Option(String))({
   (mi : usize) = usize(0);
   while(mi < members.len(), {
     match(
@@ -1687,7 +1687,7 @@ _implicit_copy_first_member :: (fn(imm(members) : ArrayList(TypeValue), depth : 
   Option(String).None
 });
 /// No member holds an RC value: a `ref` type of plain data only.
-_implicit_copy_plain_members :: (fn(imm(members) : ArrayList(TypeValue)) -> bool)({
+_implicit_copy_plain_members :: (fn(members : &ArrayList(TypeValue)) -> bool)({
   (pi : usize) = usize(0);
   while(pi < members.len(), {
     match(
@@ -1701,7 +1701,7 @@ _implicit_copy_plain_members :: (fn(imm(members) : ArrayList(TypeValue)) -> bool
   });
   true
 });
-_implicit_copy_via :: (fn(imm(inner) : Option(String)) -> String)(
+_implicit_copy_via :: (fn(inner : &Option(String)) -> String)(
   match(
     inner,
     .Some(c) => cond(
@@ -1716,10 +1716,10 @@ _implicit_copy_via :: (fn(imm(inner) : Option(String)) -> String)(
 /// RC-bearing field; V5 makes it an `Rc`), `ref-object(plain)` (a `ref`
 /// type whose fields are all plain data), or `via:<category>` for a value
 /// aggregate (`Option(String)`, a tuple, a value struct) holding one.
-implicit_copy_category :: (fn(imm(ty) : TypeValue) -> String)(
+implicit_copy_category :: (fn(ty : &TypeValue) -> String)(
   _implicit_copy_category_at(ty, u32(0))
 );
-_implicit_copy_category_at :: (fn(imm(ty) : TypeValue, depth : u32) -> String)({
+_implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
   if(depth > u32(6), {
     return(String.from("other"));
   });
@@ -1808,13 +1808,13 @@ _implicit_copy_category_at :: (fn(imm(ty) : TypeValue, depth : u32) -> String)({
 /// `source_text` the expression as written.
 audit_record_implicit_copy :: (
   fn(
-    imm(site_tok) : Token,
-    imm(ty) : TypeValue,
+    site_tok : &Token,
+    ty : &TypeValue,
     copy_path : str,
-    imm(env) : Environment,
-    imm(source_name) : String,
-    imm(source_text) : String,
-    imm(ctx) : EvalContext,
+    env : &Environment,
+    source_name : &String,
+    source_text : &String,
+    ctx : &EvalContext,
     /// False for a closure's own captures: `ctx.captured_variables` is then
     /// the closure being built, not the function the site sits in.
     in_closure_body_check : bool
@@ -1927,12 +1927,12 @@ audit_pending_copies_enabled :: (fn() -> bool)(g_audit_implicit_copy || g_audit_
 /// temporary, whose copy is a move, and is skipped).
 audit_record_copy_trait :: (
   fn(
-    imm(site_tok) : Token,
-    imm(ty) : TypeValue,
+    site_tok : &Token,
+    ty : &TypeValue,
     copy_path : str,
-    imm(env) : Environment,
-    imm(source) : AstExpr,
-    imm(ctx) : EvalContext,
+    env : &Environment,
+    source : &AstExpr,
+    ctx : &EvalContext,
     /// False for a closure's own captures, as for `audit_record_implicit_copy`.
     in_closure_body_check : bool
   ) -> unit
@@ -2053,9 +2053,9 @@ get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_token
 ///
 set_expr_as_needs_to_call_dup :: (
   fn(
-    imm(rhs) : AstExpr,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception,
+    rhs : &AstExpr,
+    ctx : &EvalContext,
+    exn : &Exception,
     /// The store kind, for YO_AUDIT_IMPLICIT_COPY only: `binding`, `assign`,
     /// `field-store`, `element`, `param`, `return` or `dyn`.
     (copy_path : str) ?= "dup"
@@ -2231,9 +2231,9 @@ set_expr_as_needs_to_call_dup :: (
 /// the value is a codegen-inlinable comptime constant (no RC traffic).
 set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
   fn(
-    imm(rhs) : AstExpr,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception,
+    rhs : &AstExpr,
+    ctx : &EvalContext,
+    exn : &Exception,
     /// Dup even when the argument's variable OWNS its value: the same call
     /// passes that variable `inout`, so the callee can replace the value the
     /// argument borrows (`argument_is_aliased_by_inout`, calls/helper.yo).
@@ -2383,7 +2383,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
 /// True when walking `e`'s dot chain reaches an ATOM bound to a RUNTIME
 /// variable — the root of a place expression. Shared by the field and index
 /// forms of `arg_is_rc_projection_place`.
-_place_root_is_runtime_variable :: (fn(imm(e) : AstExpr, imm(env) : Environment) -> bool)({
+_place_root_is_runtime_variable :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   (root : AstExpr) = e;
   while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
     r_args := match(root, .FnCall(_, _, __prv_ra, _, _) => __prv_ra, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -2406,7 +2406,7 @@ _place_root_is_runtime_variable :: (fn(imm(e) : AstExpr, imm(env) : Environment)
     .None => false
   )
 });
-arg_is_rc_projection_place :: (fn(imm(e) : AstExpr, imm(env) : Environment) -> bool)({
+arg_is_rc_projection_place :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   // INDEX projection: `arr(i)`, `w.items(i)`. An element read is a view into
   // container storage exactly as a field read is, and a callee can release it
   // the same way — a callee replacing the container in a loop freed the
@@ -2451,7 +2451,7 @@ arg_is_rc_projection_place :: (fn(imm(e) : AstExpr, imm(env) : Environment) -> b
 ///
 /// Matches the format produced by `get_doc_comment_lookup_key` in
 /// `doc/extractor.yo`: `"<module_path>:<row>:<column>"`.
-doc_comment_lookup_key_from_token :: (fn(imm(tok) : Token) -> String)(
+doc_comment_lookup_key_from_token :: (fn(tok : &Token) -> String)(
   `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
 );
 // ---------------------------------------------------------------------------
@@ -2464,9 +2464,9 @@ doc_comment_lookup_key_from_token :: (fn(imm(tok) : Token) -> String)(
 /// The `Variable` is an RC object, so `consumed_at_token` is mutated in-place.
 consume_case_body_temp_var :: (
   fn(
-    imm(evaluated_body) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    evaluated_body : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
   ) -> unit
 )({
   var_name_opt := match(
@@ -2523,7 +2523,7 @@ consume_case_body_temp_var :: (
 /// runs after it: the move is kept as an `UndoneMove` up to the arm's last
 /// token (`prev_arm`), which codegen consults
 /// (issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
-reset_sibling_flow_state :: (fn(imm(env) : Environment, imm(prev_arm) : Option(AstExpr)) -> unit)({
+reset_sibling_flow_state :: (fn(env : &Environment, prev_arm : &Option(AstExpr)) -> unit)({
   recs := sibling_first_flow_records();
   if(recs.len() == usize(0), {
     return(());
@@ -2547,7 +2547,7 @@ reset_sibling_flow_state :: (fn(imm(env) : Environment, imm(prev_arm) : Option(A
   });
 });
 /// Does a `match` arm pattern anywhere in `e` bind `name`?
-_pattern_binds_name :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+_pattern_binds_name :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
     .FnCall(_, callee, args, _, _) => {
@@ -2584,7 +2584,7 @@ _pattern_binds_name :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
   )
 );
 /// Is there an identifier atom spelled `name` anywhere in `e`?
-_atom_named_in :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+_atom_named_in :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
     .Atom(_, tok) => (tok.value == name),
@@ -2608,7 +2608,7 @@ _atom_named_in :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
   )
 );
 /// The earliest token of `e`'s own source: the start of an arm.
-_first_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
+_first_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
   (best : Token) = root;
   tok := ast_expr_token(e);
   if((tok.module_path == root.module_path) && (tok.character < best.character), {
@@ -2641,7 +2641,7 @@ _first_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
   best
 });
 /// The latest token of `e`'s own source: the end of an arm.
-_last_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
+_last_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
   (best : Token) = root;
   tok := ast_expr_token(e);
   if((tok.module_path == root.module_path) && (tok.character > best.character), {
@@ -2676,7 +2676,7 @@ _last_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
 /// Keep the move `v` has now, made by the arm `arm`, when the flow log
 /// undoes it back to `before`: codegen's cleanup points inside `arm` still
 /// see it (see `reset_sibling_flow_state`).
-_keep_undone_move :: (fn(imm(v) : Variable, imm(before) : Option(Token), imm(arm) : AstExpr) -> unit)(
+_keep_undone_move :: (fn(v : &Variable, before : &Option(Token), arm : &AstExpr) -> unit)(
   match(
     v.consumed_at_token,
     .Some(ct) => {
@@ -2691,7 +2691,7 @@ _keep_undone_move :: (fn(imm(v) : Variable, imm(before) : Option(Token), imm(arm
 /// After the last arm of a `cond`/`match`, before the join: keep the moves
 /// that arm made. The join restores the state from the arms that reach it,
 /// and a diverging last arm is not one of them.
-keep_last_arm_moves :: (fn(imm(env) : Environment, imm(last_arm) : AstExpr, group_log_start : usize) -> unit)({
+keep_last_arm_moves :: (fn(env : &Environment, last_arm : &AstExpr, group_log_start : usize) -> unit)({
   recs := first_flow_records_in(group_log_start, branch_init_log_len());
   (ri : usize) = usize(0);
   while(ri < recs.len(), {
@@ -2710,7 +2710,7 @@ keep_last_arm_moves :: (fn(imm(env) : Environment, imm(last_arm) : AstExpr, grou
 /// At a `break` or `continue`: the move state of every variable declared
 /// outside the loop that the body has touched so far (per path: the arm the
 /// jump sits in starts from the state before its branch).
-snapshot_loop_flow :: (fn(imm(lc) : LoopBodyCtx, mut(into) : ArrayList(LoopFlowSnapshot), imm(env) : Environment, imm(site) : Token) -> unit)({
+snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, into : &mut ArrayList(LoopFlowSnapshot), env : &Environment, site : &Token) -> unit)({
   ids := ArrayList(usize).new();
   states := ArrayList(Option(Token)).new();
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
@@ -2734,7 +2734,7 @@ snapshot_loop_flow :: (fn(imm(lc) : LoopBodyCtx, mut(into) : ArrayList(LoopFlowS
 });
 /// A variable's move state at a `break`/`continue` snapshot (`pre` when the
 /// body had not touched it yet there).
-_snapshot_state_of :: (fn(imm(snap) : LoopFlowSnapshot, id : usize, imm(pre) : Option(Token)) -> Option(Token))({
+_snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(Token)) -> Option(Token))({
   (si : usize) = usize(0);
   while(si < snap.var_ids.len(), {
     if(match(snap.var_ids.get(si), .Some(x) => (x == id), .None => false), {
@@ -2758,7 +2758,7 @@ _snapshot_state_of :: (fn(imm(snap) : LoopFlowSnapshot, id : usize, imm(pre) : O
 /// Afterwards the variable is in the state the ways out agree on, and a join
 /// record gives an enclosing branch or loop the loop's net effect.
 check_loop_flow :: (
-  fn(imm(lc) : LoopBodyCtx, body_completes : bool, has_normal_exit : bool, imm(env) : Environment, imm(exn) : Exception) -> unit
+  fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, exn : &Exception) -> unit
 )({
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
   (ri : usize) = usize(0);
@@ -2847,7 +2847,7 @@ check_loop_flow :: (
   });
 });
 /// The variable with id `id` in `env`, innermost frame first.
-find_variable_by_id :: (fn(imm(env) : Environment, id : usize) -> Option(Variable))({
+find_variable_by_id :: (fn(env : &Environment, id : usize) -> Option(Variable))({
   (fi : usize) = env.frames.len();
   while(fi > usize(0), {
     fi = (fi - usize(1));
@@ -2872,7 +2872,7 @@ find_variable_by_id :: (fn(imm(env) : Environment, id : usize) -> Option(Variabl
   Option(Variable).None
 });
 /// The first `.Some` token in `toks`.
-_first_some_token :: (fn(imm(toks) : ArrayList(Option(Token))) -> Option(Token))({
+_first_some_token :: (fn(toks : &ArrayList(Option(Token))) -> Option(Token))({
   (i : usize) = usize(0);
   while(i < toks.len(), {
     match(
@@ -2895,13 +2895,13 @@ _first_some_token :: (fn(imm(toks) : ArrayList(Option(Token))) -> Option(Token))
 /// module-level value, or one whose type is not known enough to drop.
 _drop_in_arms_that_keep :: (
   fn(
-    imm(v) : Variable,
-    imm(bodies) : ArrayList(AstExpr),
-    imm(consumed_at_tokens) : ArrayList(Option(Token)),
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception,
-    (imm(branch_expr) : Option(AstExpr)) ?= Option(AstExpr).None
+    v : &Variable,
+    bodies : &ArrayList(AstExpr),
+    consumed_at_tokens : &ArrayList(Option(Token)),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception,
+    (branch_expr : &Option(AstExpr)) ?= Option(AstExpr).None
   ) -> bool
 )({
   if(v.is_module_level, {
@@ -2996,7 +2996,7 @@ _drop_in_arms_that_keep :: (
 /// The closure an arm yields, as its capture struct: a closure literal's
 /// `capture_type`, or the resolution of a bound closure identity (a local
 /// declared `(f : Impl(Fn...)) = closure`).
-_arm_closure_capture_struct :: (fn(imm(info) : ExprInfo) -> Option(TypeValue))(
+_arm_closure_capture_struct :: (fn(info : &ExprInfo) -> Option(TypeValue))(
   match(
     expr_info_capture_type(info),
     .Some(cap) => Option(TypeValue).Some(cap),
@@ -3014,9 +3014,9 @@ _arm_closure_capture_struct :: (fn(imm(info) : ExprInfo) -> Option(TypeValue))(
 /// arms that reach the join.
 reject_mixed_closure_arms :: (
   fn(
-    imm(bodies) : ArrayList(AstExpr),
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    bodies : &ArrayList(AstExpr),
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   (first_id : String) = String.new();
@@ -3057,16 +3057,16 @@ reject_mixed_closure_arms :: (
 /// evaluated arm's window into the log (`push_arm_init_range`).
 merge_and_check_envs :: (
   fn(
-    imm(env) : Environment,
-    imm(bodies) : ArrayList(AstExpr),
+    env : &Environment,
+    bodies : &ArrayList(AstExpr),
     group_log_start : usize,
-    imm(arm_ranges) : ArrayList(usize),
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception,
+    arm_ranges : &ArrayList(usize),
+    ctx : &EvalContext,
+    exn : &Exception,
     /// The whole `cond`/`match`, every arm included (a returning arm is not
     /// in `bodies`): a value moved in some arms is moved at its end, so the
     /// early-return drop pass covers the returns inside it.
-    (imm(branch_expr) : Option(AstExpr)) ?= Option(AstExpr).None
+    (branch_expr : &Option(AstExpr)) ?= Option(AstExpr).None
   ) -> Environment
 )({
   if(bodies.len() == usize(0), {
@@ -3726,7 +3726,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
 /// Private helper: try to get the concrete (non-runtime) EvalValue from the
 /// last entry in a variable lookup list.  Returns .None when the list is
 /// empty or the last variable has no compile-time value.
-_try_resolve_last_var :: (fn(imm(vars) : ArrayList(Variable)) -> Option(EvalValue))(
+_try_resolve_last_var :: (fn(vars : &ArrayList(Variable)) -> Option(EvalValue))(
   cond(
     (vars.len() == usize(0)) => Option(EvalValue).None,
     true => match(
@@ -3745,7 +3745,7 @@ _try_resolve_last_var :: (fn(imm(vars) : ArrayList(Variable)) -> Option(EvalValu
 );
 /// Private helper: get the declared type from the last entry in a variable
 /// lookup list.  Used as a fallback when both VarRef values are unresolvable.
-_get_last_var_type :: (fn(imm(vars) : ArrayList(Variable)) -> Option(TypeValue))(
+_get_last_var_type :: (fn(vars : &ArrayList(Variable)) -> Option(TypeValue))(
   cond(
     (vars.len() == usize(0)) => Option(TypeValue).None,
     true => match(
@@ -3768,10 +3768,10 @@ _get_last_var_type :: (fn(imm(vars) : ArrayList(Variable)) -> Option(TypeValue))
 ///   is backed by `eval_value_eq`).
 are_values_equal :: (
   fn(
-    imm(val1) : EvalValue,
-    imm(env1) : Environment,
-    imm(val2) : EvalValue,
-    imm(env2) : Environment
+    val1 : &EvalValue,
+    env1 : &Environment,
+    val2 : &EvalValue,
+    env2 : &Environment
   ) -> bool
 )(
   match(
@@ -3855,7 +3855,7 @@ are_values_equal :: (
 /// Parse a raw float token string (e.g. `"3.14"`, `"1e-5"`) to `f64`.
 /// Uses `atof` from the C standard library.
 /// Returns `None` if the string has no valid C-string representation.
-parse_raw_float :: (fn(imm(raw) : String) -> Option(f64))({
+parse_raw_float :: (fn(raw : &String) -> Option(f64))({
   // The lexer's float loops accept `_` separators exactly like the integer
   // loops, but C `atof` stops at the first `_` — strip them the way
   // `parse_raw_int` does (src/utils.yo), or `1_000.5` parses as `1.0`
@@ -3876,7 +3876,7 @@ parse_raw_float :: (fn(imm(raw) : String) -> Option(f64))({
 /// `-> never` function). Reaches the node codegen reads: a block's tail, and
 /// the diverging arms of a nested `cond`/`match`. A no-op for a node that is
 /// not `never`-typed and for a `never` context.
-adopt_never_type :: (fn(imm(e) : AstExpr, imm(ty) : TypeValue, imm(ctx) : EvalContext) -> unit)({
+adopt_never_type :: (fn(e : &AstExpr, ty : &TypeValue, ctx : &EvalContext) -> unit)({
   if(is_never_type(ty), {
     return(());
   });
@@ -3934,7 +3934,7 @@ export(
 /// runtime body the user wrote. Neither is a compile-time context. A function
 /// literal nested in a compile-time body opens its own function-body context,
 /// so a runtime method or closure defined there keeps its `:=`.
-in_compile_time_fn_body :: (fn(imm(ctx) : EvalContext) -> bool)(
+in_compile_time_fn_body :: (fn(ctx : &EvalContext) -> bool)(
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .Some(fctx) => match(
@@ -3999,7 +3999,7 @@ export(parse_raw_float, f64_raw_roundtrip);
 // ---------------------------------------------------------------------------
 /// The `inout` bindings in `bs` the local-borrow model does not track (a
 /// borrow it tracks is judged by its live range instead of its scope).
-_untracked_inout_borrowers :: (fn(imm(bs) : ArrayList(Variable)) -> ArrayList(Variable))({
+_untracked_inout_borrowers :: (fn(bs : &ArrayList(Variable)) -> ArrayList(Variable))({
   out := ArrayList(Variable).new();
   (i : usize) = usize(0);
   while(i < bs.len(), {
@@ -4090,7 +4090,7 @@ local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
 });
 /// Before a `.` access evaluates its receiver `recv`: `recv` is a prefix of
 /// the place the access names.
-local_borrow_mark_receiver :: (fn(imm(recv) : AstExpr) -> unit)(
+local_borrow_mark_receiver :: (fn(recv : &AstExpr) -> unit)(
   if(local_borrows_active() && (ast_expr_is_atom(recv) || ast_expr_is_fn_call_of(recv, BF_DOT, Option(usize).Some(usize(2)))), {
     g_lb_receiver_id = ast_expr_id(recv);
     g_lb_receiver_armed = true;
@@ -4102,7 +4102,7 @@ local_borrow_clear_receiver :: (fn() -> unit)({
 });
 /// At the entry of `e`'s evaluator: `e` is the receiver of an enclosing `.`
 /// access, which reports the place. Clears the mark.
-local_borrow_take_receiver :: (fn(imm(e) : AstExpr) -> bool)({
+local_borrow_take_receiver :: (fn(e : &AstExpr) -> bool)({
   if(!g_lb_receiver_armed, {
     return(false);
   });
@@ -4114,7 +4114,7 @@ local_borrow_take_receiver :: (fn(imm(e) : AstExpr) -> bool)({
 });
 /// `stmt` declares a local borrow: `imm(y) := place`, `mut(y) := place` or
 /// `inout(y) := place`.
-local_borrow_is_binding_stmt :: (fn(imm(stmt) : AstExpr) -> bool)(
+local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
     stmt,
     .FnCall(_, _, sargs, _, _) => match(sargs.get(usize(0)), .Some(l) => ast_expr_is_local_borrow_mode_call(l, Option(usize).Some(usize(1))), .None => false),
@@ -4123,17 +4123,17 @@ local_borrow_is_binding_stmt :: (fn(imm(stmt) : AstExpr) -> bool)(
 );
 /// `evaluate_begin_expression`, before it evaluates `stmts(i)`, a borrow
 /// binding: hand the binding the statements after it.
-local_borrow_set_lookahead :: (fn(imm(stmts) : ArrayList(AstExpr), i : usize, imm(stmt) : AstExpr) -> unit)({
+local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt : &AstExpr) -> unit)({
   g_lb_lookahead_stmts = stmts;
   g_lb_lookahead_index = i;
   g_lb_lookahead_id = ast_expr_id(stmt);
   g_lb_lookahead_armed = true;
 });
 /// A reference cell: a step into it leaves the static place model.
-_lb_is_cell_type :: (fn(imm(t) : TypeValue) -> bool)(
+_lb_is_cell_type :: (fn(t : &TypeValue) -> bool)(
   is_reference_struct_type(t) || (is_atomic_reference_struct_type(t) || (is_reference_enum_type(t) || is_dyn_type(t)))
 );
-_lb_contains :: (fn(imm(xs) : ArrayList(String), imm(x) : String) -> bool)({
+_lb_contains :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     if(match(xs.get(i), .Some(y) => (y == x), .None => false), {
@@ -4145,7 +4145,7 @@ _lb_contains :: (fn(imm(xs) : ArrayList(String), imm(x) : String) -> bool)({
 });
 /// `step` selects a field of a value aggregate of type `recv_ty`: a field of
 /// a non-`ref` struct, or a tuple element.
-_lb_is_value_field_step :: (fn(imm(recv_ty) : TypeValue, imm(step) : String) -> bool)(
+_lb_is_value_field_step :: (fn(recv_ty : &TypeValue, step : &String) -> bool)(
   match(
     t_refine_inner(recv_ty),
     .Struct({ field_labels : fl, is_reference_semantics : r, is_source_namespace : sns }) => (!r && (!sns && _lb_contains(fl, step))),
@@ -4156,7 +4156,7 @@ _lb_is_value_field_step :: (fn(imm(recv_ty) : TypeValue, imm(step) : String) -> 
 /// The place `e0` names, when it is rooted at a runtime variable: walks `.`
 /// steps, an index or call (its callee is the place, whole), a labelled
 /// argument, and a call-site borrow marker.
-local_borrow_place_of :: (fn(imm(e0) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> Option(LocalBorrowPlace))({
+local_borrow_place_of :: (fn(e0 : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(LocalBorrowPlace))({
   (e : AstExpr) = ast_expr_strip_borrow_marker(e0);
   // Outermost first: `steps(k)` selects from `recvs(k)`.
   steps := ArrayList(String).new();
@@ -4240,9 +4240,9 @@ local_borrow_place_of :: (fn(imm(e0) : AstExpr, imm(env) : Environment, imm(ctx)
   )
 });
 /// The place `e` as written, for a message.
-local_borrow_place_text :: (fn(imm(e) : AstExpr) -> String)(_place_text(e));
+local_borrow_place_text :: (fn(e : &AstExpr) -> String)(_place_text(e));
 /// The place `x` whole, for the variable `v`.
-local_borrow_place_of_variable :: (fn(imm(v) : Variable) -> LocalBorrowPlace)(
+local_borrow_place_of_variable :: (fn(v : &Variable) -> LocalBorrowPlace)(
   LocalBorrowPlace(
     root_name : v.name.clone(),
     root_decl : v.token,
@@ -4253,11 +4253,11 @@ local_borrow_place_of_variable :: (fn(imm(v) : Variable) -> LocalBorrowPlace)(
     text : v.name.clone()
   )
 );
-_lb_same_decl :: (fn(imm(a_name) : String, imm(a) : Token, imm(b_name) : String, imm(b) : Token) -> bool)(
+_lb_same_decl :: (fn(a_name : &String, a : &Token, b_name : &String, b : &Token) -> bool)(
   (a_name == b_name) && ((a.character == b.character) && (a.module_path == b.module_path))
 );
 /// One place is a prefix of the other (decision 28's overlap rule).
-_lb_places_overlap :: (fn(imm(p) : LocalBorrowPlace, imm(q) : LocalBorrowPlace) -> bool)({
+_lb_places_overlap :: (fn(p : &LocalBorrowPlace, q : &LocalBorrowPlace) -> bool)({
   if(!_lb_same_decl(p.root_name.clone(), p.root_decl, q.root_name.clone(), q.root_decl), {
     return(false);
   });
@@ -4274,12 +4274,12 @@ _lb_places_overlap :: (fn(imm(p) : LocalBorrowPlace, imm(q) : LocalBorrowPlace) 
   true
 });
 /// `tok` lies in `info`'s live range.
-_lb_live_at :: (fn(imm(info) : LocalBorrowInfo, imm(tok) : Token) -> bool)(
+_lb_live_at :: (fn(info : &LocalBorrowInfo, tok : &Token) -> bool)(
   (tok.module_path == info.decl.module_path) && ((tok.character > info.decl.character) && (tok.character <= info.end.character))
 );
-_lb_place_text :: (fn(imm(p) : LocalBorrowPlace) -> String)(p.text.clone());
-_lb_mode :: (fn(imm(info) : LocalBorrowInfo) -> str)(cond(info.is_mut => "&mut", true => "&"));
-_lb_verb :: (fn(imm(kind) : LocalBorrowAccess) -> str)(
+_lb_place_text :: (fn(p : &LocalBorrowPlace) -> String)(p.text.clone());
+_lb_mode :: (fn(info : &LocalBorrowInfo) -> str)(cond(info.is_mut => "&mut", true => "&"));
+_lb_verb :: (fn(kind : &LocalBorrowAccess) -> str)(
   match(
     kind,
     .Read => "read",
@@ -4288,9 +4288,9 @@ _lb_verb :: (fn(imm(kind) : LocalBorrowAccess) -> str)(
     .Exclusive => "borrow with `&mut`"
   )
 );
-_lb_is_read :: (fn(imm(kind) : LocalBorrowAccess) -> bool)(match(kind, .Read => true, _ => false));
+_lb_is_read :: (fn(kind : &LocalBorrowAccess) -> bool)(match(kind, .Read => true, _ => false));
 /// The local borrow named `name` and declared at `decl`, newest first.
-local_borrow_info_of :: (fn(imm(name) : String, imm(decl) : Token) -> Option(LocalBorrowInfo))({
+local_borrow_info_of :: (fn(name : &String, decl : &Token) -> Option(LocalBorrowInfo))({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4305,7 +4305,7 @@ local_borrow_info_of :: (fn(imm(name) : String, imm(decl) : Token) -> Option(Loc
   Option(LocalBorrowInfo).None
 });
 /// A value for the unreachable arm after a throw.
-local_borrow_info_placeholder :: (fn(imm(name) : String, imm(tok) : Token) -> LocalBorrowInfo)(
+local_borrow_info_placeholder :: (fn(name : &String, tok : &Token) -> LocalBorrowInfo)(
   LocalBorrowInfo(
     name : name,
     decl : tok,
@@ -4320,7 +4320,7 @@ local_borrow_info_placeholder :: (fn(imm(name) : String, imm(tok) : Token) -> Lo
   )
 );
 /// The local borrow the variable `v` is, if it is one.
-local_borrow_info_of_variable :: (fn(imm(v) : Variable) -> Option(LocalBorrowInfo))(
+local_borrow_info_of_variable :: (fn(v : &Variable) -> Option(LocalBorrowInfo))(
   cond(
     (v.is_ref && local_borrows_active()) => local_borrow_info_of(v.name.clone(), v.token),
     true => Option(LocalBorrowInfo).None
@@ -4328,7 +4328,7 @@ local_borrow_info_of_variable :: (fn(imm(v) : Variable) -> Option(LocalBorrowInf
 );
 /// The local borrow a `match` binding named `name` (declared at `decl`) was
 /// reached from.
-local_borrow_pattern_source :: (fn(imm(name) : String, imm(decl) : Token) -> Option(LocalBorrowInfo))({
+local_borrow_pattern_source :: (fn(name : &String, decl : &Token) -> Option(LocalBorrowInfo))({
   (i : usize) = g_local_borrow_patterns.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4344,7 +4344,7 @@ local_borrow_pattern_source :: (fn(imm(name) : String, imm(decl) : Token) -> Opt
 });
 /// The local borrow a `match` scrutinee is reached from: a place rooted at a
 /// local borrow, or at a `match` binding over one.
-local_borrow_scrutinee_source :: (fn(imm(scrutinee) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> Option(LocalBorrowInfo))(
+local_borrow_scrutinee_source :: (fn(scrutinee : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(LocalBorrowInfo))(
   match(
     local_borrow_place_of(scrutinee, env, ctx),
     .Some(p) => match(
@@ -4357,13 +4357,13 @@ local_borrow_scrutinee_source :: (fn(imm(scrutinee) : AstExpr, imm(env) : Enviro
 );
 /// Record that the `match` binding `name` (declared at `decl`) is reached
 /// from the local borrow `borrow`.
-local_borrow_note_pattern_binding :: (fn(imm(name) : String, imm(decl) : Token, imm(borrow) : LocalBorrowInfo) -> unit)({
+local_borrow_note_pattern_binding :: (fn(name : &String, decl : &Token, borrow : &LocalBorrowInfo) -> unit)({
   g_local_borrow_patterns.push(LocalBorrowPatternBinding(name : name, decl : decl, borrow : borrow));
 });
 /// E0911: the access `kind` of `place` at `tok` conflicts with the live
 /// borrow `info`, which freezes `frozen`.
 _lb_raise_conflict :: (
-  fn(imm(info) : LocalBorrowInfo, imm(frozen) : LocalBorrowPlace, imm(place) : LocalBorrowPlace, imm(kind) : LocalBorrowAccess, imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
+  fn(info : &LocalBorrowInfo, frozen : &LocalBorrowPlace, place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit
 )({
   ftext := _lb_place_text(frozen);
   rule := cond(
@@ -4394,11 +4394,11 @@ _lb_raise_conflict :: (
   );
   raise_flow_violation(with_code(format_error_messages_with_help(entries, Option(String).Some(help)), E_LOCAL_BORROW_CONFLICT), ctx, exn);
 });
-_lb_tok_after :: (fn(imm(a) : Token, imm(b) : Token) -> bool)((a.module_path == b.module_path) && (a.character > b.character));
+_lb_tok_after :: (fn(a : &Token, b : &Token) -> bool)((a.module_path == b.module_path) && (a.character > b.character));
 /// An access of `place` at `tok`: E0911 if it conflicts with a live local
 /// borrow (decision 18, rule 2). A read conflicts with a live `mut` borrow;
 /// a write, a move or an exclusive borrow with any live borrow.
-local_borrow_access :: (fn(imm(place) : LocalBorrowPlace, imm(kind) : LocalBorrowAccess, imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4423,7 +4423,7 @@ local_borrow_access :: (fn(imm(place) : LocalBorrowPlace, imm(kind) : LocalBorro
 });
 /// An access of the place `e` names (no-op when it is not rooted at a
 /// variable or no local borrow is in scope).
-local_borrow_access_expr :: (fn(imm(e) : AstExpr, imm(kind) : LocalBorrowAccess, imm(tok) : Token, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)(
+local_borrow_access_expr :: (fn(e : &AstExpr, kind : &LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)(
   if(local_borrows_active(), {
     match(
       local_borrow_place_of(e, env, ctx),
@@ -4434,7 +4434,7 @@ local_borrow_access_expr :: (fn(imm(e) : AstExpr, imm(kind) : LocalBorrowAccess,
 );
 /// A write of `place` at `tok` that goes through an `imm` local borrow is
 /// E0908: the borrow is read-only (decision 18). `what` names the write.
-local_borrow_require_writable :: (fn(imm(place) : LocalBorrowPlace, imm(what) : String, imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)(
+local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, what : &String, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)(
   match(
     local_borrow_info_of(place.root_name.clone(), place.root_decl),
     .Some(info) => if(!info.is_mut, {
@@ -4460,7 +4460,7 @@ local_borrow_require_writable :: (fn(imm(place) : LocalBorrowPlace, imm(what) : 
 );
 /// A write (an assignment target, a `mut` argument the callee writes) of the
 /// place `e`: E0908 through an `imm` borrow, E0911 against a live borrow.
-local_borrow_write_expr :: (fn(imm(e) : AstExpr, imm(what) : String, imm(tok) : Token, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)(
+local_borrow_write_expr :: (fn(e : &AstExpr, what : &String, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)(
   if(local_borrows_active(), {
     match(
       local_borrow_place_of(e, env, ctx),
@@ -4479,7 +4479,7 @@ local_borrow_write_expr :: (fn(imm(e) : AstExpr, imm(what) : String, imm(tok) : 
 /// expression ending in one is not a place; `local_borrow_place_of` (whose
 /// notion of a place is "what an access touches", so `xs(i)` names `xs`
 /// whole) does not distinguish the two.
-local_borrow_result_is_place :: (fn(imm(e) : AstExpr) -> bool)({
+local_borrow_result_is_place :: (fn(e : &AstExpr) -> bool)({
   (p : AstExpr) = ast_expr_strip_borrow_marker(e);
   if(ast_expr_is_atom(p), {
     return(true);
@@ -4509,7 +4509,7 @@ local_borrow_result_is_place :: (fn(imm(e) : AstExpr) -> bool)({
 /// (`y`) or a place reached from it through the field steps the place model
 /// tracks (`y.x`) — so the expression naming the function's result names the
 /// BORROW, which is second-class, not the value it reads through.
-local_borrow_result_borrow_of :: (fn(imm(e) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> Option(LocalBorrowInfo))(
+local_borrow_result_borrow_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(LocalBorrowInfo))(
   cond(
     local_borrow_result_is_place(e) => match(
       local_borrow_place_of(e, env, ctx),
@@ -4525,7 +4525,7 @@ local_borrow_result_borrow_of :: (fn(imm(e) : AstExpr, imm(env) : Environment, i
 /// (decision 18 rule 1, decision 38 A): the value it names may be read
 /// through and copied out, but the borrow itself never crosses the function
 /// boundary.
-local_borrow_reject_result_borrow :: (fn(imm(info) : LocalBorrowInfo, imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
   ftext := match(
     info.places.get(usize(0)),
     .Some(p0) => _lb_place_text(p0),
@@ -4554,7 +4554,7 @@ local_borrow_reject_result_borrow :: (fn(imm(info) : LocalBorrowInfo, imm(tok) :
 });
 /// Rule 3 (decision 18): a borrow of a module-level place may not be live
 /// across a call, which could reach the place by name. `tok` is the call.
-local_borrow_note_call :: (fn(imm(tok) : Token, imm(callee_text) : String, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4588,7 +4588,7 @@ local_borrow_note_call :: (fn(imm(tok) : Token, imm(callee_text) : String, imm(c
 /// through a reference cell or a module-level place may not be live across
 /// an `await`: another task could write the place while this one is
 /// suspended. `tok` is the await.
-local_borrow_note_await :: (fn(imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4620,7 +4620,7 @@ local_borrow_note_await :: (fn(imm(tok) : Token, imm(ctx) : EvalContext, imm(exn
 });
 // --- Live ranges -------------------------------------------------------------
 /// `e` mentions the identifier `name` (a field name after `.` does not count).
-_lb_mentions :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+_lb_mentions :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
     .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value == name)),
@@ -4645,7 +4645,7 @@ _lb_mentions :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
   )
 );
 /// The last token of a mention of `name` in `e`.
-_lb_last_mention :: (fn(imm(e) : AstExpr, imm(name) : String, imm(best) : Option(Token)) -> Option(Token))(
+_lb_last_mention :: (fn(e : &AstExpr, name : &String, best : &Option(Token)) -> Option(Token))(
   match(
     e,
     .Atom(_, t) => cond(
@@ -4678,7 +4678,7 @@ _lb_last_mention :: (fn(imm(e) : AstExpr, imm(name) : String, imm(best) : Option
 /// holding its last mention: descend through blocks and branch arms into the
 /// last child that mentions it; anything else (a loop, a call, an
 /// assignment, a closure) is live to its end.
-_lb_region_end :: (fn(imm(e) : AstExpr, imm(name) : String, imm(root) : Token) -> Token)({
+_lb_region_end :: (fn(e : &AstExpr, name : &String, root : &Token) -> Token)({
   args := match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   is_block := ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None);
   is_branch := (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None));
@@ -4703,7 +4703,7 @@ _lb_region_end :: (fn(imm(e) : AstExpr, imm(name) : String, imm(root) : Token) -
   _last_token_of(e, root)
 });
 /// `e` re-points the borrow `name` somewhere (`imm(name) = p`, `mut(name) = p`).
-_lb_has_repoint :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+_lb_has_repoint :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
@@ -4750,7 +4750,7 @@ _lb_has_repoint :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
 /// not a block statement) the borrow dies at its own binding.
 /// `has_repoint` reports whether a later statement re-points it.
 LocalBorrowRange :: struct(last_use : Token, end : Token, has_repoint : bool);
-local_borrow_range_of :: (fn(imm(binding) : AstExpr, imm(name) : String, imm(decl) : Token) -> LocalBorrowRange)({
+local_borrow_range_of :: (fn(binding : &AstExpr, name : &String, decl : &Token) -> LocalBorrowRange)({
   (last : Token) = decl;
   (end : Token) = _last_token_of(binding, decl);
   (repoint : bool) = false;
@@ -4780,7 +4780,7 @@ local_borrow_range_of :: (fn(imm(binding) : AstExpr, imm(name) : String, imm(dec
 /// `range` says. Its parents (the borrows `place` is rooted at) stay live as
 /// long as it (decision 38 A).
 local_borrow_register :: (
-  fn(imm(name) : String, imm(decl) : Token, is_mut : bool, imm(place) : LocalBorrowPlace, imm(range) : LocalBorrowRange, imm(step_pin) : Option(Variable)) -> LocalBorrowInfo
+  fn(name : &String, decl : &Token, is_mut : bool, place : &LocalBorrowPlace, range : &LocalBorrowRange, step_pin : &Option(Variable)) -> LocalBorrowInfo
 )({
   parents := ArrayList(LocalBorrowInfo).new();
   (crosses : bool) = place.through_cell;
@@ -4835,7 +4835,7 @@ local_borrow_register :: (
 });
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
 /// derived from its current target is live.
-local_borrow_require_no_live_derived :: (fn(imm(info) : LocalBorrowInfo, imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4867,7 +4867,7 @@ local_borrow_require_no_live_derived :: (fn(imm(info) : LocalBorrowInfo, imm(tok
 /// After a call evaluated at `tok`: rule 4 at an `await`, rule 3 at any other
 /// runtime call. `is_await` marks an `io.await`/`.await` call; `callee_text`
 /// names the callee.
-local_borrow_note_runtime_call :: (fn(is_await : bool, imm(tok) : Token, imm(callee_text) : String, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)(
+local_borrow_note_runtime_call :: (fn(is_await : bool, tok : &Token, callee_text : &String, ctx : &EvalContext, exn : &Exception) -> unit)(
   cond(
     is_await => local_borrow_note_await(tok, ctx, exn),
     true => local_borrow_note_call(tok, callee_text, ctx, exn)
@@ -4875,7 +4875,7 @@ local_borrow_note_runtime_call :: (fn(is_await : bool, imm(tok) : Token, imm(cal
 );
 /// A runtime operator on implicitly copyable scalars (`g + i32(1)`) lowers to
 /// a C operator: it is not a call for rule 3.
-local_borrow_is_scalar_type :: (fn(imm(t) : TypeValue) -> bool)(
+local_borrow_is_scalar_type :: (fn(t : &TypeValue) -> bool)(
   is_primitive_type(t) || (is_bool_type(t) || is_pointer_type(t))
 );
 // ---------------------------------------------------------------------------

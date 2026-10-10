@@ -62,7 +62,7 @@ _LiveVar :: ref(struct(def_end : u64, last : u64, scope_end : u64, to_scope_end 
 /// `compute_cross_boundary_variables`, read by the struct emitter
 /// (`inline_await_result_fields`) and `emit_inline_await`.
 (g_local_await_results : HashSet(String)) = HashSet(String).new();
-_site_of :: (fn(imm(tok) : Token) -> String)(`${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
+_site_of :: (fn(tok : &Token) -> String)(`${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
 /// State of the live-range walk over one `io.async` body.
 _LiveWalk :: ref(
   struct(
@@ -88,14 +88,14 @@ _LiveWalk :: ref(
   )
 );
 /// A token's source position as one ordered key (row major).
-_lv_pos :: (fn(imm(tok) : Token, imm(w) : _LiveWalk) -> u64)({
+_lv_pos :: (fn(tok : &Token, w : &_LiveWalk) -> u64)({
   if(!(tok.module_path == w.module_path), {
     w.foreign = true;
   });
   (u64(tok.row) * u64(1048576)) + u64(tok.column)
 });
 /// The last source position inside `e` (memoized by node id).
-_lv_span_end :: (fn(imm(e) : AstExpr, imm(w) : _LiveWalk) -> u64)({
+_lv_span_end :: (fn(e : &AstExpr, w : &_LiveWalk) -> u64)({
   eid := ast_expr_id(e);
   match(w.span_ends.get(eid), .Some(v) => return(v), .None => ());
   (m : u64) = _lv_pos(ast_expr_token(e), w);
@@ -127,12 +127,12 @@ _lv_span_end :: (fn(imm(e) : AstExpr, imm(w) : _LiveWalk) -> u64)({
 });
 /// The id (after SSA remapping) of the variable `name` resolves to in `e`'s
 /// environment, and that variable's declaration position.
-_lv_resolve :: (fn(imm(e) : AstExpr, imm(name) : String, imm(w) : _LiveWalk, imm(context) : FunctionGenerationContext) -> Option(Variable))(
+_lv_resolve :: (fn(e : &AstExpr, name : &String, w : &_LiveWalk, context : &FunctionGenerationContext) -> Option(Variable))(
   _lv_resolve_keyed(ast_expr_id(e), e, name, w, context)
 );
 /// `_lv_resolve`, with the scope-release query keyed by `key`: a binding's
 /// name atom, whose record holds the variable the binding declared.
-_lv_resolve_keyed :: (fn(key : ExprId, imm(e) : AstExpr, imm(name) : String, imm(w) : _LiveWalk, imm(context) : FunctionGenerationContext) -> Option(Variable))(
+_lv_resolve_keyed :: (fn(key : ExprId, e : &AstExpr, name : &String, w : &_LiveWalk, context : &FunctionGenerationContext) -> Option(Variable))(
   match(
     context.base.get_expr_info(e),
     .Some(info) => {
@@ -145,12 +145,12 @@ _lv_resolve_keyed :: (fn(key : ExprId, imm(e) : AstExpr, imm(name) : String, imm
     .None => Option(Variable).None
   )
 );
-_lv_id :: (fn(imm(v) : Variable, imm(w) : _LiveWalk) -> String)({
+_lv_id :: (fn(v : &Variable, w : &_LiveWalk) -> String)({
   id := v.id.to_string();
   match(w.remap.get(id.clone()), .Some(orig) => orig, .None => id)
 });
 /// Declare the local `name` at `def_end` (its scope ends at `scope_end`).
-_lv_declare :: (fn(imm(id) : String, imm(name) : String, def_end : u64, scope_end : u64, imm(w) : _LiveWalk) -> unit)({
+_lv_declare :: (fn(id : &String, name : &String, def_end : u64, scope_end : u64, w : &_LiveWalk) -> unit)({
   if(!w.vars.contains_key(id.clone()), {
     w.vars.insert(id.clone(), _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
     ids := match(w.names.get(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
@@ -160,7 +160,7 @@ _lv_declare :: (fn(imm(id) : String, imm(name) : String, def_end : u64, scope_en
 });
 /// Record a use of `id` at `at`: a local defined before an enclosing loop is
 /// live through the whole loop (the loop comes back to it).
-_lv_use :: (fn(imm(id) : String, at : u64, imm(w) : _LiveWalk) -> unit)(
+_lv_use :: (fn(id : &String, at : u64, w : &_LiveWalk) -> unit)(
   match(
     w.vars.get(id),
     .Some(lv) => {
@@ -181,7 +181,7 @@ _lv_use :: (fn(imm(id) : String, at : u64, imm(w) : _LiveWalk) -> unit)(
 );
 /// The variable a place expression is rooted at: `x` for `x`, `x.a.b` and
 /// `x(i)`.
-_lv_place_root :: (fn(imm(e) : AstExpr) -> AstExpr)(
+_lv_place_root :: (fn(e : &AstExpr) -> AstExpr)(
   match(
     e.clone(),
     .Atom(_, _) => e,
@@ -191,7 +191,7 @@ _lv_place_root :: (fn(imm(e) : AstExpr) -> AstExpr)(
     )
   )
 );
-_lv_mark_scope :: (fn(imm(e) : AstExpr, imm(w) : _LiveWalk, imm(context) : FunctionGenerationContext) -> unit)(
+_lv_mark_scope :: (fn(e : &AstExpr, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)(
   match(
     e.clone(),
     .Atom(_, tok) => match(
@@ -210,7 +210,7 @@ _lv_mark_scope :: (fn(imm(e) : AstExpr, imm(w) : _LiveWalk, imm(context) : Funct
 );
 /// Declare the names a match arm's pattern binds (identifier atoms whose
 /// variable is declared at that very atom).
-_lv_pattern_bindings :: (fn(imm(pat) : AstExpr, scope_end : u64, imm(w) : _LiveWalk, imm(context) : FunctionGenerationContext) -> unit)(
+_lv_pattern_bindings :: (fn(pat : &AstExpr, scope_end : u64, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)(
   match(
     pat.clone(),
     .Atom(_, tok) => if(tok.kind == TokenKind.Identifier, {
@@ -235,7 +235,7 @@ _lv_pattern_bindings :: (fn(imm(pat) : AstExpr, scope_end : u64, imm(w) : _LiveW
 /// Walk `e`: `stmt_end` is where the statement being walked ends (a read is
 /// emitted no earlier than the awaits before it in the same statement), and
 /// `block_end` where the innermost block ends (its locals' scope).
-_lv_walk :: (fn(imm(e) : AstExpr, stmt_end : u64, block_end : u64, imm(w) : _LiveWalk, imm(context) : FunctionGenerationContext) -> unit)({
+_lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
   match(
     lookup_macro_expansion(ast_expr_id(e)),
     .Some(expanded) => {
@@ -438,7 +438,7 @@ _lv_walk :: (fn(imm(e) : AstExpr, stmt_end : u64, block_end : u64, imm(w) : _Liv
 /// scope. A node from another module (a macro expansion) makes positions
 /// incomparable, and then every local crosses, as before.
 compute_cross_boundary_variables :: (
-  fn(imm(body_expr) : AstExpr, imm(analysis) : AwaitAnalysisResult, imm(context) : FunctionGenerationContext) -> CrossBoundaryResult
+  fn(body_expr : &AstExpr, analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> CrossBoundaryResult
 )({
   captured_variables := analysis.captured_variables;
   body_tok := ast_expr_token(body_expr.clone());
@@ -461,7 +461,7 @@ compute_cross_boundary_variables :: (
   // Suspension positions, and the future temps each await consumes.
   sus := ArrayList(u64).new();
   consumed_temps := HashSet(String).new();
-  note_await := (fn(imm(ae) : AstExpr, mut(sus) : ArrayList(u64), mut(consumed) : HashSet(String), imm(w) : _LiveWalk, imm(context) : FunctionGenerationContext) -> unit)({
+  note_await := (fn(ae : &AstExpr, sus : &mut ArrayList(u64), consumed : &mut HashSet(String), w : &_LiveWalk, context : &FunctionGenerationContext) -> unit)({
     sus.push(_lv_pos(ast_expr_token(ae.clone()), w));
     match(
       ae,
@@ -618,7 +618,7 @@ OverlappingStorageResult :: ref(
 );
 /// Find the eligible captured variable with the given id. Helper for slot naming.
 _find_captured_by_id :: (
-  fn(imm(eligible) : ArrayList(CapturedVariable), imm(id) : String) -> Option(CapturedVariable)
+  fn(eligible : &ArrayList(CapturedVariable), id : &String) -> Option(CapturedVariable)
 )({
   (i : usize) = usize(0);
   (found : Option(CapturedVariable)) = Option(CapturedVariable).None;
@@ -643,12 +643,12 @@ _find_captured_by_id :: (
 /// disjoint live ranges never collide — so the exact slot_N numbering is free).
 compute_overlapping_slots :: (
   fn(
-    imm(cross_boundary_ids) : HashSet(String),
-    imm(variable_segments) : HashMap(String, HashSet(usize)),
-    imm(captured_variables) : ArrayList(CapturedVariable),
-    imm(await_future_temp_var_aliases) : HashMap(String, String),
-    imm(pattern_binding_ids) : HashSet(String),
-    imm(context) : FunctionGenerationContext
+    cross_boundary_ids : &HashSet(String),
+    variable_segments : &HashMap(String, HashSet(usize)),
+    captured_variables : &ArrayList(CapturedVariable),
+    await_future_temp_var_aliases : &HashMap(String, String),
+    pattern_binding_ids : &HashSet(String),
+    context : &FunctionGenerationContext
   ) -> OverlappingStorageResult
 )({
   empty_result := OverlappingStorageResult(
@@ -884,7 +884,7 @@ compute_overlapping_slots :: (
   });
   OverlappingStorageResult(slot_aliases : slot_aliases, slots : slots)
 });
-uses_generic_future_interface :: (fn(imm(future_type) : TypeValue, imm(context) : FunctionGenerationContext) -> bool)({
+uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &FunctionGenerationContext) -> bool)({
   if(!(is_some_type(future_type) && type_implements_future(future_type)), {
     return(false);
   });
@@ -939,12 +939,12 @@ uses_generic_future_interface :: (fn(imm(future_type) : TypeValue, imm(context) 
 /// a direct `__capture.<label>` store for concrete Futures.
 emit_future_effect_injection_line :: (
   fn(
-    imm(future_type) : TypeValue,
-    imm(future_access) : String,
-    imm(field_label) : String,
-    imm(member_code) : String,
-    imm(indent) : String,
-    imm(context) : FunctionGenerationContext
+    future_type : &TypeValue,
+    future_access : &String,
+    field_label : &String,
+    member_code : &String,
+    indent : &String,
+    context : &FunctionGenerationContext
   ) -> unit
 )({
   em := context.base.emitter;
@@ -959,7 +959,7 @@ emit_future_effect_injection_line :: (
 /// state-machine scope: a caller evidence param (`current_evidence_params`) wins,
 /// else an outer captured variable (`sm->__capture.<label>`), else `.None`.
 resolve_effect_field_from_sm_scope :: (
-  fn(imm(field_label) : String, imm(context) : FunctionGenerationContext, imm(_expr) : AstExpr) -> Option(String)
+  fn(field_label : &String, context : &FunctionGenerationContext, _expr : &AstExpr) -> Option(String)
 )({
   _expr;
   match(
@@ -1013,7 +1013,7 @@ resolve_effect_field_from_sm_scope :: (
 /// captured variables (keyed by id) plus the closure's `__capture` struct fields
 /// (as `outer` captures, keyed by label).
 _build_combined_sm_variables :: (
-  fn(imm(analysis) : AwaitAnalysisResult, imm(capture_type) : Option(TypeValue)) -> HashMap(String, CapturedVariable)
+  fn(analysis : &AwaitAnalysisResult, capture_type : &Option(TypeValue)) -> HashMap(String, CapturedVariable)
 )({
   combined := HashMap(String, CapturedVariable).new();
   // Assign each LOCAL capture its stable C field name (name-derived,
@@ -1066,9 +1066,9 @@ _build_combined_sm_variables :: (
 /// async.yo<->state_machine.yo cycle — it is a future-trait/SM-var helper.
 find_bundle_field_name :: (
   fn(
-    imm(future_trait_type) : TypeValue,
-    imm(state_machine_variables) : Option(HashMap(String, CapturedVariable)),
-    imm(state_machine_field_aliases) : Option(HashMap(String, String))
+    future_trait_type : &TypeValue,
+    state_machine_variables : &Option(HashMap(String, CapturedVariable)),
+    state_machine_field_aliases : &Option(HashMap(String, String))
   ) -> Option(String)
 )({
   eff_types := match(future_trait_type, .FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
@@ -1130,13 +1130,13 @@ find_bundle_field_name :: (
 /// vtable or a direct capture store.
 emit_effect_record_injection_for_sm :: (
   fn(
-    imm(source_namespace_type) : TypeValue,
-    imm(future_type) : TypeValue,
-    imm(future_access) : String,
-    imm(indent) : String,
-    imm(using_arg_value) : Option(EvalValue),
-    imm(context) : FunctionGenerationContext,
-    imm(expr) : AstExpr
+    source_namespace_type : &TypeValue,
+    future_type : &TypeValue,
+    future_access : &String,
+    indent : &String,
+    using_arg_value : &Option(EvalValue),
+    context : &FunctionGenerationContext,
+    expr : &AstExpr
   ) -> unit
 )({
   field_labels := match(source_namespace_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
@@ -1297,7 +1297,7 @@ emit_effect_record_injection_for_sm :: (
 /// the SM scope; a struct/source-namespace effect forwards the outer bundle field
 /// (or injects each member). Iterates the `FutureTraitT` effect arrays.
 emit_effect_injection_for_sm :: (
-  fn(imm(await_expr) : AstExpr, imm(future_access) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit
+  fn(await_expr : &AstExpr, future_access : &String, indent : &String, context : &FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
@@ -1377,17 +1377,17 @@ emit_effect_injection_for_sm :: (
 });
 _emit_await_suspension_core :: (
   fn(
-    imm(acc) : String,
+    acc : &String,
     is_io_future : bool,
-    imm(next_s) : String,
-    imm(resume_function_name) : String,
-    imm(effect_expr) : AstExpr,
-    imm(ind) : String,
-    imm(context) : FunctionGenerationContext,
+    next_s : &String,
+    resume_function_name : &String,
+    effect_expr : &AstExpr,
+    ind : &String,
+    context : &FunctionGenerationContext,
     /// Where the inline fast path continues: the next state's case label
     /// (`state_<next>`) in the segment lowering, the await's own resume label
     /// in the single-pass lowering.
-    imm(resume_label) : String
+    resume_label : &String
   ) -> unit
 )({
   em := context.base.emitter;
@@ -1450,7 +1450,7 @@ _emit_await_suspension_core :: (
   em.emit_string_line(`${ind}return;`);
 });
 _emit_await_result_store :: (
-  fn(imm(dest) : String, imm(src) : String, imm(rt) : TypeValue, is_reassign : bool, imm(ind) : String, imm(context) : FunctionGenerationContext) -> unit
+  fn(dest : &String, src : &String, rt : &TypeValue, is_reassign : bool, ind : &String, context : &FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   if(!type_contains_rc_cell_or_move_only(rt), {
@@ -1479,7 +1479,7 @@ _emit_await_result_store :: (
   em.emit_string_line(`${ind}  ${dest} = ${tmp};`);
   em.emit_string_line(`${ind}}`);
 });
-_append_exprs :: (fn(mut(dst) : ArrayList(AstExpr), imm(src) : ArrayList(AstExpr)) -> unit)({
+_append_exprs :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr)) -> unit)({
   (i : usize) = usize(0);
   while(i < src.len(), {
     match(
@@ -1496,7 +1496,7 @@ _append_exprs :: (fn(mut(dst) : ArrayList(AstExpr), imm(src) : ArrayList(AstExpr
 
 /// The await's result type: the await point's (the analysis resolves it), else
 /// the await expression's own recorded type.
-_inline_await_result_type :: (fn(imm(expr) : AstExpr, imm(analysis) : Option(AwaitAnalysisResult), imm(context) : FunctionGenerationContext) -> TypeValue)({
+_inline_await_result_type :: (fn(expr : &AstExpr, analysis : &Option(AwaitAnalysisResult), context : &FunctionGenerationContext) -> TypeValue)({
   eid := ast_expr_id(expr);
   match(
     analysis,
@@ -1518,7 +1518,7 @@ _inline_await_result_type :: (fn(imm(expr) : AstExpr, imm(analysis) : Option(Awa
 });
 
 /// Whether `t` is a unit result (or an unresolved Future SomeType): no field.
-_inline_result_is_unit :: (fn(imm(t) : TypeValue) -> bool)(
+_inline_result_is_unit :: (fn(t : &TypeValue) -> bool)(
   is_unit_type(t) || (
     is_some_type(t) && some_resolution(t).is_none()
   )
@@ -1529,11 +1529,11 @@ _inline_result_is_unit :: (fn(imm(t) : TypeValue) -> bool)(
 /// branch's await (`cond_branch_suspension_exprs`), each with its own type.
 /// The struct declares exactly these fields and the emitter stores into them,
 /// so both walk this one list.
-inline_await_result_fields :: (fn(imm(analysis) : AwaitAnalysisResult, imm(context) : FunctionGenerationContext) -> ArrayList(InlineAwaitResultField))({
+inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> ArrayList(InlineAwaitResultField))({
   prefix := context.fusion_field_prefix.clone();
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
-  add := (fn(imm(e) : AstExpr, imm(t) : TypeValue, mut(out) : ArrayList(InlineAwaitResultField), mut(seen) : HashSet(usize), imm(prefix) : String) -> unit)({
+  add := (fn(e : &AstExpr, t : &TypeValue, out : &mut ArrayList(InlineAwaitResultField), seen : &mut HashSet(usize), prefix : &String) -> unit)({
     if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.contains(_site_of(ast_expr_token(e.clone()))), {
       seen.insert(ast_expr_id(e));
       out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
@@ -1564,7 +1564,7 @@ inline_await_result_fields :: (fn(imm(analysis) : AwaitAnalysisResult, imm(conte
 /// The type of `expr`'s result when the lowering keeps it in a C local (no
 /// suspension between the await and its statement's use of it); `.None` when
 /// it is unit or lives in the task.
-inline_await_local_result_type :: (fn(imm(expr) : AstExpr, imm(analysis) : AwaitAnalysisResult, imm(context) : FunctionGenerationContext) -> Option(TypeValue))({
+inline_await_local_result_type :: (fn(expr : &AstExpr, analysis : &AwaitAnalysisResult, context : &FunctionGenerationContext) -> Option(TypeValue))({
   rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(analysis), context);
   cond(
     _inline_result_is_unit(rty) => Option(TypeValue).None,
@@ -1572,7 +1572,7 @@ inline_await_local_result_type :: (fn(imm(expr) : AstExpr, imm(analysis) : Await
     true => Option(TypeValue).None
   )
 });
-inline_await_result_field_of :: (fn(imm(expr) : AstExpr, imm(fields) : ArrayList(InlineAwaitResultField)) -> Option(InlineAwaitResultField))({
+inline_await_result_field_of :: (fn(expr : &AstExpr, fields : &ArrayList(InlineAwaitResultField)) -> Option(InlineAwaitResultField))({
   eid := ast_expr_id(expr);
   tok := ast_expr_token(expr);
   (by_pos : Option(InlineAwaitResultField)) = Option(InlineAwaitResultField).None;
@@ -1597,7 +1597,7 @@ inline_await_result_field_of :: (fn(imm(expr) : AstExpr, imm(fields) : ArrayList
 /// `YO_DEBUG_FUSION`: print one line per await of the single-pass lowering
 /// with the fusion verdict the evaluator recorded for its future
 /// (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md, F1).
-_report_await_fusion :: (fn(imm(await_expr) : AstExpr, imm(future_arg) : AstExpr) -> unit)({
+_report_await_fusion :: (fn(await_expr : &AstExpr, future_arg : &AstExpr) -> unit)({
   tok := ast_expr_token(await_expr);
   (verdict : String) = match(
     await_fusion_candidate(future_arg),
@@ -1615,7 +1615,7 @@ _report_await_fusion :: (fn(imm(await_expr) : AstExpr, imm(future_arg) : AstExpr
 /// result is extracted; a named future (a variable or capture) is awaited in
 /// place and stays with its owner. The suspension itself is the shared core,
 /// continuing at this await's own resume label.
-emit_inline_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   em := context.base.emitter;
   low := match(
     context.sm_inline_lowering,
@@ -1752,14 +1752,14 @@ emit_inline_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
 /// labels the body produced), the body once, its completion, and the table.
 generate_async_block_resume_function_inline :: (
   fn(
-    imm(body_expr) : AstExpr,
-    imm(async_block_id) : String,
-    imm(struct_name) : String,
-    imm(resume_function_name) : String,
-    imm(analysis) : AwaitAnalysisResult,
-    imm(future_type) : TypeValue,
-    imm(capture_type) : Option(TypeValue),
-    imm(context) : FunctionGenerationContext
+    body_expr : &AstExpr,
+    async_block_id : &String,
+    struct_name : &String,
+    resume_function_name : &String,
+    analysis : &AwaitAnalysisResult,
+    future_type : &TypeValue,
+    capture_type : &Option(TypeValue),
+    context : &FunctionGenerationContext
   ) -> ArrayList(String)
 )({
   em := context.base.emitter;
@@ -1897,7 +1897,7 @@ generate_async_block_resume_function_inline :: (
 /// task keeps its scope across suspensions, wherever it is resumed from
 /// (plans/archive/EXPLICIT_ALLOCATORS.md §3.5). The scope is read before the body
 /// runs, because the body may release the task.
-resume_scope_wrapper :: (fn(imm(name) : String) -> String)(
+resume_scope_wrapper :: (fn(name : &String) -> String)(
   `void ${name.clone()}(void* sm_ptr) {
   if (!atomic_load_explicit(&__yo_scopes_ever_entered, memory_order_relaxed)) {
     ${name.clone()}__body(sm_ptr);
@@ -1914,7 +1914,7 @@ resume_scope_wrapper :: (fn(imm(name) : String) -> String)(
 /// waiters — the phase-2 protocol of generate_async_block_cancel_pending_function,
 /// with the per-state facts the lowering recorded as it emitted each await.
 generate_async_block_cancel_pending_function_inline :: (
-  fn(imm(async_block_id) : String, imm(struct_name) : String, imm(context) : FunctionGenerationContext) -> Option(String)
+  fn(async_block_id : &String, struct_name : &String, context : &FunctionGenerationContext) -> Option(String)
 )({
   em := context.base.emitter;
   sps := match(g_inline_suspensions.get(async_block_id.clone()), .Some(l) => l, .None => ArrayList(InlineSuspension).new());

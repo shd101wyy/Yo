@@ -65,7 +65,7 @@
 (g_flow_violation_box : ArrayList(YoError)) = ArrayList(YoError).new();
 /// Record `err` as a rejection for the def-time re-raise (unguarded: the
 /// caller decides; `raise_flow_violation` is the guarded flag-and-throw).
-flag_flow_violation :: (fn(imm(err) : YoError) -> unit)({
+flag_flow_violation :: (fn(err : &YoError) -> unit)({
   g_flow_violation_box.clear();
   g_flow_violation_box.push(err);
   ()
@@ -122,7 +122,7 @@ clear_cee_observed_error :: (fn() -> unit)({
   g_cee_observed_error_box.clear();
   g_cee_observed_messages.clear();
 });
-record_cee_error_message :: (fn(imm(msg) : String) -> unit)({
+record_cee_error_message :: (fn(msg : &String) -> unit)({
   g_cee_observed_messages.push(msg);
 });
 cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.clone());
@@ -138,7 +138,7 @@ propagate_def_time_errors :: (fn() -> bool)(
 /// candidates are filtered), in `comptime_expect_error` propagate mode (the
 /// throw itself reaches that catch), or when an earlier rejection is pending
 /// (the first one is the one to report).
-raise_flow_violation :: (fn(imm(err) : YoError, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+raise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : &Exception) -> unit)({
   if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
     flag_flow_violation(err);
   });
@@ -155,7 +155,7 @@ raise_flow_violation :: (fn(imm(err) : YoError, imm(ctx) : EvalContext, imm(exn)
 /// Clearing without re-flagging lost it there, so an `unwind` type mismatch in
 /// a handler inside an `io.async` body passed `yo check`
 /// (issues/fixed/unwind-type-mismatch-in-an-io-async-body-handler-is-swallowed.md).
-reraise_flow_violation :: (fn(imm(err) : YoError, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+reraise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : &Exception) -> unit)({
   clear_flow_violation();
   raise_flow_violation(err, ctx, exn);
 });
@@ -187,7 +187,7 @@ flow_options_default :: (fn() -> FlowOptions)(
 );
 /// Strip outer `begin(...)` wrapper(s) — single-expression bodies after
 /// evaluation often appear as `begin((expr))`.
-_unwrap_begin_blocks :: (fn(imm(expr) : AstExpr) -> AstExpr)({
+_unwrap_begin_blocks :: (fn(expr : &AstExpr) -> AstExpr)({
   (current : AstExpr) = expr;
   (go : bool) = true;
   while(go, {
@@ -205,12 +205,12 @@ _unwrap_begin_blocks :: (fn(imm(expr) : AstExpr) -> AstExpr)({
   current
 });
 /// Look up the evaluated `ExprInfo` for `expr`.
-_info :: (fn(imm(ctx) : EvalContext, imm(expr) : AstExpr) -> Option(ExprInfo))(
+_info :: (fn(ctx : &EvalContext, expr : &AstExpr) -> Option(ExprInfo))(
   expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr))
 );
 /// Walk `expr` and return `true` iff it satisfies R1–R4. `expr` must already be
 /// evaluated (so its `ExprInfo` and bindings are available).
-is_flowable_expr :: (fn(imm(expr_in) : AstExpr, imm(ctx) : EvalContext, imm(opts) : FlowOptions) -> bool)({
+is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOptions) -> bool)({
   expr := _unwrap_begin_blocks(expr_in);
   // Strip a `label : value` wrapper — labeled arguments (constructor fields
   // `Identifier(name : "x")`, named call args) are transparent for flow
@@ -581,7 +581,7 @@ is_flowable_expr :: (fn(imm(expr_in) : AstExpr, imm(ctx) : EvalContext, imm(opts
 /// Follow
 /// `is_owning_the_same_rc_value_as` links to the primary owner's id
 /// (step-capped instead of an identity-set cycle guard).
-alias_group_root :: (fn(imm(variable) : Variable) -> String)({
+alias_group_root :: (fn(variable : &Variable) -> String)({
   (cur : Variable) = variable;
   (root_id : String) = variable.id.to_string();
   (steps : usize) = usize(0);
@@ -612,7 +612,7 @@ alias_group_root :: (fn(imm(variable) : Variable) -> String)({
 /// Call AFTER argument evaluation (the chain types must be resolved).
 /// Walk a field chain (`h.s`, `a.b.c`) to its base atom; deref hops are
 /// part of the chain. Returns None when the chain roots in a non-atom.
-_place_root_atom :: (fn(imm(expr_in) : AstExpr) -> Option(AstExpr))({
+_place_root_atom :: (fn(expr_in : &AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = expr_in;
   (walking : bool) = true;
   while(walking, {
@@ -643,13 +643,13 @@ _place_root_atom :: (fn(imm(expr_in) : AstExpr) -> Option(AstExpr))({
 /// replace the `inout` variable's value.
 require_ref_own_argument_exclusivity :: (
   fn(
-    imm(param_labels) : ArrayList(String),
-    imm(param_is_ref) : ArrayList(bool),
-    imm(param_is_owning) : ArrayList(bool),
-    imm(args) : ArrayList(AstExpr),
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    param_labels : &ArrayList(String),
+    param_is_ref : &ArrayList(bool),
+    param_is_owning : &ArrayList(bool),
+    args : &ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   ref_root_vars := ArrayList(Variable).new();
@@ -785,15 +785,15 @@ require_ref_own_argument_exclusivity :: (
 /// `kind` is "index" or "object-hop".
 _reject_if_container_reachable :: (
   fn(
-    imm(container_atom) : AstExpr,
-    imm(ref_arg) : AstExpr,
+    container_atom : &AstExpr,
+    ref_arg : &AstExpr,
     ref_arg_index : usize,
     kind : str,
-    imm(args) : ArrayList(AstExpr),
+    args : &ArrayList(AstExpr),
     n : usize,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   if(!ast_expr_is_atom(container_atom), {
@@ -890,11 +890,11 @@ _reject_if_container_reachable :: (
 });
 require_valid_ref_argument_places :: (
   fn(
-    imm(param_is_ref) : ArrayList(bool),
-    imm(args) : ArrayList(AstExpr),
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    param_is_ref : &ArrayList(bool),
+    args : &ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   (n : usize) = param_is_ref.len();
@@ -1040,7 +1040,7 @@ require_valid_ref_argument_places :: (
 /// fixed 64-byte `__yo_unwind_value` buffer, so `v` must stay small. Calling a
 /// module fn from the handler — what this function exists for — is fine.
 /// Keeping the body straight-line is now style, and it costs nothing.
-note_def_time_swallow :: (fn(imm(err) : AnyError) -> unit)({
+note_def_time_swallow :: (fn(err : &AnyError) -> unit)({
   if(propagate_def_time_errors(), {
     set_cee_observed_error();
     // Stringified only here: outside propagate mode a swallow costs nothing.

@@ -143,7 +143,7 @@ pragma(Pragma.AllowUnsafe);
 ///
 /// A method call (`x.f()`) is NOT a 2-arg dot call (its func IS the dot), so
 /// it still takes the begin() path and keeps its owning temp.
-is_place_expression :: (fn(imm(e) : AstExpr, imm(env) : Environment) -> bool)({
+is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   if(ast_expr_is_atom(e), {
     return(true);
   });
@@ -208,7 +208,7 @@ is_place_expression :: (fn(imm(e) : AstExpr, imm(env) : Environment) -> bool)({
 /// (int, float, bool, comptime_*). A match whose scrutinee is one of these and
 /// whose arms are all literal/constant/or-of-literal is stamped
 /// `is_primitive_match` so codegen keeps emitting the `switch`.
-is_matchable_primitive_type :: (fn(imm(ty) : TypeValue) -> bool)(
+is_matchable_primitive_type :: (fn(ty : &TypeValue) -> bool)(
   is_integer_type(ty) || is_float_type(ty) || is_c_compatible_type(ty) ||
     is_bool_type(ty) || is_comptime_int_type(ty)
     ||
@@ -217,7 +217,7 @@ is_matchable_primitive_type :: (fn(imm(ty) : TypeValue) -> bool)(
 /// True for a value that is a concrete compile-time literal (the scrutinee
 /// kinds the arm selection can decide on). A tuple/struct of literals is one
 /// (an opaque payload — an `Rc` — makes the whole value undecidable).
-_is_literal_val :: (fn(imm(v) : EvalValue) -> bool)(
+_is_literal_val :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
     .IntLit(_) => true,
@@ -229,7 +229,7 @@ _is_literal_val :: (fn(imm(v) : EvalValue) -> bool)(
     _ => false
   )
 );
-_all_literal_vals :: (fn(imm(vals) : ArrayList(EvalValue)) -> bool)({
+_all_literal_vals :: (fn(vals : &ArrayList(EvalValue)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < vals.len()) && ok, {
@@ -249,7 +249,7 @@ _all_literal_vals :: (fn(imm(vals) : ArrayList(EvalValue)) -> bool)({
 /// with an `if` inside the case block. Such a group of arms is only soundly
 /// switch-lowered when it jointly covers its variant (see the coverage pass
 /// before `register_match_arms` and `variant_group_covers` in pattern.yo).
-_variant_pattern_has_literal_sub :: (fn(imm(p) : Pattern) -> bool)(
+_variant_pattern_has_literal_sub :: (fn(p : &Pattern) -> bool)(
   match(
     p,
     .Variant(_, _, _, subs, _, _, _) => {
@@ -275,7 +275,7 @@ _variant_pattern_has_literal_sub :: (fn(imm(p) : Pattern) -> bool)(
 /// refines it to the variant's `-> recur(...)` arg at that position
 /// (e.g. expected `T`, tca `[T]`, variant args `[i32]` → `i32`).
 _gadt_refined_expected :: (
-  fn(imm(expected) : TypeValue, imm(tca) : ArrayList(TypeValue), imm(gra) : ArrayList(TypeValue)) -> TypeValue
+  fn(expected : &TypeValue, tca : &ArrayList(TypeValue), gra : &ArrayList(TypeValue)) -> TypeValue
 )({
   exp_id := match(expected, .SomeT({ id : sid }) => sid, _ => String.new());
   if(exp_id.len() == usize(0), {
@@ -301,7 +301,7 @@ _gadt_refined_expected :: (
 });
 /// The result type of a body given the running expected type (the arm's
 /// type unless a concrete expected type is in force).
-_arm_result_type :: (fn(imm(ctx) : EvalContext, imm(body_ty) : TypeValue) -> TypeValue)(
+_arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
   cond(
     match(ctx.expected_type, .Some(et) => (!type_contains_some_type(et.ty) && !type_mentions_impl_fn_or_future(et.ty)), .None => false) =>
       match(ctx.expected_type, .Some(et) => et.ty, .None => body_ty),
@@ -310,7 +310,7 @@ _arm_result_type :: (fn(imm(ctx) : EvalContext, imm(body_ty) : TypeValue) -> Typ
 );
 /// `env` takes over the frames of `src` (the body-env handover the arm loop
 /// and the post-loop use).
-_adopt_env :: (fn(imm(env) : Environment, imm(src) : Environment) -> unit)({
+_adopt_env :: (fn(env : &Environment, src : &Environment) -> unit)({
   env.frames = src.frames;
   env.module_path = src.module_path;
   env.function_declaration_frame_level = src.function_declaration_frame_level;
@@ -886,10 +886,10 @@ _drop_owned_at_arm_end :: (fn(imm(vs) : ArrayList(Variable), imm(body) : AstExpr
 /// Evaluate a `match(...)` expression.
 evaluate_match :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

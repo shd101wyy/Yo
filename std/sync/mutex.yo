@@ -119,7 +119,7 @@ impl(
   /// Block until the lock is taken. Locking again from the thread that holds
   /// it PANICS (it would deadlock on POSIX and silently recurse on Windows;
   /// D5 makes it one behaviour).
-  lock : (fn(imm(self) : Self) -> unit)({
+  lock : (fn(self : &Self) -> unit)({
     me := __yo_thread_self();
     cond(
       (self._owner.load(MemoryOrder.Acquire) == me) => __yo_panic("RawMutex.lock: locked again by the thread that already holds it"),
@@ -131,7 +131,7 @@ impl(
   /// Take the lock if it is free; `true` = taken (you must `unlock`). `false`
   /// for the thread that already holds it, on every platform (a Windows
   /// `CRITICAL_SECTION` would re-enter).
-  try_lock : (fn(imm(self) : Self) -> bool)({
+  try_lock : (fn(self : &Self) -> bool)({
     me := __yo_thread_self();
     cond(
       (self._owner.load(MemoryOrder.Acquire) == me) => false,
@@ -145,7 +145,7 @@ impl(
   /// Release the lock. PANICS unless THIS thread holds it — an unlock without
   /// a lock, or from another thread, is undefined behaviour in the OS
   /// primitive and is refused here instead.
-  unlock : (fn(imm(self) : Self) -> unit)({
+  unlock : (fn(self : &Self) -> unit)({
     cond(
       (self._owner.load(MemoryOrder.Acquire) != __yo_thread_self()) => __yo_panic("RawMutex.unlock: unlocked by a thread that does not hold it"),
       true => ()
@@ -157,14 +157,14 @@ impl(
   /// it can change that fact); the answer about any OTHER thread is
   /// advisory. This is what lets a lock taken in one function be released
   /// in another without a guard — `std/thread`'s submission lock.
-  held_by_current_thread : (fn(imm(self) : Self) -> bool)(
+  held_by_current_thread : (fn(self : &Self) -> bool)(
     self._owner.load(MemoryOrder.Acquire) == __yo_thread_self()
   )
 );
 impl(
   RawMutex,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       return(__yo_mutex_destroy(addr_of(self._handle)));
     })
   )
@@ -186,7 +186,7 @@ impl(
   where(T <: (Send, Acyclic)),
   __MutexUnlocker(T),
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       self._mutex._raw_unlock();
     })
   )
@@ -226,8 +226,8 @@ impl(
   with_lock : (
     fn(
       generic(R : Type),
-      imm(self) : Self,
-      imm(body) : Impl(Fn(mut(v) : T) -> R)
+      self : &Self,
+      body : &Impl(Fn(v : &mut T) -> R)
     ) -> R
   )({
     self._raw_lock();
@@ -259,8 +259,8 @@ impl(
   try_with_lock : (
     fn(
       generic(R : Type),
-      imm(self) : Self,
-      imm(body) : Impl(Fn(mut(v) : T) -> R)
+      self : &Self,
+      body : &Impl(Fn(v : &mut T) -> R)
     ) -> Option(R)
   )({
     me := __yo_thread_self();
@@ -282,7 +282,7 @@ impl(
   /// `with_lock` will block — that is a TOCTOU bug. It exists for assertions
   /// and diagnostics, which is why it is spelled as a question about the past
   /// rather than as `can_lock`.
-  is_unlocked : (fn(imm(self) : Self) -> bool)({
+  is_unlocked : (fn(self : &Self) -> bool)({
     me := __yo_thread_self();
     cond(
       (self._owner.load(MemoryOrder.Acquire) == me) => false,
@@ -296,7 +296,7 @@ impl(
   }),
   // Internal methods — private to std/sync (member visibility). Every lock and
   // unlock goes through these two, which is what keeps `_owner` exact.
-  _raw_lock : (fn(imm(self) : Self) -> unit)({
+  _raw_lock : (fn(self : &Self) -> unit)({
     me := __yo_thread_self();
     cond(
       (self._owner.load(MemoryOrder.Acquire) == me) => __yo_panic("Mutex: locked again by the thread that already holds it (a with_lock inside a with_lock on the same mutex)"),
@@ -305,7 +305,7 @@ impl(
     __yo_mutex_lock(addr_of(self._handle));
     self._owner.store(me, MemoryOrder.Release);
   }),
-  _raw_unlock : (fn(imm(self) : Self) -> unit)({
+  _raw_unlock : (fn(self : &Self) -> unit)({
     cond(
       (self._owner.load(MemoryOrder.Acquire) != __yo_thread_self()) => __yo_panic("Mutex: unlocked by a thread that does not hold it"),
       true => ()
@@ -313,24 +313,24 @@ impl(
     self._owner.store(usize(0), MemoryOrder.Release);
     __yo_mutex_unlock(addr_of(self._handle));
   }),
-  _raw_handle_ptr : (fn(mut(self) : Self) -> *__YO_THREAD_SYNC_TYPE)(
+  _raw_handle_ptr : (fn(self : &mut Self) -> *__YO_THREAD_SYNC_TYPE)(
     addr_of(self._handle)
   ),
   /// Whether the calling thread holds this mutex (exact for the caller).
-  _held_by_current_thread : (fn(imm(self) : Self) -> bool)(
+  _held_by_current_thread : (fn(self : &Self) -> bool)(
     self._owner.load(MemoryOrder.Acquire) == __yo_thread_self()
   ),
   /// Bracket a condvar wait: the OS wait releases and re-takes the mutex
   /// behind our back, so the owner record is cleared before parking and
   /// restored after. Both panic-check that the caller holds the mutex.
-  _park_begin : (fn(imm(self) : Self) -> unit)({
+  _park_begin : (fn(self : &Self) -> unit)({
     cond(
       (self._owner.load(MemoryOrder.Acquire) != __yo_thread_self()) => __yo_panic("Cond.wait_with: the calling thread does not hold the mutex it passed"),
       true => ()
     );
     self._owner.store(usize(0), MemoryOrder.Release);
   }),
-  _park_end : (fn(imm(self) : Self) -> unit)(
+  _park_end : (fn(self : &Self) -> unit)(
     self._owner.store(__yo_thread_self(), MemoryOrder.Release)
   )
 );
@@ -339,7 +339,7 @@ impl(
   where(T <: (Send, Acyclic)),
   Mutex(T),
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       return(__yo_mutex_destroy(addr_of(self._handle)));
     })
   )

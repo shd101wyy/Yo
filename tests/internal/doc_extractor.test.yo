@@ -16,11 +16,11 @@ import("std/fmt");
   ParensResult
 } :: import("../../src/doc/extractor.yo");
 // Tokenize source, panicking on any lexer error.
-lex_ :: (fn(imm(source) : String, imm(exn) : Exception) -> ArrayList(Token))(
+lex_ :: (fn(source : &String, exn : &Exception) -> ArrayList(Token))(
   tokenize(source, `test.yo`, exn)
 );
 // Extract inline docs from inside the first (...) of the token list.
-inline_docs_from_source_ :: (fn(imm(source) : String, imm(exn) : Exception) -> HashMap(String, String))({
+inline_docs_from_source_ :: (fn(source : &String, exn : &Exception) -> HashMap(String, String))({
   tokens := lex_(source, exn);
   match(
     find_matching_parens(tokens, usize(0)),

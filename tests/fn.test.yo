@@ -154,7 +154,7 @@ test("Test simple functions", {
     assert(max(10, 20) == 20);
     assert(max2(30, 15) == 30);
     Color :: enum(Red, Green, Blue);
-    color_to_i32 :: (fn(imm(color) : Color) -> i32)(
+    color_to_i32 :: (fn(color : &Color) -> i32)(
       match(
         color,
         .Red => {
@@ -168,7 +168,7 @@ test("Test simple functions", {
         }
       )
     );
-    color_to_i32_2 :: (fn(imm(color) : Color) -> i32)({
+    color_to_i32_2 :: (fn(color : &Color) -> i32)({
       result := match(
         color,
         .Red => 0,
@@ -221,7 +221,7 @@ test("Test function default parameters", {
         ) -> comptime(Type)
       )(
         struct(
-          (+) : (fn(imm(lhs) : Lhs, imm(rhs) : Rhs) -> Output)
+          (+) : (fn(lhs : &Lhs, rhs : &Rhs) -> Output)
         )
       );
     // _ is used as the inferred, not the default value.
@@ -244,7 +244,7 @@ test("Test callback regular function", {
   assert(y == 40);
 });
 test("Test Impl closure callback", {
-  use_cb :: (fn(v : i32, imm(cb) : Impl(Fn(u : i32) -> i32)) -> i32)({
+  use_cb :: (fn(v : i32, cb : &Impl(Fn(u : i32) -> i32)) -> i32)({
     return(cb(v));
   });
   a := 2;
@@ -257,7 +257,7 @@ test("Test Impl closure callback", {
   assert(z == 16);
 });
 test("Test Dyn closure callback", {
-  use_cb :: (fn(v : i32, imm(cb) : Dyn(Fn(u : i32) -> i32)) -> i32)({
+  use_cb :: (fn(v : i32, cb : &Dyn(Fn(u : i32) -> i32)) -> i32)({
     return(cb(v));
   });
   a := 2;
@@ -270,7 +270,7 @@ test("Test Dyn closure callback", {
   assert(z == 16);
 });
 test("Test Dyn closure callback with manual boxing", {
-  use_cb :: (fn(v : i32, imm(cb) : Dyn(Fn(u : i32) -> i32)) -> i32)({
+  use_cb :: (fn(v : i32, cb : &Dyn(Fn(u : i32) -> i32)) -> i32)({
     return(cb(v));
   });
   a := 2;
@@ -296,8 +296,8 @@ test("Test the `where` scoping in functions", {
     // This function has where(T <: Eq(T))
     equals : (
       fn(
-        imm(self) : Self,
-        imm(other) : T,
+        self : &Self,
+        other : &T,
         where(T <: Eq(T))
       ) -> bool
     )(
@@ -307,8 +307,8 @@ test("Test the `where` scoping in functions", {
     // because it doesn't declare where(T <: Eq(T))
     try_equals_without_constraint : (
       fn(
-        imm(self) : Self,
-        imm(other) : T
+        self : &Self,
+        other : &T
       ) -> bool
     )({
       // This line should fail: T doesn't have Eq(T) in this function's scope
@@ -343,24 +343,24 @@ test("Test anonymous struct with type method", {
 });
 test("Test generic functions", {
   {
-    identity :: (fn(generic(T : Type), imm(value) : T) -> T)({
+    identity :: (fn(generic(T : Type), value : &T) -> T)({
       return(value);
     });
     comptime_expect_error(
-      (fn(generic(T : Type), imm(value) : T) -> T)({
+      (fn(generic(T : Type), value : &T) -> T)({
         return(i32(0));
       })
     );
     comptime_expect_error(
-      (fn(generic(T : Type), imm(value) : T) -> Tuple(T))({
+      (fn(generic(T : Type), value : &T) -> Tuple(T))({
         return((i32(0),));
       })
     );
   };
   {
-    fn1 :: (fn(generic(T : Type), imm(value) : T) -> T);
-    fn2 :: (fn(generic(T : Type), imm(value) : T) -> T);
-    fn3 :: (fn(generic(T : Type), imm(value) : T) -> Tuple(T));
+    fn1 :: (fn(generic(T : Type), value : &T) -> T);
+    fn2 :: (fn(generic(T : Type), value : &T) -> T);
+    fn3 :: (fn(generic(T : Type), value : &T) -> Tuple(T));
     (comptime(identity1) : fn1) = (
       value -> {
         return(value);
@@ -382,7 +382,7 @@ test("Test generic functions", {
     );
   };
   {
-    id :: (fn(comptime(T) : Type, imm(val) : T) -> T)(val);
+    id :: (fn(comptime(T) : Type, val : &T) -> T)(val);
     x := id(i32, 12);
     y := id(f64, 3.14);
     z := id(bool, true);
@@ -393,8 +393,8 @@ test("Test generic functions", {
     assert(b.* == 123);
   };
   {
-    id :: (fn(comptime(T) : Type, imm(val) : T) -> T)({
-      id2 :: (fn(imm(val2) : T) -> T)(val2);
+    id :: (fn(comptime(T) : Type, val : &T) -> T)({
+      id2 :: (fn(val2 : &T) -> T)(val2);
       return(id2(val));
     });
     x := id(i32, 12);
@@ -407,8 +407,8 @@ test("Test generic functions", {
     assert(b.* == 123);
   };
   {
-    id :: (fn(comptime(T) : Type, imm(val) : T) -> T)({
-      id2 :: (fn(comptime(X) : Type, imm(val2) : X) -> X)(val2);
+    id :: (fn(comptime(T) : Type, val : &T) -> T)({
+      id2 :: (fn(comptime(X) : Type, val2 : &X) -> X)(val2);
       id2(T, val)
     });
     x := id(i32, 12);
@@ -431,7 +431,7 @@ test("Test generic functions", {
   };
   // Define function using :: directly
   {
-    id :: (fn(generic(T : Type), imm(x) : T) -> T)(x);
+    id :: (fn(generic(T : Type), x : &T) -> T)(x);
     x := id(true);
     y := id(12);
     z := id(3.14);
@@ -441,7 +441,7 @@ test("Test generic functions", {
   };
   {
     // Test with compile-time variable and anonymous function - should infer types automatically
-    comptime(id) : (fn(generic(T : Type), imm(x) : T) -> T);
+    comptime(id) : (fn(generic(T : Type), x : &T) -> T);
     id = (a -> a);
     x := id(true);
     y := id(12);
@@ -452,7 +452,7 @@ test("Test generic functions", {
   };
   {
     // Test with compile-time variable and anonymous function with explicit type annotation
-    comptime(id) : (fn(comptime(T) : Type, imm(x) : T) -> T);
+    comptime(id) : (fn(comptime(T) : Type, x : &T) -> T);
     id = ((T, a) -> a);
     x := id(bool, true);
     y := id(i32, 12);
@@ -463,10 +463,10 @@ test("Test generic functions", {
   };
   {
     // Disallow to have generic function assigned to runtime variable
-    comptime_expect_error(id : (fn(generic(T : Type), imm(x) : T) -> T));
+    comptime_expect_error(id : (fn(generic(T : Type), x : &T) -> T));
     // Disallow to runtime function parameter with generic function type
     comptime_expect_error(
-      test_fn :: (fn(f : (fn(generic(T : Type), imm(x) : T) -> T)) -> unit)({
+      test_fn :: (fn(f : (fn(generic(T : Type), x : &T) -> T)) -> unit)({
         x := f(42);
         assert(x == 42);
       })
@@ -477,9 +477,9 @@ test("Test generic functions", {
     tuple_func :: (
       fn(
         generic(T : Type, Y : Type),
-        imm(x) : Tuple(T, Y),
-        imm(a) : T,
-        imm(b) : Y
+        x : &Tuple(T, Y),
+        a : &T,
+        b : &Y
       ) -> Tuple(T, Y)
     )({
       return((a, b));
@@ -494,8 +494,8 @@ test("Test generic functions", {
     use_container :: (
       fn(
         generic(X : Type),
-        imm(c) : Container(X),
-        imm(x) : X
+        c : &Container(X),
+        x : &X
       ) -> X
     )({
       return(x);
@@ -513,8 +513,8 @@ test("Test generic functions", {
     generic_fn :: (
       fn(
         generic(T : Type),
-        imm(x) : T,
-        callback : (fn(imm(v) : T) -> T)
+        x : &T,
+        callback : (fn(v : &T) -> T)
       ) -> T
     )(callback(x));
     a := generic_fn(1, x -> (x + 1));
@@ -524,9 +524,9 @@ test("Test generic functions", {
   };
 });
 test("Test generic function callback", {
-  generic_fn :: (fn(generic(T : Type), imm(x) : T, callback : (fn(imm(v) : T) -> T)) -> T)(callback(x));
+  generic_fn :: (fn(generic(T : Type), x : &T, callback : (fn(v : &T) -> T)) -> T)(callback(x));
   assert(generic_fn(2, x -> (x + 16)) == 18); // anonymous function
-  assert(generic_fn(2, (fn(imm(y) : i32) -> i32)(y + 18)) == 20); // regular function
+  assert(generic_fn(2, (fn(y : &i32) -> i32)(y + 18)) == 20); // regular function
 });
 test("Test 'recur'", {
   {
@@ -597,7 +597,7 @@ test("Test comptime function", {
       x : i32,
       y : i32
     );
-    runt_add_points :: (fn(imm(p1) : Point, imm(p2) : Point) -> Point)(Point(p1.x + p2.x, p1.y + p2.y));
+    runt_add_points :: (fn(p1 : &Point, p2 : &Point) -> Point)(Point(p1.x + p2.x, p1.y + p2.y));
     comptime_add_points :: (fn(comptime(p1) : Point, comptime(p2) : Point) -> comptime(Point))(Point(p1.x + p2.x, p1.y + p2.y));
     p1 :: Point(3, 4);
     p2 :: Point(5, 6);
@@ -861,7 +861,7 @@ test "Test variadic function", {
 // value-less declaration is dropped.
 // issues/fixed/binding-a-unit-returning-call-emits-invalid-c.md
 // ---------------------------------------------------------------------------
-_unit_bump :: (fn(imm(b) : Rc(i32), by : i32) -> unit)({
+_unit_bump :: (fn(b : &Rc(i32), by : i32) -> unit)({
   b.* = (b.* + by);
 });
 test("Binding a unit-returning call compiles and still runs the call", {
@@ -884,11 +884,11 @@ _lit_f64 :: (fn(x : f64) -> f64)(x);
 _lit_f32 :: (fn(x : f32) -> f32)(x);
 _lit_str :: (fn(s : str) -> usize)(s.len());
 _LitPoint :: struct(a : i32);
-_lit_point :: (fn(imm(p) : _LitPoint) -> i32)(p.a);
+_lit_point :: (fn(p : &_LitPoint) -> i32)(p.a);
 _lit_defaulted :: (fn(x : i32, (y : i32) ?= i32(0)) -> i32)(x + y);
 test("A comptime literal argument is checked against a concrete parameter type", {
   { String } :: import("std/string");
-  _lit_string :: (fn(imm(s) : String) -> usize)(s.len());
+  _lit_string :: (fn(s : &String) -> usize)(s.len());
   // Widenings the literal really has.
   assert(_lit_u8(1) == u8(1));
   assert(_lit_f64(1) == 1.0);

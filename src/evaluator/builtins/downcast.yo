@@ -53,10 +53,10 @@ pragma(Pragma.AllowUnsafe);
 ///
 evaluate_downcast :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   (cur_env : Environment) = env;
@@ -150,7 +150,7 @@ evaluate_downcast :: (
   expr
 });
 /// Is `t` one of `list` (the identity relation on trait types)?
-_trait_in :: (fn(imm(t) : TypeValue, imm(list) : ArrayList(TypeValue)) -> bool)({
+_trait_in :: (fn(t : &TypeValue, list : &ArrayList(TypeValue)) -> bool)({
   (i : usize) = usize(0);
   while(i < list.len(), {
     if(match(list.get(i), .Some(x) => are_types_compatible_exact(x, t), .None => false), {
@@ -167,10 +167,10 @@ _trait_in :: (fn(imm(t) : TypeValue, imm(list) : ArrayList(TypeValue)) -> bool)(
 /// source Dyn).
 evaluate_upcast :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   (cur_env : Environment) = env;

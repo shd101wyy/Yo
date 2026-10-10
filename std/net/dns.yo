@@ -73,7 +73,7 @@ _dns_error_of :: (fn(code : i32) -> DnsError)(
     true => DnsError.Other
   )
 );
-lookup_host :: (fn(imm(host) : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
+lookup_host :: (fn(host : &String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
   io.async(e => {
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
@@ -142,7 +142,7 @@ lookup_host :: (fn(imm(host) : String, io : Io) -> Impl(Future(ArrayList(IpAddr)
 /// connect actually wants. Inherits everything above, INCLUDING the repeated
 /// addresses: `port` is attached to each entry as it comes, so a duplicated
 /// IP yields two identical `SocketAddr`s.
-resolve :: (fn(imm(host) : String, port : u16, io : Io) -> Impl(Future(ArrayList(SocketAddr), IoExn)))(
+resolve :: (fn(host : &String, port : u16, io : Io) -> Impl(Future(ArrayList(SocketAddr), IoExn)))(
   io.async(e => {
     addrs := e.io.await(lookup_host(host, io), e);
     result := ArrayList(SocketAddr).new();

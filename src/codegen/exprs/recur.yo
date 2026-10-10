@@ -28,7 +28,7 @@
 /// that meant a `Pattern.At` with a NULL sub and a SIGSEGV the moment
 /// anything walked it
 /// (issues/fixed/at-pattern-subpattern-error-crashes-check.md).
-generate_recur :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("No arguments for recur call"))));
   match(
     ei.runtime_arg_exprs_in_order,

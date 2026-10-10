@@ -31,7 +31,7 @@ c_include(
     (fn(pathname : *char, statbuf : *void) -> int),
   // Directory creation
   mkdir :
-    (fn(pathname : *char, imm(mode) : mode_t) -> int),
+    (fn(pathname : *char, mode : &mode_t) -> int),
   // File mode operations. The mode parameter is bound as `u32`, not the
   // opaque `mode_t : Type`: an opaque extern type has NO Yo-side
   // constructor (`mode_t(384)` is a SomeT-callee error), so a caller could
@@ -42,10 +42,10 @@ c_include(
     (fn(fd : int, mode : u32) -> int),
   // File creation mask
   umask :
-    (fn(imm(mask) : mode_t) -> mode_t),
+    (fn(mask : &mode_t) -> mode_t),
   // Create special files (POSIX)
   mkfifo :
-    (fn(pathname : *char, imm(mode) : mode_t) -> int),
+    (fn(pathname : *char, mode : &mode_t) -> int),
   // File type macros (applied to st_mode)
   // These are typically implemented as macros, but we expose the constants
   S_IFMT : mode_t,

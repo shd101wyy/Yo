@@ -1,10 +1,10 @@
 { println } :: import("std/fmt");
 { Thread } :: import("std/thread");
 Counter :: struct(n : i32);
-bump_by_ten :: (fn(mut(c) : Counter) -> unit)({
+bump_by_ten :: (fn(c : &mut Counter) -> unit)({
   c.n = (c.n + i32(10));
 });
-describe :: (fn(mut(c) : Counter) -> i32)(c.n);
+describe :: (fn(c : &mut Counter) -> i32)(c.n);
 g := Counter(n : i32(0));
 main :: (fn() -> unit)({
   t := Thread(i32).spawn((io : Io) => g.n);

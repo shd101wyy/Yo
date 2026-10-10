@@ -23,11 +23,11 @@
 // ---------------------------------------------------------------------------
 // Small term-construction helpers (shared by the golden tests below)
 // ---------------------------------------------------------------------------
-_bv32_var :: (fn(imm(name) : String) -> VcTerm)(
+_bv32_var :: (fn(name : &String) -> VcTerm)(
   VcTerm.Var(name : name, sort : VcSort.BvS(width : usize(32)))
 );
 _bv32_lit :: (fn(v : u64) -> VcTerm)(VcTerm.BvLit(value : v, width : usize(32)));
-_app2 :: (fn(op : VcOp, imm(a) : VcTerm, imm(b) : VcTerm) -> VcTerm)({
+_app2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
@@ -532,7 +532,7 @@ test("verify_report_is_vacuous: ok with no obligations is not a proof", {
 // ---------------------------------------------------------------------------
 // B0 (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1): the honest gate
 // ---------------------------------------------------------------------------
-_rp :: (fn(imm(outcome) : String, imm(mode) : String, obligations : usize) -> VerifyFnReport)({
+_rp :: (fn(outcome : &String, mode : &String, obligations : usize) -> VerifyFnReport)({
   obls := ArrayList(VerifyFnObligation).new();
   (i : usize) = usize(0);
   while(i < obligations, {

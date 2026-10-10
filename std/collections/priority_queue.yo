@@ -52,17 +52,17 @@ impl(
     Self(_data : ArrayList(T).new())
   ),
   /// Number of elements. O(1).
-  len : (fn(imm(self) : Self) -> usize)(
+  len : (fn(self : &Self) -> usize)(
     self._data.len()
   ),
   /// True when the queue holds no elements.
-  is_empty : (fn(imm(self) : Self) -> bool)(
+  is_empty : (fn(self : &Self) -> bool)(
     self._data.len() == usize(0)
   ),
   /// The LARGEST element without removing it, or `.None` when empty — O(1),
   /// since the heap keeps its maximum at the root. Rust's
   /// `BinaryHeap::peek`.
-  peek : (fn(imm(self) : Self) -> Option(T))(
+  peek : (fn(self : &Self) -> Option(T))(
     cond(
       (self._data.len() == usize(0)) => .None,
       true => self._data.get(usize(0))
@@ -73,7 +73,7 @@ impl(
   ///
   /// PANICS on allocation failure, since the backing `ArrayList.push` does
   /// (D9); there is no `try_push` here.
-  push : (fn(mut(self) : Self, val : T, where(T <: Ord(T))) -> unit)({
+  push : (fn(self : &mut Self, val : T, where(T <: Ord(T))) -> unit)({
     // `push`'s Result used to be discarded, so an allocation failure went on
     // to sift an element that was never stored and underflowed `len() - 1`.
     // ArrayList.push panics on that failure itself as of D9, so the guard
@@ -103,7 +103,7 @@ impl(
   /// For smallest-first, build the queue over `Reverse(T)` rather than
   /// negating keys: negation is wrong for an unsigned type and for a signed
   /// minimum.
-  pop : (fn(mut(self) : Self, where(T <: Ord(T))) -> Option(T))({
+  pop : (fn(self : &mut Self, where(T <: Ord(T))) -> Option(T))({
     n := self._data.len();
     cond(
       (n == usize(0)) => .None,
@@ -167,7 +167,7 @@ impl(
   PriorityQueueIter(T),
   Iterator(
     Item : T,
-    next : (fn(mut(self) : Self) -> Option(T))(
+    next : (fn(self : &mut Self) -> Option(T))(
       cond(
         (self._index >= self._data.len()) => .None,
         true => {
@@ -185,7 +185,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : PriorityQueueIter(T),
-    into_iter : (fn(imm(self) : Self) -> PriorityQueueIter(T))(
+    into_iter : (fn(self : &Self) -> PriorityQueueIter(T))(
       PriorityQueueIter(T)(_data : self._data, _index : usize(0))
     )
   )
@@ -208,7 +208,7 @@ impl(
   PriorityQueueIterPtr(T),
   Iterator(
     Item : *T,
-    next : (fn(mut(self) : Self) -> Option(*T))(
+    next : (fn(self : &mut Self) -> Option(*T))(
       cond(
         (self._index >= self._data.len()) => .None,
         true =>
@@ -230,7 +230,7 @@ impl(
   PriorityQueue(T),
   /// Borrowing walk over the heap array, in unsorted order (D14) — see
   /// `PriorityQueueIterPtr` for the invariant this can break.
-  iter : (fn(mut(self) : Self) -> PriorityQueueIterPtr(T))(
+  iter : (fn(self : &mut Self) -> PriorityQueueIterPtr(T))(
     PriorityQueueIterPtr(T)(_data : self._data, _index : usize(0))
   )
 );

@@ -55,7 +55,7 @@ _RC_DROP :: "static inline void T1___drop(void* p) {\n  rc_marker(p);\n}\n";
 _TAIL :: "int main(void) {\n  return 0;\n}\n";
 _GLOBALS :: "int g_shared;\n";
 /// True iff exactly `want` of `chunks` contain `needle`.
-_count_chunks_with :: (fn(imm(chunks) : ArrayList(String), imm(needle) : String) -> usize)({
+_count_chunks_with :: (fn(chunks : &ArrayList(String), needle : &String) -> usize)({
   (hits : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < chunks.len(), {
@@ -240,10 +240,10 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
   assert(units_with_alpha == usize(1), `fn_alpha must live in exactly one unit, found ${units_with_alpha.to_string()}`);
   assert(units_with_both == usize(1), "two functions of one module must share a unit under --chunk-by module");
 });
-_spill_read :: (fn(imm(path) : String) -> String)(
+_spill_read :: (fn(path : &String) -> String)(
   String.from_bytes(read_file_sync(path, Exception(throw : (err -> panic(`reading the spill failed: ${err.to_string()}`)))))
 );
-_spill_emit_function :: (fn(imm(em) : Emitter, i : usize) -> unit)({
+_spill_emit_function :: (fn(em : &Emitter, i : usize) -> unit)({
   em.emit_declaration_string_line(`static int f${i.to_string()}(void);`);
   em.emit_string_line(`static int f${i.to_string()}(void) {`);
   em.emit_string_line(`  return ${i.to_string()};`);

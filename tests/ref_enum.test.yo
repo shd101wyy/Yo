@@ -30,14 +30,14 @@ Holder :: enum(Plain(n : i32), Boxed(b : Rc(Self), t : Nest));
 comptime_expect_error(bad_ref_named :: ref(Shape));
 comptime_expect_error(bad_atomic_prim :: atomic(i32));
 
-area :: (fn(imm(sh) : Shape) -> i32)(
+area :: (fn(sh : &Shape) -> i32)(
   match(sh, .Circle(r) => (r * r * i32(3)), .Square(s) => (s * s))
 );
-tree_sum :: (fn(imm(t) : Tree) -> i32)(
+tree_sum :: (fn(t : &Tree) -> i32)(
   match(t, .Leaf(value) => value, .Node(left, right) => (recur(left) + recur(right)))
 );
 // Reduce a Nest to the sum of its tips (recurses through `Self` + ArrayList(Self)).
-nest_sum :: (fn(imm(t) : Nest) -> i32)(
+nest_sum :: (fn(t : &Nest) -> i32)(
   match(
     t,
     .Tip(n) => n,
@@ -61,7 +61,7 @@ nest_sum :: (fn(imm(t) : Nest) -> i32)(
 );
 // RECONSTRUCT a Nest (returns `Self`) — this is the shape that tripped the
 // `getSizeOfType`/`getAlignmentOfType` ref-enum recursion bug at def-time eval.
-nest_rebuild :: (fn(imm(t) : Nest) -> Nest)(
+nest_rebuild :: (fn(t : &Nest) -> Nest)(
   match(
     t,
     .Tip(n) => Nest.Tip(n : n),
@@ -166,11 +166,11 @@ Counter :: ref(enum(Zero, Active(count : i32, step : i32)));
 
 // `c.count` here exercises BOTH the field READ (RHS) and field WRITE (LHS) on a
 // `ref(enum)` parameter — neither resolved before the fix.
-_bump_counter :: (fn(imm(c) : Counter) -> unit)({
+_bump_counter :: (fn(c : &Counter) -> unit)({
   c.count = (c.count + i32(10));
 });
 
-_read_counter :: (fn(imm(c) : Counter) -> i32)(c.count);
+_read_counter :: (fn(c : &Counter) -> i32)(c.count);
 
 test("ref(enum) parameter field mutation propagates via reference semantics", {
   c := Counter.Active(count : i32(5), step : i32(1));
@@ -258,7 +258,7 @@ Guarded :: ref(enum(GuardNone, GuardSome(label : String)));
 impl(
   Guarded,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_ref_enum_disposed = (g_ref_enum_disposed + i32(1));
     })
   )
@@ -287,7 +287,7 @@ GuardedChain :: ref(enum(GcEnd, GcLink(next : Self)));
 impl(
   GuardedChain,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_ref_enum_chain_disposed = (g_ref_enum_chain_disposed + i32(1));
     })
   )
@@ -295,13 +295,13 @@ impl(
 impl(
   Atom,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)(())
+    dispose : (fn(self : &Self) -> unit)(())
   )
 );
 impl(
   RefEnumBox(i32),
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)(())
+    dispose : (fn(self : &Self) -> unit)(())
   )
 );
 
@@ -312,7 +312,7 @@ DisposedValueEnum :: enum(DvA, DvB(x : i32));
 impl(
   DisposedValueEnum,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_value_enum_disposed = (g_value_enum_disposed + i32(1));
     })
   )
@@ -350,7 +350,7 @@ test("Dispose accepts every reference enum, and a value enum it makes move-only"
 // (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
 Chain :: ref(enum(End, Link(next : Self)));
 derive(Chain, Eq(Chain));
-chain_len :: (fn(imm(c) : Chain) -> i32)(
+chain_len :: (fn(c : &Chain) -> i32)(
   match(c, .End => i32(0), .Link(next) => (recur(next) + i32(1)))
 );
 Kind3 :: ref(enum(Leaf, Other, Node(elem : Self)));

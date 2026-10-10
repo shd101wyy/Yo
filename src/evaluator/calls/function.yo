@@ -159,7 +159,7 @@ MACRO_DISPATCH_ENABLED :: true;
 /// comptime helper). The same remedy was first applied for
 /// `recur`
 /// (issues/fixed/recur-runtime-result-not-marked-runtime-only.md).
-_call_result_unknown :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> EvalValue)({
+_call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   nm := stable_module_id(String.from("call_result_"), env.module_path);
   create_runtime_unknown_val_with_name(ty, nm)
 });
@@ -227,7 +227,7 @@ ReceiverMethodResult :: struct(
 /// record) reaches the dispatch UNEVALUATED, unlike a bare-atom receiver
 /// (`io.await`) which the atom eval already stamped.
 _try_eval_receiver_node :: (
-  fn(imm(arg) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(AstExpr)) -> unit
+  fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit
 )({
   rcv_exn := Exception(
     throw : (
@@ -257,10 +257,10 @@ _try_eval_receiver_node :: (
 /// module, which flagged `self._length` inside array_list.yo itself.
 _reject_private_method_call :: (
   fn(
-    imm(method_info_opt) : Option(ReceiverMethodResult),
-    imm(callee) : AstExpr,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    method_info_opt : &Option(ReceiverMethodResult),
+    callee : &AstExpr,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   mi := match(
@@ -323,10 +323,10 @@ _reject_private_method_call :: (
 /// (issues/fixed/dyn-object-safety-is-not-enforced-before-codegen.md).
 _reject_dyn_uncallable_method_call :: (
   fn(
-    imm(method_info_opt) : Option(ReceiverMethodResult),
-    imm(callee) : AstExpr,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    method_info_opt : &Option(ReceiverMethodResult),
+    callee : &AstExpr,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   mi := match(
@@ -420,12 +420,12 @@ _reject_dyn_uncallable_method_call :: (
 /// `match`'s GADT exactness).
 _reject_wrapper_payload_clash :: (
   fn(
-    imm(method_info_opt) : Option(ReceiverMethodResult),
-    imm(callee) : AstExpr,
+    method_info_opt : &Option(ReceiverMethodResult),
+    callee : &AstExpr,
     arg_count : usize,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   mi := match(
@@ -531,7 +531,7 @@ _reject_wrapper_payload_clash :: (
 /// the call had before the clash was an error. Offered only when the
 /// receiver is a plain identifier and the source reads exactly `w.m(` on one
 /// row, so the edit is one contiguous span.
-_wrapper_member_repair :: (fn(imm(receiver) : AstExpr, imm(name_tok) : Token, imm(ctor) : String, arg_count : usize) -> Option(Repair))({
+_wrapper_member_repair :: (fn(receiver : &AstExpr, name_tok : &Token, ctor : &String, arg_count : usize) -> Option(Repair))({
   recv_tok := match(
     receiver,
     .Atom(_, t) => t,
@@ -565,10 +565,10 @@ _wrapper_member_repair :: (fn(imm(receiver) : AstExpr, imm(name_tok) : Token, im
 });
 _reject_class1_panic_method_call :: (
   fn(
-    imm(method_info_opt) : Option(ReceiverMethodResult),
-    imm(callee) : AstExpr,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    method_info_opt : &Option(ReceiverMethodResult),
+    callee : &AstExpr,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   c1_mi := match(
@@ -644,11 +644,11 @@ _reject_class1_panic_method_call :: (
 /// access site is the call token's module (lexical), as above.
 _reject_private_construction :: (
   fn(
-    imm(struct_id) : String,
-    imm(struct_name) : String,
-    imm(labels) : ArrayList(String),
-    imm(tok) : Token,
-    imm(exn) : Exception
+    struct_id : &String,
+    struct_name : &String,
+    labels : &ArrayList(String),
+    tok : &Token,
+    exn : &Exception
   ) -> unit
 )({
   decl := type_decl_module(struct_id);
@@ -683,11 +683,11 @@ _reject_private_construction :: (
 /// (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
 _try_structural_copy_clone :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(callee) : AstExpr,
+    expr : &AstExpr,
+    callee : &AstExpr,
     arg_count : usize,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    env : &Environment,
+    ctx : &EvalContext
   ) -> Option(AstExpr)
 )({
   if((arg_count != usize(0)) || !ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
@@ -739,9 +739,9 @@ _try_structural_copy_clone :: (
 });
 _try_find_receiver_method :: (
   fn(
-    imm(callee) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    callee : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
   ) -> Option(ReceiverMethodResult)
 )({
   // 1. callee must be `.(receiver, method_name)` — a 2-arg dot call.
@@ -945,7 +945,7 @@ _try_find_receiver_method :: (
 /// The func id of the comptime type constructor that minted `ty`: a struct's
 /// stamped `constructor_func_id` (or the id-keyed stamp), an enum's
 /// registered cfid. `""` for a type no constructor call produced.
-_instance_constructor_fid :: (fn(imm(ty) : TypeValue) -> String)(
+_instance_constructor_fid :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
     .Struct({ id : _ }) => struct_effective_ctor_fid(ty),
@@ -987,7 +987,7 @@ _instance_constructor_fid :: (fn(imm(ty) : TypeValue) -> String)(
 /// the caller marks it pre-evaluated around the method call's argument
 /// matching, as it does the receiver of `x.m()`, so it is not evaluated twice.
 _infer_unapplied_ctor_receiver :: (
-  fn(imm(callee) : AstExpr, imm(args) : ArrayList(AstExpr), imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> Option(usize)
+  fn(callee : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(usize)
 )({
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(usize).None);
@@ -1130,7 +1130,7 @@ _infer_unapplied_ctor_receiver :: (
 /// `Self(field : ...)` constructor read as a trait IMPLEMENTATION and fail with
 /// "Receiver type is undefined when implementing trait". Unwrap one level so
 /// the explicit-dispatch form agrees with the plain `T.static_method()` form.
-_unwrap_trait_receiver :: (fn(imm(t) : TypeValue) -> TypeValue)(
+_unwrap_trait_receiver :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
     .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => match(
@@ -1142,7 +1142,7 @@ _unwrap_trait_receiver :: (fn(imm(t) : TypeValue) -> TypeValue)(
   )
 );
 _static_dot_receiver_self_type :: (
-  fn(imm(callee) : AstExpr, imm(ctx) : EvalContext) -> Option(TypeValue)
+  fn(callee : &AstExpr, ctx : &EvalContext) -> Option(TypeValue)
 )({
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(TypeValue).None);
@@ -1184,7 +1184,7 @@ _static_dot_receiver_self_type :: (
 /// (static — handled by the static helper), non-struct receivers, ctor-less
 /// structs, and pattern-era (non-concrete) receivers.
 _instance_dot_receiver_self_type :: (
-  fn(imm(callee) : AstExpr, imm(ctx) : EvalContext) -> Option(TypeValue)
+  fn(callee : &AstExpr, ctx : &EvalContext) -> Option(TypeValue)
 )({
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(TypeValue).None);
@@ -1243,7 +1243,7 @@ _instance_dot_receiver_self_type :: (
 /// rejects — skipping module receivers (module fns are not methods; their
 /// info type is a source-namespace struct, never a Self).
 _rre_dot_receiver_type :: (
-  fn(imm(callee) : AstExpr, imm(ctx) : EvalContext) -> Option(TypeValue)
+  fn(callee : &AstExpr, ctx : &EvalContext) -> Option(TypeValue)
 )({
   match(
     _static_dot_receiver_self_type(callee, ctx),
@@ -1290,7 +1290,7 @@ _rre_dot_receiver_type :: (
 /// Non-matching shapes are left unchanged (safe no-op). Stand-in for the
 /// value-level array-length substitution during return resolution.
 _resolve_array_length_vars_from_self :: (
-  fn(imm(ty) : TypeValue, imm(self_ty) : TypeValue) -> TypeValue
+  fn(ty : &TypeValue, self_ty : &TypeValue) -> TypeValue
 )(
   match(
     ty,
@@ -1321,14 +1321,14 @@ _resolve_array_length_vars_from_self :: (
 /// trials are side-effect-free.
 _trial_call_overload_candidate :: (
   fn(
-    imm(fn_val) : EvalValue,
-    imm(fn_ty) : TypeValue,
-    imm(call_expr) : AstExpr,
-    imm(func_expr) : AstExpr,
-    imm(args) : ArrayList(AstExpr),
-    imm(callee_env) : Environment,
-    imm(ctx) : EvalContext,
-    mut(ok_out) : ArrayList(bool)
+    fn_val : &EvalValue,
+    fn_ty : &TypeValue,
+    call_expr : &AstExpr,
+    func_expr : &AstExpr,
+    args : &ArrayList(AstExpr),
+    callee_env : &Environment,
+    ctx : &EvalContext,
+    ok_out : &mut ArrayList(bool)
   ) -> unit
 )({
   // FRESH-ID clones — the dry-run must write fresh `$` slots instead of
@@ -1364,14 +1364,14 @@ _trial_call_overload_candidate :: (
 /// created here), so the caller's purge runs on both outcomes.
 _run_overload_trial :: (
   fn(
-    imm(fn_val) : EvalValue,
-    imm(fn_ty) : TypeValue,
-    imm(call_expr) : AstExpr,
-    imm(func_expr) : AstExpr,
-    imm(args) : ArrayList(AstExpr),
-    imm(callee_env) : Environment,
-    imm(ctx) : EvalContext,
-    mut(ok_out) : ArrayList(bool)
+    fn_val : &EvalValue,
+    fn_ty : &TypeValue,
+    call_expr : &AstExpr,
+    func_expr : &AstExpr,
+    args : &ArrayList(AstExpr),
+    callee_env : &Environment,
+    ctx : &EvalContext,
+    ok_out : &mut ArrayList(bool)
   ) -> unit
 )({
   trial_exn := Exception(throw : (_err -> unwind(())));
@@ -1397,7 +1397,7 @@ _run_overload_trial :: (
 /// is used to TRIAL each overload candidate. All exprs are cloned so the
 /// caller's originals stay intact for the real call.
 _build_receiver_call_args :: (
-  fn(is_static : bool, needs_ptr_conv : bool, imm(receiver_expr) : AstExpr, imm(args) : ArrayList(AstExpr)) -> ArrayList(AstExpr)
+  fn(is_static : bool, needs_ptr_conv : bool, receiver_expr : &AstExpr, args : &ArrayList(AstExpr)) -> ArrayList(AstExpr)
 )({
   all_args := ArrayList(AstExpr).new();
   if(!is_static, {
@@ -1446,7 +1446,7 @@ _build_receiver_call_args :: (
 /// `s.starts_with("-")` because it committed to the inherent `Self`=String hit.
 /// A trait's name for a diagnostic, from its id: the variable in `env` bound
 /// to that trait type, else the id itself.
-_trait_display_name :: (fn(imm(tid) : String, imm(env) : Environment) -> String)({
+_trait_display_name :: (fn(tid : &String, env : &Environment) -> String)({
   (fi : usize) = env.frames.len();
   while(fi > usize(0), {
     fi = (fi - usize(1));
@@ -1480,11 +1480,11 @@ _trait_display_name :: (fn(imm(tid) : String, imm(env) : Environment) -> String)
   tid
 });
 /// The receiver's type, printed, for a diagnostic.
-_receiver_type_display :: (fn(imm(recv) : AstExpr, imm(ctx) : EvalContext) -> String)(
+_receiver_type_display :: (fn(recv : &AstExpr, ctx : &EvalContext) -> String)(
   match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)), .Some(ri) => type_to_string(ri.ty), .None => String.from("the receiver"))
 );
 _select_matching_overload :: (
-  fn(imm(base) : ReceiverMethodResult, imm(args) : ArrayList(AstExpr), imm(func_expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> ReceiverMethodResult
+  fn(base : &ReceiverMethodResult, args : &ArrayList(AstExpr), func_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> ReceiverMethodResult
 )({
   // Collect EVERY candidate whose trial passes (not just the first) so the
   // comptime-priority rule below can run — filter to type-matching
@@ -1704,12 +1704,12 @@ _select_matching_overload :: (
 /// (the prelude operator modules order the runtime overload first).
 _try_expand_call_overload :: (
   fn(
-    imm(evaluated_callee) : AstExpr,
-    imm(call_expr) : AstExpr,
-    imm(args) : ArrayList(AstExpr),
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    evaluated_callee : &AstExpr,
+    call_expr : &AstExpr,
+    args : &ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   info := match(
@@ -1975,16 +1975,16 @@ ${ast_expr_to_string(call_expr)}`
 /// call is not a range index / the receiver has no slice_copy method.
 _try_rewrite_range_index_to_slice_copy :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(func_expr) : AstExpr,
-    imm(args) : ArrayList(AstExpr),
-    imm(recv_ty) : TypeValue,
+    expr : &AstExpr,
+    func_expr : &AstExpr,
+    args : &ArrayList(AstExpr),
+    recv_ty : &TypeValue,
     /// The receiver's evaluated VALUE. A receiver that already holds a
     /// CONCRETE comptime value (an array/slice literal, a `comptime_str`)
     /// must keep the comptime slicing path in `try_to_call_with_index_trait`
     /// — see the guard below.
-    imm(recv_val) : Option(EvalValue),
-    imm(env) : Environment
+    recv_val : &Option(EvalValue),
+    env : &Environment
   ) -> Option(AstExpr)
 )({
   if(args.len() != usize(1), {
@@ -2058,7 +2058,7 @@ _try_rewrite_range_index_to_slice_copy :: (
 /// call (`_freshen_io_builtin_callee`), so the resolution travels with this
 /// call's future type to its `io.await` and to codegen, and no global entry
 /// keyed by the output id is needed (Phase 3 step 7 part 2).
-_with_future_output_resolution :: (fn(imm(wrapper) : TypeValue, imm(concrete) : TypeValue) -> TypeValue)(
+_with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValue) -> TypeValue)(
   match(
     wrapper,
     .SomeT(fw_id, fw_nm, fw_fl, fw_pt, fw_rtt, fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc) => {
@@ -2087,7 +2087,7 @@ _with_future_output_resolution :: (fn(imm(wrapper) : TypeValue, imm(concrete) : 
     _ => wrapper
   )
 );
-_future_output_some_id :: (fn(imm(t) : TypeValue) -> Option(String))(
+_future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
   match(
     t,
     .FutureTraitT({ output : o }) => match(o, .SomeT({ id : oid }) => Option(String).Some(oid), _ => Option(String).None),
@@ -2130,7 +2130,7 @@ _future_output_some_id :: (fn(imm(t) : TypeValue) -> Option(String))(
 /// item 7). With per-call fresh ids the SAME registry becomes per-call-
 /// correct: the await's `T` instance arrives via the future ARG's carried
 /// type, which shares the fresh id.
-_freshen_io_async_result :: (fn(imm(t) : TypeValue) -> TypeValue)(
+_freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
     .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => TypeValue.SomeT(
@@ -2157,7 +2157,7 @@ _freshen_io_async_result :: (fn(imm(t) : TypeValue) -> TypeValue)(
 /// the enclosing specialization's own binder keys a second C type
 /// (issues/fixed/a-generic-async-fn-whose-future-result-contains-t-emits-two-c-types.md).
 /// A bare binder that resolves only to another SomeT keeps the original.
-_adopt_deep_resolution :: (fn(imm(original) : TypeValue, imm(resolved) : TypeValue) -> bool)(
+_adopt_deep_resolution :: (fn(original : &TypeValue, resolved : &TypeValue) -> bool)(
   cond(
     is_unit_type(resolved) => false,
     !is_some_type(resolved) => true,
@@ -2172,7 +2172,7 @@ _adopt_deep_resolution :: (fn(imm(original) : TypeValue, imm(resolved) : TypeVal
 /// `Impl(Future(Output, IoExn))` during std eval — can no longer poison the
 /// shared declaration ids (the `Output*`-prototype class,
 /// issues/retired/yo-self-async-emission-cluster.md item 7 layer 2).
-_freshen_io_builtin_callee :: (fn(imm(ft) : TypeValue) -> TypeValue)(
+_freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
   match(
     ft,
     .Func({ forall_types : ffts }) => {
@@ -2273,12 +2273,12 @@ _freshen_io_builtin_callee :: (fn(imm(ft) : TypeValue) -> TypeValue)(
 /// (name, level).
 _gc_collect_binder_sites :: (
   fn(
-    imm(t) : TypeValue,
-    imm(forall_names) : ArrayList(String),
-    mut(out_names) : ArrayList(String),
-    mut(out_levels) : ArrayList(usize),
-    mut(out_ids) : ArrayList(String),
-    mut(out_protos) : ArrayList(TypeValue)
+    t : &TypeValue,
+    forall_names : &ArrayList(String),
+    out_names : &mut ArrayList(String),
+    out_levels : &mut ArrayList(usize),
+    out_ids : &mut ArrayList(String),
+    out_protos : &mut ArrayList(TypeValue)
   ) -> unit
 )({
   if(forall_names.len() == usize(0), {
@@ -2366,7 +2366,7 @@ _gc_collect_binder_sites :: (
 /// NAME, so a binder that occurs in both a parameter and the result keeps a
 /// single identity within the call while gaining a new one across calls.
 _gc_freshen_all_sites :: (
-  fn(imm(ft) : TypeValue, imm(forall_names) : ArrayList(String)) -> TypeValue
+  fn(ft : &TypeValue, forall_names : &ArrayList(String)) -> TypeValue
 )({
   site_names := ArrayList(String).new();
   site_levels := ArrayList(usize).new();
@@ -2469,7 +2469,7 @@ _gc_freshen_all_sites :: (
   });
   substitute(gs, ft.clone())
 });
-_gc_ids_str :: (fn(imm(ids) : ArrayList(String)) -> String)({
+_gc_ids_str :: (fn(ids : &ArrayList(String)) -> String)({
   (out : String) = String.new();
   (i : usize) = usize(0);
   while(i < ids.len(), {
@@ -2479,7 +2479,7 @@ _gc_ids_str :: (fn(imm(ids) : ArrayList(String)) -> String)({
   out
 });
 _freshen_generic_closure_callee :: (
-  fn(imm(ft) : TypeValue, imm(forall_names) : ArrayList(String)) -> TypeValue
+  fn(ft : &TypeValue, forall_names : &ArrayList(String)) -> TypeValue
 )({
   if(forall_names.len() == usize(0), {
     return(ft);
@@ -2569,7 +2569,7 @@ _freshen_generic_closure_callee :: (
 /// codegen so the closure param lowers to its concrete capture struct. Routing
 /// EVERY soft-generic function through create_specialized_function_inline
 /// (which lacks full effects analysis) crashed `check ./std`.
-_func_type_has_closure_param :: (fn(imm(ft) : TypeValue) -> bool)(
+_func_type_has_closure_param :: (fn(ft : &TypeValue) -> bool)(
   match(
     ft,
     .Func({ param_types }) => {
@@ -2605,10 +2605,10 @@ _func_type_has_closure_param :: (fn(imm(ft) : TypeValue) -> bool)(
 /// via `_bind_some_type`).
 _funcval_try_synthesize_param :: (
   fn(
-    imm(declared_pt) : TypeValue,
-    imm(scratch_env) : Environment,
-    imm(arg_ty) : TypeValue,
-    imm(arg_env) : Environment
+    declared_pt : &TypeValue,
+    scratch_env : &Environment,
+    arg_ty : &TypeValue,
+    arg_env : &Environment
   ) -> unit
 )({
   local_exn := Exception(throw : (_err -> unwind(())));
@@ -2619,7 +2619,7 @@ _funcval_try_synthesize_param :: (
 });
 /// `ftt` (an `Fn` trait) with its call result replaced by `result` when the
 /// current result still mentions a type variable.
-_fv_fn_trait_with_result :: (fn(imm(ftt) : TypeValue, imm(result) : TypeValue) -> TypeValue)(
+_fv_fn_trait_with_result :: (fn(ftt : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ftt,
     .FnTraitT(bn, cpl, cpt, cr, il, it, cpr, cpo) => if(
@@ -2638,7 +2638,7 @@ _fv_fn_trait_with_result :: (fn(imm(ftt) : TypeValue, imm(result) : TypeValue) -
 /// its result, and so does a `Func` whose result is one. This is the
 /// argument-side twin of the method path's closure-argument return
 /// refinement in `check_if_function_parameter_matches_argument` (Phase 2.6).
-_fv_closure_arg_synth_type :: (fn(imm(info) : ExprInfo) -> TypeValue)({
+_fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
   body_opt := match(
     info.value,
     .Some(v) => match(v, .FuncVal(fvd, _) => get_closure_body_type(fvd.*.func_id.clone()), _ => Option(TypeValue).None),
@@ -2685,7 +2685,7 @@ _fv_closure_arg_synth_type :: (fn(imm(info) : ExprInfo) -> TypeValue)({
 /// and the synthesizer's SomeT arm stops there, so the two `Fn` bounds are
 /// synthesized against each other directly, which binds `J` in
 /// `F <: (Fn(item : A) -> J)` from the closure's body type.
-_fv_synthesize_arg_into :: (fn(imm(declared_pt) : TypeValue, imm(scratch_env) : Environment, imm(info) : ExprInfo, imm(arg_env) : Environment) -> unit)({
+_fv_synthesize_arg_into :: (fn(declared_pt : &TypeValue, scratch_env : &Environment, info : &ExprInfo, arg_env : &Environment) -> unit)({
   arg_ty := _fv_closure_arg_synth_type(info);
   _funcval_try_synthesize_param(declared_pt, scratch_env, arg_ty, arg_env);
   if(is_some_type(declared_pt), {
@@ -2726,7 +2726,7 @@ _fv_synthesize_arg_into :: (fn(imm(declared_pt) : TypeValue, imm(scratch_env) : 
 ///   `rc((x) => ...)` with expected `Rc(Impl(Fn...))` binds `V` to that
 ///   SomeT (arg-driven V := <fn type>/unit produced `Rc(fn(...))`/`Rc(unit)`
 ///   with a void*/void payload — the Dyn(Fn) family).
-_funcval_infer_forall_ty :: (fn(imm(arg_ty) : TypeValue, imm(exp_pt) : TypeValue, param_is_ct : bool, imm(env) : Environment) -> TypeValue)(
+_funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_is_ct : bool, env : &Environment) -> TypeValue)(
   cond(
     is_comptime_string_type(arg_ty) => TypeValue.Str,
     (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
@@ -2738,7 +2738,7 @@ _funcval_infer_forall_ty :: (fn(imm(arg_ty) : TypeValue, imm(exp_pt) : TypeValue
 /// judged (a type variable binds later), and the lenient relation is used in
 /// both directions, so a literal's comptime type and the numeric type it
 /// adopts are one binding.
-_forall_types_conflict :: (fn(imm(a) : TypeValue, imm(b) : TypeValue) -> bool)(
+_forall_types_conflict :: (fn(a : &TypeValue, b : &TypeValue) -> bool)(
   cond(
     ((get_all_some_types(a).len() > usize(0)) || (get_all_some_types(b).len() > usize(0))) => false,
     true => (!are_types_compatible(a, b) && !are_types_compatible(b, a))
@@ -2746,13 +2746,13 @@ _forall_types_conflict :: (fn(imm(a) : TypeValue, imm(b) : TypeValue) -> bool)(
 );
 /// The E0601 text for a binder two arguments bind to different types.
 /// `first_from` names where the first binding came from.
-_forall_conflict_message :: (fn(imm(label) : String, imm(first) : TypeValue, imm(first_from) : String, imm(later) : TypeValue, later_arg : usize) -> String)(
+_forall_conflict_message :: (fn(label : &String, first : &TypeValue, first_from : &String, later : &TypeValue, later_arg : usize) -> String)(
   `Incompatible types for generic parameter "${label}": it is ${type_to_string(first)} from ${first_from} but ${type_to_string(later)} from argument ${(later_arg + usize(1)).to_string()}. Every mention of a type parameter in one call stands for one type.`
 );
 /// The E0601 text for a VALUE binder (`generic(N : usize)`) two arguments
 /// bind to different array lengths
 /// (issues/fixed/a-usize-generic-binder-rebinds-per-argument.md).
-_forall_len_conflict_message :: (fn(imm(label) : String, imm(first) : String, imm(first_from) : String, imm(later) : String, later_arg : usize) -> String)(
+_forall_len_conflict_message :: (fn(label : &String, first : &String, first_from : &String, later : &String, later_arg : usize) -> String)(
   `Incompatible types for generic parameter "${label}": it is length ${first} from ${first_from} but length ${later} from argument ${(later_arg + usize(1)).to_string()}. Every mention of a generic parameter in one call stands for one value.`
 );
 /// "argument N" (1-based) for a conflict message.
@@ -2760,7 +2760,7 @@ _forall_arg_phrase :: (fn(i : usize) -> String)(`argument ${(i + usize(1)).to_st
 /// A VALUE binder's concrete binding in a structural-inference scratch env
 /// (the synthesizer's Array-length arm binds `generic(N : usize)` to an
 /// `IntLit`), or `.None` while it is unbound or a type binder.
-_scratch_len_binding :: (fn(imm(se) : Environment, imm(name) : String) -> Option(String))({
+_scratch_len_binding :: (fn(se : &Environment, name : &String) -> Option(String))({
   vars := get_variables_from_env(se, name);
   if(vars.len() == usize(0), {
     return(Option(String).None);
@@ -2784,7 +2784,7 @@ _scratch_len_binding :: (fn(imm(se) : Environment, imm(name) : String) -> Option
 /// argument binds `U := T`). A fresh placeholder (a `.None` literal's
 /// payload variable, a callee's own binder) is not a caller binder, so it is
 /// still left to the later fallbacks.
-_fv_type_vars_are_callers_binders :: (fn(imm(env) : Environment, imm(t) : TypeValue) -> bool)({
+_fv_type_vars_are_callers_binders :: (fn(env : &Environment, t : &TypeValue) -> bool)({
   somes := get_all_some_types(t);
   match(t, .SomeT({ id : _ }) => somes.push(t), _ => ());
   (any_open : bool) = false;
@@ -2820,7 +2820,7 @@ _fv_type_vars_are_callers_binders :: (fn(imm(env) : Environment, imm(t) : TypeVa
 });
 /// A binder's CONCRETE binding in a structural-inference scratch env, or
 /// `.None` while it is unbound or still a type variable.
-_scratch_concrete_binding :: (fn(imm(se) : Environment, imm(name) : String) -> Option(TypeValue))({
+_scratch_concrete_binding :: (fn(se : &Environment, name : &String) -> Option(TypeValue))({
   vars := get_variables_from_env(se, name);
   if(vars.len() == usize(0), {
     return(Option(TypeValue).None);
@@ -2848,7 +2848,7 @@ _scratch_concrete_binding :: (fn(imm(se) : Environment, imm(name) : String) -> O
 /// others (Phase 2.4, "function-literal arguments last"). A call with an `undefined`
 /// argument keeps source order: its default may read the earlier arguments'
 /// evaluated infos by position.
-_fv_argument_eval_order :: (fn(imm(args) : ArrayList(AstExpr), n_p : usize, imm(param_types) : ArrayList(TypeValue), imm(forall_names) : ArrayList(String)) -> ArrayList(usize))({
+_fv_argument_eval_order :: (fn(args : &ArrayList(AstExpr), n_p : usize, param_types : &ArrayList(TypeValue), forall_names : &ArrayList(String)) -> ArrayList(usize))({
   first := ArrayList(usize).new();
   last := ArrayList(usize).new();
   (i : usize) = usize(0);
@@ -2881,7 +2881,7 @@ _fv_argument_eval_order :: (fn(imm(args) : ArrayList(AstExpr), n_p : usize, imm(
   });
   first
 });
-_fv_has_undefined_arg :: (fn(imm(args) : ArrayList(AstExpr)) -> bool)({
+_fv_has_undefined_arg :: (fn(args : &ArrayList(AstExpr)) -> bool)({
   (i : usize) = usize(0);
   while(i < args.len(), {
     if(match(args.get(i), .Some(a) => ast_expr_is_atom_of(a, "undefined"), .None => false), {
@@ -2891,7 +2891,7 @@ _fv_has_undefined_arg :: (fn(imm(args) : ArrayList(AstExpr)) -> bool)({
   });
   false
 });
-_fv_order_is_permuted :: (fn(imm(order) : ArrayList(usize)) -> bool)({
+_fv_order_is_permuted :: (fn(order : &ArrayList(usize)) -> bool)({
   (i : usize) = usize(0);
   while(i < order.len(), {
     if(match(order.get(i), .Some(o) => (o != i), .None => false), {
@@ -2908,7 +2908,7 @@ _fv_order_is_permuted :: (fn(imm(order) : ArrayList(usize)) -> bool)({
 /// argument, so without this a closure checked against
 /// `F : (Fn(item : A) -> J)` saw `A` unresolved (Phase 2.6). The method path
 /// resolves the same thing in its Step-6c durable assoc binding.
-_fv_where_assoc_binding :: (fn(imm(name) : String, imm(where_exprs) : ArrayList(AstExpr), imm(se) : Environment, imm(env) : Environment) -> Option(TypeValue))({
+_fv_where_assoc_binding :: (fn(name : &String, where_exprs : &ArrayList(AstExpr), se : &Environment, env : &Environment) -> Option(TypeValue))({
   (w : usize) = usize(0);
   while(w < where_exprs.len(), {
     we := match(where_exprs.get(w), .Some(e) => e, .None => make_err_expr());
@@ -2974,15 +2974,15 @@ _fv_where_assoc_binding :: (fn(imm(name) : String, imm(where_exprs) : ArrayList(
 /// (issues/fixed/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md).
 _fv_refine_closure_expected :: (
   fn(
-    imm(param_ty) : TypeValue,
-    imm(forall_names) : ArrayList(String),
-    imm(param_type_names) : ArrayList(String),
-    imm(declared_param_types) : ArrayList(TypeValue),
-    imm(infos) : ArrayList(ExprInfo),
-    imm(info_arg_idx) : ArrayList(usize),
-    imm(param_ct) : ArrayList(bool),
-    imm(where_exprs) : ArrayList(AstExpr),
-    imm(env) : Environment
+    param_ty : &TypeValue,
+    forall_names : &ArrayList(String),
+    param_type_names : &ArrayList(String),
+    declared_param_types : &ArrayList(TypeValue),
+    infos : &ArrayList(ExprInfo),
+    info_arg_idx : &ArrayList(usize),
+    param_ct : &ArrayList(bool),
+    where_exprs : &ArrayList(AstExpr),
+    env : &Environment
   ) -> TypeValue
 )({
   sb := subst_new();
@@ -3066,7 +3066,7 @@ _fv_refine_closure_expected :: (
 });
 /// Put per-argument infos evaluated out of order (`idx[i]` is the argument
 /// index of `list[i]`; every argument appears once) back in source order.
-_fv_restore_order_infos :: (fn(imm(list) : ArrayList(ExprInfo), imm(idx) : ArrayList(usize)) -> ArrayList(ExprInfo))({
+_fv_restore_order_infos :: (fn(list : &ArrayList(ExprInfo), idx : &ArrayList(usize)) -> ArrayList(ExprInfo))({
   out := ArrayList(ExprInfo).new();
   (t : usize) = usize(0);
   while(t < list.len(), {
@@ -3083,7 +3083,7 @@ _fv_restore_order_infos :: (fn(imm(list) : ArrayList(ExprInfo), imm(idx) : Array
 });
 /// `_fv_restore_order_infos` for the runtime argument expressions, a SUBSET of
 /// the arguments (comptime ones are not C arguments): ascending by index.
-_fv_restore_order_exprs :: (fn(imm(list) : ArrayList(AstExpr), imm(idx) : ArrayList(usize)) -> ArrayList(AstExpr))({
+_fv_restore_order_exprs :: (fn(list : &ArrayList(AstExpr), idx : &ArrayList(usize)) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   (bound : usize) = usize(0);
   (emitted : usize) = usize(0);
@@ -3119,12 +3119,12 @@ _fv_restore_order_exprs :: (fn(imm(list) : ArrayList(AstExpr), imm(idx) : ArrayL
 /// has a slot to bind (Phase 2.6). Returns the labels bound this way.
 _fv_bind_unbound_forall_placeholders :: (
   fn(
-    imm(callee_ty) : TypeValue,
-    imm(forall_names) : ArrayList(String),
-    imm(bound_names) : ArrayList(String),
-    imm(fresh_env) : Environment,
-    imm(env) : Environment,
-    imm(call_expr) : AstExpr
+    callee_ty : &TypeValue,
+    forall_names : &ArrayList(String),
+    bound_names : &ArrayList(String),
+    fresh_env : &Environment,
+    env : &Environment,
+    call_expr : &AstExpr
   ) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
@@ -3225,7 +3225,7 @@ _fv_bind_unbound_forall_placeholders :: (
 /// The argument's type arguments at the declared type's PHANTOM positions
 /// that hold the binder `name` (`_Phantom(T)` against `_Phantom(i32)` gives
 /// `i32`), appended to `out`.
-_phantom_binder_args :: (fn(imm(decl) : TypeValue, imm(arg) : TypeValue, imm(name) : String, mut(out) : ArrayList(TypeValue)) -> unit)({
+_phantom_binder_args :: (fn(decl : &TypeValue, arg : &TypeValue, name : &String, out : &mut ArrayList(TypeValue)) -> unit)({
   (flags : ArrayList(bool)) = ArrayList(bool).new();
   (d_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
   (a_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
@@ -3264,33 +3264,33 @@ _phantom_binder_args :: (fn(imm(decl) : TypeValue, imm(arg) : TypeValue, imm(nam
 });
 _funcval_bind_foralls :: (
   fn(
-    imm(forall_names) : ArrayList(String),
-    imm(param_type_names) : ArrayList(String),
-    imm(evaled_arg_infos) : ArrayList(ExprInfo),
-    imm(cap_src) : FvCaptureSource,
-    imm(cap_vals) : ArrayList(EvalValue),
-    imm(recv_type_args) : ArrayList(TypeValue),
-    imm(fresh_env) : Environment,
-    imm(env) : Environment,
+    forall_names : &ArrayList(String),
+    param_type_names : &ArrayList(String),
+    evaled_arg_infos : &ArrayList(ExprInfo),
+    cap_src : &FvCaptureSource,
+    cap_vals : &ArrayList(EvalValue),
+    recv_type_args : &ArrayList(TypeValue),
+    fresh_env : &Environment,
+    env : &Environment,
     n_forall : usize,
-    mut(fa_bound_names) : ArrayList(String),
-    mut(fa_bound_types) : ArrayList(TypeValue),
-    imm(expected_param_types) : ArrayList(TypeValue),
-    imm(declared_param_types) : ArrayList(TypeValue),
-    imm(param_ct_flags) : ArrayList(bool),
-    imm(forall_kinds) : ArrayList(TypeValue),
+    fa_bound_names : &mut ArrayList(String),
+    fa_bound_types : &mut ArrayList(TypeValue),
+    expected_param_types : &ArrayList(TypeValue),
+    declared_param_types : &ArrayList(TypeValue),
+    param_ct_flags : &ArrayList(bool),
+    forall_kinds : &ArrayList(TypeValue),
     // Type arguments supplied EXPLICITLY at the call site (`f(generic(i32), x)`),
     // already evaluated by the peel in the inline FuncVal arm and paired with
     // the callee's forall label by position. A binder found here skips
     // inference entirely.
-    imm(pre_forall_names) : ArrayList(String),
-    imm(pre_forall_vals) : ArrayList(EvalValue),
-    imm(pre_forall_types) : ArrayList(TypeValue),
+    pre_forall_names : &ArrayList(String),
+    pre_forall_vals : &ArrayList(EvalValue),
+    pre_forall_types : &ArrayList(TypeValue),
     // OUT: binder conflicts (Phase 2.4) — one message per binder that two
     // arguments bind to incompatible types, and the 0-based index of the
     // argument that disagreed. The caller throws (this helper has no exn).
-    mut(fa_conflicts) : ArrayList(String),
-    mut(fa_conflict_args) : ArrayList(usize)
+    fa_conflicts : &mut ArrayList(String),
+    fa_conflict_args : &mut ArrayList(usize)
   ) -> unit
 )({
   // Structural-inference scratch env, built LAZILY on the first generic the
@@ -3781,7 +3781,7 @@ _funcval_bind_foralls :: (
 /// this callee's — not against the prelude's `Future(T, E)` binders, which ride
 /// along inside the re-evaluated type and share those names.
 _rre_binder_ids :: (
-  fn(imm(ret) : TypeValue, imm(forall_names) : ArrayList(String)) -> ArrayList(String)
+  fn(ret : &TypeValue, forall_names : &ArrayList(String)) -> ArrayList(String)
 )({
   out := ArrayList(String).new();
   if(forall_names.len() == usize(0), {
@@ -3867,7 +3867,7 @@ _rre_binder_ids :: (
 ///
 /// Written flat (a worklist, not nested helpers) because a regular `fn` in Yo
 /// captures nothing from its enclosing scope.
-_rre_mentions_binder :: (fn(imm(t) : TypeValue, imm(ids) : ArrayList(String)) -> bool)({
+_rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
   if(ids.len() == usize(0), {
     // No binder ids to check against: say YES, which leaves the gate exactly
     // as conservative as it was.
@@ -3945,7 +3945,7 @@ _rre_mentions_binder :: (fn(imm(t) : TypeValue, imm(ids) : ArrayList(String)) ->
 /// A struct / enum / union / `Array(T, N)` operand type that mentions no
 /// SomeT anywhere (and is not a source-namespace module struct): the
 /// receivers whose operator lookup cannot be waiting on a later binding.
-_is_concrete_nominal_operand :: (fn(imm(t) : TypeValue) -> bool)(
+_is_concrete_nominal_operand :: (fn(t : &TypeValue) -> bool)(
   (get_all_some_types(t).len() == usize(0)) && match(
     t,
     .Struct({ is_source_namespace : ns }) => !ns,
@@ -3957,26 +3957,26 @@ _is_concrete_nominal_operand :: (fn(imm(t) : TypeValue) -> bool)(
 );
 _evaluate_funcval_runtime_call :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(func_expr) : AstExpr,
-    imm(env) : Environment,
-    imm(fresh_env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(ret_type) : TypeValue,
-    imm(callee_func_type_opt) : Option(TypeValue),
-    imm(cv) : EvalValue,
-    imm(func_id_fv) : String,
-    imm(forall_names) : ArrayList(String),
-    imm(fa_bound_names) : ArrayList(String),
-    imm(fa_bound_types) : ArrayList(TypeValue),
-    imm(runtime_arg_exprs) : ArrayList(AstExpr),
-    imm(evaled_arg_infos) : ArrayList(ExprInfo),
+    expr : &AstExpr,
+    func_expr : &AstExpr,
+    env : &Environment,
+    fresh_env : &Environment,
+    ctx : &EvalContext,
+    ret_type : &TypeValue,
+    callee_func_type_opt : &Option(TypeValue),
+    cv : &EvalValue,
+    func_id_fv : &String,
+    forall_names : &ArrayList(String),
+    fa_bound_names : &ArrayList(String),
+    fa_bound_types : &ArrayList(TypeValue),
+    runtime_arg_exprs : &ArrayList(AstExpr),
+    evaled_arg_infos : &ArrayList(ExprInfo),
     n_supplied_reg : usize,
-    imm(param_vars) : ArrayList(Variable),
-    imm(exn) : Exception,
-    imm(fv_s0_drops) : ArrayList(AstExpr),
-    imm(fv_s0_marked_args) : ArrayList(AstExpr),
-    imm(fv_d3_pending) : ArrayList(D3PendingInout)
+    param_vars : &ArrayList(Variable),
+    exn : &Exception,
+    fv_s0_drops : &ArrayList(AstExpr),
+    fv_s0_marked_args : &ArrayList(AstExpr),
+    fv_d3_pending : &ArrayList(D3PendingInout)
   ) -> AstExpr
 )({
   // ARGUMENT TYPE CHECK — the step this branch never performed.
@@ -4964,7 +4964,7 @@ _evaluate_funcval_runtime_call :: (
 /// caller falls back to the first overload (the `->` handler is capture-free, so
 /// it unwinds `()` and the result rides out via `out`, like `_trial_eval_fn_body`).
 _try_eval_operand_type :: (
-  fn(imm(arg) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(TypeValue)) -> unit
+  fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(TypeValue)) -> unit
 )({
   oe_exn := Exception(throw : (_e -> unwind(())));
   oe_evaled := evaluate_expression_raw(arg, env, ctx, oe_exn);
@@ -4979,7 +4979,7 @@ _try_eval_operand_type :: (
 /// Rule D6: is this callee expression a runtime extern named directly — a
 /// bare identifier (a destructured import), or a field of a MODULE value —
 /// rather than a field of a runtime value (`io.await`)?
-_d6_callee_is_by_name :: (fn(imm(func_expr) : AstExpr, imm(ctx) : EvalContext) -> bool)({
+_d6_callee_is_by_name :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> bool)({
   if(ast_expr_is_atom(func_expr), {
     return(true);
   });
@@ -5016,7 +5016,7 @@ _d6_callee_is_by_name :: (fn(imm(func_expr) : AstExpr, imm(ctx) : EvalContext) -
 });
 /// `No method "m" on T.` for a dot callee `recv.m` whose receiver type has
 /// neither a field nor a method `m`.
-_no_method_message :: (fn(imm(func_expr) : AstExpr, imm(ctx) : EvalContext) -> String)({
+_no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
   dot_args := match(func_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   // A static call's receiver is a type VALUE (`String.nope(s)`, `Rc.nope(b)`
   // once decision 32 inferred `Rc(i32)`): name that type, not `Type`.
@@ -5071,7 +5071,7 @@ STD_RAISE_NOTE :: "raised here, inside the standard library";
 /// with the std location as a note. A pending flagged rejection from std gets
 /// the same treatment, since the definition-time re-raise throws the flag
 /// rather than the error this frame sees.
-_reported_at_user_call :: (fn(imm(err) : AnyError, imm(call_tok) : Token, imm(ctx) : EvalContext) -> AnyError)({
+_reported_at_user_call :: (fn(err : &AnyError, call_tok : &Token, ctx : &EvalContext) -> AnyError)({
   err_in_std := match(primary_diagnostic_path(err), .Some(ep) => is_std_module_path(ep, ctx.std_path.clone()), .None => false);
   if(!err_in_std, {
     return(err);
@@ -5097,12 +5097,12 @@ _reported_at_user_call :: (fn(imm(err) : AnyError, imm(call_tok) : Token, imm(ct
 /// back; the result goes to `out`.
 _evaluate_function_call_trapped :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(given_type) : TypeValue,
-    imm(given_value) : Option(EvalValue),
-    imm(ctx) : EvalContext,
-    mut(out) : ArrayList(AstExpr)
+    expr : &AstExpr,
+    env : &Environment,
+    given_type : &TypeValue,
+    given_value : &Option(EvalValue),
+    ctx : &EvalContext,
+    out : &mut ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
   trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
@@ -5120,7 +5120,7 @@ _evaluate_function_call_trapped :: (
 /// SomeT, which the last construction won
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3 step 7).
 _instantiate_struct_over_closure_args :: (
-  fn(imm(st) : TypeValue, imm(fields) : ArrayList(TypeField), imm(arg_types) : ArrayList(Option(TypeValue))) -> TypeValue
+  fn(st : &TypeValue, fields : &ArrayList(TypeField), arg_types : &ArrayList(Option(TypeValue))) -> TypeValue
 )(
   match(
     st,
@@ -5169,7 +5169,7 @@ _instantiate_struct_over_closure_args :: (
   )
 );
 /// `tys` with each SomeT whose id is `ids[k]` replaced by `with[k]`.
-_replace_some_ids :: (fn(imm(tys) : ArrayList(TypeValue), imm(ids) : ArrayList(String), imm(with) : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+_replace_some_ids :: (fn(tys : &ArrayList(TypeValue), ids : &ArrayList(String), with : &ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   out := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
   while(i < tys.len(), {
@@ -5205,12 +5205,12 @@ _replace_some_ids :: (fn(imm(tys) : ArrayList(TypeValue), imm(ids) : ArrayList(S
 /// (issues/fixed/type-error-diagnostics-point-into-std-and-use-inconsistent-codes.md).
 evaluate_function_call :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(given_type) : TypeValue,
-    imm(given_value) : Option(EvalValue),
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    given_type : &TypeValue,
+    given_value : &Option(EvalValue),
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   call_tok := ast_expr_token(expr);
@@ -5242,7 +5242,7 @@ evaluate_function_call :: (
 /// reference cell or a module-level place may not be live across an `await`.
 /// A call evaluated at compile time, and an operator on scalars (a C
 /// operator), are not runtime calls.
-_local_borrow_note_call_site :: (fn(imm(call) : AstExpr, imm(call_tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_local_borrow_note_call_site :: (fn(call : &AstExpr, call_tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
   info := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
   is_comptime := match(info.value, .Some(v) => !is_unknown_val(v), .None => false);
   if(is_comptime, {
@@ -5297,7 +5297,7 @@ _local_borrow_note_call_site :: (fn(imm(call) : AstExpr, imm(call_tok) : Token, 
 /// True when `callee_info` names a concrete closure whose body owns its
 /// captures, or a `Dyn` (its call-once wrapper releases the box itself):
 /// then the call needs no release after it.
-_fnonce_callee_releases_itself :: (fn(imm(callee_info) : ExprInfo) -> bool)({
+_fnonce_callee_releases_itself :: (fn(callee_info : &ExprInfo) -> bool)({
   if(match(callee_info.ty, .DynT({ required_trait_types : _ }) => true, _ => false), {
     return(true);
   });
@@ -5318,7 +5318,7 @@ _fnonce_callee_releases_itself :: (fn(imm(callee_info) : ExprInfo) -> bool)({
 /// built and evaluated BEFORE the callee is consumed (evaluating it afterwards
 /// would read a moved value), exactly as the call machinery's own post-call
 /// drops are (`generate_deferred_drop_expressions`, calls/helper.yo).
-_record_fnonce_callee_release :: (fn(imm(call) : AstExpr, imm(name) : String, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   // The drop is a codegen artifact that runs after the call; evaluating it
   // must not consume the callee before the call reads it. Snapshot the
   // consumed state of every binding of the name (a `sink` parameter's
@@ -5353,7 +5353,7 @@ _record_fnonce_callee_release :: (fn(imm(call) : AstExpr, imm(name) : String, im
 /// Append the post-call release `_consume_fnonce_callee` recorded for `call`
 /// to the deferred drops of `result`, the node its evaluation returned (it may
 /// be a rewrite of `call`), which codegen flushes right after the call.
-_attach_fnonce_callee_release :: (fn(imm(call) : AstExpr, imm(result) : AstExpr, imm(ctx) : EvalContext) -> unit)({
+_attach_fnonce_callee_release :: (fn(call : &AstExpr, result : &AstExpr, ctx : &EvalContext) -> unit)({
   match(
     g_fnonce_release_after_call.remove(ast_expr_id(call)),
     .Some(callee) => match(
@@ -5368,7 +5368,7 @@ _attach_fnonce_callee_release :: (fn(imm(call) : AstExpr, imm(result) : AstExpr,
     .None => ()
   );
 });
-_consume_fnonce_callee :: (fn(imm(callee) : AstExpr, imm(call) : AstExpr, imm(callee_info) : ExprInfo, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   is_once := match(
     extract_fn_trait_from_type(callee_info.ty),
     .Some(oft) => match(oft, .FnTraitT(base_name : ob) => (ob == "FnOnce"), _ => false),
@@ -5438,12 +5438,12 @@ _consume_fnonce_callee :: (fn(imm(callee) : AstExpr, imm(call) : AstExpr, imm(ca
 });
 _evaluate_function_call_unanchored :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(given_type) : TypeValue,
-    imm(given_value) : Option(EvalValue),
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    given_type : &TypeValue,
+    given_value : &Option(EvalValue),
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   given_type;
@@ -8830,7 +8830,7 @@ Fix: wrap the call:
           // (scratchpad/ra6_comptime_return_repro.yo — arr3 stayed
           // Array(i32, n) and every use FTT'd).
           {
-            _rlv :: (fn(imm(rl_t) : TypeValue, imm(rl_labels) : ArrayList(String), imm(rl_infos) : ArrayList(ExprInfo)) -> TypeValue)(
+            _rlv :: (fn(rl_t : &TypeValue, rl_labels : &ArrayList(String), rl_infos : &ArrayList(ExprInfo)) -> TypeValue)(
               match(
                 rl_t,
                 .Array(rl_elem, rl_len, rl_var) => cond(

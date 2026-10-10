@@ -13,7 +13,7 @@ MyBox :: ref(
 impl(
   MyBox,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       unsafe(printf("Disposing Boxed i32 with value: %d\n", self.*));
     })
   )
@@ -260,7 +260,7 @@ ArrowApply :: struct(base : i64);
 derive(ArrowApply, Copy, Clone);
 impl(
   ArrowApply,
-  apply : (fn(generic(R : Type), self : Self, imm(f) : Impl(Fn(v : i64) -> R)) -> R)(f(self.base))
+  apply : (fn(generic(R : Type), self : Self, f : &Impl(Fn(v : i64) -> R)) -> R)(f(self.base))
 );
 test("a -> fn literal binds the result type variable of Option.map and of an Impl(Fn) method", {
   o := Option(i64).Some(i64(2));
@@ -283,7 +283,7 @@ test("a -> fn literal binds the result type variable of Option.map and of an Imp
 // "no member named 'counter_m<hash>'".
 // ---------------------------------------------------------------------------
 module_global_counter := AtomicI32(i32(0));
-run_it :: (fn(imm(f) : Impl(Fn() -> unit)) -> unit)(f());
+run_it :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 test("a closure referencing a module-level global compiles and mutates it", {
   run_it(() => {
     module_global_counter.fetch_add(i32(3), MemoryOrder.Relaxed);
@@ -318,7 +318,7 @@ impl(
   /// The closure captures `sink : Channel(T)` and `v : T` — both generic —
   /// and is handed to an `Impl(Fn)` parameter, which is what creates the
   /// second generation.
-  make : (fn(imm(v) : T) -> Self)({
+  make : (fn(v : &T) -> Self)({
     ch := Channel(T).new(usize(1));
     sink := ch;
     run_it(() => {
@@ -327,7 +327,7 @@ impl(
     });
     Self(_slot : ch)
   }),
-  take : (fn(imm(self) : Self, imm(fallback) : T) -> T)(
+  take : (fn(self : &Self, fallback : &T) -> T)(
     match(self._slot.try_recv(), .Ok(r) => r, .Err(_) => fallback)
   )
 );
@@ -352,7 +352,7 @@ impl(
   generic(T : Type),
   _ClosureSlot(T),
   empty : (fn(tag : i32) -> Self)(Self(tag : tag, _f : .None)),
-  holding : (fn(tag : i32, imm(f) : T) -> Self)(Self(tag : tag, _f : .Some(f)))
+  holding : (fn(tag : i32, f : &T) -> Self)(Self(tag : tag, _f : .Some(f)))
 );
 test("a container of a closure type compiles and calls the closure", {
   (hits : AtomicI32) = AtomicI32.new(i32(0));
@@ -435,19 +435,19 @@ CapPayload :: ref(struct(n : i32));
 impl(
   CapPayload,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_cap_disposed = (g_cap_disposed + i32(1));
     })
   )
 );
-_cap_ignore :: (fn(imm(get) : Impl(Fn(x : i32) -> i32)) -> i32)(i32(0));
-_cap_call :: (fn(imm(get) : Impl(Fn(x : i32) -> i32)) -> i32)(get(i32(3)));
-_cap_rewrap :: (fn(imm(get) : Impl(Fn(x : i32) -> i32)) -> i32)({
+_cap_ignore :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)(i32(0));
+_cap_call :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)(get(i32(3)));
+_cap_rewrap :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
   (again : Impl(Fn(x : i32) -> i32)) = ((x : i32) => get(x));
   again(i32(3))
 });
 _CapBox :: ref(struct(f : Dyn(Fn(x : i32) -> i32)));
-_cap_boxed :: (fn(imm(get) : Impl(Fn(x : i32) -> i32)) -> i32)({
+_cap_boxed :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
   b := _CapBox(f : dyn(x => get(x)));
   b.f(i32(3))
 });
@@ -509,9 +509,9 @@ test("a closure captured by a Dyn closure field releases its captures", {
   assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
 });
 // issues/fixed/a-unit-call-through-a-fn-typed-field-never-drops-its-argument-temporaries.md
-_CapSink :: (fn(imm(p) : CapPayload) -> unit);
+_CapSink :: (fn(p : &CapPayload) -> unit);
 _CapSinkBundle :: struct(sink : _CapSink);
-_cap_send :: (fn(imm(b) : _CapSinkBundle) -> unit)(b.sink(CapPayload(n : i32(3))));
+_cap_send :: (fn(b : &_CapSinkBundle) -> unit)(b.sink(CapPayload(n : i32(3))));
 test("a unit call through a fn-typed field releases its argument temporary", {
   before := g_cap_disposed;
   (s : _CapSink) = (p -> ());
@@ -631,15 +631,15 @@ test("an Impl(Fn) result joined from two different closures is rejected", {
 // `mk(v)` from the argument's own function type, not from the parameter's
 // open `Impl(Fn() -> i32)` / `G`, which lowered `g := mk(v)` to `void*`
 // (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
-_nim_use :: (fn(imm(mk) : Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)({
+_nim_use :: (fn(mk : &Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)({
   g := mk(v);
   g()
 });
-_nim_use_where :: (fn(generic(G : Type), imm(mk) : Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)({
+_nim_use_where :: (fn(generic(G : Type), mk : &Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)({
   g := mk(v);
   g()
 });
-_nim_pass :: (fn(generic(R : Type), imm(mk) : Impl(Fn(x : i32) -> R), v : i32) -> R)({
+_nim_pass :: (fn(generic(R : Type), mk : &Impl(Fn(x : i32) -> R), v : i32) -> R)({
   return(mk(v));
 });
 _nim_double :: (fn(x : i32) -> Impl(Fn() -> i32))({

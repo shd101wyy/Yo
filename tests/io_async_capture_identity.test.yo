@@ -13,7 +13,7 @@
 // The failing shapes: a pattern binding named like a capture, read after an
 // await that really suspends (`sleep`; a future that completes inline keeps
 // the C local alive and hides the bug).
-string_binding_named_like_capture :: (fn(imm(o) : Option(String), io : Io) -> Impl(Future(usize, IoExn)))({
+string_binding_named_like_capture :: (fn(o : &Option(String), io : Io) -> Impl(Future(usize, IoExn)))({
   x := String.from("seven");
   io.async(e => {
     a := x.len();

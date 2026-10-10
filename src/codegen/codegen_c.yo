@@ -46,7 +46,7 @@
 /// nominal id, alias the drifted key to it (a fresh mint would SPLIT the C
 /// identity). Tier 2: genuinely-new type — collect + append fwd typedef +
 /// body to the declarations buffer.
-_on_demand_collect_and_declare :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> unit)({
+_on_demand_collect_and_declare :: (fn(t : &TypeValue, context : &CodeGenContext) -> unit)({
   odk := type_key(t);
   od_sid := match(
     t,
@@ -158,7 +158,7 @@ _on_demand_collect_and_declare :: (fn(imm(t) : TypeValue, imm(context) : CodeGen
 register_on_demand_declare :: (fn() -> unit)({
   set_on_demand_declare_fn(_on_demand_collect_and_declare);
 });
-_struct_has_generic_field :: (fn(imm(ty) : TypeValue) -> bool)(
+_struct_has_generic_field :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     .Struct({ field_types }) => {
@@ -193,7 +193,7 @@ _struct_has_generic_field :: (fn(imm(ty) : TypeValue) -> bool)(
 /// Sets needs_cycle_gc when any reference-struct type can form an RC cycle
 /// (`can_type_form_rc_cycle`), which selects the FULL cyclic-GC runtime
 /// (`generate_full_gc_runtime_functions`) over the lightweight RC path.
-compute_needs_cycle_gc :: (fn(imm(context) : CodeGenContext) -> unit)({
+compute_needs_cycle_gc :: (fn(context : &CodeGenContext) -> unit)({
   context.needs_cycle_gc = false;
   vals := context.types.values();
   (go : bool) = true;
@@ -224,7 +224,7 @@ compute_needs_cycle_gc :: (fn(imm(context) : CodeGenContext) -> unit)({
 /// The needs_cycle_gc branch dispatches through the per-object dispose_fn
 /// pointer instead, so nothing is emitted there; under lightweight RC this
 /// switch is the dispatch path.
-emit_dispose_dispatch :: (fn(imm(context) : CodeGenContext) -> unit)({
+emit_dispose_dispatch :: (fn(context : &CodeGenContext) -> unit)({
   if(context.needs_cycle_gc, {
     return();
   });
@@ -297,7 +297,7 @@ static int __yo_dispose_dispatch(void* ptr) {
 /// defined once every pooled type has its index. Pooled types are the ones
 /// whose constructor asked for an index: under lightweight RC only, since the
 /// cycle collector frees through its own path.
-emit_sm_pools :: (fn(imm(context) : CodeGenContext, uses_async : bool) -> unit)({
+emit_sm_pools :: (fn(context : &CodeGenContext, uses_async : bool) -> unit)({
   em := context.emitter;
   n := context.sm_pool_ids.len();
   // Without the async runtime there is no thread-exit hook to drain a pool,
@@ -375,7 +375,7 @@ static inline void __yo_sm_pools_drain(void) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(imm(module_value) : EvalValue, mut(info) : ExprInfoTable, imm(target) : TargetInfo, imm(allocator) : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, imm(eval_ctx) : EvalContext, imm(module_env) : Environment, imm(exn) : Exception, mut(chunk_parts_out) : ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, imm(code_spill_path) : String, line_directives : bool, imm(line_c_name) : String, imm(chunk_name_base) : String) -> ArrayList(String))({
+compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, target : &TargetInfo, allocator : &String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : &EvalContext, module_env : &Environment, exn : &Exception, chunk_parts_out : &mut ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : &String, line_directives : bool, line_c_name : &String, chunk_name_base : &String) -> ArrayList(String))({
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).

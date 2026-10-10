@@ -59,7 +59,7 @@ UnicodeEscape :: enum(
 ///
 /// Anything else is `.Bad`, which is the behaviour change: this used to be
 /// undiagnosed.
-scan_unicode_escape :: (fn(imm(runes) : ArrayList(rune), at : usize) -> UnicodeEscape)({
+scan_unicode_escape :: (fn(runes : &ArrayList(rune), at : usize) -> UnicodeEscape)({
   n := runes.len();
   nul := rune(u32(0));
   opener := match(runes.get(at + usize(1)), .Some(r) => r, .None => nul);
@@ -166,7 +166,7 @@ surrogate_escape_error_message :: (fn() -> String)(
 /// FNV-1a 64 over the bytes (same constants as std/hash's Fnv1aHasher —
 /// inlined here because the Hasher trait is not exported from std/hash).
 /// The shared content-hash behind the stable id/name schemes.
-fnv1a64 :: (fn(imm(s) : String) -> u64)({
+fnv1a64 :: (fn(s : &String) -> u64)({
   (state : u64) = u64(14695981039346656037);
   bytes := s;
   (i : usize) = usize(0);
@@ -185,7 +185,7 @@ fnv1a64 :: (fn(imm(s) : String) -> u64)({
 /// across same-named directories), every byte outside [A-Za-z0-9_] mapped
 /// to `_`, extension `.yo` dropped. Deterministic in the module's PATH,
 /// which an edit elsewhere in the tree never changes.
-_stable_id_module_stem :: (fn(imm(module_path) : String) -> String)({
+_stable_id_module_stem :: (fn(module_path : &String) -> String)({
   p := module_path.clone();
   if(p.starts_with(String.from("file://")), {
     p = p.substring(usize(7), p.len());
@@ -275,7 +275,7 @@ stable_occurrence_reset :: (fn() -> unit)({
 /// ordinals also carry the hash (temps) or the position (labels), so a shared
 /// counter still hands out distinct names.
 (g_emission_occurrence : HashMap(u64, usize)) = HashMap(u64, usize).new();
-emission_occurrence_key :: (fn(imm(key) : String) -> usize)(
+emission_occurrence_key :: (fn(key : &String) -> usize)(
   emission_occurrence_hashed(fnv1a64(key))
 );
 /// `emission_occurrence_key` for a caller that already hashed its key.
@@ -293,7 +293,7 @@ emission_occurrence_reset :: (fn() -> unit)({
   g_emission_occurrence = HashMap(u64, usize).new();
   ()
 });
-stable_occurrence_key :: (fn(imm(key) : String) -> usize)({
+stable_occurrence_key :: (fn(key : &String) -> usize)({
   next := match(
     g_stable_occurrence.get(key),
     .Some(n) => n,
@@ -316,7 +316,7 @@ TopLevelAnchor :: struct(row : usize, column : usize, label : String);
 /// (`register_top_level_anchors`); a re-walk of the same module (an LSP edit,
 /// `--watch`) replaces its entry.
 (g_top_level_anchors : HashMap(String, ArrayList(TopLevelAnchor))) = HashMap(String, ArrayList(TopLevelAnchor)).new();
-register_top_level_anchors :: (fn(imm(module_path) : String, imm(anchors) : ArrayList(TopLevelAnchor)) -> unit)({
+register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(TopLevelAnchor)) -> unit)({
   g_top_level_anchors.insert(_stable_type_id_owner_key(module_path), anchors);
   ()
 });
@@ -329,7 +329,7 @@ register_top_level_anchors :: (fn(imm(module_path) : String, imm(anchors) : Arra
 /// exactly one enclosing anchor (the last one starting at or before it), labels
 /// are unique within a module, and `(row offset, column)` is unique within one
 /// anchor.
-_anchored_position :: (fn(imm(module_path) : String, row : usize, column : usize) -> Tuple(String, String))(
+_anchored_position :: (fn(module_path : &String, row : usize, column : usize) -> Tuple(String, String))(
   match(
     // Canonical: a module's tokens carry one spelling of its path and codegen
     // may pass the other (AGENTS.md), and both must find the same anchors.
@@ -370,7 +370,7 @@ _anchored_position :: (fn(imm(module_path) : String, row : usize, column : usize
 /// The codegen label/temp mints that used to embed the global `random_id`
 /// counter (loop labels, short-circuit temps, …) go through here (Phase 2).
 stable_label_id :: (
-  fn(imm(prefix) : String, imm(module_path) : String, row : usize, column : usize) -> String
+  fn(prefix : &String, module_path : &String, row : usize, column : usize) -> String
 )({
   // EMISSION-name namespace (reset per compile) — labels are per-artifact.
   (pos_key, pos_part) := _anchored_position(module_path, row, column);
@@ -408,7 +408,7 @@ stable_label_id :: (
 /// Two modules whose stems coincide (`a/x/index.yo`, `b/x/index.yo`) are told
 /// apart by `g_stable_type_id_owner`: the second takes `_x2`, `_x3`, ….
 stable_type_id :: (
-  fn(imm(prefix) : String, imm(module_path) : String, row : usize, column : usize) -> String
+  fn(prefix : &String, module_path : &String, row : usize, column : usize) -> String
 )({
   (pos_key, pos_part) := _anchored_position(module_path, row, column);
   k := stable_occurrence_key(`tid:${module_path}:${pos_key}`);
@@ -434,7 +434,7 @@ stable_type_id :: (
   });
   candidate
 });
-_stable_type_id_owner_key :: (fn(imm(module_path) : String) -> String)(
+_stable_type_id_owner_key :: (fn(module_path : &String) -> String)(
   match(
     g_stable_type_id_owner_memo.get(module_path),
     .Some(c) => c,
@@ -452,7 +452,7 @@ _stable_type_id_owner_key :: (fn(imm(module_path) : String) -> String)(
 /// derived from it byte-identical. Callers that genuinely need per-mint uniqueness (gensym)
 /// keep `random_id`.
 stable_position_id :: (
-  fn(imm(prefix) : String, imm(module_path) : String, row : usize, column : usize) -> String
+  fn(prefix : &String, module_path : &String, row : usize, column : usize) -> String
 )({
   (pos_key, pos_part) := _anchored_position(module_path, row, column);
   src_key := `${module_path}:${pos_key}`;
@@ -505,7 +505,7 @@ stable_position_id :: (
 /// matching: `""` → `yo_id_<digits>`, `"fn_"` → `fn_yo_id_<digits>`,
 /// `"closure_"` → `closure_yo_id_<digits>`.
 stable_func_id :: (
-  fn(imm(prefix) : String, imm(module_path) : String, row : usize, column : usize) -> String
+  fn(prefix : &String, module_path : &String, row : usize, column : usize) -> String
 )({
   (pos_key, _pos_part) := _anchored_position(module_path, row, column);
   src_key := `fid:${module_path}:${pos_key}`;
@@ -524,7 +524,7 @@ stable_func_id :: (
 /// across unrelated edits because a module's mints are counted against its
 /// own counter only, so an edit that changes ANOTHER module's mint count
 /// cannot renumber this one.
-stable_module_id :: (fn(imm(prefix) : String, imm(module_path) : String) -> String)({
+stable_module_id :: (fn(prefix : &String, module_path : &String) -> String)({
   k := stable_occurrence_key(`${prefix}:${module_path}`);
   `${prefix}${k.to_string()}`
 });
@@ -537,7 +537,7 @@ stable_module_id :: (fn(imm(prefix) : String, imm(module_path) : String) -> Stri
 /// (issues/fixed/per-def-dependent-trial-resolves-stale-callee.md). Embedding the
 /// module-path hash keeps ids unique per module (a re-mint of the SAME
 /// module still gets a fresh occurrence, and both map back to it).
-stable_sns_module_id :: (fn(imm(module_path) : String) -> String)({
+stable_sns_module_id :: (fn(module_path : &String) -> String)({
   h := fnv1a64(module_path.clone());
   stable_module_id(`source_namespace_${h.to_string()}_`, module_path)
 });
@@ -565,7 +565,7 @@ export(
 /// `plans/archive/STD_API_AUDIT_D4_PLAN.md` D4, so that mismatch no longer exists;
 /// this stays as the explicit byte-level spelling. Only strips when both ends
 /// are `"`; anything else passes through unchanged.
-str_lit_unquote_bytes :: (fn(imm(raw) : String) -> String)({
+str_lit_unquote_bytes :: (fn(raw : &String) -> String)({
   n := raw.len();
   if((n >= usize(2)) && (raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(n - usize(1)) == u8(34)), {
     bytes := raw;
@@ -634,7 +634,7 @@ profile_mark_line_at :: (fn(i : usize) -> String)(
 _prof_sample :: (fn(probe : Option((fn() -> usize))) -> usize)(
   match(probe, .Some(f) => f(), .None => usize(0))
 );
-profile_record_phase :: (fn(imm(name) : String, nanos : i64) -> unit)({
+profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
   if(!g_prof_enabled, {
     return(());
   });
@@ -683,7 +683,7 @@ profile_phase_table_entries_at :: (fn(i : usize) -> usize)(
 (g_prof_mod_paths : ArrayList(String)) = ArrayList(String).new();
 (g_prof_mod_parse_ns : ArrayList(i64)) = ArrayList(i64).new();
 (g_prof_mod_eval_ns : ArrayList(i64)) = ArrayList(i64).new();
-profile_record_module :: (fn(imm(path) : String, parse_ns : i64, eval_ns : i64) -> unit)({
+profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> unit)({
   if(!g_prof_enabled, {
     return(());
   });
@@ -761,7 +761,7 @@ profile_reset :: (fn() -> unit)({
 /// Every non-alphanumeric character of the module path is replaced with `_`
 /// and the first 12 bytes are taken, which is unique enough to keep
 /// modules' temps from colliding.
-generate_temp_variable_name_prefix :: (fn(imm(module_path) : String) -> String)({
+generate_temp_variable_name_prefix :: (fn(module_path : &String) -> String)({
   result := String.new();
   bytes := module_path;
   n := bytes.len();
@@ -794,11 +794,11 @@ generate_temp_variable_name_prefix :: (fn(imm(module_path) : String) -> String)(
 /// later temp.
 generate_new_temp_variable_name :: (
   fn(
-    imm(module_path) : String,
+    module_path : &String,
     (row : usize) ?= usize(0),
     (column : usize) ?= usize(0),
-    (imm(slot_opt) : Option(String)) ?= .None,
-    (imm(anchor_module_opt) : Option(String)) ?= .None
+    (slot_opt : &Option(String)) ?= .None,
+    (anchor_module_opt : &Option(String)) ?= .None
   ) -> String
 )({
   slot := match(slot_opt, .Some(s) => s, .None => String.new());
@@ -844,7 +844,7 @@ generate_new_temp_variable_name :: (
 });
 /// Return true if `var_name` was generated by `generate_new_temp_variable_name`
 /// for the given `module_path`.
-is_temp_variable_name :: (fn(imm(module_path) : String, imm(var_name) : String) -> bool)({
+is_temp_variable_name :: (fn(module_path : &String, var_name : &String) -> bool)({
   prefix := generate_temp_variable_name_prefix(module_path);
   var_name.starts_with(prefix)
 });
@@ -863,7 +863,7 @@ _is_temp_prefix_byte :: (fn(b : u8) -> bool)(
 /// not reliably have — the prelude's temporaries are minted against the plain
 /// std path while their tokens carry the `file://` spelling
 /// (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
-is_any_temp_variable_name :: (fn(imm(var_name) : String) -> bool)({
+is_any_temp_variable_name :: (fn(var_name : &String) -> bool)({
   bytes := var_name;
   n := bytes.len();
   // `_` + `_temp_` + one digit is the shortest possible spelling (an empty
@@ -921,7 +921,7 @@ export(str_lit_unquote_bytes);
 // first read is the only one that has to touch libc.
 (g_debug_knobs : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
 /// The value of the `YO_DEBUG_*` knob `name`, read from the environment once.
-debug_knob :: (fn(imm(name) : String) -> Option(String))(
+debug_knob :: (fn(name : &String) -> Option(String))(
   match(
     g_debug_knobs.get(name),
     .Some(cached) => cached,
@@ -937,7 +937,7 @@ debug_knob :: (fn(imm(name) : String) -> Option(String))(
 /// module loader drives), so low-level modules such as `types/intern.yo` can
 /// owner-tag their registries without importing the evaluator.
 (g_current_owner : String) = String.new();
-set_current_owner :: (fn(imm(owner) : String) -> unit)({
+set_current_owner :: (fn(owner : &String) -> unit)({
   g_current_owner = owner;
 });
 current_owner :: (fn() -> String)(g_current_owner.clone());
@@ -973,7 +973,7 @@ codegen_tables_enabled :: (fn() -> bool)(g_codegen_tables_enabled);
 OwnedKeys :: ref(struct(by_owner : HashMap(String, ArrayList(String))));
 owned_keys_new :: (fn() -> OwnedKeys)(OwnedKeys(by_owner : HashMap(String, ArrayList(String)).new()));
 /// Record `key` under the current owner (no-op outside a module load).
-owned_keys_record :: (fn(imm(log) : OwnedKeys, imm(key) : String) -> unit)({
+owned_keys_record :: (fn(log : &OwnedKeys, key : &String) -> unit)({
   if((g_current_owner.len() == usize(0)) || !g_owner_logs_enabled, {
     return(());
   });
@@ -984,7 +984,7 @@ owned_keys_record :: (fn(imm(log) : OwnedKeys, imm(key) : String) -> unit)({
   log.by_owner.insert(g_current_owner.clone(), keys);
 });
 /// Remove and return the keys recorded under `owner`.
-owned_keys_take :: (fn(imm(log) : OwnedKeys, imm(owner) : String) -> ArrayList(String))(
+owned_keys_take :: (fn(log : &OwnedKeys, owner : &String) -> ArrayList(String))(
   match(log.by_owner.remove(owner), .Some(keys) => keys, .None => ArrayList(String).new())
 );
 export(set_current_owner, current_owner, set_owner_logs_enabled, owner_logs_enabled, set_codegen_tables_enabled, codegen_tables_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take);
@@ -1003,7 +1003,7 @@ _TS_TEXT :: u8(2);
 /// Past-the-end index of the `"..."` / `'...'` literal whose opening quote is
 /// at `at`: a backslash escapes the next byte, and a newline ends the scan
 /// (an unterminated literal is the lexer's diagnostic, not this scanner's).
-_skip_quoted_literal :: (fn(imm(bytes) : String, at : usize) -> usize)({
+_skip_quoted_literal :: (fn(bytes : &String, at : usize) -> usize)({
   n := bytes.len();
   qb := bytes.byte_at(at);
   (i : usize) = (at + usize(1));
@@ -1038,7 +1038,7 @@ _skip_quoted_literal :: (fn(imm(bytes) : String, at : usize) -> usize)({
 /// issues/fixed/template-interpolation-body-is-not-scanned-as-code.md.
 /// Byte-level on purpose: every delimiter is ASCII, and no byte of a UTF-8
 /// multi-byte sequence is.
-interpolation_body_end :: (fn(imm(bytes) : String, start : usize) -> usize)({
+interpolation_body_end :: (fn(bytes : &String, start : usize) -> usize)({
   n := bytes.len();
   modes := ArrayList(u8).new();
   modes.push(_TS_CODE);
@@ -1152,7 +1152,7 @@ _digit_value :: (fn(b : u8, base : i64) -> Option(i64))(
 );
 // Parse `bytes[start..]` as a non-negative integer in the given base.
 // Returns None if the slice is empty or contains an invalid digit.
-_parse_prefixed_int :: (fn(imm(bytes) : String, start : usize, base : i64) -> Option(i64))({
+_parse_prefixed_int :: (fn(bytes : &String, start : usize, base : i64) -> Option(i64))({
   n := bytes.len();
   cond(
     (start >= n) => .None,
@@ -1211,7 +1211,7 @@ _parse_prefixed_int :: (fn(imm(bytes) : String, start : usize, base : i64) -> Op
 /// old wrapping `parse_i64` gave for everything up to `u64.MAX` and `.None`
 /// beyond it (no integer type can hold that, and every caller treats `.None`
 /// as "not representable").
-parse_raw_int :: (fn(imm(raw) : String) -> Option(i64))({
+parse_raw_int :: (fn(raw : &String) -> Option(i64))({
   stripped := raw.replace_all(`_`, ``);
   cond(
     (stripped.starts_with(`0x`) || stripped.starts_with(`0X`)) =>
@@ -1271,7 +1271,7 @@ export(
 /// same file must never be compared with `==` (AGENTS.md; the
 /// `--static-library exports no symbols` bug was exactly that). Strip the
 /// scheme, absolutize against the cwd, normalize.
-canonical_module_path :: (fn(imm(p) : String) -> String)({
+canonical_module_path :: (fn(p : &String) -> String)({
   stripped := p.replace(String.from("file://"), String.new());
   abs := if(Path.new(stripped.clone()).is_absolute(), stripped, {
     cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
@@ -1290,7 +1290,7 @@ canonical_module_path :: (fn(imm(p) : String) -> String)({
 /// reaches the query text and through it the verification cache key. An
 /// absolute path there makes every cached verdict machine-specific.
 /// See `issues/fixed/verify-report-fn-id-carries-file-scheme-absolute-path.md`.
-display_module_path :: (fn(imm(p) : String) -> String)({
+display_module_path :: (fn(p : &String) -> String)({
   canon := canonical_module_path(p);
   cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.new());
   if(cwd_str.len() == usize(0), {
@@ -1308,7 +1308,7 @@ display_module_path :: (fn(imm(p) : String) -> String)({
   )
 });
 /// The directory a module path lives in (canonical spelling).
-canonical_module_dir :: (fn(imm(p) : String) -> String)(
+canonical_module_dir :: (fn(p : &String) -> String)(
   match(Path.new(canonical_module_path(p)).parent(), .Some(d) => d.to_string(), .None => String.new())
 );
 /// MEMBER VISIBILITY (plans/reference/MEMBER_VISIBILITY.md, decided
@@ -1319,7 +1319,7 @@ canonical_module_dir :: (fn(imm(p) : String) -> String)(
 /// `_raw_unlock` / `_raw_handle_ptr` lives in `std/sync/` beside `mutex.yo`.
 /// No new syntax: the convention the tree already writes is what is enforced,
 /// so `std/` needs no seed-gated marker to adopt it.
-is_private_member_name :: (fn(imm(name) : String) -> bool)({
+is_private_member_name :: (fn(name : &String) -> bool)({
   if(!name.starts_with(String.from("_")), {
     return(false);
   });
@@ -1342,7 +1342,7 @@ is_private_member_name :: (fn(imm(name) : String) -> bool)({
 });
 /// True when code in `access_module` may touch a private member declared in
 /// `decl_module`: the same file, or a file in the same directory.
-member_visible_from :: (fn(imm(decl_module) : String, imm(access_module) : String) -> bool)({
+member_visible_from :: (fn(decl_module : &String, access_module : &String) -> bool)({
   d := canonical_module_path(decl_module.clone());
   a := canonical_module_path(access_module.clone());
   if(d == a, {
@@ -1357,7 +1357,7 @@ member_visible_from :: (fn(imm(decl_module) : String, imm(access_module) : Strin
 /// trait-declared signatures) never blocks, and names starting with `___`
 /// are compiler-reserved (the synthesized RC hooks) and never private.
 private_member_blocked :: (
-  fn(imm(label) : String, imm(decl_module_opt) : Option(String), imm(access_module) : String) -> bool
+  fn(label : &String, decl_module_opt : &Option(String), access_module : &String) -> bool
 )({
   if(!is_private_member_name(label.clone()) || label.starts_with(String.from("___")), {
     return(false);

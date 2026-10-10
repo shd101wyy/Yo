@@ -16,13 +16,13 @@
 /// field can't name the binding.
 // Closure that reads a ref parameter is rejected.
 comptime_expect_error(
-  make_reader :: (fn(mut(x) : i32) -> Impl(Fn() -> i32))(
+  make_reader :: (fn(x : &mut i32) -> Impl(Fn() -> i32))(
     () => x
   )
 );
 // Closure that writes a ref parameter is rejected.
 comptime_expect_error(
-  make_writer :: (fn(mut(x) : i32) -> Impl(Fn() -> unit))(() => {
+  make_writer :: (fn(x : &mut i32) -> Impl(Fn() -> unit))(() => {
     x = i32(99);
   })
 );
@@ -30,7 +30,7 @@ comptime_expect_error(
 // Two closure layers: outer `=>` captures nothing ref; inner `=>`
 // captures the ref `x`. The gate fires on the inner closure.
 comptime_expect_error(
-  build :: (fn(mut(x) : i32) -> Impl(Fn() -> Impl(Fn() -> i32)))(
+  build :: (fn(x : &mut i32) -> Impl(Fn() -> Impl(Fn() -> i32)))(
     () => (() => x)
   )
 );
@@ -38,7 +38,7 @@ comptime_expect_error(
 // parameter still compiles cleanly, even when the enclosing fn
 // takes a ref. The returned closure only captures the local
 // `y_copy`, not `x`.
-no_capture :: (fn(mut(x) : i32, y : i32) -> Impl(Fn() -> i32))({
+no_capture :: (fn(x : &mut i32, y : i32) -> Impl(Fn() -> i32))({
   y_copy := y;
   () => y_copy
 });

@@ -287,7 +287,7 @@ _ScopeGuard :: ref(struct(_ctx : ?*void, _vtable : ?*void));
 impl(
   _ScopeGuard,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)(__yo_scope_set(self._ctx, self._vtable))
+    dispose : (fn(self : &Self) -> unit)(__yo_scope_set(self._ctx, self._vtable))
   )
 );
 /// Evaluate `f()` with `alloc` as the thread's current allocator.
@@ -311,7 +311,7 @@ impl(
 /// arena := Arena.new(usize(1) << usize(20));
 /// p := with_allocator(arena.allocator(), () => Point(x : i32(3), y : i32(4)));
 /// ```
-with_allocator :: (fn(generic(T : Type), alloc : Allocator, imm(f) : Impl(Fn() -> T)) -> T)({
+with_allocator :: (fn(generic(T : Type), alloc : Allocator, f : &Impl(Fn() -> T)) -> T)({
   _guard := _ScopeGuard(_ctx : __yo_scope_ctx(), _vtable : __yo_scope_vtable());
   __yo_scope_set(alloc.ctx, .Some((*void)(alloc.vtable)));
   f()

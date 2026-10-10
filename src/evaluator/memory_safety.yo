@@ -41,7 +41,7 @@ PragmaEntry :: struct(module_path : String, kind : Pragma);
 /// a raw `==` between a reader's spelling and the writer's silently missed
 /// (the LSP hover's verification-mode lookup read `runtime` for a
 /// `pragma(Pragma.Verify);` document).
-file_has_pragma :: (fn(imm(module_path) : Option(String), kind : Pragma) -> bool)(
+file_has_pragma :: (fn(module_path : &Option(String), kind : Pragma) -> bool)(
   match(
     module_path,
     .None => false,
@@ -66,7 +66,7 @@ file_has_pragma :: (fn(imm(module_path) : Option(String), kind : Pragma) -> bool
 );
 /// Record that `module_path` declared `pragma(Pragma.X);`. The key is stored
 /// CANONICAL (see `file_has_pragma`'s note).
-register_file_pragma :: (fn(imm(module_path) : String, kind : Pragma) -> unit)({
+register_file_pragma :: (fn(module_path : &String, kind : Pragma) -> unit)({
   canonical := canonical_module_path(module_path);
   if(!file_has_pragma(Option(String).Some(canonical.clone()), kind), {
     g_privileged_files.push(PragmaEntry(module_path : canonical, kind : kind));
@@ -78,7 +78,7 @@ _clear_pragma_registry :: (fn() -> unit)({
   ()
 });
 /// Drop pragma entries for a single module (LSP edit / cache invalidation).
-_clear_pragma_for_module :: (fn(imm(module_path) : String) -> unit)({
+_clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
   key := canonical_module_path(module_path);
   kept := ArrayList(PragmaEntry).new();
   (i : usize) = usize(0);
@@ -101,7 +101,7 @@ _clear_pragma_for_module :: (fn(imm(module_path) : String) -> unit)({
 /// True if the file declared `pragma(Pragma.AllowUnsafe);`, OR the
 /// expression came from compiler-synthesized code whose URI is
 /// `auto-generated://...` (which inherits the privileged caller's policy).
-is_implicitly_unsafe_capable_file :: (fn(imm(module_path) : Option(String)) -> bool)(
+is_implicitly_unsafe_capable_file :: (fn(module_path : &Option(String)) -> bool)(
   match(
     module_path,
     .None => false,
@@ -122,19 +122,19 @@ is_implicitly_unsafe_capable_file :: (fn(imm(module_path) : Option(String)) -> b
 /// needs `pragma(Pragma.AllowUnsafe)` (or an `unsafe(...)` region, which itself
 /// needs the pragma). Construction and member writes stay legal everywhere.
 /// See issues/fixed/safe-code-can-read-an-inactive-union-member.md.
-is_union_member_read_capable :: (fn(imm(module_path) : Option(String), in_unsafe_context : bool) -> bool)(
+is_union_member_read_capable :: (fn(module_path : &Option(String), in_unsafe_context : bool) -> bool)(
   in_unsafe_context || is_implicitly_unsafe_capable_file(module_path)
 );
 /// The diagnostic both union-read gates raise (property access and
 /// destructuring).
-union_member_read_error_message :: (fn(imm(member) : String, imm(union_type) : String) -> String)(
+union_member_read_error_message :: (fn(member : &String, union_type : &String) -> String)(
   `Reading union member \`${member}\` of \`${union_type}\` requires \`pragma(Pragma.AllowUnsafe);\` in this file.
 
 A union does not record which member was written last, so this read may reinterpret another member's bytes, which is undefined behavior for a \`bool\`, an enum or a reference. For a checked sum type use an \`enum\` and \`match\` on its variants.`
 );
 /// Is this module path a compiler-synthesized expansion (macro, derive,
 /// prelude desugaring)? Such URIs are tagged `auto-generated://...`.
-is_auto_generated_expansion :: (fn(imm(module_path) : Option(String)) -> bool)(
+is_auto_generated_expansion :: (fn(module_path : &Option(String)) -> bool)(
   match(
     module_path,
     .None => false,
@@ -162,7 +162,7 @@ is_auto_generated_expansion :: (fn(imm(module_path) : Option(String)) -> bool)(
 /// `<cwd>/C:/...` garbage, which silently voided the std exemptions below
 /// for every Windows invocation whose std path arrived relative
 /// (issues/fixed/windows-lex-abs-path-voids-std-exemption.md).
-_lex_abs_path :: (fn(imm(p) : String) -> String)({
+_lex_abs_path :: (fn(p : &String) -> String)({
   (s : String) = p.clone();
   if(s.starts_with(`file://`), {
     s = s.slice_copy(usize(7) .. s.len());
@@ -182,7 +182,7 @@ _lex_abs_path :: (fn(imm(p) : String) -> String)({
 /// URIs (import-resolved std modules), and whatever form `--std-path` /
 /// `YO_STD` was given in — so absolutize BOTH sides lexically before the
 /// prefix check.
-_is_std_module_path :: (fn(imm(mp) : String, imm(std_path) : String) -> bool)({
+_is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
   (sp : String) = std_path.clone();
   while(sp.ends_with(`/`), {
     sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
@@ -198,7 +198,7 @@ _is_std_module_path :: (fn(imm(mp) : String, imm(std_path) : String) -> bool)({
 /// root is fixed per process; a different one resets the table.
 (g_std_path_memo : HashMap(String, bool)) = HashMap(String, bool).new();
 (g_std_path_memo_root : ArrayList(String)) = ArrayList(String).new();
-is_std_module_path :: (fn(imm(mp) : String, imm(std_path) : String) -> bool)({
+is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
   if(match(g_std_path_memo_root.get(usize(0)), .Some(r) => (r != std_path), .None => true), {
     g_std_path_memo.clear();
     g_std_path_memo_root.clear();
@@ -214,7 +214,7 @@ is_std_module_path :: (fn(imm(mp) : String, imm(std_path) : String) -> bool)({
     }
   )
 });
-is_macro_def_capable_file :: (fn(imm(module_path) : Option(String), imm(std_path) : String) -> bool)(
+is_macro_def_capable_file :: (fn(module_path : &Option(String), std_path : &String) -> bool)(
   match(
     module_path,
     .None => false,
@@ -238,7 +238,7 @@ is_macro_def_capable_file :: (fn(imm(module_path) : Option(String), imm(std_path
 /// pointers between their own layers (`s.ptr()` into a byte buffer) without
 /// dereferencing them in every file. Everything else borrows elements with
 /// `for(coll, inout(x) => …)` (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D).
-is_pointer_value_capable_file :: (fn(imm(module_path) : Option(String), imm(std_path) : String) -> bool)(
+is_pointer_value_capable_file :: (fn(module_path : &Option(String), std_path : &String) -> bool)(
   match(
     module_path,
     .None => false,
@@ -258,7 +258,7 @@ is_pointer_value_capable_file :: (fn(imm(module_path) : Option(String), imm(std_
 /// plus compiler-synthesized `auto-generated://` code, which inherits the
 /// privileged caller's policy like the unsafe and macro gates — passes.
 /// See plans/reference/FUNCTION_OVERLOADING_POLICY.md.
-is_overload_set_capable_file :: (fn(imm(module_path) : Option(String), imm(std_path) : String) -> bool)(
+is_overload_set_capable_file :: (fn(module_path : &Option(String), std_path : &String) -> bool)(
   is_prelude_or_generated_file(module_path, std_path)
 );
 /// Is the module path `std/prelude.yo` itself (under `std_path`), or
@@ -266,7 +266,7 @@ is_overload_set_capable_file :: (fn(imm(module_path) : Option(String), imm(std_p
 /// privileged caller's policy? The gate for prelude-only privileges: overload
 /// sets (above) and implementing the `Deref` marker
 /// (plans/VALUES_BY_DEFAULT.md §3.3, `evaluator/values/impl.yo`).
-is_prelude_or_generated_file :: (fn(imm(module_path) : Option(String), imm(std_path) : String) -> bool)(
+is_prelude_or_generated_file :: (fn(module_path : &Option(String), std_path : &String) -> bool)(
   match(
     module_path,
     .None => false,
@@ -301,7 +301,7 @@ is_prelude_or_generated_file :: (fn(imm(module_path) : Option(String), imm(std_p
 /// method that reaches `__yo_panic`, and `tests/internal/memory_safety_paths.test.yo`
 /// runs it over the prelude: `expect_err` was missing from this list until
 /// that check existed (issues/fixed/result-expect-err-escapes-the-class-1-ban.md).
-is_class1_panic_method_name :: (fn(imm(name) : String) -> bool)(
+is_class1_panic_method_name :: (fn(name : &String) -> bool)(
   (name == "unwrap") || (name == "expect") || (name == "unwrap_err") || (name == "expect_err")
 );
 /// The receiver types whose extraction methods are class 1: the failure is
@@ -312,7 +312,7 @@ is_class1_panic_method_name :: (fn(imm(name) : String) -> bool)(
 /// never fired — probe-verified 2026-09-22: the fixture receiver's ExprInfo
 /// said `Option(i32)` and a name-field comparison returned false. The
 /// `(` in the prefix keeps a hypothetical user `OptionEx(` from matching.
-is_class1_panic_receiver_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_class1_panic_receiver_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
     .EnumT(_, _, _, _, _, _, _, _, _, _) => {
@@ -340,7 +340,7 @@ is_class1_panic_receiver_type :: (fn(imm(t) : TypeValue) -> bool)(
 /// (no CTFE folding), so a comptime carve-out would leave the panic
 /// reachable. The carve-out lands when comptime `unwrap` of `.None`
 /// becomes a compile error (the plan's VERIFY-and-make-so step).
-is_class1_panic_exempt_file :: (fn(imm(module_path) : Option(String)) -> bool)(
+is_class1_panic_exempt_file :: (fn(module_path : &Option(String)) -> bool)(
   match(
     module_path,
     .None => false,

@@ -28,7 +28,7 @@ pragma(Pragma.SkipWasm32Wasi); // spawns native child processes
 /// Remove a path, tolerating absence and Windows's just-exited-executable
 /// lock: a leftover fixture from a previous suite run (or a batch artifact
 /// still held by a reaper) must not fail the setup of THIS run.
-_remove_tolerant :: (fn(imm(path) : String, io : Io) -> unit)({
+_remove_tolerant :: (fn(path : &String, io : Io) -> unit)({
   swallow := Exception(
     throw : (
       _e -> {
@@ -41,7 +41,7 @@ _remove_tolerant :: (fn(imm(path) : String, io : Io) -> unit)({
 /// Write one fixture test file: two trivial asserts, so a runner child spends
 /// its time in the batch compile/run cycle (where the collision lives), not
 /// in the tests themselves.
-_write_fixture_file :: (fn(imm(dir) : String, imm(name) : String, io : Io, imm(e) : IoExn) -> unit)({
+_write_fixture_file :: (fn(dir : &String, name : &String, io : Io, e : &IoExn) -> unit)({
   src := `{ assert } :: import("std/assert");
 
 test("${name} one", {

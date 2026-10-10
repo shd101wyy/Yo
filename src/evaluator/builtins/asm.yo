@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Name sets
 // ---------------------------------------------------------------------------
-_str_in :: (fn(imm(names) : ArrayList(String), imm(s) : String) -> bool)({
+_str_in :: (fn(names : &ArrayList(String), s : &String) -> bool)({
   (i : usize) = usize(0);
   n := names.len();
   while(i < n, {
@@ -48,11 +48,11 @@ _register_classes :: (fn() -> ArrayList(String))({
   l.push(String.from("mem"));
   l
 });
-_is_input_kind :: (fn(imm(k) : String) -> bool)(k == "in");
-_is_output_kind :: (fn(imm(k) : String) -> bool)((k == "out") || (k == "lateout"));
-_is_inout_kind :: (fn(imm(k) : String) -> bool)((k == "inout") || (k == "inlateout") || (k == "ref"));
-_is_special_kind :: (fn(imm(k) : String) -> bool)((k == "const_val") || (k == "sym"));
-_is_asm_subcall_name :: (fn(imm(k) : String) -> bool)(
+_is_input_kind :: (fn(k : &String) -> bool)(k == "in");
+_is_output_kind :: (fn(k : &String) -> bool)((k == "out") || (k == "lateout"));
+_is_inout_kind :: (fn(k : &String) -> bool)((k == "inout") || (k == "inlateout") || (k == "ref"));
+_is_special_kind :: (fn(k : &String) -> bool)((k == "const_val") || (k == "sym"));
+_is_asm_subcall_name :: (fn(k : &String) -> bool)(
   _is_input_kind(k) || _is_output_kind(k) || _is_inout_kind(k) || _is_special_kind(k) || (k == "clobber") ||
     (k == "clobber_abi") || (k == "asm_options")
 );
@@ -84,16 +84,16 @@ AsmOperand :: ref(
   )
 );
 /// Check whether a Yo type is valid for asm operands.
-_is_valid_asm_operand_type :: (fn(imm(t) : TypeValue) -> bool)(
+_is_valid_asm_operand_type :: (fn(t : &TypeValue) -> bool)(
   is_integer_type(t) || is_float_type(t) || is_pointer_type(t) || is_bool_type(t)
 );
-_atom_value :: (fn(imm(e) : AstExpr) -> String)(
+_atom_value :: (fn(e : &AstExpr) -> String)(
   match(e, .Atom(_, tok) => tok.value.clone(), _ => String.from(""))
 );
-_is_register_class_atom :: (fn(imm(e) : AstExpr) -> bool)(
+_is_register_class_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && _str_in(_register_classes(), _atom_value(e))
 );
-_is_asm_subcall :: (fn(imm(e) : AstExpr) -> bool)({
+_is_asm_subcall :: (fn(e : &AstExpr) -> bool)({
   if(!ast_expr_is_fn_call(e), {
     return(false);
   });
@@ -104,15 +104,15 @@ _is_asm_subcall :: (fn(imm(e) : AstExpr) -> bool)({
   );
   (fname.len() > usize(0)) && _is_asm_subcall_name(fname)
 });
-_is_discard_atom :: (fn(imm(e) : AstExpr) -> bool)(
+_is_discard_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && (_atom_value(e) == String.from("_"))
 );
-_fn_call_args_of :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+_fn_call_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, args, _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Strip the surrounding `"` delimiters that the StrLit convention
 /// keeps (see evaluator/values/string.yo — raw stores the QUOTED token).
-_strip_delims :: (fn(imm(s) : String) -> String)({
+_strip_delims :: (fn(s : &String) -> String)({
   b := s;
   n := b.len();
   first_q := match(b.get_byte(usize(0)), .Some(x) => (x == u8(34)), .None => false);
@@ -135,7 +135,7 @@ _strip_delims :: (fn(imm(s) : String) -> String)({
 });
 /// Evaluate `e` and return its comptime-string value if it has one.
 _eval_comptime_str :: (
-  fn(imm(e) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> Option(String)
+  fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(String)
 )({
   evaluated := evaluate_expression_raw(e, env, ctx, exn);
   match(
@@ -152,7 +152,7 @@ _eval_comptime_str :: (
 /// Evaluate a constraint argument (register class atom, explicit register
 /// string, or raw("constraint")).
 _evaluate_constraint :: (
-  fn(imm(constraint_expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> String
+  fn(constraint_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> String
 )({
   if(_is_register_class_atom(constraint_expr), {
     return(_atom_value(constraint_expr));
@@ -190,7 +190,7 @@ _evaluate_constraint :: (
 });
 /// Parse const_val/sym operands.
 _parse_special_operand :: (
-  fn(imm(operand_expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(kind) : String, imm(exn) : Exception) -> AsmOperand
+  fn(operand_expr : &AstExpr, env : &Environment, ctx : &EvalContext, kind : &String, exn : &Exception) -> AsmOperand
 )({
   args := _fn_call_args_of(operand_expr);
   if((args.len() < usize(1)) || (args.len() > usize(2)), {
@@ -230,7 +230,7 @@ _parse_special_operand :: (
 });
 /// Parse a single operand sub-call.
 _parse_operand :: (
-  fn(imm(operand_expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(kind_in) : String, imm(exn) : Exception) -> AsmOperand
+  fn(operand_expr : &AstExpr, env : &Environment, ctx : &EvalContext, kind_in : &String, exn : &Exception) -> AsmOperand
 )({
   // Normalize the `ref` alias to `inout`.
   kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
@@ -488,7 +488,7 @@ _parse_operand :: (
 /// Parse asm_options(...) flags.
 /// Returns the `noreturn` flag (the only one the evaluator consumes).
 _parse_asm_options :: (
-  fn(imm(option_expr) : AstExpr, imm(exn) : Exception) -> bool
+  fn(option_expr : &AstExpr, exn : &Exception) -> bool
 )({
   (noreturn : bool) = false;
   flags := _asm_option_flags();
@@ -527,7 +527,7 @@ _parse_asm_options :: (
 });
 /// Validate template placeholders `{N}` / `{name}` against the operand list.
 _validate_template_placeholders :: (
-  fn(imm(template) : String, imm(operands) : ArrayList(AsmOperand), imm(tok) : Token, imm(exn) : Exception) -> unit
+  fn(template : &String, operands : &ArrayList(AsmOperand), tok : &Token, exn : &Exception) -> unit
 )({
   // Duplicate-name check.
   operand_names := ArrayList(String).new();
@@ -652,10 +652,10 @@ _validate_template_placeholders :: (
 /// Evaluate the `asm(...)` builtin.
 evaluate_asm :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
@@ -959,10 +959,10 @@ evaluate_asm :: (
 /// Evaluate the `global_asm(...)` builtin.
 evaluate_global_asm :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

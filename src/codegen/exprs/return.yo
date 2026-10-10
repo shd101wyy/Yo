@@ -27,7 +27,7 @@
 { declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
-_drop_target_atom :: (fn(imm(drop_expr) : AstExpr) -> Option(AstExpr))(
+_drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
   match(
     drop_expr,
     .FnCall(_, func, args, _, _) => if(
@@ -49,7 +49,7 @@ _drop_target_atom :: (fn(imm(drop_expr) : AstExpr) -> Option(AstExpr))(
 /// result temp of a call that just unwound. The comparison is on the
 /// CODEGEN name, not the
 /// atom name, because that is the identifier the drop actually emits.
-_drop_targets_escaped_result :: (fn(imm(drop_expr) : AstExpr, imm(escaped_result) : Option(String), imm(context) : FunctionGenerationContext) -> bool)(
+_drop_targets_escaped_result :: (fn(drop_expr : &AstExpr, escaped_result : &Option(String), context : &FunctionGenerationContext) -> bool)(
   match(
     escaped_result,
     .Some(name) => match(
@@ -71,7 +71,7 @@ _drop_targets_escaped_result :: (fn(imm(drop_expr) : AstExpr, imm(escaped_result
   )
 );
 /// The Variable a drop expression targets (resolved via the atom's ExprInfo env).
-_get_deferred_drop_target_variable :: (fn(imm(drop_expr) : AstExpr, imm(context) : FunctionGenerationContext) -> Option(Variable))(
+_get_deferred_drop_target_variable :: (fn(drop_expr : &AstExpr, context : &FunctionGenerationContext) -> Option(Variable))(
   match(
     _drop_target_atom(drop_expr),
     .Some(atom) => match(
@@ -92,7 +92,7 @@ _get_deferred_drop_target_variable :: (fn(imm(drop_expr) : AstExpr, imm(context)
 /// the cleanup point, so its target is the Variable that env holds. A target
 /// the point cannot see (a sibling scope's local on the accumulated list) is
 /// rejected by the emitted-C-scope guard after the lookup.
-_cleanup_drop_variables :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(var_name) : String, imm(drop_expr) : AstExpr, imm(context) : FunctionGenerationContext) -> ArrayList(Variable))({
+_cleanup_drop_variables :: (fn(expr : &AstExpr, env : &Environment, var_name : &String, drop_expr : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(Variable))({
   mode := scope_release_mode();
   if(mode == usize(0), {
     return(scope_variables(ast_expr_id(expr), env, var_name));
@@ -112,15 +112,15 @@ _cleanup_drop_variables :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(
   rec
 });
 /// Two tokens come from the same source location stream.
-_tokens_are_comparable :: (fn(imm(left) : Token, imm(right) : Token) -> bool)(
+_tokens_are_comparable :: (fn(left : &Token, right : &Token) -> bool)(
   (left.module_path == right.module_path) && (left.input == right.input)
 );
 /// `left` is at or before `right` (same stream).
-_token_is_at_or_before :: (fn(imm(left) : Token, imm(right) : Token) -> bool)(
+_token_is_at_or_before :: (fn(left : &Token, right : &Token) -> bool)(
   if(!_tokens_are_comparable(left, right), false, left.character <= right.character)
 );
 /// The latest comparable token in `node`'s tree (max character).
-_max_comparable_token :: (fn(imm(node) : AstExpr, imm(reference) : Token, imm(best) : Token) -> Token)({
+_max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
   tok := ast_expr_token(node);
   best2 := if(_tokens_are_comparable(tok, reference) && (tok.character > best.character), tok, best);
   match(
@@ -144,12 +144,12 @@ _max_comparable_token :: (fn(imm(node) : AstExpr, imm(reference) : Token, imm(be
     .Atom(_, _) => best2
   )
 });
-_get_last_comparable_token_in_expr :: (fn(imm(expr) : AstExpr, imm(reference) : Token) -> Token)({
+_get_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) -> Token)({
   init := ast_expr_token(expr);
   init2 := if(!_tokens_are_comparable(init, reference), reference, init);
   _max_comparable_token(expr, reference, init2)
 });
-_variable_was_consumed_before_cleanup_point :: (fn(imm(consumed_at_token) : Token, imm(cleanup_expr) : AstExpr) -> bool)({
+_variable_was_consumed_before_cleanup_point :: (fn(consumed_at_token : &Token, cleanup_expr : &AstExpr) -> bool)({
   if(!_tokens_are_comparable(consumed_at_token, ast_expr_token(cleanup_expr)), {
     return(false);
   });
@@ -162,7 +162,7 @@ _variable_was_consumed_before_cleanup_point :: (fn(imm(consumed_at_token) : Toke
 /// (or escapes) after the move, so the value is already gone there
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.1,
 /// issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
-_variable_moved_before_cleanup_point :: (fn(imm(v) : Variable, imm(cleanup_expr) : AstExpr) -> bool)({
+_variable_moved_before_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstExpr) -> bool)({
   if(match(v.consumed_at_token, .Some(ct) => _variable_was_consumed_before_cleanup_point(ct.*, cleanup_expr), .None => false), {
     return(true);
   });
@@ -171,13 +171,13 @@ _variable_moved_before_cleanup_point :: (fn(imm(v) : Variable, imm(cleanup_expr)
 /// Whether `v`'s consumption token lies in the same token stream as the
 /// cleanup point `cleanup_expr`, so the two can be ordered at all. A variable
 /// with no consumption token is trivially ordered (nothing to compare).
-_consumption_is_ordered_against_cleanup_point :: (fn(imm(v) : Variable, imm(cleanup_expr) : AstExpr) -> bool)(
+_consumption_is_ordered_against_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstExpr) -> bool)(
   match(v.consumed_at_token, .Some(ct) => _tokens_are_comparable(ct.*, ast_expr_token(cleanup_expr)), .None => true)
 );
 /// Resolve which in-scope variable a pending drop targets at a cleanup point.
 /// Prefer the id match; on absence decide by declaration position (a target
 /// declared AFTER the cleanup point is the shadowing-bug case → skip).
-_resolve_drop_target_in_scope :: (fn(imm(drop_expr) : AstExpr, imm(variables) : ArrayList(Variable), imm(cleanup_token) : Token, imm(context) : FunctionGenerationContext) -> Option(Variable))(
+_resolve_drop_target_in_scope :: (fn(drop_expr : &AstExpr, variables : &ArrayList(Variable), cleanup_token : &Token, context : &FunctionGenerationContext) -> Option(Variable))(
   match(
     _get_deferred_drop_target_variable(drop_expr, context),
     .None => if(variables.len() == usize(0), Option(Variable).None, variables.last()),
@@ -213,7 +213,7 @@ _resolve_drop_target_in_scope :: (fn(imm(drop_expr) : AstExpr, imm(variables) : 
 /// `_variable_was_consumed_before_cleanup_point`. Conservative: returns false when the tokens are not
 /// comparable (different file/synthetic), so a drop is never wrongly suppressed
 /// outside the provable same-stream forward-reference case.
-_variable_initialized_after_cleanup_point :: (fn(imm(init_token) : Token, imm(cleanup_expr) : AstExpr) -> bool)({
+_variable_initialized_after_cleanup_point :: (fn(init_token : &Token, cleanup_expr : &AstExpr) -> bool)({
   if(!_tokens_are_comparable(init_token, ast_expr_token(cleanup_expr)), {
     return(false);
   });
@@ -229,7 +229,7 @@ _variable_initialized_after_cleanup_point :: (fn(imm(init_token) : Token, imm(cl
 /// local). Only the env path (a completion) asks: on an escape the SM's
 /// dispose releases these fields at `state == -2`
 /// (issues/fixed/a-state-machine-binding-from-a-match-arm-payload-is-released-only-on-escape.md).
-_drop_target_is_state_machine_field :: (fn(imm(v) : Variable, imm(var_name) : String, imm(context) : FunctionGenerationContext) -> bool)({
+_drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, context : &FunctionGenerationContext) -> bool)({
   if(context.in_async_state_machine.is_none(), {
     return(false);
   });
@@ -251,7 +251,7 @@ _drop_target_is_state_machine_field :: (fn(imm(v) : Variable, imm(var_name) : St
   );
   match(smv.get(var_id), .Some(cv) => match(cv.kind, .Local => true, .Outer => false), .None => false)
 });
-_keep_pending_drop :: (fn(imm(drop_expr) : AstExpr, imm(expr) : AstExpr, imm(already) : HashSet(String), imm(additional_skip) : Option(HashSet(String)), use_env : bool, imm(context) : FunctionGenerationContext) -> bool)({
+_keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &HashSet(String), additional_skip : &Option(HashSet(String)), use_env : bool, context : &FunctionGenerationContext) -> bool)({
   var_name := match(get_deferred_drop_target_atom_name(drop_expr), .Some(vn) => vn, .None => return(false));
   if(is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures), {
     return(false);
@@ -379,7 +379,7 @@ _keep_pending_drop :: (fn(imm(drop_expr) : AstExpr, imm(expr) : AstExpr, imm(alr
 /// unwound. On that path the callee discarded its continuation instead of
 /// returning, so the temp was never assigned and still holds whatever the ABI
 /// left in the return registers — dropping it dereferences garbage.
-generate_pending_deferred_drops :: (fn(imm(indent) : String, imm(context) : FunctionGenerationContext, imm(expr) : AstExpr, is_completion : bool, skip_already_dropped : bool, skip_env_check : bool, imm(additional_skip) : Option(HashSet(String)), imm(escaped_result) : Option(String)) -> unit)(
+generate_pending_deferred_drops :: (fn(indent : &String, context : &FunctionGenerationContext, expr : &AstExpr, is_completion : bool, skip_already_dropped : bool, skip_env_check : bool, additional_skip : &Option(HashSet(String)), escaped_result : &Option(String)) -> unit)(
   match(
     context.pending_deferred_drops,
     .Some(pending) => if(pending.len() > usize(0), {
@@ -481,7 +481,7 @@ generate_pending_deferred_drops :: (fn(imm(indent) : String, imm(context) : Func
 /// catching with String"). The `generate_return` site has always built this
 /// set by hand (`dropped_by_this_return`); the escape-check and unwind sites
 /// share it.
-collect_names_released_by_escape_sequence :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> HashSet(String))({
+collect_names_released_by_escape_sequence :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> HashSet(String))({
   names := HashSet(String).new();
   // The scope-channel list the pending emitter draws from at this point — a
   // begin's `deferred_drop_expressions` (scope-end drops CONCATENATED with the
@@ -566,7 +566,7 @@ collect_names_released_by_escape_sequence :: (fn(imm(expr) : AstExpr, imm(contex
 /// sequence (the caller's own deferred drops); re-releasing one here would be a
 /// double free. Yo has no optional parameters, so every call site passes it
 /// explicitly (`.None` when nothing is excluded).
-generate_consumed_var_drops_for_escape :: (fn(imm(indent) : String, imm(context) : FunctionGenerationContext, imm(expr) : AstExpr, skip_env_check : bool, imm(exclude) : Option(HashSet(String)), imm(escaped_result) : Option(String)) -> unit)(
+generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &FunctionGenerationContext, expr : &AstExpr, skip_env_check : bool, exclude : &Option(HashSet(String)), escaped_result : &Option(String)) -> unit)(
   match(
     context.consumed_var_pending_drops,
     .Some(pending) => if(pending.len() > usize(0), {
@@ -700,7 +700,7 @@ generate_consumed_var_drops_for_escape :: (fn(imm(indent) : String, imm(context)
 /// Emit the early-return-only deferred drops attached to `expr` (a return/unwind
 /// node) — M3.
 /// skip closure-capture drops, emit the rest.
-generate_early_return_only_deferred_drop_expressions :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)(
+generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -765,7 +765,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(imm(expr) : AstExpr,
   )
 );
 /// Deferred-dup handling for an atom return value.
-handle_atom_deferred_dup :: (fn(imm(expr) : AstExpr, imm(atom_code) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
+handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : &String, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
@@ -780,7 +780,7 @@ handle_atom_deferred_dup :: (fn(imm(expr) : AstExpr, imm(atom_code) : String, im
   )
 );
 /// Deferred-dup handling for a function-call return value.
-handle_func_call_deferred_dup :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(_call_generate_expr(expr, indent.clone(), context)));
   match(
     expr_info_deferred_dup_expressions(ei),
@@ -861,7 +861,7 @@ handle_func_call_deferred_dup :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
   )
 });
 /// Generate a `return` statement.
-generate_return :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)
@@ -1377,7 +1377,7 @@ generate_return :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
   )
 });
 /// Generate an implicit function-body return.
-generate_implicit_return_statement :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
+generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   match(
     expr,
@@ -1449,7 +1449,7 @@ generate_implicit_return_statement :: (fn(imm(expr) : AstExpr, imm(indent) : Str
   )
 });
 /// Emit the effect-handler parameter drops (if any) before an escape return.
-_emit_effect_handler_param_drops :: (fn(imm(context) : FunctionGenerationContext, imm(indent) : String) -> unit)(
+_emit_effect_handler_param_drops :: (fn(context : &FunctionGenerationContext, indent : &String) -> unit)(
   match(
     context.effect_handler_param_drops,
     .Some(drops) => {
@@ -1469,7 +1469,7 @@ _emit_effect_handler_param_drops :: (fn(imm(context) : FunctionGenerationContext
 /// observes `__yo_effect_escaped`).
 /// Returns "" (emits directly to avoid `return return` double-return from callers
 /// that also insert a `return` prefix).
-_unwind_dummy_return :: (fn(imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+_unwind_dummy_return :: (fn(indent : &String, context : &FunctionGenerationContext) -> String)({
   rt := match(
     context.current_function_type,
     .Some(ft) => match(ft, .Func({ result : r }) => r, _ => t_unit()),
@@ -1498,7 +1498,7 @@ _unwind_dummy_return :: (fn(imm(indent) : String, imm(context) : FunctionGenerat
 /// abort via `emit_async_future_escape`); only the leak-prevention drop of
 /// segment-local arg temps is omitted (not exercised by the corpus — no
 /// async+effect-unwind fixture).
-emit_effect_unwind_check :: (fn(imm(indent) : String, imm(context) : FunctionGenerationContext, is_handler_installation : bool, imm(expr) : AstExpr) -> unit)({
+emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationContext, is_handler_installation : bool, expr : &AstExpr) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(`${indent.clone()}if (__yo_effect_escaped) {`);
   inner := indent.clone();
@@ -1564,7 +1564,7 @@ emit_effect_unwind_check :: (fn(imm(indent) : String, imm(context) : FunctionGen
 });
 /// Record whose unwind is in flight: the handler being generated. The frame
 /// that installed it (`unwind_catches_of_body`) is the one that catches it.
-_emit_unwind_target :: (fn(imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
+_emit_unwind_target :: (fn(indent : &String, context : &FunctionGenerationContext) -> unit)({
   origin := match(context.current_unwind_origin, .Some(o) => o, .None => String.from("0"));
   em := context.base.emitter;
   em.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
@@ -1575,7 +1575,7 @@ _emit_unwind_target :: (fn(imm(indent) : String, imm(context) : FunctionGenerati
 /// the thread-local `__yo_effect_escaped` flag, drop locals, and — for an
 /// effect-record-member / evidence-passing handler — stash the unwound value into
 /// `__yo_unwind_value` (memcpy) before returning a dummy; otherwise `return <v>`.
-generate_unwind :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_unwind :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   arg_opt := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None);
   em := context.base.emitter;
   is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);

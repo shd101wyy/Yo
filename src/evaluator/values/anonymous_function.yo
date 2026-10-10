@@ -161,7 +161,7 @@ pragma(Pragma.AllowUnsafe);
 /// context (e.g. impl field whose surrounding trait is a parametric
 /// trait the bootstrap can't yet evaluate).
 _collect_anon_param_names :: (
-  fn(imm(param_decl) : AstExpr, mut(out) : ArrayList(String)) -> unit
+  fn(param_decl : &AstExpr, out : &mut ArrayList(String)) -> unit
 )(
   match(
     param_decl,
@@ -220,7 +220,7 @@ _collect_anon_param_names :: (
 /// downstream code path through without throwing; the resulting
 /// closure is effectively polymorphic.
 _synthesize_default_func_type :: (
-  fn(imm(param_decl) : AstExpr, imm(env) : Environment) -> TypeValue
+  fn(param_decl : &AstExpr, env : &Environment) -> TypeValue
 )({
   names := ArrayList(String).new();
   _collect_anon_param_names(param_decl, names);
@@ -243,7 +243,7 @@ _synthesize_default_func_type :: (
 /// the parameter lowers to `void*` and each call site passes the struct by
 /// value — invalid C
 /// (issues/fixed/a-closure-value-with-an-impl-fn-parameter-emits-invalid-c.md).
-_is_unresolved_impl_fn_type :: (fn(imm(ty) : TypeValue) -> bool)(
+_is_unresolved_impl_fn_type :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     .SomeT(_, _, _, _, _, _, _, _, _, res) => match(
@@ -256,7 +256,7 @@ _is_unresolved_impl_fn_type :: (fn(imm(ty) : TypeValue) -> bool)(
 );
 /// Helper: get the operator string from an anonymous function expression.
 /// For `(x) -> body`, returns "->"; for `(x) => body`, returns "=>"; etc.
-_get_anon_op :: (fn(imm(expr) : AstExpr) -> String)(
+_get_anon_op :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
     .Atom(_, t) => t.value,
@@ -268,7 +268,7 @@ _get_anon_op :: (fn(imm(expr) : AstExpr) -> String)(
   )
 );
 /// Helper: get the argument at index `i` from a FnCall, or `make_err_expr()` if missing.
-_get_arg :: (fn(imm(expr) : AstExpr, i : usize) -> AstExpr)(
+_get_arg :: (fn(expr : &AstExpr, i : usize) -> AstExpr)(
   match(
     expr,
     .FnCall(_, _, args, _, _) => match(
@@ -282,7 +282,7 @@ _get_arg :: (fn(imm(expr) : AstExpr, i : usize) -> AstExpr)(
 /// Helper: get the actual parameter name from a parameter expression.
 /// Handles bare atoms (`x`) and colon-annotated (`x : T`).
 /// Falls back to `fallback` if neither pattern matches.
-_get_param_name_from_expr :: (fn(imm(param_expr) : AstExpr, imm(fallback) : String) -> String)(
+_get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> String)(
   match(
     param_expr,
     .Atom(_, ptok) => ptok.value,
@@ -304,7 +304,7 @@ _get_param_name_from_expr :: (fn(imm(param_expr) : AstExpr, imm(fallback) : Stri
 /// Helper: build a Func TypeValue from a FnTraitT TypeValue.
 /// Extracts `call_param_labels`, `call_param_types`, `call_result` from FnTraitT
 /// and wraps them in a no-generic, no-implicit Func.
-_func_from_fn_trait :: (fn(imm(ftt) : TypeValue) -> TypeValue)(
+_func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
   match(
     ftt,
     .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => TypeValue.Func(
@@ -361,7 +361,7 @@ _func_from_fn_trait :: (fn(imm(ftt) : TypeValue) -> TypeValue)(
 /// return-type check threw, the def-time trial swallowed, and the closure
 /// never reached the result refinement (the async_await 8× void-closure
 /// class).
-_subst_some_types_from_env :: (fn(imm(ty) : TypeValue, imm(env2) : Environment, imm(allow) : ArrayList(String)) -> TypeValue)(
+_subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : &ArrayList(String)) -> TypeValue)(
   match(
     ty,
     .SomeT({ name : ssn }) => {
@@ -420,7 +420,7 @@ _subst_some_types_from_env :: (fn(imm(ty) : TypeValue, imm(env2) : Environment, 
 (g_anon_swallow_msg : ArrayList(String)) = ArrayList(String).new();
 /// The swallowed error's code (a re-raise built from its text carries it).
 (g_anon_swallow_code : ArrayList(String)) = ArrayList(String).new();
-_flag_anon_swallow :: (fn(imm(msg) : String, imm(code) : Option(String)) -> unit)({
+_flag_anon_swallow :: (fn(msg : &String, code : &Option(String)) -> unit)({
   g_anon_swallow_msg.clear();
   g_anon_swallow_msg.push(msg);
   g_anon_swallow_code.clear();
@@ -431,7 +431,7 @@ _flag_anon_swallow :: (fn(imm(msg) : String, imm(code) : Option(String)) -> unit
 /// `g_trial_swallow_diags` is: a re-raise then carries the code, span and
 /// repair to the typed stash instead of a flattened string.
 (g_anon_swallow_diags : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
-_flag_anon_swallow_diags :: (fn(imm(err) : AnyError) -> unit)({
+_flag_anon_swallow_diags :: (fn(err : &AnyError) -> unit)({
   g_anon_swallow_diags.clear();
   match(
     downcast(err, YoError),
@@ -466,7 +466,7 @@ _anon_swallow_message :: (fn() -> String)(
 /// The `return(v)` arguments of a body, outside any nested function or
 /// closure: the values a `ctl` handler resumes with. A cond/match arm's `=>`
 /// is a branch, not a boundary.
-_collect_resume_args :: (fn(imm(e) : AstExpr, mut(out) : ArrayList(AstExpr)) -> unit)(
+_collect_resume_args :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
@@ -503,11 +503,11 @@ _collect_resume_args :: (fn(imm(e) : AstExpr, mut(out) : ArrayList(AstExpr)) -> 
 );
 /// A resume value no throw site can receive from a plain `ctl` handler: a
 /// concrete type, neither `()` nor a diverging one, with no type variable.
-_is_concrete_resume_type :: (fn(imm(t) : TypeValue) -> bool)(
+_is_concrete_resume_type :: (fn(t : &TypeValue) -> bool)(
   !is_unit_type(t) && !is_never_type(t) && !is_void_type(t) && (get_all_some_types(t).len() == usize(0))
 );
 _trial_eval_anon_body :: (
-  fn(imm(body) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(AstExpr)) -> unit
+  fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit
 )({
   clear_flow_violation();
   _clear_anon_swallow();
@@ -579,7 +579,7 @@ _trial_eval_anon_body :: (
 /// A genuine mismatch must not fail the definition-time evaluation, so the
 /// throw is swallowed by unwinding THIS helper.
 _synth_nested_return_somes :: (
-  fn(imm(ret_ty) : TypeValue, imm(body_ty) : TypeValue, imm(expected_env) : Environment, imm(given_env) : Environment) -> unit
+  fn(ret_ty : &TypeValue, body_ty : &TypeValue, expected_env : &Environment, given_env : &Environment) -> unit
 )({
   inner_exn := Exception(throw : (_err -> unwind(())));
   nrs_checked := ArrayList(TypePair).new();
@@ -593,7 +593,7 @@ _synth_nested_return_somes :: (
 /// The caller saves/restores `ctx.is_evaluating_function_type` (an unwind here
 /// would skip an in-helper restore).
 _trial_eval_annotation_type :: (
-  fn(imm(type_expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(TypeValue)) -> unit
+  fn(type_expr : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(TypeValue)) -> unit
 )({
   inner_exn := Exception(throw : (_err -> unwind(())));
   ctx.is_evaluating_function_type = true;
@@ -631,18 +631,18 @@ _trial_eval_annotation_type :: (
 /// Flag it on the flow-violation channel first so the def-time caller
 /// re-raises it, at the capture site.
 _raise_capture_rejection :: (
-  fn(imm(ctx) : EvalContext, imm(exn) : Exception, imm(capture_tok) : Token, imm(msg) : String) -> unit
+  fn(ctx : &EvalContext, exn : &Exception, capture_tok : &Token, msg : &String) -> unit
 )(raise_flow_violation(format_error_message(capture_tok, msg), ctx, exn));
 _check_anon_fn_captures :: (
   fn(
-    imm(caps) : HashMap(String, CapturedVarInfo),
-    imm(env) : Environment,
+    caps : &HashMap(String, CapturedVarInfo),
+    env : &Environment,
     is_closure : bool,
     outer_frames_len : usize,
-    imm(func_id) : String,
-    imm(tok) : Token,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception,
+    func_id : &String,
+    tok : &Token,
+    ctx : &EvalContext,
+    exn : &Exception,
     /// The capture-list frame (decision 35): its borrow entries are `is_ref`
     /// by construction and second-class, so the `inout` rule skips them.
     (cap_frame_idx : Option(usize)) ?= Option(usize).None
@@ -773,23 +773,23 @@ _CapListEntry :: struct(
   root_name : String,
   path : ArrayList(String)
 );
-_cap_list_error :: (fn(imm(ctx) : EvalContext, imm(exn) : Exception, imm(tok) : Token, imm(msg) : String) -> unit)(
+_cap_list_error :: (fn(ctx : &EvalContext, exn : &Exception, tok : &Token, msg : &String) -> unit)(
   _raise_capture_rejection(ctx, exn, tok, msg)
 );
 /// The one argument of a prefix call `f(a)`.
-_only_arg :: (fn(imm(e) : AstExpr) -> AstExpr)(
+_only_arg :: (fn(e : &AstExpr) -> AstExpr)(
   match(e, .FnCall(_, _, oa, _, _) => match(oa.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
 );
 /// `e` is the borrow marker `&p` (`imm` entries) or `&mut p` (`mut`
 /// entries), a one-operand prefix call.
-_is_borrow_sigil :: (fn(imm(e) : AstExpr, want_mut : bool) -> bool)(
+_is_borrow_sigil :: (fn(e : &AstExpr, want_mut : bool) -> bool)(
   if(want_mut, ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))))
 );
 /// The field hops of a place `a.b.c` from the root outward (`["b", "c"]`),
 /// and its root atom; `.None` unless the place is a `.` chain of identifier
 /// fields rooted at an identifier (a call, an index, a literal or a
 /// temporary is not a place a borrow can name).
-_cap_place_root :: (fn(imm(place) : AstExpr, mut(fields) : ArrayList(String)) -> Option(AstExpr))({
+_cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Option(AstExpr))({
   rev := ArrayList(String).new();
   (cur : AstExpr) = place;
   (walking : bool) = true;
@@ -820,7 +820,7 @@ _cap_place_root :: (fn(imm(place) : AstExpr, mut(fields) : ArrayList(String)) ->
 /// (an `Rc`/`Arc`, any `ref` object, or a pointer dereference `p.*`). A borrow
 /// capture could not hold the cell's run-time mark: the closure may be copied,
 /// and a per-call mark would leave the pointer dangling between calls.
-_cap_place_crosses_cell :: (fn(imm(ev) : AstExpr, imm(ctx) : EvalContext) -> bool)({
+_cap_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
   (cur : AstExpr) = ev;
   (walking : bool) = true;
   while(walking, {
@@ -850,10 +850,10 @@ _cap_place_crosses_cell :: (fn(imm(ev) : AstExpr, imm(ctx) : EvalContext) -> boo
 ///   38 D: not across a cell, not module-level; a `mut` place is writable).
 _evaluate_capture_list :: (
   fn(
-    imm(raw_entries) : ArrayList(AstExpr),
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception,
+    raw_entries : &ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception,
     /// The closure is typed `FnOnce(...)`: its capture struct dies at the
     /// call, so every by-value entry's dup is marked uncancellable
     /// (`mark_call_once_capture_dup`).
@@ -1059,10 +1059,10 @@ _evaluate_capture_list :: (
 });
 evaluate_anonymous_function_implementation :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
@@ -3088,7 +3088,7 @@ Result type: ${type_to_string(decl_result_ty)}`
 /// Register a closure's capture struct as owning its captures (decision 37):
 /// an `FnOnce(...)` capture-list closure. Its consuming call then needs no
 /// release after it (`_fnonce_callee_releases_itself`, calls/function.yo).
-_mark_fnonce_capture_struct_of :: (fn(owns : bool, imm(cap_ty) : Option(TypeValue)) -> unit)({
+_mark_fnonce_capture_struct_of :: (fn(owns : bool, cap_ty : &Option(TypeValue)) -> unit)({
   if(owns, {
     match(cap_ty, .Some(.Struct({ id : cs_id })) => mark_fnonce_capture_struct(cs_id), _ => ());
   });

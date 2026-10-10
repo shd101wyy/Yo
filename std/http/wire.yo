@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
 /// reading" rather than "empty headers" (a real message spells a start line
 /// first, so the terminator can never sit at offset 0). O(n) over `data`;
 /// pure, so it neither reads from the stream nor blocks.
-find_header_end :: (fn(imm(data) : ArrayList(u8)) -> usize)({
+find_header_end :: (fn(data : &ArrayList(u8)) -> usize)({
   len := data.len();
   cond(
     (len < usize(4)) => {
@@ -93,7 +93,7 @@ _ascii_lower :: (fn(b : u8) -> u8)(
 //   - the OWS after the colon is OPTIONAL and is any run of SP/HTAB, so
 //     `Content-Length:5` is as legal as `Content-Length:  5`;
 //   - trailing OWS is stripped too.
-_header_values :: (fn(imm(data) : ArrayList(u8), header_end : usize, imm(name) : String) -> ArrayList(String))({
+_header_values :: (fn(data : &ArrayList(u8), header_end : usize, name : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   key := name;
   klen := key.len();
@@ -180,7 +180,7 @@ _MAX_CONTENT_LENGTH :: (usize.MAX >> usize(4));
 // trailing junk, no comma list. `String.parse_i32` accepts `-5` and `+5` and
 // collapses every other rejection into the same `.None`, so the digits are
 // walked here instead.
-_parse_content_length :: (fn(imm(value) : String) -> Option(usize))({
+_parse_content_length :: (fn(value : &String) -> Option(usize))({
   bytes := value;
   cond(
     (bytes.len() == usize(0)) => {
@@ -211,7 +211,7 @@ _parse_content_length :: (fn(imm(value) : String) -> Option(usize))({
 });
 /// The `Content-Length` framing declared by the header section (bytes
 /// `[0, header_end)`).
-find_content_length :: (fn(imm(data) : ArrayList(u8), header_end : usize) -> ContentLength)({
+find_content_length :: (fn(data : &ArrayList(u8), header_end : usize) -> ContentLength)({
   values := _header_values(data, header_end, `content-length`);
   cond(
     (values.len() == usize(0)) => {
@@ -256,7 +256,7 @@ find_content_length :: (fn(imm(data) : ArrayList(u8), header_end : usize) -> Con
 /// last field line carries the final coding. A caller reaches for this before
 /// `find_content_length`, because chunked framing wins over a
 /// `Content-Length` that arrives with it.
-is_chunked :: (fn(imm(data) : ArrayList(u8), header_end : usize) -> bool)({
+is_chunked :: (fn(data : &ArrayList(u8), header_end : usize) -> bool)({
   values := _header_values(data, header_end, `transfer-encoding`);
   cond(
     (values.len() == usize(0)) => false,
@@ -302,7 +302,7 @@ _hex_digit :: (fn(b : u8) -> i32)(
 /// is why a body that is merely still arriving comes back as
 /// `Dechunk.Incomplete` instead of an error. A chunk size past 0x0FFFFFFF is
 /// rejected as `.Malformed` rather than wrapped.
-dechunk :: (fn(imm(body) : ArrayList(u8), body_start : usize) -> Dechunk)({
+dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
   out := ArrayList(u8).new();
   n := body.len();
   i := body_start;
@@ -407,7 +407,7 @@ dechunk :: (fn(imm(body) : ArrayList(u8), body_start : usize) -> Dechunk)({
 // that hand on no prefix of it (an error, a dechunked rewrite) still move it,
 // as the other paths do into `_split_message` / `String.from_bytes` (E0907).
 _release_message :: (fn(sink(_b) : ArrayList(u8)) -> unit)(());
-_split_message :: (fn(sink(data) : ArrayList(u8), limit : usize, mut(carry) : ArrayList(u8)) -> String)({
+_split_message :: (fn(sink(data) : ArrayList(u8), limit : usize, carry : &mut ArrayList(u8)) -> String)({
   carry.clear();
   if(limit < data.len(), {
     i := limit;
@@ -443,7 +443,7 @@ derive(MessageKind, Copy, Clone);
 // The status code on a response's status line (`HTTP-version SP 3DIGIT ...`),
 // or `.None` when the line is not that shape — a defect `parse_response`
 // reports; the framing decision just falls back to the header rules.
-_status_code :: (fn(imm(data) : ArrayList(u8), header_end : usize) -> Option(u16))({
+_status_code :: (fn(data : &ArrayList(u8), header_end : usize) -> Option(u16))({
   sp := usize(0);
   while(runtime((sp < header_end) && (data(sp) != u8(0x20))), {
     sp = (sp + usize(1));
@@ -474,7 +474,7 @@ _status_code :: (fn(imm(data) : ArrayList(u8), header_end : usize) -> Option(u16
 // framing headers say. Any `Content-Length` or `Transfer-Encoding` on such a
 // message describes the body the request WOULD have had, so honouring it
 // would frame the next message's bytes as this one's body.
-_is_bodyless :: (fn(kind : MessageKind, imm(data) : ArrayList(u8), header_end : usize) -> bool)(
+_is_bodyless :: (fn(kind : MessageKind, data : &ArrayList(u8), header_end : usize) -> bool)(
   match(
     kind,
     .Request => false,
@@ -501,7 +501,7 @@ _FrameStatus :: enum(
   /// frame the body by whatever the peer does next.
   BadContentLength(msg : String)
 );
-_frame_status :: (fn(imm(data) : ArrayList(u8), kind : MessageKind) -> _FrameStatus)(
+_frame_status :: (fn(data : &ArrayList(u8), kind : MessageKind) -> _FrameStatus)(
   cond(
     (data.len() <= usize(4)) => _FrameStatus.NeedMore,
     true => {
@@ -582,10 +582,10 @@ _frame_status :: (fn(imm(data) : ArrayList(u8), kind : MessageKind) -> _FrameSta
 read_http_message_buffered :: (
   fn(
     generic(R : Type),
-    imm(stream) : R,
+    stream : &R,
     max_bytes : usize,
     kind : MessageKind,
-    imm(carry) : Rc(ArrayList(u8)),
+    carry : &Rc(ArrayList(u8)),
     io : Io,
     where(R <: Reader)
   ) -> Impl(Future(Result(String, HttpError), IoExn))
@@ -763,7 +763,7 @@ read_http_message_buffered :: (
 /// answer when the connection is about to be closed and the wrong one when it
 /// is about to be reused — use `read_http_message_buffered` there.
 read_http_message :: (
-  fn(generic(R : Type), imm(stream) : R, max_bytes : usize, kind : MessageKind, io : Io, where(R <: Reader)) ->
+  fn(generic(R : Type), stream : &R, max_bytes : usize, kind : MessageKind, io : Io, where(R <: Reader)) ->
     Impl(Future(Result(String, HttpError), IoExn))
 )(
   read_http_message_buffered(stream, max_bytes, kind, rc(ArrayList(u8).new()), io)

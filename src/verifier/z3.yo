@@ -112,7 +112,7 @@ z3_download_url :: (fn() -> String)(
 // ============================================================================
 /// Whether `path` exists (libc `stat`; 512-byte statx buffer like
 /// module_manager's `_path_exists_sync`).
-_z3_exists_sync :: (fn(imm(path) : String) -> bool)({
+_z3_exists_sync :: (fn(path : &String) -> bool)({
   path_buf := path.to_cstr();
   cstr := path_buf.ptr().unwrap();
   buf := malloc(usize(512)).unwrap();
@@ -122,7 +122,7 @@ _z3_exists_sync :: (fn(imm(path) : String) -> bool)({
 });
 /// Read a whole file synchronously; `.None` on any failure (the caller
 /// decides what a missing/unreadable file means).
-_z3_read_file_sync :: (fn(imm(path) : String) -> Option(String))({
+_z3_read_file_sync :: (fn(path : &String) -> Option(String))({
   cstr := path.to_cstr().ptr().unwrap();
   fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
   if(fd < int(0), {
@@ -160,7 +160,7 @@ _z3_read_file_sync :: (fn(imm(path) : String) -> Option(String))({
 });
 /// Write a whole file synchronously (fopen "w": creates/truncates).
 /// `.false` on failure.
-_z3_write_file_sync :: (fn(imm(path) : String, imm(contents) : String) -> bool)({
+_z3_write_file_sync :: (fn(path : &String, contents : &String) -> bool)({
   pcstr := path.to_cstr().ptr().unwrap();
   mcstr := String.from("w").to_cstr().ptr().unwrap();
   f := unsafe(stdio.fopen((*char)(pcstr), (*char)(mcstr)));
@@ -181,7 +181,7 @@ _z3_write_file_sync :: (fn(imm(path) : String, imm(contents) : String) -> bool)(
   )
 });
 /// Unlink a file (best effort — failures ignored; the temp dir recovers).
-_z3_unlink_sync :: (fn(imm(path) : String) -> unit)({
+_z3_unlink_sync :: (fn(path : &String) -> unit)({
   cstr := path.to_cstr().ptr().unwrap();
   unsafe(unistd.unlink((*char)(cstr)));
   ()
@@ -194,7 +194,7 @@ _z3_unlink_sync :: (fn(imm(path) : String) -> unit)({
 /// the exit status is advisory (Windows `md` errors on an existing dir) and
 /// deliberately ignored: a failed creation surfaces as the fopen failure in
 /// `_z3_write_file_sync`, i.e. "cache off", not a verifier error.
-_z3_ensure_dir_sync :: (fn(imm(path) : String) -> unit)({
+_z3_ensure_dir_sync :: (fn(path : &String) -> unit)({
   cmd := cond(
     is_target_windows(host_target()) => `cmd /c md "${path}"`,
     true => `mkdir -p "${path}"`
@@ -219,7 +219,7 @@ _z3_ensure_dir_sync :: (fn(imm(path) : String) -> unit)({
 /// A fresh temp path under the system temp dir
 /// (`<tmp>/yo-verify-<start-nanos>-<n>.<ext>`, unique per process AND per
 /// query).
-_z3_temp_path :: (fn(imm(ext) : String) -> String)({
+_z3_temp_path :: (fn(ext : &String) -> String)({
   match(
     g_z3_tmp_prefix,
     .None => {
@@ -261,7 +261,7 @@ discover_z3 :: (fn() -> Option(String))({
 /// unzip extracts straight into the solvers root (`unzip -o` overwrites),
 /// so no rename/remove-dir dance is needed.
 _install_z3 :: (
-  fn(io : Io, imm(exn) : Exception) -> Impl(Future(String, IoExn))
+  fn(io : Io, exn : &Exception) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
     stem := z3_host_asset_stem();
@@ -314,7 +314,7 @@ _install_z3 :: (
 );
 /// Resolve the solver: discovery first, install on miss.
 ensure_z3 :: (
-  fn(io : Io, imm(exn) : Exception) -> Impl(Future(String, IoExn))
+  fn(io : Io, exn : &Exception) -> Impl(Future(String, IoExn))
 )(
   io.async(
     (e : IoExn) => match(
@@ -330,7 +330,7 @@ ensure_z3 :: (
 /// Run one complete SMT-LIB script through a fresh `z3 -smt2 <file>`
 /// process and return its combined stdout (stderr redirected in). Errors
 /// carry the exit status and the captured output for the diagnostic.
-run_z3_script :: (fn(imm(binary) : String, imm(script) : String) -> Result(String, String))({
+run_z3_script :: (fn(binary : &String, script : &String) -> Result(String, String))({
   script_path := _z3_temp_path(String.from("smt2"));
   out_path := _z3_temp_path(String.from("out"));
   sp_write := script_path.clone();
@@ -381,7 +381,7 @@ Z3Sexpr :: ref(
 /// Parse ALL top-level S-expressions in `text` (whitespace and `;` line
 /// comments tolerated). Unclosed lists are dropped rather than thrown —
 /// the caller decides what missing evidence means.
-parse_z3_sexprs :: (fn(imm(text) : String) -> ArrayList(Z3Sexpr))({
+parse_z3_sexprs :: (fn(text : &String) -> ArrayList(Z3Sexpr))({
   out := ArrayList(Z3Sexpr).new();
   stack := ArrayList(ArrayList(Z3Sexpr)).new();
   b := text;
@@ -458,7 +458,7 @@ parse_z3_sexprs :: (fn(imm(text) : String) -> ArrayList(Z3Sexpr))({
   out
 });
 /// Render one sexpr back to text (counter-example rendering).
-z3_sexpr_to_string :: (fn(imm(s) : Z3Sexpr) -> String)(
+z3_sexpr_to_string :: (fn(s : &Z3Sexpr) -> String)(
   match(
     s,
     .Atom(t) => t.clone(),
@@ -487,7 +487,7 @@ z3_sexpr_to_string :: (fn(imm(s) : Z3Sexpr) -> String)(
 /// The check-sat verdict of a response stream: the FIRST top-level atom
 /// among `unsat` / `sat` / `unknown`. `.None` when the stream has none
 /// (solver error — the caller reports the raw output).
-z3_check_sat_of :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> Option(String))({
+z3_check_sat_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> Option(String))({
   (i : usize) = usize(0);
   while(i < forms.len(), {
     match(
@@ -517,7 +517,7 @@ z3_check_sat_of :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> Option(String))({
 /// error form comes after the verdict (the tolerated post-check-sat
 /// evidence errors) or there is none
 /// (issues/fixed/verifier-a-malformed-smt-script-reports-refuted-with-an-empty-model.md).
-z3_error_before_verdict :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> Option(String))({
+z3_error_before_verdict :: (fn(forms : &ArrayList(Z3Sexpr)) -> Option(String))({
   (i : usize) = usize(0);
   while(i < forms.len(), {
     match(
@@ -545,7 +545,7 @@ z3_error_before_verdict :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> Option(String
 });
 /// The text of `items[0]` when it is an atom (`.None` otherwise) — the
 /// nested-match helper for keyword-led response forms.
-_head_atom_text :: (fn(imm(items) : ArrayList(Z3Sexpr)) -> Option(String))(
+_head_atom_text :: (fn(items : &ArrayList(Z3Sexpr)) -> Option(String))(
   match(
     items.get(usize(0)),
     .Some(.Atom(t)) => Option(String).Some(t.clone()),
@@ -557,7 +557,7 @@ _head_atom_text :: (fn(imm(items) : ArrayList(Z3Sexpr)) -> Option(String))(
 /// `(name1 name2 ...)` right after unsat). Keyword-led forms (`(error …)`,
 /// `(model …)`, `(define-fun …)`) and the get-value response shape are
 /// skipped.
-z3_unsat_core_of :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> ArrayList(String))({
+z3_unsat_core_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < forms.len(), {
@@ -627,7 +627,7 @@ z3_unsat_core_of :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> ArrayList(String))({
 });
 /// The `(get-value ...)` response: a top-level list of `(name value)`
 /// pairs, rendered as `name = value` strings in response order.
-z3_value_pairs_of :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> ArrayList(String))({
+z3_value_pairs_of :: (fn(forms : &ArrayList(Z3Sexpr)) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < forms.len(), {

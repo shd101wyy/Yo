@@ -1292,7 +1292,7 @@ test("binary_search_by searches without constructing a T", {
   assert(match(xs.binary_search_by(s => s.len().cmp(usize(3))), .Ok(_) => false, .Err(at) => (at == usize(2))), "and reports the gap");
 });
 // ===== chunks / windows =====
-_drain_lens :: (fn(generic(I : Type), imm(it) : I, where(I <: Iterator(Item := ArrayList(i32)))) -> ArrayList(usize))({
+_drain_lens :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := ArrayList(i32)))) -> ArrayList(usize))({
   out := ArrayList(usize).new();
   iter := it;
   while(runtime(true), {
@@ -1470,7 +1470,7 @@ test("clone inside a borrowed for does not trip the flag, for an arena-backed li
     xs.push(i32(1));
     xs.push(i32(2));
     (total : usize) = usize(0);
-    for(xs, mut(x) => {
+    for(&mut xs, x => {
       s := xs.clone();
       total = (total + s.len());
       x = (x + i32(10));

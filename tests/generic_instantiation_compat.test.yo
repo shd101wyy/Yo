@@ -23,7 +23,7 @@ fa :: (fn(fail : bool) -> Result(i32, AErr))(
   )
 );
 Carrier :: (fn(comptime(E) : Type) -> comptime(Type))(struct(inner : Result(unit, E)));
-take_c :: (fn(imm(r) : Result(i32, CErr)) -> i32)(
+take_c :: (fn(r : &Result(i32, CErr)) -> i32)(
   match(
     r,
     .Ok(v) => v,
@@ -88,7 +88,7 @@ test("same instantiation stays compatible, and generics with placeholders still 
   assert(match(a2, .Err(e) => match(e, .Boom({ code }) => (code == i32(1)), .Quiet => false), .Ok(_) => false), "same instantiation assignable");
   // A generic helper over any Result — its parameter is a placeholder, so
   // every instantiation flows through it.
-  is_ok :: (fn(generic(T : Type, E : Type), imm(r) : Result(T, E)) -> bool)(match(r, .Ok(_) => true, .Err(_) => false));
+  is_ok :: (fn(generic(T : Type, E : Type), r : &Result(T, E)) -> bool)(match(r, .Ok(_) => true, .Err(_) => false));
   assert(is_ok(fa(false)), "AErr result through a generic");
   assert(!is_ok(Result(i32, CErr).Err(CErr.Silent)), "CErr result through the same generic");
   assert(!is_ok(Result(i32, BErr).Err(BErr.Quiet)), "BErr result through the same generic");
@@ -97,7 +97,7 @@ test("same instantiation stays compatible, and generics with placeholders still 
   list.push(fa(true));
   assert(list.len() == usize(2), "collections of a Result instantiation");
   // Option payload widening through a generic still works.
-  first :: (fn(generic(T : Type), imm(xs) : ArrayList(T)) -> Option(T))(xs.get(usize(0)));
+  first :: (fn(generic(T : Type), xs : &ArrayList(T)) -> Option(T))(xs.get(usize(0)));
   assert(first(list).is_some(), "Option(T) result of a generic");
 });
 // issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md:
@@ -105,13 +105,13 @@ test("same instantiation stays compatible, and generics with placeholders still 
 // another under one enum id. codegen keyed the outer one apart from a declared
 // `Option(Option(T))` (the C compiler rejected the `return`), and keyed
 // `Option(Option(i32))` and `Option(Option(String))` alike.
-_ww_wrap :: (fn(generic(U : Type), imm(x) : U) -> Option(U))(.Some(x));
+_ww_wrap :: (fn(generic(U : Type), x : &U) -> Option(U))(.Some(x));
 _ww_twice :: (fn(x : i32) -> Option(Option(i32)))({
   y := _ww_wrap(x);
   _ww_wrap(y)
 });
 _ww_nested :: (fn(x : i32) -> Option(Option(i32)))(_ww_wrap(_ww_wrap(x)));
-_ww_generic :: (fn(generic(T : Type), imm(x) : T) -> Option(Option(T)))({
+_ww_generic :: (fn(generic(T : Type), x : &T) -> Option(Option(T)))({
   y := _ww_wrap(x);
   _ww_wrap(y)
 });

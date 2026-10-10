@@ -385,7 +385,7 @@ test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles"
 // always travels back over a second channel that the main thread POLLS with a
 // deadline. Verified: with `Sender`'s `dispose` removed, the two wake-up tests
 // report their assertion in ~2 s instead of hanging.
-_recv_within :: (fn(imm(ch) : Channel(i32), budget_ms : i64) -> Option(i32))({
+_recv_within :: (fn(ch : &Channel(i32), budget_ms : i64) -> Option(i32))({
   start := Instant.now();
   (found : Option(i32)) = .None;
   (waiting : bool) = true;

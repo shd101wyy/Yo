@@ -148,10 +148,10 @@ _new_dup_calls_result :: (fn() -> DupCallsResult)(
 /// zero-argument `tuple()` function call.
 ///
 ///
-is_unit_value_expression :: (fn(imm(expr) : AstExpr) -> bool)(
+is_unit_value_expression :: (fn(expr : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(expr, BK_TUPLE, .Some(usize(0)))
 );
-_ids_list_contains :: (fn(imm(lst) : ArrayList(String), imm(s) : String) -> bool)({
+_ids_list_contains :: (fn(lst : &ArrayList(String), s : &String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < lst.len()) && !found, {
@@ -170,7 +170,7 @@ _ids_list_contains :: (fn(imm(lst) : ArrayList(String), imm(s) : String) -> bool
 /// Matches BOTH shapes: the method-resolved `(x.___dup)()` and the bare
 /// `___dup(x)` builtin call (the shape
 /// set_expr_as_needs_to_call_dup mints via generate_expr_from_code).
-_dup_call_target_name :: (fn(imm(e) : AstExpr) -> Option(String))(
+_dup_call_target_name :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
     .FnCall(_, f, eargs, _, _) => {
@@ -210,7 +210,7 @@ _dup_call_target_name :: (fn(imm(e) : AstExpr) -> Option(String))(
   )
 );
 /// Record a dup call for `var_id`, deduplicating by expr id.
-_push_dup_call :: (fn(imm(res) : DupCallsResult, imm(var_id) : String, imm(e) : AstExpr) -> unit)({
+_push_dup_call :: (fn(res : &DupCallsResult, var_id : &String, e : &AstExpr) -> unit)({
   match(
     res.dup_calls.get(var_id.clone()),
     .Some(found_lst) => {
@@ -254,7 +254,7 @@ _push_dup_call :: (fn(imm(res) : DupCallsResult, imm(var_id) : String, imm(e) : 
 /// return broke the stage-2 self-compile; the `undeclared result` class of
 /// that failure was a missed expansion-internal `return` and is owned by
 /// `_contains_return_for_opt` below.
-_search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx) : EvalContext) -> unit)({
+_search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalContext) -> unit)({
   // Skip io.async captures entirely: the SM path needs BOTH
   // the dup and the scope-exit drop; cancelling them would leak.
   if(ast_expr_is_fn_call(expr) && is_io_async_call(expr), {
@@ -527,7 +527,7 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
 // ---------------------------------------------------------------------------
 /// Traverses `expr` recursively to collect all `___dup(...)` calls, keyed by
 /// the variable id they dup, with conservative cross-branch analysis.
-collect_dup_calls_conservatively :: (fn(imm(expr) : AstExpr, imm(ctx) : EvalContext) -> DupCallsResult)({
+collect_dup_calls_conservatively :: (fn(expr : &AstExpr, ctx : &EvalContext) -> DupCallsResult)({
   res := _new_dup_calls_result();
   _search_dup_calls(expr, res, ctx);
   res
@@ -542,9 +542,9 @@ collect_dup_calls_conservatively :: (fn(imm(expr) : AstExpr, imm(ctx) : EvalCont
 /// variable's name in the env (synthesizer.yo).
 _try_synthesize_return_type :: (
   fn(
-    imm(expected_ty) : TypeValue,
-    imm(given_ty) : TypeValue,
-    imm(env) : Environment
+    expected_ty : &TypeValue,
+    given_ty : &TypeValue,
+    env : &Environment
   ) -> bool
 )({
   local_exn := Exception(throw : (_err -> unwind(false)));
@@ -569,12 +569,12 @@ _try_synthesize_return_type :: (
 /// Throws via `exn` when the position is invalid.
 _check_keyword_position :: (
   fn(
-    imm(expr_to_eval) : AstExpr,
+    expr_to_eval : &AstExpr,
     loop_i : usize,
     n_args : usize,
-    imm(begin_args) : ArrayList(AstExpr),
-    imm(keyword) : String,
-    imm(exn) : Exception
+    begin_args : &ArrayList(AstExpr),
+    keyword : &String,
+    exn : &Exception
   ) -> unit
 )({
   if(n_args == usize(0), {
@@ -626,7 +626,7 @@ _check_keyword_position :: (
 /// `UnknownVal` payload — both need the runtime construction codegen. A fully
 /// comptime-folded construct (`.Some(i32(7))`) has only concrete leaves and must
 /// keep the comptime-value path (see the gate in `evaluate_begin_expression`).
-_value_contains_unknown :: (fn(imm(v) : EvalValue) -> bool)(
+_value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
     .UnknownVal(_, _) => true,
@@ -664,7 +664,7 @@ _value_contains_unknown :: (fn(imm(v) : EvalValue) -> bool)(
   )
 );
 /// True iff `name` equals the name carried by `opt` (if any).
-_name_matches_opt :: (fn(imm(name) : String, imm(opt) : Option(String)) -> bool)(
+_name_matches_opt :: (fn(name : &String, opt : &Option(String)) -> bool)(
   match(opt, .Some(n) => (name == n), .None => false)
 );
 /// YO_DEBUG_SCOPE_DROPS=1 prints every frame variable's scope-drop eligibility
@@ -691,16 +691,16 @@ _name_matches_opt :: (fn(imm(name) : String, imm(opt) : Option(String)) -> bool)
 // return.yo (the evaluator must not import codegen). (Used by the M3
 // walker + driver.)
 // ---------------------------------------------------------------------------
-_m3_tokens_comparable :: (fn(imm(left) : Token, imm(right) : Token) -> bool)(
+_m3_tokens_comparable :: (fn(left : &Token, right : &Token) -> bool)(
   (left.module_path == right.module_path) && (left.input == right.input)
 );
-_m3_token_is_at_or_before :: (fn(imm(left) : Token, imm(right) : Token) -> bool)(
+_m3_token_is_at_or_before :: (fn(left : &Token, right : &Token) -> bool)(
   if(!_m3_tokens_comparable(left, right), false, left.character <= right.character)
 );
-_m3_token_is_before :: (fn(imm(left) : Token, imm(right) : Token) -> bool)(
+_m3_token_is_before :: (fn(left : &Token, right : &Token) -> bool)(
   if(!_m3_tokens_comparable(left, right), false, left.character < right.character)
 );
-_m3_max_comparable_token :: (fn(imm(node) : AstExpr, imm(reference) : Token, imm(best) : Token) -> Token)({
+_m3_max_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
   tok := ast_expr_token(node);
   best2 := if(_m3_tokens_comparable(tok, reference) && (tok.character > best.character), tok, best);
   match(
@@ -724,7 +724,7 @@ _m3_max_comparable_token :: (fn(imm(node) : AstExpr, imm(reference) : Token, imm
     .Atom(_, _) => best2
   )
 });
-_m3_last_comparable_token_in_expr :: (fn(imm(expr) : AstExpr, imm(reference) : Token) -> Token)({
+_m3_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) -> Token)({
   init := ast_expr_token(expr);
   init2 := if(!_m3_tokens_comparable(init, reference), reference, init);
   _m3_max_comparable_token(expr, reference, init2)
@@ -740,7 +740,7 @@ _m3_last_comparable_token_in_expr :: (fn(imm(expr) : AstExpr, imm(reference) : T
 /// `Rc`, a `ref` handle) keeps the end-of-block release until its own phase
 /// makes it explicit-copy: its right side may share the old value through a
 /// dup the pair optimizer elided (plans/VALUES_BY_DEFAULT.md §3.14).
-_drop_unused_old_value_now :: (fn(imm(stmt) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)(
+_drop_unused_old_value_now :: (fn(stmt : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)(
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(stmt)),
     .None => (),
@@ -761,7 +761,7 @@ _drop_unused_old_value_now :: (fn(imm(stmt) : AstExpr, imm(env) : Environment, i
   )
 );
 /// A local that CAN need a scope-end drop, ignoring consumed status.
-_variable_can_need_drop_ignoring_consumed :: (fn(imm(v) : Variable) -> bool)({
+_variable_can_need_drop_ignoring_consumed :: (fn(v : &Variable) -> bool)({
   if(!v.is_owning_the_rc_value, {
     return(false);
   });
@@ -779,7 +779,7 @@ _variable_can_need_drop_ignoring_consumed :: (fn(imm(v) : Variable) -> bool)({
   !some_undroppable
 });
 /// True iff `v` is captured by the current function/closure.
-_variable_is_captured_by_current_function :: (fn(imm(v) : Variable, imm(ctx) : EvalContext) -> bool)(
+_variable_is_captured_by_current_function :: (fn(v : &Variable, ctx : &EvalContext) -> bool)(
   match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false)
 );
 /// True iff `expr` is a nested function-definition boundary — recursion for
@@ -788,7 +788,7 @@ _variable_is_captured_by_current_function :: (fn(imm(v) : Variable, imm(ctx) : E
 /// guard the rare case of a return value that is itself a function-type call;
 /// the token-position gate in `_attach_if_cleanup_needs_drop` already prevents a
 /// wrong attach there.)
-_is_function_boundary_for_early_drop :: (fn(imm(expr) : AstExpr, imm(_ctx) : EvalContext) -> bool)({
+_is_function_boundary_for_early_drop :: (fn(expr : &AstExpr, _ctx : &EvalContext) -> bool)({
   // Any `->`/`=>` arrow reaching here is a CLOSURE / effect-or-error handler body
   // (a new C function boundary) — match-arm `=>` never reach this predicate because
   // the walker handles cond/match arms separately (recursing into their branch
@@ -818,7 +818,7 @@ _is_function_boundary_for_early_drop :: (fn(imm(expr) : AstExpr, imm(_ctx) : Eva
 /// return/unwind path, and its init is at-or-before that point which is strictly
 /// before its consumption, attach `drop_expr` to `expr`'s
 /// early_return_only_deferred_drop_expressions.
-_attach_if_cleanup_needs_drop :: (fn(imm(expr) : AstExpr, imm(cleanup_point) : Token, imm(variable) : Variable, imm(drop_expr) : AstExpr, imm(init_tok) : Token, imm(consumed_tok) : Token, imm(ctx) : EvalContext) -> unit)({
+_attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, variable : &Variable, drop_expr : &AstExpr, init_tok : &Token, consumed_tok : &Token, ctx : &EvalContext) -> unit)({
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
     .None => (),
@@ -858,7 +858,7 @@ _attach_if_cleanup_needs_drop :: (fn(imm(expr) : AstExpr, imm(cleanup_point) : T
 });
 /// Recursively attach `drop_expr` (for `variable`) to every return/unwind in
 /// `expr` where the variable is live-but-not-yet-consumed.
-_attach_early_return_only_drop_to_returns :: (fn(imm(expr) : AstExpr, imm(variable) : Variable, imm(drop_expr) : AstExpr, imm(ctx) : EvalContext) -> unit)({
+_attach_early_return_only_drop_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, ctx : &EvalContext) -> unit)({
   init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
   consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb.*, .None => return(()));
   if(ast_expr_is_atom(expr), {
@@ -932,7 +932,7 @@ _attach_early_return_only_drop_to_returns :: (fn(imm(expr) : AstExpr, imm(variab
 /// return-before-dup guard never fired, and a later child's dup+drop pair was
 /// wrongly cancelled while the if's early return still needed the scope-exit
 /// drop (the stage-2 `undeclared result` C error).
-_contains_return_for_opt :: (fn(imm(e) : AstExpr, imm(ctx) : EvalContext) -> bool)({
+_contains_return_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
   if(expr_tree_contains_return(e), {
     return(true);
   });
@@ -974,7 +974,7 @@ _contains_return_for_opt :: (fn(imm(e) : AstExpr, imm(ctx) : EvalContext) -> boo
 /// body) contain an `io.await`? The state-machine lowering's own test
 /// (`analyze_await_points`): a block with no await has no local that lives
 /// across a suspension, so none of its locals is a state-machine slot.
-_contains_io_await_for_opt :: (fn(imm(e) : AstExpr, imm(ctx) : EvalContext) -> bool)(
+_contains_io_await_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
   match(
     e,
     .FnCall(_, f, fargs, _, _) => cond(
@@ -1016,7 +1016,7 @@ _contains_io_await_for_opt :: (fn(imm(e) : AstExpr, imm(ctx) : EvalContext) -> b
 /// (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md). When
 /// the base is reassigned anywhere in the subtree the dup is kept and each
 /// handle owns its own count.
-_subtree_assigns_variable :: (fn(imm(e) : AstExpr, imm(name) : String, imm(ctx) : EvalContext) -> bool)(
+_subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContext) -> bool)(
   match(
     e,
     .FnCall(
@@ -1074,7 +1074,7 @@ _subtree_assigns_variable :: (fn(imm(e) : AstExpr, imm(name) : String, imm(ctx) 
 /// nodes), so the walk must follow `macro_expansion` explicitly — the same
 /// reachability the collector uses, or a cancelled dup would survive in the
 /// emitted tree.
-_remove_dup_calls_from_tree :: (fn(imm(expr) : AstExpr, imm(remove_ids) : HashSet(usize), imm(ctx) : EvalContext) -> unit)({
+_remove_dup_calls_from_tree :: (fn(expr : &AstExpr, remove_ids : &HashSet(usize), ctx : &EvalContext) -> unit)({
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
     .Some(ei) => {
@@ -1138,12 +1138,12 @@ _remove_dup_calls_from_tree :: (fn(imm(expr) : AstExpr, imm(remove_ids) : HashSe
 /// [init, consume) window automatically.
 _optimize_dup_drop_pairs :: (
   fn(
-    imm(frame) : Frame,
-    imm(begin_args) : ArrayList(AstExpr),
-    imm(result_var_name) : Option(String),
-    imm(last_expr) : AstExpr,
+    frame : &Frame,
+    begin_args : &ArrayList(AstExpr),
+    result_var_name : &Option(String),
+    last_expr : &AstExpr,
     block_awaits : bool,
-    imm(ctx) : EvalContext
+    ctx : &EvalContext
   ) -> unit
 )({
   tail_atom_name := if(
@@ -1555,7 +1555,7 @@ _ic_new_scan :: (fn() -> _ICScan)(
 );
 /// `e` ends by leaving the function: its last statement is `return`,
 /// `unwind` or `panic` (`break`/`continue` stay in the function).
-_ic_exits_function :: (fn(imm(e) : AstExpr) -> bool)(
+_ic_exits_function :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, _) => false,
@@ -1573,7 +1573,7 @@ _ic_exits_function :: (fn(imm(e) : AstExpr) -> bool)(
   )
 );
 /// Fold a nested scan into `acc`.
-_ic_merge :: (fn(imm(acc) : _ICScan, imm(sub) : _ICScan) -> unit)({
+_ic_merge :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
   acc.reads = (acc.reads + sub.reads);
   if(sub.site_seen, {
     acc.site_seen = true;
@@ -1585,7 +1585,7 @@ _ic_merge :: (fn(imm(acc) : _ICScan, imm(sub) : _ICScan) -> unit)({
     acc.done = true;
   });
 });
-_ic_read :: (fn(imm(tok) : Token, imm(site) : ImplicitCopyPending, imm(acc) : _ICScan) -> unit)({
+_ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> unit)({
   acc.reads = (acc.reads + usize(1));
   if((tok.module_path == site.module_path) && (tok.byte_offset > site.byte_offset), {
     acc.later = true;
@@ -1598,7 +1598,7 @@ _ic_read :: (fn(imm(tok) : Token, imm(site) : ImplicitCopyPending, imm(acc) : _I
 /// label before `:` are not reads. A `while` that contains the site and reads
 /// `v` runs the site again, so the copy is live unless the loop reassigns
 /// `v`. Follows `macro_expansion` as the dup collector does.
-_ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPending, imm(acc) : _ICScan, imm(ctx) : EvalContext) -> unit)({
+_ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : &_ICScan, ctx : &EvalContext) -> unit)({
   if(acc.later || acc.done, {
     return(());
   });
@@ -1739,7 +1739,7 @@ _ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPen
 /// (`audit_record_implicit_copy`, evaluator/utils.yo) against the block that
 /// declares them, which holds every later use: a copy whose variable is read
 /// again is printed; one with no later read was the last use, a move.
-_audit_judge_implicit_copies :: (fn(imm(frame) : Frame, imm(begin_args) : ArrayList(AstExpr), imm(ctx) : EvalContext) -> unit)({
+_audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)({
   fvars := frame.variables;
   (i : usize) = usize(0);
   while(i < fvars.len(), {
@@ -1777,7 +1777,7 @@ _audit_judge_implicit_copies :: (fn(imm(frame) : Frame, imm(begin_args) : ArrayL
 });
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
-_evaluating_fnonce_closure_body :: (fn(imm(ctx) : EvalContext) -> bool)(
+_evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .Some(sub) => match(
@@ -1790,13 +1790,13 @@ _evaluating_fnonce_closure_body :: (fn(imm(ctx) : EvalContext) -> bool)(
 );
 _schedule_scope_end_drops :: (
   fn(
-    imm(frame) : Frame,
-    imm(begin_args) : ArrayList(AstExpr),
-    imm(result_var_name) : Option(String),
-    imm(last_expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception,
+    frame : &Frame,
+    begin_args : &ArrayList(AstExpr),
+    result_var_name : &Option(String),
+    last_expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception,
     /// When true, only PARAMETER bindings are considered (the function-body
     /// parameters-frame pass) — a def-time body env can carry caller frames
     /// below the params frame, and scheduling a caller local's drop into the
@@ -1898,8 +1898,8 @@ _schedule_scope_end_drops :: (
 });
 /// `.V` or `.V(…)` — an enum variant literal whose enum is only knowable
 /// from context.
-_is_bare_variant_literal :: (fn(imm(e) : AstExpr) -> bool)({
-  head_ok := (fn(imm(h) : AstExpr) -> bool)(
+_is_bare_variant_literal :: (fn(e : &AstExpr) -> bool)({
+  head_ok := (fn(h : &AstExpr) -> bool)(
     ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
       h,
       .FnCall(_, _, hargs, _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false),
@@ -1916,7 +1916,7 @@ _is_bare_variant_literal :: (fn(imm(e) : AstExpr) -> bool)({
   )
 });
 /// Does `e` contain `return(name)` anywhere?
-_contains_return_of :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)({
+_contains_return_of :: (fn(e : &AstExpr, name : &String) -> bool)({
   if(ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))), {
     is_it := match(
       e,
@@ -1956,7 +1956,7 @@ _contains_return_of :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)({
   )
 });
 /// The enclosing function's declared result type, when evaluating a body.
-_enclosing_fn_result_type :: (fn(imm(ctx) : EvalContext) -> Option(TypeValue))(
+_enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .Some(fb_ctx) => match(
@@ -1986,12 +1986,12 @@ _enclosing_fn_result_type :: (fn(imm(ctx) : EvalContext) -> Option(TypeValue))(
 /// SomeT expected type coerces operator-bodied closure results.
 _variant_local_hint :: (
   fn(
-    imm(stmt) : AstExpr,
-    imm(begin_args) : ArrayList(AstExpr),
+    stmt : &AstExpr,
+    begin_args : &ArrayList(AstExpr),
     idx : usize,
     is_fn_body : bool,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    env : &Environment,
+    ctx : &EvalContext
   ) -> Option(ExpectedTypeCtx)
 )({
   if(!ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))), {
@@ -2050,7 +2050,7 @@ _variant_local_hint :: (
 /// `continue`)? Such a statement produces no value, so it drops nothing, even
 /// though its type is the type of what it returns: a `cond` whose every arm
 /// is `return(Result(...).Err(v))` types as a `Result`.
-_stmt_always_exits :: (fn(imm(e) : AstExpr) -> bool)(
+_stmt_always_exits :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => ((tok.value == BK_BREAK) || (tok.value == "continue")),
@@ -2091,7 +2091,7 @@ _stmt_always_exits :: (fn(imm(e) : AstExpr) -> bool)(
     )
   )
 );
-_must_use_kind :: (fn(imm(stmt) : AstExpr, imm(ty) : TypeValue) -> Option(String))({
+_must_use_kind :: (fn(stmt : &AstExpr, ty : &TypeValue) -> Option(String))({
   if(ast_expr_is_fn_call_of(stmt, BK_ASSIGN, .None) || ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, .None) || ast_expr_is_fn_call_of(stmt, BK_CONST, .None), {
     return(Option(String).None);
   });
@@ -2114,12 +2114,12 @@ _must_use_kind :: (fn(imm(stmt) : AstExpr, imm(ty) : TypeValue) -> Option(String
 
 evaluate_begin_expression :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    imm(variables_to_add) : ArrayList(Variable),
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    variables_to_add : &ArrayList(Variable),
     is_evaluating_function_body_begin_block : bool,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> AstExpr
 )({
   // Scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6): an OUTERMOST
@@ -2150,12 +2150,12 @@ evaluate_begin_expression :: (
 });
 _evaluate_begin_expression_impl :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    imm(variables_to_add) : ArrayList(Variable),
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    variables_to_add : &ArrayList(Variable),
     is_evaluating_function_body_begin_block : bool,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

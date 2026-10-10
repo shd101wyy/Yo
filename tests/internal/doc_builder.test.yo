@@ -78,7 +78,7 @@ _twin_new_source :: (fn() -> String)(
   `/// A plain value struct.\nVs :: struct(x : i32);\nimpl(\n  Vs,\n  /// Make one.\n  new : (fn(x : i32) -> Self)(Self(x)),\n  /// Read it.\n  get : (fn(self : Self) -> i32)(self.x)\n);\n/// A ref struct.\nRs :: ref(struct(y : i32));\nimpl(\n  Rs,\n  /// Make a ref one.\n  new : (fn(y : i32) -> Self)(Self(y))\n);\n`
 );
 /// One method's `doc` by name, or `.None` when the list has no such member.
-_method_doc_of :: (fn(imm(methods) : ArrayList(DocFunction), imm(name) : String) -> Option(String))({
+_method_doc_of :: (fn(methods : &ArrayList(DocFunction), name : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < methods.len(), {
     m := match(
@@ -96,7 +96,7 @@ _method_doc_of :: (fn(imm(methods) : ArrayList(DocFunction), imm(name) : String)
   });
   Option(String).None
 });
-_is_doc :: (fn(imm(doc) : Option(String), imm(expected) : String) -> bool)(
+_is_doc :: (fn(doc : &Option(String), expected : &String) -> bool)(
   match(
     doc,
     .Some(d) => (d == expected),
@@ -189,7 +189,7 @@ test("a doc comment separated from the member by a plain note still attaches", {
 // token-only path must count what the evaluated path counts: exported
 // top-level declarations, with members attached to their types.
 // ---------------------------------------------------------------------------
-token_module_ :: (fn(imm(source) : String) -> DocModule)({
+token_module_ :: (fn(source : &String) -> DocModule)({
   // The lex handler is bound per call: a `ctl`-typed Exception cannot live at
   // module level (it would outlive its frame).
   lex_exn := Exception(

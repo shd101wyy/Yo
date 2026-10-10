@@ -18,19 +18,19 @@ Gauge :: ref(struct(_fd : i32));
 impl(
   Gauge,
   // Declared BEFORE the `fd` method: binds a local of the same name.
-  double : (fn(imm(self) : Self) -> i32)({
+  double : (fn(self : &Self) -> i32)({
     fd := self._fd;
     fd + fd
   }),
   // Same shape through an async closure (the File.read pattern): the local
   // is captured by the io.async closure.
-  double_async : (fn(imm(self) : Self, io : Io) -> Impl(Future(i32, Io)))({
+  double_async : (fn(self : &Self, io : Io) -> Impl(Future(i32, Io)))({
     fd := self._fd;
     io.async((io : Io) => (fd + fd))
   }),
   // The late same-named sibling. Its binding must NOT leak into the def-time
   // envs of the two methods above.
-  fd : (fn(imm(self) : Self) -> i32)(
+  fd : (fn(self : &Self) -> i32)(
     self._fd
   )
 );

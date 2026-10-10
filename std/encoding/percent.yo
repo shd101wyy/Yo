@@ -89,7 +89,7 @@ _hex_val :: (fn(b : u8) -> Option(u8))(
   )
 );
 /// Percent-encode `input` for use as a URI component.
-encode :: (fn(imm(input) : String) -> String)({
+encode :: (fn(input : &String) -> String)({
   bytes := input;
   n := bytes.len();
   out := String.with_capacity(n);
@@ -111,7 +111,7 @@ encode :: (fn(imm(input) : String) -> String)({
 /// Percent-decode `input` to raw bytes. `%XX` becomes one byte; every other
 /// byte passes through (including `+`, which stays `+` — RFC 3986, not the
 /// form dialect).
-decode_bytes :: (fn(imm(input) : String) -> Result(ArrayList(u8), PercentError))({
+decode_bytes :: (fn(input : &String) -> Result(ArrayList(u8), PercentError))({
   bytes := input;
   n := bytes.len();
   out := ArrayList(u8).with_capacity(n);
@@ -152,7 +152,7 @@ decode_bytes :: (fn(imm(input) : String) -> Result(ArrayList(u8), PercentError))
 });
 /// Percent-decode `input` to a `String`, validating the decoded bytes as
 /// UTF-8.
-decode :: (fn(imm(input) : String) -> Result(String, PercentError))(
+decode :: (fn(input : &String) -> Result(String, PercentError))(
   match(
     decode_bytes(input),
     .Err(e) => Result(String, PercentError).Err(e),
@@ -176,11 +176,11 @@ export(PercentError, encode, decode, decode_bytes);
 // keep the pre-rename spellings compiling for one release, the way
 // `json_parse_result` and `derive(ToString)` were kept in v0.2.28.
 /// DEPRECATED, removed in v0.2.32: call `percent.encode`.
-percent_encode :: (fn(imm(input) : String) -> String)(encode(input));
+percent_encode :: (fn(input : &String) -> String)(encode(input));
 /// DEPRECATED, removed in v0.2.32: call `percent.decode`.
-percent_decode :: (fn(imm(input) : String) -> Result(String, PercentError))(decode(input));
+percent_decode :: (fn(input : &String) -> Result(String, PercentError))(decode(input));
 /// DEPRECATED, removed in v0.2.32: call `percent.decode_bytes`.
-percent_decode_bytes :: (fn(imm(input) : String) -> Result(ArrayList(u8), PercentError))(
+percent_decode_bytes :: (fn(input : &String) -> Result(ArrayList(u8), PercentError))(
   decode_bytes(input)
 );
 export(percent_encode, percent_decode, percent_decode_bytes);

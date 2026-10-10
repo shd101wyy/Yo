@@ -20,12 +20,12 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 { expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// Args of a FnCall (empty for an Atom).
-_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Build `(<cName>){ ._0 = a, ... }`, emitting into a named temp when the
 /// tuple has a result variable name. Shared by the main and fallback paths.
-_build_tuple :: (fn(imm(arg_exprs) : ArrayList(AstExpr), imm(c_name) : String, imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+_build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   elem_types := match(ei.ty, .Tuple({ field_types : fts }) => fts, _ => ArrayList(TypeValue).new());
   args_list := String.from("");
@@ -123,14 +123,14 @@ _build_tuple :: (fn(imm(arg_exprs) : ArrayList(AstExpr), imm(c_name) : String, i
   )
 });
 /// Error comment when the tuple's C type was never registered.
-_type_not_found :: (fn(imm(ei_ty_key) : String) -> String)({
+_type_not_found :: (fn(ei_ty_key : &String) -> String)({
   out := String.from("/* Error: tuple type not found - typeId: ");
   out.push_string(ei_ty_key);
   out.push_str(" */");
   out
 });
 /// The `tuple(...)` function call, generating a tuple value.
-generate_anonymous_tuple :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_anonymous_tuple :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("tuple has no evaluation info"))));
   ty_key := type_key(ei.ty);
   c_name_opt := context.base.get_type_c_name(ty_key.clone());

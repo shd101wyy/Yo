@@ -5,7 +5,7 @@
 { ArrayList } :: import("std/collections/array_list");
 csv :: import("std/encoding/csv");
 { LineEnding, CsvOptions } :: import("std/encoding/csv");
-_rows :: (fn(imm(text) : String) -> ArrayList(ArrayList(String)))(
+_rows :: (fn(text : &String) -> ArrayList(ArrayList(String)))(
   match(
     csv.parse(text),
     .Ok(r) => r,
@@ -15,7 +15,7 @@ _rows :: (fn(imm(text) : String) -> ArrayList(ArrayList(String)))(
     }
   )
 );
-_field :: (fn(imm(rows) : ArrayList(ArrayList(String)), r : usize, f : usize) -> String)(rows(r)(f));
+_field :: (fn(rows : &ArrayList(ArrayList(String)), r : usize, f : usize) -> String)(rows(r)(f));
 test("simple records, LF and CRLF terminators, optional final terminator", {
   a := _rows(String.from("a,b,c\n1,2,3\n"));
   assert(a.len() == usize(2), "two records");

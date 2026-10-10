@@ -24,7 +24,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 { static_dispatch_callee_return_type } :: import("../functions/declarations.yo");
 /// True if `s` is all ASCII digits (non-empty).
-_all_digits :: (fn(imm(s) : String) -> bool)({
+_all_digits :: (fn(s : &String) -> bool)({
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
   // (multibyte content under-walks; see other_fn_call.yo's splitter fix).
   n := s.len();
@@ -43,20 +43,20 @@ _all_digits :: (fn(imm(s) : String) -> bool)({
 });
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// compile-time-only variable.
-_last_is_compile_time_only :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> bool)({
+_last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_compile_time_only, .None => false))
 });
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
-_last_is_module_level :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> bool)({
+_last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
   vars := scope_variables(key, env, name);
   m := vars.len();
   if(m == usize(0), false, match(vars.get(m - usize(1)), .Some(v) => v.is_module_level, .None => false))
 });
 /// Tuple positional index for a label, or -1-sentinel (== len) if not found.
-_tuple_index_of :: (fn(imm(rhs_type) : TypeValue, imm(label) : String) -> Option(usize))(
+_tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))(
   match(
     rhs_type,
     .Tuple({ field_labels : fls }) => {
@@ -78,7 +78,7 @@ _tuple_index_of :: (fn(imm(rhs_type) : TypeValue, imm(label) : String) -> Option
   )
 );
 /// Newtype single-field label, if `rhs_type` is a 1-field newtype.
-_newtype_single_label :: (fn(imm(rhs_type) : TypeValue) -> Option(String))(
+_newtype_single_label :: (fn(rhs_type : &TypeValue) -> Option(String))(
   if(is_newtype_type(rhs_type), match(rhs_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
 );
 /// The task slot (`sm->…`) a binding of `name` writes to in an `io.async`
@@ -86,7 +86,7 @@ _newtype_single_label :: (fn(imm(rhs_type) : TypeValue) -> Option(String))(
 /// `env` is the binding node's own post-binding env (`key` is that node): an
 /// LHS atom's env predates the binding. A local sharing a captured local's RC
 /// value writes that owner's slot (`sm_storage_id`).
-_sm_binding_slot :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String, imm(context) : FunctionGenerationContext) -> Option(String))({
+_sm_binding_slot :: (fn(key : ExprId, env : &Environment, name : &String, context : &FunctionGenerationContext) -> Option(String))({
   smv := match(context.state_machine_variables, .Some(m) => m, .None => return(Option(String).None));
   if(context.in_async_state_machine.is_none(), {
     return(Option(String).None);
@@ -96,7 +96,7 @@ _sm_binding_slot :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String
 /// A store into a named local's task slot gives the slot a value it owns: it
 /// clears the move flag a move out of its previous value set (`sm_move_flag_of`;
 /// a loop re-binds the name every iteration).
-_clear_sm_move_flag :: (fn(imm(slot) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)(
+_clear_sm_move_flag :: (fn(slot : &String, indent : &String, context : &FunctionGenerationContext) -> unit)(
   match(
     sm_move_flag_of(slot),
     .Some(flag) => {
@@ -108,7 +108,7 @@ _clear_sm_move_flag :: (fn(imm(slot) : String, imm(indent) : String, imm(context
 );
 /// The id of the atom in destructuring `pattern` that binds `name` (the key
 /// whose scope record holds the bound variable), or the pattern's own id.
-_binding_atom_key :: (fn(imm(pattern) : AstExpr, imm(name) : String) -> ExprId)({
+_binding_atom_key :: (fn(pattern : &AstExpr, name : &String) -> ExprId)({
   (stack : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   stack.push(pattern);
   while(stack.len() > usize(0), {
@@ -133,7 +133,7 @@ _binding_atom_key :: (fn(imm(pattern) : AstExpr, imm(name) : String) -> ExprId)(
 /// with a task slot is written there: its reads render the slot, and a C local
 /// would be read by nothing (the `(n, from) := got` after an await in
 /// `tests/net/udp.test.yo`). `bind_env` is the binding node's recorded env.
-_emit_destructurings :: (fn(imm(destructurings) : ArrayList(RuntimeDestructuring), imm(rhs) : AstExpr, imm(pattern) : AstExpr, imm(rhs_type) : TypeValue, imm(bind_env) : Environment, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
+_emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), rhs : &AstExpr, pattern : &AstExpr, rhs_type : &TypeValue, bind_env : &Environment, indent : &String, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   rhs_code := _call_generate_expr(rhs, indent.clone(), context);
   member_op := if(is_reference_struct_type(rhs_type), String.from("->"), String.from("."));
@@ -221,7 +221,7 @@ _emit_destructurings :: (fn(imm(destructurings) : ArrayList(RuntimeDestructuring
 ///   scheduled for it releases the `+1` on every exit path.
 /// The task slot of local `v` when it has one (`sm->var_<id>`, or the slot it
 /// shares), else `.None`: it is a C local.
-_sm_local_slot :: (fn(imm(v) : Variable, imm(context) : FunctionGenerationContext) -> Option(String))(
+_sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Option(String))(
   match(
     context.state_machine_variables,
     .Some(smv) => {
@@ -241,7 +241,7 @@ _sm_local_slot :: (fn(imm(v) : Variable, imm(context) : FunctionGenerationContex
   )
 );
 /// `bind_env` is the binding node's recorded env.
-_generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bind_key : ExprId, imm(bind_env) : Option(Environment), imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))({
+_generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : ExprId, bind_env : &Option(Environment), indent : &String, context : &FunctionGenerationContext) -> Option(String))({
   em := context.base.emitter;
   lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
@@ -328,7 +328,7 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
 /// admits as `inout` places (variables, field chains) lower to exactly these;
 /// this is a last-line guard against a codegen path that spilled the place
 /// into a temp or a compound literal, which would silently bind a COPY.
-_is_c_lvalue_chain :: (fn(imm(code) : String) -> bool)({
+_is_c_lvalue_chain :: (fn(code : &String) -> bool)({
   n := code.len();
   if(n == usize(0), return(false));
   (i : usize) = usize(0);
@@ -366,7 +366,7 @@ _is_c_lvalue_chain :: (fn(imm(code) : String) -> bool)({
 /// be what keeps the new one alive. Evaluator twin:
 /// `evaluate_local_borrow_repoint` (evaluator/exprs/initialization_assignment.yo),
 /// which admits only places reached from `cur` that lower to a C lvalue chain.
-generate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   em := context.base.emitter;
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("re-point missing lhs"))));
@@ -414,7 +414,7 @@ generate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
   em.emit_string_line(`${indent}${ptr} = ${addr};`);
   String.from("")
 });
-generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))({
+generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));

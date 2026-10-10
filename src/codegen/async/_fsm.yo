@@ -15,13 +15,13 @@
 { AwaitPoint } :: import("../../evaluator/async/await_analysis_types.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { panic, assert } :: import("std/assert");
-EmitInlineAwaitFn :: (fn(imm(await_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String);
+EmitInlineAwaitFn :: (fn(await_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String);
 (g_emit_inline_await : Option(EmitInlineAwaitFn)) = Option(EmitInlineAwaitFn).None;
 register_inline_await_emitter :: (fn(f : EmitInlineAwaitFn) -> unit)({
   g_emit_inline_await = Option(EmitInlineAwaitFn).Some(f);
   ()
 });
-_call_emit_inline_await :: (fn(imm(await_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
+_call_emit_inline_await :: (fn(await_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     g_emit_inline_await,
     .Some(f) => f(await_expr, indent, context),
@@ -31,13 +31,13 @@ _call_emit_inline_await :: (fn(imm(await_expr) : AstExpr, imm(indent) : String, 
 /// Await-site fusion (plans/backlog/ASYNC_AWAIT_SITE_FUSION.md): the emitter
 /// that lowers a fused await, `.None` for an ordinary one. It lives with the
 /// async-block emitters (`exprs/async.yo`), which import this module.
-EmitFusedAwaitFn :: (fn(imm(await_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String));
+EmitFusedAwaitFn :: (fn(await_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String));
 (g_emit_fused_await : Option(EmitFusedAwaitFn)) = Option(EmitFusedAwaitFn).None;
 register_fused_await_emitter :: (fn(f : EmitFusedAwaitFn) -> unit)({
   g_emit_fused_await = Option(EmitFusedAwaitFn).Some(f);
   ()
 });
-_call_emit_fused_await :: (fn(imm(await_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))(
+_call_emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
   match(
     g_emit_fused_await,
     .Some(f) => f(await_expr, indent, context),

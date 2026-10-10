@@ -56,12 +56,12 @@ _doc_md_options :: (fn() -> Options)({
   o.enable_footnote = true;
   o
 });
-_render_markdown :: (fn(imm(text) : String) -> String)({
+_render_markdown :: (fn(text : &String) -> String)({
   (opts : Options) = _doc_md_options();
   markdown_to_html(text.clone(), opts)
 });
 // ── HTML escaping ────────────────────────────────────────────────────
-_escape_html :: (fn(imm(text) : String) -> String)({
+_escape_html :: (fn(text : &String) -> String)({
   out := String.new();
   bytes := text;
   n := bytes.len();
@@ -81,7 +81,7 @@ _escape_html :: (fn(imm(text) : String) -> String)({
   out
 });
 // ── JSON string escaping (JSON.stringify semantics, for the search index) ──
-_json_str :: (fn(imm(text) : String) -> String)({
+_json_str :: (fn(text : &String) -> String)({
   out := String.from("\"");
   bytes := text;
   n := bytes.len();
@@ -113,7 +113,7 @@ _json_str :: (fn(imm(text) : String) -> String)({
 });
 // ── Module path helpers ──────────────────────────────────────────────
 /// "collections/array_list" -> "collections__array_list"
-_module_to_filename :: (fn(imm(name) : String) -> String)({
+_module_to_filename :: (fn(name : &String) -> String)({
   out := String.new();
   bytes := name;
   n := bytes.len();
@@ -130,12 +130,12 @@ _module_to_filename :: (fn(imm(name) : String) -> String)({
   out
 });
 /// Last path segment.
-_module_display_name :: (fn(imm(name) : String) -> String)({
+_module_display_name :: (fn(name : &String) -> String)({
   parts := name.split(String.from("/"));
   match(parts.last(), .Some(p) => p, .None => name.clone())
 });
 /// Directory/group part, or "" for top-level.
-_module_group :: (fn(imm(name) : String) -> String)({
+_module_group :: (fn(name : &String) -> String)({
   bytes := name;
   n := bytes.len();
   (idx : usize) = usize(0);
@@ -160,7 +160,7 @@ _module_group :: (fn(imm(name) : String) -> String)({
   }, String.new())
 });
 // ── Symbol link resolution ───────────────────────────────────────────
-_build_symbol_links :: (fn(imm(model) : DocModel) -> HashMap(String, String))({
+_build_symbol_links :: (fn(model : &DocModel) -> HashMap(String, String))({
   links := HashMap(String, String).new();
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
@@ -233,7 +233,7 @@ _is_word_byte :: (fn(b : u8) -> bool)(
 /// Replace known PascalCase symbol names in an (escaped) type string with
 /// clickable links.
 _linkify_type :: (
-  fn(imm(type_str) : String, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String)) -> String
+  fn(type_str : &String, links : &HashMap(String, String), current_mod_file : &Option(String)) -> String
 )({
   escaped := _escape_html(type_str);
   out := String.new();
@@ -303,13 +303,13 @@ _linkify_type :: (
   out
 });
 _type_html :: (
-  fn(imm(type_str) : String, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(type_str : &String, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )(
   if(use_links, _linkify_type(type_str, links, current_mod_file), _escape_html(type_str))
 );
 // ── Search index (JSON, matching JSON.stringify key order + omission) ──
 _search_entry_json :: (
-  fn(imm(name) : String, imm(kind) : String, imm(href) : String, imm(doc) : Option(String), imm(module_name) : String) -> String
+  fn(name : &String, kind : &String, href : &String, doc : &Option(String), module_name : &String) -> String
 )({
   s := String.from("{");
   s.push_string(`"name":${_json_str(name)},`);
@@ -329,7 +329,7 @@ _search_entry_json :: (
 // ── firstSentence ────────────────────────────────────────────────────
 /// First line trimmed, cut at the first `.!?` that is followed (after any
 /// closers `` ` " ' ’ ” ) ] } > ``) by whitespace or end; capped at 120.
-_first_sentence :: (fn(imm(text) : String) -> String)({
+_first_sentence :: (fn(text : &String) -> String)({
   trimmed := text.trim();
   first_line := match(trimmed.split(String.from("\n")).get(usize(0)), .Some(l) => l, .None => String.new());
   line := first_line.trim();
@@ -409,7 +409,7 @@ _first_sentence :: (fn(imm(text) : String) -> String)({
   );
   result
 });
-_first_sentence_opt :: (fn(imm(doc) : Option(String)) -> Option(String))(
+_first_sentence_opt :: (fn(doc : &Option(String)) -> Option(String))(
   match(doc, .Some(d) => Option(String).Some(_first_sentence(d)), .None => Option(String).None)
 );
 /// Build the search index as ORDERED JSON entry strings — entries are
@@ -422,7 +422,7 @@ SearchEntry :: struct(
   doc : Option(String),
   module_name : String
 );
-_build_search_index :: (fn(imm(model) : DocModel) -> ArrayList(SearchEntry))({
+_build_search_index :: (fn(model : &DocModel) -> ArrayList(SearchEntry))({
   entries := ArrayList(SearchEntry).new();
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
@@ -499,7 +499,7 @@ _build_search_index :: (fn(imm(model) : DocModel) -> ArrayList(SearchEntry))({
   });
   entries
 });
-_search_index_json :: (fn(imm(entries) : ArrayList(SearchEntry)) -> String)({
+_search_index_json :: (fn(entries : &ArrayList(SearchEntry)) -> String)({
   s := String.from("[");
   (i : usize) = usize(0);
   while(i < entries.len(), {
@@ -525,7 +525,7 @@ _search_index_json :: (fn(imm(entries) : ArrayList(SearchEntry)) -> String)({
 /// `_fix_sidebar_for_module_page`). An absolute path, a scheme-qualified or
 /// protocol-relative URL and a `data:` URI already name the same resource from
 /// every page, so they travel unchanged.
-_asset_for_module_page :: (fn(imm(asset) : Option(String)) -> Option(String))(
+_asset_for_module_page :: (fn(asset : &Option(String)) -> Option(String))(
   match(
     asset,
     .Some(a) => if(
@@ -540,13 +540,13 @@ _asset_for_module_page :: (fn(imm(asset) : Option(String)) -> Option(String))(
 );
 _wrap_page :: (
   fn(
-    imm(title) : String,
-    imm(content) : String,
-    imm(sidebar) : String,
-    imm(search_index_json) : String,
-    imm(css_text) : String,
-    imm(js_text) : String,
-    imm(favicon) : Option(String)
+    title : &String,
+    content : &String,
+    sidebar : &String,
+    search_index_json : &String,
+    css_text : &String,
+    js_text : &String,
+    favicon : &Option(String)
   ) -> String
 )({
   s := String.from("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>");
@@ -575,7 +575,7 @@ _wrap_page :: (
   s
 });
 // ── Sidebar ──────────────────────────────────────────────────────────
-_render_sidebar :: (fn(imm(model) : DocModel, imm(active_module) : Option(String)) -> String)({
+_render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> String)({
   version_html := match(
     model.version,
     .Some(v) => `\n  <span class="version">${_escape_html(v)}</span>`,
@@ -784,14 +784,14 @@ _render_sidebar :: (fn(imm(model) : DocModel, imm(active_module) : Option(String
   html
 });
 // ── Doc / banner / sections ──────────────────────────────────────────
-_render_doc :: (fn(imm(doc) : Option(String)) -> String)(
+_render_doc :: (fn(doc : &Option(String)) -> String)(
   match(
     doc,
     .Some(d) => `<div class="doc-content">${_render_markdown(d)}</div>`,
     .None => String.new()
   )
 );
-_render_deprecated_banner :: (fn(imm(deprecated) : Option(String)) -> String)(
+_render_deprecated_banner :: (fn(deprecated : &Option(String)) -> String)(
   match(
     deprecated,
     .Some(dep) => {
@@ -802,7 +802,7 @@ _render_deprecated_banner :: (fn(imm(deprecated) : Option(String)) -> String)(
   )
 );
 _render_sections :: (
-  fn(imm(returns) : Option(String), imm(errors) : Option(String), imm(examples) : Option(String)) -> String
+  fn(returns : &Option(String), errors : &Option(String), examples : &Option(String)) -> String
 )({
   html := String.new();
   match(
@@ -830,7 +830,7 @@ _render_sections :: (
 });
 // ── Tables ───────────────────────────────────────────────────────────
 _render_params_table :: (
-  fn(imm(params) : ArrayList(DocParam), imm(label) : String, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(params : &ArrayList(DocParam), label : &String, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   if(params.len() == usize(0), {
     return(String.new());
@@ -886,7 +886,7 @@ _render_params_table :: (
   html
 });
 _render_fields_table :: (
-  fn(imm(fields) : ArrayList(DocField), imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(fields : &ArrayList(DocField), links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   if(fields.len() == usize(0), {
     return(String.new());
@@ -910,7 +910,7 @@ _render_fields_table :: (
   html
 });
 _render_variants_table :: (
-  fn(imm(variants) : ArrayList(DocVariant), imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(variants : &ArrayList(DocVariant), links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   if(variants.len() == usize(0), {
     return(String.new());
@@ -954,7 +954,7 @@ _render_variants_table :: (
   html
 });
 _render_associated_types :: (
-  fn(imm(types_opt) : Option(ArrayList(DocAssociatedType)), imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(types_opt : &Option(ArrayList(DocAssociatedType)), links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   types := match(
     types_opt,
@@ -990,7 +990,7 @@ _render_associated_types :: (
 });
 // ── Methods / impls ──────────────────────────────────────────────────
 _render_method_items :: (
-  fn(imm(methods) : ArrayList(DocFunction), imm(parent_name) : String, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(methods : &ArrayList(DocFunction), parent_name : &String, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   html := String.new();
   (i : usize) = usize(0);
@@ -1017,7 +1017,7 @@ _render_method_items :: (
   html
 });
 _render_methods :: (
-  fn(imm(methods) : ArrayList(DocFunction), imm(parent_name) : String, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(methods : &ArrayList(DocFunction), parent_name : &String, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   if(methods.len() == usize(0), {
     return(String.new());
@@ -1027,7 +1027,7 @@ _render_methods :: (
   html
 });
 _render_trait_impls :: (
-  fn(imm(impls) : ArrayList(String), imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(impls : &ArrayList(String), links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   if(impls.len() == usize(0), {
     return(String.new());
@@ -1078,7 +1078,7 @@ _render_trait_impls :: (
   html
 });
 _render_impl_blocks :: (
-  fn(imm(impls_opt) : Option(ArrayList(DocImpl)), imm(all_methods) : ArrayList(DocFunction), imm(parent_name) : String, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(impls_opt : &Option(ArrayList(DocImpl)), all_methods : &ArrayList(DocFunction), parent_name : &String, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   has_impls := match(impls_opt, .Some(im) => (im.len() > usize(0)), .None => false);
   if(!has_impls && (all_methods.len() == usize(0)), {
@@ -1213,7 +1213,7 @@ _render_impl_blocks :: (
 });
 // ── Item cards ───────────────────────────────────────────────────────
 _render_function :: (
-  fn(imm(f) : DocFunction, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(f : &DocFunction, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   dep_cls := match(f.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   html := `<div class="item-card${dep_cls}" id="fn-${_escape_html(f.name)}">\n<div class="item-header">\n  <a class="item-name" href="#fn-${_escape_html(f.name)}">${_escape_html(f.name)}</a>\n  <span class="item-kind">function</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(f.signature)}</div>`;
@@ -1253,7 +1253,7 @@ _render_function :: (
   html
 });
 _render_type :: (
-  fn(imm(t) : DocType, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(t : &DocType, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   dep_cls := match(t.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   kind_str := doc_item_kind_to_string(t.kind);
@@ -1294,7 +1294,7 @@ _render_type :: (
   html
 });
 _render_trait :: (
-  fn(imm(tr) : DocTrait, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(tr : &DocTrait, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   dep_cls := match(tr.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   kind_str := doc_trait_kind_to_string(tr.kind);
@@ -1366,7 +1366,7 @@ _render_trait :: (
   html
 });
 _render_constant :: (
-  fn(imm(c) : DocConstant, imm(links) : HashMap(String, String), imm(current_mod_file) : Option(String), use_links : bool) -> String
+  fn(c : &DocConstant, links : &HashMap(String, String), current_mod_file : &Option(String), use_links : bool) -> String
 )({
   type_html := _type_html(c.type_.clone(), links, current_mod_file.clone(), use_links);
   dep_cls := match(c.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
@@ -1384,7 +1384,7 @@ _render_constant :: (
   html
 });
 // ── Index page ───────────────────────────────────────────────────────
-_render_module_card :: (fn(imm(m) : DocModule) -> String)({
+_render_module_card :: (fn(m : &DocModule) -> String)({
   desc := match(m.doc, .Some(d) => _first_sentence(d), .None => String.from("No description"));
   stats := ArrayList(String).new();
   if(m.functions.len() > usize(0), {
@@ -1423,7 +1423,7 @@ _render_module_card :: (fn(imm(m) : DocModule) -> String)({
   stats_joined := String.from(" · ").join(stats);
   `\n<div class="module-card">\n  <h3><a href="module/${_escape_html(_module_to_filename(m.name))}.html">${_escape_html(m.name)}</a></h3>\n  <div class="module-desc">${_render_markdown(desc)}</div>\n  <div class="module-stats">${stats_joined}</div>\n</div>`
 });
-_render_index_content :: (fn(imm(model) : DocModel) -> String)({
+_render_index_content :: (fn(model : &DocModel) -> String)({
   version_badge := match(
     model.version,
     .Some(v) => ` <span class="version-badge">${_escape_html(v)}</span>`,
@@ -1515,7 +1515,7 @@ _render_index_content :: (fn(imm(model) : DocModel) -> String)({
 });
 // ── Module page ──────────────────────────────────────────────────────
 render_module_content_html :: (
-  fn(imm(m) : DocModule, imm(links) : HashMap(String, String)) -> String
+  fn(m : &DocModule, links : &HashMap(String, String)) -> String
 )({
   current_mod_file := Option(String).Some(_module_to_filename(m.name));
   html := `<div class="breadcrumb"><a href="../index.html">Home</a> &rsaquo; ${_escape_html(m.name)}</div>`;
@@ -1610,7 +1610,7 @@ render_module_content_html :: (
   html
 });
 // ── String replace helpers (std String has no replace) ──────────────
-_find_bytes_from :: (fn(imm(hay) : ArrayList(u8), imm(needle) : ArrayList(u8), start : usize) -> Option(usize))({
+_find_bytes_from :: (fn(hay : &ArrayList(u8), needle : &ArrayList(u8), start : usize) -> Option(usize))({
   hn := hay.len();
   nn := needle.len();
   if(nn == usize(0), {
@@ -1638,7 +1638,7 @@ _find_bytes_from :: (fn(imm(hay) : ArrayList(u8), imm(needle) : ArrayList(u8), s
   });
   Option(usize).None
 });
-_replace_occurrences :: (fn(imm(text) : String, imm(from) : String, imm(to) : String, first_only : bool) -> String)({
+_replace_occurrences :: (fn(text : &String, from : &String, to : &String, first_only : bool) -> String)({
   hay := text.to_bytes();
   needle := from.to_bytes();
   out := ArrayList(u8).new();
@@ -1678,12 +1678,12 @@ _replace_occurrences :: (fn(imm(text) : String, imm(from) : String, imm(to) : St
 });
 // ── Href rewriting for module pages ──────────────────────────────────
 /// Sidebar: href="module/ -> href=", index.html -> ../index.html (first only).
-_fix_sidebar_for_module_page :: (fn(imm(sidebar) : String) -> String)({
+_fix_sidebar_for_module_page :: (fn(sidebar : &String) -> String)({
   s := _replace_occurrences(sidebar, String.from("href=\"module/"), String.from("href=\""), false);
   _replace_occurrences(s, String.from("href=\"index.html\""), String.from("href=\"../index.html\""), true)
 });
 /// Search index hrefs: strip "module/" prefix, else "../" prefix.
-_fix_search_index_for_module_page :: (fn(imm(entries) : ArrayList(SearchEntry)) -> ArrayList(SearchEntry))({
+_fix_search_index_for_module_page :: (fn(entries : &ArrayList(SearchEntry)) -> ArrayList(SearchEntry))({
   out := ArrayList(SearchEntry).new();
   (i : usize) = usize(0);
   while(i < entries.len(), {
@@ -1703,7 +1703,7 @@ _fix_search_index_for_module_page :: (fn(imm(entries) : ArrayList(SearchEntry)) 
 // ── Main entry point ─────────────────────────────────────────────────
 /// Render a DocModel to a static HTML site (index.html + module/<name>.html).
 render_doc_site :: (
-  fn(imm(model) : DocModel, imm(output_dir) : String, io : Io, imm(ioexn) : IoExn) -> unit
+  fn(model : &DocModel, output_dir : &String, io : Io, ioexn : &IoExn) -> unit
 )({
   css_text := generate_css();
   js_text := generate_search_js();

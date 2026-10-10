@@ -55,7 +55,7 @@ import("std/fmt");
 /// passed `yo check`, compiled rc=0, and the handler became an abort() stub
 /// (issues/fixed/unwind-type-mismatch-in-a-handler-is-swallowed.md).
 throw_unwind_type_mismatch :: (
-  fn(imm(token) : Token, imm(expected) : TypeValue, imm(got) : TypeValue, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
+  fn(token : &Token, expected : &TypeValue, got : &TypeValue, ctx : &EvalContext, exn : &Exception) -> unit
 )({
   msg := `Incompatible type for \`unwind\` argument:\n- Expected (enclosing function return type): ${type_to_string(expected)}\n- Got: ${type_to_string(got)}`;
   concrete := (!type_contains_some_type_deep(expected) && !type_contains_some_type_deep(got));
@@ -70,10 +70,10 @@ throw_unwind_type_mismatch :: (
 UNWIND_WITHOUT_ENCLOSING_FN :: "`unwind` exits the function that encloses the current closure (`=>`) or function literal (`->`), such as an effect handler, so it only works inside one nested in a function. This code has no such enclosing function: use `return(...)` to leave it.";
 evaluate_unwind :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   // Validate shape: an `unwind` call (0 or 1 argument).

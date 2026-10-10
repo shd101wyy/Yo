@@ -74,7 +74,7 @@ _is_word_byte :: (fn(b : u8) -> bool)(
 /// Identifier-shaped name: starts with a letter or `_`, word bytes after.
 /// Filters operator method names (`+`, `==`) out of dot completion — they
 /// cannot be typed after a `.`.
-_is_ident_name :: (fn(imm(name) : String) -> bool)({
+_is_ident_name :: (fn(name : &String) -> bool)({
   bytes := name;
   if(bytes.len() == usize(0), {
     return(false);
@@ -161,7 +161,7 @@ keyword_names :: (fn() -> ArrayList(String))({
 /// Hidden-name rule shared by every completion mode: compiler internals
 /// (`___`, `__yo_`) and single-underscore-private names (a struct's `_ptr`
 /// internals, `_helper` bindings) stay out.
-_hidden_name :: (fn(imm(name) : String) -> bool)(
+_hidden_name :: (fn(name : &String) -> bool)(
   name.starts_with(String.from("___")) || name.starts_with(String.from("__yo_")) ||
     (name.starts_with(String.from("_")) && !name.starts_with(String.from("__")) && (name.len() > usize(1)))
 );
@@ -169,7 +169,7 @@ _hidden_name :: (fn(imm(name) : String) -> bool)(
 /// One CompletionItem. `detail` and `insert` are omitted when empty;
 /// a non-empty `insert` is emitted as a snippet (insertTextFormat 2).
 _ci :: (
-  fn(imm(label) : String, kind : usize, imm(detail) : String, imm(sort) : String, imm(insert) : String) -> JsonValue
+  fn(label : &String, kind : usize, detail : &String, sort : &String, insert : &String) -> JsonValue
 )({
   b := jb().put("label", jstr(label.clone())).put("kind", jnum(kind)).put("sortText", jstr(sort.clone()));
   if(detail.len() > usize(0), {
@@ -185,14 +185,14 @@ _ci :: (
 /// `${N:label}` placeholder list for a snippet, e.g. `add(${1:x}, ${2:y})`.
 /// Built by concatenation — inside a backtick template `${` is
 /// interpolation, so the literal snippet syntax cannot be templated.
-_placeholder :: (fn(n : usize, imm(label) : String) -> String)(
+_placeholder :: (fn(n : usize, label : &String) -> String)(
   String.from("${") + n.to_string() + String.from(":") + label + String.from("}")
 );
 
 /// Call snippet for a method/function: parameter placeholders from
 /// `FuncMeta.param_labels`, skipping the receiver-bound `self`.
 /// "" when `ty` is not a Func (caller omits insertText).
-_func_snippet :: (fn(imm(name) : String, imm(ty) : TypeValue) -> String)(
+_func_snippet :: (fn(name : &String, ty : &TypeValue) -> String)(
   match(
     ty,
     .Func(
@@ -228,12 +228,12 @@ _func_snippet :: (fn(imm(name) : String, imm(ty) : TypeValue) -> String)(
 /// (the `.` is already typed in prefix position; insertText stays `Name`).
 _push_variant :: (
   fn(
-    imm(name) : String,
-    imm(fields) : ArrayList(TypeValue),
-    imm(labels) : ArrayList(String),
+    name : &String,
+    fields : &ArrayList(TypeValue),
+    labels : &ArrayList(String),
     dot_prefix : bool,
-    mut(out) : ArrayList(JsonValue),
-    mut(seen) : HashSet(String)
+    out : &mut ArrayList(JsonValue),
+    seen : &mut HashSet(String)
   ) -> unit
 )({
   if(seen.contains(name.clone()), {
@@ -271,7 +271,7 @@ _push_variant :: (
 /// Direct members of a receiver type: struct/module fields, enum variants,
 /// union fields, trait methods.
 _type_member_items :: (
-  fn(imm(ty) : TypeValue, mut(out) : ArrayList(JsonValue), mut(seen) : HashSet(String)) -> unit
+  fn(ty : &TypeValue, out : &mut ArrayList(JsonValue), seen : &mut HashSet(String)) -> unit
 )({
   match(
     ty,
@@ -341,7 +341,7 @@ _type_member_items :: (
 });
 
 _push_method :: (
-  fn(imm(name) : String, imm(ty) : TypeValue, mut(out) : ArrayList(JsonValue), mut(seen) : HashSet(String)) -> unit
+  fn(name : &String, ty : &TypeValue, out : &mut ArrayList(JsonValue), seen : &mut HashSet(String)) -> unit
 )({
   bad := (!_is_ident_name(name.clone()) || _hidden_name(name.clone()));
   if(bad || seen.contains(name.clone()), {
@@ -357,7 +357,7 @@ _push_method :: (
 /// generic-impl enumeration in `_add_methods` surfaces those methods for
 /// matched impls anyway.
 _push_registry_methods :: (
-  fn(imm(type_id) : String, mut(out) : ArrayList(JsonValue), mut(seen) : HashSet(String)) -> unit
+  fn(type_id : &String, out : &mut ArrayList(JsonValue), seen : &mut HashSet(String)) -> unit
 )({
   if(type_id.len() > usize(0), {
     entries := get_type_trait_methods_for_type(type_id);
@@ -378,11 +378,11 @@ _push_registry_methods :: (
 /// generic impl blocks.
 _add_methods :: (
   fn(
-    imm(recv) : TypeValue,
-    imm(deref) : TypeValue,
-    imm(env) : Environment,
-    mut(out) : ArrayList(JsonValue),
-    mut(seen) : HashSet(String)
+    recv : &TypeValue,
+    deref : &TypeValue,
+    env : &Environment,
+    out : &mut ArrayList(JsonValue),
+    seen : &mut HashSet(String)
   ) -> unit
 )({
   recv_id := type_id_or_empty(recv);
@@ -420,12 +420,12 @@ _add_methods :: (
 /// the out lists on success.
 _receiver_at :: (
   fn(
-    imm(target) : Token,
-    imm(exprs) : ArrayList(AstExpr),
-    imm(info_table) : ExprInfoTable,
-    mut(out_recv) : ArrayList(TypeValue),
-    mut(out_deref) : ArrayList(TypeValue),
-    mut(out_env) : ArrayList(Environment)
+    target : &Token,
+    exprs : &ArrayList(AstExpr),
+    info_table : &ExprInfoTable,
+    out_recv : &mut ArrayList(TypeValue),
+    out_deref : &mut ArrayList(TypeValue),
+    out_env : &mut ArrayList(Environment)
   ) -> unit
 )({
   cands := ArrayList(AstExpr).new();
@@ -509,7 +509,7 @@ _receiver_at :: (
   out_env.push(info.env);
 });
 
-_expr_near_line :: (fn(imm(e) : AstExpr, line : usize) -> bool)(
+_expr_near_line :: (fn(e : &AstExpr, line : usize) -> bool)(
   match(
     e,
     .Atom(
@@ -549,7 +549,7 @@ _expr_near_line :: (fn(imm(e) : AstExpr, line : usize) -> bool)(
 /// `(x : SomeEnum) = …` whose RHS is near the cursor line, or a `match`
 /// whose subject is enum-typed and whose branches reach the line.
 _expected_enum_at :: (
-  fn(imm(e) : AstExpr, imm(info_table) : ExprInfoTable, line : usize, mut(out) : ArrayList(TypeValue)) -> unit
+  fn(e : &AstExpr, info_table : &ExprInfoTable, line : usize, out : &mut ArrayList(TypeValue)) -> unit
 )({
   if(out.len() > usize(0), {
     return(());
@@ -659,17 +659,17 @@ _expected_enum_at :: (
 /// before the cursor is captured for env-based completion.
 _scan_idents :: (
   fn(
-    imm(e) : AstExpr,
-    imm(info_table) : ExprInfoTable,
+    e : &AstExpr,
+    info_table : &ExprInfoTable,
     line : usize,
     character : usize,
-    mut(names) : ArrayList(String),
-    mut(name_rows) : ArrayList(usize),
-    mut(name_cols) : ArrayList(usize),
-    mut(name_expr_ids) : ArrayList(usize),
-    mut(name_index) : HashMap(String, usize),
-    mut(env_holder) : ArrayList(Environment),
-    mut(env_depth) : ArrayList(usize)
+    names : &mut ArrayList(String),
+    name_rows : &mut ArrayList(usize),
+    name_cols : &mut ArrayList(usize),
+    name_expr_ids : &mut ArrayList(usize),
+    name_index : &mut HashMap(String, usize),
+    env_holder : &mut ArrayList(Environment),
+    env_depth : &mut ArrayList(usize)
   ) -> unit
 )({
   match(
@@ -733,7 +733,7 @@ _scan_idents :: (
   );
 });
 
-_matches_prefix :: (fn(imm(name) : String, imm(prefix_lower) : String) -> bool)(
+_matches_prefix :: (fn(name : &String, prefix_lower : &String) -> bool)(
   cond(
     (prefix_lower.len() == usize(0)) => true,
     // PREFIX matching, not substring (issues/questions/lsp-completion-substring-matching.md,
@@ -746,7 +746,7 @@ _matches_prefix :: (fn(imm(name) : String, imm(prefix_lower) : String) -> bool)(
   )
 );
 
-_sort_key :: (fn(imm(name) : String, imm(prefix_lower) : String) -> String)(
+_sort_key :: (fn(name : &String, prefix_lower : &String) -> String)(
   cond(
     ((prefix_lower.len() > usize(0)) && name.to_lowercase().starts_with(prefix_lower.clone())) => (String.from("0_") + name.clone()),
     true => (String.from("1_") + name.clone())
@@ -758,7 +758,7 @@ _sort_key :: (fn(imm(name) : String, imm(prefix_lower) : String) -> String)(
 /// modules. Only `std/…` and document-relative (`./…`, `../…`) prefixes
 /// resolve; anything else answers nothing.
 _import_items :: (
-  fn(imm(up_to_cursor) : String, imm(doc_abs) : String, imm(std_path) : String, io : Io) -> ArrayList(JsonValue)
+  fn(up_to_cursor : &String, doc_abs : &String, std_path : &String, io : Io) -> ArrayList(JsonValue)
 )({
   items := ArrayList(JsonValue).new();
   start := match(
@@ -860,7 +860,7 @@ _import_items :: (
 });
 
 /// Trivia the import-list scan skips over.
-_is_trivia_token :: (fn(imm(t) : Token) -> bool)(
+_is_trivia_token :: (fn(t : &Token) -> bool)(
   (t.kind == TokenKind.Whitespace) ||
     (t.kind == TokenKind.SingleLineComment) ||
       (t.kind == TokenKind.MultiLineComment) || (t.kind == TokenKind.DocLineComment) || (t.kind == TokenKind.DocBlockComment)
@@ -871,7 +871,7 @@ _is_trivia_token :: (fn(imm(t) : Token) -> bool)(
 /// `listed`. Token-based on purpose: the list is being typed, so the
 /// document rarely parses at that moment.
 _import_list_path :: (
-  fn(imm(tokens) : ArrayList(Token), line : usize, character : usize, mut(listed) : ArrayList(String)) -> String
+  fn(tokens : &ArrayList(Token), line : usize, character : usize, listed : &mut ArrayList(String)) -> String
 )({
   // The last token that STARTS before the cursor.
   (last_before : Option(usize)) = Option(usize).None;
@@ -976,7 +976,7 @@ _import_list_path :: (
 /// module at filesystem path `fs_path`: from the module cache when the
 /// document's analysis already loaded it, else evaluated now. `Unit` when
 /// it cannot be loaded (own frame for the swallowing handler).
-_module_type_at :: (fn(imm(abs) : String, imm(std_path) : String, io : Io) -> TypeValue)({
+_module_type_at :: (fn(abs : &String, std_path : &String, io : Io) -> TypeValue)({
   if(module_cache_has(abs.clone()), {
     return(load_module_from_cache(abs).module_type);
   });
@@ -991,11 +991,11 @@ _module_type_at :: (fn(imm(abs) : String, imm(std_path) : String, io : Io) -> Ty
 /// document) not already in `listed`, filtered by the word prefix.
 _import_member_items :: (
   fn(
-    imm(import_path) : String,
-    imm(doc_abs) : String,
-    imm(std_path) : String,
-    imm(prefix_lower) : String,
-    imm(listed) : ArrayList(String),
+    import_path : &String,
+    doc_abs : &String,
+    std_path : &String,
+    prefix_lower : &String,
+    listed : &ArrayList(String),
     io : Io
   ) -> ArrayList(JsonValue)
 )({
@@ -1058,11 +1058,11 @@ _import_member_items :: (
 /// JSON array (possibly empty).
 handle_completion :: (
   fn(
-    imm(text) : String,
-    imm(doc_abs) : String,
-    imm(std_path) : String,
-    imm(exprs) : ArrayList(AstExpr),
-    imm(info_table) : ExprInfoTable,
+    text : &String,
+    doc_abs : &String,
+    std_path : &String,
+    exprs : &ArrayList(AstExpr),
+    info_table : &ExprInfoTable,
     line : usize,
     character : usize,
     io : Io

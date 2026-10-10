@@ -25,7 +25,7 @@ derive(_Pair, Copy, Clone);
 _Trip :: struct(a : i64, b : i64, c : i64);
 derive(_Trip, Copy, Clone);
 
-_wrap :: (fn(generic(R : Type), imm(f) : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+_wrap :: (fn(generic(R : Type), f : &Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
   io.async((io : Io) => f())
 );
 
@@ -46,10 +46,10 @@ test("a free generic fn returning Impl(Future(R)) at three different R", {
 // `std/thread.yo`'s `spawn_blocking` (declared `generic(T)`) still
 // miscompiling, and renaming its binder — changing nothing else — made it
 // compile and run. `T` is the most natural name there is.
-_wrap_t :: (fn(generic(T : Type), imm(f) : Impl(Fn() -> T), io : Io) -> Impl(Future(T, Io)))(
+_wrap_t :: (fn(generic(T : Type), f : &Impl(Fn() -> T), io : Io) -> Impl(Future(T, Io)))(
   io.async((io : Io) => f())
 );
-_wrap_e :: (fn(generic(E : Type), imm(f) : Impl(Fn() -> E), io : Io) -> Impl(Future(E, Io)))(
+_wrap_e :: (fn(generic(E : Type), f : &Impl(Fn() -> E), io : Io) -> Impl(Future(E, Io)))(
   io.async((io : Io) => f())
 );
 
@@ -75,13 +75,13 @@ impl(
   _Box3,
   // An impl entry with NO `self`: called as `_Box3.run(...)`, which takes a
   // different call arm from the instance-method form below.
-  run : (fn(generic(R : Type), imm(f) : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+  run : (fn(generic(R : Type), f : &Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
     io.async((io : Io) => f())
   ),
   // The instance-method form. This one ALWAYS worked — it is the canary: it
   // reads the specialization's own freshly-cloned body, so an over-eager fix
   // that un-fixes it would otherwise land silently.
-  run_self : (fn(generic(R : Type), self : Self, imm(f) : Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
+  run_self : (fn(generic(R : Type), self : Self, f : &Impl(Fn() -> R), io : Io) -> Impl(Future(R, Io)))(
     io.async((io : Io) => f())
   )
 );
@@ -116,10 +116,10 @@ test("an explicit receiver on the method form, at two different R", {
 // Named `T`, the binder also collided with `io.async`'s own `T`: a false
 // E0601, "Cannot unify i32 and Option(T)"
 // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-_wrap_opt_u :: (fn(generic(U : Type), imm(v) : U, io : Io) -> Impl(Future(Option(U), Io)))(
+_wrap_opt_u :: (fn(generic(U : Type), v : &U, io : Io) -> Impl(Future(Option(U), Io)))(
   io.async((io : Io) => Option(U).Some(v))
 );
-_wrap_opt_t :: (fn(generic(T : Type), imm(v) : T, io : Io) -> Impl(Future(Option(T), Io)))(
+_wrap_opt_t :: (fn(generic(T : Type), v : &T, io : Io) -> Impl(Future(Option(T), Io)))(
   io.async((io : Io) => Option(T).Some(v))
 );
 
@@ -138,7 +138,7 @@ test("a future result containing a binder named T", {
 });
 // The inverse direction: `T` is bound ONLY by a closure whose result is itself
 // an `io.async` future (issues/fixed/a-generic-t-bound-by-a-closure-returning-a-future-is-not-inferred.md).
-_call_it :: (fn(generic(T : Type), imm(f) : Impl(Fn() -> T)) -> T)(f());
+_call_it :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)(f());
 test("a generic T bound by a closure that returns an io.async future", {
   task := _call_it(() => io.async((io : Io) => i32(8)));
   assert(io.await(task, io) == i32(8), "the future's value");
@@ -152,7 +152,7 @@ test("a generic T bound by a closure that returns an io.async future", {
 // A generic caller that FORWARDS the closure (`arena.scoped(f)` calling
 // `with_allocator(a, f)`): inside the caller's specialization the inner call's
 // `T` is bound to the caller's `T`, which is bound to the future.
-_forward_it :: (fn(generic(T : Type), imm(f) : Impl(Fn() -> T)) -> T)(_call_it(f));
+_forward_it :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)(_call_it(f));
 test("a generic T bound through a caller that forwards the closure", {
   task := _forward_it(() => io.async((io : Io) => i32(10)));
   assert(io.await(task, io) == i32(10), "the forwarded future's value");
@@ -165,7 +165,7 @@ test("a generic T bound through a caller that forwards the closure", {
 // machine), a C type error.
 // issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md
 _ScopeLocal :: ref(struct(n : i32));
-_call_with_local :: (fn(generic(T : Type), imm(f) : Impl(Fn() -> T)) -> T)({
+_call_with_local :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
   _held := _ScopeLocal(n : i32(1));
   f()
 });
@@ -179,7 +179,7 @@ test("a tail temporary keeps each specialization's own return type", {
 // union: "type name does not allow storage class to be specified".
 // issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md
 _FutureSlot :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
-_call_with_slot :: (fn(generic(T : Type), imm(f) : Impl(Fn() -> T)) -> T)({
+_call_with_slot :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
   _slot := _FutureSlot(T)(r : .None);
   f()
 });
@@ -197,14 +197,14 @@ test("a future type as an enum payload declares the payload type first", {
 // ---------------------------------------------------------------------------
 _BareE :: enum(X, Y);
 derive(_BareE, Copy, Clone);
-_bare_future :: (fn(generic(T : Type), imm(v) : Option(T), io : Io) -> Impl(Future(Result(T, _BareE), Io)))({
+_bare_future :: (fn(generic(T : Type), v : &Option(T), io : Io) -> Impl(Future(Result(T, _BareE), Io)))({
   b := Rc(Option(T))(v);
   io.async((io : Io) => {
     c := b.*;
     match(c, .Some(x) => .Ok(x), .None => .Err(_BareE.X))
   })
 });
-_bare_fn :: (fn(generic(T : Type), imm(v) : Option(T)) -> Impl(Fn(k : i32) -> Result(T, _BareE)))({
+_bare_fn :: (fn(generic(T : Type), v : &Option(T)) -> Impl(Fn(k : i32) -> Result(T, _BareE)))({
   b := Rc(Option(T))(v);
   (k : i32) => {
     c := b.*;

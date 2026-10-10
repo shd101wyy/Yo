@@ -46,7 +46,7 @@ _hex_digit_char :: (fn(v : u8) -> u8)(
 /// `s` as a TOML basic string: `"…"` with `\"`, `\\`, `\n`, `\t`, `\r` and
 /// `\uXXXX` for the other control characters. Non-ASCII bytes pass through
 /// (TOML is UTF-8).
-toml_string :: (fn(imm(s) : String) -> String)({
+toml_string :: (fn(s : &String) -> String)({
   out := String.from("\"");
   (i : usize) = usize(0);
   n := s.len();
@@ -71,7 +71,7 @@ toml_string :: (fn(imm(s) : String) -> String)({
   out
 });
 /// `k` as a TOML key: bare when every byte is `A-Za-z0-9_-`, quoted otherwise.
-toml_key :: (fn(imm(k) : String) -> String)({
+toml_key :: (fn(k : &String) -> String)({
   if(k.len() == usize(0), {
     return(toml_string(k));
   });
@@ -101,7 +101,7 @@ _Scan :: ref(
 /// the line length when none), which is what an entry line's key/value split
 /// needs; the same pass drives the multi-line-string and bracket tracking for
 /// every other line.
-_scan_line :: (fn(imm(line) : String, from : usize, imm(st) : _Scan) -> usize)({
+_scan_line :: (fn(line : &String, from : usize, st : &_Scan) -> usize)({
   n := line.len();
   (i : usize) = from;
   (eq_at : usize) = n;
@@ -177,7 +177,7 @@ _scan_line :: (fn(imm(line) : String, from : usize, imm(st) : _Scan) -> usize)({
   eq_at
 });
 /// The first non-blank byte offset of `line` at or after `from`.
-_skip_ws :: (fn(imm(line) : String, from : usize) -> usize)({
+_skip_ws :: (fn(line : &String, from : usize) -> usize)({
   (i : usize) = from;
   while((i < line.len()) && ((line.byte_at(i) == _SPACE) || (line.byte_at(i) == _TAB)), {
     i = (i + usize(1));
@@ -193,7 +193,7 @@ _KeyPath :: ref(
 );
 /// Decode the escapes of a basic-string key. Keys are names, so the common
 /// escapes suffice; an unknown escape keeps its character.
-_unescape_basic :: (fn(imm(raw) : String) -> String)({
+_unescape_basic :: (fn(raw : &String) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   n := raw.len();
@@ -220,7 +220,7 @@ _unescape_basic :: (fn(imm(raw) : String) -> String)({
 });
 /// Parse a key path starting at `from` (whitespace allowed). `.None` when the
 /// text there is not a key.
-_parse_key_path :: (fn(imm(line) : String, from : usize) -> Option(_KeyPath))({
+_parse_key_path :: (fn(line : &String, from : usize) -> Option(_KeyPath))({
   keys := ArrayList(String).new();
   n := line.len();
   (i : usize) = _skip_ws(line, from);
@@ -296,7 +296,7 @@ _Line :: ref(
   )
 );
 /// Classify every line of `lines`.
-_classify :: (fn(imm(lines) : ArrayList(String)) -> Result(ArrayList(_Line), String))({
+_classify :: (fn(lines : &ArrayList(String)) -> Result(ArrayList(_Line), String))({
   out := ArrayList(_Line).new();
   st := _Scan(ml : u8(0), depth : i32(0));
   (li : usize) = usize(0);
@@ -369,7 +369,7 @@ _classify :: (fn(imm(lines) : ArrayList(String)) -> Result(ArrayList(_Line), Str
 // Locating a table and an entry
 // ---------------------------------------------------------------------------
 /// `[table]` — the index of its header line, or `.None`.
-_find_table_header :: (fn(imm(kinds) : ArrayList(_Line), imm(table) : String) -> Option(usize))({
+_find_table_header :: (fn(kinds : &ArrayList(_Line), table : &String) -> Option(usize))({
   (i : usize) = usize(0);
   while(i < kinds.len(), {
     match(
@@ -386,7 +386,7 @@ _find_table_header :: (fn(imm(kinds) : ArrayList(_Line), imm(table) : String) ->
   Option(usize).None
 });
 /// The index of the first header line after `from`, or the line count.
-_section_end :: (fn(imm(kinds) : ArrayList(_Line), from : usize) -> usize)({
+_section_end :: (fn(kinds : &ArrayList(_Line), from : usize) -> usize)({
   (i : usize) = from;
   while(i < kinds.len(), {
     match(
@@ -412,9 +412,9 @@ _Range :: ref(
 /// / `[[table.key]]` sections. Sorted by position.
 _entry_ranges :: (
   fn(
-    imm(kinds) : ArrayList(_Line),
-    imm(table) : String,
-    imm(key) : String
+    kinds : &ArrayList(_Line),
+    table : &String,
+    key : &String
   ) -> ArrayList(_Range)
 )({
   ranges := ArrayList(_Range).new();
@@ -466,7 +466,7 @@ _entry_ranges :: (
 /// `lines` with every range in `ranges` (sorted, disjoint) removed. A
 /// sub-table section is followed by its blank separator line; that line goes
 /// with it so the document does not accumulate blank runs.
-_delete_ranges :: (fn(imm(lines) : ArrayList(String), imm(ranges) : ArrayList(_Range)) -> ArrayList(String))({
+_delete_ranges :: (fn(lines : &ArrayList(String), ranges : &ArrayList(_Range)) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   (r : usize) = usize(0);
@@ -484,10 +484,10 @@ _delete_ranges :: (fn(imm(lines) : ArrayList(String), imm(ranges) : ArrayList(_R
   });
   out
 });
-_is_blank :: (fn(imm(line) : String) -> bool)(
+_is_blank :: (fn(line : &String) -> bool)(
   _skip_ws(line, usize(0)) >= line.len()
 );
-_join_lines :: (fn(imm(lines) : ArrayList(String)) -> String)(
+_join_lines :: (fn(lines : &ArrayList(String)) -> String)(
   String.from("\n").join(lines)
 );
 // ---------------------------------------------------------------------------
@@ -501,10 +501,10 @@ _join_lines :: (fn(imm(lines) : ArrayList(String)) -> String)(
 /// appended at the end of the document.
 set_entry :: (
   fn(
-    imm(text) : String,
-    imm(table) : String,
-    imm(key) : String,
-    imm(value_text) : String
+    text : &String,
+    table : &String,
+    key : &String,
+    value_text : &String
   ) -> Result(String, String)
 )({
   // The value must be valid TOML on its own before it goes anywhere near the
@@ -674,9 +674,9 @@ set_entry :: (
 /// every `[table.key…]` section. `.Ok(.None)` when there is no such entry.
 remove_entry :: (
   fn(
-    imm(text) : String,
-    imm(table) : String,
-    imm(key) : String
+    text : &String,
+    table : &String,
+    key : &String
   ) -> Result(Option(String), String)
 )({
   lines := text.split("\n");

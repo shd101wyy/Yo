@@ -11,14 +11,14 @@
 { assert, panic } :: import("std/assert");
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Check that two String values are equal; fails with msg if not.
-assert_str_eq :: (fn(imm(actual) : String, imm(expected) : String, msg : str) -> unit)(
+assert_str_eq :: (fn(actual : &String, expected : &String, msg : str) -> unit)(
   if(actual == expected, (), {
     println(`assert_str_eq FAILED: expected="${expected}" actual="${actual}" — ${msg}`);
     assert(false, msg);
   })
 );
 // Retrieve the only expression from a program, asserting length == 1.
-only_expr :: (fn(imm(prog) : ArrayList(AstExpr)) -> AstExpr)({
+only_expr :: (fn(prog : &ArrayList(AstExpr)) -> AstExpr)({
   assert(prog.len() == usize(1), "expected program with exactly 1 top-level expression");
   match(
     prog.get(usize(0)),
@@ -786,7 +786,7 @@ _ts :: (fn(inner : str) -> String)({
 // throwing handler INSIDE the `test(...)` body, and a `(err) -> { …; unwind(()); }`
 // closure hoisted into a top-level helper emits a `Failed to transpile` stub
 // under the seed compiler (issues/ftt-stub-in-live-closure-falls-off-non-void-function.md).
-_parse_ts :: (fn(inner : str, imm(exn) : Exception) -> String)({
+_parse_ts :: (fn(inner : str, exn : &Exception) -> String)({
   prog := parse(_ts(inner), `test.yo`, exn);
   assert(prog.len() == usize(2), "template string should parse to import + rendering");
   match(

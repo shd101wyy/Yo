@@ -59,17 +59,17 @@ impl(
     )
   ),
   /// Number of elements. O(1) — the count is maintained, not walked.
-  len : (fn(imm(self) : Self) -> usize)(
+  len : (fn(self : &Self) -> usize)(
     self.length
   ),
   /// True when the list holds no elements.
-  is_empty : (fn(imm(self) : Self) -> bool)(
+  is_empty : (fn(self : &Self) -> bool)(
     self.length == usize(0)
   ),
   /// Add an element at the front — O(1), one node allocation. Rust's
   /// `push_front`. Existing element positions shift by one; no pointer or
   /// iterator into another node is disturbed.
-  push_front : (fn(mut(self) : Self, value : T) -> unit)({
+  push_front : (fn(self : &mut Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
       next : self.head,
@@ -90,7 +90,7 @@ impl(
   /// Add an element at the back — O(1), one node allocation. Rust's
   /// `push_back`. This is the cheap append; `ArrayList.push` is cheaper
   /// still if you do not need stable node identity.
-  push_back : (fn(mut(self) : Self, value : T) -> unit)({
+  push_back : (fn(self : &mut Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
       next : .None,
@@ -112,7 +112,7 @@ impl(
   ///
   /// Clears the new head's `prev` handle, which is what breaks the
   /// reference cycle every adjacent node pair forms (see `dispose`).
-  pop_front : (fn(mut(self) : Self) -> Option(T))(
+  pop_front : (fn(self : &mut Self) -> Option(T))(
     match(
       self.head,
       .None => .None,
@@ -137,7 +137,7 @@ impl(
   ),
   /// Remove and return the last element, or `.None` when empty — O(1),
   /// because the list keeps a tail handle.
-  pop_back : (fn(mut(self) : Self) -> Option(T))(
+  pop_back : (fn(self : &mut Self) -> Option(T))(
     match(
       self.tail,
       .None => .None,
@@ -163,7 +163,7 @@ impl(
   /// Copy of the first element without removing it, or `.None` — Rust's
   /// `front`. The value is dup'd for a refcounted `T`; `iter()` yields
   /// pointers if that matters.
-  front : (fn(imm(self) : Self) -> Option(T))(
+  front : (fn(self : &Self) -> Option(T))(
     match(
       self.head,
       .None => .None,
@@ -172,7 +172,7 @@ impl(
   ),
   /// Copy of the last element without removing it, or `.None` — Rust's
   /// `back`.
-  back : (fn(imm(self) : Self) -> Option(T))(
+  back : (fn(self : &Self) -> Option(T))(
     match(
       self.tail,
       .None => .None,
@@ -184,7 +184,7 @@ impl(
   /// O(n): it walks from the head — there is no random access. Rust has no
   /// `LinkedList::get` at all, for exactly this reason; a full traversal
   /// belongs in `iter()`, and a `get` in a loop is quadratic.
-  get : (fn(imm(self) : Self, index : usize) -> Option(T))(
+  get : (fn(self : &Self, index : usize) -> Option(T))(
     cond(
       (index >= self.length) => .None,
       true => {
@@ -217,7 +217,7 @@ impl(
   /// an out-of-range index is a CALLER MISTAKE and stays a `Result` here,
   /// while an allocation failure panics; `ArrayList.insert` panics on the
   /// same mistake, and that difference is deliberate.
-  insert : (fn(mut(self) : Self, index : usize, value : T) -> Result(unit, LinkedListError))(
+  insert : (fn(self : &mut Self, index : usize, value : T) -> Result(unit, LinkedListError))(
     cond(
       (index > self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
       (index == usize(0)) => {
@@ -275,7 +275,7 @@ impl(
   /// `ArrayList.remove` panics — the same deliberate D1 difference as
   /// `insert`. The first and last indices are routed through
   /// `pop_front`/`pop_back`.
-  remove : (fn(mut(self) : Self, index : usize) -> Result(T, LinkedListError))(
+  remove : (fn(self : &mut Self, index : usize) -> Result(T, LinkedListError))(
     cond(
       (index >= self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
       (index == usize(0)) =>
@@ -343,7 +343,7 @@ impl(
   /// dropping the head alone would leave the whole chain with a nonzero
   /// refcount. `pop_front` clears each new head's `prev`, which unlinks the
   /// chain as it goes.
-  clear : (fn(mut(self) : Self) -> unit)({
+  clear : (fn(self : &mut Self) -> unit)({
     while(self.length > usize(0), {
       self.pop_front();
     });
@@ -352,8 +352,8 @@ impl(
   /// stopping at the first match.
   contains : (
     fn(
-      imm(self) : Self,
-      imm(value) : T,
+      self : &Self,
+      value : &T,
       where(T <: Eq(T))
     ) -> bool
   )({
@@ -383,7 +383,7 @@ impl(
   ///
   /// Swaps each node's `next` and `prev` handles and then exchanges head and
   /// tail, so no element is moved or copied and node identity is preserved.
-  reverse : (fn(mut(self) : Self) -> unit)({
+  reverse : (fn(self : &mut Self) -> unit)({
     current_opt := self.head;
     i := usize(0);
     while(i < self.length, i = (i + usize(1)), {
@@ -412,7 +412,7 @@ impl(
     /// Unlinks and drops every node when the last reference to the list goes
     /// away. Delegates to `clear` because the `prev` handles make the chain
     /// cyclic — see `clear`.
-    dispose : (fn(imm(self) : Self) -> unit)(
+    dispose : (fn(self : &Self) -> unit)(
       self.clear()
     )
   )
@@ -434,7 +434,7 @@ impl(
   LinkedListIter(T),
   Iterator(
     Item : T,
-    next : (fn(mut(self) : Self) -> Option(T))(
+    next : (fn(self : &mut Self) -> Option(T))(
       match(
         self._current,
         .None => .None,
@@ -452,7 +452,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : LinkedListIter(T),
-    into_iter : (fn(imm(self) : Self) -> LinkedListIter(T))(
+    into_iter : (fn(self : &Self) -> LinkedListIter(T))(
       LinkedListIter(T)(_current : self.head)
     )
   )
@@ -473,7 +473,7 @@ impl(
   LinkedListIterPtr(T),
   Iterator(
     Item : *T,
-    next : (fn(mut(self) : Self) -> Option(*T))(
+    next : (fn(self : &mut Self) -> Option(*T))(
       match(
         self._current,
         .None => .None,
@@ -491,7 +491,7 @@ impl(
   /// Borrowing walk from the head: yields a `*(T)` into each node, leaving
   /// the list intact — `for(list.iter(), p => ...)`, where `into_iter`
   /// moves the list and yields values (D14).
-  iter : (fn(imm(self) : Self) -> LinkedListIterPtr(T))(
+  iter : (fn(self : &Self) -> LinkedListIterPtr(T))(
     LinkedListIterPtr(T)(_current : self.head)
   )
 );
@@ -504,7 +504,7 @@ impl(
   LinkedList(T),
   Index(usize)(
     Output : T,
-    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)({
       assert(idx < self.length, "LinkedList: index out of bounds");
       (current : Option(Node(T))) = self.head;
       i := usize(0);

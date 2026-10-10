@@ -32,7 +32,7 @@
 } :: import("../../src/doc/context_index.yo");
 { search_score, _search_entries, LoadedWorld } :: import("../../src/context_command.yo");
 /// Write `text` to `<root>/<rel>`, creating parent directories.
-_put :: (fn(imm(root) : String, imm(rel) : String, imm(text) : String, io : Io, imm(exn) : Exception) -> unit)({
+_put :: (fn(root : &String, rel : &String, text : &String, io : Io, exn : &Exception) -> unit)({
   path := Path.new(root).join(Path.new(rel));
   io.await(create_dir_all(path.parent().unwrap_or(Path.new(String.from("."))), io), IoExn(io : io, exn : exn));
   io.await(write_string(path, text, io), IoExn(io : io, exn : exn));
@@ -40,7 +40,7 @@ _put :: (fn(imm(root) : String, imm(rel) : String, imm(text) : String, io : Io, 
 /// The fixture under `<base>/t`: `alpha_api` defines the API, `alpha/index.yo`
 /// re-exports it (the barrel `origin=` case), `beta` is a second module so
 /// name-uniqueness has something to be unique against. Returns the tree root.
-_write_fixture :: (fn(imm(base) : String, io : Io, imm(exn) : Exception) -> String)({
+_write_fixture :: (fn(base : &String, io : Io, exn : &Exception) -> String)({
   root := `${base}/t`;
   _put(root.clone(), String.from("alpha_api.yo"), String.from("//! Alpha: the fixture's defining module.\nalpha_add :: (fn(a : i32, b : i32) -> i32)((a + b));\nAlpha :: struct(v : i32);\nALPHA_LIMIT :: 10;\nexport(alpha_add, Alpha, ALPHA_LIMIT);\n"), io, exn);
   _put(root.clone(), String.from("beta.yo"), String.from("//! Beta: a second module.\nbeta_hi :: (fn() -> unit)(());\nexport(beta_hi);\n"), io, exn);
@@ -50,7 +50,7 @@ _write_fixture :: (fn(imm(base) : String, io : Io, imm(exn) : Exception) -> Stri
   root
 });
 _find_entry :: (
-  fn(imm(entries) : ArrayList(ContextIndexEntry), imm(module) : String, imm(name) : String) -> Option(ContextIndexEntry)
+  fn(entries : &ArrayList(ContextIndexEntry), module : &String, name : &String) -> Option(ContextIndexEntry)
 )({
   (i : usize) = usize(0);
   while(i < entries.len(), {
@@ -62,7 +62,7 @@ _find_entry :: (
   });
   Option(ContextIndexEntry).None
 });
-_read_text :: (fn(imm(path) : String, io : Io, imm(exn) : Exception) -> String)(
+_read_text :: (fn(path : &String, io : Io, exn : &Exception) -> String)(
   String.from_bytes(io.await(read(Path.new(path), io), IoExn(io : io, exn : exn)))
 );
 test("context_tree_key: stable, moves on a content edit, moves with the corpus name", {
@@ -210,7 +210,7 @@ test("a module the evaluator cannot load is marked degraded", {
   assert(saw == usize(2), `both modules listed, saw ${saw.to_string()}`);
 });
 test("search scoring: exact > prefix > substring > signature > doc", {
-  mk :: (fn(imm(nm) : String, imm(sig) : String, imm(dc) : String) -> ContextIndexEntry)(
+  mk :: (fn(nm : &String, sig : &String, dc : &String) -> ContextIndexEntry)(
     ContextIndexEntry(
       module : `t/m`,
       name : nm,
@@ -240,7 +240,7 @@ test("search scoring: a multi-word query ANDs its tokens over name, module, sign
   // "hash string" used to be matched as ONE literal substring and hit
   // nothing. Tokens are whitespace-split, lowercased, and EVERY token must
   // match somewhere; the entry scores its WEAKEST token's best tier.
-  mkm :: (fn(imm(mod) : String, imm(nm) : String, imm(sig) : String, imm(dc) : String) -> ContextIndexEntry)(
+  mkm :: (fn(mod : &String, nm : &String, sig : &String, dc : &String) -> ContextIndexEntry)(
     ContextIndexEntry(
       module : mod,
       name : nm,
@@ -283,7 +283,7 @@ test("_search_entries: byte-identical rows collapse; a multi-word query matches"
   );
   // std/async/channel's shape: one `close` per receiver type, and every
   // signature says `Self`, so several index lines are byte-identical.
-  row :: (fn(imm(nm) : String, imm(sig) : String) -> ContextIndexEntry)(
+  row :: (fn(nm : &String, sig : &String) -> ContextIndexEntry)(
     ContextIndexEntry(
       module : `t/channel`,
       name : nm,

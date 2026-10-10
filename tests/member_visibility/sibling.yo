@@ -2,15 +2,15 @@
 { Counter, Cell } :: import("./counter.yo");
 /// Same-directory sibling of counter.yo: every private member is visible
 /// here — the scope is the declaring module PLUS its directory.
-sibling_peek :: (fn(imm(c) : Counter) -> i32)(c._count);
-sibling_bump :: (fn(imm(c) : Counter, by : i32) -> Counter)(c._bump(by));
-sibling_static_bump :: (fn(imm(c) : Counter, by : i32) -> Counter)(Counter._bump(c, by));
+sibling_peek :: (fn(c : &Counter) -> i32)(c._count);
+sibling_bump :: (fn(c : &Counter, by : i32) -> Counter)(c._bump(by));
+sibling_static_bump :: (fn(c : &Counter, by : i32) -> Counter)(Counter._bump(c, by));
 sibling_build :: (fn(n : i32) -> Counter)(Counter(_count : n, label : String.from("sibling")));
-sibling_destructure :: (fn(imm(c) : Counter) -> i32)({
+sibling_destructure :: (fn(c : &Counter) -> i32)({
   { _count } := c;
   _count
 });
-sibling_spread :: (fn(imm(c) : Counter) -> i32)({
+sibling_spread :: (fn(c : &Counter) -> i32)({
   { ... } := c;
   _count
 });

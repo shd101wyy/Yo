@@ -22,7 +22,7 @@ impl(
   LocalMapIter(I, A, B, F),
   Iterator(
     Item : B,
-    next : (fn(mut(self) : Self) -> Option(B))(
+    next : (fn(self : &mut Self) -> Option(B))(
       Option(B).None
     )
   )
@@ -34,15 +34,15 @@ impl(
   local_map_to : (
     fn(
       generic(A : Type, B : Type, F : Type),
-      imm(self) : Self,
-      imm(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(a) : A) -> B))
+      self : &Self,
+      f : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(a : &A) -> B))
     ) -> LocalMapIter(Self, A, B, F)
   )(
     LocalMapIter(Self, A, B, F)(_inner : self, _f : f)
   )
 );
-double :: (fn(imm(x) : i32) -> i32)(x * i32(2));
+double :: (fn(x : &i32) -> i32)(x * i32(2));
 test("where-clause associated-type inference binds A and B from impl + Fn signature", {
   list := ArrayList(i32).new();
   list.push(i32(1));
@@ -50,7 +50,7 @@ test("where-clause associated-type inference binds A and B from impl + Fn signat
   // The annotation forces the result type explicitly. Before the fix, the
   // call would specialize `local_map_to` with A,B left as SomeTypes, producing a
   // distinct shadow LocalMapIter struct that didn't satisfy the annotation.
-  (iter : LocalMapIter(type_of(it1), i32, i32, fn(imm(x) : i32) -> i32)) = it1.local_map_to(double);
+  (iter : LocalMapIter(type_of(it1), i32, i32, fn(x : &i32) -> i32)) = it1.local_map_to(double);
   match(
     iter.next(),
     .None => assert(true, "stub returns None"),
@@ -61,8 +61,8 @@ test("where-clause inference with bool callback return type", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   it1 := list.into_iter();
-  is_pos :: (fn(imm(x) : i32) -> bool)(x > i32(0));
-  (iter : LocalMapIter(type_of(it1), i32, bool, fn(imm(x) : i32) -> bool)) = it1.local_map_to(is_pos);
+  is_pos :: (fn(x : &i32) -> bool)(x > i32(0));
+  (iter : LocalMapIter(type_of(it1), i32, bool, fn(x : &i32) -> bool)) = it1.local_map_to(is_pos);
   match(
     iter.next(),
     .None => assert(true, "stub returns None"),
@@ -82,7 +82,7 @@ test("where-clause inference with bool callback return type", {
 __WbInto :: trait(
   Item : Type,
   IntoIter : Type,
-  wb_into : (fn(imm(self) : Self) -> Self.IntoIter),
+  wb_into : (fn(self : &Self) -> Self.IntoIter),
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 impl(
@@ -91,7 +91,7 @@ impl(
   __WbInto(
     Item : T,
     IntoIter : LinkedListIter(T),
-    wb_into : (fn(imm(self) : Self) -> LinkedListIter(T))(self.into_iter())
+    wb_into : (fn(self : &Self) -> LinkedListIter(T))(self.into_iter())
   )
 );
 impl(
@@ -100,16 +100,16 @@ impl(
   __WbInto(
     Item : MapEntry(K, V),
     IntoIter : BTreeMapIter(K, V),
-    wb_into : (fn(imm(self) : Self) -> BTreeMapIter(K, V))(self.into_iter())
+    wb_into : (fn(self : &Self) -> BTreeMapIter(K, V))(self.into_iter())
   )
 );
 __wb_sum :: (
-  fn(generic(C : Type), imm(c) : C, where(C <: __WbInto(Item := i32))) -> i32
+  fn(generic(C : Type), c : &C, where(C <: __WbInto(Item := i32))) -> i32
 )(
   c.wb_into().fold(i32(0), (acc, x) => (acc + x))
 );
 __wb_count :: (
-  fn(generic(C : Type), imm(c) : C, where(C <: __WbInto)) -> usize
+  fn(generic(C : Type), c : &C, where(C <: __WbInto)) -> usize
 )(
   c.wb_into().count()
 );
@@ -130,22 +130,22 @@ test("where-bound generic over LinkedList then BTreeMap compiles and runs", {
 // composites, a type constructor's bound, and bounds reached through a generic
 // forwarder or on a type that carried the forwarder's SomeT.
 // ---------------------------------------------------------------------------
-_WcFoo :: trait(wc_foo : (fn(imm(self) : Self) -> i32));
-_WcBar :: trait(wc_bar : (fn(imm(self) : Self) -> i32));
+_WcFoo :: trait(wc_foo : (fn(self : &Self) -> i32));
+_WcBar :: trait(wc_bar : (fn(self : &Self) -> i32));
 _WcQ :: struct(x : i32);
 impl(_WcQ, _WcFoo(wc_foo : (self -> self.x)));
 _WcBoth :: struct(x : i32);
 derive(_WcBoth, Copy, Clone);
 impl(_WcBoth, _WcFoo(wc_foo : (self -> self.x)), _WcBar(wc_bar : (self -> (self.x + i32(1)))));
-_wc_need_both :: (fn(generic(T : Type), imm(x) : T, where(T <: (_WcFoo, _WcBar))) -> i32)(
+_wc_need_both :: (fn(generic(T : Type), x : &T, where(T <: (_WcFoo, _WcBar))) -> i32)(
   x.wc_foo() + x.wc_bar()
 );
 _WcBox :: (fn(comptime(T) : Type, where(T <: _WcBar)) -> comptime(Type))(struct(v : T));
 derive(generic(T : Type), where(T <: Clone), _WcBox(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _WcBox(T), Copy);
 _WcPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
-_wc_need_send :: (fn(generic(T : Type), imm(x) : T, where(T <: Send)) -> unit)(());
-_wc_fwd :: (fn(generic(U : Type), imm(y) : U) -> unit)(_wc_need_send(_WcPair(U)(a : y, b : y)));
+_wc_need_send :: (fn(generic(T : Type), x : &T, where(T <: Send)) -> unit)(());
+_wc_fwd :: (fn(generic(U : Type), y : &U) -> unit)(_wc_need_send(_WcPair(U)(a : y, b : y)));
 _WcKey :: struct(x : i32);
 impl(_WcKey, Eq(_WcKey)((==) : ((a, b) -> (a.x == b.x))));
 

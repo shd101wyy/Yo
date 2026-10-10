@@ -34,47 +34,47 @@ Tracked :: ref(struct(c : Counter, v : i32));
 impl(
   Tracked,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       self.c.n = (self.c.n + i32(1));
     })
   )
 );
 // Every call mints ONE owning temp; whether it is dropped is what is under
 // test.
-_mk :: (fn(imm(c) : Counter, v : i32) -> Tracked)(Tracked(c : c, v : v));
+_mk :: (fn(c : &Counter, v : i32) -> Tracked)(Tracked(c : c, v : v));
 // ── the shapes ─────────────────────────────────────────────────────────────
 // Whole-body `||`, operand 0 FALSE so both operands evaluate: 2 temps.
-_two_or :: (fn(imm(c) : Counter) -> bool)(
+_two_or :: (fn(c : &Counter) -> bool)(
   (_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9))
 );
 // Whole-body `&&`, operand 0 TRUE so both operands evaluate: 2 temps.
-_two_and :: (fn(imm(c) : Counter) -> bool)(
+_two_and :: (fn(c : &Counter) -> bool)(
   (_mk(c, i32(1)).v == i32(1)) && (_mk(c, i32(2)).v == i32(9))
 );
 // `||` that ACTUALLY short-circuits: operand 1 is never evaluated, so only 1
 // temp exists. The over-drop canary — a drop emitted unconditionally for
 // operand 1 would release a temp that was never created.
-_or_short :: (fn(imm(c) : Counter) -> bool)(
+_or_short :: (fn(c : &Counter) -> bool)(
   (_mk(c, i32(1)).v == i32(1)) || (_mk(c, i32(2)).v == i32(9))
 );
 // `&&` that actually short-circuits: 1 temp.
-_and_short :: (fn(imm(c) : Counter) -> bool)(
+_and_short :: (fn(c : &Counter) -> bool)(
   (_mk(c, i32(1)).v == i32(9)) && (_mk(c, i32(2)).v == i32(9))
 );
 // A CHAIN parses as nested binaries `((a || b) || c)`: 3 temps. The inner
 // operand's temps were the remainder left by the first fix
 // (issues/fixed/short-circuit-chain-inner-operand-temps-still-leak.md).
-_chain3 :: (fn(imm(c) : Counter) -> bool)(
+_chain3 :: (fn(c : &Counter) -> bool)(
   (_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9)) || (_mk(c, i32(3)).v == i32(9))
 );
 // Mixed `&&` over two `||`s: 4 temps, all evaluated.
-_mixed :: (fn(imm(c) : Counter) -> bool)(
+_mixed :: (fn(c : &Counter) -> bool)(
   ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(2))) &&
     ((_mk(c, i32(3)).v == i32(9)) || (_mk(c, i32(4)).v == i32(4)))
 );
 // `||` inside a match arm: 2 temps. Fixed by the same change and covered by
 // no test before.
-_in_match :: (fn(imm(c) : Counter) -> bool)(
+_in_match :: (fn(c : &Counter) -> bool)(
   match(
     Option(i32).Some(i32(1)),
     .Some(_) => ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9))),
@@ -83,12 +83,12 @@ _in_match :: (fn(imm(c) : Counter) -> bool)(
 );
 // The begin-opened (statement-position) shape — the pending channel covers
 // it; this pins parity between the two sources.
-_stmt_or :: (fn(imm(c) : Counter) -> bool)({
+_stmt_or :: (fn(c : &Counter) -> bool)({
   r := ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9)));
   r
 });
 // `||` in a while body: the loop-scope flush owns these; parity pin.
-_in_while :: (fn(imm(c) : Counter) -> i32)({
+_in_while :: (fn(c : &Counter) -> i32)({
   (h : i32) = i32(0);
   (i : usize) = usize(0);
   while(runtime(i < usize(3)), {
@@ -100,7 +100,7 @@ _in_while :: (fn(imm(c) : Counter) -> i32)({
   h
 });
 // Run `f` 100 times and return how many disposes it produced.
-_disposes :: (fn(imm(f) : Impl(Fn(imm(c) : Counter) -> bool)) -> i32)({
+_disposes :: (fn(f : &Impl(Fn(c : &Counter) -> bool)) -> i32)({
   c := Counter(n : i32(0));
   (i : usize) = usize(0);
   while(runtime(i < usize(100)), {

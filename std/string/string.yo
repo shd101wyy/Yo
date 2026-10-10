@@ -174,7 +174,7 @@ impl(
   }),
   /// Convert the string to a null-terminated C string.
   /// Returns an `ArrayList(u8)` with the string bytes followed by a `\0`.
-  to_cstr : (fn(imm(self) : Self) -> ArrayList(u8))({
+  to_cstr : (fn(self : &Self) -> ArrayList(u8))({
     (bytes_len : usize) = match(
       self._bytes,
       .Some(b) => b.len(),
@@ -206,11 +206,11 @@ impl(
   /// the byte offset each one starts at, use `char_indices()`.
   /// (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this returned a RUNE count
   /// before that flip.)
-  len : (fn(imm(self) : Self) -> usize)(
+  len : (fn(self : &Self) -> usize)(
     match(self._bytes, .Some(b) => b.len(), .None => usize(0))
   ),
   /// Check if the string is empty
-  is_empty : (fn(imm(self) : Self) -> bool)(
+  is_empty : (fn(self : &Self) -> bool)(
     match(
       self._bytes,
       .None => true,
@@ -219,7 +219,7 @@ impl(
   ),
   /// The byte at BYTE index `index`, or `.None` past the end — Rust's
   /// `s.as_bytes().get(i)`. Reads the string in place; nothing is copied.
-  get_byte : (fn(imm(self) : Self, index : usize) -> Option(u8))(
+  get_byte : (fn(self : &Self, index : usize) -> Option(u8))(
     match(
       self._bytes,
       .Some(b) => b.get(index),
@@ -232,7 +232,7 @@ impl(
   /// `bytes()`; to take the bytes out of a string you no longer need, use
   /// `into_bytes()`, which copies nothing when the buffer is unique. The copy
   /// is placed where the string's buffer lives (`ArrayList.clone`).
-  to_bytes : (fn(imm(self) : Self) -> ArrayList(u8))(
+  to_bytes : (fn(self : &Self) -> ArrayList(u8))(
     match(
       self._bytes,
       .None => ArrayList(u8).new(),
@@ -257,7 +257,7 @@ impl(
   /// The shared byte buffer itself, for READ-ONLY use inside `std/string/`
   /// (private: member visibility keeps it in this directory, so no code
   /// outside can write a string's bytes through it). Every caller only reads.
-  _byte_list : (fn(imm(self) : Self) -> ArrayList(u8))(
+  _byte_list : (fn(self : &Self) -> ArrayList(u8))(
     match(
       self._bytes,
       .None => ArrayList(u8).new(),
@@ -276,7 +276,7 @@ impl(
   /// The pointer dangles if the String mutates or dies — callers must not
   /// let it escape the borrow site; pair it with `.len()` at the same
   /// single-threaded instant.
-  ptr : (fn(imm(self) : Self) -> ?*u8)(
+  ptr : (fn(self : &Self) -> ?*u8)(
     match(
       self._bytes,
       .None => Option(*u8).None,
@@ -285,7 +285,7 @@ impl(
   ),
   /// Decode a UTF-8 encoded rune starting at the given byte index
   /// Internal helper method
-  _decode_rune_at : (fn(imm(self) : Self, byte_index : usize) -> Option(rune))(
+  _decode_rune_at : (fn(self : &Self, byte_index : usize) -> Option(rune))(
     match(
       self._bytes,
       .None => .None,
@@ -303,7 +303,7 @@ impl(
   /// Mirrors Rust's `str::is_char_boundary`. (Defined here, beside `at` and
   /// `substring`, because an `impl` block cannot call forward into a later
   /// one and both of those need it.)
-  is_char_boundary : (fn(imm(self) : Self, index : usize) -> bool)(
+  is_char_boundary : (fn(self : &Self, index : usize) -> bool)(
     match(
       self._bytes,
       .None => (index == usize(0)),
@@ -332,11 +332,11 @@ impl(
   /// `while(i < s.len(), { s.at(i) })` therefore visits continuation bytes and
   /// yields `.None` at each of them — use `char_indices()` (or `chars()`) to
   /// walk runes.
-  at : (fn(imm(self) : Self, index : usize) -> Option(rune))(
+  at : (fn(self : &Self, index : usize) -> Option(rune))(
     self._decode_rune_at(index)
   ),
   /// Concatenate two strings (like JavaScript +)
-  concat : (fn(imm(self) : Self, imm(other) : Self) -> Self)({
+  concat : (fn(self : &Self, other : &Self) -> Self)({
     (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
     if((self_len == usize(0)) && (other_len == usize(0)), {
@@ -364,7 +364,7 @@ impl(
     return(Self(_bytes : .Some(new_bytes)));
   }),
   /// Append another `String` to this string in-place (mutates `self`).
-  push_string : (fn(mut(self) : Self, imm(other) : Self) -> unit)({
+  push_string : (fn(self : &mut Self, other : &Self) -> unit)({
     (olen : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
     if(olen > usize(0), {
       // Grow first, then read `other`'s pointer: `other` may share this very
@@ -389,7 +389,7 @@ impl(
     });
   }),
   /// Append a `str` slice to this string in-place (mutates `self`).
-  push_str : (fn(mut(self) : Self, s : str) -> unit)({
+  push_str : (fn(self : &mut Self, s : str) -> unit)({
     (slen : usize) = s.len();
     if(slen > usize(0), {
       al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(slen));
@@ -399,7 +399,7 @@ impl(
   }),
   /// Append a single byte to this string in-place (mutates `self`).
   /// The caller must ensure the byte maintains valid UTF-8.
-  push_byte : (fn(mut(self) : Self, b : u8) -> unit)({
+  push_byte : (fn(self : &mut Self, b : u8) -> unit)({
     al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(usize(8)));
     al.push(b);
     self._bytes = .Some(al);
@@ -409,21 +409,21 @@ impl(
   /// `push_byte` appends a single BYTE and will happily build invalid UTF-8;
   /// this is the rune-level counterpart, so it is what you want for anything
   /// outside ASCII.
-  push_rune : (fn(mut(self) : Self, r : rune) -> unit)({
+  push_rune : (fn(self : &mut Self, r : rune) -> unit)({
     al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(usize(8)));
     utf8.encode_into(r, al);
     self._bytes = .Some(al);
   }),
   /// Reserve capacity for at least `additional` more bytes.
   /// If the string is empty, creates a new buffer with the given capacity.
-  reserve : (fn(mut(self) : Self, additional : usize) -> unit)({
+  reserve : (fn(self : &mut Self, additional : usize) -> unit)({
     al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(additional));
     (current_len : usize) = al.len();
     al.ensure_total_capacity(current_len + additional);
     self._bytes = .Some(al);
   }),
   /// Clear the string content but keep the allocated buffer for reuse.
-  clear : (fn(mut(self) : Self) -> unit)(
+  clear : (fn(self : &mut Self) -> unit)(
     match(
       self._bytes.take(),
       .Some(found) => {
@@ -440,7 +440,7 @@ impl(
   /// Get the byte at the given index. Panics if the index is out of
   /// bounds (mirrors `str`'s byte indexing). Use `len()` for the
   /// valid range and `bytes()` for sequential iteration.
-  byte_at : (fn(imm(self) : Self, index : usize) -> u8)(
+  byte_at : (fn(self : &Self, index : usize) -> u8)(
     match(
       self._bytes,
       .Some(b) => match(
@@ -455,7 +455,7 @@ impl(
   ///
   /// Same contract as `substring`, including the boundary policy: an endpoint
   /// inside a rune panics.
-  slice_copy : (fn(imm(self) : Self, r : Range(usize)) -> Self)(
+  slice_copy : (fn(self : &Self, r : Range(usize)) -> Self)(
     self.substring(r.start, r.end)
   ),
   /// Inclusive-range companion (`s(a..=b)`) — BYTE offsets, `r.end` included.
@@ -463,7 +463,7 @@ impl(
   /// Because `r.end` is the LAST byte kept, it must be the last byte of a
   /// rune for `r.end + 1` to land on a boundary; otherwise this panics like
   /// `substring`.
-  slice_copy_inclusive : (fn(imm(self) : Self, r : RangeInclusive(usize)) -> Self)(
+  slice_copy_inclusive : (fn(self : &Self, r : RangeInclusive(usize)) -> Self)(
     self.substring(r.start, r.end + usize(1))
   ),
   /// Owned copy of the bytes in `[start, end)`.
@@ -484,7 +484,7 @@ impl(
   ///   onto a boundary first, for callers doing byte arithmetic.
   /// - Rune-indexed slicing has no method form — walk `char_indices()`
   ///   for byte offsets and slice with those.
-  substring : (fn(imm(self) : Self, start : usize, end : usize) -> Self)(
+  substring : (fn(self : &Self, start : usize, end : usize) -> Self)(
     match(
       self._bytes,
       .None => {
@@ -543,7 +543,7 @@ impl(
   /// into a slice and can be handed an empty needle should go through
   /// `try_substring`, or snap with `floor_char_boundary`.
   /// Not called directly — go through `index_of`.
-  _index_of_impl : (fn(imm(self) : Self, imm(substr) : Self, (from_index : usize) ?= 0) -> Option(usize))(
+  _index_of_impl : (fn(self : &Self, substr : &Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(from_index),
       true => {
@@ -612,7 +612,7 @@ impl(
   /// **BYTE basis** for `from_index` (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4
   /// PR 3 — it was a rune index before the flip). Not called directly — go
   /// through `contains`.
-  _contains_impl : (fn(imm(self) : Self, imm(substr) : Self, (from_index : usize) ?= 0) -> bool)(
+  _contains_impl : (fn(self : &Self, substr : &Self, (from_index : usize) ?= 0) -> bool)(
     match(
       self._index_of_impl(substr, from_index),
       .Some(_) => true,
@@ -621,7 +621,7 @@ impl(
   ),
   /// Split the string by a separator into an array of strings (like JavaScript split)
   /// Returns an ArrayList of String
-  _split_impl : (fn(imm(self) : Self, imm(separator) : Self) -> ArrayList(Self))({
+  _split_impl : (fn(self : &Self, separator : &Self) -> ArrayList(Self))({
     result := ArrayList(Self).new();
     cond(
       // The empty separator means "split into CHARACTERS", and it has to keep
@@ -755,7 +755,7 @@ impl(
   /// cap the caller asked for. That is the pre-D4 behaviour carried over
   /// unchanged — only the unit changed, from a rune count to a byte count.
   /// Not called directly — go through `last_index_of`.
-  _last_index_of_impl : (fn(imm(self) : Self, imm(substr) : Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
+  _last_index_of_impl : (fn(self : &Self, substr : &Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(self.len()),
       true => match(
@@ -844,7 +844,7 @@ impl(
   /// generic `starts_with<P : Pattern>` (see
   /// plans/backlog/OVERLOADING_REDESIGN.md §4). Not called directly — go
   /// through `starts_with`.
-  _has_prefix : (fn(imm(self) : Self, imm(prefix) : Self, (position : usize) ?= 0) -> bool)({
+  _has_prefix : (fn(self : &Self, prefix : &Self, (position : usize) ?= 0) -> bool)({
     (prefix_bytes : usize) = match(prefix._bytes, .Some(b) => b.len(), .None => usize(0));
     (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     cond(
@@ -906,7 +906,7 @@ impl(
   /// valid-UTF-8 suffix cannot end there, so the answer is simply `false`.
   ///
   /// Not called directly — go through `ends_with`.
-  _ends_with_impl : (fn(imm(self) : Self, imm(suffix) : Self, (end_position : usize) ?= usize.MAX) -> bool)({
+  _ends_with_impl : (fn(self : &Self, suffix : &Self, (end_position : usize) ?= usize.MAX) -> bool)({
     (suffix_bytes : usize) = match(suffix._bytes, .Some(b) => b.len(), .None => usize(0));
     (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     (effective_end : usize) = cond(
@@ -965,7 +965,7 @@ impl(
   /// (never consults the C locale). Context-sensitive rules (Greek final sigma,
   /// Turkish dotted i) are not applied — the mapping is per code point, like
   /// Go's `strings.ToUpper`. ASCII input keeps a byte-wise fast path.
-  to_uppercase : (fn(imm(self) : Self) -> Self)(
+  to_uppercase : (fn(self : &Self) -> Self)(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
@@ -975,7 +975,7 @@ impl(
   /// Lowercase using the full Unicode 15.1 case mapping (all scripts, plus the
   /// `İ` → `i̇` expansion). Locale-independent. ASCII input keeps a byte-wise
   /// fast path.
-  to_lowercase : (fn(imm(self) : Self) -> Self)(
+  to_lowercase : (fn(self : &Self) -> Self)(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
@@ -985,7 +985,7 @@ impl(
   /// Uppercase ASCII letters A-Z only (byte-wise); all other bytes pass through
   /// unchanged. The explicitly-ASCII counterpart to `to_uppercase` for when the
   /// Unicode mapping must not apply (identifiers, protocol tokens, …).
-  to_ascii_uppercase : (fn(imm(self) : Self) -> Self)(
+  to_ascii_uppercase : (fn(self : &Self) -> Self)(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
@@ -1013,7 +1013,7 @@ impl(
   ),
   /// Lowercase ASCII letters A-Z only (byte-wise); all other bytes pass through
   /// unchanged. The explicitly-ASCII counterpart to `to_lowercase`.
-  to_ascii_lowercase : (fn(imm(self) : Self) -> Self)(
+  to_ascii_lowercase : (fn(self : &Self) -> Self)(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
@@ -1045,7 +1045,7 @@ impl(
     (byte == u8(0x20)) || (byte == u8(0x09)) || (byte == u8(0x0A)) || (byte == u8(0x0D)) || (byte == u8(0x0C)) || (byte == u8(0x0B))
   ),
   /// Remove whitespace from both ends of the string (like JavaScript trim)
-  trim : (fn(imm(self) : Self) -> Self)(
+  trim : (fn(self : &Self) -> Self)(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
@@ -1085,7 +1085,7 @@ impl(
     )
   ),
   /// Remove whitespace from the start of the string (like JavaScript trimStart)
-  trim_start : (fn(imm(self) : Self) -> Self)(
+  trim_start : (fn(self : &Self) -> Self)(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
@@ -1128,7 +1128,7 @@ impl(
     )
   ),
   /// Remove whitespace from the end of the string (like JavaScript trimEnd)
-  trim_end : (fn(imm(self) : Self) -> Self)(
+  trim_end : (fn(self : &Self) -> Self)(
     match(
       self._bytes,
       .None => Self(_bytes : .None),
@@ -1175,7 +1175,7 @@ impl(
   String,
   Add(String)(
     Output : String,
-    (+) : (fn(imm(self) : Self, imm(other) : Self) -> Self.Output)({
+    (+) : (fn(self : &Self, other : &Self) -> Self.Output)({
       return(self.concat(other));
     })
   )
@@ -1184,7 +1184,7 @@ impl(
 impl(
   String,
   Eq(String)(
-    (==) : (fn(imm(self) : Self, imm(other) : Self) -> bool)({
+    (==) : (fn(self : &Self, other : &Self) -> bool)({
       // Direct field reads instead of the trivial `.len()`/`.ptr()`
       // accessors: this compare is ~38% of a yo-self stage2 emit purely
       // from call volume, and each call paid four non-inlined accessor
@@ -1229,7 +1229,7 @@ impl(
           )
       )
     }),
-    (!=) : (fn(imm(self) : Self, imm(other) : Self) -> bool)({
+    (!=) : (fn(self : &Self, other : &Self) -> bool)({
       return(!Self.(==)(self, other));
     })
   )
@@ -1242,7 +1242,7 @@ impl(
 impl(
   String,
   Eq(str)(
-    (==) : (fn(imm(self) : Self, imm(other) : str) -> bool)({
+    (==) : (fn(self : &Self, other : &str) -> bool)({
       (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
       other_len := other.len();
       cond(
@@ -1266,7 +1266,7 @@ impl(
           )
       )
     }),
-    (!=) : (fn(imm(self) : Self, imm(other) : str) -> bool)({
+    (!=) : (fn(self : &Self, other : &str) -> bool)({
       return(!(self == other));
     })
   )
@@ -1277,7 +1277,7 @@ impl(
 impl(
   str,
   Eq(String)(
-    (==) : (fn(imm(self) : Self, imm(other) : String) -> bool)({
+    (==) : (fn(self : &Self, other : &String) -> bool)({
       self_len := self.len();
       (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
       cond(
@@ -1298,7 +1298,7 @@ impl(
           )
       )
     }),
-    (!=) : (fn(imm(self) : Self, imm(other) : String) -> bool)({
+    (!=) : (fn(self : &Self, other : &String) -> bool)({
       return(!(self == other));
     })
   )
@@ -1309,7 +1309,7 @@ impl(
 impl(
   String,
   Ord(String)(
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       lhs_len := lhs.len();
       rhs_len := rhs.len();
       min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
@@ -1327,13 +1327,13 @@ impl(
       });
       lhs_len < rhs_len
     }),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       return(!(rhs < lhs));
     }),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       return(rhs < lhs);
     }),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       return(!(lhs < rhs));
     })
   )
@@ -1352,54 +1352,54 @@ impl(
 /// producing a bogus hit.
 Pattern :: trait(
   /// BYTE offset in `haystack` to test the prefix at.
-  is_prefix_of : (fn(imm(self) : Self, imm(haystack) : String, position : usize) -> bool),
+  is_prefix_of : (fn(self : &Self, haystack : &String, position : usize) -> bool),
   /// Number of BYTES of `haystack` to consider; `usize.MAX` means all of it.
-  is_suffix_of : (fn(imm(self) : Self, imm(haystack) : String, end_position : usize) -> bool),
+  is_suffix_of : (fn(self : &Self, haystack : &String, end_position : usize) -> bool),
   /// BYTE offset in `haystack` to start searching from.
-  is_contained_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> bool),
+  is_contained_in : (fn(self : &Self, haystack : &String, from_index : usize) -> bool),
   /// BYTE offset in AND out: searches from byte `from_index`, answers with the
   /// byte offset of the match.
-  index_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> Option(usize)),
+  index_in : (fn(self : &Self, haystack : &String, from_index : usize) -> Option(usize)),
   /// BYTE offset in AND out: the highest byte offset a match may start at,
   /// answering with the byte offset of the last such match.
-  last_index_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> Option(usize)),
+  last_index_in : (fn(self : &Self, haystack : &String, from_index : usize) -> Option(usize)),
   /// Number of BYTES the match STARTING EXACTLY at byte offset `at` occupies
   /// — 0 when no match starts there. `replace`, `replace_all`, `split_once`
   /// and `strip_prefix` cut the haystack by it; a zero-width pattern (empty
   /// string, empty-matching regex) legitimately answers 0.
-  length_in : (fn(imm(self) : Self, imm(haystack) : String, at : usize) -> usize),
+  length_in : (fn(self : &Self, haystack : &String, at : usize) -> usize),
   /// Every piece of `haystack` between occurrences of this pattern, in order.
   /// The only `Pattern` method with no offset argument — it always covers the
   /// whole haystack — and the only one an implementation may give a shape of
   /// its own: `String` / `str` treat an EMPTY pattern as "split into runes"
   /// (see `String.split`), which no offset-based method can express.
-  split_of : (fn(imm(self) : Self, imm(haystack) : String) -> ArrayList(String))
+  split_of : (fn(self : &Self, haystack : &String) -> ArrayList(String))
 );
 impl(
   String,
   Pattern(
-    is_prefix_of : (fn(imm(self) : Self, imm(haystack) : String, position : usize) -> bool)(
+    is_prefix_of : (fn(self : &Self, haystack : &String, position : usize) -> bool)(
       haystack._has_prefix(self, position)
     ),
-    is_suffix_of : (fn(imm(self) : Self, imm(haystack) : String, end_position : usize) -> bool)(
+    is_suffix_of : (fn(self : &Self, haystack : &String, end_position : usize) -> bool)(
       haystack._ends_with_impl(self, end_position)
     ),
-    is_contained_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> bool)(
+    is_contained_in : (fn(self : &Self, haystack : &String, from_index : usize) -> bool)(
       haystack._contains_impl(self, from_index)
     ),
-    index_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> Option(usize))(
+    index_in : (fn(self : &Self, haystack : &String, from_index : usize) -> Option(usize))(
       haystack._index_of_impl(self, from_index)
     ),
-    last_index_in : (fn(imm(self) : Self, imm(haystack) : String, from_index : usize) -> Option(usize))(
+    last_index_in : (fn(self : &Self, haystack : &String, from_index : usize) -> Option(usize))(
       haystack._last_index_of_impl(self, from_index)
     ),
-    length_in : (fn(imm(self) : Self, imm(haystack) : String, at : usize) -> usize)(
+    length_in : (fn(self : &Self, haystack : &String, at : usize) -> usize)(
       cond(
         haystack._has_prefix(self, at) => self.len(),
         true => usize(0)
       )
     ),
-    split_of : (fn(imm(self) : Self, imm(haystack) : String) -> ArrayList(String))(
+    split_of : (fn(self : &Self, haystack : &String) -> ArrayList(String))(
       haystack._split_impl(self)
     )
   )
@@ -1407,28 +1407,28 @@ impl(
 impl(
   str,
   Pattern(
-    is_prefix_of : (fn(self : Self, imm(haystack) : String, position : usize) -> bool)(
+    is_prefix_of : (fn(self : Self, haystack : &String, position : usize) -> bool)(
       haystack._has_prefix(String.from(self), position)
     ),
-    is_suffix_of : (fn(self : Self, imm(haystack) : String, end_position : usize) -> bool)(
+    is_suffix_of : (fn(self : Self, haystack : &String, end_position : usize) -> bool)(
       haystack._ends_with_impl(String.from(self), end_position)
     ),
-    is_contained_in : (fn(self : Self, imm(haystack) : String, from_index : usize) -> bool)(
+    is_contained_in : (fn(self : Self, haystack : &String, from_index : usize) -> bool)(
       haystack._contains_impl(String.from(self), from_index)
     ),
-    index_in : (fn(self : Self, imm(haystack) : String, from_index : usize) -> Option(usize))(
+    index_in : (fn(self : Self, haystack : &String, from_index : usize) -> Option(usize))(
       haystack._index_of_impl(String.from(self), from_index)
     ),
-    last_index_in : (fn(self : Self, imm(haystack) : String, from_index : usize) -> Option(usize))(
+    last_index_in : (fn(self : Self, haystack : &String, from_index : usize) -> Option(usize))(
       haystack._last_index_of_impl(String.from(self), from_index)
     ),
-    length_in : (fn(self : Self, imm(haystack) : String, at : usize) -> usize)(
+    length_in : (fn(self : Self, haystack : &String, at : usize) -> usize)(
       cond(
         haystack._has_prefix(String.from(self), at) => String.from(self).len(),
         true => usize(0)
       )
     ),
-    split_of : (fn(self : Self, imm(haystack) : String) -> ArrayList(String))(
+    split_of : (fn(self : Self, haystack : &String) -> ArrayList(String))(
       haystack._split_impl(String.from(self))
     )
   )
@@ -1440,7 +1440,7 @@ impl(
 impl(
   rune,
   Pattern(
-    is_prefix_of : (fn(self : Self, imm(haystack) : String, position : usize) -> bool)(
+    is_prefix_of : (fn(self : Self, haystack : &String, position : usize) -> bool)(
       match(
         haystack._decode_rune_at(position),
         .Some(r) => (r == self),
@@ -1449,7 +1449,7 @@ impl(
     ),
     /// A rune match must END exactly at `end_position` (clamped to `len()`),
     /// so a mid-rune `end_position` can never match.
-    is_suffix_of : (fn(self : Self, imm(haystack) : String, end_position : usize) -> bool)({
+    is_suffix_of : (fn(self : Self, haystack : &String, end_position : usize) -> bool)({
       (n : usize) = haystack.len();
       (eff : usize) = if(end_position > n, n, end_position);
       bytes := haystack._byte_list();
@@ -1466,7 +1466,7 @@ impl(
       });
       false
     }),
-    index_in : (fn(self : Self, imm(haystack) : String, from_index : usize) -> Option(usize))({
+    index_in : (fn(self : Self, haystack : &String, from_index : usize) -> Option(usize))({
       bytes := haystack._byte_list();
       n := bytes.len();
       pos := from_index;
@@ -1485,14 +1485,14 @@ impl(
       });
       .None
     }),
-    is_contained_in : (fn(self : Self, imm(haystack) : String, from_index : usize) -> bool)(
+    is_contained_in : (fn(self : Self, haystack : &String, from_index : usize) -> bool)(
       match(
         self.index_in(haystack, from_index),
         .Some(_) => true,
         .None => false
       )
     ),
-    last_index_in : (fn(self : Self, imm(haystack) : String, from_index : usize) -> Option(usize))({
+    last_index_in : (fn(self : Self, haystack : &String, from_index : usize) -> Option(usize))({
       bytes := haystack._byte_list();
       n := bytes.len();
       lim := if(from_index > n, n, from_index);
@@ -1510,7 +1510,7 @@ impl(
       });
       last
     }),
-    length_in : (fn(self : Self, imm(haystack) : String, at : usize) -> usize)({
+    length_in : (fn(self : Self, haystack : &String, at : usize) -> usize)({
       bytes := haystack._byte_list();
       cond(
         (at < bytes.len()) =>
@@ -1525,7 +1525,7 @@ impl(
         true => usize(0)
       )
     }),
-    split_of : (fn(self : Self, imm(haystack) : String) -> ArrayList(String))({
+    split_of : (fn(self : Self, haystack : &String) -> ArrayList(String))({
       parts := ArrayList(String).new();
       bytes := haystack._byte_list();
       n := bytes.len();
@@ -1561,33 +1561,33 @@ impl(
 impl(
   String,
   /// Does `self` have `prefix` starting at BYTE offset `position` (default 0)?
-  starts_with : (fn(generic(P : Type), imm(self) : Self, imm(prefix) : P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
+  starts_with : (fn(generic(P : Type), self : &Self, prefix : &P, (position : usize) ?= 0, where(P <: Pattern)) -> bool)(
     prefix.is_prefix_of(self, position)
   ),
   /// Does the first `end_position` BYTES of `self` end with `suffix`?
   /// `end_position` defaults to `usize.MAX`, meaning the whole string, and
   /// clamps to `len()`.
-  ends_with : (fn(generic(P : Type), imm(self) : Self, imm(suffix) : P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
+  ends_with : (fn(generic(P : Type), self : &Self, suffix : &P, (end_position : usize) ?= usize.MAX, where(P <: Pattern)) -> bool)(
     suffix.is_suffix_of(self, end_position)
   ),
   /// Does `substr` occur at or after BYTE offset `from_index` (default 0)?
-  contains : (fn(generic(P : Type), imm(self) : Self, imm(substr) : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
+  contains : (fn(generic(P : Type), self : &Self, substr : &P, (from_index : usize) ?= 0, where(P <: Pattern)) -> bool)(
     substr.is_contained_in(self, from_index)
   ),
   /// BYTE offset of the first occurrence of `substr` at or after BYTE offset
   /// `from_index` (default 0), or `.None`.
-  index_of : (fn(generic(P : Type), imm(self) : Self, imm(substr) : P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
+  index_of : (fn(generic(P : Type), self : &Self, substr : &P, (from_index : usize) ?= 0, where(P <: Pattern)) -> Option(usize))(
     substr.index_in(self, from_index)
   ),
   /// BYTE offset of the last occurrence of `substr` starting at or before BYTE
   /// offset `from_index` (default `usize.MAX`, meaning anywhere), or `.None`.
-  last_index_of : (fn(generic(P : Type), imm(self) : Self, imm(substr) : P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
+  last_index_of : (fn(generic(P : Type), self : &Self, substr : &P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
     substr.last_index_in(self, from_index)
   ),
   /// Split on runs of ASCII whitespace, discarding empty pieces — Rust's
   /// `split_whitespace`. Leading and trailing whitespace produce no empty
   /// entries, which is what separates this from `split(" ")`.
-  split_whitespace : (fn(imm(self) : Self) -> ArrayList(String))({
+  split_whitespace : (fn(self : &Self) -> ArrayList(String))({
     out := ArrayList(String).new();
     n := self.len();
     (i : usize) = usize(0);
@@ -1617,7 +1617,7 @@ impl(
   /// of the string, separators included. Rust's `splitn`. `n == 0` yields
   /// nothing, as in Rust.
   splitn : (
-    fn(generic(P : Type), imm(self) : Self, n : usize, imm(separator) : P, where(P <: Pattern)) -> ArrayList(String)
+    fn(generic(P : Type), self : &Self, n : usize, separator : &P, where(P <: Pattern)) -> ArrayList(String)
   )({
     out := ArrayList(String).new();
     cond(
@@ -1645,7 +1645,7 @@ impl(
     )
   }),
   /// Whether every byte is ASCII (< 0x80) — Rust's `is_ascii`.
-  is_ascii : (fn(imm(self) : Self) -> bool)({
+  is_ascii : (fn(self : &Self) -> bool)({
     n := self.len();
     (i : usize) = usize(0);
     (all_ascii : bool) = true;
@@ -1660,7 +1660,7 @@ impl(
   /// ASCII-case-insensitive equality — Rust's `eq_ignore_ascii_case`. Only
   /// A-Z/a-z fold; every other byte must match exactly, so this is a byte
   /// comparison and never allocates.
-  eq_ignore_ascii_case : (fn(imm(self) : Self, imm(other) : Self) -> bool)({
+  eq_ignore_ascii_case : (fn(self : &Self, other : &Self) -> bool)({
     n := self.len();
     cond(
       (n != other.len()) => false,
@@ -1683,7 +1683,7 @@ impl(
   }),
   /// Shorten to `new_len` BYTES, panicking if that is not a char boundary —
   /// Rust's `truncate`. A longer `new_len` is a no-op.
-  truncate : (fn(mut(self) : Self, new_len : usize) -> unit)({
+  truncate : (fn(self : &mut Self, new_len : usize) -> unit)({
     cond(
       (new_len >= self.len()) => (),
       true => {
@@ -1710,7 +1710,7 @@ impl(
   ///
   /// A ZERO-WIDTH pattern (the empty string, a regex matching empty) strips
   /// nothing and terminates rather than spinning.
-  trim_start_matches : (fn(generic(P : Type), imm(self) : Self, imm(pat) : P, where(P <: Pattern)) -> Self)({
+  trim_start_matches : (fn(generic(P : Type), self : &Self, pat : &P, where(P <: Pattern)) -> Self)({
     (out : Self) = self.substring(usize(0), self.len());
     while(runtime(true), {
       before := out.len();
@@ -1734,7 +1734,7 @@ impl(
   }),
   /// `self` with every trailing occurrence of `pat` removed — Rust's
   /// `trim_end_matches`. Repeats, and terminates on a zero-width pattern.
-  trim_end_matches : (fn(generic(P : Type), imm(self) : Self, imm(pat) : P, where(P <: Pattern)) -> Self)({
+  trim_end_matches : (fn(generic(P : Type), self : &Self, pat : &P, where(P <: Pattern)) -> Self)({
     (out : Self) = self.substring(usize(0), self.len());
     while(runtime(true), {
       before := out.len();
@@ -1758,7 +1758,7 @@ impl(
   }),
   /// `self` with every leading AND trailing occurrence of `pat` removed —
   /// Rust's `trim_matches`.
-  trim_matches : (fn(generic(P : Type), imm(self) : Self, imm(pat) : P, where(P <: Pattern)) -> Self)(
+  trim_matches : (fn(generic(P : Type), self : &Self, pat : &P, where(P <: Pattern)) -> Self)(
     self.trim_start_matches(pat).trim_end_matches(pat)
   ),
   /// `self` cut at every occurrence of `separator` — Rust's `str::split`,
@@ -1776,7 +1776,7 @@ impl(
   /// `["a", "b", "c"]` — not Rust's `["", "a", "b", "c", ""]`. It is pinned to
   /// the rune vocabulary on purpose: a byte-wise split would hand back
   /// fragments that are not valid UTF-8 now that `len()` counts bytes.
-  split : (fn(generic(P : Type), imm(self) : Self, imm(separator) : P, where(P <: Pattern)) -> ArrayList(String))(
+  split : (fn(generic(P : Type), self : &Self, separator : &P, where(P <: Pattern)) -> ArrayList(String))(
     separator.split_of(self)
   ),
   /// `split`'s pieces from the RIGHT — Rust's `rsplit`.
@@ -1785,7 +1785,7 @@ impl(
   /// reversed, so `"a.b.c".rsplit(".")` is `["c", "b", "a"]`. (Rust's returns
   /// a lazy iterator; Yo's `split` already returns the whole list, so this
   /// reverses it.)
-  rsplit : (fn(generic(P : Type), imm(self) : Self, imm(separator) : P, where(P <: Pattern)) -> ArrayList(String))({
+  rsplit : (fn(generic(P : Type), self : &Self, separator : &P, where(P <: Pattern)) -> ArrayList(String))({
     parts := self.split(separator);
     parts.reverse();
     parts
@@ -1796,7 +1796,7 @@ impl(
   /// PANICS when `idx` is past the end or is not a char boundary, as Rust
   /// does; `len()` is bytes, so an index into the middle of a multi-byte rune
   /// would otherwise produce invalid UTF-8.
-  insert_str : (fn(mut(self) : Self, idx : usize, imm(s) : Self) -> unit)({
+  insert_str : (fn(self : &mut Self, idx : usize, s : &Self) -> unit)({
     if(idx > self.len(), {
       __yo_panic("String.insert_str: index out of bounds");
     });
@@ -1812,7 +1812,7 @@ impl(
   }),
   /// Insert one rune at BYTE index `idx` — Rust's `insert`. Same panics as
   /// `insert_str`.
-  insert : (fn(mut(self) : Self, idx : usize, r : rune) -> unit)({
+  insert : (fn(self : &mut Self, idx : usize, r : rune) -> unit)({
     one := Self.new();
     one.push_rune(r);
     self.insert_str(idx, one);
@@ -1821,7 +1821,7 @@ impl(
   /// `remove`.
   ///
   /// PANICS when `idx` is out of bounds or not a char boundary.
-  remove : (fn(mut(self) : Self, idx : usize) -> rune)({
+  remove : (fn(self : &mut Self, idx : usize) -> rune)({
     if(idx >= self.len(), {
       __yo_panic("String.remove: index out of bounds");
     });
@@ -1838,7 +1838,7 @@ impl(
     r
   }),
   /// Remove and return the LAST rune, or `.None` when empty — Rust's `pop`.
-  pop : (fn(mut(self) : Self) -> Option(rune))({
+  pop : (fn(self : &mut Self) -> Option(rune))({
     cond(
       (self.len() == usize(0)) => return(Option(rune).None),
       true => ()
@@ -1864,7 +1864,7 @@ impl(
   /// Rust's `str::split_once`. A zero-width separator (empty string pattern,
   /// regex matching empty) splits before the first rune.
   split_once : (
-    fn(generic(P : Type), imm(self) : Self, imm(separator) : P, where(P <: Pattern)) -> Option(
+    fn(generic(P : Type), self : &Self, separator : &P, where(P <: Pattern)) -> Option(
       (
         String;
         String
@@ -1883,7 +1883,7 @@ impl(
   }),
   /// `self` without `prefix`, or `.None` when `self` does not start with it.
   /// Rust's `str::strip_prefix`.
-  strip_prefix : (fn(generic(P : Type), imm(self) : Self, imm(prefix) : P, where(P <: Pattern)) -> Option(Self))({
+  strip_prefix : (fn(generic(P : Type), self : &Self, prefix : &P, where(P <: Pattern)) -> Option(Self))({
     (hit : bool) = prefix.is_prefix_of(self, usize(0));
     cond(
       hit => .Some(self.substring(prefix.length_in(self, usize(0)), self.len())),
@@ -1894,7 +1894,7 @@ impl(
   /// Rust's `str::strip_suffix`. The LAST starting occurrence of the suffix
   /// is the one stripped (so `"aaa".strip_suffix("aa")` is `.Some("a")`,
   /// like Rust).
-  strip_suffix : (fn(generic(P : Type), imm(self) : Self, imm(suffix) : P, where(P <: Pattern)) -> Option(Self))({
+  strip_suffix : (fn(generic(P : Type), self : &Self, suffix : &P, where(P <: Pattern)) -> Option(Self))({
     (last : Option(usize)) = suffix.last_index_in(self, usize.MAX);
     match(
       last,
@@ -1915,9 +1915,9 @@ impl(
   _replace_scan : (
     fn(
       generic(P : Type),
-      imm(self) : Self,
-      imm(search_value) : P,
-      imm(new_value) : Self,
+      self : &Self,
+      search_value : &P,
+      new_value : &Self,
       limit : usize,
       bounded : bool,
       where(P <: Pattern)
@@ -2003,7 +2003,7 @@ impl(
   ///
   /// NOTE this replaced only the FIRST occurrence before D10. Use `replacen`
   /// for a bounded count.
-  replace : (fn(generic(P : Type), imm(self) : Self, imm(search_value) : P, imm(new_value) : Self, where(P <: Pattern)) -> Self)(
+  replace : (fn(generic(P : Type), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(0), false)
   ),
   /// Replace the first `count` occurrences of `search_value` with `new_value`,
@@ -2014,9 +2014,9 @@ impl(
   replacen : (
     fn(
       generic(P : Type),
-      imm(self) : Self,
-      imm(search_value) : P,
-      imm(new_value) : Self,
+      self : &Self,
+      search_value : &P,
+      new_value : &Self,
       count : usize,
       where(P <: Pattern)
     ) -> Self
@@ -2027,14 +2027,14 @@ impl(
   ///
   /// DEPRECATED (D10), kept for one release: this is what `replace` used to
   /// mean. Write `replacen(search_value, new_value, usize(1))` instead.
-  replace_first : (fn(generic(P : Type), imm(self) : Self, imm(search_value) : P, imm(new_value) : Self, where(P <: Pattern)) -> Self)(
+  replace_first : (fn(generic(P : Type), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(1), true)
   ),
   /// Replace EVERY occurrence of `search_value` with `new_value`.
   ///
   /// DEPRECATED (D10), kept for one release: `replace` now means this. Rust
   /// spells it `replace`, with no `replace_all` on `str`.
-  replace_all : (fn(generic(P : Type), imm(self) : Self, imm(search_value) : P, imm(new_value) : Self, where(P <: Pattern)) -> Self)(
+  replace_all : (fn(generic(P : Type), self : &Self, search_value : &P, new_value : &Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(0), false)
   )
 );
@@ -2047,7 +2047,7 @@ impl(
 impl(
   String,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       match(
         self._bytes,
         .None => (),
@@ -2075,7 +2075,7 @@ impl(
 /// `next_back` half of the string iterators: UTF-8 is self-synchronising, so
 /// walking back over continuation bytes finds the previous rune's first byte
 /// without any table.
-_prev_rune_start :: (fn(imm(s) : String, at : usize) -> usize)({
+_prev_rune_start :: (fn(s : &String, at : usize) -> usize)({
   (i : usize) = (at - usize(1));
   while((i > usize(0)) && !s.is_char_boundary(i), {
     i = (i - usize(1));
@@ -2099,7 +2099,7 @@ impl(
   StringChars,
   Iterator(
     Item : rune,
-    next : (fn(mut(self) : Self) -> Option(rune))(
+    next : (fn(self : &mut Self) -> Option(rune))(
       match(
         self._string._bytes,
         .None => .None,
@@ -2129,7 +2129,7 @@ impl(
   StringChars,
   DoubleEndedIterator(
     Item : rune,
-    next_back : (fn(mut(self) : Self) -> Option(rune))(
+    next_back : (fn(self : &mut Self) -> Option(rune))(
       cond(
         (self._end <= self._byte_index) => Option(rune).None,
         true => {
@@ -2154,7 +2154,7 @@ impl(
   StringBytes,
   Iterator(
     Item : u8,
-    next : (fn(mut(self) : Self) -> Option(u8))(
+    next : (fn(self : &mut Self) -> Option(u8))(
       match(
         self._string._bytes,
         .None => .None,
@@ -2174,7 +2174,7 @@ impl(
   StringBytes,
   DoubleEndedIterator(
     Item : u8,
-    next_back : (fn(mut(self) : Self) -> Option(u8))(
+    next_back : (fn(self : &mut Self) -> Option(u8))(
       cond(
         (self._end <= self._index) => Option(u8).None,
         true => {
@@ -2205,7 +2205,7 @@ impl(
   StringCharIndices,
   Iterator(
     Item : IterPair(usize, rune),
-    next : (fn(mut(self) : Self) -> Option(IterPair(usize, rune)))(
+    next : (fn(self : &mut Self) -> Option(IterPair(usize, rune)))(
       match(
         self._string._bytes,
         .None => .None,
@@ -2237,7 +2237,7 @@ impl(
   StringCharIndices,
   DoubleEndedIterator(
     Item : IterPair(usize, rune),
-    next_back : (fn(mut(self) : Self) -> Option(IterPair(usize, rune)))(
+    next_back : (fn(self : &mut Self) -> Option(IterPair(usize, rune)))(
       cond(
         (self._end <= self._byte_index) => Option(IterPair(usize, rune)).None,
         true => {
@@ -2256,15 +2256,15 @@ impl(
 impl(
   String,
   /// Returns a rune iterator over the string's Unicode characters
-  chars : (fn(imm(self) : Self) -> StringChars)(
+  chars : (fn(self : &Self) -> StringChars)(
     StringChars(_string : self, _byte_index : usize(0), _end : self.len())
   ),
   /// Returns a byte iterator over the string's raw UTF-8 bytes
-  bytes : (fn(imm(self) : Self) -> StringBytes)(
+  bytes : (fn(self : &Self) -> StringBytes)(
     StringBytes(_string : self, _index : usize(0), _end : self.len())
   ),
   /// Consume the string and return a rune iterator (default iteration)
-  into_iter : (fn(imm(self) : Self) -> StringChars)(
+  into_iter : (fn(self : &Self) -> StringChars)(
     StringChars(_string : self, _byte_index : usize(0), _end : self.len())
   )
 );
@@ -2295,7 +2295,7 @@ impl(
   /// `_0` is the byte offset the rune starts at, `_1` is the rune. This is
   /// the replacement for the `while(i < s.len()) { s.at(i) }` shape, which
   /// now visits continuation bytes and hands back `.None` at each of them.
-  char_indices : (fn(imm(self) : Self) -> StringCharIndices)(
+  char_indices : (fn(self : &Self) -> StringCharIndices)(
     StringCharIndices(_string : self, _byte_index : usize(0), _end : self.len())
   ),
   /// The largest byte offset `<= index` that sits on a rune boundary.
@@ -2303,7 +2303,7 @@ impl(
   /// `index` is clamped to `len()` first, so the answer is always a
   /// boundary of THIS string. Pair it with `ceil_char_boundary` to widen or
   /// narrow a byte range onto boundaries before slicing.
-  floor_char_boundary : (fn(imm(self) : Self, index : usize) -> usize)(
+  floor_char_boundary : (fn(self : &Self, index : usize) -> usize)(
     match(
       self._bytes,
       .None => usize(0),
@@ -2330,7 +2330,7 @@ impl(
   ///
   /// `index` at or past `len()` clamps to `len()`, which is a boundary, so
   /// this always terminates on a valid one.
-  ceil_char_boundary : (fn(imm(self) : Self, index : usize) -> usize)(
+  ceil_char_boundary : (fn(self : &Self, index : usize) -> usize)(
     match(
       self._bytes,
       .None => usize(0),
@@ -2361,7 +2361,7 @@ impl(
   /// cannot honour — `start > end`, `end` past `len()`, or an endpoint inside
   /// a rune (which would produce invalid UTF-8). An empty but valid range
   /// yields `.Some` of the empty string.
-  try_substring : (fn(imm(self) : Self, start : usize, end : usize) -> Option(Self))({
+  try_substring : (fn(self : &Self, start : usize, end : usize) -> Option(Self))({
     (n : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     if(start > end, {
       return(.None);
@@ -2408,7 +2408,7 @@ StringLines :: struct(
 /// Windows `\r\n` at the end of the line — Rust's `str::lines` strips it, and
 /// a reader that forgot to would silently compare unequal against every
 /// literal. Only one `\r` goes: `"a\r\r\n"` really does end with a `\r`.
-_line_slice :: (fn(imm(al) : ArrayList(u8), start : usize, stop : usize) -> String)({
+_line_slice :: (fn(al : &ArrayList(u8), start : usize, stop : usize) -> String)({
   (cut : usize) = stop;
   cond(
     (cut > start) => match(
@@ -2445,7 +2445,7 @@ impl(
   StringLines,
   Iterator(
     Item : String,
-    next : (fn(mut(self) : Self) -> Option(String))(
+    next : (fn(self : &mut Self) -> Option(String))(
       match(
         self._string._bytes,
         .None => .None,
@@ -2492,7 +2492,7 @@ impl(
   StringLines,
   DoubleEndedIterator(
     Item : String,
-    next_back : (fn(mut(self) : Self) -> Option(String))(
+    next_back : (fn(self : &mut Self) -> Option(String))(
       match(
         self._string._bytes,
         .None => .None,
@@ -2544,7 +2544,7 @@ impl(
   /// assert(iter.next() == .Some(`world`), "second line");
   /// assert(iter.next() == .None, "done");
   /// ```
-  lines : (fn(imm(self) : Self) -> StringLines)(
+  lines : (fn(self : &Self) -> StringLines)(
     StringLines(_string : self, _byte_index : usize(0), _end : self.len())
   ),
   /// Returns a new string containing `n` copies of `self`.
@@ -2555,7 +2555,7 @@ impl(
   /// assert(`ab`.repeat(usize(3)) == `ababab`, "repeat");
   /// assert(`x`.repeat(usize(0)) == ``, "repeat 0");
   /// ```
-  repeat : (fn(imm(self) : Self, n : usize) -> Self)(
+  repeat : (fn(self : &Self, n : usize) -> Self)(
     cond(
       (n == usize(0)) => Self(_bytes : .None),
       self.is_empty() => Self(_bytes : .None),
@@ -2599,7 +2599,7 @@ impl(
   /// result := `, `.join(items);
   /// assert(result == `a, b, c`, "join");
   /// ```
-  join : (fn(imm(self) : Self, imm(items) : ArrayList(Self)) -> Self)({
+  join : (fn(self : &Self, items : &ArrayList(Self)) -> Self)({
     count := items.len();
     cond(
       (count == usize(0)) => Self(_bytes : .None),
@@ -2689,7 +2689,7 @@ impl(
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(bool)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_bool : (fn(imm(self) : Self) -> Option(bool))(
+  parse_bool : (fn(self : &Self) -> Option(bool))(
     match(
       self._bytes,
       .None => .None,
@@ -2745,7 +2745,7 @@ _lc_ascii :: (fn(b : u8) -> u8)(
 /// `[+-]? ( digits ('.' digits?)? | '.' digits ) ([eE][+-]?digits)?`
 /// — with at least one digit in the significand — or `[+-]?(inf|infinity|nan)`
 /// (case-insensitive). No whitespace, no hex floats, no trailing garbage.
-_f64_grammar_ok :: (fn(imm(bytes) : ArrayList(u8)) -> bool)({
+_f64_grammar_ok :: (fn(bytes : &ArrayList(u8)) -> bool)({
   (n : usize) = bytes.len();
   if(n == usize(0), {
     return(false);
@@ -2930,12 +2930,12 @@ FromString :: trait(
   /// Parse the whole of `s` as a `Self`. Implementations reject trailing
   /// junk and surrounding whitespace rather than stopping early, so a `.Ok`
   /// means the entire string was consumed. Reached as `s.parse(T)`.
-  from_string : (fn(imm(s) : String) -> Result(Self, Self.Err))
+  from_string : (fn(s : &String) -> Result(Self, Self.Err))
 );
 /// Magnitude scanner shared by every integer parser. Distinguishes an empty
 /// digit run, a non-digit and an overflow — the whole point of D12.
 _radix_magnitude_res :: (
-  fn(imm(s) : String, radix : u32, start : usize) -> Result(u64, ParseIntError)
+  fn(s : &String, radix : u32, start : usize) -> Result(u64, ParseIntError)
 )({
   cond(
     ((radix < u32(2)) || (radix > u32(36))) => {
@@ -2970,7 +2970,7 @@ _radix_magnitude_res :: (
 /// Signed core: sign, then magnitude, then the i64 range check. The sign is
 /// what turns a magnitude overflow into Pos- or NegOverflow.
 _parse_i64_radix_res :: (
-  fn(imm(s) : String, radix : u32) -> Result(i64, ParseIntError)
+  fn(s : &String, radix : u32) -> Result(i64, ParseIntError)
 )({
   cond(
     ((radix < u32(2)) || (radix > u32(36))) => {
@@ -3018,7 +3018,7 @@ _parse_i64_radix_res :: (
 /// Unsigned core: an optional `+`, then the magnitude. A leading `-` is a
 /// digit error, not a negative number — same as Rust.
 _parse_u64_radix_res :: (
-  fn(imm(s) : String, radix : u32) -> Result(u64, ParseIntError)
+  fn(s : &String, radix : u32) -> Result(u64, ParseIntError)
 )({
   cond(
     ((radix < u32(2)) || (radix > u32(36))) => {
@@ -3047,7 +3047,7 @@ impl(
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(f64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_f64 : (fn(imm(self) : Self) -> Option(f64))({
+  parse_f64 : (fn(self : &Self) -> Option(f64))({
     (ok : bool) = _f64_grammar_ok(self._byte_list());
     cond(
       ok => {
@@ -3066,7 +3066,7 @@ impl(
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_i64_radix : (fn(imm(self) : Self, radix : u32) -> Option(i64))(
+  parse_i64_radix : (fn(self : &Self, radix : u32) -> Option(i64))(
     match(_parse_i64_radix_res(self, radix), .Ok(v) => .Some(v), .Err(_) => .None)
   ),
   /// Parse a `u64` in the given `radix` (2..=36) — Rust's
@@ -3075,7 +3075,7 @@ impl(
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_u64_radix : (fn(imm(self) : Self, radix : u32) -> Option(u64))(
+  parse_u64_radix : (fn(self : &Self, radix : u32) -> Option(u64))(
     match(_parse_u64_radix_res(self, radix), .Ok(v) => .Some(v), .Err(_) => .None)
   ),
   /// Parse the string as a signed 32-bit integer — Rust's `i32::from_str`.
@@ -3084,7 +3084,7 @@ impl(
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(i32)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_i32 : (fn(imm(self) : Self) -> Option(i32))(
+  parse_i32 : (fn(self : &Self) -> Option(i32))(
     match(
       self.parse_i64_radix(u32(10)),
       .Some(v) => cond(
@@ -3100,14 +3100,14 @@ impl(
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_i64 : (fn(imm(self) : Self) -> Option(i64))(self.parse_i64_radix(u32(10))),
+  parse_i64 : (fn(self : &Self) -> Option(i64))(self.parse_i64_radix(u32(10))),
   /// Parse the string as an unsigned 32-bit integer — Rust's `u32::from_str`.
   /// An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
   /// run, any non-digit, or a value outside `u32`.
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(u32)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_u32 : (fn(imm(self) : Self) -> Option(u32))(
+  parse_u32 : (fn(self : &Self) -> Option(u32))(
     match(
       self.parse_u64_radix(u32(10)),
       .Some(v) => cond(
@@ -3123,7 +3123,7 @@ impl(
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_u64 : (fn(imm(self) : Self) -> Option(u64))(self.parse_u64_radix(u32(10)))
+  parse_u64 : (fn(self : &Self) -> Option(u64))(self.parse_u64_radix(u32(10)))
 );
 // ============================================================================
 // FromString impls + `s.parse(T)` (D12)
@@ -3132,7 +3132,7 @@ impl(
   i64,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(i64, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(i64, ParseIntError))(
       _parse_i64_radix_res(s, u32(10))
     )
   )
@@ -3141,7 +3141,7 @@ impl(
   u64,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(u64, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(u64, ParseIntError))(
       _parse_u64_radix_res(s, u32(10))
     )
   )
@@ -3150,7 +3150,7 @@ impl(
   i32,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(i32, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(i32, ParseIntError))(
       match(
         _parse_i64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3167,7 +3167,7 @@ impl(
   u32,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(u32, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(u32, ParseIntError))(
       match(
         _parse_u64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3187,7 +3187,7 @@ impl(
   usize,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(usize, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(usize, ParseIntError))(
       match(
         _parse_u64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3203,7 +3203,7 @@ impl(
   isize,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(isize, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(isize, ParseIntError))(
       match(
         _parse_i64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3220,7 +3220,7 @@ impl(
   i16,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(i16, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(i16, ParseIntError))(
       match(
         _parse_i64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3237,7 +3237,7 @@ impl(
   u16,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(u16, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(u16, ParseIntError))(
       match(
         _parse_u64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3253,7 +3253,7 @@ impl(
   i8,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(i8, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(i8, ParseIntError))(
       match(
         _parse_i64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3270,7 +3270,7 @@ impl(
   u8,
   FromString(
     Err : ParseIntError,
-    from_string : (fn(imm(s) : String) -> Result(u8, ParseIntError))(
+    from_string : (fn(s : &String) -> Result(u8, ParseIntError))(
       match(
         _parse_u64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3291,7 +3291,7 @@ impl(
   f32,
   FromString(
     Err : ParseFloatError,
-    from_string : (fn(imm(s) : String) -> Result(f32, ParseFloatError))(
+    from_string : (fn(s : &String) -> Result(f32, ParseFloatError))(
       cond(
         (s.len() == usize(0)) => .Err(ParseFloatError.Empty),
         true => match(
@@ -3307,7 +3307,7 @@ impl(
   f64,
   FromString(
     Err : ParseFloatError,
-    from_string : (fn(imm(s) : String) -> Result(f64, ParseFloatError))(
+    from_string : (fn(s : &String) -> Result(f64, ParseFloatError))(
       cond(
         (s.len() == usize(0)) => .Err(ParseFloatError.Empty),
         true => match(s.parse_f64(), .Some(v) => .Ok(v), .None => .Err(ParseFloatError.Invalid))
@@ -3319,7 +3319,7 @@ impl(
   bool,
   FromString(
     Err : ParseBoolError,
-    from_string : (fn(imm(s) : String) -> Result(bool, ParseBoolError))(
+    from_string : (fn(s : &String) -> Result(bool, ParseBoolError))(
       match(s.parse_bool(), .Some(v) => .Ok(v), .None => .Err(ParseBoolError.Invalid))
     )
   )
@@ -3335,17 +3335,17 @@ impl(
   /// The error is `T`'s own, so a caller can tell an empty string from garbage
   /// from an out-of-range value. `T` is written out because it cannot be
   /// inferred from the arguments — only from the result, which Yo does not do.
-  parse : (fn(imm(self) : Self, comptime(T) : Type, where(T <: FromString)) -> Result(T, T.Err))(
+  parse : (fn(self : &Self, comptime(T) : Type, where(T <: FromString)) -> Result(T, T.Err))(
     T.from_string(self)
   ),
   /// Parse a signed integer in `radix` (2..=36) — Rust's `i64::from_str_radix`,
   /// reporting WHY it failed.
-  parse_i64_radix_res : (fn(imm(self) : Self, radix : u32) -> Result(i64, ParseIntError))(
+  parse_i64_radix_res : (fn(self : &Self, radix : u32) -> Result(i64, ParseIntError))(
     _parse_i64_radix_res(self, radix)
   ),
   /// Parse an unsigned integer in `radix` (2..=36) — Rust's
   /// `u64::from_str_radix`, reporting WHY it failed.
-  parse_u64_radix_res : (fn(imm(self) : Self, radix : u32) -> Result(u64, ParseIntError))(
+  parse_u64_radix_res : (fn(self : &Self, radix : u32) -> Result(u64, ParseIntError))(
     _parse_u64_radix_res(self, radix)
   )
 );
@@ -3367,7 +3367,7 @@ impl(
 impl(
   String,
   Clone(
-    clone : (fn(mut(self) : Self) -> Self)(
+    clone : (fn(self : &mut Self) -> Self)(
       match(
         self._bytes,
         .None => Self(_bytes : .None),
@@ -3397,7 +3397,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       String.new()
     ),
-    from_iter_add : (fn(sink(acc) : Self, imm(item) : Self.Elem) -> Self)({
+    from_iter_add : (fn(sink(acc) : Self, item : &Self.Elem) -> Self)({
       acc.push_string(item);
       acc
     })

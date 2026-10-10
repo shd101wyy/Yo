@@ -5,7 +5,7 @@ Buf :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(_n : usize)));
 impl(
   generic(T : Type),
   Buf(T),
-  grow : (fn(imm(self) : Self, cap : usize) -> unit)({
+  grow : (fn(self : &Self, cap : usize) -> unit)({
     m := unsafe(GlobalAllocator.malloc(size_of(T) * cap));
     match(m, .Some(p) => unsafe(GlobalAllocator.free(.Some(p))), .None => ());
   }),

@@ -17,7 +17,7 @@ Node :: struct(value : i32, next : Option(Rc(Self)));
 List :: struct(head : Option(Rc(Node)));
 (g_count : i32) = i32(0);
 g_list := List(head : .None);
-bump :: (fn(mut(n) : i32) -> unit)({
+bump :: (fn(n : &mut i32) -> unit)({
   n = (n + i32(1));
 });
 take_string :: (fn(sink(s) : String) -> usize)(s.len());
@@ -26,22 +26,22 @@ noop :: (fn() -> unit)(());
 // --- imm: read-only, and the place stays readable ---------------------------
 test("imm borrow reads through, and its root stays readable while it is live", {
   s := String.from("abc");
-  imm(y) := s;
+  y := &s;
   assert(y.len() == usize(3), "read through the imm borrow");
   assert(s.len() == usize(3), "an imm borrow does not lock reads of its place");
-  imm(z) := s;
+  z := &s;
   assert((y.len() + z.len()) == usize(6), "two imm borrows of one place coexist");
 });
 test("imm borrow of a field of a value struct", {
   p := Point(x : i32(1), y : i32(2));
-  imm(px) := p.x;
+  px := &p.x;
   p.y = i32(5);
   assert(px == i32(1), "a sibling field stays writable while px is live");
   assert(p.y == i32(5), "sibling write landed");
 });
 test("after an imm borrow's last use its place is writable again", {
   x := i32(1);
-  imm(y) := x;
+  y := &x;
   v := y;
   x = i32(2);
   assert((v == i32(1)) && (x == i32(2)), "the write after the last use is accepted");
@@ -50,7 +50,7 @@ test("after an imm borrow's last use its place is writable again", {
 // --- mut: exclusive until its last use --------------------------------------
 test("mut borrow writes through, and the place is free after its last use", {
   x := i32(1);
-  mut(y) := x;
+  y := &mut x;
   y = i32(5);
   assert(x == i32(5), "the write through y landed in x, read after y's last use");
   x = i32(6);
@@ -58,26 +58,26 @@ test("mut borrow writes through, and the place is free after its last use", {
 });
 test("inout(y) := is mut's synonym and gets the same live range", {
   s := String.from("a");
-  mut(r) := s;
+  r := &mut s;
   r.push_str("b");
   assert(s == "ab", "read of s after r's last use");
 });
 test("sibling fields of a value struct are borrowed independently", {
   p := Point(x : i32(1), y : i32(2));
-  mut(a) := p.x;
-  mut(b) := p.y;
+  a := &mut p.x;
+  b := &mut p.y;
   a = i32(10);
   b = i32(20);
   assert((p.x == i32(10)) && (p.y == i32(20)), "both writes landed");
   sh := Shape(origin : Point(x : i32(0), y : i32(0)), name : String.from("sq"));
-  mut(o) := sh.origin;
+  o := &mut sh.origin;
   sh.name.push_str("!");
   o.x = i32(3);
   assert((sh.origin.x == i32(3)) && (sh.name == "sq!"), "a sibling of a nested field is free");
 });
 test("a sibling field is readable while a mut borrow of another field is live", {
   p := Point(x : i32(1), y : i32(7));
-  mut(a) := p.x;
+  a := &mut p.x;
   v := p.y;
   a = v;
   assert(p.x == i32(7), "read the sibling, wrote through a");
@@ -85,7 +85,7 @@ test("a sibling field is readable while a mut borrow of another field is live", 
 test("a borrow's last use in one arm leaves the other arm free", {
   x := i32(1);
   c := runtime(true);
-  mut(y) := x;
+  y := &mut x;
   cond(
     c => {
       y = i32(2);
@@ -100,7 +100,7 @@ test("a borrow declared in a loop body is fresh each iteration", {
   total := i32(0);
   i := i32(0);
   while(i < i32(3), {
-    mut(acc) := total;
+    acc := &mut total;
     acc = (acc + i);
     i = (i + i32(1));
   });
@@ -108,21 +108,21 @@ test("a borrow declared in a loop body is fresh each iteration", {
 });
 test("a borrow of a borrow keeps its source borrowed, and both write the same place", {
   sh := Shape(origin : Point(x : i32(0), y : i32(0)), name : String.from("sq"));
-  mut(a) := sh.origin;
-  mut(b) := a.y;
+  a := &mut sh.origin;
+  b := &mut a.y;
   b = i32(3);
   a.x = i32(4);
   assert((sh.origin.y == i32(3)) && (sh.origin.x == i32(4)), "b writes into a's target");
 });
 test("a borrow of a module-level place with no call in its range", {
-  mut(c) := g_count;
+  c := &mut g_count;
   c = (c + i32(7));
   assert(g_count == i32(7), "written through c; the read is after c's last use");
   g_count = i32(0);
 });
 test("a mut borrow passed to a mut parameter", {
   x := i32(1);
-  mut(y) := x;
+  y := &mut x;
   bump(&mut y);
   bump(y);
   assert(x == i32(3), "both calls wrote x through y");
@@ -130,7 +130,7 @@ test("a mut borrow passed to a mut parameter", {
 test("an object field borrow pins the object; the cell is the unit", {
   h := Holder(n : i32(1), s : String.from("h"));
   {
-    mut(n) := h.n;
+    n := &mut h.n;
     n = (n + i32(1));
   };
   assert(h.n == i32(2), "written through the pinned object");
@@ -138,36 +138,36 @@ test("an object field borrow pins the object; the cell is the unit", {
 });
 
 // --- Decision 25: the cursor walk ---------------------------------------------
-append :: (fn(mut(list) : List, v : i32) -> unit)({
-  mut(cur) := list.head;
+append :: (fn(list : &mut List, v : i32) -> unit)({
+  cur := &mut list.head;
   while(cur.is_some(), {
     match(
       cur,
       .Some(n) => {
-        mut(cur) = n.next;
+        cur = &mut n.next;
       },
       .None => ()
     );
   });
   cur = .Some(rc(Node(value : v, next : .None)));
 });
-sum_list :: (fn(imm(list) : List) -> i32)({
+sum_list :: (fn(list : &List) -> i32)({
   (total : i32) = i32(0);
-  imm(cur) := list.head;
+  cur := &list.head;
   while(cur.is_some(), {
     match(
       cur,
       .Some(n) => {
         total = (total + n.value);
-        imm(cur) = n.next;
+        cur = &n.next;
       },
       .None => ()
     );
   });
   total
 });
-first_over :: (fn(imm(list) : List, k : i32) -> i32)({
-  imm(cur) := list.head;
+first_over :: (fn(list : &List, k : i32) -> i32)({
+  cur := &list.head;
   while(cur.is_some(), {
     match(
       cur,
@@ -175,14 +175,14 @@ first_over :: (fn(imm(list) : List, k : i32) -> i32)({
         if(n.value > k, {
           return(n.value);
         });
-        imm(cur) = n.next;
+        cur = &n.next;
       },
       .None => ()
     );
   });
   i32(-1)
 });
-head_count :: (fn(imm(list) : List) -> usize)(
+head_count :: (fn(list : &List) -> usize)(
   match(list.head, .Some(b) => ref_count(b), .None => usize(0))
 );
 test("the cursor walk appends at the tail slot (decision 25)", {
@@ -211,7 +211,7 @@ test("an early return mid-walk releases the cell the last step pinned", {
 comptime_expect_error(
   imm_assign_rejected :: (fn() -> unit)({
     x := i32(1);
-    imm(y) := x;
+    y := &x;
     y = i32(2);
   }),
   "is a `&` borrow, which is read-only"
@@ -219,7 +219,7 @@ comptime_expect_error(
 comptime_expect_error(
   imm_field_write_rejected :: (fn() -> unit)({
     p := Point(x : i32(1), y : i32(2));
-    imm(y) := p;
+    y := &p;
     y.x = i32(2);
   }),
   "is a `&` borrow, which is read-only"
@@ -227,7 +227,7 @@ comptime_expect_error(
 comptime_expect_error(
   imm_mutating_method_rejected :: (fn() -> unit)({
     s := String.from("a");
-    imm(y) := s;
+    y := &s;
     y.push_str("!");
   }),
   "is a `&` borrow, which is read-only"
@@ -235,7 +235,7 @@ comptime_expect_error(
 comptime_expect_error(
   imm_to_mut_parameter_rejected :: (fn() -> unit)({
     x := i32(1);
-    imm(y) := x;
+    y := &x;
     bump(&mut y);
   }),
   "is a `&` borrow, which is read-only"
@@ -243,8 +243,8 @@ comptime_expect_error(
 comptime_expect_error(
   mut_borrow_through_imm_rejected :: (fn() -> unit)({
     p := Point(x : i32(1), y : i32(2));
-    imm(y) := p;
-    mut(z) := y.x;
+    y := &p;
+    z := &mut y.x;
     z = i32(3);
   }),
   "is a `&` borrow, which is read-only"
@@ -254,7 +254,7 @@ comptime_expect_error(
 comptime_expect_error(
   write_under_imm_rejected :: (fn() -> unit)({
     x := i32(1);
-    imm(y) := x;
+    y := &x;
     x = i32(2);
     _v := y;
   }),
@@ -263,7 +263,7 @@ comptime_expect_error(
 comptime_expect_error(
   mutating_method_under_imm_rejected :: (fn() -> unit)({
     s := String.from("a");
-    imm(y) := s;
+    y := &s;
     s.push_str("b");
     _n := y.len();
   }),
@@ -272,7 +272,7 @@ comptime_expect_error(
 comptime_expect_error(
   move_under_imm_rejected :: (fn() -> unit)({
     s := String.from("a");
-    imm(y) := s;
+    y := &s;
     _m := take_string(s);
     _n := y.len();
   }),
@@ -281,7 +281,7 @@ comptime_expect_error(
 comptime_expect_error(
   read_under_mut_rejected :: (fn() -> unit)({
     x := i32(1);
-    mut(y) := x;
+    y := &mut x;
     _v := x;
     y = i32(2);
   }),
@@ -290,7 +290,7 @@ comptime_expect_error(
 comptime_expect_error(
   containing_place_written_under_mut_rejected :: (fn() -> unit)({
     p := Point(x : i32(1), y : i32(2));
-    mut(a) := p.x;
+    a := &mut p.x;
     p = Point(x : i32(3), y : i32(4));
     a = i32(5);
   }),
@@ -299,7 +299,7 @@ comptime_expect_error(
 comptime_expect_error(
   contained_place_read_under_mut_rejected :: (fn() -> unit)({
     sh := Shape(origin : Point(x : i32(0), y : i32(0)), name : String.from("sq"));
-    mut(o) := sh.origin;
+    o := &mut sh.origin;
     _v := sh.origin.y;
     o.y = i32(1);
   }),
@@ -308,8 +308,8 @@ comptime_expect_error(
 comptime_expect_error(
   two_mut_borrows_of_one_place_rejected :: (fn() -> unit)({
     x := i32(1);
-    mut(a) := x;
-    mut(b) := x;
+    a := &mut x;
+    b := &mut x;
     b = i32(2);
     a = i32(3);
   }),
@@ -318,8 +318,8 @@ comptime_expect_error(
 comptime_expect_error(
   mut_borrow_under_a_live_imm_borrow_rejected :: (fn() -> unit)({
     x := i32(1);
-    imm(a) := x;
-    mut(b) := x;
+    a := &x;
+    b := &mut x;
     b = i32(2);
     _v := a;
   }),
@@ -328,8 +328,8 @@ comptime_expect_error(
 comptime_expect_error(
   two_fields_of_one_cell_overlap :: (fn() -> unit)({
     h := Holder(n : i32(1), s : String.from("h"));
-    mut(n) := h.n;
-    mut(s) := h.s;
+    n := &mut h.n;
+    s := &mut h.s;
     s.push_str("!");
     n = i32(2);
   }),
@@ -339,7 +339,7 @@ comptime_expect_error(
   loop_back_edge_keeps_the_borrow_live :: (fn() -> unit)({
     x := i32(1);
     i := i32(0);
-    mut(y) := x;
+    y := &mut x;
     while(i < i32(3), {
       y = (y + i32(1));
       x = i32(0);
@@ -351,8 +351,8 @@ comptime_expect_error(
 comptime_expect_error(
   a_derived_borrow_keeps_its_source_frozen :: (fn() -> unit)({
     p := Point(x : i32(1), y : i32(2));
-    mut(a) := p;
-    mut(b) := a.x;
+    a := &mut p;
+    b := &mut a.x;
     _v := p.y;
     b = i32(3);
   }),
@@ -360,7 +360,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   module_level_borrow_across_a_call_rejected :: (fn() -> unit)({
-    mut(c) := g_count;
+    c := &mut g_count;
     c = i32(1);
     noop();
     c = i32(2);
@@ -373,8 +373,8 @@ comptime_expect_error(
   repoint_to_a_sibling_root_rejected :: (fn() -> unit)({
     l1 := List(head : .None);
     l2 := List(head : .None);
-    mut(cur) := l1.head;
-    mut(cur) = l2.head;
+    cur := &mut l1.head;
+    cur = &mut l2.head;
     cur = .None;
   }),
   "is a different variable, not a place reached from `cur`"
@@ -382,19 +382,19 @@ comptime_expect_error(
 comptime_expect_error(
   repoint_to_a_module_level_place_rejected :: (fn() -> unit)({
     l1 := List(head : .None);
-    mut(cur) := l1.head;
-    mut(cur) = g_list.head;
+    cur := &mut l1.head;
+    cur = &mut g_list.head;
     cur = .None;
   }),
   "is a module-level binding"
 );
-head_of :: (fn(imm(l) : List) -> Option(Rc(Node)))(l.head);
+head_of :: (fn(l : &List) -> Option(Rc(Node)))(l.head);
 comptime_expect_error(
   repoint_to_a_place_a_callee_could_reach_rejected :: (fn() -> unit)({
     l1 := List(head : .None);
     l2 := List(head : .None);
-    mut(cur) := l1.head;
-    mut(cur) = head_of(l2);
+    cur := &mut l1.head;
+    cur = &mut head_of(l2);
     cur = .None;
   }),
   "is not known to be reached from `cur`"
@@ -402,11 +402,11 @@ comptime_expect_error(
 comptime_expect_error(
   repoint_keeps_the_mode :: (fn() -> unit)({
     l1 := List(head : .None);
-    imm(cur) := l1.head;
+    cur := &l1.head;
     match(
       cur,
       .Some(n) => {
-        mut(cur) = n.next;
+        cur = &mut n.next;
       },
       .None => ()
     );
@@ -417,19 +417,19 @@ comptime_expect_error(
   repoint_of_a_plain_local_rejected :: (fn() -> unit)({
     x := i32(1);
     y := i32(2);
-    mut(x) = y;
+    x = &mut y;
   }),
   "re-points a local borrow"
 );
 comptime_expect_error(
   repoint_while_a_derived_borrow_is_live_rejected :: (fn() -> unit)({
     l1 := List(head : .None);
-    mut(cur) := l1.head;
+    cur := &mut l1.head;
     match(
       cur,
       .Some(n) => {
-        imm(d) := cur;
-        mut(cur) = n.next;
+        d := &cur;
+        cur = &mut n.next;
         _b := d.is_some();
       },
       .None => ()
@@ -440,12 +440,12 @@ comptime_expect_error(
 comptime_expect_error(
   the_declared_place_stays_frozen_mid_walk :: (fn() -> unit)({
     l1 := List(head : .None);
-    mut(cur) := l1.head;
+    cur := &mut l1.head;
     while(cur.is_some(), {
       match(
         cur,
         .Some(n) => {
-          mut(cur) = n.next;
+          cur = &mut n.next;
         },
         .None => ()
       );
@@ -465,7 +465,7 @@ comptime_expect_error(
 comptime_expect_error(
   return_of_a_borrow_rejected :: (fn() -> i32)({
     x := i32(1);
-    imm(y) := x;
+    y := &x;
     return(y);
   }),
   "Cannot return the local borrow `y`"
@@ -473,7 +473,7 @@ comptime_expect_error(
 comptime_expect_error(
   return_of_a_place_reached_from_a_borrow_rejected :: (fn() -> i32)({
     sh := Shape(origin : Point(x : i32(1), y : i32(2)), name : String.from("sq"));
-    imm(y) := sh.origin;
+    y := &sh.origin;
     return(y.x);
   }),
   "Cannot return the local borrow `y`"
@@ -481,7 +481,7 @@ comptime_expect_error(
 comptime_expect_error(
   body_tail_yielding_a_borrow_rejected :: (fn() -> i32)({
     x := i32(1);
-    imm(y) := x;
+    y := &x;
     y
   }),
   "Cannot return the local borrow `y`"
@@ -489,7 +489,7 @@ comptime_expect_error(
 comptime_expect_error(
   a_nested_block_the_body_result_ends_in_yielding_a_borrow_rejected :: (fn() -> i32)({
     x := i32(1);
-    imm(y) := x;
+    y := &x;
     {
       _x2 := i32(0);
       y
@@ -501,7 +501,7 @@ comptime_expect_error(
   a_borrow_declared_in_the_result_block_itself_is_rejected_too :: (fn() -> i32)({
     x := i32(1);
     {
-      imm(y) := x;
+      y := &x;
       y
     }
   }),
@@ -510,7 +510,7 @@ comptime_expect_error(
 comptime_expect_error(
   a_mut_borrow_tail_is_rejected_like_an_imm_one :: (fn() -> i32)({
     x := i32(1);
-    mut(y) := x;
+    y := &mut x;
     return(y);
   }),
   "Cannot return the local borrow `y`"
@@ -518,7 +518,7 @@ comptime_expect_error(
 comptime_expect_error(
   an_inout_borrow_is_muts_synonym_so_its_return_is_rejected_too :: (fn() -> String)({
     s := String.from("a");
-    mut(r) := s;
+    r := &mut s;
     return(r);
   }),
   "Cannot return the local borrow `r`"
@@ -527,13 +527,13 @@ comptime_expect_error(
 // first, or return the value of an operation on the borrow.
 ret_scalar :: (fn() -> i32)({
   x := i32(1);
-  imm(y) := x;
+  y := &x;
   v := y;
   v
 });
 ret_through_op :: (fn() -> i32)({
   x := i32(1);
-  imm(y) := x;
+  y := &x;
   y + i32(0)
 });
 test("copying a borrow out before returning the copy is the way out", {

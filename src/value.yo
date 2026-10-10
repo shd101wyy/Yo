@@ -222,7 +222,7 @@ EvalValue :: ref(
 ///
 /// By writing the function with `recur` for recursive cases we break the cycle:
 /// the `Eq(ArrayList(EvalValue))` impl is only exercised at call time.
-eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
+eval_value_eq :: (fn(a : &EvalValue, b : &EvalValue) -> bool)(
   match(
     a,
     .UnitVal =>
@@ -539,7 +539,7 @@ eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
 impl(
   EvalValue,
   Eq(EvalValue)(
-    (==) : (fn(imm(a) : Self, imm(b) : Self) -> bool)(eval_value_eq(a, b))
+    (==) : (fn(a : &Self, b : &Self) -> bool)(eval_value_eq(a, b))
   )
 );
 // ---------------------------------------------------------------------------
@@ -548,7 +548,7 @@ impl(
 { type_to_string } :: import("./types/string.yo");
 /// Convert an `EvalValue` to a human-readable string for debugging.
 ///
-value_to_string :: (fn(imm(v) : EvalValue) -> String)(
+value_to_string :: (fn(v : &EvalValue) -> String)(
   match(
     v,
     .UnitVal => String.from("()"),
@@ -793,53 +793,53 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
 // ---------------------------------------------------------------------------
 // Type predicate functions
 // ---------------------------------------------------------------------------
-is_unit_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .UnitVal => true, _ => false));
-is_bool_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .BoolVal(_) => true, _ => false));
-is_int_lit :: (fn(imm(v) : EvalValue) -> bool)(match(v, .IntLit(_) => true, _ => false));
-is_float_lit :: (fn(imm(v) : EvalValue) -> bool)(match(v, .FloatLit(_) => true, _ => false));
-is_str_lit :: (fn(imm(v) : EvalValue) -> bool)(match(v, .StrLit(_) => true, _ => false));
-is_var_ref :: (fn(imm(v) : EvalValue) -> bool)(match(v, .VarRef(_) => true, _ => false));
-is_enum_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .EnumVal(_, _) => true, _ => false));
-is_func_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .FuncVal(_, _) => true, _ => false));
-is_return_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .ReturnVal(_, _) => true, _ => false));
-is_break_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .BreakVal => true, _ => false));
-is_continue_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .ContinueVal => true, _ => false));
-is_type_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .TypeVal(_) => true, _ => false));
-is_struct_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .StructVal(_, _, _) => true, _ => false));
+is_unit_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnitVal => true, _ => false));
+is_bool_val :: (fn(v : &EvalValue) -> bool)(match(v, .BoolVal(_) => true, _ => false));
+is_int_lit :: (fn(v : &EvalValue) -> bool)(match(v, .IntLit(_) => true, _ => false));
+is_float_lit :: (fn(v : &EvalValue) -> bool)(match(v, .FloatLit(_) => true, _ => false));
+is_str_lit :: (fn(v : &EvalValue) -> bool)(match(v, .StrLit(_) => true, _ => false));
+is_var_ref :: (fn(v : &EvalValue) -> bool)(match(v, .VarRef(_) => true, _ => false));
+is_enum_val :: (fn(v : &EvalValue) -> bool)(match(v, .EnumVal(_, _) => true, _ => false));
+is_func_val :: (fn(v : &EvalValue) -> bool)(match(v, .FuncVal(_, _) => true, _ => false));
+is_return_val :: (fn(v : &EvalValue) -> bool)(match(v, .ReturnVal(_, _) => true, _ => false));
+is_break_val :: (fn(v : &EvalValue) -> bool)(match(v, .BreakVal => true, _ => false));
+is_continue_val :: (fn(v : &EvalValue) -> bool)(match(v, .ContinueVal => true, _ => false));
+is_type_val :: (fn(v : &EvalValue) -> bool)(match(v, .TypeVal(_) => true, _ => false));
+is_struct_val :: (fn(v : &EvalValue) -> bool)(match(v, .StructVal(_, _, _) => true, _ => false));
 /// True for source-namespace struct values (anonymous modules / imports).
 /// Modules are StructValues with a
 /// source-namespace type (plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md); the
 /// generated `source_namespace_` ty_name prefix is the value-side marker.
-is_module_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
-is_tuple_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .TupleVal(_) => true, _ => false));
-is_array_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .ArrayVal(_) => true, _ => false));
-is_ptr_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .PtrVal(_, _, _) => true, _ => false));
-is_trait_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .TraitVal(_, _, _) => true, _ => false));
-is_comptime_list_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .ComptimeListVal(_) => true, _ => false));
-is_expr_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .ExprVal(_) => true, _ => false));
-is_unknown_val :: (fn(imm(v) : EvalValue) -> bool)(match(v, .UnknownVal(_, _) => true, _ => false));
+is_module_val :: (fn(v : &EvalValue) -> bool)(match(v, .StructVal(n, _, _) => n.starts_with(`source_namespace_`), _ => false));
+is_tuple_val :: (fn(v : &EvalValue) -> bool)(match(v, .TupleVal(_) => true, _ => false));
+is_array_val :: (fn(v : &EvalValue) -> bool)(match(v, .ArrayVal(_) => true, _ => false));
+is_ptr_val :: (fn(v : &EvalValue) -> bool)(match(v, .PtrVal(_, _, _) => true, _ => false));
+is_trait_val :: (fn(v : &EvalValue) -> bool)(match(v, .TraitVal(_, _, _) => true, _ => false));
+is_comptime_list_val :: (fn(v : &EvalValue) -> bool)(match(v, .ComptimeListVal(_) => true, _ => false));
+is_expr_val :: (fn(v : &EvalValue) -> bool)(match(v, .ExprVal(_) => true, _ => false));
+is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnknownVal(_, _) => true, _ => false));
 /// Is `v` a RUNTIME-ONLY unknown (see `UnknownVal.is_runtime_only`)?
-is_runtime_only_unknown_val :: (fn(imm(v) : EvalValue) -> bool)(
+is_runtime_only_unknown_val :: (fn(v : &EvalValue) -> bool)(
   match(v, .UnknownVal(_, ro) => ro, _ => false)
 );
 /// Check if `v` is a numeric literal (int or float). Numerics are stored as
 /// `IntLit` / `FloatLit` raw
 /// text; this helper is the disjunction of those two checks.
-is_number_val :: (fn(imm(v) : EvalValue) -> bool)(
+is_number_val :: (fn(v : &EvalValue) -> bool)(
   match(v, .IntLit(_) => true, .FloatLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time integer literal (`IntLit`).
 /// Integer literals are stored
 /// as raw text in `IntLit(raw)`; this helper is the
 /// canonical-named alias of `is_int_lit`.
-is_comptime_int_value :: (fn(imm(v) : EvalValue) -> bool)(
+is_comptime_int_value :: (fn(v : &EvalValue) -> bool)(
   match(v, .IntLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time float literal (`FloatLit`).
 /// Float literals
 /// are stored as raw text in `FloatLit(raw)`; this helper
 /// is the canonical-named alias of `is_float_lit`.
-is_comptime_float_value :: (fn(imm(v) : EvalValue) -> bool)(
+is_comptime_float_value :: (fn(v : &EvalValue) -> bool)(
   match(v, .FloatLit(_) => true, _ => false)
 );
 /// Check if `v` is a compile-time string literal (`StrLit`).
@@ -847,11 +847,11 @@ is_comptime_float_value :: (fn(imm(v) : EvalValue) -> bool)(
 /// level — the lexer-stored `StrLit(raw)` is the comptime-string
 /// representation; runtime `str` values are constructed via
 /// `convert_comptime_type_to_runtime_type`.
-is_comptime_string_value :: (fn(imm(v) : EvalValue) -> bool)(
+is_comptime_string_value :: (fn(v : &EvalValue) -> bool)(
   match(v, .StrLit(_) => true, _ => false)
 );
 /// Check if an `Option(EvalValue)` contains a `TypeVal`.
-is_type_value :: (fn(imm(opt) : Option(EvalValue)) -> bool)(
+is_type_value :: (fn(opt : &Option(EvalValue)) -> bool)(
   match(
     opt,
     .Some(v) => match(v, .TypeVal(_) => true, _ => false),
@@ -864,19 +864,19 @@ is_type_value :: (fn(imm(opt) : Option(EvalValue)) -> bool)(
 /// which builds a `TypeVal(SomeType)` — required for extern/c_include fields whose
 /// declared type is `Type` so that later expressions can use the name as a type
 /// (e.g. `INT_LEAST8_MIN : int_least8_t`).
-create_unknown_val :: (fn(imm(ty) : TypeValue) -> EvalValue)(
+create_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
   EvalValue.UnknownVal(ty, false)
 );
 /// Create a RUNTIME-ONLY unknown placeholder. Values are immutable copies,
 /// so the flag is set at construction instead of mutated afterwards.
-create_runtime_unknown_val :: (fn(imm(ty) : TypeValue) -> EvalValue)(
+create_runtime_unknown_val :: (fn(ty : &TypeValue) -> EvalValue)(
   EvalValue.UnknownVal(ty, true)
 );
 /// Create a compile-time unknown placeholder, promoting to `TypeVal(SomeType)` when
 /// `ty` is the `Type` universe (i.e. the binding is type-level): a fresh
 /// `SomeType` wrapped as a `TypeValue` is returned whenever the slot's declared
 /// type is `Type`.
-create_unknown_val_with_name :: (fn(imm(ty) : TypeValue, imm(name) : String) -> EvalValue)(
+create_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValue)(
   cond(
     is_type_0(ty) =>
       EvalValue.TypeVal(t_some_t(name, usize(0))),
@@ -888,7 +888,7 @@ create_unknown_val_with_name :: (fn(imm(ty) : TypeValue, imm(name) : String) -> 
 /// value here", and it is what makes the "Cannot assign runtime argument to
 /// compile-time parameter" check (helper.yo) fire
 /// (issues/fixed/recur-runtime-result-not-marked-runtime-only.md).
-create_runtime_unknown_val_with_name :: (fn(imm(ty) : TypeValue, imm(name) : String) -> EvalValue)(
+create_runtime_unknown_val_with_name :: (fn(ty : &TypeValue, name : &String) -> EvalValue)(
   cond(
     is_type_0(ty) =>
       EvalValue.TypeVal(t_some_t(name, usize(0))),
@@ -905,12 +905,12 @@ EvalResult :: ref(
   )
 );
 /// Construct an `EvalResult` with the given value and type.
-eval_result :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue) -> EvalResult)(
+eval_result :: (fn(value : &EvalValue, ty : &TypeValue) -> EvalResult)(
   EvalResult(value : value, ty : ty)
 );
 /// Wrap a TypeValue as a TypeVal EvalValue. The "meta type" (TypeUni) is
 /// computed separately via `type_of_type` at call sites that need it.
-create_type_value :: (fn(imm(ty) : TypeValue) -> EvalValue)(
+create_type_value :: (fn(ty : &TypeValue) -> EvalValue)(
   EvalValue.TypeVal(ty)
 );
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
@@ -921,7 +921,7 @@ create_type_value :: (fn(imm(ty) : TypeValue) -> EvalValue)(
 /// for value variants whose type is not directly recoverable we fall back to
 /// `t_unit()`, which matches the production behavior of treating such fields
 /// as opaque comptime bindings.
-type_of_eval_value :: (fn(imm(v) : EvalValue) -> TypeValue)(
+type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
   match(
     v,
     .UnitVal => t_unit(),
@@ -996,12 +996,12 @@ export(eval_value_eq);
 // (issues/fixed/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md).
 // The first registration wins, as the scan's first match did.
 (g_enum_cfids : HashMap(String, String)) = HashMap(String, String).new();
-register_enum_cfid :: (fn(imm(enum_id) : String, imm(func_id) : String) -> unit)({
+register_enum_cfid :: (fn(enum_id : &String, func_id : &String) -> unit)({
   if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)) && !g_enum_cfids.contains_key(enum_id), {
     _prev := g_enum_cfids.insert(enum_id, func_id);
   });
 });
-lookup_enum_cfid :: (fn(imm(enum_id) : String) -> String)(
+lookup_enum_cfid :: (fn(enum_id : &String) -> String)(
   match(g_enum_cfids.get(enum_id), .Some(f) => f, .None => String.from(""))
 );
 export(register_enum_cfid, lookup_enum_cfid);
@@ -1014,10 +1014,10 @@ export(register_enum_cfid, lookup_enum_cfid);
 // issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md).
 // The first registration wins, as for `g_enum_cfids`.
 (g_type_ctor_values : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
-register_type_ctor_value :: (fn(imm(func_id) : String, imm(v) : EvalValue) -> unit)({
+register_type_ctor_value :: (fn(func_id : &String, v : &EvalValue) -> unit)({
   if((func_id.len() > usize(0)) && !g_type_ctor_values.contains_key(func_id), {
     _prev := g_type_ctor_values.insert(func_id, v);
   });
 });
-lookup_type_ctor_value :: (fn(imm(func_id) : String) -> Option(EvalValue))(g_type_ctor_values.get(func_id));
+lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.get(func_id));
 export(register_type_ctor_value, lookup_type_ctor_value);

@@ -10,7 +10,7 @@
 { format_yo_source, format_yo_fences, collect_yo_files } :: import("../../src/formatter.yo");
 { YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
-_fmt :: (fn(imm(src) : String) -> String)({
+_fmt :: (fn(src : &String) -> String)({
   exn := Exception(
     throw : (
       _err -> {
@@ -585,7 +585,7 @@ test("collect_yo_files skips dot-prefixed files in a directory walk", {
   assert(direct.len() == usize(1), "an explicitly-passed dot file is still collected");
 });
 
-_fences :: (fn(imm(src) : String, in_comment : bool) -> String)({
+_fences :: (fn(src : &String, in_comment : bool) -> String)({
   exn := Exception(
     throw : (
       _err -> {

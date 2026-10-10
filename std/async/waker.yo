@@ -89,13 +89,13 @@ impl(
   Waker,
   /// Make the parked task runnable. A no-op if it was already woken, or if
   /// its task ended without ever suspending.
-  wake : (fn(imm(self) : Self) -> unit)(unsafe(__yo_waker_wake(self._p))),
+  wake : (fn(self : &Self) -> unit)(unsafe(__yo_waker_wake(self._p))),
   /// Whether the park has been woken. Non-blocking. `false` for a park whose
   /// task was cancelled (it will never run): a waiter list that just called
   /// `wake` asks this to learn whether the wake reached a live task, and
   /// passes it on to the next waiter if not. From another thread, `false`
   /// may still turn `true` once the owner loop drains the wake.
-  is_woken : (fn(imm(self) : Self) -> bool)(unsafe(__yo_waker_is_woken(self._p)))
+  is_woken : (fn(self : &Self) -> bool)(unsafe(__yo_waker_is_woken(self._p)))
 );
 impl(
   Waker,
@@ -108,7 +108,7 @@ impl(
   /// a park is dropped, nothing can wake it any more — and the loop then
   /// reports that rather than hanging.
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)(unsafe(__yo_waker_release(self._p)))
+    dispose : (fn(self : &Self) -> unit)(unsafe(__yo_waker_release(self._p)))
   )
 );
 /// A suspension point that a `Waker` resumes.
@@ -128,12 +128,12 @@ impl(
   new : (fn() -> Self)(Self(_future : unsafe(__yo_async_park_start()))),
   /// A token that will resume whoever is waiting on this park. Call it before
   /// `wait`, and as many times as there are signallers.
-  waker : (fn(imm(self) : Self) -> Waker)(
+  waker : (fn(self : &Self) -> Waker)(
     Waker(_p : unsafe(__yo_waker_new(self._future)))
   ),
   /// Suspend the current task until one of this park's wakers fires. Resolves
   /// immediately if a wake already arrived.
-  wait : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, Io)))(
+  wait : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
     io.async((io : Io) => {
       _r := io.await(self._future, io);
       ()
@@ -148,7 +148,7 @@ impl(
 /// API use, and it is the right default for a caller who needs exactly one
 /// waker; reach for `Park` directly when a waiter list wants to hold the token
 /// itself.
-park :: (fn(imm(register) : Impl(Fn(imm(w) : Waker) -> unit), io : Io) -> Impl(Future(unit, Io)))(
+park :: (fn(register : &Impl(Fn(w : &Waker) -> unit), io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
     p := Park.new();
     register(p.waker());

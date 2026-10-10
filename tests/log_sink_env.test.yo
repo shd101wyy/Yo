@@ -15,7 +15,7 @@ log :: import("std/log");
 /// (`"INFO "`, note the trailing space). That padding is the DEFAULT
 /// renderer's alignment concern; a sink is free to ignore it, which is the
 /// point of handing the sink a `Level` rather than a formatted line.
-_row :: (fn(l : log.Level, imm(target) : String, imm(msg) : String) -> String)({
+_row :: (fn(l : log.Level, target : &String, msg : &String) -> String)({
   out := l.to_string();
   out.push_str("|");
   out.push_string(target);
@@ -38,7 +38,7 @@ impl(
 impl(
   Recorder,
   log.Sink(
-    write_line : (fn(mut(self) : Self, level : log.Level, imm(target) : String, imm(msg) : String) -> unit)({
+    write_line : (fn(self : &mut Self, level : log.Level, target : &String, msg : &String) -> unit)({
       row := level.to_string();
       row.push_str("|");
       row.push_string(target);

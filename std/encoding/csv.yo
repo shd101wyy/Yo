@@ -109,7 +109,7 @@ _LF :: u8(10);
 /// record. Fields are never trimmed. Records may have different lengths —
 /// use `parse_strict` to reject that.
 parse_with :: (
-  fn(imm(input) : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
+  fn(input : &String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
 )({
   bytes := input;
   n := bytes.len();
@@ -199,13 +199,13 @@ parse_with :: (
   .Ok(records)
 });
 /// `parse_with(input, CsvOptions.default())`.
-parse :: (fn(imm(input) : String) -> Result(ArrayList(ArrayList(String)), CsvError))(
+parse :: (fn(input : &String) -> Result(ArrayList(ArrayList(String)), CsvError))(
   parse_with(input, CsvOptions.default())
 );
 /// Like `parse_with`, and additionally requires every record to have as
 /// many fields as the first one (`CsvError.UnevenRecord` otherwise).
 parse_strict :: (
-  fn(imm(input) : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
+  fn(input : &String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
 )(
   match(
     parse_with(
@@ -230,7 +230,7 @@ parse_strict :: (
 );
 /// Whether `field` must be quoted under `opts`: it contains the delimiter,
 /// a quote, CR or LF (an empty field is written bare).
-_needs_quotes :: (fn(imm(field) : String, delimiter : u8) -> bool)({
+_needs_quotes :: (fn(field : &String, delimiter : u8) -> bool)({
   bytes := field;
   i := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
@@ -242,7 +242,7 @@ _needs_quotes :: (fn(imm(field) : String, delimiter : u8) -> bool)({
   false
 });
 /// Append one field to `out`, quoting and doubling quotes when needed.
-_write_field :: (fn(mut(out) : String, imm(field) : String, delimiter : u8) -> unit)({
+_write_field :: (fn(out : &mut String, field : &String, delimiter : u8) -> unit)({
   cond(
     _needs_quotes(field, delimiter) => {
       out.push_byte(_QUOTE);
@@ -263,7 +263,7 @@ _write_field :: (fn(mut(out) : String, imm(field) : String, delimiter : u8) -> u
 /// Serialize `records` with `opts`. Every record ends with the configured
 /// line ending, including the last (RFC 4180 allows either; a terminated
 /// last record concatenates cleanly).
-write_with :: (fn(imm(records) : ArrayList(ArrayList(String)), opts : CsvOptions) -> String)({
+write_with :: (fn(records : &ArrayList(ArrayList(String)), opts : CsvOptions) -> String)({
   out := String.new();
   r := usize(0);
   while(r < records.len(), r = (r + usize(1)), {
@@ -287,7 +287,7 @@ write_with :: (fn(imm(records) : ArrayList(ArrayList(String)), opts : CsvOptions
   out
 });
 /// `write_with(records, CsvOptions.default())`.
-write :: (fn(imm(records) : ArrayList(ArrayList(String))) -> String)(
+write :: (fn(records : &ArrayList(ArrayList(String))) -> String)(
   write_with(records, CsvOptions.default())
 );
 export(CsvError, LineEnding, CsvOptions, parse, parse_with, parse_strict, write, write_with);
@@ -299,19 +299,19 @@ export(CsvError, LineEnding, CsvOptions, parse, parse_with, parse_strict, write,
 // spellings compiling for one release, the way `json_parse_result` and
 // `derive(ToString)` were kept in v0.2.28.
 /// DEPRECATED, removed in v0.2.32: call `csv.parse`.
-csv_parse :: (fn(imm(input) : String) -> Result(ArrayList(ArrayList(String)), CsvError))(parse(input));
+csv_parse :: (fn(input : &String) -> Result(ArrayList(ArrayList(String)), CsvError))(parse(input));
 /// DEPRECATED, removed in v0.2.32: call `csv.parse_with`.
 csv_parse_with :: (
-  fn(imm(input) : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
+  fn(input : &String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
 )(parse_with(input, opts));
 /// DEPRECATED, removed in v0.2.32: call `csv.parse_strict`.
 csv_parse_strict :: (
-  fn(imm(input) : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
+  fn(input : &String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
 )(parse_strict(input, opts));
 /// DEPRECATED, removed in v0.2.32: call `csv.write`.
-csv_write :: (fn(imm(records) : ArrayList(ArrayList(String))) -> String)(write(records));
+csv_write :: (fn(records : &ArrayList(ArrayList(String))) -> String)(write(records));
 /// DEPRECATED, removed in v0.2.32: call `csv.write_with`.
-csv_write_with :: (fn(imm(records) : ArrayList(ArrayList(String)), opts : CsvOptions) -> String)(
+csv_write_with :: (fn(records : &ArrayList(ArrayList(String)), opts : CsvOptions) -> String)(
   write_with(records, opts)
 );
 export(csv_parse, csv_parse_with, csv_parse_strict, csv_write, csv_write_with);

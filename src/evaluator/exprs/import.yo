@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
 /// Synchronous file existence check via libc `stat` — portable to Windows
 /// (MSVC has stat in <sys/stat.h>; POSIX `access`/`F_OK` broke the v0.2.0
 /// windows seed leg). Matches module_manager.yo's `_path_exists_sync`.
-_file_exists_sync :: (fn(imm(absolute_path) : String) -> bool)({
+_file_exists_sync :: (fn(absolute_path : &String) -> bool)({
   { malloc, free } :: GlobalAllocator;
   cstr := absolute_path.to_cstr();
   ptr := (*char)(cstr.ptr().unwrap());
@@ -75,13 +75,13 @@ _file_exists_sync :: (fn(imm(absolute_path) : String) -> bool)({
 /// Map an import name (`dep`, or `dep/sub` for a named module) to its module
 /// root file (absolute path). A name mapped twice resolves to the FIRST
 /// mapping — the resolver rejects duplicate import names before this point.
-set_import_root :: (fn(imm(name) : String, imm(root_file) : String) -> unit)({
+set_import_root :: (fn(name : &String, root_file : &String) -> unit)({
   g_import_root_names.push(name);
   g_import_root_paths.push(root_file);
 });
 /// Record that `name` is declared by the manifest but cannot be imported,
 /// with the reason the diagnostic will carry.
-set_import_unavailable :: (fn(imm(name) : String, imm(reason) : String) -> unit)({
+set_import_unavailable :: (fn(name : &String, reason : &String) -> unit)({
   g_import_unavailable_names.push(name);
   g_import_unavailable_reasons.push(reason);
 });
@@ -91,7 +91,7 @@ clear_import_roots :: (fn() -> unit)({
   g_import_unavailable_names = ArrayList(String).new();
   g_import_unavailable_reasons = ArrayList(String).new();
 });
-lookup_import_unavailable :: (fn(imm(name) : String) -> Option(String))({
+lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < g_import_unavailable_names.len(), {
     matches := match(g_import_unavailable_names.get(i), .Some(n) => (n == name), .None => false);
@@ -108,7 +108,7 @@ lookup_import_unavailable :: (fn(imm(name) : String) -> Option(String))({
   });
   Option(String).None
 });
-lookup_import_root :: (fn(imm(name) : String) -> Option(String))({
+lookup_import_root :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < g_import_root_names.len(), {
     // `.get(i)` copies the element out: indexing a module-level container
@@ -159,7 +159,7 @@ ModuleResolveResult :: enum(
 ///   4. otherwise   → relative to CWD
 /// then extension resolution: `<path>.yo` xor `<path>/index.yo`.
 resolve_module_path :: (
-  fn(imm(import_path) : String, imm(current_dir) : String, imm(std_path) : String) -> ModuleResolveResult
+  fn(import_path : &String, current_dir : &String, std_path : &String) -> ModuleResolveResult
 )(
   resolve_module_path_ex(import_path, current_dir, std_path, true)
 );
@@ -176,9 +176,9 @@ resolve_module_path :: (
 /// (issues/fixed/entry-path-shadowed-by-an-import-root-name.md).
 resolve_module_path_ex :: (
   fn(
-    imm(import_path) : String,
-    imm(current_dir) : String,
-    imm(std_path) : String,
+    import_path : &String,
+    current_dir : &String,
+    std_path : &String,
     consult_import_roots : bool
   ) -> ModuleResolveResult
 )({
@@ -282,7 +282,7 @@ resolve_module_path_ex :: (
 /// Outer (lower-index) frames are walked first so newer same-name bindings in
 /// inner frames take precedence by overwriting earlier ones via a linear scan
 /// in the destructurer.
-_build_module_val_from_env :: (fn(imm(env) : Environment) -> EvalValue)({
+_build_module_val_from_env :: (fn(env : &Environment) -> EvalValue)({
   names := ArrayList(String).new();
   values := ArrayList(EvalValue).new();
   (fi : usize) = usize(0);
@@ -328,10 +328,10 @@ _build_module_val_from_env :: (fn(imm(env) : Environment) -> EvalValue)({
 // ---------------------------------------------------------------------------
 evaluate_import :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

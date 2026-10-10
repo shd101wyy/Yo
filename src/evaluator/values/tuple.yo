@@ -52,7 +52,7 @@ import("std/fmt");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 // Local comptime-only check covering the primitive cases the evaluator
 // actually hits for tuple element types today.
-is_comptime_only_type_local :: (fn(imm(t) : TypeValue) -> bool)(
+is_comptime_only_type_local :: (fn(t : &TypeValue) -> bool)(
   cond(
     is_comptime_int_type(t) => true,
     is_comptime_float_type(t) => true,
@@ -78,12 +78,12 @@ EvalTupleElementResult :: struct(
 );
 evaluate_tuple_element_value :: (
   fn(
-    imm(expr) : AstExpr,
+    expr : &AstExpr,
     tuple_field_index : usize,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    mut(runtime_arg_exprs_in_order) : ArrayList(AstExpr),
-    imm(exn) : Exception
+    env_in : &Environment,
+    ctx : &EvalContext,
+    runtime_arg_exprs_in_order : &mut ArrayList(AstExpr),
+    exn : &Exception
   ) -> EvalTupleElementResult
 )({
   (env : Environment) = env_in;
@@ -214,10 +214,10 @@ evaluate_tuple_element_value :: (
 // labels/types/values plus the threaded environment.
 evaluate_tuple_elements_value :: (
   fn(
-    imm(args) : ArrayList(AstExpr),
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    args : &ArrayList(AstExpr),
+    env_in : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> EvalTupleElementsValueResult
 )({
   (env : Environment) = env_in;
@@ -256,10 +256,10 @@ evaluate_tuple_elements_value :: (
 // Evaluate a `tuple(...)` call expression.
 evaluate_tuple_value :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), {
