@@ -41,6 +41,7 @@ The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. Rules
 
 | PR | What |
 | --- | --- |
+| #1307 | Plans only: `plans/backlog/LIFETIME_REPLACEMENT_PATTERNS.md`, the inventory of every mechanism that covers a lifetime's three jobs (express/store/verify), the selection table and the four-item boundary; review fixed two section references (squash `577ed8110`, admin-merged with the maintainer's OK) |
 | #1308 | **Decision 42 Generation A** (squash `8220b17e4`; pre-squash head `ae0651384`, whose last code commit is `e4a606982` = the pre-rebase `6549e5d83`). `x : &T` / `&mut T` / `-> &T` / `{ y : &y }` / `for(&mut xs, …)` parse everywhere as exact synonyms of the mode words (parse-time rewrite in `desugar_if_calls`); printer, diagnostics, docs and skills in the new spelling; `mut` reserved; `yo fix --migrate borrow-spelling`. Also fixed develop's red musl leg (the stack-sizing probe heredoc still said `inout(x)`). Local gates: suite 5,076/5,076, FIXPOINT_HOLDS, CLI corpus 0 diffs. Admin-merged with the maintainer's explicit OK |
 | #1306 | Plans only: decision 44 follow-ups in `plans/VALUES_BY_DEFAULT.md` and `plans/backlog/RUST_REFERENCE_PATTERNS.md` (merged on its green CI) |
 | #1305 | **Decision 26, the consuming `match`.** A by-value scrutinee moves; `match(&x, …)`/`match(&mut x, …)` borrow (`mut` place bindings write through); `yo fix --migrate match-scrutinee` (swept std 7, tests 1); exit drops for moved arm bindings; a value moved before `continue`/`break` is no longer dropped again. Filed: `issues/a-mut-match-place-binding-cannot-live-across-an-await.md` (S2) |
@@ -65,7 +66,7 @@ Every branch is pushed. `~/Workspace/Yo-wt/<name>` is the worktree on the old ma
 ## 3. The next steps, in order
 
 1. **Install the newest seed** (`bash scripts/install.sh`; check `yo --version`).
-2. **Land what is still in flight for v0.2.58** (§2.3): #1306 is merged; decision 42 Gen A is merged (#1308, `8220b17e4`); develop's battery run 38063532638 on that tip is the v0.2.58 gate. The marker sweep part 1 goes in only if it is green before that battery finishes; otherwise it waits for v0.2.59 (a second merge would need a second battery).
+2. **Land what is still in flight for v0.2.58** (§2.3): #1306 is merged; decision 42 Gen A is merged (#1308, `8220b17e4`); #1307 (plans) merged right after it, so develop's battery run 38063766836 on `577ed8110` is the v0.2.58 gate (run 38063532638 on `8220b17e4` has identical code and gives an early signal). The marker sweep part 1 goes in only if it is green before that battery finishes; otherwise it waits for v0.2.59 (a second merge would need a second battery).
 3. **Cut v0.2.58.** Wait for develop's battery to be green on the exact tip (`git diff --stat <battery-head>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo` must be empty). Dispatch the release workflow, never cancel a `Release` run, curate the notes, and wait for the `SEED_VERSION` auto-bump commit.
 4. **Decision 42 Generation B, then v0.2.59:**
    1. Release `markdown_yo` v0.0.15: the borrow-spelling commit, with the marker commit if part 2 is next, and `.yo-version` set to 0.2.58 (authorized; no need to ask).
