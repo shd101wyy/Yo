@@ -61,7 +61,7 @@ for it.
 
 ## 2. The rules
 
-### R1. A struct may declare borrow-mode fields, an enum borrow-mode payloads; the type is then non-escapable
+### R1. A struct may declare borrow-mode fields, an enum borrow-mode payloads; the type is then non-escapable. The inline rule covers every other composite
 
 ```yo
 View :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -116,6 +116,39 @@ Found :: (fn(comptime(T) : Type) -> comptime(Type))(
     for closures.
   - GADT-style enums (`docs/en-US/GADTS.md`) take the same rule per
     variant; nothing in their indexing changes.
+- **The inline rule, for every other composite.** The principle behind
+  the struct and enum cases is §3.11's: *a plain struct, enum, tuple or
+  array allocates nothing; cells and buffers do.* A borrow may live in a
+  composite whose payload is **inline in the value**, never in one whose
+  payload lives in a **cell or a buffer**:
+
+  | Composite | Payload lives | May carry a borrow or a non-escapable value | Then |
+  | --- | --- | --- | --- |
+  | named `struct`, `enum` | inline | yes, by declaring the field/payload mode (above) | the type is non-escapable |
+  | anonymous record `struct(...)` literal type | inline | yes — it is decision 35's capture record with a name left off | same as a named struct |
+  | tuple `(A, B)` | inline | yes: `(imm(ArrayList(T)), usize)`; destructuring `(a, n) := t` binds `a` as a borrow capped by the receiver's mode; a consumed tuple re-borrows its borrow components (nothing moves out of a borrow) | the tuple type is non-escapable per instantiation |
+  | `Array(T, N)` | inline | yes: `Array(imm(T), N)`; `Index` yields the element borrow capped by the receiver's mode; all elements share one borrow set, the union of the literal's sources; fixed `N`, so no growth question | non-escapable per instantiation |
+  | `Option(T)`, `Result(T, E)` and any user enum/struct constructor | inline | yes, as a generic instantiation over a borrow or a non-escapable argument: `Option(imm(T))`, `Result((View(u8), T), ParseError)` | non-escapable per instantiation (the enum rule above) |
+  | `Box(T)`, `Rc(T)`, `Arc(T)`, `RefCell(T)`, `Dyn(Trait)`, closures stored in `Impl`/`Dyn` | a cell | **no** — the cell is declared storage | decision 38 A's error |
+  | `ArrayList(T)`, `HashMap(K, V)`, `String`, every buffer-owning container | a buffer | **no** — a *collection of views* stays banned (§3, "not unlocked") | decision 38 A's error |
+
+  So the whole of R1 is one sentence: **a borrow may be a component of
+  anything that is laid out inline, and the containing type is then
+  non-escapable; it may never be the payload of a cell or an element of a
+  buffer.** Where such a type may *stand* is the same for all of them: a
+  local binding (with or without an annotation), an `imm`/`mut` parameter
+  type, an R3 result type, a block or arm result — never a field of a
+  first-class type, an element, a generic argument of a cell or buffer
+  constructor, or a `Dyn` payload.
+- **Passing.** A non-escapable value is passed by lend, `f(&v)` /
+  `f(&mut v)` into `imm(v) : View(T)` / `mut(v) : View(T)`, never by
+  value: decision 38 A bans a second-class value in a by-value parameter
+  (`io.async` excepted, decision 37), and the lend's borrow set is the
+  value's, transitively. Returning it is R3. An `imm`-only non-escapable
+  type is `Copy` (as an `imm`-only closure is), and its copies are
+  second-class; this makes `v2 := v` and a by-value operand in an
+  expression legal while the by-value *parameter* is not — decision 38 A's
+  "`Copy` never implies first-class", unchanged.
 - A non-escapable type may have `imm(self)`, `mut(self)` and `self`
   methods, `Dispose` (a scope-end drop is an access, decision 38 A, so the
   drop runs while the borrow is still live), and may implement traits.
@@ -284,6 +317,12 @@ in an escaping closure; spawn one; re-point a field to a temporary; a
 a `StrArg` whose live value is `.Owned` (the type decides); move a
 `.Borrowed` payload out of a consumed scrutinee; return a `.Some(&local)`;
 `derive(Copy)` on an enum with a `mut` payload; an `Option(imm(T))` field.
+For the inline rule: `ArrayList(View(T))`, `Box(View(T))`,
+`Rc((imm(T), usize))`, `Dyn` over a tuple with a borrow — all errors;
+and the positive controls that must compile: a local
+`Array(imm(T), 3)` from three lends, `(a, n) := t` re-borrowing, a
+`-> Result((View(u8), T), E)` result, `f(&v)` into `imm(v) : View(T)`,
+and `f(v)` by value rejected.
 
 ## 6. Alternatives considered
 
