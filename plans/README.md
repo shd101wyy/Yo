@@ -100,6 +100,18 @@ str-prefix patterns whose tail bindings borrow, pulling FV Phase V6
 `Soa(T)` columnar container (rows are sibling places under one root; the
 wrapper maintains the cross-column length invariant and the verifier can
 prove it) — plus the standing rejections table so nothing is re-proposed.
+[`RUST_ADOPTION_CANDIDATES`](backlog/RUST_ADOPTION_CANDIDATES.md) is the
+2026-10-10 survey of what else Yo could take from Rust, each candidate
+checked against the tree: a table of what is already here (so it is not
+re-proposed, two of them found only by compiling a probe), seven language
+candidates (second-class slice parameters, labeled `break` with a value,
+`unreachable`/`todo`, record update syntax, `matches`, FFI enum
+discriminants, associated comptime values), six std candidates (the missing
+iterator adapters, container parity, `Lazy`, `Result.context`, `yo bench`,
+128-bit integers rejected), six toolchain candidates (doc tests that run,
+`--deny warnings`, LSP code actions and inlay hints, fuzzing, panic
+backtraces), and the rejections it adds (shadowing, `PartialOrd`, `Weak`,
+guards, `Cow`, `Deref` coercions).
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
