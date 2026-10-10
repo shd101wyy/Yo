@@ -273,8 +273,11 @@ flows in; a `&mut self` method with no `&` parameter joins nothing by
 construction). Returning the container is R3 over the joined set:
 
 ```yo
-words :: (fn(self : &Doc) -> ArrayList(&str))({
-  out := ArrayList(&str).new();
+// View(u8) is L1's second-class view into the String's bytes. `str` itself is
+// the first-class Copy view of STATIC bytes and never takes `&`:
+// `(x : str) = "Hi";` and `ArrayList(str)` are ordinary first-class values.
+words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
+  out := ArrayList(View(u8)).new();
   for(&self.word_ranges(), r => { out.push(self.text.view(r)); });   // every root is self
   out                                                               // R3: depends on self
 });

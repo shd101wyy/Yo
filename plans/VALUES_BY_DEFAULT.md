@@ -2759,6 +2759,17 @@ and in git, not a silent edit.
       under `TRAIT_COHERENCE.md`. `&T` is `Copy`. `&mut T` is not: passed
       to a `&mut T` slot it is **reborrowed** (the original is frozen for
       the call); a bare use moves it at its last use — Rust's rule.
+    - **`str` is first-class and never takes `&`** (maintainer note,
+      2026-10-10). `str` is the `Copy` view of static bytes (literals,
+      template segments; decision 36): `(x : str) = "Hi";` is the whole
+      spelling, `ArrayList(str)` is an ordinary first-class list, and
+      `&str` is not written in Yo. A view into an *owned* `String`'s
+      interior is a different thing — the second-class view of
+      `RUST_ADOPTION_CANDIDATES.md` L1 (`View(u8)` in the examples; whether
+      `str` itself becomes that view in borrow position is L1's open
+      design question, not decided here). The same holds for every
+      first-class view type: a `&` is written only where a lend of an
+      owned value happens.
     - **Access.** `.*` reads or writes the whole value (`x.* = y.*`);
       `.field` and `.method()` auto-deref through any number of `&`; a
       method whose receiver is `&Self`/`&mut Self` auto-borrows an owned
@@ -2784,8 +2795,9 @@ and in git, not a silent edit.
       `&self` method joins nothing; a `depends` clause on the method
       narrows the conservative rule when it lands (R7 in the note). The
       container is returned under R3 over the joined set, so
-      `words(self : &Doc) -> ArrayList(&str)` compiles when every pushed
-      view is rooted in `self`. Elements rooted through an `Rc`/`Arc`
+      `words(self : &Doc) -> ArrayList(View(u8))` compiles when every
+      pushed view is rooted in `self` (`View(u8)` is the L1 view into the
+      `String`'s bytes; see the `str` bullet below). Elements rooted through an `Rc`/`Arc`
       deref are rejected in a container (one pin per element is not
       taken); the cell rule still forbids `Rc(ArrayList(&T))`. Codegen is
       a buffer of pointers with no count traffic and no element drops.

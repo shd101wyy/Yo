@@ -110,7 +110,9 @@ impl Doc {
 
 A view into an owned buffer cannot be stored *beyond the frame that owns
 the buffer*. Since decision 43, `fn words(&self) -> Vec<&str>` has a direct
-spelling, `words(self : &Doc) -> ArrayList(&str)`, a root-joining
+spelling, `words(self : &Doc) -> ArrayList(View(u8))` (the L1 view into
+the `String`'s bytes — `str` is the first-class static view and never
+takes `&`), a root-joining
 second-class list that depends on `self` (`NON_ESCAPABLE_TYPES.md` R7).
 For a list that must outlive the call, store **offsets** (shape 5) and
 re-derive:
