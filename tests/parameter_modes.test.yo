@@ -230,7 +230,7 @@ test("&xs(i) lends an element from a body evaluated per specialization", {
   xs := ArrayList(i32).new();
   xs.push(i32(1));
   assert(_pm_first_is_one(&xs, i32(3)), "comptime-specialized body");
-  assert(_pm_first_by(&xs, (v) => (v == i32(1))), "closure-taking body");
+  assert(_pm_first_by(&xs, v => (v == i32(1))), "closure-taking body");
 });
 // A callee whose body lends through markers (`&key`, `&mut h`) still reads
 // as not writing its `mut` parameter, so an `imm` binding may be handed to it
@@ -242,14 +242,14 @@ impl(
   _digest : (fn(imm(self) : Self, mut(key) : String) -> u64)({
     h := DefaultHasher.new();
     key.hash(&mut h);
-    (h.finish() % self.n)
+    h.finish() % self.n
   }),
   lookup : (fn(imm(self) : Self, imm(key) : String) -> u64)(self._digest(key))
 );
 test("a callee lending through markers does not write its mut parameter", {
   t := _PmTable(n : u64(7));
   s := String.from("abc");
-  assert((t.lookup(&s) < u64(7)), "an imm binding handed to a mut parameter nothing writes");
+  assert(t.lookup(&s) < u64(7), "an imm binding handed to a mut parameter nothing writes");
 });
 test("a marker that does not fit the parameter is an error", {
   s := String.from("x");
