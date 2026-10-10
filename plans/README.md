@@ -112,6 +112,18 @@ iterator adapters, container parity, `Lazy`, `Result.context`, `yo bench`,
 `--deny warnings`, LSP code actions and inlay hints, fuzzing, panic
 backtraces), and the rejections it adds (shadowing, `PartialOrd`, `Weak`,
 guards, `Cow`, `Deref` coercions).
+[`ZIG_ADOPTION_CANDIDATES`](backlog/ZIG_ADOPTION_CANDIDATES.md) is the Zig
+half of the same 2026-10-10 survey: the table of what Yo already shares
+with Zig (comptime, lazy analysis, `build.yo`, `c_include`, allocators as
+values, in-file tests, no shadowing, the `Io` parameter), ten language
+candidates (`defer`/`errdefer`, error return traces with `try`,
+arbitrary-precision `comptime_int`, `source_location()`, packed structs and
+alignment, `volatile`, `comptime_for`, a CTFE budget, labeled blocks, the
+scoped safety toggle), seven std candidates (a tracking `--allocator debug`
+that fails leaking tests, `InlineList`, enum containers, a comptime string
+map, a replaceable panic handler, assert diffs), three toolchain items, and
+the rejections (inferred error sets, allocator-per-call, `+%` operators,
+first-class `u7`, `@fieldParentPtr`, `undefined`).
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
