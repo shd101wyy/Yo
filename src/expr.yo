@@ -868,7 +868,13 @@ ast_place_text :: (fn(imm(e) : AstExpr) -> String)(
         `${base}.${field}`
       },
       (ast_expr_is_fn_call(e) && match(pf, .Atom(_, pft) => ((pft.kind != TokenKind.Operator) && (pft.kind != TokenKind.Dot)), .FnCall(_, _, _, _, _) => true)) => {
-        out := recur(pf);
+        // A fresh buffer: `recur(pf)` on a name returns the token's own
+        // (interned, shared) `value`, and `push_str` writes in place, so
+        // appending to it renamed the callee in the AST — `xs` became
+        // `xs(i)` for every later evaluation of the node
+        // (issues/fixed/ast-place-text-renames-the-callee-of-an-element-place.md).
+        out := String.new();
+        out.push_string(recur(pf));
         out.push_str("(");
         (pi : usize) = usize(0);
         while(pi < pargs.len(), pi = (pi + usize(1)), {
