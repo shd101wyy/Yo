@@ -24,6 +24,7 @@ doc.
 - [`ASYNC_STATE_MACHINE_GENERATION.md`](ASYNC_STATE_MACHINE_GENERATION.md) — the async state-machine audit and its phased rewrite: loud failures, ownership/protocol fixes, fast paths, then a single-pass resumable lowering.
 - [`ASYNC_PERFORMANCE_HANDOVER.md`](handover/ASYNC_PERFORMANCE_HANDOVER.md) — macOS async I/O at or above libuv: where the runtime and std rows stand, two open branches (await-site fusion #1073, the generic-aggregate future fix #1090), and the work left in order.
 - [`ASYNC_IO_API_AUDIT.md`](ASYNC_IO_API_AUDIT.md) — the 2026-10-03 audit of the async API surface (`io.async`/`io.await`/`io.spawn`, `Future`, `JoinHandle`, `IoFuture`, the `std/async` combinators): what stays, eight findings (no suspending join, timing-dependent abort semantics, two S1 crashes, a six-way contract drift), phases A0–A5; the four design questions were decided 2026-10-03.
+- [`CODEGEN_PERFORMANCE.md`](CODEGEN_PERFORMANCE.md) — closing the generated code's gap to Rust, measured (ACTIVE 2026-10-10): the first paired C numbers put float and index loops at parity, the integer overflow trap at 5.7–7× on integer reductions, `push` at 1.9× and `sort_by` at 4.3×; levers in order: CP0 (the paired suite + event counters), CP2f (a range pass that discharges the traps), CP2g (erase std's verifier-proved contracts in every build), `restrict`/LTO/`Rc`-assert/collector-tracking elision, CP2h (std's sort in place), layout and PGO.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 and 5b Phases 0–2 landed, the 2026-10-02 pointer-free unsafe-API audit closed; open: 5b Phase 3 (blocked) and strict mode (deferred). The 2026-10 handover is closed ([`archive/SAFE_MODE_HANDOVER.md`](archive/SAFE_MODE_HANDOVER.md)).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
 - [`V0251_RELEASE_HANDOVER.md`](handover/V0251_RELEASE_HANDOVER.md) — what must land for v0.2.51 before VALUES_BY_DEFAULT starts: the open PR stack (#1172–#1175, String S3, the newtype-retain fix), the S3 heap-corruption blocker, the release steps, and V1 step 0b as the next agent's first task.
@@ -88,18 +89,6 @@ borrow (views into owned buffers, `Ctx<'a>` structs, guard objects,
 `Cow`, escaping closures, borrowing futures, `&'static`) mapped to its
 post-VBD Yo shape through five replacements — own, share with `Rc`/`Arc`,
 index, pass per call, re-derive — with the cost of each.
-[`CODEGEN_PERFORMANCE`](backlog/CODEGEN_PERFORMANCE.md) is the static-code
-half of the performance story (the async half belongs to the ASYNC plans),
-designed but not started: a paired Yo/Rust/C bench suite, `restrict` on
-exclusive parameters with UBSan canaries, an LTO-edges audit (ThinLTO is
-already the chunked default), finishing the 5b verifier-driven elision, a
-hoisted-walk lowering for the borrowed `for`, `Rc` write-assert elision by
-mutation summary (plus the per-type frozen-cell rule recorded in place of a
-declined `Rc(RefCell(T))` split, which also un-tracks construction-time
-acyclic cells from the cycle collector), a solver-free range pass for the
-overflow guards Rust's release profile does not pay, field reordering and
-PGO — sequenced around VALUES_BY_DEFAULT's phases, with event counters so
-each lever reports events removed beside time saved.
 [`LANGUAGE_FEATURE_CANDIDATES`](backlog/LANGUAGE_FEATURE_CANDIDATES.md) is
 the 2026-10-08 parking lot of six checked candidates, none adopted: scoped
 parallel iteration as std (the `Sync` machinery is all landed; rayon-shaped
@@ -111,7 +100,6 @@ str-prefix patterns whose tail bindings borrow, pulling FV Phase V6
 `Soa(T)` columnar container (rows are sibling places under one root; the
 wrapper maintains the cross-column length invariant and the verifier can
 prove it) — plus the standing rejections table so nothing is re-proposed.
-
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
 [`SELF_HOSTING_COMPLETION`](archive/SELF_HOSTING_COMPLETION.md) (self-hosting,
