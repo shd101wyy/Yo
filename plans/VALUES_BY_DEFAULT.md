@@ -2644,6 +2644,40 @@ and in git, not a silent edit.
     - **Tests.** fmt round-trip on every slot kind; the "not a type"
       rejections above; the borrowed `for` with the sigil on the source; a
       capture list in the new form; the E09xx message text.
+    - **Completion (maintainer decision 2026-10-10): `imm` and the `mut(…)`
+      form are deleted outright in Generation B; `mut` survives only as
+      the second word of `&mut`.** Asked "are we able to remove `imm` and
+      `mut` completely?" — yes, because every position that takes a mode
+      today has a sigil spelling (the table above), and none needs the
+      call-like form. The deletion list, so Generation B's sweep and the
+      parser change are checkable:
+      | Form today | Positions | Becomes |
+      | --- | --- | --- |
+      | `imm(x) : T`, `mut(x) : T` | parameters, closure parameters, receivers (`imm(self)`/`mut(self)`) | `x : &T`, `x : &mut T`, `self : &Self`, `self : &mut Self` |
+      | `-> imm(T)`, `-> mut(T)` | projection results (decision 24) | `-> &T`, `-> &mut T` |
+      | `imm(f) : T`, `mut(f) : T` | fields, enum payloads, tuple components, inline instantiations (`NON_ESCAPABLE_TYPES.md` R1) | `f : &T`, `f : &mut T`, `Option(&T)` |
+      | `imm(y) := place`, `mut(y) := place`, `mut(cur) = place` | local borrows (decision 18), re-points (decision 25) | `y := &place`, `y := &mut place`, `cur = &mut place` |
+      | `{ imm(y) : &y, mut(z) : &mut z }` | capture lists (decision 35) | `{ y : &y, z : &mut z }` |
+      | `for(xs, inout(x) => …)` (and `for(xs, mut(x) => …)` where it was adopted) | the borrowed `for` | `for(&mut xs, x => …)`, `for(&xs, x => …)` |
+      | `inout(x) : T` | the pre-`mut` spelling still in the tree under the seed | deleted with the rest |
+      | `BK_IMM`, `BK_MUT`, `BK_INOUT` (`src/expr.yo:360`–`365`) and their parser, evaluator, formatter, LSP and `yo fix` branches | the compiler | deleted; `&`/`&mut` in a type slot is parsed by the sigil path decision 33 already has for call sites |
+      - **What is NOT deleted:** `sink(x) : T` (consume, decision 30),
+        `own(…)` in extern declarations, `comptime(…)` and `generic(…)`
+        (they are not borrow modes); `&x` / `&mut x` at call sites
+        (decision 33) — they are the spelling that replaces the forms.
+      - **`mut` becomes a reserved word**, as in Rust: it may not name a
+        binding, and it appears only after `&`. `imm` stops being reserved
+        and becomes an ordinary identifier (nothing in std uses it as one;
+        the parser rejects a binding named `mut` with the E-code that names
+        `&mut`).
+      - **No compatibility window** (the single-user rule): Generation A
+        accepts both spellings only so that `std/` and `src/` build under
+        the seed; Generation B, on the seed that carries A, rewrites them
+        and removes the old branches in the same PR, with `yo fix`
+        carrying the rewrite for any user tree.
+      - **Reflection and diagnostics** keep a mode *value* (`TypeInfo`'s
+        parameter mode, the E09xx texts); its variant names may stay
+        `Imm`/`Mut` internally — the decision is about surface keywords.
 
 ## 5. Prerequisites, gates and the seed
 

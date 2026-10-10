@@ -284,6 +284,10 @@ R1–R6 above are unchanged by it; read every `imm(f) : T` in them as
 NOT change: `&T` is still a slot-attached mode, never a nameable or
 nestable type, never a buffer element or a cell payload (the inline rule);
 decision 24's projection `-> &T` and an R3 result are one mechanism.
+Decision 42's completion bullet (2026-10-10) deletes `imm` and the
+`mut(…)` form outright in Generation B — `mut` survives only inside
+`&mut` and becomes reserved — so nothing in this note ever needs the
+call-like forms; R1's field spelling is `f : &T` from the start.
 
 **Review notes on decision 42 (2026-10-10, the VBD implementer, under the
 maintainer's 2026-10-09 delegation; recorded in full in decision 42):**
