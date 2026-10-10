@@ -572,7 +572,7 @@ structurally shared family.
     generic recursion, cache keys and atomic counts. Several fixed issues
     and `src/` comments trace bugs to `std/imm/map.yo` and `sorted_map.yo`.
 
-### 3.10 Exclusivity: no `RefCell`
+### 3.10 Exclusivity: static by default, `RefCell(T)` for the dynamic case
 
 Rust's `RefCell` guards a borrow that is alive while a write happens. Safe
 Yo's borrows are all second-class:
@@ -622,7 +622,8 @@ Each kind of root gets its own check:
 - **What V2b removes.** The automatic assert before `realloc`/`free` in an
   object method (`_maybe_emit_auto_borrow_assert`) goes with the
   collections' headers. `pragma(Pragma.StrictBorrow)` is deleted, or kept
-  for `Rc` roots.
+  for `Rc` roots. **(Decided 2026-10-10, decision 41: deleted — strict is
+  the only mode.)**
 - **At V5** `require_valid_ref_argument_places` keeps only its `Rc`/`Arc`
   and module-level arms.
 
@@ -655,7 +656,66 @@ Each kind of root gets its own check:
   - **Ratchet:** CODEGEN_PERFORMANCE.md CP0's "asserts executed" counter on
     `check ./src` goes down monotonically as the summaries widen.
 
-**There is no `RefCell`.**
+- **Amended 2026-10-10, second (maintainer decision, decision 41):
+  outcome (c) is a compile error too, and the dynamic check gets a type.**
+  "Strict as the default, strict as the only mode" was the maintainer's
+  question; the answer is Rust's split, in Yo's shape. The run-time mark is
+  not a fallback for undecidable code; it is what a program **spells** when
+  it wants it, with `RefCell(T)`:
+  - **Outcome (c) is a compile error** by default, like (b). The error
+    names the two repairs: prove it (restructure so the summaries can see
+    the write) or spell it (`RefCell(T)` in the type, or `Rc.get_mut` for a
+    uniquely held handle,
+    `issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`).
+    `pragma(Pragma.StrictBorrow)` is deleted: it is the default now.
+  - **`Rc(T)` is writable only in outcome (a).** A write through a plain
+    `Rc`/`Arc` handle is legal where the summaries prove no conflicting
+    borrow can be live, and is emitted with no assert and no mark traffic;
+    everywhere else the payload is read-only through the handle. The cell
+    header therefore carries **no borrow marks** (the `borrow_count` word
+    goes with V2b's header work) and a lend through a plain `Rc` sets no
+    mark.
+  - **`RefCell(T)`** (`std/sync`, beside `Mutex(T)`: the same family —
+    `Mutex` blocks, `RefCell` panics) holds the shared/exclusive marks that
+    decision 28 placed in the `Rc` header, and asserts them. Its API is
+    closure- and projection-shaped, never a guard value (decision 38 A):
+    `with(imm(body) : Fn(imm(v) : T) -> R)`, `with_mut(imm(body) : Fn(mut(v) : T) -> R)`,
+    and the projections `get() -> imm(T)` and `get_mut() -> mut(T)` (decision
+    24: a receiver, an argument, the left of `=`, a `for` source; never
+    bound). `cell.get_mut().field = x` is Rust's `cell.borrow_mut().field = x`;
+    a conflict panics at `with_mut`/`get_mut` entry as `RefCell::borrow_mut`
+    does. `RefCell(T)` is `Send` iff `T <: Send` and never `Sync`;
+    `Arc(RefCell(T))` is rejected, `Arc(Mutex(T))`/`Arc(RwLock(T))` stay
+    the cross-thread forms (decision 5 and D3 unchanged).
+  - **Why the type and not a per-site marker.** A marker leaves every `Rc`
+    cell carrying marks because some site elsewhere might write; the type
+    makes the fact modular: `Rc(T)` costs what Rust's `Rc<T>` costs
+    (CODEGEN_PERFORMANCE.md CP2d, now adopted rather than declined), the
+    collector's tracking predicate becomes "the payload reaches a
+    `RefCell`/`Mutex`/`RwLock` that reaches an `Rc`" with no whole-program
+    pass (CP2e, §3.12), it works across static libraries, and a reader sees
+    in a struct definition which fields are dynamically checked.
+  - **`imm` means unchanged only for `RefCell`-free types** (interior
+    mutability, Rust's `&` over `UnsafeCell`); the verifier excludes
+    `RefCell`-reaching values as it excludes `Rc` today (§3.12). Whether a
+    `RefCell` may sit inside a plain value, not only behind `Rc`/`Arc`, is
+    `issues/questions/refcell-inside-a-plain-value.md` (recommendation: yes,
+    anywhere, verifier-excluded).
+  - **Decision 21's trees need nothing**: immutable after construction, they
+    stay `Rc(struct(...))`; the mutable registries among the compiler's
+    ~3,000 `ref` trees get `RefCell` at V4/V5, classified once per tree.
+  - **Phase:** V1's write-site work adds `RefCell(T)` and turns (c) into
+    the error behind the existing `StrictBorrow` machinery; the header word
+    and the mark emission on plain `Rc` go with V2b.
+  - **Tests:** (a) the over-elision canary; (b) and (c) compile-error tests
+    (c's error must name `RefCell(T)` and `Rc.get_mut`); a `RefCell`
+    conflict panics (a closure and an async body calling `with_mut` under a
+    live `with`); a write through `Rc(T)` the summaries cannot prove is a
+    compile error; `RefCell(T)` fails `Sync` and `Arc(RefCell(T))` is
+    rejected.
+
+**The run-time check has one spelling, `RefCell(T)`; outside it the check is
+static.**
 
 ### 3.11 Explicit allocators
 
@@ -720,6 +780,13 @@ and every free routes through the owner prefix.
   - An `Rc(ArrayList(T))` parameter is outside the verifier subset.
 - **The cycle collector.** Only `Rc` cells whose payload reaches an `Rc` are
   tracked, and values, `Box` trees and collections are never tracked.
+  - **Narrowed 2026-10-10 by decision 41:** a cell can only point at values
+    older than itself, so a cycle needs a later write through a shared
+    handle, and in safe code that write exists only inside a `RefCell`,
+    `Mutex` or `RwLock`. The predicate becomes "the payload reaches one of
+    those that reaches an `Rc`"; a payload with none is untracked with no
+    analysis (CODEGEN_PERFORMANCE.md CP2e). `Dyn` and closure payloads stay
+    conservative unless `Acyclic` is declared.
   - The compiler's trees have `Rc` children (decision 21), so V4 makes
     `can_type_form_rc_cycle` honour a declared `Acyclic`. Trees with no
     back edges then stay untracked.
@@ -940,6 +1007,9 @@ and in git, not a silent edit.
    stays uncloneable.
 4. **A write through `Rc` is a plain write**, guarded by §3.10's assert. No
    `RefCell`. D3 forbids writes through an `Arc` root in safe code.
+   **Amended 2026-10-10 by decision 41:** a write through `Rc` is a plain
+   write only where the summaries prove it exclusive (§3.10 outcome (a)),
+   with no assert; the dynamic check is spelled `RefCell(T)`.
 5. **`Arc` reads are a borrowed place, plus the `Sync` bound** (§3.8).
 6. **The heap cell is usable in `pragma(Pragma.AllowUnsafe)` files.** Safe
    code cannot name it.
@@ -2446,6 +2516,34 @@ and in git, not a silent edit.
       - any V2b escape of a yielded place out of its owner's storage;
       - any future first-class or storable reference type.
 
+41. **`RefCell(T)` is the one spelling of the dynamic exclusivity check;
+    outside it the check is static.** Confirmed 2026-10-10 by the maintainer
+    ("what if we bring `RefCell` to Yo?", after deciding the same day that
+    the static verdict is the default). Amends decision 4 and §3.10 (the
+    full rule is §3.10's second 2026-10-10 amendment), and reopens
+    CODEGEN_PERFORMANCE.md CP2d on a soundness ground, not the measured one
+    it asked for.
+    - §3.10's outcome (c), the undecidable write through a shared handle,
+      is a compile error like (b); `pragma(Pragma.StrictBorrow)` is deleted.
+    - `Rc(T)`/`Arc(T)` payloads are writable only in outcome (a), with no
+      assert; the cell header carries no borrow marks.
+    - `RefCell(T)` lives in `std/sync` beside `Mutex(T)`, holds the marks,
+      and exposes `with`/`with_mut` closures and `get`/`get_mut`
+      projections — never a guard value. `Send` iff `T <: Send`, never
+      `Sync`; `Arc(RefCell(T))` is rejected.
+    - The collector tracks only payloads that reach a
+      `RefCell`/`Mutex`/`RwLock` reaching an `Rc` (§3.12); the verifier
+      excludes `RefCell`-reaching values; `imm` is "unchanged" only for
+      `RefCell`-free types.
+    - Open: `issues/questions/refcell-inside-a-plain-value.md`.
+    - Phase: with V1's write-site work; the header word with V2b.
+    - Rejected: a per-site or per-module opt-in to the run-time mark (a
+      pragma or a call-site marker), because it leaves every `Rc` cell
+      paying for marks some other site might need and the fact stays
+      whole-program; and "strict with no escape at all", because `Dyn`
+      dispatch and unrelated-handle aliasing are real and Rust needs
+      `RefCell` for exactly them.
+
 ## 5. Prerequisites, gates and the seed
 
 - **`STRING_VALUE_SEMANTICS`.** S1 (E0908 on `mut` writes through a
@@ -3907,7 +4005,8 @@ inside a settled design:
   borrowing iterator, decided together with decision 37's stateful call,
   by the same trigger.
 - **§3.10:** whether `pragma(Pragma.StrictBorrow)` is deleted or kept for
-  `Rc` roots. Decided in V2b, when the collections' headers go.
+  `Rc` roots. **Decided 2026-10-10 (decision 41): deleted; strict is the
+  only mode and `RefCell(T)` is the dynamic check's spelling.**
 - **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
   the constructors' `alloc` parameter. Decided after V2b.
 - *(Decided as decision 35, 2026-10-05: the capture list.)*

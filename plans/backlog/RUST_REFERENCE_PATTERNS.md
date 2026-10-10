@@ -54,7 +54,7 @@ shapes, in the order Yo prefers them:
 | # | Shape | Costs | Use when |
 | --- | --- | --- | --- |
 | 1 | **Own it** — the field holds the value `T` (a recursive child in `Box(T)`) | a move or `.clone()` at the boundary | this structure is the value's sole owner for its whole life |
-| 2 | **Share it** — the field holds a handle: `Rc(T)` (one thread) or `Arc(T)` (across threads) | one allocation, count traffic, per-cell borrow marks on write (§3.10) | aliasing is real and long-lived |
+| 2 | **Share it** — the field holds a handle: `Rc(T)` (one thread) or `Arc(T)` (across threads); `Rc(RefCell(T))` when the payload is mutated through the handle (decision 41) | one allocation, count traffic; marks and a write assert only inside a `RefCell` (§3.10) | aliasing is real and long-lived |
 | 3 | **Index it** — the field holds an index/key into an owner living elsewhere (`usize`, an arena id, a map key) | a bounds/lookup step per access; the owner must outlive the index | graphs, caches, interners — often *faster* than a pointer (§12) |
 | 4 | **Pass it, don't store it** — the function takes `imm(x) : T` / `mut(x) : T`, or takes a non-escaping closure (`imm(body) : Fn(mut(v) : T) -> R`) | none (an `Impl(Fn)` body inlines) | the borrow's life is one call |
 | 5 | **Re-derive it** — store a small `Copy` cursor (an offset, a `Range(usize)`), re-derive the place at each use through an owner you can name | one bounds check per re-derivation | zero-copy views, cursors, walkers |
@@ -197,9 +197,12 @@ Ctx :: struct(db : Rc(Db), cfg : Rc(Config));
 
 - The stored form is exactly what the compiler's ~60 context objects become at
   V5 (`Rc(struct(...))`, the plan's V5 list).
-- Through a handle, `ctx.db.write(...)` auto-derefs (§3.3) and a write asserts
-  no conflicting borrow mark on the cell (§3.10). Sharing the `Db` across
-  threads is `Arc(Db)` for reads (needs `Db <: (Send, Sync)`) or
+- Through a handle, `ctx.db.read(...)` auto-derefs (§3.3). A write through
+  `Rc(Db)` compiles only where the summaries prove no borrow is live
+  (§3.10 outcome (a)); a `Db` that is mutated through the handle in general
+  is `Rc(RefCell(Db))` and writes `ctx.db.get_mut().write(...)` or
+  `ctx.db.with_mut(mut(d) => d.write(...))` (decision 41). Sharing the `Db`
+  across threads is `Arc(Db)` for reads (needs `Db <: (Send, Sync)`) or
   `Arc(Mutex(Db))` for writes (D3: no write through an `Arc` root in safe
   code).
 - A handle copy is explicit: `Rc.clone(ctx.db)` (D17/D32 — `ctx.db.clone()` is
@@ -255,8 +258,8 @@ borrows a sink, a transaction that borrows a store) cannot exist. Restructure:
   takes `mut(x)` and the closure or body;
 - or the loaned state moves in (shape 1): the builder owns its sink and is
   consumed by `finish`;
-- or the loan becomes a handle (shape 2): `Rc(Store)`, with §3.10's assert in
-  place of the exclusivity Rust proved.
+- or the loan becomes a handle (shape 2): `Rc(RefCell(Store))`, with the
+  cell's assert in place of the exclusivity Rust proved.
 
 ### 3.5 A sink held in a struct — `fmt::Formatter<'a>`, `Serializer<'a, W: Write>`
 
@@ -353,19 +356,23 @@ are plain handles (shape 2):
 ```yo
 Node :: struct(
   value : i32,
-  children : ArrayList(Rc(Node)),
-  parent : Option(Rc(Node))
+  children : ArrayList(Rc(RefCell(Node))),
+  parent : Option(Rc(RefCell(Node)))
 );
 ```
 
 - The parent cycle is reclaimed by the thread-local trial-deletion collector
-  (`docs/en-US/CYCLE_COLLECTION.md`); only cells whose payload can reach an
-  `Rc` are tracked, and this graph qualifies by construction.
-- **Writes through any handle are plain writes** with the cell's borrow marks
-  asserted at the write site (§3.10, D4): `node.value = 5` on an
-  `Rc(Node)`-typed place is legal and panics if a conflicting borrow is live.
-  This is `RefCell::borrow_mut`'s panic with no annotation — the run-time
-  rule `RefCell` encodes, moved to the write.
+  (`docs/en-US/CYCLE_COLLECTION.md`); only cells whose payload reaches a
+  `RefCell`/`Mutex`/`RwLock` that reaches an `Rc` are tracked (decision 41),
+  and this graph qualifies by construction — a tree whose nodes are plain
+  `Rc(Node)` does not, and is never tracked.
+- **The graph is mutated through `RefCell`**, exactly as in Rust minus the
+  guard value (decision 41): `node.get_mut().value = 5` (a projection, D24)
+  or `node.with_mut(mut(n) => { n.value = 5; })`. A conflicting live borrow
+  panics at `get_mut`/`with_mut` entry, `RefCell::borrow_mut`'s panic. A
+  write through a plain `Rc(Node)` compiles only where the summaries prove
+  no borrow is live (§3.10 outcome (a)) and is otherwise a compile error
+  naming `RefCell(T)`.
 - An `Arc` graph is rejected: `arc` requires `T <: Acyclic`, because an atomic
   cycle is never collected. Cross-thread graphs use arena + ids (below) or
   `Arc(Mutex(...))` nodes without parent handles.
@@ -388,14 +395,18 @@ Node :: struct(value : i32, children : ArrayList(usize), parent : Option(usize))
 
 - **`Cell<T>` disappears.** Its whole job — mutate a field through a shared
   reference — is either unnecessary (you own the value: mutate the field) or
-  is the `Rc` write of §4.1. There is no `Cell` in the language and no hole it
-  leaves.
-- **`RefCell<T>` is `Rc(T)`.** `Rc<RefCell<T>>` (Rust) becomes `Rc(T)` (Yo):
-  the cell header carries the shared and exclusive borrow marks, every write
-  through the cell asserts no conflicting mark, and `imm` lends through the
-  handle mark the cell for the call (D28). The failure mode is the same class
-  as Rust's (`RefCell` panic), checked at the same place (the mutation), with
-  no spelling at the type.
+  is a `RefCell(T)` over a `Copy` payload (`c.get_mut() = v`). There is no
+  `Cell` in the language and no hole it leaves.
+- **`RefCell<T>` is `RefCell(T)`** (decision 41; `std/sync`, beside
+  `Mutex(T)`). `Rc<RefCell<T>>` becomes `Rc(RefCell(T))`: the cell holds the
+  shared and exclusive marks, `with(imm(v) => …)`/`with_mut(mut(v) => …)`
+  scope a borrow in a closure, and `get()`/`get_mut()` are projections
+  usable in one expression (`cell.get_mut().field = x`). What does not
+  carry over is the guard value: `borrow_mut()` returning a `RefMut` is a
+  stored borrow (D38 A). The failure mode is Rust's (`RefCell` panic at
+  `with_mut`/`get_mut`). A plain `Rc(T)` is read-only through the handle
+  except where §3.10's summaries prove a write exclusive, and its cell
+  carries no marks at all.
 - Cross-thread: `Arc<Mutex<T>>` → `Arc(Mutex(T))`; `Arc<RwLock<T>>` →
   `Arc(RwLock(T))` (both need `T <: (Send, Sync, Acyclic)`).
 - A `OnceCell`/lazy shape: initialize eagerly, or hold
@@ -623,9 +634,9 @@ Bus :: struct(listeners : ArrayList(Rc(Dyn(Fn(Event))))); // shared with several
   (`self.listeners.push(..)` from inside `emit`). Rust rejects it at
   compile time through the `&mut self` borrow. Yo rejects the borrowing
   form statically too (D38 B: a closure holding a `mut` borrow cannot be
-  reached by anything it is called with), and through an `Rc(Bus)` it is
-  the §3.10 write assert: a panic at the push, the `RefCell` failure mode
-  with no spelling. The ported code that first trips the assert is
+  reached by anything it is called with), and through an `Rc(RefCell(Bus))`
+  it is the cell's assert: a panic at the `with_mut`, the `RefCell` failure
+  mode (decision 41). The ported code that first trips the assert is
   usually this shape; the fix is to collect the mutations and apply them
   after `emit` returns.
 
@@ -758,7 +769,7 @@ cross-thread synchronization by construction.
 | Pattern | Rust | Post-VBD Yo | Delta |
 | --- | --- | --- | --- |
 | stored `&`/`&mut` in a scoped struct | free (borrow checker) | `Rc`: one alloc + count traffic + write assert | **the structural gap** — appears where Rust had a lifetime-parameterized struct |
-| interior mutability | `RefCell` (run-time flag) or `UnsafeCell` | `Rc` borrow marks at the write | same class of check, similar cost |
+| interior mutability | `RefCell` (run-time flag) or `UnsafeCell` | `RefCell(T)` marks at `with_mut`/`get_mut` (decision 41); a plain `Rc(T)` carries no marks | identical |
 | shared mutation across threads | `Arc<Mutex<T>>` | `Arc(Mutex(T))` | none — identical |
 | iterator chains | zero-cost (pointer iterators, elided checks) | one bounds check per re-derived step; `ptr()` under the pragma for hot loops | measurable in tight loops; escape hatch exists |
 | cyclic graphs | `Weak` bookkeeping or an arena | collector traversal (tracked cells only), or the arena (nothing) | arena = Rust arena |
@@ -787,8 +798,9 @@ it has, or needs, a Yo spelling:
 | HRTB `for<'a> Fn(&'a T) -> &'a U` | the closure's parameter mode says it: `Fn(imm(v) : T) -> R`; a closure cannot return a borrow at all (§6) |
 | variance, `'static` bounds (`Box<dyn Error + 'static>`, `T: 'static` on `spawn`) | a stored value is owned by construction; `Send` is the only bound a spawn checks |
 | `Deref` coercions (`&String → &str`, `&Vec<T> → &[T]`, `&Box<T> → &T`) | `imm(s) : String` is the only lent form of a `String`; `str` is a `Copy` view of literals (2.2); `Box`/`Rc` auto-dereference by member access (§3.3) |
+| `RefMut<'a, T>` / `Ref<'a, T>` guard values | §4.2: `with`/`with_mut` closures and `get`/`get_mut` projections |
 | `Pin<&mut Self>`, `Unpin` | §2.3 |
-| `Cell<T>` | §4.2 |
+| `Cell<T>` | §4.2 (a `RefCell(T)` over a `Copy` payload) |
 | `Weak<T>` | §4.1 |
 | `Cow<'a, T>` | §4.4 |
 | `Option<&T>` / `as_ref`/`as_mut`/`as_deref` | §3.6: the borrowing `match` |

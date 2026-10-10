@@ -15,11 +15,14 @@ Rust's three "get the payload back out of a handle" operations:
 | `Rc::make_mut(&mut rc) -> &mut T` | clone-on-write: clone the payload into a fresh unique cell if shared, then exclusive access |
 
 They are how Rust code builds a shared tree, then edits or dismantles it
-without a second allocation. Post-VBD Yo writes through an `Rc(T)` are
-plain writes with the §3.10 borrow-mark assert, so the *mutation* case is
-covered; the gap is **ownership recovery** (`try_unwrap`) and the
-**explicit clone-on-write** (`make_mut`), which the plan's §0.1 dropped as
-an implicit mechanism but never ruled on as a spelled operation.
+without a second allocation. Since decision 41 (2026-10-10) a write through
+a plain `Rc(T)` compiles only where the summaries prove no borrow is live,
+and the dynamic check is spelled `RefCell(T)`; so `get_mut` is no longer
+redundant — it is the one way to write through a handle that is uniquely
+held without paying for a `RefCell` in the type — and the gap is all three:
+`get_mut`, **ownership recovery** (`try_unwrap`) and the **explicit
+clone-on-write** (`make_mut`), which the plan's §0.1 dropped as an implicit
+mechanism but never ruled on as a spelled operation.
 
 ## Options
 
@@ -27,8 +30,8 @@ an implicit mechanism but never ruled on as a spelled operation.
    `drop` the handle. Pays a copy even when the count is 1.
 2. **`Rc.try_unwrap(h) -> Result(T, Rc(T))`** only. Decision 19 forbids
    moving out of a live value, but a handle whose count is 1 is being
-   consumed, so this is a move, not a partial move. `get_mut` is
-   unnecessary (writes through the handle are already plain), and
+   consumed, so this is a move, not a partial move. `get_mut` is left to
+   `RefCell(T)` (every mutable-through-handle payload pays the cell), and
    `make_mut` is `cond(Rc.is_unique(&h), h, rc(h.clone()))` written out.
 3. **The Rust trio**: 2 plus `Rc.get_mut(mut(h)) -> Option(mut(T))` as a
    decision-24 projection (second-class, never stored) and

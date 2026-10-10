@@ -401,13 +401,39 @@ the run-time assert. `StrictBorrow` then rejects (c) too. One negative test
 per outcome; CP0's "asserts executed" counter on `check ./src` must fall
 monotonically as the summaries widen.
 
+**Amended again 2026-10-10 (decision 41, VALUES_BY_DEFAULT.md §3.10):**
+outcome (c) is a compile error as well, `StrictBorrow` is deleted, and the
+run-time mark exists only where a program spells `RefCell(T)`. So this
+lever's scope narrows to (a): the assert and mark traffic on a plain `Rc`
+are not elided, they are never emitted; what the summaries decide is
+whether a write through `Rc(T)` compiles at all. The "asserts executed"
+counter then counts `RefCell` `with_mut`/`get_mut` entries, and the ratchet
+is the number of `RefCell` fields in `src/` and `std/` at V4/V5, not a
+count of asserts the summaries could not remove.
+
 **Phase:** after §3.10's write-site emission lands (VBD lists it under V1
 "Remaining").
 
 Dead `Rc.clone()` elision needs no work here: decision 27 owns it, landing
 with V2b.
 
-### CP2d. Considered and declined (2026-10-09): splitting `Rc(T)` into `Rc(RefCell(T))`
+### CP2d. Splitting `Rc(T)` into `Rc(RefCell(T))` — declined 2026-10-09, ADOPTED 2026-10-10
+
+**Reversal (2026-10-10, decision 41 in VALUES_BY_DEFAULT.md).** The split
+is adopted, on a soundness ground rather than the measurement this section
+asked for: once the static exclusivity verdict is the only mode, a program
+needs a spelling for the dynamic check it genuinely wants (`Dyn` dispatch,
+unrelated handles), and putting it in the type rather than at the site is
+what makes the saving below modular — `Rc(T)` costs what Rust's `Rc<T>`
+costs by construction, with no whole-program frozen-cell pass, across static
+libraries. The frozen-cell analysis described below is therefore **not
+built**; the "per-site elision" bullet survives only as the question of
+which `Rc(T)` writes compile (CP2c). The reopen condition at the end is
+moot. The text is kept as the record of why the split was first declined
+and what it costs: the ergonomic objection (every user spells
+`RefCell` where mutation through a handle happens) was accepted by the
+maintainer as Rust's own price, and decision 21's immutable trees mean the
+compiler pays it in few places.
 
 The maintainer asked whether Rust's split — a plain `Rc<T>` with no borrow
 flag and `Rc<RefCell<T>>` only where mutation happens — should replace
@@ -463,6 +489,16 @@ The maintainer's constraint: Rust-level performance **with** the cycle
 collector kept for `Rc` graphs that do form cycles. The collector's cost is
 per *tracked* cell (§0, cause 3), so the lever is the tracking predicate,
 not the algorithm.
+
+**Amended 2026-10-10 (decision 41):** with `RefCell(T)` as the only
+dynamic-write spelling, the rule below needs no whole-program write-site
+scan. In safe code a later write through a shared handle exists only inside
+a `RefCell`, `Mutex` or `RwLock`, so the predicate is a type property:
+**track a cell iff its payload reaches a `RefCell`/`Mutex`/`RwLock` that
+reaches an `Rc`.** `Dyn` and closure-capture payloads stay conservative
+(tracked unless `Acyclic` is declared), as below. The rest of this section
+— what stays tracked, the runtime, the canaries — stands; "the CP2d pass"
+in it now means this predicate.
 
 **The rule: construction-time acyclicity.** A cell can only point at values
 that existed before it was built, so a cycle through `Rc(T)` requires a
@@ -620,9 +656,9 @@ UBSan language suite. One PR per phase, or a stack with one battery.
 | CP1a (`restrict`) | V3b Generation B flip; UBSan canaries | after V3b |
 | CP2a (5b) | its own backlog designs | as designed |
 | CP2b (`for` lowering) | V2b | after V2b |
-| CP2c (assert elision) | §3.10's V1 write-site assert | after V1's remainder |
-| CP2d (frozen-cell rule; the declined `RefCell` split's static form) | CP2c's write-site assert; CP0's mark counter | after CP2c |
-| CP2e (collector tracking by the frozen rule) | the CP2d pass; CP0's registration counter | with CP2d |
+| CP2c (which `Rc(T)` writes compile; marks only inside `RefCell`) | §3.10's V1 write-site work, decision 41 | with V1's remainder |
+| CP2d (`Rc(RefCell(T))` split — adopted 2026-10-10; no frozen-cell pass) | V1 adds `RefCell(T)`; the header word goes with V2b | with V1 / V2b |
+| CP2e (collector tracking by the `RefCell`/`Mutex`/`RwLock`-reach predicate) | CP2d's type; CP0's registration counter | with CP2d |
 | CP2f (range pass for overflow/index guards) | CP0's guard counters | **first after CP0** (2026-10-10: the measured 5.7×/7× integer-loop gap); independent of VBD |
 | CP2g (erase proved std contracts in every build) | CP0's assert counter; a §7 ruling on 5b's recommendation 1 | after CP0; independent of VBD |
 | CP2h (std sort in place) | V2b unique buffers | after V2b |
