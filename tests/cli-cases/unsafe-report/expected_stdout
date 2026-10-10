@@ -3,11 +3,11 @@ Unsafe surface report
 =====================
 
 Scanned 3 .yo file(s); 2 declare pragma(Pragma.AllowUnsafe);.
-  unsafe(...) sites: 6
+  unsafe(...) sites: 8
     extern-call: 2
-    deref:       2
+    deref:       3
     arith:       0
-    addr-of:     0
+    addr-of:     1
     other:       2
   asm(...) sites:    0
   extern(...) sites: 0
@@ -21,6 +21,8 @@ Findings (file:line:col):
     SAFETY: p points at a live i32 owned by the caller.
   audit_me.yo:7:8: unsafe(other) — q := unsafe(p.add(usize(1)));
   audit_me.yo:9:8: unsafe(deref) — s := unsafe(r.*);
+  audit_me.yo:10:8: unsafe(addr-of) — w := unsafe(addr_of(v));
+  audit_me.yo:11:11: unsafe(deref) — v + s + unsafe(w.*)
   ffi_calls.yo:16:8: unsafe(extern-call:memcpy_probe) — r := unsafe(memcpy_probe(dst, src, n));
   ffi_calls.yo:21:8: unsafe(extern-call:strlen_probe) — r := unsafe(strlen_probe(s));
   ffi_calls.yo:26:8: unsafe(other) — q := unsafe(p.add(n));
@@ -62,6 +64,22 @@ $ yo unsafe-report . --json
       "snippet": "s := unsafe(r.*);"
     },
     {
+      "file": "audit_me.yo",
+      "line": 10,
+      "column": 8,
+      "kind": "unsafe",
+      "subKind": "addr-of",
+      "snippet": "w := unsafe(addr_of(v));"
+    },
+    {
+      "file": "audit_me.yo",
+      "line": 11,
+      "column": 11,
+      "kind": "unsafe",
+      "subKind": "deref",
+      "snippet": "v + s + unsafe(w.*)"
+    },
+    {
       "file": "ffi_calls.yo",
       "line": 16,
       "column": 8,
@@ -91,12 +109,12 @@ $ yo unsafe-report . --json
   "totals": {
     "filesScanned": 3,
     "privileged": 2,
-    "unsafeSites": 6,
+    "unsafeSites": 8,
     "unsafeBySubKind": {
       "extern-call": 2,
-      "deref": 2,
+      "deref": 3,
       "arith": 0,
-      "addr-of": 0,
+      "addr-of": 1,
       "other": 2
     },
     "asmSites": 0,
