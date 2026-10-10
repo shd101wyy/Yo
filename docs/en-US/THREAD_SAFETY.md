@@ -85,20 +85,20 @@ Thread(unit).spawn(io => {
 ## Atomic Field Mutation is Forbidden in Safe Code
 
 Writes through an `atomic object` are **compile-time errors** in safe code — field and index
-assignment, and any `inout` route into it (an `inout` argument, or a method whose `self` is
-`inout(self)`) whose callee may write through that parameter:
+assignment, and any `mut` route into it (a `mut` argument, or a method whose `self` is
+`mut(self)`) whose callee may write through that parameter:
 
 ```yo
 a := arc(i32(0));
 a.* = i32(5); // ERROR: cannot write to atomic object field
 c := arc(Counter(n : i32(0)));
-c.*.bump(); // ERROR: cannot call an inout(self) method on atomic object 'c'
-bump_by_ten(c.*); // ERROR: cannot pass an inout argument rooted in atomic object 'c'
+c.*.bump(); // ERROR: cannot call an mut(self) method on atomic object 'c'
+bump_by_ten(c.*); // ERROR: cannot pass a mut argument rooted in atomic object 'c'
 ```
 
 A local copy is a value, so `k := c.*; k.bump()` is fine (it mutates the copy);
-`Mutex.with_lock`'s `inout(v)` is a parameter, so the body may write through `v`; and a
-read-only `inout(self)` method — `ToString`'s `${c.*.n}`, `Sender.clone` — is fine, because the
+`Mutex.with_lock`'s `mut(v)` is a parameter, so the body may write through `v`; and a
+read-only `mut(self)` method — `ToString`'s `${c.*.n}`, `Sender.clone` — is fine, because the
 compiler decides by what the callee's body does (`plans/reference/PARALLELISM_RULES.md` D3), not
 by the parameter mode alone.
 
@@ -134,7 +134,7 @@ of them: it is not an integer atomic.
 
 Every method takes `self : Self`, the same receiver convention the rest of
 `std/sync` uses for `atomic(ref(...))` types; only `compare_exchange`'s
-`expected` is `inout`, because a failing exchange writes the observed value
+`expected` is `mut`, because a failing exchange writes the observed value
 back into it. Every operation takes an explicit `MemoryOrder`:
 
 ```yo
@@ -213,7 +213,7 @@ counter.with_lock(v => {
 new_value := counter.with_lock(v => (v + i32(1)));
 ```
 
-The closure receives `inout(v) : T` — a **second-class reference** that:
+The closure receives `mut(v) : T` — a **second-class reference** that:
 
 - Can read and write through `v`
 - Cannot be stored in a struct field
@@ -239,7 +239,7 @@ one static that every thread shares. In safe code:
   thread, but reading a field through such a handle updates a reference count, so no other
   thread may touch it;
 - a `Sync` value global (a scalar or a struct with no reference inside) that is WRITTEN
-  anywhere — assigned, the root of a field or index store, or handed to an `inout` parameter
+  anywhere — assigned, the root of a field or index store, or handed to a `mut` parameter
   whose callee writes through it — is a mutable static, and a closure that runs on another
   thread may not reach it. Written and read on one thread only, it is an ordinary global; read
   from every thread and never written, it is a shared constant. The error lands on whichever
@@ -382,7 +382,7 @@ Non-`_`-prefixed fields (like `arc.*`) are readable but not writable in safe cod
 
 | Layer                      | What's Trusted                                 | What's Enforced                                                                                                                                      |
 | -------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send and Sync impls rejected. Atomic-object writes rejected (field and index assignment, `inout` arguments, `inout(self)` receivers). Non-Send captures rejected. A function value crossing threads is judged by what it captures and what its code reaches (D4, D9); a bare `fn` field or payload is not Send. |
+| **User code** (no pragma)  | Nothing                                        | All cross-thread sharing goes through `std/sync/` primitives. Manual Send and Sync impls rejected. Atomic-object writes rejected (field and index assignment, `mut` arguments, `mut(self)` receivers). Non-Send captures rejected. A function value crossing threads is judged by what it captures and what its code reaches (D4, D9); a bare `fn` field or payload is not Send. |
 | **`std/sync/`** (pragma'd) | Primitive bodies implement contracts correctly | Manual Send and Sync impls require `// SAFETY:` comments. An atomic object holding a raw pointer opts in with them; a safe file's atomic object must have `Sync` fields. |
 | **Codegen runtime**        | Atomic RC ops use correct memory ordering      | C11 `atomic_fetch_add_explicit(..., relaxed)` for increment, `atomic_fetch_sub_explicit(..., acq_rel)` for decrement.                                |
 | **`extern("c", ...)`**     | C functions are reentrant-safe                 | Out of scope — same audit boundary as the memory-safety pass.                                                                                        |

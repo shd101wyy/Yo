@@ -206,8 +206,8 @@ impl(
       self._total = (self._total + u64(1));
       cond(
         (self._buflen == usize(128)) => {
-          buf_ptr := &self._buf(usize(0));
-          h_ptr := &self._h(usize(0));
+          buf_ptr := addr_of(self._buf(usize(0)));
+          h_ptr := addr_of(self._h(usize(0)));
           _sha512_block(buf_ptr, h_ptr);
           self._buflen = usize(0);
         },
@@ -232,8 +232,8 @@ impl(
         while(self._buflen < usize(128), self._buflen = (self._buflen + usize(1)), {
           self._buf(self._buflen) = u8(0);
         });
-        buf_ptr := &self._buf(usize(0));
-        h_ptr := &self._h(usize(0));
+        buf_ptr := addr_of(self._buf(usize(0)));
+        h_ptr := addr_of(self._h(usize(0)));
         _sha512_block(buf_ptr, h_ptr);
         self._buflen = usize(0);
       },
@@ -249,8 +249,8 @@ impl(
       self._buf(usize(112) + wi) = u8(bit_len_high >> shift);
       self._buf(usize(120) + wi) = u8(bit_len_low >> shift);
     });
-    buf_ptr := &self._buf(usize(0));
-    h_ptr := &self._h(usize(0));
+    buf_ptr := addr_of(self._buf(usize(0)));
+    h_ptr := addr_of(self._h(usize(0)));
     _sha512_block(buf_ptr, h_ptr);
     digest := Array(u8, usize(64)).fill(u8(0));
     j := usize(0);

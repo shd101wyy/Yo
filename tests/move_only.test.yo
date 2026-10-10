@@ -60,8 +60,8 @@ impl(
     })
   )
 );
-// `own(x)` is the old spelling of `sink(x)` (plans/VALUES_BY_DEFAULT.md
-// decision 15), accepted until the sweep after the next seed.
+// A `sink(x)` parameter is the same function type as a plain `x` (the move
+// is decided at the caller); `own(x)`, its old spelling, is deleted.
 _mo_take_old :: (fn(sink(f) : _MoFd) -> i32)(f.n);
 _mo_dup_generic :: (fn(generic(T : Type), imm(x) : T) -> T)(x);
 _mo_move_generic :: (fn(generic(T : Type), sink(x) : T) -> T)(x);
@@ -323,7 +323,7 @@ test("move-only: a borrow cannot be copied or moved out", {
     }),
     "it is borrowed"
   );
-  comptime_expect_error((fn(mut(f) : _MoFd) -> i32)(_mo_take(f)), "it is an `inout` binding");
+  comptime_expect_error((fn(mut(f) : _MoFd) -> i32)(_mo_take(f)), "it is a `mut` binding");
   comptime_expect_error(
     (fn(imm(f) : _MoFd) -> i32)({
       (k : Impl(Fn() -> i32)) = (() => f.n);
@@ -370,16 +370,19 @@ test("move-only: the E0901 note names why the type is move-only", {
   t := _MoToken(id : i32(3));
   u := t;
   comptime_expect_error(t.id, "neither `Copy` nor `Clone`");
+  // Since the flip a by-value parameter owns its argument; the note names the
+  // borrowing mode.
+  comptime_expect_error(h.tag, "An `imm` parameter borrows it without a copy (the call lends it with `&h`)");
   assert((g.tag + u.id) == i32(5), "moved values");
 });
-test("move-only: `own` is the old spelling of `sink`, and both spell one function type", {
-  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "own and sink are one parameter mode");
-  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "both directions");
+test("move-only: `sink` and plain spell one function type, and `sink` moves", {
+  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(f : _MoFd) -> i32)), "sink and plain are one parameter mode");
+  comptime_assert(Type.is_compatible_with((fn(f : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "both directions");
   comptime_assert(!Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(imm(f) : _MoFd) -> i32)), "sink is not a borrow");
   before := g_mo_disposed;
   {
     a := _MoFd(n : i32(3));
-    assert(_mo_take_old(a) == i32(3), "own moves like sink");
+    assert(_mo_take_old(a) == i32(3), "sink moves");
     comptime_expect_error(a.n, "use of moved value");
   };
   assert(g_mo_disposed == (before + i32(1)), "disposed once, by the callee");

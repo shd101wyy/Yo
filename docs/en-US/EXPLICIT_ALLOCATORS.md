@@ -290,7 +290,7 @@ _COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc,
 
 main :: (fn() -> unit)({
   counts := _Counts(allocs : usize(0), frees : usize(0));
-  a := Allocator(ctx : .Some((*void)(&counts)), vtable : &_COUNT_VTABLE);
+  a := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(_COUNT_VTABLE));
   {
     p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
     println(`${p.x}`);

@@ -278,7 +278,7 @@ copy :: (fn(xs : ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : Array
 `copy` 可以证出：std 的 `push` 写明了追加的元素，并保持旧元素不变
 （§列表上的序列），这正是不变式所需要的。
 
-`produced(xs).len() <= xs.len()` 是隐式不变式。`break` 以 break 处的状态退出。`continue` 仍会消费当前元素，因此不变式在多产出一个元素的状态上证明。改变所遍历列表的循环体、`inout(x)` 绑定，以及对列表变量以外之物的 `for` 都是子集错误。
+`produced(xs).len() <= xs.len()` 是隐式不变式。`break` 以 break 处的状态退出。`continue` 仍会消费当前元素，因此不变式在多产出一个元素的状态上证明。改变所遍历列表的循环体、`mut(x)` 绑定，以及对列表变量以外之物的 `for` 都是子集错误。
 
 ### 两个列表：`distinct`
 
@@ -571,7 +571,7 @@ refuted  fn@src/math.yo:8 [verify]
 | `break`（退出路径析取）；任意位置的 `continue`（在位点处证明）；`while(runtime(true), ...)` | ✅ 已支持（V4.2） |
 | 对 `ArrayList` 变量的 `for`，开头的 `invariant(...)` 中可用 `produced(xs)`（§可验证的 `for` 循环）；对其他集合的 `for` | ✅ 已支持（R2）；其他为后续阶段 |
 | 契约中的 `forall`/`exists`/`==>`（仅限幽灵上下文；SMT 量词，MBQI 实例化） | ✅ 已支持（V5） |
-| `inout` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
+| `mut` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
 | `std/spec` 幽灵集合 —— Seq（`seq_unit`/`seq_append`/`seq_len`/`seq_nth`，SMT `Seq`）、Multiset（`ms_single`/`ms_add`/`ms_count`，元素→计数 `Array`）、Set（`set_single`/`set_add`/`set_contains`，成员 `Array`）、`str_bytes`（字符串内容即 `Seq(u8)`） | ✅ 已支持（V5） |
 | 定长 `Array(T, N)` 值 —— `a(i)` 读取（`select`）、`a(i) = v` 下标写（经 `store` 的 SSA 重绑定）、`index-in-bounds` AoRTE 义务，以及 `ms_of(a)`（数组元素折叠为幽灵 Multiset —— `permutation` 规格的原料） | ✅ 已支持（V5 任务 6） |
 | 元素为整数/布尔的 `ArrayList(T)` 值 —— 建模为幽灵二元组（contents, len）：`xs.len()`、`xs.is_empty()`、在 `index-in-bounds`（`i < xs.len()`）义务下的 `xs(i)` 读取、列表类型的参数与被调方返回值，因此 `requires(i < xs.len())` 与 `ensures(r.len() == (a.len() + b.len()))` 可模块化结算（ATS/DML 的长度索引列表，`plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1）。通过 std 的 `assumed()` 契约建模变更（`new`/`with_capacity` 保证 `len() == 0`；`push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` 把 `len()` 与 `old(len())` 关联起来；从不提及 `old(self)` 的契约即承诺列表不变）：方法调用把接收者重绑定为一个新的列表项，其与旧项的关系就是被调方的 `ensures`；该 `ensures` 里的 `old(...)` 读调用前状态；对 `push` 的循环把接收者纳入 havoc 集 —— 于是 `concat` 的函数体能证明 `r.len() == (a.len() + b.len())`。调用可能改变哪些实参由契约中的 `old(<param>)` 推断（`issues/questions/modifies-clause-for-callee-side-effects.md`）。`xs.get(i)` 是全定义的读取（越界为 `None`，界内为 `Some(select)`，无义务）；`xs.pop()` 在非空时返回 `Some(末元素)` 并把接收者重绑定为长度减一，为空时返回 `None` 且不变；二者都是该调用自身的 `Option(T)` 数据类型。`ArrayList` 是引用类型，但模型把每个名字当作独立的列表，因此只要还有第二个名字可能指向同一个列表，变更列表的函数体就是子集错误：从 `ArrayList(T).new()`/`with_capacity(n)` 以外的表达式绑定的列表类型局部变量，或与被变更参数同列表类型的另一个参数，除非 requires 为这对参数写明了 `distinct`（`issues/fixed/verifier-list-model-ignores-aliasing.md`，§两个列表）。带契约的泛型函数被抽象验证：其类型参数是只支持相等与透传的未解释排序。带 `decreases` 的 `ghost_fn` 可以递归：它成为由带触发器的公理定义的未解释函数，其自身任务证明度量递减（R2 第 1 片）。返回 `unit` 且带 `ensures` 的 `ghost_fn` 是引理：它被归纳证明，并通过 `ghost(lemma(...))` 使用（§引理）。列表相等是外延的，`seq_of(xs)` 给出以列表为载体的 Seq（§列表上的序列）。在 `a ==> b` 中，以及循环不变式靠后的合取项中，遍历 `b`（或靠后的合取项）时产生的义务只在 `a`（前面的合取项）成立处才需证明。嵌套列表仍在子集之外 | ✅ 已支持（R1 第 1–3 片、R2） |
@@ -614,7 +614,7 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 显式 `:pattern` 触发器推迟到有基准需要时），`a ==> b` 是布尔
 蕴含。三者都**仅限幽灵上下文** —— 只允许出现在契约子句、
 `ghost(...)` 绑定和 `ghost_fn` 体内，其他位置是编译错误（它们
-没有运行期语义）。`inout` 参数是子集中唯一可重赋值的绑定：
+没有运行期语义）。`mut` 参数是子集中唯一可重赋值的绑定：
 函数体内的 `=` 重绑定当前值，而 `old(v)` 始终读入口快照。
 定长 `Array(T, N)` 值按 **BV64 下标的 SMT 数组**建模：`a(i)`
 读取 `select(a, i)`（下标零扩展到 64 位），下标写 `a(i) = v`

@@ -328,7 +328,7 @@ needs.
 `produced(xs).len() <= xs.len()` is an implicit invariant. `break` exits
 with the state at the break. `continue` still consumes the element, so the
 invariant is proved with one more element produced. A body that changes
-the list it walks, an `inout(x)` binding, and a `for` over anything other
+the list it walks, an `mut(x)` binding, and a `for` over anything other
 than a list variable are subset errors.
 
 ### Two lists: `distinct`
@@ -698,7 +698,7 @@ runtime assert).
 | `break` (exit-path disjunction); `continue` at any statement (proved at the site); `while(runtime(true), ...)` | ✅ verified (V4.2) |
 | `for` over an `ArrayList` variable, with `produced(xs)` in a leading `invariant(...)` (§Verified `for` loops); `for` over other collections | ✅ verified (R2); others later phases |
 | `forall`/`exists`/`==>` in contracts (ghost-only; SMT quantifiers, MBQI instantiation) | ✅ verified (V5) |
-| `inout` params — the reassignable two-state binding (`old(v)` reads the entry snapshot) | ✅ verified (V5) |
+| `mut` params — the reassignable two-state binding (`old(v)` reads the entry snapshot) | ✅ verified (V5) |
 | `std/spec` ghost collections — Seq (`seq_unit`/`seq_append`/`seq_len`/`seq_nth`, SMT `Seq`), Multiset (`ms_single`/`ms_add`/`ms_count`, elem→count `Array`), Set (`set_single`/`set_add`/`set_contains`, membership `Array`), `str_bytes` (str content as `Seq(u8)`) | ✅ verified (V5) |
 | Fixed-length `Array(T, N)` values — `a(i)` reads (`select`), `a(i) = v` index writes (an SSA rebind through `store`), `index-in-bounds` AoRTE obligations, and `ms_of(a)` (the array's elements as a ghost Multiset — what `permutation` specs are made of) | ✅ verified (V5 task 6) |
 | `ArrayList(T)` values with an integer/bool `T` — modeled as a ghost pair (contents, len): `xs.len()`, `xs.is_empty()`, `xs(i)` reads under `index-in-bounds` (`i < xs.len()`), list-typed parameters and callee results, so `requires(i < xs.len())` and `ensures(r.len() == (a.len() + b.len()))` discharge modularly (the ATS/DML length-indexed list, `plans/backlog/ATS_STYLE_INDEXED_TYPES.md` R1). Mutation through the std `assumed()` contracts (`new`/`with_capacity` ensure `len() == 0`; `push`/`insert`/`remove`/`swap_remove`/`swap`/`drain` relate `len()` to `old(len())`; a contract that never mentions `old(self)` promises the list unchanged): a method call rebinds the receiver to a fresh list term related to the old one by the callee's `ensures`, `old(...)` inside that ensures reads the pre-call state, and a loop over `push` carries the receiver in its havoc set — so `concat`'s body proves `r.len() == (a.len() + b.len())`. Which arguments a call may change is inferred from `old(<param>)` in the contract (`issues/questions/modifies-clause-for-callee-side-effects.md`). `xs.get(i)` is the total read (`Some(select)` in bounds, `None` past the end — no obligation) and `xs.pop()` returns `Some(last)` and rebinds the receiver to length − 1 when non-empty, `None` and unchanged when empty; both are the call's own `Option(T)` datatype. `ArrayList` is a reference type but the model tracks each name as its own list, so a body that mutates a list is a subset error while a second name could be the same list: a list-typed local bound from anything but `ArrayList(T).new()`/`with_capacity(n)`, or a second parameter of the mutated parameter's list type unless the requires states `distinct` for the pair (`issues/fixed/verifier-list-model-ignores-aliasing.md`, §Two lists). A contracted GENERIC fn is verified abstractly: its type parameter is an uninterpreted sort that supports only equality and pass-through. A `ghost_fn` with `decreases` may recurse: it becomes an uninterpreted function defined by a triggered axiom, and its own task proves the measure decreases (R2 slice 1). A unit-returning `ghost_fn` with an `ensures` is a lemma, proved by induction and used through `ghost(lemma(...))` (§Lemmas). List equality is extensional, and `seq_of(xs)` gives a list-backed Seq (§Sequences over lists). In `a ==> b`, and in a loop invariant's later conjuncts, the obligations that the walk of `b` (or of a later conjunct) emits are owed only where `a` (the earlier conjuncts) hold. Nested lists stay outside | ✅ verified (R1 slices 1–3, R2) |
@@ -748,7 +748,7 @@ discharges them in these small goals; explicit `:pattern` triggers are
 deferred until a benchmark needs them), and `a ==> b` is boolean
 implication. All three are **ghost-only** — legal inside contract
 clauses, `ghost(...)` bindings, and `ghost_fn` bodies, a compile error
-anywhere else (they have no runtime semantics). An `inout` parameter is
+anywhere else (they have no runtime semantics). A `mut` parameter is
 the one REASSIGNABLE binding in the subset: the body's `=` rebinds the
 current value while `old(v)` keeps reading the entry snapshot.
 The exact-width bitvector model means **wraparound is real**: a spec

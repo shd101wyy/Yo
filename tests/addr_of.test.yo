@@ -1,8 +1,8 @@
-//! `addr_of(x)` is today's address-of `&x` (plans/VALUES_BY_DEFAULT.md
-//! decision 33, V3b Generation A), and `&x` passed to a raw-pointer
-//! parameter keeps meaning address-of. A `&x` passed to any other `imm` or
-//! `mut` parameter, a generic one included, lends `x` instead, in unsafe
-//! files too.
+//! `addr_of(x)` is the raw-pointer address-of, and `&x` is only a borrow
+//! marker (plans/VALUES_BY_DEFAULT.md decision 33, V3b Generation B step 3):
+//! passed to an `imm` parameter, a generic one included, it lends `x`;
+//! anywhere else it is an error naming `addr_of(x)` (and, for a by-value
+//! parameter, `x` and `x.clone()`). This holds in unsafe files too.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
@@ -11,25 +11,27 @@ _ao_write :: (fn(p : *i32, v : i32) -> unit)({
   p.* = v;
 });
 _ao_id :: (fn(generic(T : Type), imm(x) : T) -> T)(x);
+_ao_own :: (fn(generic(T : Type), x : T) -> T)(x);
 _ao_len :: (fn(imm(s) : String) -> usize)(s.len());
+_ao_take :: (fn(s : String) -> usize)(s.len());
+_ao_sink :: (fn(sink(s) : String) -> usize)(s.len());
+_AoBox :: struct(n : i32);
+impl(_AoBox, get : (fn(imm(self) : Self) -> i32)(self.n));
 
 test("addr_of produces a raw pointer", {
   (n : i32) = i32(1);
   p := addr_of(n);
   comptime_assert(Type.is_compatible_with(type_of(p), *i32), "addr_of(n) : *(i32)");
-  comptime_assert(Type.is_compatible_with(type_of(addr_of(n)), type_of(&n)), "the same type as &n");
   p.* = i32(7);
   assert(n == i32(7), "a write through the pointer lands in n");
-  assert(addr_of(n) == &n, "the same address as &n");
+  assert(addr_of(n) == p, "the same address each time");
 });
 
-test("&x to a pointer parameter is still the address-of", {
+test("addr_of(x) to a pointer or generic by-value parameter", {
   (n : i32) = i32(1);
-  _ao_write(&n, i32(9));
-  assert(n == i32(9), "&n to a *(i32) parameter");
   _ao_write(addr_of(n), i32(10));
   assert(n == i32(10), "addr_of(n) to a *(i32) parameter");
-  q := _ao_id(addr_of(n));
+  q := _ao_own(addr_of(n));
   comptime_assert(Type.is_compatible_with(type_of(q), *i32), "addr_of(n) to a generic parameter infers a pointer");
   q.* = i32(11);
   assert(n == i32(11), "the generic parameter received n's address");
@@ -42,8 +44,39 @@ test("&x to a generic imm parameter lends x", {
   assert(r == i32(5), "the generic parameter read n");
 });
 
-test("&x to a non-pointer parameter lends x", {
+test("&x to a non-pointer imm parameter lends x", {
   s := String.from("abc");
   assert(_ao_len(&s) == usize(3), "&s to a String parameter is a borrow");
   assert(s.len() == usize(3), "s stays usable");
+});
+
+test("&x to a raw-pointer parameter is an error naming addr_of(x)", {
+  (n : i32) = i32(1);
+  comptime_expect_error(_ao_write(&n, i32(2)), "take the address with `addr_of(n)`");
+  assert(n == i32(1), "nothing was written");
+  // The message spells a field place as written, not as the AST printer's
+  // `((b.n))`.
+  b := _AoBox(n : i32(3));
+  comptime_expect_error(_ao_write(&b.n, i32(2)), "take the address with `addr_of(b.n)`");
+});
+
+test("&x to a by-value parameter is an error naming x and x.clone()", {
+  s := String.from("abc");
+  comptime_expect_error(_ao_take(&s), "takes its argument by value: pass `s`");
+  comptime_expect_error(_ao_take(&s), "`s.clone()` to keep `s`");
+  comptime_expect_error(_ao_sink(&s), "takes its argument by value");
+  (n : i32) = i32(1);
+  comptime_expect_error(_ao_own(&n), "takes its argument by value");
+  assert(s.len() == usize(3), "s stays usable");
+});
+
+test("&x outside an argument is an error naming addr_of(x)", {
+  (n : i32) = i32(1);
+  comptime_expect_error({
+    p := &n;
+  }, "Take a raw pointer with `addr_of(n)`");
+  b := _AoBox(n : i32(4));
+  comptime_expect_error((&b).get(), "a method receiver is written bare");
+  assert(b.get() == i32(4), "the receiver is passed bare");
+  assert(n == i32(1), "n is untouched");
 });

@@ -3184,27 +3184,27 @@ test("Test comptime Ptr value", {
   // Test 1: Simple address-of and dereference
   {
     val :: i32(42);
-    p :: &val;
+    p :: addr_of(val);
     comptime_assert(p.* == i32(42));
   };
   // Test 2: Pointer assignment
   {
     val :: i32(10);
-    p :: &val;
+    p :: addr_of(val);
     p.* = i32(20);
     comptime_assert(val == i32(20));
   };
   // Test 3: Multiple derefs
   {
     val :: i32(5);
-    p1 :: &val;
-    p2 :: &p1;
+    p1 :: addr_of(val);
+    p2 :: addr_of(p1);
     comptime_assert(p2.*.* == i32(5));
   };
   // Test 4: Another pointer value test
   {
     val :: i32(100);
-    p :: &val;
+    p :: addr_of(val);
     comptime_assert(p.* == i32(100));
   };
   // Test 5: Function that reads through pointer
@@ -3213,7 +3213,7 @@ test("Test comptime Ptr value", {
       return(p.*);
     });
     val :: i32(42);
-    comptime_assert(read_ptr(&val) == i32(42));
+    comptime_assert(read_ptr(addr_of(val)) == i32(42));
   };
   // Test 6: Function that mutates through pointer
   {
@@ -3222,18 +3222,18 @@ test("Test comptime Ptr value", {
     });
     counter :: i32(0);
     comptime_assert(counter == i32(0));
-    increment(&counter);
+    increment(addr_of(counter));
     comptime_assert(counter == i32(1));
-    increment(&counter);
+    increment(addr_of(counter));
     comptime_assert(counter == i32(2));
   };
 });
 // Test 7: Test pointer to Array value
 test("Test comptime Array value", {
   arr :: [i32(0), i32(1), i32(2)];
-  p :: &arr(0);
+  p :: addr_of(arr(0));
   p.* = 16;
-  p2 :: &arr(1);
+  p2 :: addr_of(arr(1));
   p2.* = 18;
   comptime_assert(arr(0) == i32(16));
   comptime_assert(arr(1) == i32(18));

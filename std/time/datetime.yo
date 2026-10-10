@@ -204,9 +204,9 @@ _local_utc_offset :: (fn(secs : i64) -> i32)({
       // Package-absolute for the same reason as std/env.yo: a relative import
       // inside a conditional body resolves against the caller's directory.
       { _localtime64_s } :: import("std/libc/windows");
-      unsafe(_localtime64_s((*void)(&tm_buf(usize(0))), &t)) == int(0)
+      unsafe(_localtime64_s((*void)(addr_of(tm_buf(usize(0)))), addr_of(t))) == int(0)
     },
-    true => unsafe(localtime_r((*void)(&t), (*void)(&tm_buf(usize(0))))).is_some()
+    true => unsafe(localtime_r((*void)(addr_of(t)), (*void)(addr_of(tm_buf(usize(0)))))).is_some()
   );
   cond(
     ok => (),
@@ -237,7 +237,7 @@ impl(
   now_utc : (fn() -> Self)({
     sec := i64(0);
     nsec := i64(0);
-    status := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
+    status := clock_gettime(CLOCK_REALTIME, addr_of(sec), addr_of(nsec));
     // cond + panic (not assert) so the message String is only built on the
     // failure path.
     cond(
@@ -255,7 +255,7 @@ impl(
   now : (fn() -> Self)({
     sec := i64(0);
     nsec := i64(0);
-    status := clock_gettime(CLOCK_REALTIME, &sec, &nsec);
+    status := clock_gettime(CLOCK_REALTIME, addr_of(sec), addr_of(nsec));
     cond(
       (status == i32(0)) => (),
       true => panic(`DateTime.now: clock_gettime(CLOCK_REALTIME) failed (rc=${status})`)
@@ -347,7 +347,7 @@ impl(
       // EVERY value, stringifying offset datetimes as if they were UTC
       // (plans/archive/STD_API_AUDIT.md C4).
       buf := Array(u8, usize(48)).fill(u8(0));
-      buf_ptr := &buf(usize(0));
+      buf_ptr := addr_of(buf(usize(0)));
       cond(
         (self.utc_offset_secs == i32(0)) => {
           unsafe(

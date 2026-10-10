@@ -1232,9 +1232,9 @@ test("Test raw pointer", {
     {
       I32Ptr :: *i32;
       p : *i32;
-      p = &x;
-      (p2 : *i32) = &x; // Create pointer
-      p3 := &x; // Create pointer
+      p = addr_of(x);
+      (p2 : *i32) = addr_of(x); // Create pointer
+      p3 := addr_of(x); // Create pointer
       q := p.*; // Dereference pointer
       assert(p.* == 12);
       assert(p2.* == 12);
@@ -1272,9 +1272,9 @@ test("Test raw pointer", {
       i32_ptr.* = 16;
     });
     x := 12;
-    use_void_ptr((*void)(&x));
+    use_void_ptr((*void)(addr_of(x)));
     assert(x == 12);
-    mutate_void_ptr((*void)(&x));
+    mutate_void_ptr((*void)(addr_of(x)));
     assert(x == 16);
   };
 });
@@ -1426,8 +1426,8 @@ test("Test 'match'", {
   assert(area_partial(s2) == 5);
   assert(area_partial_2(s1) == 100);
   assert(area_partial_2(s2) == 5);
-  assert(area_ptr(&s1) == 27);
-  assert(area_ptr(&s2) == 20);
+  assert(area_ptr(addr_of(s1)) == 27);
+  assert(area_ptr(addr_of(s2)) == 20);
   // Test primitive type matching (integers)
   classify_number :: (fn(n : i32) -> i32)(
     match(

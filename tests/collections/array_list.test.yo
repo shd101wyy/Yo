@@ -125,7 +125,7 @@ test("ArrayList index set updates element at valid index", {
   list := ArrayList(i32).new();
   list.push(i32(10));
   list.push(i32(20));
-  &(list(usize(1))).* = i32(99);
+  addr_of(list(usize(1))).* = i32(99);
   updated := list.get(usize(1));
   assert(updated.unwrap() == i32(99));
 });
@@ -135,7 +135,7 @@ test("ArrayList index set preserves other elements", {
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  &(list(usize(1))).* = i32(200);
+  addr_of(list(usize(1))).* = i32(200);
   assert(list(usize(0)) == i32(1));
   assert(list(usize(1)) == i32(200));
   assert(list(usize(2)) == i32(3));
@@ -521,7 +521,7 @@ test("ArrayList operations on list with single element", {
   list := ArrayList(i32).new();
   list.push(i32(42));
   assert(list(usize(0)) == i32(42));
-  &(list(usize(0))).* = i32(99);
+  addr_of(list(usize(0))).* = i32(99);
   assert(list(usize(0)) == i32(99));
   popped := list.pop();
   assert(popped.unwrap() == i32(99));
@@ -594,7 +594,7 @@ test("ArrayList index assignment with Rc replaces and drops the old value", {
   list.push(Rc(i32)(10));
   list.push(Rc(i32)(20));
   old_box := Rc(i32)(99);
-  &(list(usize(1))).* = old_box;
+  addr_of(list(usize(1))).* = old_box;
   // Old value (20) should be dropped, new value (99) should be in place
   assert(list(usize(1)).* == i32(99));
 });
@@ -739,7 +739,7 @@ test("ArrayList of String - set replaces and drops old value", {
   list := ArrayList(String).new();
   list.push(String.from("old_value"));
   list.push(String.from("keep_me"));
-  &(list(usize(0))).* = String.from("new_value");
+  addr_of(list(usize(0))).* = String.from("new_value");
   assert(list(usize(0)) == String.from("new_value"));
   assert(list(usize(1)) == String.from("keep_me"));
   // "old_value" should be properly dropped
@@ -905,7 +905,7 @@ test("Test ArrayList index pointer access", {
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
-  ptr := &list(usize(1));
+  ptr := addr_of(list(usize(1)));
   assert(ptr.* == i32(200), "index pointer should return pointer to element");
   // Modify through pointer
   ptr.* = i32(999);

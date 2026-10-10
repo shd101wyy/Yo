@@ -7,7 +7,7 @@
 **Important**: `Dyn` is a **value type** (struct with data pointer and vtable). The `data` field **must** point to a reference-semantics type — `ref(struct(...))` / `ref(enum(...))` — i.e. one that is reference counted.
 
 ```typescript
-Id :: trait(id : (fn(inout(self) : Self) -> i32));
+Id :: trait(id : (fn(mut(self) : Self) -> i32));
 
 impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self); return self; })));
 impl(bool, Id(id : ((self) -> { printf("bool\n"); return cond(self => 1, true => 0); })));
@@ -72,7 +72,7 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
     )
   )
 );
-rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 **Why this constraint?**
@@ -100,7 +100,7 @@ typedef struct {
 
 A method can be called through a `Dyn(Trait)` receiver when:
 
-1. its first parameter is `self` (`self : Self`, `inout(self) : Self` or `self : *(Self)`, since the
+1. its first parameter is `self` (`self : Self`, `mut(self) : Self` or `self : *(Self)`, since the
    vtable wrapper unboxes the receiver);
 2. `Self` appears nowhere else in its signature: not as another parameter, not as the result, and
    not inside one (`Option(Self)`, `Result(Self, E)`);

@@ -7,12 +7,12 @@ pragma(Pragma.AllowUnsafe);
 _Flagged :: struct(lock : atomic_bool, n : i32);
 test("atomic_bool(bool) converts a literal", {
   f := _Flagged(lock : atomic_bool(true), n : i32(1));
-  assert(unsafe(atomic_load(&f.lock)) == true, "literal true");
+  assert(unsafe(atomic_load(addr_of(f.lock))) == true, "literal true");
 });
 test("atomic_bool(bool) converts a runtime bool", {
   flag := (i32(1) == i32(2));
   g := _Flagged(lock : atomic_bool(flag), n : i32(2));
-  assert(unsafe(atomic_load(&g.lock)) == false, "runtime false");
+  assert(unsafe(atomic_load(addr_of(g.lock))) == false, "runtime false");
 });
 test("A numeric target still rejects a bool", {
   flag := true;

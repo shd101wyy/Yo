@@ -62,7 +62,7 @@ impl(
   /// Create a `Once` that has not run yet — Rust's `Once::new`.
   new : (fn() -> Self)({
     v := Self(false, Mutex(bool).new(false));
-    unsafe(atomic_store_explicit(&v._done, false, memory_order_release));
+    unsafe(atomic_store_explicit(addr_of(v._done), false, memory_order_release));
     v
   }),
   // The slow path runs under `Mutex.with_lock` rather than a manual
@@ -105,7 +105,7 @@ impl(
   call : (fn(imm(self) : Self, imm(f) : Impl(Fn() -> unit)) -> unit)({
     // Fast path: already done (atomic_bool with Acquire load), no lock taken.
     cond(
-      (unsafe(atomic_load_explicit(&self._done, memory_order_acquire)) == true) => (),
+      (unsafe(atomic_load_explicit(addr_of(self._done), memory_order_acquire)) == true) => (),
       // Re-entry from inside `f` (rule D5): the initializer runs under
       // `_mutex`, so "this thread holds the mutex" IS "this thread is inside
       // f". Asked here rather than left to the mutex's own self-relock trap
@@ -118,10 +118,10 @@ impl(
           // Double-check under the lock: another thread may have finished
           // between the fast-path load and the acquisition.
           cond(
-            (unsafe(atomic_load_explicit(&self._done, memory_order_relaxed)) == true) => (),
+            (unsafe(atomic_load_explicit(addr_of(self._done), memory_order_relaxed)) == true) => (),
             true => {
               f();
-              unsafe(atomic_store_explicit(&self._done, true, memory_order_release));
+              unsafe(atomic_store_explicit(addr_of(self._done), true, memory_order_release));
             }
           );
         })
@@ -136,7 +136,7 @@ impl(
   /// instant it is read — another thread may be inside `f` — so do not use
   /// it to decide whether `call` will block.
   is_done : (fn(imm(self) : Self) -> bool)(
-    unsafe(atomic_load_explicit(&self._done, memory_order_acquire)) == true
+    unsafe(atomic_load_explicit(addr_of(self._done), memory_order_acquire)) == true
   )
 );
 

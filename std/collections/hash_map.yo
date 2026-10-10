@@ -718,7 +718,7 @@ impl(
   /// actually holds, not the one used to look it up.
   get_key_value : (fn(imm(self) : Self, imm(key) : K) -> Option(MapEntry(K, V)))({
     // A read: it looks the bucket up itself rather than through
-    // `get_entry_ptr`, which hands out a writable pointer (`inout(self)`).
+    // `get_entry_ptr`, which hands out a writable pointer (`mut(self)`).
     cond(
       (self.capacity == usize(0)) => return(.None),
       true => ()
@@ -1196,7 +1196,7 @@ impl(
   )
 );
 // NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated
-// `self._inner.next()` — but a method call on a struct FIELD of `inout(self)`
+// `self._inner.next()` — but a method call on a struct FIELD of `mut(self)`
 // advances a COPY of the field, so `_index` never moved and manual
 // `it.next()` loops yielded the first key forever (`for(...)` masked it).
 // Scan directly instead, mirroring `HashMapIterPtr`.
@@ -1307,7 +1307,7 @@ impl(
         bucket_opt,
         .Some(i) => {
           data_ptr := Self._data_ptr(self);
-          &((data_ptr.add(i)).*.value)
+          addr_of((data_ptr.add(i)).*.value)
         },
         .None => __yo_panic("HashMap: key not found")
       )
@@ -1342,7 +1342,7 @@ impl(
             // SAFETY: iter_ptr().next() returns .Some(p) only when p
             // points at an occupied bucket within the Rc-managed
             // _data buffer; the buffer is alive while `self` holds
-            // the Rc (we received `inout(self)` so the caller still
+            // the Rc (we received `mut(self)` so the caller still
             // owns it across this call).
             k := unsafe(bucket_ptr.*.key.clone());
             v := unsafe(bucket_ptr.*.value.clone());

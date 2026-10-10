@@ -59,7 +59,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [可空指针](#可空指针)
   - [句柄的 `Option` 就是一个指针](#句柄的-option-就是一个指针)
   - [内存安全](#内存安全)
-  - [`inout` 参数](#inout-参数)
+  - [`mut` 参数](#inout-参数)
   - [RAII（资源获取即初始化）](#raii资源获取即初始化)
 - [元组](#元组)
 - [数组与区间](#数组与区间)
@@ -106,7 +106,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
     - [使用 `${}` 语法的模板字符串插值：](#使用--语法的模板字符串插值)
       - [格式说明符 —— `${value:spec}`](#格式说明符--valuespec)
 - [集合](#集合)
-  - [修改集合：修改方法接收 `inout(self)`](#修改集合修改方法接收-inoutself)
+  - [修改集合：修改方法接收 `mut(self)`](#修改集合修改方法接收-inoutself)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
   - [HashSet](#hashset)
@@ -665,17 +665,29 @@ p2 := BoolPoint(x : true, y : false);
 
 ### 参数模式是函数类型的一部分
 
-`fn(mut(x) : i32) -> unit`、`fn(imm(x) : String) -> usize` 和 `fn(x : String) -> usize` 是三个不同的类型：`mut` 参数是对调用方位置的独占借用（`inout` 是它的旧写法），`imm` 参数是只读借用，普通参数是**按值**传递。`Copy` 类型的按值参数得到一份副本；显式复制类型（只能移动的值，或没有 `Copy` 的纯数据）的按值参数会消耗其实参，调用方的绑定在调用处结束。仍然隐式复制的种类（`String`、各集合、`Rc`、`ref` 句柄）则像 `t := s` 那样以共享方式传入，调用方仍保留它的值；等值默认计划的相应阶段把它变成显式复制时，它会与 `t := s` 一起改为移动。在那之前，这种共享就是别名，与 `t := s` 一样：被调用方写入按值传入的 `String` 或集合，也会改到调用方的那一份，所以请改写一个 `.clone()`。`sink(x)` 参数，以及闭包或函数实参，总是移动。无论参数类型是否为 `Copy`，模式都是类型的一部分，所以 `fn(imm(x) : i32)` 与 `fn(x : i32)` 也不同。`sink(x)` 和 `own(x)` 是普通按值参数的旧写法，将在下一次统一替换中删除。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置，无论它经由哪条路径到达：绑定到带类型的名字、作为实参传给 `fn(...)` 或 `Impl(Fn(...))` 参数、存入字段、作为返回值，或由 `dyn(...)` 包装成 `Dyn(Fn(...))`。闭包字面量采用它所在位置的参数模式：
+`fn(mut(x) : i32) -> unit`、`fn(imm(x) : String) -> usize` 和 `fn(x : String) -> usize` 是三个不同的类型：`mut` 参数是对调用方位置的独占借用，`imm` 参数是只读借用，普通参数是**按值**传递。`Copy` 类型的按值参数得到一份副本；显式复制类型（只能移动的值，或没有 `Copy` 的纯数据）的按值参数会消耗其实参，调用方的绑定在调用处结束。仍然隐式复制的种类（`String`、各集合、`Rc`、`ref` 句柄）则像 `t := s` 那样以共享方式传入，调用方仍保留它的值；等值默认计划的相应阶段把它变成显式复制时，它会与 `t := s` 一起改为移动。在那之前，这种共享就是别名，与 `t := s` 一样：被调用方写入按值传入的 `String` 或集合，也会改到调用方的那一份，所以请改写一个 `.clone()`。`sink(x)` 参数，以及闭包或函数实参，总是移动。无论参数类型是否为 `Copy`，模式都是类型的一部分，所以 `fn(imm(x) : i32)` 与 `fn(x : i32)` 也不同。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置，无论它经由哪条路径到达：绑定到带类型的名字、作为实参传给 `fn(...)` 或 `Impl(Fn(...))` 参数、存入字段、作为返回值，或由 `dyn(...)` 包装成 `Dyn(Fn(...))`。闭包字面量采用它所在位置的参数模式：
 
 ```yo
-bump :: (fn(inout(x) : i32) -> unit)({
+bump :: (fn(mut(x) : i32) -> unit)({
   x = (x + i32(1));
 });
-(f : (fn(inout(x) : i32) -> unit)) = bump; // 可以
+(f : (fn(mut(x) : i32) -> unit)) = bump; // 可以
 (g : (fn(x : i32) -> unit)) = bump; // 错误：Incompatible types
 ```
 
-唯一的例外是 `impl` 成员的接收者：trait 中声明为 `inout(self) : Self` 的方法可以用 `self : Self` 实现，因为每个调用点都会按 impl 自己的签名适配。
+唯一的例外是 `impl` 成员的接收者：trait 中声明为 `mut(self) : Self` 的方法可以用 `self : Self` 实现，因为每个调用点都会按 impl 自己的签名适配。
+
+### 调用处的借用标记
+
+被借出的实参在调用处也要标记，这样 `show(&s)`（借用）与 `take(s)`（移动）读起来就不一样：`&x` 把 `x` 借给 `imm` 参数，`&mut x` 把位置 `x` 借给 `mut` 参数。方法接收者直接书写（`s.len()`），继续传递的 `imm`/`mut` 绑定也直接书写（它本身已持有借用）。
+
+```yo
+swap(&mut x, &mut y);
+show(&s); // s 仍可使用
+take(s); // 被移动
+```
+
+`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（绑定、字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。目前传给 `imm` 参数的裸实参仍被接受。`yo fix <path> --migrate addr-of` 会改写旧代码中作为取址的 `&x`。
 
 ### 命名参数
 
@@ -919,7 +931,7 @@ impl(
       )
     )
   ),
-  move_by : (fn(inout(self) : Self, dx : i32, dy : i32) -> unit)({
+  move_by : (fn(mut(self) : Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -928,26 +940,26 @@ impl(
 p := Point(x : 3, y : 4);
 d := p.distance_from_origin(); // 类型方法调用 - OK
 p2 := Point(x : 0, y : 0);
-p2.move_by(5, 10); // `inout(self)` 在 C 中降为 `Self*` — 编译器自动插入 &(p2)
+p2.move_by(5, 10); // `mut(self)` 在 C 中降为 `Self*` — 编译器自动取接收者的地址
 // p2 现在是 Point(5, 10)
 ```
 
-**`inout` 的自动指针转换：**
+**`mut` 的自动指针转换：**
 
-`inout(name) : T` 参数在 C 中降为 `T*`。在调用点，Yo 会自动取对应实参的地址，
-所以调用方代码看起来就是普通的值传递语法：
+`mut(name) : T` 参数在 C 中降为 `T*`。编译器自己传递被借出位置的地址，
+所以接收者直接书写，实参用 `&mut x` 借出：
 
 ```yo
 Point :: struct(x : i32, y : i32);
 impl(
   Point,
-  set_x : (fn(inout(self) : Self, new_x : i32) -> unit)({
+  set_x : (fn(mut(self) : Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
 
 p := Point(x : 3, y : 4);
-p.set_x(10); // 无需写 `&(p)` — 编译器自动插入
+p.set_x(10); // 无需写 `addr_of(p)` — 编译器自动插入
 ```
 
 #### 通过类型调用方法
@@ -1206,25 +1218,25 @@ swap :: (fn(a : *i32, b : *i32) -> unit)(
   })
 );
 
-swap(&x, &y); // 传入 x 和 y 的指针
+swap(addr_of(x), addr_of(y)); // 传入 x 和 y 的指针
 // 现在 x == 2, y == 1
 ```
 
-日常的就地修改应优先使用 `inout(name) : T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方写成普通的值传递语法（`swap(x, y)`）。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
+日常的就地修改应优先使用 `mut(name) : T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方写成普通的值传递语法（`swap(x, y)`）。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
 
 ### 指针操作
 
 ```yo
-// 使用 & 运算符创建指针
+// 使用 addr_of 创建指针
 x := 42;
-ptr := &x; // ptr: *(i32)
+ptr := addr_of(x); // ptr: *(i32)
 // 使用 .* 解引用（需要 unsafe — 可能读取无效内存）
 value := unsafe(ptr.*); // value == 42
 // 通过指针修改（需要 unsafe — 可能写入悬空指针）
 unsafe(ptr.* = 100); // x 现在是 100
 // 指针算术（需要 unsafe — 可能产生越界地址）
 arr := [1, 2, 3, 4, 5];
-ptr := &arr(0); // 指向第一个元素的指针
+ptr := addr_of(arr(0)); // 指向第一个元素的指针
 ptr2 := unsafe(ptr.add(2)); // 指向第三个元素
 value := unsafe(ptr2.*); // value == 3
 // 指针类型转换（安全 — 只修改地址的类型标签）
@@ -1238,7 +1250,7 @@ float_ptr := (*f32)(ptr); // 将指针转换为 *(f32)
 ```yo
 test("Pointer arithmetic", {
   x := 12;
-  p := &x;
+  p := addr_of(x);
 
   // 加法和减法（需要 unsafe — 可能产生越界地址）
   q := unsafe(p.add(2)); // 指针前进 2 个元素
@@ -1317,7 +1329,7 @@ sz_tree :: size_of(Tree); // == size_of(*u8)   —— NULL 即 Empty
 
 ### 内存安全
 
-面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`inout(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`、`unwrap` 禁令，以及整数算术规则（溢出、除以零和越界移位都会中止程序）。
+面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`mut(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`、`unwrap` 禁令，以及整数算术规则（溢出、除以零和越界移位都会中止程序）。
 
 Yo 的安全模型是分层的（设计计划见 [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)）：
 
@@ -1349,7 +1361,7 @@ write_and_read :: (fn(p : *i32, v : i32) -> i32)(
 
 **需要 `unsafe(...)` 的操作**：指针解引用（`.*`）、指针算术（`.add(n)`、`.sub(n)`、`.offset_from(q)`）、对指针解引用的 `consume(p.* = v)`。
 
-**仍然安全的操作**：取地址（`&(x)`）、传递/存储/返回指针、指针比较（`<`、`==` 等）、指针类型转换（`(*u8)(p)`）、`asm(...)`（本身已经隐式不安全）。
+**仍然安全的操作**：取地址（`addr_of(x)`）、传递/存储/返回指针、指针比较（`<`、`==` 等）、指针类型转换（`(*u8)(p)`）、`asm(...)`（本身已经隐式不安全）。
 
 不安全表面是可 grep 的：每个 `unsafe(` token 都标记了一处原始内存操作。文件必须在顶部声明 `pragma(Pragma.AllowUnsafe);` 才能使用 `unsafe(...)` 或执行原始指针操作。`std/`、`src/` 和 `tests/` 下的文件都显式声明了此 pragma；用户代码（`main.yo` 及项目中的其他文件）默认是安全模式，若尝试使用 `unsafe(...)` 将得到编译错误。
 
@@ -1369,30 +1381,30 @@ pragma(Pragma.AllowUnsafe);
 
 main :: (fn() -> unit)({
   x := i32(42);
-  p := &x;
+  p := addr_of(x);
   v := unsafe(p.*); // OK
 });
 ```
 
-### `inout` 参数
+### `mut` 参数
 
-要在不使用原始指针的情况下实现原地修改，请使用 `inout(name) : T` 参数修饰符。该修饰符包裹参数名（与 `sink(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `inout(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
+要在不使用原始指针的情况下实现原地修改，请使用 `mut(name) : T` 参数修饰符。该修饰符包裹参数名（与 `sink(name)` 平行），参数行为类似于调用方变量的绑定 — 读取访问当前值，写入更新调用方的存储。在代码生成时 `mut(name) : T` 在 C 中降低为 `T*`；调用方自动传递 `&(arg)`。
 
 ```yo
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
 });
 
-increment :: (fn(inout(n) : i32) -> unit)({
+increment :: (fn(mut(n) : i32) -> unit)({
   n = (n + i32(1));
 });
 
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y); // 调用点不需要 `&()` 语法
+  swap(&mut x, &mut y); // 调用点用 `&mut` 借出每个位置
   assert(x == i32(2), "swapped");
   assert(y == i32(1), "swapped");
 
@@ -1403,15 +1415,15 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout(...)` 不能与 `sink(...)`（相反的调用约定）或 `comptime`/`generic`（`inout` 是运行时专用的）组合使用。对于链式调用，将 `inout` 参数传递给另一个函数的 `inout` 参数按预期工作：
+`mut(...)` 不能与 `sink(...)`（相反的调用约定）或 `comptime`/`generic`（`mut` 是运行时专用的）组合使用。对于链式调用，将 `mut` 参数传递给另一个函数的 `mut` 参数按预期工作：
 
 ```yo
-double :: (fn(inout(n) : i32) -> unit)({
+double :: (fn(mut(n) : i32) -> unit)({
   n = (n + n);
 });
 
-double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
-  double(x); // 将 &x 透传给 double 的 `inout` 参数
+double_both :: (fn(mut(x) : i32, mut(y) : i32) -> unit)({
+  double(x); // 将 &x 透传给 double 的 `mut` 参数
   double(y);
 });
 ```
@@ -1681,7 +1693,7 @@ factorial2 :: (fn(n : i32) -> i32)({
 ```yo
 Iterator :: trait(
   Item : Type,
-  next : (fn(inout(self) : Self) -> Option(Self.Item))
+  next : (fn(mut(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -1728,7 +1740,7 @@ for(iter_expr, variable => {
 });
 ```
 
-`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(coll, inout(x) => body)`，或索引循环 + 索引写：
+`for` 宏**按值**迭代 —— `for(coll, (x) => body)` 展开为 `coll.into_iter()` 后接标准的 `next()` 循环。对引用语义元素类型（`ref(struct(...))`），`x` 是指向元素的句柄，在循环体中变异 `x` 即就地变异元素。值类型的元素是借用的：通过 `x` 写入其中的引用计数数据（`String` 元素、结构体元素的 `String` 字段）是 E0908。值类型元素的就地变异使用下文的借用形式 `for(coll, mut(x) => body)`，或索引循环 + 索引写：
 
 ```yo
 // 值形式 — 每个 `x` 按值产出。
@@ -1759,12 +1771,12 @@ while(i < usize(3), {
 
 组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
-借用形式 `for(coll, inout(x) => body)` 把每个元素原地交给循环体：给 `x` 赋值即写入该元素。循环会固定（pin）集合并持有它的运行时借用标志，因此在元素被借用期间，循环体不能让集合增长或缩短（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+借用形式 `for(coll, mut(x) => body)` 把每个元素原地交给循环体：给 `x` 赋值即写入该元素。循环会固定（pin）集合并持有它的运行时借用标志，因此在元素被借用期间，循环体不能让集合增长或缩短（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
 
 ```yo
 xs := ArrayList(i32).new();
 xs.push(i32(1));
-for(xs, inout(x) => {
+for(xs, mut(x) => {
   x = (x + i32(10));
 });
 // 现在 xs(usize(0)) 为 11。
@@ -2175,11 +2187,11 @@ Trait 被定义为一个返回 `Trait` 类型的函数，其中包含字段定�
 ```yo
 // 定义一个 trait（类似于 Rust 中的 trait）
 Summary :: trait(
-  summarize : (fn(inout(self) : Self) -> String)
+  summarize : (fn(mut(self) : Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(inout(self) : Self) -> String),
+  display : (fn(mut(self) : Self) -> String),
   where(Self <: Summary) // 约束
 );
 
@@ -2213,12 +2225,12 @@ impl(
 );
 
 // 传入函数
-notify :: (fn(inout(item) : NewsArticle) -> unit)({
+notify :: (fn(mut(item) : NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // 带 trait 约束的泛型函数
-notify2 :: (fn(generic(T : Type), inout(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(generic(T : Type), mut(item) : T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2256,7 +2268,7 @@ export(main);
 trait 要先声明关联类型，再声明引用它的成员（先写 `Item : Type`，再写 `next : (fn(...) -> Option(Self.Item))`）。它的 `where` 子句可以借助自身的投影去约束**另一个**类型，`IntoIterator` 的 `where(Self.IntoIter <: Iterator(Item := Self.Item))` 就是如此。但不能把 `Self` 本身的关联类型绑定到 `Self` 自己的投影上：
 
 ```yo
-Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
+Source :: trait(Item : Type, pull : (fn(mut(self) : Self) -> Option(Self.Item)));
 
 // 错误：Expected type for associated type constraint "Item", got: (Self.Item)
 Peekable :: trait(
@@ -2269,11 +2281,11 @@ Peekable :: trait(
 下面两种写法都可以：
 
 ```yo
-Source :: trait(Item : Type, pull : (fn(inout(self) : Self) -> Option(Self.Item)));
+Source :: trait(Item : Type, pull : (fn(mut(self) : Self) -> Option(Self.Item)));
 
 // 约束 `Self`，但不绑定它的关联类型……
 Rewindable :: trait(
-  rewind : (fn(inout(self) : Self) -> unit),
+  rewind : (fn(mut(self) : Self) -> unit),
   where(Self <: Source)
 );
 
@@ -2442,7 +2454,7 @@ s3 := (*u8)("Hi"); // 或使用指针类型转换获取 C 字符串指针。
 
 堆分配的可增长 UTF-8 字符串，与 Rust 的 `String` 形态一致。它**不是**不可变的：
 `push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、`clear`、
-`truncate`、`insert_str`、`insert`、`remove` 和 `pop` 接受 `inout(self)`
+`truncate`、`insert_str`、`insert`、`remove` 和 `pop` 接受 `mut(self)`
 并就地修改；而 `+` 之类的运算符仍然产生新字符串。
 
 若需要由多个所有者共享的可变构建器，请使用
@@ -2457,7 +2469,7 @@ s3 := (s + s2); // 创建一个新字符串。
 #### 通过 `String` 的副本写入
 
 `clone()` 才是独立的副本：它复制字节（O(n)），所以对克隆所做的任何事都不会通过原值
-看到，反之亦然，无论原值是否为空。每个修改方法都接受 `inout(self)` 并就地写入，空
+看到，反之亦然，无论原值是否为空。每个修改方法都接受 `mut(self)` 并就地写入，空
 `String` 在第一次写入之前不分配任何内存。
 
 普通的复制（`t := s`、结构体的复制、从集合中读出的值）目前仍只复制句柄。非空的缓冲区
@@ -2476,9 +2488,9 @@ s3 := (s + s2); // 创建一个新字符串。
   请接受 `mut(out) : String`；要产生新字符串，请按值接受 `out`（普通的
   `out : String` 拥有其实参，可以写入）并返回它。
 - **`for` 或 `match` 的绑定**同样是借用：`for(xs, s => s.push_str("!"))` 是
-  E0908。`for(xs, inout(s) => s.push_str("!"))` 会就地写入每个元素，
+  E0908。`for(xs, mut(s) => s.push_str("!"))` 会就地写入每个元素，
   `xs(i).push_str("!")` 也一样。
-- **结构体字段**通过它的位置写入：在 `inout(p)` 形参或局部变量上写
+- **结构体字段**通过它的位置写入：在 `mut(p)` 形参或局部变量上写
   `p.name.push_str("!")`。
 
 ```yo
@@ -2486,8 +2498,8 @@ s3 := (s + s2); // 创建一个新字符串。
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 
-// `inout` 传入的是调用方的变量本身。
-append_inout :: (fn(inout(out) : String) -> unit)({
+// `mut` 传入的是调用方的变量本身。
+append_mut :: (fn(mut(out) : String) -> unit)({
   out.push_str("!");
 });
 
@@ -2510,14 +2522,14 @@ main :: (fn() -> unit)({
   println(`"${e}" "${f}"`); // "" "x"
 
   c := String.new();
-  append_inout(c);
+  append_mut(c);
   d := with_bang(a);
   println(`"${c}" "${a}" "${d}"`); // "!" "hi" "hi!"
 
   names := ArrayList(String).new();
   names.push(String.new());
   names.push(String.from("n"));
-  for(names, inout(s) => {
+  for(names, mut(s) => {
     s.push_str("!"); // 就地写入元素
   });
   println(`"${names(usize(0))}" "${names(usize(1))}"`); // "!" "n!"
@@ -2527,7 +2539,7 @@ export(main);
 
 由于 `String` 之外的任何东西都不能写它的缓冲区，字节 API 只复制或移动，不出借：
 `to_bytes()` 返回一个独立的 `ArrayList(u8)`；`into_bytes()` 消耗字符串并把缓冲区
-移出（没有其他副本共享时不复制）；`from_bytes(own(bytes))` / `from_utf8(own(bytes))`
+移出（没有其他副本共享时不复制）；`from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`
 接管传入的列表。就地读取字节用 `len()`、`byte_at(i)`、`get_byte(i)` 和 `bytes()`；
 运行期的 `String` 没有 `s(i)`（见 [STRINGS.md](./STRINGS.md)）。
 
@@ -2589,9 +2601,9 @@ impl(Point, Format());
 
 Yo 在标准库中提供了高效的、引用计数的集合类型。
 
-### 修改集合：修改方法接收 `inout(self)`
+### 修改集合：修改方法接收 `mut(self)`
 
-所有会改变集合的方法都接收 `inout(self) : Self`：`ArrayList`、`HashMap`、
+所有会改变集合的方法都接收 `mut(self) : Self`：`ArrayList`、`HashMap`、
 `HashSet`、`Deque`、`BTreeMap`、`LinkedList`、`PriorityQueue`、`OrderedMap`、
 `HeaderMap` 和 `StringBuilder` 的修改方法（`push`、`pop`、`insert`、`remove`、
 `clear`、`sort`、`retain`、`write_str` 等，也包括会取走缓冲区的
@@ -2602,11 +2614,11 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 （`plans/VALUES_BY_DEFAULT.md` §6 V2b），副本需要显式的 `.clone()`，通过副本写入只会改变副本。代码要写成
 在两种规则下都正确：
 
-- **填充列表的辅助函数用 `inout` 接收它：** `fill :: (fn(inout(out) :
+- **填充列表的辅助函数用 `mut` 接收它：** `fill :: (fn(mut(out) :
   ArrayList(i32)) -> unit)(...)`。普通的 `out : ArrayList(i32)` 参数是被调用者
   自己的副本。
 - **通过位置写集合的元素：** `rows(i).push(x)`、`m(k).push(x)`，或
-  `for(xs, inout(x) => x.push(...))`。`match` 绑定（`.Some(l) => l.push(x)`）
+  `for(xs, mut(x) => x.push(...))`。`match` 绑定（`.Some(l) => l.push(x)`）
   和按值的 `for` 绑定都是副本。
 - **存放在映射或 `Option` 字段里的列表要先取出、修改、再存回：**
   `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
@@ -2616,7 +2628,7 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
   要这样共享（或者返回这个列表）。
 
 `YO_AUDIT_INOUT_BORROW=1 yo check <path>` 会列出值语义切换后行为会变的每一处写入，
-而不是报错：`[inout-borrow]` 表示通过按值参数或 `match`/`for` 绑定的写入（`inout`
+而不是报错：`[inout-borrow]` 表示通过按值参数或 `match`/`for` 绑定的写入（`mut`
 实参或接收者，或对该位置的赋值），`[inout-borrow-unresolved]` 表示被调用者的
 修改摘要无法解析、写入是推定的，`[inout-borrow-capture]` 表示对闭包捕获的变量的
 写入。
@@ -3157,7 +3169,7 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 
 // rc 分配一个新单元，其 ref_count 为 1
-rc :: (fn(generic(V : Type), own(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
 `rc` 是构造函数，不是计数：计数是 `ref_count(x)`。
@@ -3205,9 +3217,9 @@ assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
   `Point`）；`yo fix` 会把调用改写为 `Rc.clone(p)`。只有一方拥有的名字无需
   选择，`p.*` 永远就是载荷本身。泛型函数体中的调用，例如
   `where(T <: Clone)` 下的 `x.clone()`，即使 `T` 是 `Rc` 也是约束提供的方法。
-- **位置。** 转发得到的字段是一个位置：`p.x = v` 以及 `inout(self)` 调用
+- **位置。** 转发得到的字段是一个位置：`p.x = v` 以及 `mut(self)` 调用
   （如 `p.items.push(v)`）都写入载荷。在没有 `pragma(Pragma.AllowUnsafe)`
-  的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `inout(self)` 的
+  的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `mut(self)` 的
   `a.bump()`）：请通过 `Mutex` 或原子类型修改 `Arc` 的载荷。
 - **只有 `Rc` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
   编译错误：用户自定义的包装器应通过自己的字段和方法暴露载荷。
@@ -3311,7 +3323,7 @@ result := use_id(42); // 打印 "i32: 42"，返回 42
 
 ```yo
 RetI32 :: trait(
-  return_i32 : (fn(inout(self) : Self) -> i32)
+  return_i32 : (fn(mut(self) : Self) -> i32)
 );
 
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
@@ -3363,7 +3375,7 @@ Yo 中的 `Dyn` 类型是引用计数的，与其他引用语义类型一样，�
 **主要特性：**
 
 - 自动引用计数
-- 无需 `&` 运算符 — 它们就是对象
+- 无需 `addr_of` — 它们就是对象
 - 自动内存管理
 - 支持多个 trait 约束
 
@@ -4372,7 +4384,7 @@ increment :: (fn(x : i32) -> i32)(
 
 Yo 提供了 `asm()` 和 `global_asm()` 内置函数用于嵌入内联汇编，灵感来自 Rust 的 `asm!` 宏。特性包括：
 
-- **操作数类型**：`in`、`out`、`inout`、`lateout`、`inlateout`、`const_val`、`sym`
+- **操作数类型**：`in`、`out`、`mut`、`lateout`、`inlateout`、`const_val`、`sym`
 - **寄存器约束**：`reg`、`imm`、`mem`、显式寄存器名（例如 `"rax"`）
 - **命名操作数**：`out("result", reg, i32)` 配合模板引用 `{result}`
 - **变量目标输出**：`out(reg, x)` 直接写入变量，包括未初始化的变量
@@ -4396,7 +4408,7 @@ asm("mov {0}, #42", out(reg, x));
 
 ## Index 特征
 
-Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引。实现了 `Index(Idx)` 的类型可以使用函数调用语法 `value(index)` 进行元素访问，通过 `&(value(index))` 获取指针，以及通过调用语法赋值 `value(index) = new_value` 进行修改。
+Yo 提供了统一的 `Index` 特征，用于对任意类型的自定义索引。实现了 `Index(Idx)` 的类型可以使用函数调用语法 `value(index)` 进行元素访问，通过 `addr_of(value(index))` 获取指针，以及通过调用语法赋值 `value(index) = new_value` 进行修改。
 
 标准库为 `ArrayList`、`HashMap`、`BTreeMap`、`Deque` 和 `String` 实现了 `Index`。定长数组与 `str` 使用内置索引（相同语法）；集合上的 `..` 与 `..=` 区间产生独立持有的拷贝（`slice_copy`），而 `str` 上的区间是零拷贝的静态窗口。
 

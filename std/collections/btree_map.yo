@@ -105,7 +105,7 @@ impl(
     cond(
       r.found => {
         entry := self._entries(r.idx);
-        &(self._entries(r.idx)).* = MapEntry(K, V)(key : entry.key, value : v);
+        addr_of(self._entries(r.idx)).* = MapEntry(K, V)(key : entry.key, value : v);
         .Some(entry.value)
       },
       true => {
@@ -120,8 +120,8 @@ impl(
         while(pos > r.idx, pos = (pos - usize(1)), {
           curr := self._entries(pos);
           prev := self._entries(pos - usize(1));
-          &(self._entries(pos)).* = prev;
-          &(self._entries(pos - usize(1))).* = curr;
+          addr_of(self._entries(pos)).* = prev;
+          addr_of(self._entries(pos - usize(1))).* = curr;
         });
         .None
       }
@@ -417,8 +417,8 @@ impl(
     index : (fn(mut(self) : Self, imm(idx) : K, where(K <: Ord(K))) -> *Self.Output)({
       r := self._find(idx);
       assert(r.found, "BTreeMap: key not found");
-      entry_ptr := &self._entries(r.idx);
-      &(entry_ptr.*.value)
+      entry_ptr := addr_of(self._entries(r.idx));
+      addr_of(entry_ptr.*.value)
     })
   )
 );

@@ -21,14 +21,14 @@ The `Index` trait is defined in the prelude and is available to all Yo programs:
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(inout(self) : Self, idx : Idx) -> *Self.Output)
+    index : (fn(mut(self) : Self, idx : Idx) -> *Self.Output)
   )
 );
 ```
 
 - **`Idx`**: The index type (e.g., `usize`, or a custom key type).
 - **`Output`**: An associated type specifying the element type returned.
-- **`index`**: A method that takes `self` by `inout` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
+- **`index`**: A method that takes `self` by `mut` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
 
 The `index` method returns `*(Output)` (a pointer), which is automatically dereferenced when used in value context. This design enables both reading and writing through the same trait:
 
@@ -38,7 +38,7 @@ v := collection(idx); // calls index(collection, idx).*
 // Write via call-syntax assignment (preferred)
 collection(idx) = val; // calls index(collection, idx), writes through pointer
 // Address-of: returns pointer directly
-p := &collection(idx); // calls index(collection, idx), no deref
+p := addr_of(collection(idx)); // calls index(collection, idx), no deref
 ```
 
 ## Implementing Index
@@ -52,11 +52,11 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &self.data0,
-        (idx == usize(1)) => &self.data1,
-        (idx == usize(2)) => &self.data2,
+        (idx == usize(0)) => addr_of(self.data0),
+        (idx == usize(1)) => addr_of(self.data1),
+        (idx == usize(2)) => addr_of(self.data2),
         true => panic("MyArray: index out of bounds")
       )
     )
@@ -79,7 +79,7 @@ impl(
   ArrayList(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._length, "ArrayList: index out of bounds");
       match(
         self._ptr,
@@ -93,7 +93,7 @@ impl(
 
 ## Address-of Optimization
 
-When you write `&(collection(idx))`, the compiler detects this pattern and avoids the dereference step. Instead of generating:
+When you write `addr_of(collection(idx))`, the compiler detects this pattern and avoids the dereference step. Instead of generating:
 
 ```c
 // Without optimization (hypothetical):
@@ -192,7 +192,7 @@ The following standard library types implement the `Index` trait:
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 v := list(usize(0)); // 42
-&(list(usize(0))).* = i32(99); // mutate in place
+addr_of(list(usize(0))).* = i32(99); // mutate in place
 ```
 
 ### HashMap(K, V) — `Index(K)`
@@ -201,7 +201,7 @@ v := list(usize(0)); // 42
 (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
 map.insert(i32(1), i32(100));
 v := map(i32(1)); // 100
-&(map(i32(1))).* = i32(999); // mutate in place
+addr_of(map(i32(1))).* = i32(999); // mutate in place
 // map(i32(99))                 // panics: key not found
 ```
 
@@ -213,7 +213,7 @@ Requires `K <: (Eq(K), Hash)`.
 (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
 map.insert(i32(5), i32(500));
 v := map(i32(5)); // 500
-&(map(i32(5))).* = i32(77); // mutate in place
+addr_of(map(i32(5))).* = i32(77); // mutate in place
 // map(i32(99))                 // panics: key not found
 ```
 
@@ -226,7 +226,7 @@ Requires `K <: Ord(K)`.
 d.push_back(i32(10));
 d.push_back(i32(20));
 v := d(usize(0)); // 10
-&(d(usize(0))).* = i32(555); // mutate in place
+addr_of(d(usize(0))).* = i32(555); // mutate in place
 ```
 
 O(1) random access, correctly handles ring buffer wrapping.

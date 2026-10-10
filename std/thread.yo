@@ -51,7 +51,7 @@ extern(
 extern(
   "Yo",
   __yo_thread_t : Type,
-  // `own(cb)`: the closure's capture struct is MOVED in. A plain (borrowing)
+  // `sink(cb)`: the closure's capture struct is MOVED in. A plain (borrowing)
   // parameter makes a relay literal that captures a not-implicitly-copyable
   // `cb` borrow it, and a borrow capture is never `Send`
   // (plans/VALUES_BY_DEFAULT.md decision 38 E) — so a move-only value could
@@ -66,7 +66,7 @@ extern(
 );
 extern(
   "Yo",
-  // `own(cb)` for the same reason as `__yo_thread_spawn` above.
+  // `sink(cb)` for the same reason as `__yo_thread_spawn` above.
   __yo_worker_spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit),
   __yo_worker_get_num_threads : (fn() -> usize),
   __yo_worker_set_num_threads : (fn(num : usize) -> unit)

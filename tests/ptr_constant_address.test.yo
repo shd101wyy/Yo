@@ -12,8 +12,8 @@ _Ops :: struct(f : (fn(v : i32) -> i32), base : i32);
 derive(_Ops, Copy, Clone);
 _OPS :: _Ops(f : _inc, base : i32(10));
 // Returned from a function: automatic storage would dangle here.
-_k_ptr :: (fn() -> *_P)(&_K);
-_ops_ptr :: (fn() -> *_Ops)(&_OPS);
+_k_ptr :: (fn() -> *_P)(addr_of(_K));
+_ops_ptr :: (fn() -> *_Ops)(addr_of(_OPS));
 test("&K of a module-level struct constant reads the constant", {
   p := _k_ptr();
   assert(unsafe(p.*.x) == i32(3), "x");
@@ -21,7 +21,7 @@ test("&K of a module-level struct constant reads the constant", {
 });
 test("Every &K of one constant is the same object", {
   assert(_k_ptr() == _k_ptr(), "one static per constant");
-  assert(_k_ptr() == &_K, "the same across sites");
+  assert(_k_ptr() == addr_of(_K), "the same across sites");
 });
 test("&K of a constant holding a function pointer calls through it", {
   o := _ops_ptr();
@@ -29,7 +29,7 @@ test("&K of a constant holding a function pointer calls through it", {
 });
 test("&K of a scalar constant", {
   n :: i32(42);
-  p := &n;
+  p := addr_of(n);
   assert(unsafe(p.*) == i32(42), "scalar");
 });
 // Element and field pointers into a compile-time constant
@@ -39,7 +39,7 @@ _Pair :: struct(a : _P, b : i32);
 derive(_Pair, Copy, Clone);
 _N :: _Pair(a : _P(x : i32(7), y : i32(8)), b : i32(9));
 _T :: (i32(1), i32(2), i32(3));
-_elem_ptr :: (fn(i : usize) -> *i32)(cond((i == usize(0)) => &_A(0), (i == usize(1)) => &_A(1), true => &_A(2)));
+_elem_ptr :: (fn(i : usize) -> *i32)(cond((i == usize(0)) => addr_of(_A(0)), (i == usize(1)) => addr_of(_A(1)), true => addr_of(_A(2))));
 test("&A(i) of a constant array points into one static array", {
   p1 := _elem_ptr(usize(1));
   assert(unsafe(p1.*) == i32(20), "element 1");
@@ -48,22 +48,22 @@ test("&A(i) of a constant array points into one static array", {
   assert(unsafe(p1.offset_from(p0)) == isize(1), "neighbouring elements are adjacent");
 });
 test("&K.f of a constant struct reads the field", {
-  pf := &_K.y;
+  pf := addr_of(_K.y);
   assert(unsafe(pf.*) == i32(4), "field y");
 });
 test("&K.a.x of a nested constant struct", {
-  px := &_N.a.x;
+  px := addr_of(_N.a.x);
   assert(unsafe(px.*) == i32(7), "nested field");
-  pb := &_N.b;
+  pb := addr_of(_N.b);
   assert(unsafe(pb.*) == i32(9), "outer field");
 });
 test("&t.1 of a constant tuple", {
-  pt := &_T.1;
+  pt := addr_of(_T.1);
   assert(unsafe(pt.*) == i32(2), "tuple field");
 });
 test("A ::-bound pointer into a constant is usable at run time", {
-  q :: &_A(2);
+  q :: addr_of(_A(2));
   assert(unsafe(q.*) == i32(30), "comptime-bound element pointer");
-  w :: &_K;
+  w :: addr_of(_K);
   assert(unsafe(w.*.x) == i32(3), "comptime-bound whole-value pointer");
 });

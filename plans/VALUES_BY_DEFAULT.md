@@ -3698,6 +3698,105 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
      sweep rewrites every raw-pointer `&x` in std, `src/` and tests to
      `addr_of(x)`, then `&x` means only a borrow. Decision 33's mismatch
      error turns on.
+
+     **As built, step 3 minus `sink` (2026-10-10, branch
+     feat/vbd-v3b-addr-of-delete-inout, stacked on feat/vbd-v3b-markers-a).**
+     - **`yo fix <path> --migrate addr-of`** is semantic: a syntactic rewrite
+       is wrong, because a `&x` to an `imm` parameter is a borrow. With the
+       recorder on (`record_addr_of_site`, `src/expr_info.yo`),
+       `evaluate_address_call` records every `&x` it evaluates (each one is
+       the address-of: a lending marker is peeled before evaluation) and
+       `apply_call_site_borrow_markers` records every `&x` it lends. The
+       sites under `<path>` are rewritten to `addr_of(x)`; `&(e)` drops its
+       group (`addr_of(e)`). The span is found without a grammar: every end
+       on the line where the brackets balance is parsed, and the first whose
+       AST prints as the evaluated expression wins. A site recorded both
+       lent and address-of (two evaluations disagreeing), one whose text no
+       longer prints as the evaluated expression (a synthetic token), and the
+       outer one of two nested sites are listed with their position and left
+       as written; a second run picks up a nested one.
+     - **Swept:** std 228 (including one Windows-only branch by hand),
+       `src/` 8, `tests/` 109 by the tool plus 14 by hand (Index impls no
+       instantiation reaches, the safe-code gate tests, a
+       `tests/codegen-bootstrap` file), 5 CLI-case fixtures by hand
+       (`tests/internal/` had none), the docs' and skills' code blocks by hand
+       (en + zh), and `markdown_yo` 181 (a v0.0.14 release; below). Every
+       rewrite is a pointer site: a raw-pointer, by-value or variadic
+       argument, a binding, a field store, a constructor field, a receiver
+       `(&x).m()` of a `*(Self)` method, or a comptime `p :: addr_of(v)`.
+       The 5 sites the tool kept were lent (`_ao_id(&n)` to a generic `imm`
+       parameter and its kin).
+     - **The deletion.** `&x` in argument position lends to an `imm`
+       parameter, a generic one included. Anywhere else it is an error:
+       - to a raw-pointer parameter: `Parameter "p" is a raw pointer
+         (`*(i32)`): take the address with `addr_of(n)`. `&n` lends a
+         borrow to an `imm` parameter and never makes a pointer.`;
+       - to a by-value parameter, plain or `sink` (decision 33's mismatch
+         rule for `&x`): ``&s` lends a borrow, but parameter "s" takes its
+         argument by value: pass `s` (it moves, or is copied when it is
+         `Copy`), or `s.clone()` to keep `s`. A raw pointer is
+         `addr_of(s)`.``;
+       - outside an argument (a binding, a field store, a receiver, a
+         variadic C argument): ``&n` lends a borrow: it is written as a call
+         argument to an `imm` parameter or as a `match` scrutinee, and is not
+         an expression of its own. Take a raw pointer with `addr_of(n)`; a
+         method receiver is written bare (`n.m()`).``
+       - `&mut x` to a parameter that is not `mut` now names the marker that
+         parameter takes (`addr_of(x)`, `x` / `x.clone()`, or `&x`).
+       The places in these messages print as written (`ast_place_text`:
+       `b.n`, `self.*.buf`), not as the AST printer's `((self.(*)).buf)`.
+       The BARE-argument half of the mismatch error (E0914 for `show(s)` to
+       an `imm` parameter) is a later step and is not on.
+     - **The compiler's own synthesized address-of** (a `*(Self)` method
+       called on a value receiver, `_build_receiver_call_args` and the
+       property-access dispatch) builds `addr_of(...)`, not `&(...)`, so it
+       never reaches the `&x` error.
+     - **`inout` and `own` are deleted.** `mut(x)` and `sink(x)` are the only
+       spellings; the old ones are errors naming the new word and the tool:
+       ``inout(x)` is spelled `mut(x)`: the `inout` spelling was deleted
+       (plans/VALUES_BY_DEFAULT.md V3b). `yo fix <path> --migrate modes`
+       rewrites it.`` (and the same for `own`/`sink`). The sites: a parameter
+       label at every wrapper level (`comptime(inout(x))`, `sink(inout(x))`),
+       a local binding `inout(y) := place`, a re-point `inout(cur) = place`,
+       any other evaluated `inout(x)` (`-> inout(T)`), and the `for` macro's
+       `inout(x) =>` / `(k, inout(v)) =>` forms (a `comptime_assert` in the
+       prelude). An `asm(...)` operand's `inout(reg, v)` has two arguments and
+       is untouched. `--migrate params` lost its `inout` half (it cannot
+       evaluate an `inout` file any more; `--migrate modes` first), and
+       every message, the LSP keyword list, the type printer's result
+       (`-> mut(T)`), the registry text and the std doc comments say `mut`.
+     - **Decided by the implementer** (the maintainer's 2026-10-09
+       delegation, "strict, explicit and sound; match Rust"):
+       - **The migration still works after the deletion.** Under
+         `--migrate addr-of` the evaluator keeps the old address-of reading
+         for a `&x` that does not lend (Rust keeps `cargo fix --edition`
+         able to read the old edition), so old code can be migrated with a
+         current compiler. `--migrate modes` is syntactic and needs nothing.
+       - **A raw-pointer parameter given `&x` is an error, not a silent
+         address-of.** Rust's `&x` to a `*const T` parameter coerces; Yo has
+         no implicit reference-to-pointer coercion, and the marker must tell
+         the truth (decision 33), so the pointer is always spelled
+         `addr_of(x)`.
+       - **`&x` to a by-value parameter names `addr_of(x)` too**, after `x`
+         and `x.clone()`: a generic by-value parameter used to infer `*(T)`
+         from `&x`, so a caller that meant the pointer is told its spelling.
+       - **`inout` is not reserved** as a binding name, as `mut`/`imm` are
+         not; a one-argument `inout(...)` call that reaches the evaluator is
+         the old-spelling error. `own` is rejected only on a parameter label
+         (the one place it was recognized), so a user function named `own`
+         keeps working.
+       - **`yo unsafe-report`'s addr-of class** counts `addr_of(` (at an
+         identifier boundary) instead of `&(`, which is a borrow marker now.
+     - **`markdown_yo` needs a release.** The compiler depends on it
+       (`yo.toml`), and it used `&x` as the address-of in 181 places, so the
+       tree compiler rejects it. The sweep ran on a local clone
+       (`~/Workspace/Yo-wt/markdown_yo-addrof`, branch `migrate-addr-of`,
+       one commit on v0.0.13; it checks under v0.2.55, the stand-in seed and
+       the tree compiler). It has to be pushed and released as v0.0.14, and
+       `yo.toml` bumped to `^0.0.14`, before this branch builds anywhere but
+       a machine with that clone: the local gates ran with `yo.toml`
+       pointing at the clone by path, which is not committed.
+     - **`sink` stays** (decided 2026-10-09) until V2b/V2c/V5.
 - **Callbacks:** std's `for_each`, `map`, `filter` and `with_lock` take
   `imm(f)`.
 - **Diagnostics:** E0901 at a caller names `imm(x)` in the callee before

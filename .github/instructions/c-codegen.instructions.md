@@ -419,7 +419,7 @@ Rules for codegen code and for the evaluator analyses codegen calls late
 - **`key` is the node whose record holds `name`**, which is not always the node
   you are generating:
   - a binding site uses the bound name atom (the `:=` lhs, the destructured
-    field atom, the `inout(name)` atom, the pattern binding);
+    field atom, the `mut(name)` atom, the pattern binding);
   - a cleanup drop uses the drop target atom (`deferred_drop_target_variable`);
   - a place's base uses its binder (`_lhs_root_binder` in `exprs/assignment.yo`).
 - **A new name source needs a record.** If you add a site that asks a node about
@@ -599,13 +599,13 @@ exit inside a branch
 
 The evaluator decides one ownership rule for every call form
 (`consume_argument_for_parameter`, `src/evaluator/calls/helper.yo`): a borrowed
-argument of an `own` parameter gets a +1 the callee releases, and a borrowed
+argument of a `sink` parameter gets a +1 the callee releases, and a borrowed
 projection passed to a borrowing parameter gets a +1 the caller releases after
 the call. Both ride on the argument as a deferred `___dup`, so any emitter that
 generates call arguments must honor it — the plain call through
 `_materialize_arg`, the method-dispatch emitters through `_dispatch_arg_code`
 (`src/codegen/exprs/other_fn_call.yo`). A bare `_call_generate_expr(arg)` in an
-argument loop drops the dup: an `own` callee then releases a reference it was
+argument loop drops the dup: a `sink` callee then releases a reference it was
 never given, and the caller-side drop silently vanishes with its undeclared temp
 (`issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md`).
 A new argument loop is checked by comparing `f(x.field)` with `T.f(x.field)`
@@ -656,11 +656,11 @@ This function generates C code for `value(arg)` dispatched through the Index tra
 - For builtins (`__yo_array_index`, `__yo_slice_index`): inlines `(&((&value)->data[idx]))` directly
 - Range indexing dispatches to `slice_copy` methods (owned copies; plans/archive/SLICE_REWORK.md) — the old `*(Slice(T))` compound-literal builtins are deleted
 - For non-builtin methods (ArrayList, HashMap, etc.): generates a named function call
-- Auto-dereferences the pointer result unless wrapped in `&()` (checked via the `ExprInfo.is_index_trait_address_of` flag)
+- Auto-dereferences the pointer result unless wrapped in `addr_of()` (checked via the `ExprInfo.is_index_trait_address_of` flag)
 
 ### `ptr_fns.yo` address-of optimization
 
-`&(arr(i))` where `arr(i)` uses Index trait dispatch skips the auto-deref. `generate_address_of` in `src/codegen/exprs/ptr_fns.yo` detects `is_index_trait_address_of` and inlines the builtin directly, producing `(&((&arr)->data[i]))` without the outer `*` deref.
+`addr_of(arr(i))` where `arr(i)` uses Index trait dispatch skips the auto-deref. `generate_address_of` in `src/codegen/exprs/ptr_fns.yo` detects `is_index_trait_address_of` and inlines the builtin directly, producing `(&((&arr)->data[i]))` without the outer `*` deref.
 
 ### Why Index methods use inline expansion
 

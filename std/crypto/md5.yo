@@ -240,8 +240,8 @@ impl(
       self._total = (self._total + u64(1));
       cond(
         (self._buflen == usize(64)) => {
-          buf_ptr := &self._buf(usize(0));
-          h_ptr := &self._h(usize(0));
+          buf_ptr := addr_of(self._buf(usize(0)));
+          h_ptr := addr_of(self._h(usize(0)));
           _md5_block(buf_ptr, h_ptr);
           self._buflen = usize(0);
         },
@@ -265,8 +265,8 @@ impl(
         while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
           self._buf(self._buflen) = u8(0);
         });
-        buf_ptr := &self._buf(usize(0));
-        h_ptr := &self._h(usize(0));
+        buf_ptr := addr_of(self._buf(usize(0)));
+        h_ptr := addr_of(self._h(usize(0)));
         _md5_block(buf_ptr, h_ptr);
         self._buflen = usize(0);
       },
@@ -284,8 +284,8 @@ impl(
     self._buf(usize(61)) = u8(bit_len >> u64(40));
     self._buf(usize(62)) = u8(bit_len >> u64(48));
     self._buf(usize(63)) = u8(bit_len >> u64(56));
-    buf_ptr := &self._buf(usize(0));
-    h_ptr := &self._h(usize(0));
+    buf_ptr := addr_of(self._buf(usize(0)));
+    h_ptr := addr_of(self._h(usize(0)));
     _md5_block(buf_ptr, h_ptr);
     digest := Array(u8, usize(16)).fill(u8(0));
     k := usize(0);
@@ -338,7 +338,7 @@ md5 :: (fn(imm(data) : ArrayList(u8)) -> Array(u8, usize(16)))({
     u32(0x98badcfe),
     u32(0x10325476)
   );
-  h_ptr := &h(usize(0));
+  h_ptr := addr_of(h(usize(0)));
   n := data.len();
   // Process full blocks
   i := usize(0);
@@ -348,7 +348,7 @@ md5 :: (fn(imm(data) : ArrayList(u8)) -> Array(u8, usize(16)))({
   });
   // Final block(s) with padding
   pad_buf := Array(u8, usize(128)).fill(u8(0));
-  pad_ptr := &pad_buf(usize(0));
+  pad_ptr := addr_of(pad_buf(usize(0)));
   rem := (n - i);
   j := usize(0);
   while(j < rem, j = (j + usize(1)), {
@@ -373,7 +373,7 @@ md5 :: (fn(imm(data) : ArrayList(u8)) -> Array(u8, usize(16)))({
       // Length goes in second block
       _md5_block(pad_ptr, h_ptr);
       pad2 := Array(u8, usize(64)).fill(u8(0));
-      pad2_ptr := &pad2(usize(0));
+      pad2_ptr := addr_of(pad2(usize(0)));
       bit_len := u64(n * usize(8));
       (pad2_ptr.add(usize(56))).* = u8(bit_len);
       (pad2_ptr.add(usize(57))).* = u8(bit_len >> u64(8));

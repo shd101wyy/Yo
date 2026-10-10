@@ -264,27 +264,41 @@ Modifiers wrap the **label**, never the type:
 ```abnf
 Parameter ::= ParameterLabel ':' Type
 ParameterLabel ::=
-  | Identifier                  ;; by value (reference-semantics types: a shared handle)
-  | 'inout' '(' Identifier ')'  ;; second-class reference to a caller lvalue (binding write-back)
-  | 'own' '(' Identifier ')'    ;; consumes the caller's handle (move)
+  | Identifier                  ;; by value: copied (Copy), moved, or a shared handle (reference kinds)
+  | 'imm' '(' Identifier ')'    ;; read-only borrow of the caller's value
+  | 'mut' '(' Identifier ')'    ;; exclusive borrow of a caller place (writes land there)
+  | 'sink' '(' Identifier ')'   ;; by value, and always a move (even of a shared kind)
   | 'comptime' '(' Identifier ')' ;; compile-time-only parameter
   | 'quote' '(' Identifier ')'  ;; macro parameter (receives the AST)
 ```
 
 ```yo
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ ... });
-sink :: (fn(own(victim) : Holder) -> unit)({ ... });
+swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({ ... });
+sink :: (fn(sink(victim) : Holder) -> unit)({ ... });
 ```
 
-Placement rules for `inout`:
+Placement rules for `imm` and `mut`:
 
-- Parameter position (`inout(name) : T`) is the ONLY position where
-  `inout` may appear.
-- `inout` is **rejected in return-type position** (`-> inout(T)`,
-  `-> (inout(name) : T)`), as a local binding (`inout(r) := lvalue;`), and
-  inside any other type expression (`Option(inout(T))`, struct fields,
-  generic arguments).
+- They appear on a parameter label (`mut(name) : T`) and on a local
+  borrow binding (`mut(r) := place;`, `imm(r) := place;`).
+- They are **rejected in return-type position** (`-> mut(T)`,
+  `-> (mut(name) : T)`) and inside any other type expression
+  (`Option(mut(T))`, struct fields, generic arguments).
+- `inout(x)` and `own(x)`, the old spellings of `mut(x)` and `sink(x)`, are
+  errors naming the new word; `yo fix <path> --migrate modes` rewrites them.
 - See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
+
+At a call, a borrowed argument carries a marker that matches the parameter:
+
+```abnf
+BorrowArgument ::=
+  | '&' Expression              ;; lends to an 'imm' parameter: show(&s)
+  | '&mut' Expression           ;; lends to a 'mut' parameter: swap(&mut x, &mut y)
+```
+
+`&x` is only this marker. A raw pointer is `addr_of(x)` (unsafe code); a
+`&x` anywhere else, or passed to a by-value or raw-pointer parameter, is an
+error naming `addr_of(x)` (and `x` / `x.clone()` for a by-value parameter).
 
 ## Comments and Whitespace
 

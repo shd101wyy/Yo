@@ -15,9 +15,9 @@ impl(
     Output : i32,
     index : (fn(mut(self) : Self, imm(idx) : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &self.data0,
-        (idx == usize(1)) => &self.data1,
-        (idx == usize(2)) => &self.data2,
+        (idx == usize(0)) => addr_of(self.data0),
+        (idx == usize(1)) => addr_of(self.data1),
+        (idx == usize(2)) => addr_of(self.data2),
         true => __yo_panic("MyArray: index out of bounds")
       )
     )
@@ -37,7 +37,7 @@ test("Test Index trait on custom struct", {
 test("Test Index trait address-of", {
   (arr : MyArray) = MyArray(i32(100), i32(200), i32(300));
   // &(arr(i)) should return a pointer to the element
-  (p : *i32) = &arr(usize(1));
+  (p : *i32) = addr_of(arr(usize(1)));
   assert(p.* == i32(200), "&(arr(1)).* should be 200");
   // Mutate through pointer
   p.* = i32(999);
@@ -59,7 +59,7 @@ test("Test Index trait address-of on ArrayList", {
   list.push(i32(200));
   list.push(i32(300));
   // &(list(i)) should return a pointer to the element
-  (p : *i32) = &list(usize(1));
+  (p : *i32) = addr_of(list(usize(1)));
   assert(p.* == i32(200), "&(list(1)).* should be 200");
   // Mutate through pointer
   p.* = i32(999);
@@ -151,7 +151,7 @@ test("Test Index trait mutation on HashMap", {
   (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
   map.insert(i32(10), i32(42));
   // Mutate through pointer
-  &(map(i32(10))).* = i32(999);
+  addr_of(map(i32(10))).* = i32(999);
   assert(map(i32(10)) == i32(999), "map(10) should be 999 after mutation");
 });
 // === BTreeMap Index tests ===
@@ -167,7 +167,7 @@ test("Test Index trait on BTreeMap", {
 test("Test Index trait mutation on BTreeMap", {
   (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
   map.insert(i32(1), i32(10));
-  &(map(i32(1))).* = i32(77);
+  addr_of(map(i32(1))).* = i32(77);
   assert(map(i32(1)) == i32(77), "map(1) should be 77 after mutation");
 });
 // === Deque Index tests ===
@@ -184,7 +184,7 @@ test("Test Index trait mutation on Deque", {
   (d : Deque(i32)) = Deque(i32).new();
   d.push_back(i32(100));
   d.push_back(i32(200));
-  &(d(usize(0))).* = i32(555);
+  addr_of(d(usize(0))).* = i32(555);
   assert(d(usize(0)) == i32(555), "d(0) should be 555 after mutation");
 });
 test("Test Index on Deque with ring buffer wrap", {
@@ -445,8 +445,8 @@ impl(
     Output : i32,
     index : (fn(mut(self) : Self, imm(idx) : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &self.x,
-        true => &self.y
+        (idx == usize(0)) => addr_of(self.x),
+        true => addr_of(self.y)
       )
     )
   )
@@ -457,8 +457,8 @@ impl(
     Output : i32,
     index : (fn(comptime(mut(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &self.x,
-        true => &self.y
+        (idx == usize(0)) => addr_of(self.x),
+        true => addr_of(self.y)
       )
     )
   )
@@ -493,8 +493,8 @@ impl(
     Output : i32,
     index : (fn(mut(self) : Self, imm(idx) : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &self.x,
-        (idx == usize(1)) => &self.y,
+        (idx == usize(0)) => addr_of(self.x),
+        (idx == usize(1)) => addr_of(self.y),
         true => __yo_panic("StrictPoint: index out of bounds")
       )
     )
@@ -506,11 +506,11 @@ impl(
     Output : i32,
     index : (fn(comptime(mut(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &self.x,
-        (idx == usize(1)) => &self.y,
+        (idx == usize(0)) => addr_of(self.x),
+        (idx == usize(1)) => addr_of(self.y),
         true => {
           comptime_assert(false, "StrictPoint: index out of bounds");
-          &self.x
+          addr_of(self.x)
         }
       )
     )
@@ -533,8 +533,8 @@ impl(
     Output : T,
     index : (fn(mut(self) : Self, imm(idx) : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &self.x,
-        true => &self.y
+        (idx == usize(0)) => addr_of(self.x),
+        true => addr_of(self.y)
       )
     )
   )
@@ -547,8 +547,8 @@ impl(
     Output : T,
     index : (fn(comptime(mut(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &self.x,
-        true => &self.y
+        (idx == usize(0)) => addr_of(self.x),
+        true => addr_of(self.y)
       )
     )
   )
@@ -586,8 +586,8 @@ impl(
     Output : i32,
     index : (fn(mut(self) : Self, imm(idx) : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &self.first,
-        true => &self.second
+        (idx == usize(0)) => addr_of(self.first),
+        true => addr_of(self.second)
       )
     )
   )
@@ -598,8 +598,8 @@ impl(
     Output : i32,
     index : (fn(comptime(mut(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &self.first,
-        true => &self.second
+        (idx == usize(0)) => addr_of(self.first),
+        true => addr_of(self.second)
       )
     )
   )
