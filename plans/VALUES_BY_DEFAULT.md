@@ -2019,7 +2019,8 @@ and in git, not a silent edit.
           (`std/async/stream.yo`) and generators, are where this shows.
         - **If that case proves common, a stateful call is added the way
           Hylo has it,** not as Rust's third trait (recorded 2026-10-05 by
-          the maintainer).
+          the maintainer). The design it lands with:
+          `plans/backlog/NON_ESCAPABLE_TYPES.md` (R4), written 2026-10-10.
       - **Hylo's design.** Hylo
         (https://hylo-lang.org/docs/user/language-tour/functions-and-methods/)
         has three capture kinds, its parameter conventions: `let`, `inout`
@@ -2475,7 +2476,9 @@ and in git, not a silent edit.
         `for` and an `indices()` walk, which is the test
         `issues/collection-iterators-have-no-sound-post-v2b-shape.md`
         requires.
-      - **Recorded for later, not adopted: borrow-mode struct fields.** A
+      - **Recorded for later, not adopted: borrow-mode struct fields.**
+        (The design, written 2026-10-10 at the maintainer's request and
+        gated on this trigger: `plans/backlog/NON_ESCAPABLE_TYPES.md`.) A
         named struct declaring `imm(xs) : ArrayList(T)` as a field would be
         the record decision 35's capture list already builds, second-class
         by 38 A's structural rule, and with A2's return exception

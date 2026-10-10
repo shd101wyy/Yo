@@ -526,7 +526,7 @@ Decision 39 (amended) settles the whole area:
 | `xs.iter().map(...).filter(...)` (a lazy chain over a borrowed container) | **not expressible**: write the loop, compose `xs.indices()` with non-escaping closures (`xs.indices().map(i => xs(i).len())`), or `xs.clone().into_iter()` when the chain must own its source — an explicit copy |
 | `for x in xs` (by value) | `xs.into_iter()` — consumes; `Copy` elements are copies |
 | `xs.iter()` where `xs : Rc<C>` | `xs.iter()` — iterating a shared container through a first-class handle is allowed (D38 D's per-call marks) |
-| a stored read-only iterator (`it := xs.iter(); … it.next()`) | not expressible in safe code (a stored borrow); the cursor is `xs.indices()` — a `Copy` `Range(usize)` — with `xs(i)` re-derived by the user |
+| a stored read-only iterator (`it := xs.iter(); … it.next()`) | not expressible in safe code (a stored borrow); the cursor is `xs.indices()` — a `Copy` `Range(usize)` — with `xs(i)` re-derived by the user. The parked design that would allow it, gated on decision 39's trigger: [`NON_ESCAPABLE_TYPES.md`](NON_ESCAPABLE_TYPES.md) |
 | `ptr()`-style raw iteration | only beside `ptr()`, in `pragma(Pragma.AllowUnsafe)` std files |
 
 - **Growth mid-walk is an out-of-bounds error**, not UB (the borrowed `for`
