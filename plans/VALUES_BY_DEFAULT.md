@@ -2623,10 +2623,19 @@ and in git, not a silent edit.
         `&mut `, parenthesized unless it is a postfix chain), formats the
         file, and lists every mode word no row covers (an `unquote(...)`
         name it cannot see, `generic(mut(T) : Type)`) with its position.
-        Counts on the tree at this branch (dry run, then applied to a copy,
-        built with the tree compiler, `check ./src` and `check ./std` rc 0
-        and `fmt --check` clean with the binary built from the rewritten
-        tree): COUNTS_PLACEHOLDER
+        Counts on the tree at this branch (`--dry-run` with the
+        branch-built compiler, 2026-10-10): `std/` 3,010 (1,440 parameters,
+        1,496 receivers, 72 `Fn` slots, 2 local borrows), `src/` 10,062
+        (9,901 parameters, 142 receivers, 19 `Fn` slots), `tests/` 2,664
+        (1,771 parameters, 609 receivers, 35 `Fn` slots, 1 closure
+        parameter, 3 results, 120 local borrows, 11 re-points, 64 captures,
+        50 borrowed `for` loops). Nothing is skipped in `std/` or `src/`.
+        In `tests/` 9 mode words are left as written for hand edits:
+        `ref_return_ban` 4 (`-> mut(i32)` in a rejected position),
+        `closure_capture_list`, `comptime_ref`, `dyn` 2, and
+        `ref_local_binding` 1 each. 4 CLI-case fixtures do not parse by
+        design. Applying the rewrite to a copy and building it is
+        Generation B's first gate.
       - **Measured gates:** GATES_PLACEHOLDER
     - **Generation B, on the seed that carries Generation A:**
       1. `yo fix ./std ./src ./tests --migrate borrow-spelling` (the counts
