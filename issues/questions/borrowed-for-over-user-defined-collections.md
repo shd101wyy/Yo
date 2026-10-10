@@ -43,6 +43,14 @@ lowering (`CODEGEN_PERFORMANCE.md` CP2b) applies to std only.
 
 ## Recommendation
 
+**Position taken by decision 43 (2026-10-10, draft):** a fourth option
+became available when `&T` became a type — `impl(&C, IntoIterator(…))`
+and `impl(&mut C, IntoIterator(…))`, Rust's exact shape: the borrowed
+`for(&xs, …)` dispatches to the impl on `&C`, and the iterator it returns
+is a second-class value rooted in `xs` (R3). That is the recommendation
+now; option 2 remains the fallback for a container that wants a plain
+index walk. The original text follows.
+
 Option 2, with V2b (the same PR that gives the borrowed `for` its final
 shape over std). It is one trait, no new mechanism, and it is what makes
 "a borrow is a mode, not a type" hold for user containers too: the

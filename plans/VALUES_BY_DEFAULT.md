@@ -2569,7 +2569,10 @@ and in git, not a silent edit.
       `RefCell` for exactly them.
 
 42. **Borrow modes are spelled `&T` / `&mut T` in type slots; they stay
-    modes, not types.** Confirmed 2026-10-10 by the maintainer ("it makes
+    modes, not types.** (**Superseded in its "modes, not types" half by
+    decision 43 the same day: `&T` IS a type, second-class. The spelling,
+    the rollout and the deletion list below stand.**) Confirmed 2026-10-10
+    by the maintainer ("it makes
     more sense to just have `x : &T` instead of `imm(x) : T`"), after the
     non-escapable-types design put modes into field, payload and result
     slots. Rust's spelling, Hylo's semantics: nothing in decisions 18, 24,
@@ -2682,6 +2685,94 @@ and in git, not a silent edit.
       - **Reflection and diagnostics** keep a mode *value* (`TypeInfo`'s
         parameter mode, the E09xx texts); its variant names may stay
         `Imm`/`Mut` internally — the decision is about surface keywords.
+
+43. **`&T` and `&mut T` are types: second-class types with elided
+    lifetimes. A buffer container over a `&` is a root-joining second-class
+    container.** DRAFT, written 2026-10-10 at the maintainer's direction
+    ("I want to make `&T` a real type because I also want to support
+    `impl(&T, …)`"; `ArrayList(&T)` by the root-joining option), pending the
+    VBD implementer's checker-side review. It supersedes the "modes, not
+    types" half of decision 42; decision 42's spelling, rollout and
+    deletion list stand. Yo moves from Hylo's "no first-class references"
+    to **references as second-class types with elided lifetimes**, the
+    point Swift's `Span` and Mojo's `ref` reached; mutable value semantics
+    stays for owned values; named regions/origins are rejected (see the
+    end of this decision).
+    - **Types.** `&T` and `&mut T` are types: bindable (`r := &x`),
+      nameable (`IntRef :: &i32`), passable, returnable under the
+      single-root rule, usable as generic arguments (so `&&T` exists and
+      is accepted), and the subject of impls: `impl(&T, Trait(…))` and the
+      blanket `impl(generic(T), &T, Trait(…))`, distinct from `impl(T, …)`
+      under `TRAIT_COHERENCE.md`. `&T` is `Copy`. `&mut T` is not: passed
+      to a `&mut T` slot it is **reborrowed** (the original is frozen for
+      the call); a bare use moves it at its last use — Rust's rule.
+    - **Access.** `.*` reads or writes the whole value (`x.* = y.*`);
+      `.field` and `.method()` auto-deref through any number of `&`; a
+      method whose receiver is `&Self`/`&mut Self` auto-borrows an owned
+      receiver, so `xs.len()` and `s.left` are unchanged. Nothing else
+      coerces: no `&String → &str` (a view is explicit,
+      `RUST_ADOPTION_CANDIDATES.md` L1). Method resolution probes the exact
+      receiver type, then `&`/`&mut` of it, then each deref, so
+      `impl(&T, M)` wins over `impl(T, M)` for a `&T` receiver.
+    - **Second-class, structurally (decision 38 A unchanged).** Any type
+      containing a `&` is second-class: an inline composite may contain it
+      (the inline rule, `NON_ESCAPABLE_TYPES.md` R1), a cell never may
+      (`Rc(&T)`, `Box(&T)`, `RefCell(&T)`, a `Dyn` payload: E0909), it is
+      never spawned, never captured by an escaping closure, never `Send`.
+      Lifetimes are elided by the rules of that note, which becomes this
+      decision's design: a borrow set per value (R2), the single-root
+      return with `depends` (R3), the stateful call (R4), `Rc` roots only
+      through the pin (R5), async per A2 (R6).
+    - **Root-joining containers.** `ArrayList(&T)`, `HashMap(&K, V)` and
+      every buffer-owning container instantiated over a `&` are legal and
+      second-class, and their borrow set **grows**: every `&` lent into a
+      `&mut self` method of the container (`push`, `insert`, `extend`,
+      `set`, an `Index` place write) joins the container's roots; a
+      `&self` method joins nothing; a `depends` clause on the method
+      narrows the conservative rule when it lands (R7 in the note). The
+      container is returned under R3 over the joined set, so
+      `words(self : &Doc) -> ArrayList(&str)` compiles when every pushed
+      view is rooted in `self`. Elements rooted through an `Rc`/`Arc`
+      deref are rejected in a container (one pin per element is not
+      taken); the cell rule still forbids `Rc(ArrayList(&T))`. Codegen is
+      a buffer of pointers with no count traffic and no element drops.
+    - **Verifier.** A `&T` parameter stays a lent, unchanged place and a
+      `&mut T` a modifiable one; a bound `&T` local is modelled as an
+      alias of its root place; containers of references are outside the
+      subset until modelled.
+    - **Reflection.** `TypeInfo` gains a `Reference(T, mutable : bool)`
+      kind; derive rules see it; `type_of(&x)` is `&T`.
+    - **Diagnostics.** Decision 42's "a `&T` is a lend, not a value" is
+      retired — it is a value now. The storage errors say "a `&T` cannot
+      outlive its root, and this position has no root" and point at
+      `RUST_REFERENCE_PATTERNS.md`.
+    - **What this resolves.** Decision 24's projection results are
+      `&T`/`&mut T` values, bindable now ("may not be bound" is deleted);
+      decision 39's borrow-mode fields and its `Option(imm(T))` sentence
+      are resolved by R1; decision 38 A's type-position bullet is amended
+      (inline composites and root-joining containers over a `&` are legal
+      and second-class, cells stay E0909);
+      `issues/questions/borrowed-for-over-user-defined-collections.md`
+      gets its position: `impl(&C, IntoIterator(…))`, Rust's shape; A2 is
+      unchanged.
+    - **Rejected.** Named regions or origins (a comptime
+      `generic(r : Region)` stays the growth path only if the residue in
+      `RUST_REFERENCE_PATTERNS.md` §14 bites); `&String → &str` and every
+      other deref coercion; Austral's linear types; a first-class
+      container of references (a cell holding one).
+    - **Rollout.** Rides decision 42's generations: Generation A adds the
+      types, `.*`, auto-deref and auto-borrow, `impl(&T, …)`, root-joining
+      and the tests in user code; Generation B lets std adopt (`iter`,
+      `slice`, `entry`, the borrowed `for` by trait). Timing is the VBD
+      session's, after the V3b generations; the checker-side review comes
+      first and may amend this draft.
+    - **Tests.** `impl(&T, M)` versus `impl(T, M)` dispatch; `&&T` reached
+      through a generic; reborrow versus move of a `&mut T`; the `.*`
+      swap; auto-deref on a field and a method; root-joining: two roots
+      pushed then a conflicting write (E0911), a return with a non-parameter
+      root (error), a `depends` narrowing; an `Rc`-rooted element in a
+      container (rejected); the cell cases (E0909); `words` returning a
+      list of views; the borrowed `for` by `impl(&C, IntoIterator)`.
 
 ## 5. Prerequisites, gates and the seed
 

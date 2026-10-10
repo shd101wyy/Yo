@@ -1,7 +1,10 @@
-# Non-escapable types: borrow-mode fields with an inferred, single-root lifetime dependency
+# References as second-class types: borrow-mode fields, root-joining containers, and an inferred single-root lifetime dependency
 
 **Status: BACKLOG — design note, written 2026-10-10 at the maintainer's
-request; not scheduled.** This is the design that two parked decisions in
+request; not scheduled. Reframed the same day by decision 43: `&T` and
+`&mut T` are types (second-class, lifetimes elided), so R1–R6 below are
+the rules of those types, R7 adds root-joining containers, and every
+"mode" in this note reads as "the `&`/`&mut` type".** This is the design that two parked decisions in
 [`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md) point to without naming:
 decision 39's "recorded for later, not adopted: borrow-mode struct fields"
 and decision 37's parked stateful call, both "decided together, by the same
@@ -252,6 +255,41 @@ projections and `imm(self)`); only the `Iterator`-trait form of borrowing
 iteration waits. The borrowed `for` over a non-escapable collection needs
 no iterator value at all (`issues/questions/borrowed-for-over-user-defined-collections.md`,
 option 2: `len` plus `Index` projections).
+
+### R7. Root-joining containers — `ArrayList(&T)` and every buffer over a `&` (decision 43)
+
+A buffer container instantiated over a `&` is legal and second-class, and
+unlike a struct (R2) its borrow set is not fixed at construction: it
+**grows**. The conservative rule, needing no names: every `&` lent into a
+`&mut self` method of the container (`push`, `insert`, `extend`, `set`, an
+`Index` place write) joins the container's roots for the rest of its life;
+a `&self` method joins nothing. A `depends` clause on the method narrows
+it (`push(self : &mut Self, v : &T, depends(self : v))` says only `v`
+flows in; a `&mut self` method with no `&` parameter joins nothing by
+construction). Returning the container is R3 over the joined set:
+
+```yo
+words :: (fn(self : &Doc) -> ArrayList(&str))({
+  out := ArrayList(&str).new();
+  for(&self.word_ranges(), r => { out.push(self.text.view(r)); });   // every root is self
+  out                                                               // R3: depends on self
+});
+```
+
+- Growth and reallocation are irrelevant to soundness: the elements are
+  pointers and the roots are frozen (`&`) or exclusively borrowed
+  (`&mut`) for the container's life; a conflicting access to a root is
+  the E0911 any live borrow produces; a container of `&mut T` to one root
+  is rejected at the second push (two exclusive borrows of one place).
+- Elements rooted through an `Rc`/`Arc` deref are rejected in a container
+  (R5's pin is per value, and one pin per element is not taken); a cell
+  never holds such a container (`Rc(ArrayList(&T))` is E0909).
+- A struct holding such a container is non-escapable by the structural
+  rule; `HashMap(&K, V)` follows the same rule with `insert` joining the
+  key's root.
+- Codegen: a buffer of `const T*` / `T*`, no count traffic, no element
+  drops, `restrict`-eligible on `&mut` elements only when the roots are
+  provably distinct (CP1a's rule).
 
 ### R5. Roots through `Rc`/`Arc`
 

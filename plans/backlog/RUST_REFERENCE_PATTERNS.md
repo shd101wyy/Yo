@@ -108,7 +108,11 @@ impl Doc {
 }
 ```
 
-A view into an owned buffer cannot be stored. Store **offsets** (shape 5) and
+A view into an owned buffer cannot be stored *beyond the frame that owns
+the buffer*. Since decision 43, `fn words(&self) -> Vec<&str>` has a direct
+spelling, `words(self : &Doc) -> ArrayList(&str)`, a root-joining
+second-class list that depends on `self` (`NON_ESCAPABLE_TYPES.md` R7).
+For a list that must outlive the call, store **offsets** (shape 5) and
 re-derive:
 
 ```yo
@@ -822,7 +826,7 @@ the honest list, kept here so the porting guide at V5 states it up front.
 | Rust shape | Why Yo does not express it | What you write instead | What it costs |
 | --- | --- | --- | --- |
 | a borrow kept beyond one call frame with more than one root — `struct Parser<'src, 'arena>`, `Ctx<'a, 'b>` with fields lent from different callers at different times | R3 infers one dependency per function (all borrowed parameters, or a `depends` narrowing); distinguishing two roots across frames is naming lifetimes, which decision 30 and the roadmap rule out | split the struct by root, or hold the longer-lived part as `Rc`/`Rc(RefCell)`, or index into an owner | one count, or one lookup per access |
-| a borrow stored in a long-lived structure — a registry of `&'a Listener`, a cache of `&'a Entry`, a `Vec<&'a str>` of sub-strings | the inline rule: a buffer element or a cell payload is never a borrow (R1), so a *collection of views* does not exist | `ArrayList(Range(usize))` + re-derivation (§2.2), `ArrayList(Rc(T))`, `ArrayList(usize)` ids, or own the values | a bounds check per re-derivation, or a count, or a copy |
+| a borrow stored in a **long-lived** structure — a registry of `&'a Listener`, a cache of `&'a Entry` kept across frames or in a cell | a cell payload is never a borrow (R1); a *pass-local* `ArrayList(&T)` IS allowed since decision 43 (a root-joining second-class container, R7), but it cannot outlive its roots or live in a cell | `ArrayList(&T)` for the pass, then `ArrayList(Range(usize))` + re-derivation (§2.2), `ArrayList(Rc(T))`, `ArrayList(usize)` ids, or own the values for anything longer-lived | nothing for the pass-local list; a bounds check, a count or a copy beyond it |
 | lending stack data to other threads — `thread::scope`, rayon `par_iter` over a local `Vec` | a borrow is never `Send` (decision 38 E, R6); a borrowing scoped spawn would need the non-escaping consuming mode decision 37 parked | `Arc(ArrayList(T))` read sharing, owned chunks moved in and joined, `^v` for a whole `Rc` graph (§7.4) | one `Arc` allocation and count traffic, or the chunking copy |
 | a `mut` borrow through a shared handle held across an `await`, shared by several tasks | §3.13 A2: an exclusive lend across a suspension through an `Rc`/`Arc` would race the other task's write (§7.3) | own the state in the task, `Arc(Mutex(S))`, or a channel | a lock, or a message |
 | lazy adapter chains that *store* their closure and are themselves stored — a `Peekable<Map<Filter<…>>>` field, a generator held in a struct | the chain is a non-escapable value (it holds the cursor's borrow) and so cannot be a field; the stateful call (R4) gives `next`, not storage | compute eagerly into an owned list, or keep the cursor (`Range(usize)`) and re-run the chain per use | a copy, or recomputation |
