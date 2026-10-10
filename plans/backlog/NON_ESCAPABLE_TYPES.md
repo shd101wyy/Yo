@@ -55,7 +55,7 @@ payload of a **cell**. The containing type is then second-class.
 | `Array(T, N)` | inline | yes: `Array(&T, N)`; `Index` yields the element reference; all elements share one borrow set, the union of the literal's sources | second-class per instantiation |
 | `Option(T)`, `Result(T, E)`, any user constructor | inline | yes, as an instantiation over a `&`: `Option(&T)`, `Result((View(u8), T), ParseError)` | second-class per instantiation |
 | `ArrayList(T)`, `HashMap(K, V)`, every buffer-owning container | a buffer | yes, as a **root-joining** container (R7) | second-class, borrow set grows |
-| `Box(T)`, `Rc(T)`, `Arc(T)`, `RefCell(T)`, `Dyn(Trait)`, a closure stored in `Impl`/`Dyn` | a cell | **no** — E0909 | — |
+| `Box(T)`, `Rc(T)`, `Arc(T)`, `RefCell(T)`, `Dyn(Trait)` (so a borrowing closure in a `Dyn(Fn(...))`) | a cell | **no** — E0909 | — |
 
 ```yo
 View :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -70,6 +70,16 @@ Entry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 StrArg :: enum(Borrowed(&String), Owned(String));
 ```
 
+- **Closures may capture `&` and `&mut`.** A capture list that borrows
+  (`{ y : &y, z : &mut z }() => …`, decision 35) makes the closure
+  second-class, not illegal: it may be bound to a local, lent and called —
+  a literal argument to `for_each`, `with_lock` or a lent
+  `Impl(Fn(...))` parameter is the common case
+  (`tests/closure_capture_list.test.yo`). What is E0909 is letting it
+  escape: a `Dyn(Fn(...))` or any other cell, a return, a by-value
+  (escaping) `Impl(Fn(...))` slot, a spawn, an escaping closure's capture
+  (decision 38 A). `Impl(Fn)` itself is not storage; only its by-value,
+  escaping use is.
 - **The type decides, not the live variant.** A `StrArg` built as `.Owned`
   still cannot be stored in a cell: decision 38 A's rule is structural
   over types. A program that wants a storable owned form declares a second
