@@ -200,7 +200,7 @@ test("mut(y) := place is inout(y) := place", {
   assert(x == i32(5), "a write through y lands in x (read after y's last use)");
   x = i32(6);
   mut(z) := x;
-  assert(z == i32(6), "inout(z) := names the same place");
+  assert(z == i32(6), "mut(z) := names the same place");
   h := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
   mut(n) := h.n;
   n = i32(9);
@@ -310,4 +310,28 @@ test("a function value whose modes are the slot's is accepted", {
   assert(_pm_apply_imm(c, s) == usize(3), "a named closure typed with the slot's modes");
   assert(_PmHookBox(f : _pm_len).f(s) == usize(3), "a struct field of the slot's type");
   assert(s.len() == usize(3), "s was only ever lent");
+});
+
+test("the deleted spellings inout and own are errors naming mut and sink", {
+  comptime_expect_error(
+    (fn(inout(n) : i32) -> unit)({
+      n = i32(1);
+    }),
+    "`inout(x)` is spelled `mut(x)`"
+  );
+  comptime_expect_error((fn(own(s) : String) -> usize)(s.len()), "`own(x)` is spelled `sink(x)`");
+  comptime_expect_error((fn(comptime(inout(n)) : i32) -> unit)(()), "`inout(x)` is spelled `mut(x)`");
+  (_c : i32) = i32(0);
+  comptime_expect_error({
+    inout(y) := _c;
+  }, "`inout(x)` is spelled `mut(x)`");
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  comptime_expect_error(
+    for(xs, inout(x) => {
+      x = i32(2);
+    }),
+    "is spelled `for(coll, mut(x) => ...)`"
+  );
+  assert(xs(usize(0)) == i32(1), "nothing was written");
 });

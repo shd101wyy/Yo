@@ -704,9 +704,10 @@ _evaluate_expression :: (
           evaluate_initialization_assignment(expr, env, ctx, exn),
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2)))) => cond(
           // `inout(cur) = place`: the deleted spelling of `mut(cur) = place`.
-          ast_expr_is_fn_call_of(ast_expr_get_arg0(expr), BK_INOUT, .Some(usize(1))) => exn.throw(
-            dyn(format_error_message(ast_expr_token(ast_expr_get_arg0(expr)), old_mode_spelling_message(String.from("inout"), String.from("mut"))))
-          ),
+          ast_expr_is_fn_call_of(ast_expr_get_arg0(expr), BK_INOUT, .Some(usize(1))) => {
+            exn.throw(dyn(format_error_message(ast_expr_token(ast_expr_get_arg0(expr)), old_mode_spelling_message(String.from("inout"), String.from("mut")))));
+            expr
+          },
           // `imm(cur) = place` / `mut(cur) = place`: a re-point (decision 25).
           ast_expr_is_local_borrow_mode_call(ast_expr_get_arg0(expr), .Some(usize(1))) => evaluate_local_borrow_repoint(expr, env, ctx, exn),
           true => evaluate_assignment(expr, env, ctx, exn)
@@ -1104,6 +1105,7 @@ _evaluate_expression :: (
                 )
               )
             );
+            expr
           }
         ),
         // `addr_of(x)` is today's address-of `&x` (decision 33).
@@ -1112,9 +1114,10 @@ _evaluate_expression :: (
         // `inout(x)` anywhere it is evaluated (a result type `-> inout(T)`, a
         // type argument): the deleted spelling of `mut(x)` (V3b Generation B
         // step 3). An `asm(...)` operand `inout(reg, v)` has two arguments.
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_INOUT, .Some(usize(1)))) => exn.throw(
-          dyn(format_error_message(ast_expr_token(expr), old_mode_spelling_message(String.from("inout"), String.from("mut"))))
-        ),
+        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_INOUT, .Some(usize(1)))) => {
+          exn.throw(dyn(format_error_message(ast_expr_token(expr), old_mode_spelling_message(String.from("inout"), String.from("mut")))));
+          expr
+        },
         // `&mut x` is a call-site marker, consumed where it is legal (a call
         // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
         // Anywhere else it is not an expression.
