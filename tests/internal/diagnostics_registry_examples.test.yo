@@ -13,6 +13,10 @@
 //!     reserved for the fix.
 //!   - E0905: reported by `compile` when a swallowed definition-time failure
 //!     reaches codegen; `check` reports the underlying error instead.
+//!   - E0914: the bare-argument half of decision 33's marker error is on only
+//!     under `YO_STRICT_MARKERS=1` until std and the compiler are swept
+//!     (plans/VALUES_BY_DEFAULT.md V3b); the
+//!     bare-argument-to-a-borrowing-parameter-is-e0914 cli-case runs it.
 //! Their `good` programs are still required to load clean.
 //!
 //! Exempt from BOTH halves (`_toolchain_band`): the E13xx/E15xx band — the
@@ -43,7 +47,7 @@ _toolchain_band :: (fn(imm(code) : String) -> bool)(
   (code == "E1301") || ((code == "E1501") || ((code == "E1502") || ((code == "E1503") || ((code == "E1504") || (code == "E1505")))))
 );
 _bad_exempt :: (fn(imm(code) : String) -> bool)(
-  (code == "E0002") || (code == "E0905") || _toolchain_band(code)
+  (code == "E0002") || ((code == "E0905") || ((code == "E0914") || _toolchain_band(code)))
 );
 /// The `good` half is also a transcript for the toolchain band — there is no
 /// Yo program whose loading demonstrates the fix for a missing yo.toml.

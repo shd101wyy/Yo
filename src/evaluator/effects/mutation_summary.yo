@@ -1197,7 +1197,7 @@ _msp_store_prefix :: (fn(imm(lhs) : AstExpr) -> Option(AstExpr))(
 );
 /// The local variable at the bottom of a place chain, if any.
 _msp_place_base_atom :: (fn(imm(e) : AstExpr) -> Option(AstExpr))({
-  (cur : AstExpr) = e;
+  (cur : AstExpr) = ast_expr_strip_borrow_marker(e);
   (walking : bool) = true;
   while(walking, {
     match(
@@ -1259,10 +1259,15 @@ _msp_arm_is_dead :: (fn(imm(arm) : AstExpr, imm(table) : ExprInfoTable) -> bool)
     .Atom(_, _) => false
   )
 });
-/// An argument with its `&mut` call-site marker peeled (decision 33): the
-/// marker lends the place itself, which is what the argument rules root.
-_msp_unmarked_arg :: (fn(imm(a) : AstExpr) -> AstExpr)(
-  if(ast_expr_is_fn_call_of(a, BK_BORROW_MUT, Option(usize).Some(usize(1))), ast_expr_strip_borrow_marker(a), a)
+/// An argument with its call-site marker peeled (decision 33): `&x` and
+/// `&mut x` lend the place itself, which is what the argument rules root.
+/// Since V3b step 3 a `&x` is never the address-of (that is `addr_of(x)`).
+_msp_unmarked_arg :: (fn(imm(a) : AstExpr) -> AstExpr)(ast_expr_strip_borrow_marker(a));
+/// A call-site borrow marker node, `&x` or `&mut x`: it lends its operand's
+/// place, so every walk reads through it as through a field step, and the
+/// node itself is not a call.
+_msp_is_borrow_marker :: (fn(imm(head) : String, n_args : usize) -> bool)(
+  ((head == "&") || (head == BK_BORROW_MUT)) && (n_args == usize(1))
 );
 _msp_pass_through_head :: (fn(imm(h) : String) -> bool)(
   (h == "unsafe") || (h == "the") || (h == "runtime") || (h == "consume") || (h == "___dup") || (h == "clone") || (h == "dyn") || (h == "as") || (h == "recur")
@@ -1680,7 +1685,7 @@ impl(
     if((head == ":") && (args.len() == usize(2)), {
       return(match(args.get(usize(1)), .Some(v) => _MsP.classify(v, ctx), .None => _msp_root(MSP_ROOTED)));
     });
-    if(_msp_pass_through_head(head.clone()) && (args.len() > usize(0)), {
+    if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())) && (args.len() > usize(0)), {
       return(match(args.get(usize(0)), .Some(a0) => _MsP.classify(a0, ctx), .None => _msp_root(MSP_ROOTED)));
     });
     if(head == "begin", {
@@ -1905,7 +1910,7 @@ impl(
           match(args.get(usize(1)), .Some(v) => _MsP.flowing(v, ctx, out), .None => ());
           return(());
         });
-        if(_msp_pass_through_head(head.clone()) && (args.len() > usize(0)), {
+        if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())) && (args.len() > usize(0)), {
           match(args.get(usize(0)), .Some(a0) => _MsP.flowing(a0, ctx, out), .None => ());
           return(());
         });
@@ -2412,7 +2417,7 @@ impl(
     if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _ms_head_is_rc_decrement(head.clone())), {
       return(());
     });
-    if(_msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()), {
+    if(_msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()), {
       return(());
     });
     match(
@@ -2672,7 +2677,7 @@ impl(
       match(args.get(ai), .Some(a) => _MsP.strict_walk(a, borrowed_ids, table, out), .None => ());
       ai = (ai + usize(1));
     });
-    if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone())), {
+    if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())), {
       return(());
     });
     if(_MsP.is_index_call(e, table), {
@@ -2905,6 +2910,11 @@ impl(
       },
       _ => ()
     );
+    // A call-site borrow marker is not a call: what it lends is walked as
+    // the place itself (decision 33).
+    if(_msp_is_borrow_marker(head.clone(), args.len()), {
+      return(match(args.get(usize(0)), .Some(mo) => _MsP.walk(mo, ctx), .None => m));
+    });
     if((head == "=") && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
@@ -3770,7 +3780,7 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
       });
       // Structural / control builtins, RC primitives, pure builtins, statements:
       // walk the children, the head itself reaches nothing.
-      (children_only : bool) = (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_rc_decrement(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_statement_head(head.clone()) || _msp_pass_through_head(head.clone()));
+      (children_only : bool) = (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_rc_decrement(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_statement_head(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()));
       if(!children_only, {
         // A call: resolve the callee. Extern → runs no Yo code. A body in a
         // pragma'd file → trusted. Otherwise descend (memoized, cycle-safe).

@@ -802,6 +802,13 @@ _place_leftmost_token :: (fn(imm(e) : AstExpr) -> Token)(
     )
   )
 );
+/// Whether decision 33's bare-argument error is on. It waits for the marker
+/// sweep (`yo fix <path> --migrate markers`) of std and the compiler, which
+/// needs a seed whose mutation summary reads through markers: until then
+/// `YO_STRICT_MARKERS=1` turns it on for code outside std, so a migrated
+/// project can be verified to have no bare site left
+/// (plans/VALUES_BY_DEFAULT.md V3b, as built 2026-10-10).
+(g_strict_borrow_markers : bool) = debug_knob(`YO_STRICT_MARKERS`).is_some();
 /// Decision 33's mismatch error for a BARE argument (E0914): a named place
 /// passed bare to an `imm` parameter must be written `&x`, and to a `mut`
 /// parameter `&mut x`; a bare argument passes by value. `written_arg` is the
@@ -850,15 +857,20 @@ check_call_site_borrow_marker :: (
     record_marker_site(_place_leftmost_token(place_arg), ast_expr_to_string(place_arg), marker);
     return(());
   });
+  // Until the sweep lands the knob covers code outside std: std is swept in
+  // the same release that turns the error on for everyone.
+  if(!g_strict_borrow_markers || is_std_module_path(ast_expr_token(place_arg).module_path, ctx.std_path.clone()), {
+    return(());
+  });
   place_text := ast_place_text(place_arg);
   mode := if(param_is_ref, String.from("mut"), String.from("imm"));
-  keeps := if(param_is_ref, String.from("lends it exclusively, and the callee may write it"), String.from("lends it read-only, and the caller keeps it"));
+  keeps := if(param_is_ref, String.from("lends it exclusively and the callee may write it"), String.from("lends it read-only and the caller keeps it"));
   exn.throw(
     dyn(
       with_code(
         format_error_message(
           ast_expr_token(place_arg),
-          `Parameter "${param_label}" is \`${mode}\`: lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value, and \`${marker}${place_text}\` ${keeps}. \`yo fix <path> --migrate markers\` inserts the markers.`
+          `Parameter "${param_label}" is \`${mode}\`: lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value; \`${marker}${place_text}\` ${keeps}. \`yo fix <path> --migrate markers\` inserts the markers.`
         ),
         E_BORROW_MARKER_MISMATCH
       )
@@ -946,9 +958,12 @@ apply_call_site_borrow_markers :: (
           );
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(bare),
-                `\`&mut ${place_text}\` lends an exclusive borrow, but parameter "${p_label}" is not \`mut\`: ${mut_fix}.`
+              with_code(
+                format_error_message(
+                  ast_expr_token(bare),
+                  `\`&mut ${place_text}\` lends an exclusive borrow, but parameter "${p_label}" is not \`mut\`: ${mut_fix}.`
+                ),
+                E_BORROW_MARKER_MISMATCH
               )
             )
           );
@@ -956,9 +971,12 @@ apply_call_site_borrow_markers :: (
         p_is_ref => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(bare),
-                `Parameter "${p_label}" is \`mut\`: lend the place with \`&mut ${place_text}\`, not \`&${place_text}\`.`
+              with_code(
+                format_error_message(
+                  ast_expr_token(bare),
+                  `Parameter "${p_label}" is \`mut\`: lend the place with \`&mut ${place_text}\`, not \`&${place_text}\`.`
+                ),
+                E_BORROW_MARKER_MISMATCH
               )
             )
           );
@@ -971,9 +989,12 @@ apply_call_site_borrow_markers :: (
         is_pointer_type(p_ty) => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(bare),
-                `Parameter "${p_label}" is a raw pointer (\`${type_to_string(p_ty)}\`): take the address with \`addr_of(${place_text})\`. \`&${place_text}\` lends a borrow to an \`imm\` parameter and never makes a pointer.`
+              with_code(
+                format_error_message(
+                  ast_expr_token(bare),
+                  `Parameter "${p_label}" is a raw pointer (\`${type_to_string(p_ty)}\`): take the address with \`addr_of(${place_text})\`. \`&${place_text}\` lends a borrow to an \`imm\` parameter and never makes a pointer.`
+                ),
+                E_BORROW_MARKER_MISMATCH
               )
             )
           );
@@ -983,9 +1004,12 @@ apply_call_site_borrow_markers :: (
         p_is_owning => {
           exn.throw(
             dyn(
-              format_error_message(
-                ast_expr_token(bare),
-                `\`&${place_text}\` lends a borrow, but parameter "${p_label}" takes its argument by value: pass \`${place_text}\` (it moves, or is copied when it is \`Copy\`), or \`${place_text}.clone()\` to keep \`${place_text}\`. A raw pointer is \`addr_of(${place_text})\`.`
+              with_code(
+                format_error_message(
+                  ast_expr_token(bare),
+                  `\`&${place_text}\` lends a borrow, but parameter "${p_label}" takes its argument by value: pass \`${place_text}\` (it moves, or is copied when it is \`Copy\`), or \`${place_text}.clone()\` to keep \`${place_text}\`. A raw pointer is \`addr_of(${place_text})\`.`
+                ),
+                E_BORROW_MARKER_MISMATCH
               )
             )
           );
