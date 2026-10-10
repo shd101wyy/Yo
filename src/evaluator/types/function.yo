@@ -26,10 +26,8 @@ import("std/fmt");
   BK_COMPTIME,
   BK_QUOTE,
   BK_IMM,
-  BK_INOUT,
   ast_expr_is_inout_mode_call,
-  ast_expr_is_old_mode_spelling,
-  old_mode_spelling_message,
+  reject_old_mode_spelling,
   BK_COLON,
   BK_FN,
   BK_UNSAFE_FN,
@@ -41,7 +39,7 @@ import("std/fmt");
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ record_migrate_edit, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
+{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
@@ -912,7 +910,7 @@ FuncParam :: struct(
   // matching can treat trailing defaulted params as optional AND bind an
   // omitted argument to the recorded default value.
   default_value : Option(EvalValue),
-  /// True when the parameter was declared `inout(name) : T` (a by-reference
+  /// True when the parameter was declared `name : &mut T` (a by-reference
   /// borrow). Recorded so the Func type's `param_is_ref` can be populated for
   /// the `inout(T)`-flow soundness check (`is_flowable_expr`).
   is_ref : bool,
@@ -1332,22 +1330,22 @@ _param_default_not_comptime_error :: (fn(label : &Option(String), param_type : &
 // ---------------------------------------------------------------------------
 // evaluate_function_parameter
 // ---------------------------------------------------------------------------
-/// `inout(x)` / `own(x)` on a parameter label: the deleted spellings of
-/// `mut(x)` / `sink(x)` (V3b Generation B step 3), an error naming the new
-/// word.
-_reject_old_param_mode :: (fn(e : &AstExpr, exn : &Exception) -> unit)(
-  match(
-    ast_expr_is_old_mode_spelling(e),
-    .Some(new_word) => {
-      old := if(new_word == "mut", String.from(BK_INOUT), String.from("own"));
-      exn.throw(dyn(format_error_message(ast_expr_token(e), old_mode_spelling_message(old, new_word))));
-    },
-    .None => ()
-  )
-);
-/// A borrow in a result slot: `mut(T)` / `imm(T)`, which `-> &mut T` /
-/// `-> &T` are rewritten to at parse time (decision 42). A function cannot
-/// return a borrow until projections (decision 24) land.
+/// `imm(x)` / `mut(x)` / `inout(x)` / `own(x)` on a parameter label: the
+/// deleted spellings of `x : &T` / `x : &mut T` / `sink(x)`, E0009.
+_reject_old_param_mode :: (fn(e : &AstExpr, exn : &Exception) -> unit)(reject_old_mode_spelling(e, exn));
+/// `-> imm(T)` / `-> mut(T)` in a result slot: E0009 for the deleted mode
+/// words. `imm` is an ordinary identifier, so `imm(T)` is the deleted word
+/// only while no binding named `imm` is visible (a user type function may
+/// carry the name); `mut` is reserved.
+_reject_old_result_mode :: (fn(e : &AstExpr, env : &Environment, exn : &Exception) -> unit)({
+  if(ast_expr_is_fn_call_of(e, "imm", Option(usize).Some(usize(1))) && (get_variables_from_env(env, String.from("imm")).len() > usize(0)), {
+    return(());
+  });
+  reject_old_mode_spelling(e, exn);
+});
+/// A borrow in a result slot: the internal `__yo_mut(T)` / `__yo_imm(T)`,
+/// which `-> &mut T` / `-> &T` are rewritten to at parse time (decision 42).
+/// A function cannot return a borrow until projections (decision 24) land.
 _is_borrow_result_mode :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_inout_mode_call(e, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).None)
 );
@@ -1366,19 +1364,17 @@ _param_type_is_copy :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   )
 );
 /// The parameter half of the V3b sweep: a plain runtime parameter whose type
-/// is not `Copy` becomes `imm(x)`, which is what it meant before the flip
-/// made a plain parameter by value (the `inout` → `mut` half is
-/// `--migrate modes` since `inout` was deleted). A
-/// generic parameter is `imm` unless its bounds make it `Copy`. Recorded once
-/// per source position: a parameter evaluated in several instantiations is
-/// `imm` when any of them is not `Copy`.
+/// is not `Copy` becomes `x : &T`, which is what it meant before the flip
+/// made a plain parameter by value. A generic parameter is borrowed unless
+/// its bounds make it `Copy`. Recorded once per source position: a parameter
+/// evaluated in several instantiations is borrowed when any of them is not
+/// `Copy`.
 _record_param_mode_migration :: (fn(label_tok : &Token, is_plain : bool, ty : &TypeValue, env : &Environment) -> unit)({
   if(!is_plain, {
     return(());
   });
   if(!_param_type_is_copy(ty, env), {
-    lbl := label_tok.value.clone();
-    record_migrate_edit(label_tok, lbl.len(), `imm(${lbl})`, lbl);
+    record_borrow_param_migration(label_tok);
   });
 });
 evaluate_function_parameter :: (
@@ -1536,7 +1532,7 @@ evaluate_function_parameter :: (
       _reject_old_param_mode(lhs_mut, exn);
       // `imm(x)` (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation A):
       // a read-only borrow, which is exactly what a plain parameter means
-      // today, so the wrapper is stripped and sets no flag. `fn(imm(x) : T)`
+      // today, so the wrapper is stripped and sets no flag. `fn(x : &T)`
       // and `fn(x : T)` are therefore one function type, and types print
       // `x : T` until Generation B makes a plain parameter by value.
       if(ast_expr_is_fn_call_of(lhs_mut, BK_IMM, Option(usize).None), {
@@ -1974,7 +1970,7 @@ use_id :: (fn(generic(T : Type),
   // `sink(x)` spells it; `imm(x)` keeps the borrow. The flag is set for every
   // type, so a parameter's mode never depends on whether its type is `Copy`
   // (which impl registration order can change, and an instantiation decides
-  // for a generic): `fn(imm(x) : T)` and `fn(x : T)` are two function types
+  // for a generic): `fn(x : &T)` and `fn(x : T)` are two function types
   // for every `T` (decision 34 as amended 2026-10-09). For a `Copy` type the
   // flag is inert: nothing is dropped and every use copies. An explicit
   // `comptime(x)` parameter follows the same rule (`comptime(imm(x))` borrows,
@@ -4039,9 +4035,11 @@ evaluate_function_type :: (
     ret_args := _fn_call_args(return_type_expr);
     (rl_expr : AstExpr) = match(ret_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     return_type_expr = match(ret_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-    // `(inout(name) : T)` / `(name : inout(T))` — ref-return forms are
-    // BANNED: refs are second-class and may appear only in parameter
-    // position and local lvalue borrows.
+    // `(name : &mut T)` — ref-return forms are BANNED: refs are
+    // second-class and may appear only in parameter position and local
+    // lvalue borrows.
+    _reject_old_result_mode(rl_expr, env_mut, exn);
+    _reject_old_result_mode(return_type_expr, env_mut, exn);
     if(_is_borrow_result_mode(rl_expr) ||
       (ast_expr_is_fn_call(return_type_expr) && _is_borrow_result_mode(return_type_expr)), {
       exn.throw(
@@ -4108,11 +4106,10 @@ evaluate_function_type :: (
         )
       );
     });
-    // In a labeled return slot, a `ref`/`comptime` modifier goes on the LABEL,
-    // never on the TYPE. Reject `-> (name : inout(T))` / `-> (name : comptime(T))`;
-    // use `-> (inout(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
-    // `-> inout(T)` / `-> comptime(T)`). The `(inout(name) : inout(T))` double-ref
-    // case is caught above with a more specific message.
+    // In a labeled return slot, a `comptime` modifier goes on the LABEL,
+    // never on the TYPE: reject `-> (name : comptime(T))`; use
+    // `-> (comptime(name) : T)` (or unlabeled `-> comptime(T)`). A borrow
+    // result is banned above.
     if(ast_expr_is_fn_call(return_type_expr) && _is_borrow_result_mode(return_type_expr), {
       exn.throw(
         dyn(
@@ -4146,8 +4143,9 @@ evaluate_function_type :: (
     return_label = .Some(ast_expr_token(rl_expr).value);
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
-    // `-> inout(T)` is BANNED: refs are second-class and may appear only
+    // `-> &mut T` is BANNED: refs are second-class and may appear only
     // in parameter position and local lvalue borrows.
+    _reject_old_result_mode(return_type_expr, env_mut, exn);
     if(ast_expr_is_fn_call(return_type_expr) && _is_borrow_result_mode(return_type_expr), {
       exn.throw(
         dyn(
@@ -4211,7 +4209,7 @@ evaluate_function_type :: (
       );
     });
   });
-  // `-> inout(T)` in the return slot is BANNED: refs are second-class and
+  // `-> &mut T` in the return slot is BANNED: refs are second-class and
   // may appear only in parameter position and local lvalue borrows.
   if(ast_expr_is_fn_call(return_type_expr) && _is_borrow_result_mode(return_type_expr), {
     exn.throw(

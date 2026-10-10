@@ -263,99 +263,6 @@ _skip_balanced_parens :: (fn(toks : &ArrayList(Token), start : usize) -> usize)(
   });
   j
 });
-/// An identifier byte: an ASCII letter, digit or `_`, or any byte of a
-/// non-ASCII rune.
-_mbs_ident_byte :: (fn(c : u8) -> bool)(
-  ((c >= u8(0x61)) && (c <= u8(0x7A))) || ((c >= u8(0x41)) && (c <= u8(0x5A))) || ((c >= u8(0x30)) && (c <= u8(0x39))) || (c == u8(0x5F)) || (c >= u8(0x80))
-);
-_mbs_skip_spaces :: (fn(s : &String, from : usize) -> usize)({
-  (k : usize) = from;
-  while((k < s.len()) && (s.byte_at(k) == u8(0x20)), k = (k + usize(1)), ());
-  k
-});
-/// Source text in decision 42's spelling (plans/VALUES_BY_DEFAULT.md):
-/// `imm(x) : T` → `x : &T`, `mut(x) : T` (and the deleted `inout(x) : T`) →
-/// `x : &mut T`, `comptime(imm(x)) : T` → `comptime(x) : &T`, and the local
-/// borrow `imm(y) := place` → `y := &place` (`=` likewise). `yo doc` and
-/// the context index render signatures from the declaration's source text,
-/// and std keeps the mode words until decision 42's Generation B sweeps it,
-/// while everything the compiler prints uses the new spelling.
-modern_borrow_spelling :: (fn(s : &String) -> String)({
-  out := String.new();
-  n := s.len();
-  (i : usize) = usize(0);
-  while(i < n, {
-    (done : bool) = false;
-    if((i == usize(0)) || !_mbs_ident_byte(s.byte_at(i - usize(1))), {
-      (j : usize) = i;
-      (in_comptime : bool) = false;
-      if(s.starts_with("comptime(", j), {
-        in_comptime = true;
-        j = (j + usize(9));
-      });
-      (sig : String) = String.new();
-      cond(
-        s.starts_with("imm(", j) => {
-          sig = String.from("&");
-          j = (j + usize(4));
-        },
-        s.starts_with("mut(", j) => {
-          sig = String.from("&mut ");
-          j = (j + usize(4));
-        },
-        s.starts_with("inout(", j) => {
-          sig = String.from("&mut ");
-          j = (j + usize(6));
-        },
-        true => ()
-      );
-      if(sig.len() > usize(0), {
-        name_start := j;
-        while((j < n) && _mbs_ident_byte(s.byte_at(j)), j = (j + usize(1)), ());
-        name_end := j;
-        closes_ok := cond(in_comptime => s.starts_with("))", j), true => s.starts_with(")", j));
-        if((name_end > name_start) && closes_ok, {
-          j = (j + cond(in_comptime => usize(2), true => usize(1)));
-          k := _mbs_skip_spaces(s, j);
-          name := s.substring(name_start, name_end);
-          (op : String) = String.new();
-          cond(
-            s.starts_with(":=", k) => {
-              op = String.from(":=");
-            },
-            (s.starts_with(":", k) && !s.starts_with("::", k)) => {
-              op = String.from(":");
-            },
-            (s.starts_with("=", k) && !s.starts_with("==", k) && !s.starts_with("=>", k)) => {
-              op = String.from("=");
-            },
-            true => ()
-          );
-          if((op.len() > usize(0)) && (!in_comptime || (op == ":")), {
-            if(in_comptime, {
-              out.push_str("comptime(");
-              out.push_string(name);
-              out.push_str(")");
-            }, {
-              out.push_string(name);
-            });
-            out.push_str(" ");
-            out.push_string(op);
-            out.push_str(" ");
-            out.push_string(sig);
-            i = _mbs_skip_spaces(s, k + op.len());
-            done = true;
-          });
-        });
-      });
-    });
-    if(!done, {
-      out.push_byte(s.byte_at(i));
-      i = (i + usize(1));
-    });
-  });
-  out
-});
 /// The source text spanned by tokens [start_index, end_index], trimmed.
 _slice_token_text :: (
   fn(toks : &ArrayList(Token), start_index : usize, end_index : usize) -> String
@@ -386,7 +293,7 @@ _slice_token_text :: (
   // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S8).
   start := usize(start_tok.byte_offset);
   end := (usize(end_tok.byte_offset) + end_tok.value.len());
-  modern_borrow_spelling(end_tok.input.substring(start, end).trim())
+  end_tok.input.substring(start, end).trim()
 });
 /// Skip one comma-delimited argument at any nesting depth. Returns the index
 /// of the delimiter that ended it.
@@ -537,12 +444,12 @@ _render_token_span :: (
     out = `${out}${t.value}`;
     k = (k + usize(1));
   });
-  modern_borrow_spelling(out)
+  out
 });
 /// Parse one value parameter from tokens [start, end_index] (one
 /// comma-delimited argument of a fn type's parameter list). Handles
 /// `name : Type`, `(name : Type) ?= default`, and wrapper forms like
-/// `comptime(name) : Type` / `mut(name) : Type`. `.None` for anything
+/// `comptime(name) : Type`. `.None` for anything
 /// else.
 _parse_source_param :: (
   fn(toks : &ArrayList(Token), start : usize, end_index : usize) -> Option(DocParam)
@@ -605,7 +512,7 @@ _parse_source_param :: (
     return(Option(DocParam).None);
   });
   // The name: either a bare identifier, or a wrapper like `comptime(x)` /
-  // `inout(x)` whose first inner identifier is the name.
+  // `sink(x)` whose first inner identifier is the name.
   head := match(
     toks.get(core_start),
     .Some(t) => t,
@@ -624,22 +531,10 @@ _parse_source_param :: (
     .Some(t) => (((core_start + usize(1)) <= core_end) && (t.kind == TokenKind.LParen)),
     .None => false
   );
-  // A borrow mode word (`imm(x)`, `mut(x)`, `inout(x)`, also under
-  // `comptime(...)`) is shown as decision 42 spells it: on the type.
-  (mode_sig : String) = String.new();
   if(wrapper_paren, {
     wrap_end := _skip_balanced_parens(toks, core_start + usize(1));
+    name = _extract_receiver_type_name(toks, core_start + usize(2), wrap_end - usize(2));
     is_comptime = (head.value == `comptime`);
-    (mode_tok_i : usize) = core_start;
-    if(is_comptime, {
-      mode_tok_i = (core_start + usize(2));
-    });
-    mode_word := match(toks.get(mode_tok_i), .Some(mt) => mt.value.clone(), .None => String.new());
-    mode_sig = cond((mode_word == `imm`) => String.from("&"), ((mode_word == `mut`) || (mode_word == `inout`)) => String.from("&mut "), true => String.new());
-    name = cond(
-      (is_comptime && (mode_sig.len() > usize(0))) => match(toks.get(core_start + usize(4)), .Some(nt) => nt.value.clone(), .None => String.new()),
-      true => _extract_receiver_type_name(toks, core_start + usize(2), wrap_end - usize(2))
-    );
     after_name = wrap_end;
   }, {
     name = head.value.clone();
@@ -662,7 +557,7 @@ _parse_source_param :: (
   Option(DocParam).Some(
     DocParam(
       name : name,
-      type_ : `${mode_sig}${_render_token_span(toks, after_name + usize(1), core_end)}`,
+      type_ : _render_token_span(toks, after_name + usize(1), core_end),
       is_comptime : is_comptime,
       is_implicit : false,
       default_value : default_value,

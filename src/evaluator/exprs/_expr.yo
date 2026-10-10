@@ -19,8 +19,8 @@ import("std/fmt");
   ast_expr_to_string,
   ast_expr_strip_borrow_marker,
   ast_place_text,
-  old_mode_spelling_message,
-  BK_INOUT,
+  ast_expr_is_old_mode_spelling,
+  deleted_mode_spelling_error,
   BK_FN,
   BK_UNSAFE_FN,
   BK_CTL,
@@ -298,6 +298,16 @@ _punned_field_name :: (fn(expr : &AstExpr) -> String)(
   )
 );
 { is_unknown_val, is_type_value } :: import("../../value.yo");
+_deleted_word :: (fn(e : &AstExpr) -> String)(match(ast_expr_is_old_mode_spelling(e), .Some(w) => w, .None => String.new()));
+/// `e` is a one-argument `mut(…)` / `inout(…)` (and, with `with_imm`,
+/// `imm(…)`): a deleted borrow mode word (decision 42 Generation B).
+_is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
+  match(
+    ast_expr_is_old_mode_spelling(e),
+    .Some(w) => ((w == "mut") || (w == "inout") || (with_imm && (w == "imm"))),
+    .None => false
+  )
+);
 { evaluate_extern } :: import("./extern.yo");
 { evaluate_c_include } :: import("./c_include.yo");
 { evaluate_test } :: import("./test.yo");
@@ -713,12 +723,13 @@ _evaluate_expression :: (
         ) =>
           evaluate_initialization_assignment(expr, env, ctx, exn),
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ASSIGN, .Some(usize(2)))) => cond(
-          // `inout(cur) = place`: the deleted spelling of `mut(cur) = place`.
-          ast_expr_is_fn_call_of(ast_expr_get_arg0(expr), BK_INOUT, .Some(usize(1))) => {
-            exn.throw(dyn(format_error_message(ast_expr_token(ast_expr_get_arg0(expr)), old_mode_spelling_message(String.from("inout"), String.from("mut")))));
+          // `imm(cur) = place` / `mut(cur) = place` / `inout(cur) = place`:
+          // the deleted spellings of `cur = &place` / `cur = &mut place`, E0009.
+          _is_deleted_borrow_word(ast_expr_get_arg0(expr), true) => {
+            exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(ast_expr_get_arg0(expr)), _deleted_word(ast_expr_get_arg0(expr)))));
             expr
           },
-          // `imm(cur) = place` / `mut(cur) = place`: a re-point (decision 25).
+          // `cur = &place` / `cur = &mut place`: a re-point (decision 25).
           ast_expr_is_local_borrow_mode_call(ast_expr_get_arg0(expr), .Some(usize(1))) => evaluate_local_borrow_repoint(expr, env, ctx, exn),
           true => evaluate_assignment(expr, env, ctx, exn)
         ),
@@ -1124,11 +1135,12 @@ _evaluate_expression :: (
         // `addr_of(x)` is today's address-of `&x` (decision 33).
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ADDR_OF, .Some(usize(1)))) =>
           evaluate_address_call(expr, env, ctx, exn),
-        // `inout(x)` anywhere it is evaluated (a result type `-> inout(T)`, a
-        // type argument): the deleted spelling of `mut(x)` (V3b Generation B
-        // step 3). An `asm(...)` operand `inout(reg, v)` has two arguments.
-        ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_INOUT, .Some(usize(1)))) => {
-          exn.throw(dyn(format_error_message(ast_expr_token(expr), old_mode_spelling_message(String.from("inout"), String.from("mut")))));
+        // `mut(x)` / `inout(x)` anywhere it is evaluated (a result type, a
+        // type argument): the deleted spellings of `&mut` (decision 42
+        // Generation B), E0009. `mut` is reserved, so it never names a
+        // function; an `asm(...)` operand `inout(reg, v)` has two arguments.
+        (((__dk_len == usize(3)) || (__dk_len == usize(5))) && _is_deleted_borrow_word(expr, false)) => {
+          exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(expr), _deleted_word(expr))));
           expr
         },
         // `&mut x` is a call-site marker, consumed where it is legal (a call
@@ -1583,7 +1595,7 @@ _evaluate_expression_raw_wrapper :: (
                   tok,
                   `Raw pointer values are not available in safe code: '${ast_expr_to_string(result)}' has type '${type_to_string(ri.ty)}'.
 
-To borrow the elements of a collection, iterate it with 'for(coll, mut(x) => ...)'. If this file genuinely needs raw pointers, declare 'pragma(Pragma.AllowUnsafe);'.`
+To borrow the elements of a collection, iterate it with 'for(&mut coll, x => ...)'. If this file genuinely needs raw pointers, declare 'pragma(Pragma.AllowUnsafe);'.`
                 )
               )
             );

@@ -1094,11 +1094,10 @@ _rune_slice :: (fn(imm(line) : String, col : usize, len : usize) -> String)({
 /// `yo fix <path> --migrate params` (plans/VALUES_BY_DEFAULT.md V3b
 /// Generation B, step 1): evaluate every file with the parameter recorder on
 /// (`_record_param_mode_migration`, evaluator/types/function.yo), then apply
-/// its edits to the files under `<path>`: a plain parameter whose type is not
-/// `Copy` becomes `imm(x)`, which is what it meant before the flip (the old
-/// `inout` → `mut` half is `--migrate modes` now that `inout` is deleted, and
-/// such a file must go through that first). An edit whose span no longer holds the text it
-/// was recorded for (a synthetic token, a template) is skipped and counted.
+/// its edits to the files under `<path>`: a plain parameter `x : T` whose type
+/// is not `Copy` becomes `x : &T`, which is what it meant before the flip. An
+/// edit whose span no longer holds the text it was recorded for (a synthetic
+/// token, a template, unformatted spacing) is skipped and counted.
 ///
 /// `yo fix <path> --migrate match-scrutinee` (decision 26) runs the same
 /// driver with the scrutinee recorder on instead (`match_scrutinee`): each
@@ -1188,32 +1187,26 @@ _run_migrate_params :: (
   if(match_scrutinee, {
     println(`fix: ${verb} ${n_imm.to_string()} match scrutinee(s) to match(&x, …); ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
   }, {
-    println(`fix: ${verb} ${n_imm.to_string()} parameter(s) to imm(...); ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
+    println(`fix: ${verb} ${n_imm.to_string()} parameter(s) to x : &T; ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
   });
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated ${what_migrates} were not migrated`));
   });
 });
 /// `yo fix <path> --migrate modes` — the spelling half of V3b step 3
-/// (plans/VALUES_BY_DEFAULT.md): every `inout(x)` becomes `mut(x)` and every
-/// `own(x)` parameter becomes `sink(x)`. The compiler rejects both old
-/// spellings, and each meant exactly the new word, so the sweep is syntactic:
-/// each file is parsed, never evaluated, which also
-/// reaches what evaluation never sees (a macro's arguments such as `for`'s
-/// `inout(x) =>` handle, `quote(...)` templates, test bodies, generic bodies
-/// no instantiation reaches). An `asm(...)` operand's `inout(reg, v)` is a
-/// different word and stays. Each edit checks the text it replaces.
-_modes_walk :: (fn(imm(e) : AstExpr, in_asm : bool, mut(out) : ArrayList(_PendingFix)) -> unit)(
+/// (plans/VALUES_BY_DEFAULT.md): every `own(x)` parameter becomes `sink(x)`.
+/// The compiler rejects the old spelling (E0009), and it meant exactly the
+/// new word, so the sweep is syntactic: each file is parsed, never
+/// evaluated, which also reaches what evaluation never sees (`quote(...)`
+/// templates, test bodies, generic bodies no instantiation reaches). Each
+/// edit checks the text it replaces. `inout(x)`, the other word V3b deleted,
+/// is a borrow: `--migrate borrow-spelling` rewrites it to `x : &mut T`.
+_modes_walk :: (fn(e : &AstExpr, out : &mut ArrayList(_PendingFix)) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
     .FnCall(_, callee, args, _, _) => {
       callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
-      child_asm := (in_asm || (callee_word == "asm"));
-      if(!in_asm && (callee_word == "inout") && (args.len() == usize(1)), {
-        ct := ast_expr_token(callee);
-        out.push(_PendingFix(row : usize(ct.row), col : usize(ct.column), len : usize(5), replacement : String.from("mut"), description : String.from("inout")));
-      });
       // `own(x) : T` — the old spelling of `sink(x)`, as a parameter label.
       if((callee_word == ":") && (args.len() == usize(2)), {
         match(
@@ -1228,10 +1221,10 @@ _modes_walk :: (fn(imm(e) : AstExpr, in_asm : bool, mut(out) : ArrayList(_Pendin
           _ => ()
         );
       });
-      recur(callee, child_asm, out);
+      recur(callee, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
-        match(args.get(i), .Some(a) => recur(a, child_asm, out), .None => ());
+        match(args.get(i), .Some(a) => recur(a, out), .None => ());
         i = (i + usize(1));
       });
     }
@@ -1242,8 +1235,7 @@ _parse_or_none :: (fn(imm(src) : String, imm(file) : String) -> Option(ArrayList
   local_exn := Exception(throw : (_err -> unwind(Option(ArrayList(AstExpr)).None)));
   Option(ArrayList(AstExpr)).Some(parse(src, file, local_exn))
 });
-_run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : Io, imm(exn) : Exception) -> unit)({
-  (n_mut : usize) = usize(0);
+_run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : &Exception) -> unit)({
   (n_sink : usize) = usize(0);
   (n_stale : usize) = usize(0);
   (failed : usize) = usize(0);
@@ -1261,7 +1253,7 @@ _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : I
         pending := ArrayList(_PendingFix).new();
         (ai : usize) = usize(0);
         while(ai < asts.len(), ai = (ai + usize(1)), {
-          match(asts.get(ai), .Some(a) => _modes_walk(a, false, &mut pending), .None => ());
+          match(asts.get(ai), .Some(a) => _modes_walk(a, &mut pending), .None => ());
         });
         lines := src.split(String.from("\n"));
         checked := ArrayList(_PendingFix).new();
@@ -1279,11 +1271,7 @@ _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : I
             n_stale = (n_stale + usize(1));
             continue;
           });
-          if(p.description == "inout", {
-            n_mut = (n_mut + usize(1));
-          }, {
-            n_sink = (n_sink + usize(1));
-          });
+          n_sink = (n_sink + usize(1));
           checked.push(p);
         });
         if(!dry_run && (checked.len() > usize(0)), {
@@ -1298,7 +1286,7 @@ _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : I
     );
   });
   verb := if(dry_run, String.from("would migrate"), String.from("migrated"));
-  println(`fix: ${verb} ${n_mut.to_string()} inout to mut and ${n_sink.to_string()} own to sink; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse`);
+  println(`fix: ${verb} ${n_sink.to_string()} own to sink; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
   });

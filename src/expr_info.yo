@@ -2969,13 +2969,14 @@ set_migrate_match_scrutinee :: (fn(on : bool) -> unit)({
 });
 migrate_match_scrutinee_on :: (fn() -> bool)(g_migrate_match_scrutinee);
 export(set_migrate_match_scrutinee, migrate_match_scrutinee_on);
-/// Record `imm(label)` for a parameter label token (the trait-conformance
-/// half of the sweep, `src/evaluator/values/impl.yo`).
-record_imm_param_migration :: (fn(label_tok : &Token) -> unit)({
+/// Record the borrow `label : &T` for a parameter `label : T`: the edit
+/// spans the label and the ` : ` after it (the formatted spelling; any other
+/// spacing makes the edit stale, and it is skipped and counted).
+record_borrow_param_migration :: (fn(label_tok : &Token) -> unit)({
   lbl := label_tok.value.clone();
-  record_migrate_edit(label_tok, lbl.len(), `imm(${lbl})`, lbl);
+  record_migrate_edit(label_tok, lbl.len() + usize(3), `${lbl} : &`, `${lbl} : `);
 });
-export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_modes_on, record_migrate_edit, record_imm_param_migration);
+export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_modes_on, record_migrate_edit, record_borrow_param_migration);
 /// One `&x` site seen by `yo fix --migrate addr-of` (plans/VALUES_BY_DEFAULT.md
 /// V3b Generation B, step 3): `lent` is a call-site borrow marker that
 /// `apply_call_site_borrow_markers` peeled (it stays `&x`), otherwise the

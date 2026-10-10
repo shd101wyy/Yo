@@ -67,7 +67,7 @@
 { is_thread_local } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { TokenAndError } :: import("../../error.yo");
-{ ast_expr_to_string } :: import("../../expr.yo");
+{ ast_expr_to_string, BK_MUT, BK_IMM } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 {
   is_io_async_call,
@@ -2224,7 +2224,8 @@ impl(
       },
       _ => ()
     );
-    // Declarations: `name := rhs`, `name := &mut place`, `(a, b) := rhs`.
+    // Declarations: `name := rhs`, a local borrow `name := &mut place`
+    // (the internal `__yo_mut(name) := place`), `(a, b) := rhs`.
     if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
@@ -2234,7 +2235,7 @@ impl(
         lhs,
         .Atom(_, lt) => _MsP.define_from(ctx, lt.value.clone(), r, rhs),
         .FnCall(_, lf, largs, _, _) => {
-          is_inout := match(lf, .Atom(_, lft) => ((lft.value == "mut") || (lft.value == "imm")), _ => false);
+          is_inout := match(lf, .Atom(_, lft) => ((lft.value == BK_MUT) || (lft.value == BK_IMM)), _ => false);
           if(is_inout, {
             match(
               largs.get(usize(0)),
@@ -2263,7 +2264,7 @@ impl(
       // aliases the new place too (the join keeps every target it had).
       match(
         lhs,
-        .FnCall(_, rlf, rlargs, _, _) => if(match(rlf, .Atom(_, rlft) => ((rlft.value == "mut") || (rlft.value == "imm")), _ => false), {
+        .FnCall(_, rlf, rlargs, _, _) => if(match(rlf, .Atom(_, rlft) => ((rlft.value == BK_MUT) || (rlft.value == BK_IMM)), _ => false), {
           match(
             rlargs.get(usize(0)),
             .Some(rla) => match(rla, .Atom(_, rlat) => _msp_def(ctx, rlat.value.clone(), _MsP.classify(rhs, ctx)), _ => ()),

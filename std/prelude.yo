@@ -10267,21 +10267,24 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            // Detect `mut(name) => body` — borrow form. Otherwise it's the
-            // value form `(name) => body`. `inout(name)`, the deleted spelling
-            // of `mut(name)` (V3b), is rejected naming the new word.
+            // Detect the borrow form: `for(&mut coll, name => body)` reaches
+            // the macro as `for(coll, __yo_mut(name) => body)` (the parse-time
+            // rewrite of decision 42). Otherwise it's the value form
+            // `(name) => body`. The deleted mode words `mut(name)` /
+            // `inout(name)` / `imm(name)` are rejected naming the sigil.
             is_ref_form :: cond(
               variable.is_fn_call() => {
                 v_callee :: variable.get_callee();
                 comptime_assert(
-                  !(v_callee.is_atom() && (v_callee == quote(inout))),
-                  "`for(coll, inout(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
+                  !(v_callee.is_atom() && ((v_callee == quote(mut)) || (v_callee == quote(inout)) || (v_callee == quote(imm)))),
+                  "`for(coll, mut(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (`for(&coll, x => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
                 );
-                v_callee.is_atom() && (v_callee == quote(mut))
+                v_callee.is_atom() && (v_callee == quote(__yo_mut))
               },
               true => false
             );
-            // Map form `(k, mut(v)) => body`: the key by value, the value
+            // Map form `for(&mut map, (k, v) => body)`, here
+            // `(k, __yo_mut(v)) => body`: the key by value, the value
             // borrowed — so a loop body can never rewrite a key in place.
             is_map_ref_form :: cond(
               variable.is_fn_call() => {
@@ -10296,10 +10299,10 @@ for :: (
                           mv_second.is_fn_call() => {
                             mv_second_callee :: mv_second.get_callee();
                             comptime_assert(
-                              !(mv_second_callee.is_atom() && (mv_second_callee == quote(inout))),
-                              "`for(map, (k, inout(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
+                              !(mv_second_callee.is_atom() && ((mv_second_callee == quote(mut)) || (mv_second_callee == quote(inout)) || (mv_second_callee == quote(imm)))),
+                              "`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
                             );
-                            mv_second_callee.is_atom() && (mv_second_callee == quote(mut))
+                            mv_second_callee.is_atom() && (mv_second_callee == quote(__yo_mut))
                           },
                           true => false
                         )

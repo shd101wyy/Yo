@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
   BK_FN,
   BK_COMPTIME
 } :: import("../../expr.yo");
-{ migrate_param_modes_on, record_imm_param_migration, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
+{ migrate_param_modes_on, record_borrow_param_migration, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -3504,8 +3504,8 @@ _fn_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 /// `yo fix --migrate params`, the trait-conformance half (decision 34 as
 /// amended 2026-10-09: a parameter's mode is part of the member's type for
 /// every type, `Copy` or not). An impl member whose written parameters are
-/// plain where the trait's are `imm` differs from the trait only in those
-/// modes: record `imm(label)` for each, and report whether that made the
+/// plain where the trait's are borrows differs from the trait only in those
+/// modes: record `label : &T` for each, and report whether that made the
 /// member conform (the caller then does not reject it).
 _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue, expected : &TypeValue) -> bool)(
   match(
@@ -3553,7 +3553,7 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
               (fj : usize) = usize(0);
               while(fj < to_fix.len(), fj = (fj + usize(1)), {
                 if(match(to_fix.get(fj), .Some(n) => (n == lt.value), .None => false), {
-                  record_imm_param_migration(lt);
+                  record_borrow_param_migration(lt);
                   found = (found + usize(1));
                 });
               });

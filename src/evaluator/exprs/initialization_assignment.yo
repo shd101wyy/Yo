@@ -21,8 +21,7 @@
   BK_INIT_ASSIGN,
   BK_GIVEN,
   BK_COMPTIME,
-  BK_INOUT,
-  old_mode_spelling_message,
+  reject_old_mode_spelling,
   ast_expr_is_inout_mode_call,
   ast_expr_is_local_borrow_mode_call,
   BK_THREAD_LOCAL,
@@ -151,7 +150,7 @@ _inout_place_chain :: (fn(place : &AstExpr, hops : &mut ArrayList(_InoutPlaceHop
     true => Option(AstExpr).None
   )
 });
-/// `inout(name) := place;` — bind `name` as a second-class reference to the
+/// `name := &mut place;` — bind `name` as a second-class reference to the
 /// storage `place` names (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7, decision 1;
 /// §8 Phase B).
 ///
@@ -193,7 +192,7 @@ _evaluate_inout_local_binding :: (
   ) -> AstExpr
 )({
   lhs_tok := ast_expr_token(lhs);
-  // `imm(y) :=` binds a read-only borrow; `mut(y) :=` an exclusive one
+  // `y := &place` binds a read-only borrow; `y := &mut place` an exclusive one
   // (plans/VALUES_BY_DEFAULT.md decision 18).
   is_mut := ast_expr_is_inout_mode_call(lhs, .None);
   // The borrow's sigil as decision 42 spells it (`y := &place`,
@@ -293,7 +292,7 @@ _evaluate_inout_local_binding :: (
   // binding could pin (§2 P5). Element borrows are the `for` macro's job.
   // …except in privileged code (`pragma(Pragma.AllowUnsafe)` files and
   // compiler-synthesized expansions): the prelude's borrowed `for` binds the
-  // element as `inout(x) := ptr.*` while the collection is pinned by a hidden
+  // element as `x := &mut ptr.*` while the collection is pinned by a hidden
   // local and guarded by the runtime borrow flag (§8 C2/C3). No pin is taken
   // for a deref place — the pointer has no owner the binding could hold.
   rhs_is_privileged := is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.clone()));
@@ -533,8 +532,7 @@ _evaluate_inout_local_binding :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
   expr
 });
-/// `imm(cur) = place` / `mut(cur) = place` (`inout(cur) = place` is the
-/// Generation A synonym of the `mut` form): re-point the local borrow `cur`
+/// `cur = &place` / `cur = &mut place`: re-point the local borrow `cur`
 /// to `place` (plans/VALUES_BY_DEFAULT.md decision 25, the cursor walk).
 ///
 /// `place` must be reached from `cur`: a field chain rooted at `cur` itself,
@@ -839,7 +837,7 @@ evaluate_initialization_assignment :: (
     .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
-  // `name := rhs` and `mut(name) := place` declare RUNTIME storage, so
+  // `name := rhs` and `name := &mut place` declare RUNTIME storage, so
   // neither can appear in a compile-time context: the body of a function
   // declared to return a compile-time value (E1104,
   // issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
@@ -847,11 +845,10 @@ evaluate_initialization_assignment :: (
   // and stay legal. Checked before `force_compile_time_bindings` is consulted:
   // that flag is set for every compile-time body evaluation and used to turn
   // the `:=` into a `::` silently.
-  // `inout(name) := place`, the deleted spelling of `mut(name) := place`
-  // (V3b Generation B step 3).
-  if(ast_expr_is_fn_call_of(lhs, BK_INOUT, .Some(usize(1))), {
-    exn.throw(dyn(format_error_message(ast_expr_token(lhs), old_mode_spelling_message(String.from("inout"), String.from("mut")))));
-  });
+  // `imm(name) := place` / `mut(name) := place` / `inout(name) := place`
+  // (and the `::` forms): the deleted spellings of `name := &place` /
+  // `name := &mut place` (decision 42 Generation B), E0009.
+  reject_old_mode_spelling(lhs, exn);
   is_comptime_wrapped := ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .Some(usize(1)));
   if(is_init_assign && !(is_comptime_wrapped || ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None)) && in_compile_time_fn_body(ctx), {
     if(ast_expr_is_local_borrow_mode_call(lhs, .None), {
@@ -906,10 +903,10 @@ evaluate_initialization_assignment :: (
       .Atom(_, _) => make_err_expr()
     );
   });
-  // `mut(name) := place` — a LOCAL second-class reference binding
+  // `name := &mut place` — a LOCAL second-class reference binding
   // (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
   // field places only; element borrows go through the `for` macro.
-  // `imm(name) := place` is the read-only local borrow (decision 18).
+  // `name := &place` is the read-only local borrow (decision 18).
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_local_borrow_mode_call(lhs, .None), {
     return(_evaluate_inout_local_binding(expr, lhs, rhs, is_compile_time_only, env, ctx, exn));
   });

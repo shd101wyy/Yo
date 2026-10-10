@@ -7,7 +7,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind, Token, intern_token_str } :: import("./token.yo");
-{ format_error_message } :: import("./error.yo");
+{ format_error_message, with_code, YoError } :: import("./error.yo");
+{ E_DELETED_SPELLING } :: import("./diagnostics.yo");
 { Exception } :: import("std/error");
 /// The borrow marker each `match(&x, …)` / `match(&mut x, …)` was written
 /// with (plans/VALUES_BY_DEFAULT.md decisions 26 and 33): 1 for `&`, 2 for
@@ -376,15 +377,17 @@ BK_QUOTE :: "quote";
 BK_GENSYM :: "gensym";
 BK_COMPTIME_LIST_VAL :: "comptime_list";
 BK_REF :: "ref";
-/// The deleted spellings of `mut` and `sink` (V3b Generation B step 3), kept
-/// only to name them in an error.
-BK_INOUT :: "inout";
+/// The deleted spelling of `sink` (V3b Generation B step 3), kept only to
+/// name it in an error.
 BK_OWN :: "own";
-/// The V3b parameter modes (plans/VALUES_BY_DEFAULT.md decision 30).
-/// Generation A: `mut(x) : T` and `mut(y) := place` are exact synonyms of
-/// `inout(...)`, and `imm(x) : T` is a plain (borrowing) parameter.
-BK_MUT :: "mut";
-BK_IMM :: "imm";
+/// The internal heads of the borrow modes (plans/VALUES_BY_DEFAULT.md
+/// decisions 30 and 42). Source spells a borrow `x : &T` / `x : &mut T`;
+/// `desugar_if_calls` rewrites each slot into `__yo_imm(x) : T` /
+/// `__yo_mut(x) : T`, the form every later pass reads. The heads are not
+/// source spellings: the mode words `imm(x)` / `mut(x)` / `inout(x)` were
+/// deleted in decision 42 Generation B (E0009, `ast_expr_is_old_mode_spelling`).
+BK_MUT :: "__yo_mut";
+BK_IMM :: "__yo_imm";
 /// The call-site `&mut x` marker (decision 33): ONE prefix token, lexed by
 /// `tokenize` when `&` is directly followed by the word `mut`.
 BK_BORROW_MUT :: "&mut";
@@ -756,29 +759,48 @@ ast_expr_is_address_of_call :: (fn(e : &AstExpr, arg_count : Option(usize)) -> b
   ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, arg_count) || ast_expr_is_fn_call_of(e, BF_ADDR_OF, arg_count)
 );
 /// An exclusive-borrow wrapper on a parameter label or a local binding:
-/// `mut(x)` (decision 30). Its old spelling `inout(x)` is not one: V3b
-/// Generation B step 3 deleted it, and `ast_expr_is_old_mode_spelling` names
-/// it for the error.
+/// the internal `__yo_mut(x)` that `x : &mut T` and `y := &mut place` are
+/// rewritten to (decisions 30 and 42). The source words `mut(x)` and
+/// `inout(x)` are not one: `ast_expr_is_old_mode_spelling` names them for
+/// the error.
 ast_expr_is_inout_mode_call :: (fn(e : &AstExpr, arg_count : Option(usize)) -> bool)(
   ast_expr_is_fn_call_of(e, BK_MUT, arg_count)
 );
-/// A deleted parameter-mode spelling with one argument: `inout(x)` (now
-/// `mut(x)`) or `own(x)` (now `sink(x)`). Returns the replacement word, or
-/// `.None`. An `asm(...)` operand's `inout(reg, v)` has two arguments and is
-/// not one.
+/// A deleted mode spelling with one argument (E0009): the borrow words
+/// `imm(x)`, `mut(x)` and `inout(x)` (decision 42 Generation B; a borrow is
+/// spelled `x : &T` / `x : &mut T`) and `own(x)` (now `sink(x)`, V3b).
+/// Returns the word written, or `.None`. An `asm(...)` operand's
+/// `inout(reg, v)` has two arguments and is not one.
 ast_expr_is_old_mode_spelling :: (fn(e : &AstExpr) -> Option(String))(
   cond(
-    ast_expr_is_fn_call_of(e, BK_INOUT, Option(usize).Some(usize(1))) => Option(String).Some(String.from("mut")),
-    ast_expr_is_fn_call_of(e, BK_OWN, Option(usize).Some(usize(1))) => Option(String).Some(String.from("sink")),
+    ast_expr_is_fn_call_of(e, "imm", Option(usize).Some(usize(1))) => Option(String).Some(String.from("imm")),
+    ast_expr_is_fn_call_of(e, "mut", Option(usize).Some(usize(1))) => Option(String).Some(String.from("mut")),
+    ast_expr_is_fn_call_of(e, "inout", Option(usize).Some(usize(1))) => Option(String).Some(String.from("inout")),
+    ast_expr_is_fn_call_of(e, BK_OWN, Option(usize).Some(usize(1))) => Option(String).Some(String.from("own")),
     true => Option(String).None
   )
 );
 /// The error for a deleted mode spelling (see `ast_expr_is_old_mode_spelling`):
-/// `old` is the word written, `new_word` its replacement.
-old_mode_spelling_message :: (fn(old : &String, new_word : &String) -> String)(
+/// `old` is the word written. Raised with E0009.
+old_mode_spelling_message :: (fn(old : &String) -> String)(
   cond(
-    (new_word == "mut") => `\`${old}(x)\` was deleted: an exclusive borrow is spelled \`x : &mut T\` (a local one \`y := &mut place\`, the borrowed loop \`for(&mut xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42). \`yo fix <path> --migrate borrow-spelling\` rewrites it.`,
-    true => `\`${old}(x)\` is spelled \`${new_word}(x)\`: the \`${old}\` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). \`yo fix <path> --migrate modes\` rewrites it.`
+    (old == "imm") => `\`imm(x)\` was deleted: a read-only borrow is spelled \`x : &T\` (a receiver \`self : &Self\`, a local one \`y := &place\`, the borrowed loop \`for(&xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42). \`yo fix <path> --migrate borrow-spelling\` rewrites it.`,
+    (old == "own") => `\`own(x)\` is spelled \`sink(x)\`: the \`own\` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). \`yo fix <path> --migrate modes\` rewrites it.`,
+    true => `\`${old}(x)\` was deleted: an exclusive borrow is spelled \`x : &mut T\` (a receiver \`self : &mut Self\`, a local one \`y := &mut place\`, the borrowed loop \`for(&mut xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42). \`yo fix <path> --migrate borrow-spelling\` rewrites it.`
+  )
+);
+/// E0009 for the deleted mode spelling `old` written at `tok`.
+deleted_mode_spelling_error :: (fn(tok : &Token, old : &String) -> YoError)(
+  with_code(format_error_message(tok, old_mode_spelling_message(old)), E_DELETED_SPELLING)
+);
+/// Throw E0009 when `e` is a deleted mode spelling (`imm(x)`, `mut(x)`,
+/// `inout(x)`, `own(x)`): every slot that holds a mode calls this on what it
+/// was given before reading the internal form.
+reject_old_mode_spelling :: (fn(e : &AstExpr, exn : &Exception) -> unit)(
+  match(
+    ast_expr_is_old_mode_spelling(e),
+    .Some(old) => exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(e), old))),
+    .None => ()
   )
 );
 /// The error for a borrow sigil applied to a TYPE outside the slots that
@@ -790,11 +812,10 @@ borrow_mode_not_a_type_message :: (fn(ty : &String, is_mut : bool) -> String)({
   sig := if(is_mut, String.from("&mut "), String.from("&"));
   `\`${sig}${ty}\` is a borrow mode, not a type: it is written on a parameter (\`x : ${sig}${ty}\`), a closure or \`Fn(...)\` parameter, a receiver (\`self : ${sig}Self\`) or a local borrow (\`(y : ${sig}${ty}) = ${sig}place\`), and cannot name a type, be a type argument or a field's type (plans/VALUES_BY_DEFAULT.md decision 42; references become types with decision 43).`
 });
-/// A capture-list borrow entry's left side, `imm(y)` or `mut(z)`: a prefix
-/// call of the mode word with one identifier (plans/VALUES_BY_DEFAULT.md
-/// decision 35). In a `{ … }` record it is a pun (`imm(y)` is
-/// `imm(y) : &y`) or, as the label of `:`, a renamed borrow
-/// (`imm(name) : &self.name`).
+/// A capture-list borrow entry's left side, the internal `__yo_imm(y)` or
+/// `__yo_mut(z)`: a prefix call of the mode head with one identifier
+/// (plans/VALUES_BY_DEFAULT.md decision 35), which the puns `&y` / `&mut z`
+/// and the labels of `y : &p` / `z : &mut p` are rewritten to (decision 42).
 ast_expr_is_capture_mode_entry :: (fn(e : &AstExpr) -> bool)(
   (ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(1)))) && match(
     e,
@@ -802,7 +823,7 @@ ast_expr_is_capture_mode_entry :: (fn(e : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
-/// A closure literal with a capture list, `{ x, imm(y) }(params) => body`:
+/// A closure literal with a capture list, `{ x, &y }(params) => body`:
 /// the parser's `{…}` → `_(…)` desugar makes the arrow's left side a call
 /// whose callee is the `_(…)` record literal (decision 35). `lhs` is the
 /// arrow's left operand.
@@ -815,9 +836,10 @@ ast_expr_is_capture_list_params :: (fn(lhs : &AstExpr) -> bool)(
 );
 
 /// The mode wrapper of a LOCAL borrow binding or re-point (decisions 18 and
-/// 25): `imm(y)` or `mut(y)`, on the left of `:=` or `=`. `y := &place` and
-/// `y := &mut place` are rewritten to it at parse time (decision 42), and the
-/// annotated `(y : &T) = &place` to `imm(y, T) := place`: so an `arg_count` of
+/// 25): `__yo_imm(y)` or `__yo_mut(y)`, on the left of `:=` or `=`.
+/// `y := &place` and `y := &mut place` are rewritten to it at parse time
+/// (decision 42), and the annotated `(y : &T) = &place` to
+/// `__yo_imm(y, T) := place`: so an `arg_count` of
 /// one also accepts that second, annotation argument, and every reader of the
 /// bound name keeps reading argument 0.
 ast_expr_is_local_borrow_mode_call :: (fn(e : &AstExpr, arg_count : Option(usize)) -> bool)({
@@ -994,7 +1016,7 @@ is_function_boundary_arrow :: (fn(e : &AstExpr) -> bool)(
 export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_FN_ONCE_TRAIT, BK_ATOMIC, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
 export(BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR, BK_ISO);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
-export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF, BK_INOUT, BK_OWN);
+export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF, BK_OWN);
 export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL, BF_COMPTIME_READ_FILE, BF_COMPTIME_JSON_PARSE, BF_COMPTIME_TOML_PARSE);
 export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
 export(BF_REQUIRES, BF_ENSURES, BF_INVARIANT, BF_DECREASES, BF_ASSUMED, BF_LAW, BF_REFINE, BF_GHOST, BF_GHOST_FN, BF_OLD, BF_FORALL, BF_EXISTS, BF_IMPLIES, BF_SEQ_UNIT, BF_SEQ_APPEND, BF_SEQ_LEN, BF_SEQ_NTH, BF_SEQ_OF, BF_PRODUCED, BF_DISTINCT, BF_STR_BYTES, BF_MS_SINGLE, BF_MS_ADD, BF_MS_COUNT, BF_MS_OF, BF_SET_SINGLE, BF_SET_ADD, BF_SET_CONTAINS);
@@ -1238,27 +1260,28 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
 /// read-only walk instead of a full AST reconstruction.
 // ---------------------------------------------------------------------------
 // `&T` / `&mut T` in the declaration slots (plans/VALUES_BY_DEFAULT.md
-// decision 42, Generation A)
+// decision 42)
 // ---------------------------------------------------------------------------
 // Decision 42 spells a borrow `&T` / `&mut T` in every slot that holds one.
-// Generation A accepts the new spelling as an exact synonym of the mode words
-// by rewriting it, here, into the form every later pass already reads:
-//   `x : &T`             → `imm(x) : T`   (a parameter, a receiver
-//   `x : &mut T`         → `mut(x) : T`    `self : &Self`, a closure
+// The slots are rewritten, here, into the mode form every later pass reads,
+// headed by the internal `__yo_imm` / `__yo_mut` (written I / M below; the
+// source mode words `imm(x)` / `mut(x)` were deleted in Generation B):
+//   `x : &T`             → `I(x) : T`     (a parameter, a receiver
+//   `x : &mut T`         → `M(x) : T`      `self : &Self`, a closure
 //                                          parameter, an `Fn(...)` slot;
 //                                          `comptime(x) : &T` →
-//                                          `comptime(imm(x)) : T`)
-//   `-> &T` / `-> &mut T`                → `-> imm(T)` / `-> mut(T)`
-//   `y := &place` / `y := &mut place`    → `imm(y) := place` / `mut(y) := place`
-//   `(y : &T) = &place`                  → `imm(y, T) := place` (the
+//                                          `comptime(I(x)) : T`)
+//   `-> &T` / `-> &mut T`                → `-> I(T)` / `-> M(T)`
+//   `y := &place` / `y := &mut place`    → `I(y) := place` / `M(y) := place`
+//   `(y : &T) = &place`                  → `I(y, T) := place` (the
 //                                          annotation, checked against the
 //                                          place's type by the binding)
-//   `y = &place` / `cur = &mut place`    → `imm(y) = place` / `mut(cur) = place`
-//   `{ y : &y, z : &mut z }(…) =>`       → `{ imm(y) : &y, mut(z) : &mut z }(…) =>`
-//   `{ &y, &mut z }(…) =>` (puns)        → `{ imm(y), mut(z) }(…) =>`
+//   `y = &place` / `cur = &mut place`    → `I(y) = place` / `M(cur) = place`
+//   `{ y : &y, z : &mut z }(…) =>`       → `{ I(y) : &y, M(z) : &mut z }(…) =>`
+//   `{ &y, &mut z }(…) =>` (puns)        → `{ I(y), M(z) }(…) =>`
 //   `for(&xs, x => …)`                   → `for(xs, x => …)`
-//   `for(&mut xs, x => …)`               → `for(xs, mut(x) => …)` (and the
-//                                          map form's `(k, v)` → `(k, mut(v))`)
+//   `for(&mut xs, x => …)`               → `for(xs, M(x) => …)` (and the
+//                                          map form's `(k, v)` → `(k, M(v))`)
 // A `&T` anywhere else (`T :: &i32`, `ArrayList(&T)`, a field's type) is not
 // rewritten and is rejected by the evaluator as a borrow mode, not a type.
 // The formatter never sees this: it renders the token stream, so a file keeps
@@ -1285,7 +1308,7 @@ _borrow_sigil_of :: (fn(e : &AstExpr) -> Option(_BorrowSigil))(
     .Atom(_, _) => Option(_BorrowSigil).None
   )
 );
-/// `imm(args...)` / `mut(args...)`, its head synthesized at the sigil `at`.
+/// `__yo_imm(args...)` / `__yo_mut(args...)`, its head synthesized at the sigil `at`.
 _borrow_mode_call :: (fn(is_mut : bool, args : &ArrayList(AstExpr), at : &Token) -> AstExpr)({
   mtok := _synth_desugar_tok(TokenKind.Identifier, cond(is_mut => BK_MUT, true => BK_IMM), at);
   AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), mtok), args, false, mtok)
@@ -1345,8 +1368,8 @@ _bs_is_param_list_head :: (fn(e : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
-/// The label `L` of a slot `L : &T` in its mode: `x` → `imm(x)`,
-/// `comptime(x)` → `comptime(imm(x))`, `sink(x)` → `sink(imm(x))` (which the
+/// The label `L` of a slot `L : &T` in its mode: `x` → `__yo_imm(x)`,
+/// `comptime(x)` → `comptime(__yo_imm(x))`, `sink(x)` → `sink(__yo_imm(x))` (which the
 /// evaluator rejects as the combination it is).
 _bs_wrap_label :: (fn(label : &AstExpr, s : &_BorrowSigil) -> AstExpr)(
   cond(
@@ -1400,9 +1423,9 @@ _bs_params :: (fn(args : &ArrayList(AstExpr)) -> Option(ArrayList(AstExpr)))({
   });
   cond(changed => Option(ArrayList(AstExpr)).Some(out), true => Option(ArrayList(AstExpr)).None)
 });
-/// One capture-list entry (decision 35): `y : &p` → `imm(y) : &p`,
-/// `z : &mut p` → `mut(z) : &mut p`, the puns `&y` → `imm(y)` and
-/// `&mut z` → `mut(z)`.
+/// One capture-list entry (decision 35): `y : &p` → `__yo_imm(y) : &p`,
+/// `z : &mut p` → `__yo_mut(z) : &mut p`, the puns `&y` → `__yo_imm(y)` and
+/// `&mut z` → `__yo_mut(z)`.
 _bs_capture_entry :: (fn(c : &AstExpr) -> Option(AstExpr))(
   match(
     _bs_infix_pair(c, BK_COLON),
@@ -1470,8 +1493,8 @@ _bs_closure_lhs :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
     true => _bs_param(lhs)
   )
 );
-/// `for(&mut xs, h)`'s handle: `x => body` → `mut(x) => body`, `(k, v) =>
-/// body` → `(k, mut(v)) => body`. A handle already spelling `mut` is kept.
+/// `for(&mut xs, h)`'s handle: `x => body` → `__yo_mut(x) => body`,
+/// `(k, v) => body` → `(k, __yo_mut(v)) => body`.
 _bs_mut_for_handle :: (fn(h : &AstExpr, at : &Token) -> AstExpr)(
   match(
     _bs_infix_pair(h, "=>"),
@@ -1808,8 +1831,8 @@ desugar_if_calls :: (fn(e : &AstExpr) -> AstExpr)(
       if(!_contains_desugar_target(e), {
         return(e);
       });
-      // `&T` / `&mut T` in a declaration slot (decision 42, Generation A):
-      // rewritten into the mode-word form, then desugared as usual.
+      // `&T` / `&mut T` in a declaration slot (decision 42): rewritten into
+      // the internal mode form, then desugared as usual.
       if(_is_borrow_spelling_target(e), {
         match(
           _borrow_spelling_rewrite(e),
@@ -1988,7 +2011,7 @@ desugar_program_if_calls :: (fn(program : &ArrayList(AstExpr)) -> ArrayList(AstE
 });
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
-export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_old_mode_spelling, old_mode_spelling_message, ast_place_text, ast_expr_strip_borrow_marker, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
+export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_old_mode_spelling, old_mode_spelling_message, deleted_mode_spelling_error, reject_old_mode_spelling, ast_place_text, ast_expr_strip_borrow_marker, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
 export(desugar_if_calls, desugar_program_if_calls, borrow_mode_not_a_type_message);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);

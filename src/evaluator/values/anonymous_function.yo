@@ -37,6 +37,7 @@ pragma(Pragma.AllowUnsafe);
   clone_expr_fresh_ids,
   ast_expr_is_atom_of,
   ast_expr_is_capture_mode_entry,
+  reject_old_mode_spelling,
   ast_expr_is_capture_list_params,
   BK_MUT,
   BK_BORROW_MUT,
@@ -845,7 +846,7 @@ _cap_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
 /// writes the literal. Each entry becomes one field of the capture struct:
 /// - `x` (or `x : e`) is by value: plain data copies, and a value that is
 ///   not implicitly copyable moves, exactly as a record field does;
-/// - `imm(y) : &p` and `mut(z) : &mut p` (puns `imm(y)`, `mut(z)`) borrow
+/// - `y : &p` and `z : &mut p` (puns `&y`, `&mut z`) borrow
 ///   the place `p`, which must be rooted at a named local binding (decision
 ///   38 D: not across a cell, not module-level; a `mut` place is writable).
 _evaluate_capture_list :: (
@@ -865,13 +866,19 @@ _evaluate_capture_list :: (
   while(ei < raw_entries.len(), {
     raw := match(raw_entries.get(ei), .Some(r) => r, .None => make_err_expr());
     raw_tok := ast_expr_token(raw);
+    // `{ imm(y) }`, `{ mut(z) : &mut p }`: the deleted mode-word spelling of
+    // the capture entries `&y` / `z : &mut p` (decision 42 Generation B), E0009.
+    reject_old_mode_spelling(raw, exn);
+    if(ast_expr_is_fn_call_of(raw, ":", Option(usize).Some(usize(2))), {
+      reject_old_mode_spelling(match(raw, .FnCall(_, _, ra, _, _) => match(ra.get(usize(0)), .Some(a) => a, .None => raw), .Atom(_, _) => raw), exn);
+    });
     // Normalize to (label expression, initializer expression).
     (label_e : AstExpr) = raw;
     (init_e : AstExpr) = raw;
     (is_pun : bool) = false;
     cond(
       ast_expr_is_capture_mode_entry(raw) => {
-        // Pun: `imm(y)` is `imm(y) : &y`, `mut(z)` is `mut(z) : &mut z`.
+        // Pun: `&y` reaches here as `__yo_imm(y)`, `&mut z` as `__yo_mut(z)`.
         label_e = raw;
         init_e = _only_arg(raw);
         is_pun = true;
@@ -903,9 +910,9 @@ _evaluate_capture_list :: (
     // A borrow spells its mode on the left (the field) and its sigil on the
     // right (the initializer), as decision 33 splits a parameter from its
     // argument.
-    // `y : &p` / `z : &mut p` reach here as `imm(y) : &p` / `mut(z) : &mut
-    // p` (the parse-time rewrite of decision 42), so the sigil decides the
-    // mode; an old-spelling `y : &e` without one is an error.
+    // `y : &p` / `z : &mut p` reach here as `__yo_imm(y) : &p` /
+    // `__yo_mut(z) : &mut p` (the parse-time rewrite of decision 42), so the
+    // sigil decides the mode.
     if(is_borrow && !is_pun && !_is_borrow_sigil(init_e, is_mut), {
       want := if(is_mut, String.from("&mut "), String.from("&"));
       _cap_list_error(ctx, exn, ast_expr_token(init_e), `A borrow capture's initializer is a place under its sigil (\`${label} : ${want}place\`, or the pun \`${want}${label}\`); got \`${ast_expr_to_string(init_e)}\`.`);

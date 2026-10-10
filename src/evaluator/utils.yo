@@ -4034,8 +4034,7 @@ LocalBorrowPlace :: struct(
   /// The place as written, for messages (the steps may be cut short).
   text : String
 );
-/// One local borrow in scope: `imm(y) := place` or `mut(y) := place`
-/// (`inout(y) :=` is `mut`'s Generation A synonym).
+/// One local borrow in scope: `y := &place` or `y := &mut place`.
 LocalBorrowInfo :: ref(
   struct(
     name : String,
@@ -4112,8 +4111,7 @@ local_borrow_take_receiver :: (fn(e : &AstExpr) -> bool)({
   });
   hit
 });
-/// `stmt` declares a local borrow: `imm(y) := place`, `mut(y) := place` or
-/// `inout(y) := place`.
+/// `stmt` declares a local borrow: `y := &place` or `y := &mut place`.
 local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
     stmt,
@@ -4702,7 +4700,7 @@ _lb_region_end :: (fn(e : &AstExpr, name : &String, root : &Token) -> Token)({
   });
   _last_token_of(e, root)
 });
-/// `e` re-points the borrow `name` somewhere (`imm(name) = p`, `mut(name) = p`).
+/// `e` re-points the borrow `name` somewhere (`name = &p`, `name = &mut p`).
 _lb_has_repoint :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
