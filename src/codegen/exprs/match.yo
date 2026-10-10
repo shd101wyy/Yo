@@ -27,7 +27,7 @@
   expr_info_deferred_dup_expressions,
   scope_variables
 } :: import("../../expr_info.yo");
-{ is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { note_state_machine_binding_id, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -425,7 +425,25 @@ generate_case_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
         .None => ()
       );
     });
-    final_code := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(arm_value_with_dups(final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
+    final_code0 := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(arm_value_with_dups(final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
+    // The block's drops run after its value is taken: a value read from a
+    // local the block drops (`{ …; a.n }` with `a` dropped at the end, a
+    // consuming `match` arm's binding) is materialized first, as the bare
+    // path below does, or it would be read after the drop (an emptied task
+    // slot inside an `io.async` body read 0).
+    final_code := if(
+      (final_code0.len() > usize(0)) && !_is_control_flow_code(final_code0) && has_pending_emittable_drop(body_expr, context),
+      match(
+        match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(bei.ty), .None => Option(TypeValue).None),
+        .Some(bt) => if(is_unit_type(bt) || is_never_type(bt), final_code0, {
+          av := fresh_local_name(String.from("__yo_arm_"), context.base.current_function_name);
+          em.emit_string_line(`${indent.clone()}${get_type_string(bt, context.base)} ${av.clone()} = ${final_code0};`);
+          av
+        }),
+        .None => final_code0
+      ),
+      final_code0
+    );
     generate_deferred_drop_expressions(body_expr, indent.clone(), context);
     context.pending_deferred_drops = prev_pending;
     context.consumed_var_pending_drops = prev_consumed;
@@ -845,7 +863,9 @@ _inline_binding_sm_field :: (fn(imm(tok) : Token, imm(context) : FunctionGenerat
           },
           .Some(k) => match(
             smv.get(k.clone()),
-            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && (cv.base.decl_site == site), {
+            // A consuming arm's hidden bindings share the arm's token, so the
+            // name tells them apart (decision 26).
+            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value)), {
               note_state_machine_binding_id(context, k.clone());
               return(
                 Option(String).Some(

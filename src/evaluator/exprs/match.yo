@@ -85,6 +85,7 @@ pragma(Pragma.AllowUnsafe);
 { with_code } :: import("../../error.yo");
 { generate_new_temp_variable_name, is_temp_variable_name } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
+{ expr_contains_await } :: import("../../expr_traversal.yo");
 { migrate_match_scrutinee_on, record_migrate_edit } :: import("../../expr_info.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -1255,6 +1256,20 @@ evaluate_match :: (
         .None => ()
       );
       bi = (bi + usize(1));
+    });
+    // A `mut` place is a C pointer, and an `io.async` body's slots hold
+    // values: a place that would live across an await is not lowered yet
+    // (issues/a-mut-match-place-binding-cannot-live-across-an-await.md).
+    if((place_vars.len() > usize(0)) && expr_contains_await(body_ast), {
+      exn.throw(
+        dyn(
+          format_error_message_with_help(
+            ast_expr_token(arm_expr),
+            `This arm binds \`mut\` places into the scrutinee and awaits: a place cannot live across an await yet (plans/VALUES_BY_DEFAULT.md decision 26).`,
+            Option(String).Some(`match by value or through \`&x\`, and write the new value back after the await (\`x = …\`)`)
+          )
+        )
+      );
     });
     unbound_vars := _add_hidden_bindings(own.unbound, env, ctx);
     keep_vars := _add_hidden_bindings(own.keeps, env, ctx);

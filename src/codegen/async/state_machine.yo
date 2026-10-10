@@ -20,6 +20,7 @@
 { generate_step_expression } :: import("../exprs/while_loop.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
 { Token, TokenKind } :: import("../../token.yo");
+{ lookup_match_arms, pattern_binding_atoms } :: import("../../pattern.yo");
 { EvalValue } :: import("../../value.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
@@ -364,6 +365,30 @@ _lv_walk :: (fn(imm(e) : AstExpr, stmt_end : u64, block_end : u64, imm(w) : _Liv
                   a.clone(),
                   .FnCall(_, _, arm_args, _, _) => {
                     match(arm_args.get(usize(0)), .Some(pat) => _lv_pattern_bindings(pat, arm_end, w, context), .None => ());
+                    // A consuming arm's hidden bindings (the parts it drops on
+                    // entry, the cells it keeps to its end; decision 26) are
+                    // in the registered pattern only.
+                    match(
+                      lookup_match_arms(ast_expr_id(e.clone())),
+                      .Some(cg_arms) => {
+                        (cgi : usize) = usize(0);
+                        while(cgi < cg_arms.len(), cgi = (cgi + usize(1)), {
+                          match(
+                            cg_arms.get(cgi),
+                            .Some(cga) => if(ast_expr_id(cga.arm_expr) == ast_expr_id(a.clone()), {
+                              hidden := ArrayList(AstExpr).new();
+                              pattern_binding_atoms(cga.pattern, hidden);
+                              (hi : usize) = usize(0);
+                              while(hi < hidden.len(), hi = (hi + usize(1)), {
+                                match(hidden.get(hi), .Some(ha) => if(is_any_temp_variable_name(ast_expr_token(ha).value.clone()), _lv_pattern_bindings(ha, arm_end, w, context)), .None => ());
+                              });
+                            }),
+                            .None => ()
+                          );
+                        });
+                      },
+                      .None => ()
+                    );
                     match(arm_args.get(usize(1)), .Some(body) => recur(body, stmt_end, arm_end, w, context), .None => ());
                   },
                   .Atom(_, _) => ()

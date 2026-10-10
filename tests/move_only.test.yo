@@ -453,6 +453,26 @@ _mo_match_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
   });
   total
 });
+// The same loop over a plain local: the value moved before `continue` is the
+// keeper's (issues/fixed/a-value-moved-before-a-continue-or-break-is-dropped-again-at-the-exit.md).
+_mo_local_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
+  (i : i32) = i32(0);
+  (total : i32) = i32(0);
+  while(i < i32(5), {
+    f := _MoFd(n : i);
+    if(f.n == i32(1), {
+      keep.push(f);
+      i = (i + i32(1));
+      continue;
+    });
+    if(f.n == i32(3), {
+      break;
+    });
+    total = (total + f.n);
+    i = (i + i32(1));
+  });
+  total
+});
 _MoCell :: enum(Cell(fd : _MoFd, shared : Rc(_MoFd)), Empty);
 test("consuming match: an owned local's payload moves into the arm", {
   before := g_mo_disposed;
@@ -544,6 +564,14 @@ test("consuming match: a `return` inside an arm drops the owned binding once", {
   assert(_mo_match_early(false) == i32(11), "moved");
   assert(g_mo_disposed == (before + i32(2)), "the callee dropped it");
 });
+test("move-only: a value moved before a `continue` is not dropped again at the exit", {
+  before := g_mo_disposed;
+  keep := ArrayList(_MoFd).new();
+  assert(_mo_local_in_loop(keep) == i32(2), "0 + 2 before the break at 3");
+  assert(g_mo_disposed == (before + i32(3)), "0 and 2 at the iteration's end, 3 at the break; 1 is the keeper's");
+  keep.clear();
+  assert(g_mo_disposed == (before + i32(4)), "1 by the keeper");
+});
 test("consuming match: in a loop, `continue` after a move and `break` while owning drop each value once", {
   before := g_mo_disposed;
   keep := ArrayList(_MoFd).new();
@@ -630,7 +658,7 @@ test("consuming match: what a match cannot move is E0901 naming the borrow", {
   comptime_expect_error(
     match(
       p,
-      (.Two(a, _) || .One(a)) => _mo_take(a),
+      (.Two(a, _) | .One(a)) => _mo_take(a),
       .Zero => i32(0)
     ),
     "leaves a part with a drop unbound"
@@ -656,7 +684,19 @@ test("consuming match: a match on an outer local inside a loop is a move per ite
       i = (i + i32(1));
     });
   }, "match(&o, …)");
-  assert(_mo_peek_opt(o) == i32(1), "o stays");
+  o2 := _mo_some(i32(2));
+  {
+    i := i32(0);
+    while(i < i32(2), {
+      match(
+        &o2,
+        .Some(f) => _mo_peek(f),
+        .None => i32(0)
+      );
+      i = (i + i32(1));
+    });
+  };
+  assert(_mo_peek_opt(o2) == i32(2), "a borrowing match in the loop keeps o2");
 });
 test("consuming match: below a reference cell the bindings borrow and the handle lives to the arm's end", {
   before := g_mo_disposed;

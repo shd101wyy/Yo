@@ -183,6 +183,43 @@ lookup_arm_entry_drops :: (fn(arm_id : usize) -> Option(ArrayList(AstExpr)))(g_a
 pattern_position_is_cell :: (fn(imm(t) : TypeValue) -> bool)(
   is_pointer_type(t) || is_reference_enum_type(t) || is_reference_struct_type(t)
 );
+/// The atoms of every binding `p` introduces (`name` and `(name := p)`), at
+/// any depth: a consuming arm's hidden bindings have no node in the source
+/// pattern, so the async liveness walk reads them from the registered arm.
+pattern_binding_atoms :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> unit)(
+  match(
+    p,
+    .Bind(_, _, atom) => out.push(atom),
+    .At(_, _, atom, sub) => {
+      out.push(atom);
+      recur(sub, out);
+    },
+    .Variant(_, _, _, subs, _, _, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(subs.get(i), .Some(sb) => recur(sb, out), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    .Or(alts) => match(alts.get(usize(0)), .Some(a0) => recur(a0, out), .None => ()),
+    .ThroughBox(_, _, sub) => recur(sub, out),
+    .Tuple(subs, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(subs.get(i), .Some(sb) => recur(sb, out), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    .Struct(_, _, subs, _) => {
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        match(subs.get(i), .Some(sb) => recur(sb, out), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  )
+);
 /// Registered match nodes (the B2 plateau test's probe).
 match_arms_entry_count :: (fn() -> usize)(g_match_arms.len());
 // ---------------------------------------------------------------------------
@@ -2037,7 +2074,7 @@ pattern_test_exprs :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> un
   );
 });
 export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms, match_arms_entry_count);
-export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, register_match_mode, lookup_match_mode, register_arm_entry_drops, lookup_arm_entry_drops, pattern_position_is_cell);
+export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, register_match_mode, lookup_match_mode, register_arm_entry_drops, lookup_arm_entry_drops, pattern_position_is_cell, pattern_binding_atoms);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs, variant_group_covers);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);
