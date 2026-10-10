@@ -2636,7 +2636,7 @@ and in git, not a silent edit.
         `ref_local_binding` 1 each. 4 CLI-case fixtures do not parse by
         design. Applying the rewrite to a copy and building it is
         Generation B's first gate.
-      - **Measured gates:** GATES_PLACEHOLDER
+      - **Measured gates:** `yo build --std-path ./std`, `check ./src` and `check ./std` green (seed v0.2.57); fmt gate clean; CLI corpus 385 PASS, 0 golden diffs; `gates_fast.sh` 0 failures; `fixpoint_only.sh` FIXPOINT_HOLDS (stage 3 rc 0); the language suite 5,076/5,076; `yo test ./std` 7/7; `move_only` 38 and `parameter_modes` 28 after the rebase onto develop (2026-10-10, Mac Mini M4)
     - **Generation B, on the seed that carries Generation A:**
       1. `yo fix ./std ./src ./tests --migrate borrow-spelling` (the counts
          above), plus by hand: the mode words in `src/` and `std/` comments
