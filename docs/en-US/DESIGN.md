@@ -696,6 +696,15 @@ The one exception is the receiver of an `impl` member: a trait method declared w
 
 The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): it is error E0009, which names the sigil spelling, and `yo fix <path> --migrate borrow-spelling` rewrites a tree to it. `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
 
+Operator traits spell their operands' modes the same way, and every impl writes exactly those modes (decision 34). The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. `Dyn(LogicalNot)` hands its impl a copy of the payload, so a move-only payload cannot be boxed into it (E0614).
+
+```yo
+Money :: struct(cents : i64);
+derive(Money, Copy, Clone);
+impl(Money, Add(Money)(Output : Money, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(Money(cents : (lhs.cents + rhs.cents)))));
+impl(Money, Eq(Money)((==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.cents == rhs.cents)));
+```
+
 ### Call-site borrow markers
 
 A borrowed argument is marked at the call too, so `show(&s)` (a borrow) and `take(s)` (a move) read differently: `&x` lends `x` to a `&T` parameter and `&mut x` lends the place `x` to a `&mut T` one. A method receiver is written bare (`s.len()`), and so is a borrowed parameter or local borrow passed on (it already holds a borrow).

@@ -121,10 +121,12 @@ Unique ownership removes the question instead of answering it.
     lends `x` to an `imm` parameter, `f(&mut x)` to a `mut` one, and a bare
     `f(x)` passes by value. A mismatch is an error. Method receivers and
     temporaries are exempt (`s.len()`, `show(make_name())`).
-  - **Operators borrow their operands with no marker** (decision 34):
-    `a == b` and `a + b` keep both operands. Each operator's trait declares
-    them `imm`, and every impl writes `imm` too, `Copy` types included;
-    codegen passes a small `Copy` operand by value (amended 2026-10-09).
+  - **An operator's trait spells its operands' mode, with no marker at
+    the operator** (decision 34). Comparisons (`Eq`, `Ord`) borrow, so
+    `a == b` keeps both operands. Arithmetic, bitwise and unary operators
+    take their operands by value, as in Rust (amended 2026-10-11 by
+    maintainer directive). A `Copy` operand is copied, and a move-only one
+    moves. Every impl writes the trait's modes.
   - The same two words spell:
     - local borrows: `imm(y) := place` and `mut(y) := place`;
     - re-pointing a borrow: `imm(cur) = place`;
@@ -1490,9 +1492,65 @@ and in git, not a silent edit.
     - **Phase.** V3b, with decision 30: Generation A accepts both forms, and
       Generation B sweeps and turns the mismatch error on.
 
-34. **An operator borrows its operands, and its trait spells the mode
-    once.** Confirmed 2026-10-05 by the maintainer; an audit raised it,
+34. **An operator's trait spells its operands' mode once: comparisons
+    borrow, arithmetic, bitwise and unary operators take their operands by
+    value.** Confirmed 2026-10-05 by the maintainer; an audit raised it,
     because decision 33 did not cover an operator's operands.
+    - **Amended 2026-10-11 by maintainer directive: Rust's split.** The
+      arithmetic, bitwise and unary traits take their operands BY VALUE, as
+      Rust's `Add::add(self, rhs: Rhs)` does:
+      `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. Only `Eq`, `Ord`,
+      `ComptimeEq` and `ComptimeOrd` keep `&` operands.
+      - **Covered:** `Add`, `Sub`, `Mul`, `Div`, `Mod`, `BitAnd`, `BitOr`,
+        `BitXor`, `BitLeftShift`, `BitRightShift`, `Negate`, `LogicalNot`
+        and `BitNot`, and their `Comptime*` twins
+        (`comptime(lhs) : Self`, `comptime(self) : Self`). The range traits
+        keep the `&` endpoints they have today. This amendment does not
+        touch them.
+      - **Why Rust's split.** A comparison only reads its operands, so it
+        borrows them, and `a == b` stays the cheapest call on `String`
+        (see "Why" below). Arithmetic BUILDS a value. Taking the operands by
+        value lets an impl reuse an operand's storage, which is how Rust's
+        `String + &str` appends into the left operand's buffer. It also
+        makes the operand's type the impl's parameter type, so an impl on
+        plain data reads `fn(lhs : Self, rhs : Self)` with no sigils. The
+        2026-10-05 objection, that `+` on an owning type "would consume
+        silently", is answered by the copy rules rather than by the trait:
+        - a `Copy` operand is copied;
+        - an implicitly copyable one (`String` today, until V2b) is shared,
+          its count incremented, exactly as `t := s` shares it;
+        - a move-only operand moves, and a later use is E0901.
+
+        Once V2b makes `String` explicit-copy, `a + b` that must keep `a`
+        will be written `a.clone() + b`, as in Rust.
+      - **The borrowed form under decision 43 is an impl on a reference**,
+        `impl(&T, Add(&T)(...))`, which is Rust's `impl Add<&str> for String`
+        and `impl Add for &BigInt`. This reverses the 2026-10-05 rejection of
+        "impls on borrows", which rested on borrows not being first-class.
+        Decision 43 makes `&T` a second-class type that an impl can name.
+        Until decision 43's phase lands, an operator on an owning type takes
+        its operands by value.
+      - **Dyn.** `LogicalNot`'s `(!)` is still the one operator with a vtable
+        slot, and its `self` is now owned by the impl. The wrapper therefore
+        hands the impl a COPY of the payload, its counted fields
+        incremented, because the Dyn keeps owning the original. A
+        move-only payload has no copy, so boxing one into a Dyn with a
+        by-value-`self` slot is E0614
+        (`issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md`;
+        before this fix, every call freed the payload the Dyn still held).
+      - **The check is unchanged.** An impl whose operand mode differs from
+        the trait's is the conformance error ("as written"). A `&Self` `Add`
+        impl and a by-value `Eq` impl are both rejected
+        (`tests/parameter_modes.test.yo`). `yo fix --migrate params`
+        rewrites only plain parameters to `&T`, so the conforming sweep back
+        to by value was done by hand. It touched `std/prelude.yo`,
+        `std/string/string.yo` (`String`'s `(+)`) and
+        `std/time/duration.yo` (`Duration`'s `(+)`/`(-)`). Every other impl
+        in the tree already wrote by-value operands or a lambda, which
+        takes the trait's modes.
+      - The 2026-10-05 and 2026-10-09 text below describes the borrowing
+        rule. It still holds for `Eq`, `Ord` and their `Comptime` twins, and
+        the amendment replaces it for every other operator trait.
     - **The rule.** The prelude's operator traits declare their operands
       `imm`, for example `Eq`'s `(==) : fn(imm(lhs) : Self, imm(rhs) : Rhs)
       -> bool`.
@@ -1525,12 +1583,14 @@ and in git, not a silent edit.
       that let an impl on an implicitly copyable type take an operand by
       value). Where the trait declares `imm(x) : T`, the impl writes
       `imm(x) : T` for every `T`:
-      ```rust
+      ```yo ignore
       impl(Point, Add(Point)(
         Output : Point,
         (+) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> Self)(...)
       ));
       ```
+      (Superseded for `Add` by the 2026-10-11 amendment, which writes
+      `fn(lhs : Self, rhs : Self)`. The rule holds for `Eq` and `Ord`.)
       - **A parameter's mode is part of the function type for every
         type.** `fn(imm(x) : T)` and `fn(x : T)` are two types even when
         `T` is `Copy`, and the impl check compares modes without asking
@@ -1583,11 +1643,15 @@ and in git, not a silent edit.
     - **Rejected:**
       - markers on operands;
       - Rust's split, where comparisons borrow and arithmetic consumes,
-        because `+` on an owning type would then consume silently;
+        because `+` on an owning type would then consume silently
+        (**reversed 2026-10-11**: the split is now the rule, see the
+        amendment above);
       - `imm` for every impl, which puts small value types behind a
         pointer;
       - impls on borrows, Rust's `impl Add for &String`, which doubles the
-        impl surface for a borrow Yo does not make first-class;
+        impl surface for a borrow Yo does not make first-class (**reversed
+        2026-10-11**: under decision 43, `impl(&T, Add(&T))` is the
+        borrowed form);
       - a mode parameter on the trait (`Add(Rhs, mode)`), heavy machinery
         for one rule.
     - **Indexing is not covered:** `xs(i)` is a projection (decision 24).

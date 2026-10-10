@@ -22,7 +22,7 @@ export(main);
 
 This should print `false` three times. Instead it printed `false`, `true`, `true`, then aborted with rc=134 (`--optimize 2`, macOS, `MallocScribble=1`). The first call freed `name`, the next two read the freed buffer, and the `Dyn`'s own drop freed it again. With a `Dispose` payload the same shape disposed the value once per call and once more when the `Dyn` died.
 
-The bug predates the 2026-10-11 amendment: any trait slot spelled `self : Self` that is reached through a `Dyn` had it. The amendment made it common, because `LogicalNot`, `Negate` and `BitNot` now take `self` by value and are Dyn-callable (they return `bool` or `Self.Output`, not `Self`).
+The bug predates the 2026-10-11 amendment: any trait slot spelled `self : Self` that is reached through a `Dyn` had it. The amendment made a prelude trait hit it: `LogicalNot`'s `(!)` now takes `self` by value, and it is the one operator with a vtable slot (`Negate` and `BitNot` return `Self.Output`, which the Dyn erases, so they have none).
 
 ## Root cause
 
