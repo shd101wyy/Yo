@@ -9,6 +9,24 @@ pragma(Pragma.AllowUnsafe);
 { TokenKind, Token, intern_token_str } :: import("./token.yo");
 { format_error_message } :: import("./error.yo");
 { Exception } :: import("std/error");
+/// The borrow marker each `match(&x, …)` / `match(&mut x, …)` was written
+/// with (plans/VALUES_BY_DEFAULT.md decisions 26 and 33): 1 for `&`, 2 for
+/// `&mut`. The desugar peels the marker so every consumer of the tree reads a
+/// plain scrutinee; the evaluator asks this table how the match takes it.
+/// Keyed by the `match` call's token position, which a rebuilt or cloned node
+/// keeps (`clone_expr_fresh_ids` mints new ids, so an id key would lose the
+/// marker in every generic specialization).
+(g_borrowed_match_sites : HashMap(String, u8)) = HashMap(String, u8).new();
+_borrowed_match_site_key :: (fn(imm(tok) : Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
+/// 0 when the `match` at `tok` was written with a plain scrutinee, 1 for
+/// `match(&x, …)`, 2 for `match(&mut x, …)`.
+borrowed_match_scrutinee_kind :: (fn(imm(tok) : Token) -> u8)(
+  cond(
+    (g_borrowed_match_sites.len() == usize(0)) => u8(0),
+    true => match(g_borrowed_match_sites.get(_borrowed_match_site_key(tok)), .Some(k) => k, .None => u8(0))
+  )
+);
+export(borrowed_match_scrutinee_kind);
 /// The Yo builtin keyword strings used by the parser.
 BK_TUPLE :: "tuple";
 BK_TUPLE_TYPE :: "Tuple";
@@ -629,11 +647,22 @@ ast_expr_to_string :: (fn(imm(e) : AstExpr) -> String)(
             (ast_expr_is_infix_op_fn_call(func_box) || ast_expr_is_atom_and_operator(func_box)) => `(${func_str0})`,
             true => func_str0
           );
+          // A `match(&x, …)` the desugar peeled prints with its marker.
+          scr_marker := cond(
+            (func_str0 == BK_MATCH) => borrowed_match_scrutinee_kind(match(e, .FnCall(_, _, _, _, mtok) => mtok, .Atom(_, atok) => atok)),
+            true => u8(0)
+          );
           sb := StringBuilder.new();
           i := usize(0);
           while(i < n, {
             if(i > usize(0), {
               sb.write_str(", ");
+            });
+            if((i == usize(0)) && (scr_marker == u8(1)), {
+              sb.write_str("&");
+            });
+            if((i == usize(0)) && (scr_marker == u8(2)), {
+              sb.write_str("&mut ");
             });
             arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
             sb.write_string(recur(arg));
@@ -1183,24 +1212,6 @@ _unwrap_if_label :: (fn(imm(arg) : AstExpr, label : str) -> Option(AstExpr))({
 /// actually carry one — a target-free subtree is returned unchanged by the
 /// copy-on-write check below, so parsing a module with neither costs one
 /// read-only walk instead of a full AST reconstruction.
-/// The borrow marker each `match(&x, …)` / `match(&mut x, …)` was written
-/// with (plans/VALUES_BY_DEFAULT.md decisions 26 and 33): 1 for `&`, 2 for
-/// `&mut`. The desugar peels the marker so every consumer of the tree reads a
-/// plain scrutinee; the evaluator asks this table how the match takes it.
-/// Keyed by the `match` call's token position, which a rebuilt or cloned node
-/// keeps (`clone_expr_fresh_ids` mints new ids, so an id key would lose the
-/// marker in every generic specialization).
-(g_borrowed_match_sites : HashMap(String, u8)) = HashMap(String, u8).new();
-_borrowed_match_site_key :: (fn(imm(tok) : Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
-/// 0 when the `match` at `tok` was written with a plain scrutinee, 1 for
-/// `match(&x, …)`, 2 for `match(&mut x, …)`.
-borrowed_match_scrutinee_kind :: (fn(imm(tok) : Token) -> u8)(
-  cond(
-    (g_borrowed_match_sites.len() == usize(0)) => u8(0),
-    true => match(g_borrowed_match_sites.get(_borrowed_match_site_key(tok)), .Some(k) => k, .None => u8(0))
-  )
-);
-export(borrowed_match_scrutinee_kind);
 /// `match(&x, …)` or `match(&mut x, …)`: a scrutinee marked as a borrow
 /// (decision 33), peeled by `desugar_if_calls`.
 _is_borrowed_match_scrutinee :: (fn(imm(e) : AstExpr) -> bool)(

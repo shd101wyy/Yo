@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 { emit_warning } :: import("../../diagnostics.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding } :: import("../utils.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, local_borrow_info_of_variable } :: import("../utils.yo");
-{ evaluate_begin_expression } :: import("./begin.yo");
+{ evaluate_begin_expression, attach_consumed_binding_exit_drops } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
   Pattern,
@@ -349,7 +349,8 @@ _scrutinee_root_variable :: (fn(imm(scr) : AstExpr, imm(env) : Environment) -> O
 /// value (`make()`, `x.get()`) is a temporary.
 _scrutinee_is_projection :: (fn(imm(scr) : AstExpr, imm(env) : Environment) -> bool)(
   cond(
-    ast_expr_is_fn_call_of(scr, BF_DOT, Option(usize).Some(usize(2))) => _scrutinee_root_variable(scr, env).is_some(),
+    // A `.` access rooted at a runtime variable (`Type.Variant` is a value).
+    ast_expr_is_fn_call_of(scr, BF_DOT, Option(usize).Some(usize(2))) => match(_scrutinee_root_variable(scr, env), .Some(rv) => !rv.is_compile_time_only, .None => false),
     true => match(
       scr,
       // `xs(i)`: a call whose callee is a runtime variable, not a function.
@@ -397,7 +398,7 @@ _throw_unmovable_scrutinee :: (fn(imm(scr) : AstExpr, imm(ty) : TypeValue, imm(w
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
-        ast_expr_token(scr),
+        _leftmost_token(scr),
         `Cannot match \`${text}\` by value: its type \`${type_to_string(ty)}\` is not implicitly copyable, so a \`match\` takes it by value and moves it (plans/VALUES_BY_DEFAULT.md decision 26), but ${why}`,
         Option(String).Some(`match through a borrow: \`match(&${text}, …)\`, or \`match(&mut ${text}, …)\` to write through the bindings`)
       ),
@@ -714,19 +715,26 @@ _augment_arm_pattern :: (fn(imm(p) : Pattern, imm(ty) : TypeValue, in_cell : boo
       if(in_cell, {
         own.borrowed.push(name.clone());
       });
-      // The whole value is the binding's; a binding inside it is a copy, so
-      // it must be `Copy` (Rust's bindings after `@` in a by-move pattern).
-      // In a `mut` match two places would alias.
+      // The whole value is the binding's, so nothing inside it is hidden;
+      // the walk only finds the sub-bindings below a cell (borrows).
+      saved_hidden := own.add_hidden;
+      own.add_hidden = false;
+      new_sub := recur(sub, ty, in_cell, own, env, exn);
+      own.add_hidden = saved_hidden;
+      // A binding inside it is a copy, so it must be `Copy` (Rust's bindings
+      // after `@` in a by-move pattern); in a `mut` match two places would
+      // alias.
       sub_names := pattern_bindings(sub);
       (si : usize) = usize(0);
       while(si < sub_names.len(), {
         sn := match(sub_names.get(si), .Some(n) => n, .None => String.new());
         sty := _bind_ty_of(own, sn.clone());
         bad := cond(
+          (in_cell || _names_contain(own.borrowed, sn.clone())) => false,
           own.is_mut => true,
           true => match(sty, .Some(t) => !type_is_bitwise_copy(t), .None => false)
         );
-        if(bad && !in_cell, {
+        if(bad, {
           exn.throw(
             dyn(
               with_code(
@@ -745,14 +753,7 @@ _augment_arm_pattern :: (fn(imm(p) : Pattern, imm(ty) : TypeValue, in_cell : boo
         });
         si = (si + usize(1));
       });
-      if(in_cell, {
-        (bi : usize) = usize(0);
-        while(bi < sub_names.len(), {
-          match(sub_names.get(bi), .Some(n) => own.borrowed.push(n), .None => ());
-          bi = (bi + usize(1));
-        });
-      });
-      p
+      Pattern.At(name : name, token : atok, atom : aatom, sub : new_sub)
     },
     .ThroughBox(box_ty, inner_ty, sub) => {
       tb := Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : recur(sub, inner_ty, true, own, env, exn));
@@ -864,10 +865,20 @@ _own_all :: (fn(imm(vs) : ArrayList(Variable)) -> unit)({
     i = (i + usize(1));
   });
 });
+/// After a consuming arm's body: a binding it still owns is dropped at the
+/// arm's end (and at each exit inside it); one it moved is dropped at the
+/// exits before the move.
 _drop_owned_at_arm_end :: (fn(imm(vs) : ArrayList(Variable), imm(body) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
-    match(vs.get(i), .Some(v) => drop_owned_match_binding_at_arm_end(v, body, env, ctx, exn), .None => ());
+    match(
+      vs.get(i),
+      .Some(v) => cond(
+        v.consumed_at_token.is_some() => attach_consumed_binding_exit_drops(body, v, env, ctx, exn),
+        true => drop_owned_match_binding_at_arm_end(v, body, env, ctx, exn)
+      ),
+      .None => ()
+    );
     i = (i + usize(1));
   });
 });

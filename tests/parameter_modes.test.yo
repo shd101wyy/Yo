@@ -335,3 +335,92 @@ test("the deleted spellings inout and own are errors naming mut and sink", {
   );
   assert(xs(usize(0)) == i32(1), "nothing was written");
 });
+// ---------------------------------------------------------------------------
+// `mut` places (plans/VALUES_BY_DEFAULT.md decision 26): `match(&mut x, …)`
+// and a bare `mut` binding scrutinee bind each part as a `mut` place, which
+// the arm writes through; the scrutinee is reached only through the places
+// while one is live (E0911).
+// ---------------------------------------------------------------------------
+_pm_bump :: (fn(mut(o) : Option(i32)) -> unit)(
+  match(
+    o,
+    .Some(n) => {
+      n = (n + i32(1));
+    },
+    .None => ()
+  )
+);
+_pm_rename :: (fn(mut(o) : Option(String)) -> unit)(
+  match(
+    o,
+    .Some(s) => {
+      s = String.from("renamed");
+    },
+    .None => ()
+  )
+);
+_PmPair :: enum(P(a : i32, b : String), Q);
+_pm_read_place :: (fn(mut(p) : _PmPair) -> usize)(
+  match(
+    p,
+    .P(a, b) => (usize(a) + b.len()),
+    .Q => usize(0)
+  )
+);
+test("match(&mut x, …) binds mut places", {
+  (o : Option(i32)) = .Some(i32(1));
+  match(
+    &mut o,
+    .Some(n) => {
+      n = (n + i32(10));
+    },
+    .None => ()
+  );
+  assert(match(o, .Some(v) => v, .None => i32(0)) == i32(11), "the arm wrote through the place");
+  _pm_bump(&mut o);
+  assert(match(o, .Some(v) => v, .None => i32(0)) == i32(12), "a mut parameter's match binds places too");
+});
+test("a mut place of a counted payload replaces it in the scrutinee", {
+  (os : Option(String)) = .Some(String.from("old"));
+  _pm_rename(&mut os);
+  assert(match(&os, .Some(s) => (s == String.from("renamed")), .None => false), "the payload was replaced in place");
+  (p : _PmPair) = .P(a : i32(2), b : String.from("abc"));
+  assert(_pm_read_place(&mut p) == usize(5), "places are read through");
+});
+test("a mut place of a move-only payload drops the old value at the write", {
+  before := g_pm_disposed;
+  {
+    (o : Option(_PmRes)) = .Some(_PmRes(n : i32(1)));
+    match(
+      &mut o,
+      .Some(r) => {
+        r = _PmRes(n : i32(2));
+        assert(g_pm_disposed == (before + i32(1)), "the old payload was dropped at the write");
+      },
+      .None => ()
+    );
+    assert(match(&o, .Some(r) => r.n, .None => i32(0)) == i32(2), "the scrutinee holds the new payload");
+  };
+  assert(g_pm_disposed == (before + i32(2)), "the new payload is dropped once, with o");
+});
+test("the scrutinee is reached only through a live mut place", {
+  (o : Option(i32)) = .Some(i32(1));
+  comptime_expect_error(
+    match(
+      &mut o,
+      .Some(n) => {
+        o = .None;
+        n
+      },
+      .None => i32(0)
+    ),
+    "borrows `o` with `mut` and is still live"
+  );
+  (h : Option(i32)) = .Some(i32(1));
+  comptime_expect_error(
+    (fn(imm(x) : Option(i32)) -> i32)(match(&mut x, .Some(n) => n, .None => i32(0))),
+    "is an `imm` borrow"
+  );
+  comptime_expect_error(match(&mut Option(i32).Some(i32(1)), .Some(n) => n, .None => i32(0)), "is a temporary");
+  assert(match(&h, .Some(n) => n, .None => i32(0)) == i32(1), "h untouched");
+});

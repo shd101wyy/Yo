@@ -32,7 +32,7 @@
 { deferred_drop_target_variable, _codegen_name_of_variables } :: import("../utils/index.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { sm_local_field_name, sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ Environment, get_variables_from_env, Variable } :: import("../../env.yo");
+{ Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -387,7 +387,23 @@ _emit_loop_body_drops_before_exit :: (fn(imm(context) : FunctionGenerationContex
                     .None => false
                   );
                   (sk : bool) = false;
-                  if(!in_slot && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
+                  // A value moved on the path to this exit is gone here: its
+                  // move is the variable's last one (`consumed_at_token`), or
+                  // a move the flow log undid for the paths after an arm that
+                  // this exit lies inside (`keep.push(f); continue;` in an
+                  // `if`), which return points already consult
+                  // (issues/fixed/a-value-moved-before-a-continue-or-break-is-dropped-again-at-the-exit.md).
+                  exit_tok := ast_expr_token(exit_expr);
+                  moved_here := match(
+                    match(exit_vars, .Some(xv) => xv.last(), .None => Option(Variable).None),
+                    .Some(mv) => (
+                      match(mv.consumed_at_token, .Some(ct) => ((ct.*.module_path == exit_tok.module_path) && (ct.*.character <= exit_tok.character)), .None => false) || variable_moved_at_cleanup_point(mv, exit_tok)
+                    ),
+                    .None => false
+                  );
+                  if(moved_here, {
+                    sk = true;
+                  }, if(!in_slot && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
                     sk = true;
                   }, {
                     // env-liveness: skip drops for variables not yet in
@@ -404,7 +420,7 @@ _emit_loop_body_drops_before_exit :: (fn(imm(context) : FunctionGenerationContex
                       },
                       .None => false
                     );
-                  });
+                  }));
                   sk
                 },
                 .None => false
