@@ -3,13 +3,13 @@
 Counter :: struct(_count : i32, label : String);
 impl(
   Counter,
-  new : (fn(imm(label) : String) -> Counter)(Counter(_count : i32(0), label : label)),
-  add : (fn(imm(self) : Self, by : i32) -> Counter)(_bump(self, by)),
-  count : (fn(imm(self) : Self) -> i32)(self._count)
+  new : (fn(label : &String) -> Counter)(Counter(_count : i32(0), label : label)),
+  add : (fn(self : &Self, by : i32) -> Counter)(_bump(self, by)),
+  count : (fn(self : &Self) -> i32)(self._count)
 );
 /// A private module-level helper: an in-file test may call it, an outside
 /// test may not even name it.
-_bump :: (fn(imm(c) : Counter, by : i32) -> Counter)(Counter(_count : (c._count + by), label : c.label.clone()));
+_bump :: (fn(c : &Counter, by : i32) -> Counter)(Counter(_count : (c._count + by), label : c.label.clone()));
 export(Counter);
 test("in-file: the private field and helper are reachable", {
   c := Counter.new(String.from("clicks"));

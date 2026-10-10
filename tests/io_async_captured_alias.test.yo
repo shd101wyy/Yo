@@ -77,7 +77,7 @@ AliasSink :: ref(struct(tag : usize));
 impl(
   AliasSink,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_alias_disposed = (g_alias_disposed + i32(1));
     })
   )
@@ -102,7 +102,7 @@ test("a captured ref-struct alias is retained by the task and released once", {
 });
 
 // Controls: shapes that always worked must keep working.
-alias_of_param :: (fn(imm(data) : String, io : Io) -> Impl(Future(usize, IoExn)))({
+alias_of_param :: (fn(data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
   sb := data;
   io.async(e => {
     n := e.io.await(give(sb.ptr().unwrap(), sb.len(), e.io), e);

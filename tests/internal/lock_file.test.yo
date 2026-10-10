@@ -13,7 +13,7 @@ import("std/fmt");
   find_lock_entry,
   lock_files_equal
 } :: import("../../src/lock_file.yo");
-_entry :: (fn(name : str, version : str, imm(source) : String, commit : str, integrity : str) -> LockEntry)(
+_entry :: (fn(name : str, version : str, source : &String, commit : str, integrity : str) -> LockEntry)(
   LockEntry(
     name : String.from(name),
     version : String.from(version),
@@ -23,10 +23,10 @@ _entry :: (fn(name : str, version : str, imm(source) : String, commit : str, int
     dependencies : ArrayList(String).new()
   )
 );
-_lock_of :: (fn(imm(entries) : ArrayList(LockEntry)) -> LockFile)(
+_lock_of :: (fn(entries : &ArrayList(LockEntry)) -> LockFile)(
   LockFile(packages : entries)
 );
-_parsed :: (fn(imm(content) : String) -> LockFile)(
+_parsed :: (fn(content : &String) -> LockFile)(
   match(
     parse_lock_file(content),
     .Ok(l) => l,

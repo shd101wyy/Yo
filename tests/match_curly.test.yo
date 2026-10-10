@@ -120,10 +120,10 @@ Slot :: enum(Empty, Full(item : Item));
 test("nullable-pointer user enum: positional, labeled, curly and bare variant arms", {
   full := Slot.Full(item : Item(v : i32(9)));
   empty := Slot.Empty;
-  positional :: (fn(imm(s) : Slot) -> i32)(match(s, .Empty => i32(-1), .Full(it) => it.v));
-  labeled :: (fn(imm(s) : Slot) -> i32)(match(s, .Full(item : it) => it.v, .Empty => i32(-1)));
-  curly :: (fn(imm(s) : Slot) -> i32)(match(s, .Full({ item }) => item.v, .Empty => i32(-1)));
-  bare :: (fn(imm(s) : Slot) -> i32)(match(s, .Full => i32(1), .Empty => i32(0)));
+  positional :: (fn(s : &Slot) -> i32)(match(s, .Empty => i32(-1), .Full(it) => it.v));
+  labeled :: (fn(s : &Slot) -> i32)(match(s, .Full(item : it) => it.v, .Empty => i32(-1)));
+  curly :: (fn(s : &Slot) -> i32)(match(s, .Full({ item }) => item.v, .Empty => i32(-1)));
+  bare :: (fn(s : &Slot) -> i32)(match(s, .Full => i32(1), .Empty => i32(0)));
   assert(positional(full) == i32(9), "positional payload");
   assert(positional(empty) == i32(-1), "positional empty");
   assert(labeled(full) == i32(9), "labeled payload");

@@ -3,8 +3,8 @@
 Bag :: ref(struct(items : ArrayList(i32), version : i32));
 impl(
   Bag,
-  iter : (fn(imm(self) : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
-  bump_version : (fn(mut(self) : Self) -> unit)({
+  iter : (fn(self : &Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(self : &mut Self) -> unit)({
     self.version = (self.version + i32(1));
   })
 );
@@ -12,7 +12,7 @@ main :: (fn() -> unit)({
   bag := Bag(items : ArrayList(i32).new(), version : i32(0));
   bag.items.push(i32(1));
   bag.items.push(i32(2));
-  for(bag, mut(x) => {
+  for(&mut bag, x => {
     bag.bump_version(); // panics: a mutating `inout(self)` method while `x` borrows an element
     x = i32(9);
   });

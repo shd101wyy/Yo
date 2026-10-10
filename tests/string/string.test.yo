@@ -2455,19 +2455,19 @@ test("Unicode escapes reach control bytes", {
 // plans/STRING_VALUE_SEMANTICS.md S1: E0908 rejects a write through a
 // borrowed String (cli-cases inout-write-through-a-*-is-e0908); these are the
 // ways to write that stay accepted.
-_append_inout :: (fn(mut(out) : String) -> unit)({
+_append_inout :: (fn(out : &mut String) -> unit)({
   out.push_str("!");
 });
 _append_own :: (fn(sink(out) : String) -> String)({
   out.push_str("!");
   out
 });
-_append_local :: (fn(imm(out) : String) -> String)({
+_append_local :: (fn(out : &String) -> String)({
   q := out;
   q.push_str("!");
   q
 });
-_first_byte :: (fn(imm(s) : String) -> u8)({
+_first_byte :: (fn(s : &String) -> u8)({
   _ := s.clone();
   s.byte_at(usize(0))
 });
@@ -2475,7 +2475,7 @@ _Counter :: struct(n : i32);
 derive(_Counter, Copy, Clone);
 impl(
   _Counter,
-  bump : (fn(mut(self) : Self) -> unit)({
+  bump : (fn(self : &mut Self) -> unit)({
     self.n = (self.n + i32(1));
   })
 );
@@ -2493,7 +2493,7 @@ test("Writing a String through inout, own or a local copy is accepted (E0908 ext
   xs := ArrayList(String).new();
   xs.push(String.new());
   xs.push(String.from("n"));
-  for(xs, mut(s) => {
+  for(&mut xs, s => {
     s.push_str("?");
   });
   assert((xs(usize(0)) == "?") && (xs(usize(1)) == "n?"), "an inout for writes the elements");
@@ -2507,7 +2507,7 @@ test("collect(String) builds the string through an owned accumulator", {
   assert(parts.into_iter().collect(String) == "abc", "the accumulator is moved, not borrowed");
 });
 // ===== Independent copies by clone (plans/STRING_VALUE_SEMANTICS.md §0, S3a) =====
-_clone_append_local :: (fn(imm(out) : String) -> String)({
+_clone_append_local :: (fn(out : &String) -> String)({
   q := out.clone();
   q.push_str("!");
   q

@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
 /// (two `c_include` modules binding the same symbol); every one is kept, in
 /// first-seen order, so codegen can `#include` them all instead of whichever
 /// module happened to be evaluated last.
-record_c_include_for_extern :: (fn(imm(name) : String, imm(header) : String) -> unit)({
+record_c_include_for_extern :: (fn(name : &String, header : &String) -> unit)({
   match(
     g_extern_c_includes.get(name.clone()),
     .Some(list) => {
@@ -93,11 +93,11 @@ record_c_include_for_extern :: (fn(imm(name) : String, imm(header) : String) -> 
 });
 /// The FIRST C header a `c_include`d extern symbol was declared under, if any
 /// (the registration slot of `register_extern_function` holds one header).
-get_c_include_for_extern :: (fn(imm(name) : String) -> Option(String))(
+get_c_include_for_extern :: (fn(name : &String) -> Option(String))(
   match(g_extern_c_includes.get(name), .Some(l) => l.get(usize(0)), .None => Option(String).None)
 );
 /// Every C header a `c_include`d extern symbol was declared under.
-get_c_includes_for_extern :: (fn(imm(name) : String) -> ArrayList(String))(
+get_c_includes_for_extern :: (fn(name : &String) -> ArrayList(String))(
   match(g_extern_c_includes.get(name), .Some(l) => l, .None => ArrayList(String).new())
 );
 /// The already-bound type a `c_include` `Name : Type` field should ADOPT, or
@@ -108,7 +108,7 @@ get_c_includes_for_extern :: (fn(imm(name) : String) -> ArrayList(String))(
 /// written in Yo. A `union(...)` has no id to key the registry by and is not
 /// adopted; neither is a SomeT (an opaque handle from an earlier `c_include`
 /// or `extern`), which would be adopting a placeholder as itself.
-_adoptable_type_binding :: (fn(imm(env) : Environment, imm(name) : String) -> Option(TypeValue))({
+_adoptable_type_binding :: (fn(env : &Environment, name : &String) -> Option(TypeValue))({
   vars := get_variables_from_env(env, name);
   n := vars.len();
   if(n == usize(0), {
@@ -123,7 +123,7 @@ _adoptable_type_binding :: (fn(imm(env) : Environment, imm(name) : String) -> Op
 /// is not a Yo identifier (`struct stat`, `struct timespec`). `.Some(spelling)`
 /// when `arg` has that shape (a malformed `c_type(...)` is an error), `.None`
 /// for every other field.
-_c_type_field_spelling :: (fn(imm(arg) : AstExpr, imm(exn) : Exception) -> Option(String))({
+_c_type_field_spelling :: (fn(arg : &AstExpr, exn : &Exception) -> Option(String))({
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(Option(String).None);
   });
@@ -155,10 +155,10 @@ _c_type_field_spelling :: (fn(imm(arg) : AstExpr, imm(exn) : Exception) -> Optio
 });
 evaluate_c_include :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None), {

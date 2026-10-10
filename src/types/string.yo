@@ -23,13 +23,13 @@ import("std/fmt");
 (g_type_display_names : HashMap(String, String)) = HashMap(String, String).new();
 /// Record `display` (`Ctor(Arg, …)`) for the type with id `type_id`. The
 /// first registration wins — one id is minted by one constructor call.
-register_type_display_name :: (fn(imm(type_id) : String, imm(display) : String) -> unit)({
+register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)({
   if(!g_type_display_names.contains_key(type_id.clone()), {
     _prev := g_type_display_names.insert(type_id, display);
   });
 });
 /// The registered display name for `type_id`, if any.
-type_display_name :: (fn(imm(type_id) : String) -> Option(String))(
+type_display_name :: (fn(type_id : &String) -> Option(String))(
   g_type_display_names.get(type_id)
 );
 /// Drop every registered display name (a reset of the evaluator universe).
@@ -37,7 +37,7 @@ clear_type_display_names :: (fn() -> unit)({
   g_type_display_names = HashMap(String, String).new();
 });
 /// Is `s` already on the expansion path? (`visited`, see `_tts`.)
-_tts_seen :: (fn(imm(xs) : ArrayList(String), imm(s) : String) -> bool)({
+_tts_seen :: (fn(xs : &ArrayList(String), s : &String) -> bool)({
   n := xs.len();
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -86,7 +86,7 @@ _tts_seen :: (fn(imm(xs) : ArrayList(String), imm(s) : String) -> bool)({
 /// is fixed and the set starts empty on every top-level call — and the
 /// placeholders carry the type's id, so distinct types never collapse onto one
 /// rendering.
-_tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) -> String)(
+_tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> String)(
   cond(
     (_d > usize(40)) => String.from("…"),
     true => match(
@@ -415,7 +415,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
 /// A parameter as decision 42 spells it: `x : T` by value, `x : &T` and
 /// `x : &mut T` borrowed (a function type after the sigil is parenthesized).
 /// `ts` is the parameter's type, already rendered.
-format_param_with_mode :: (fn(imm(label) : String, imm(ts) : String, is_ref : bool, is_owning : bool) -> String)({
+format_param_with_mode :: (fn(label : &String, ts : &String, is_ref : bool, is_owning : bool) -> String)({
   sig_ts := if(ts.starts_with("fn(") || ts.starts_with("ctl("), `(${ts})`, ts.clone());
   // A `Type`-valued parameter (`ArrayList`'s `T`) has no mode to speak of.
   is_type_param := ((ts == "Type") || ts.starts_with("Type("));
@@ -428,7 +428,7 @@ format_param_with_mode :: (fn(imm(label) : String, imm(ts) : String, is_ref : bo
 /// Render a TypeValue as a string. Recursive over
 /// Pointer/Array/Tuple/Func/Struct/EnumT/Union, with a depth cap (see
 /// `_tts`) so cyclic / very deep types can't overflow the stack.
-type_to_string :: (fn(imm(t) : TypeValue) -> String)(
+type_to_string :: (fn(t : &TypeValue) -> String)(
   _tts(t, usize(0), ArrayList(String).new())
 );
 /// A cheap, shallow key for the synthesizer's anti-circularity check. Renders
@@ -438,7 +438,7 @@ type_to_string :: (fn(imm(t) : TypeValue) -> String)(
 /// hangs recursive-type synthesis). For shallow types it's identical to
 /// `type_to_string`; only deep types are truncated. (A value-semantic proxy
 /// for object-identity memoization, at some extra cost.)
-type_to_string_key :: (fn(imm(t) : TypeValue) -> String)(
+type_to_string_key :: (fn(t : &TypeValue) -> String)(
   _tts(t, usize(36), ArrayList(String).new())
 );
 export(type_to_string, type_to_string_key, format_param_with_mode);

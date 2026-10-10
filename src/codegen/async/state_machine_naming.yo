@@ -27,7 +27,7 @@
 (g_sm_local_field_names : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the stable field name for a local capture (idempotent — a
 /// re-registered SM re-derives the same name).
-register_sm_local_field_name :: (fn(imm(variable_id) : String, imm(field) : String) -> unit)({
+register_sm_local_field_name :: (fn(variable_id : &String, field : &String) -> unit)({
   _ := g_sm_local_field_names.insert(variable_id, field);
 });
 /// Assign every LOCAL capture its stable field name — `var_<name>_<hash of
@@ -40,7 +40,7 @@ register_sm_local_field_name :: (fn(imm(variable_id) : String, imm(field) : Stri
 /// locals clear of the SM's fixed fields (`state`, `result`, ...) and the
 /// `__capture.`/`await_future_<n>` spellings.
 register_sm_captured_names :: (
-  fn(imm(cvs) : ArrayList(CapturedVariable)) -> unit
+  fn(cvs : &ArrayList(CapturedVariable)) -> unit
 )({
   (i : usize) = usize(0);
   while(i < cvs.len(), {
@@ -66,7 +66,7 @@ register_sm_captured_names :: (
 /// `var_<id>` as the unregistered fallback (reached only for captures whose
 /// list never passed through `register_sm_captured_names` — e.g. a decl_site
 /// was empty).
-sm_local_field_name :: (fn(imm(variable_id) : String) -> String)(
+sm_local_field_name :: (fn(variable_id : &String) -> String)(
   match(
     g_sm_local_field_names.get(variable_id.clone()),
     .Some(stable) => stable,
@@ -82,7 +82,7 @@ sm_local_field_name :: (fn(imm(variable_id) : String) -> String)(
 /// (Phase 2) with the historical `var_<id>` as the unregistered fallback. A
 /// captured (`.Outer`) variable never comes here: it lives in the capture
 /// struct, whose slot `sm_slot_of_variable` names.
-get_state_machine_field_name :: (fn(imm(variable_id) : String, imm(aliases) : Option(HashMap(String, String))) -> String)({
+get_state_machine_field_name :: (fn(variable_id : &String, aliases : &Option(HashMap(String, String))) -> String)({
   match(
     aliases,
     .Some(a) => match(a.get(variable_id.clone()), .Some(al) => return(al), .None => ()),
@@ -100,8 +100,8 @@ export(
 /// that shares an owner's RC value (`s := c`) is stored in its owner's slot
 /// when the owner is a local of the same body; an owner from outside the body
 /// (a capture) is not a slot, and the local then has storage of its own.
-sm_storage_id :: (fn(imm(v) : Variable, imm(smv) : HashMap(String, CapturedVariable), imm(remap) : Option(HashMap(String, String))) -> String)({
-  canon := (fn(imm(id) : String, imm(remap) : Option(HashMap(String, String))) -> String)(
+sm_storage_id :: (fn(v : &Variable, smv : &HashMap(String, CapturedVariable), remap : &Option(HashMap(String, String))) -> String)({
+  canon := (fn(id : &String, remap : &Option(HashMap(String, String))) -> String)(
     match(remap, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id)
   );
   own := canon(v.id.to_string(), remap);
@@ -125,7 +125,7 @@ sm_storage_id :: (fn(imm(v) : Variable, imm(smv) : HashMap(String, CapturedVaria
 /// A local sharing a captured local's RC value is stored in that owner's
 /// slot (`sm_storage_id`).
 sm_slot_of :: (
-  fn(key : ExprId, imm(env) : Environment, imm(name) : String, imm(smv) : HashMap(String, CapturedVariable), imm(remap) : Option(HashMap(String, String)), imm(aliases) : Option(HashMap(String, String)), imm(capture_slot) : String) -> Option(String)
+  fn(key : ExprId, env : &Environment, name : &String, smv : &HashMap(String, CapturedVariable), remap : &Option(HashMap(String, String)), aliases : &Option(HashMap(String, String)), capture_slot : &String) -> Option(String)
 )({
   // Through node `key`'s recorded scope (scope-exit release,
   // plans/CODEGEN_MEMORY_REDUCTION.md §6.1).
@@ -138,7 +138,7 @@ sm_slot_of :: (
 /// key (an outer capture is registered under its id and its label; see
 /// `resolve_var_name_in_context`).
 sm_slot_of_variable :: (
-  fn(imm(v) : Variable, imm(smv) : HashMap(String, CapturedVariable), imm(remap) : Option(HashMap(String, String)), imm(aliases) : Option(HashMap(String, String)), imm(capture_slot) : String) -> Option(String)
+  fn(v : &Variable, smv : &HashMap(String, CapturedVariable), remap : &Option(HashMap(String, String)), aliases : &Option(HashMap(String, String)), capture_slot : &String) -> Option(String)
 )({
   id := sm_storage_id(v, smv, remap);
   cv := match(smv.get(id.clone()), .Some(c) => c, .None => return(Option(String).None));
@@ -158,10 +158,10 @@ sm_slot_of_variable :: (
 /// by the temp-to-slot store, which must not also put one in a local slot
 /// (the abort dispose would then drop it a second time).
 (g_await_consumed_temps : HashSet(String)) = HashSet(String).new();
-note_await_consumed_temp :: (fn(imm(name) : String) -> unit)({
+note_await_consumed_temp :: (fn(name : &String) -> unit)({
   g_await_consumed_temps.insert(name);
 });
-is_await_consumed_temp :: (fn(imm(name) : String) -> bool)(
+is_await_consumed_temp :: (fn(name : &String) -> bool)(
   g_await_consumed_temps.contains(name)
 );
 /// The task-slot fields of NAMED locals, each with a move flag
@@ -175,12 +175,12 @@ is_await_consumed_temp :: (fn(imm(name) : String) -> bool)(
 /// Filled by the struct emitter, which runs before the resume function.
 /// Field names carry the variable id, so a name identifies one struct's field.
 (g_sm_move_flag_fields : HashSet(String)) = HashSet(String).new();
-note_sm_move_flag_field :: (fn(imm(field) : String) -> unit)({
+note_sm_move_flag_field :: (fn(field : &String) -> unit)({
   g_sm_move_flag_fields.insert(field);
 });
 /// The move flag (`sm->__yo_mv_<field>`) of the slot `sm_code`
 /// (`sm-><field>`), or `.None` when the slot has none.
-sm_move_flag_of :: (fn(imm(sm_code) : String) -> Option(String))({
+sm_move_flag_of :: (fn(sm_code : &String) -> Option(String))({
   if(!sm_code.starts_with("sm->"), {
     return(Option(String).None);
   });
@@ -193,7 +193,7 @@ sm_move_flag_of :: (fn(imm(sm_code) : String) -> Option(String))({
 /// The task slot (`sm->…`) a minted temp named `temp_var` was stored into,
 /// found as `_store_temp_var_to_state_machine_if_needed` finds it: by id key,
 /// then by the captured variable's name.
-sm_temp_slot_of :: (fn(imm(temp_var) : String, imm(smv) : HashMap(String, CapturedVariable)) -> Option(String))({
+sm_temp_slot_of :: (fn(temp_var : &String, smv : &HashMap(String, CapturedVariable)) -> Option(String))({
   (found : Option(CapturedVariable)) = smv.get(temp_var.clone());
   if(found.is_none(), {
     vals := smv.values();

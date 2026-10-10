@@ -12,8 +12,8 @@
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
 
-_pm_len :: (fn(imm(s) : String) -> usize)(s.len());
-_pm_plain_len :: (fn(imm(s) : String) -> usize)(s.len());
+_pm_len :: (fn(s : &String) -> usize)(s.len());
+_pm_plain_len :: (fn(s : &String) -> usize)(s.len());
 _pm_take :: (fn(s : String) -> usize)(s.len());
 _pm_add1 :: (fn(n : i32) -> i32)(n + i32(1));
 (g_pm_disposed : i32) = i32(0);
@@ -21,30 +21,30 @@ _PmRes :: struct(n : i32);
 impl(
   _PmRes,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_pm_disposed = (g_pm_disposed + i32(1));
     })
   )
 );
 _pm_consume :: (fn(r : _PmRes) -> i32)(r.n);
-_pm_run :: (fn(imm(f) : Impl(Fn(r : _PmRes) -> i32)) -> i32)(f(_PmRes(n : i32(5))));
-_pm_pass :: (fn(imm(f) : Impl(Fn(r : _PmRes) -> _PmRes)) -> i32)({
+_pm_run :: (fn(f : &Impl(Fn(r : _PmRes) -> i32)) -> i32)(f(_PmRes(n : i32(5))));
+_pm_pass :: (fn(f : &Impl(Fn(r : _PmRes) -> _PmRes)) -> i32)({
   out := f(_PmRes(n : i32(7)));
   out.n
 });
-_pm_ct_inc :: (fn(comptime(imm(n)) : comptime_int) -> comptime(comptime_int))(n + 1);
+_pm_ct_inc :: (fn(comptime(n) : &comptime_int) -> comptime(comptime_int))(n + 1);
 _PmV :: struct(n : i32);
 derive(_PmV, Copy, Clone);
-impl(_PmV, Eq(_PmV)((==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(lhs.n == rhs.n)));
-_pm_inc :: (fn(mut(n) : i32) -> unit)({
+impl(_PmV, Eq(_PmV)((==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.n == rhs.n)));
+_pm_inc :: (fn(n : &mut i32) -> unit)({
   n = (n + i32(1));
 });
-_pm_swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({
+_pm_swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   t := a;
   a = b;
   b = t;
 });
-_pm_push_seven :: (fn(mut(xs) : ArrayList(i32)) -> unit)({
+_pm_push_seven :: (fn(xs : &mut ArrayList(i32)) -> unit)({
   xs.push(i32(7));
 });
 _PmHolder :: struct(items : ArrayList(i32), n : i32);
@@ -52,15 +52,15 @@ _PmCounter :: struct(n : i32);
 derive(_PmCounter, Copy, Clone);
 impl(
   _PmCounter,
-  get : (fn(imm(self) : Self) -> i32)(self.n),
-  bump : (fn(mut(self) : Self, by : i32) -> unit)({
+  get : (fn(self : &Self) -> i32)(self.n),
+  bump : (fn(self : &mut Self, by : i32) -> unit)({
     self.n = (self.n + by);
   })
 );
-_PmShow :: trait(show : (fn(imm(self) : Self) -> i32));
-impl(_PmCounter, _PmShow(show : (fn(imm(self) : Self) -> i32)(self.n * i32(10))));
-_pm_apply_imm :: (fn(imm(f) : Impl(Fn(imm(s) : String) -> usize), imm(s) : String) -> usize)(f(s));
-_pm_apply_mut :: (fn(imm(f) : Impl(Fn(mut(n) : i32) -> unit), mut(v) : i32) -> unit)(f(v));
+_PmShow :: trait(show : (fn(self : &Self) -> i32));
+impl(_PmCounter, _PmShow(show : (fn(self : &Self) -> i32)(self.n * i32(10))));
+_pm_apply_imm :: (fn(f : &Impl(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
+_pm_apply_mut :: (fn(f : &Impl(Fn(n : &mut i32) -> unit), v : &mut i32) -> unit)(f(v));
 
 test("a plain parameter is by value: an explicit-copy argument moves into it", {
   r := _PmRes(n : i32(6));
@@ -132,7 +132,41 @@ test("comptime(imm(x)) is a compile-time borrow", {
 
 test("an operator impl writes the trait's imm operands, Copy or not", {
   assert(_PmV(n : i32(1)) == _PmV(n : i32(1)), "imm(lhs)/imm(rhs) on a Copy type");
-  comptime_expect_error(impl(_PmV, Ord(_PmV)((<) : (fn(lhs : Self, rhs : Self) -> bool)(true), (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true), (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true), (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true))), "as written");
+  comptime_expect_error(impl(_PmV, Ord(_PmV)((<) : (fn(lhs : Self, rhs : Self) -> bool)(true), (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(true), (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(true), (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(true))), "as written");
+});
+
+// Decision 34 as amended 2026-10-11 (maintainer directive): the arithmetic,
+// bitwise and unary operator traits take their operands BY VALUE, as Rust's
+// `Add::add(self, rhs)` does; `Eq` and `Ord` keep borrowing. An impl writes
+// the trait's modes, so a borrowing `Add` impl is rejected as written.
+_PmMoney :: struct(c : i32);
+derive(_PmMoney, Copy, Clone);
+impl(_PmMoney, Add(_PmMoney)(Output : _PmMoney, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmMoney(c : (lhs.c + rhs.c)))));
+impl(_PmMoney, Negate(Output : _PmMoney, neg : (fn(self : Self) -> Self.Output)(_PmMoney(c : (i32(0) - self.c)))));
+_PmTag :: struct(s : String);
+impl(_PmTag, Add(_PmTag)(Output : _PmTag, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmTag(s : lhs.s.concat(rhs.s)))));
+test("arithmetic and unary operator impls take their operands by value", {
+  a := _PmMoney(c : i32(2));
+  b := _PmMoney(c : i32(3));
+  sum := (a + b);
+  assert(sum.c == i32(5), "a by-value Add impl is accepted and called");
+  assert(a.c == i32(2), "a Copy operand is copied: a stays usable");
+  neg := -a;
+  assert(neg.c == i32(-2), "a by-value Negate impl is accepted and called");
+  comptime_expect_error(impl(_PmV, Add(_PmV)(Output : _PmV, (+) : (fn(lhs : &Self, rhs : &Self) -> Self.Output)(_PmV(n : (lhs.n + rhs.n))))), "as written");
+  comptime_expect_error(impl(_PmMoney, Eq(_PmMoney)((==) : (fn(lhs : Self, rhs : Self) -> bool)(lhs.c == rhs.c))), "as written");
+});
+
+test("a by-value operator copies a counted operand", {
+  x := _PmTag(s : String.from("ab"));
+  y := _PmTag(s : String.from("cd"));
+  z := (x + y);
+  assert(z.s == "abcd", "the impl owned both operands");
+  assert((x.s == "ab") && (y.s == "cd"), "the operands' strings were shared, not freed");
+  s := String.from("he");
+  t := (s + String.from("llo"));
+  assert(t == "hello", "String's by-value (+)");
+  assert(s == "he", "s survives as the left operand");
 });
 
 test("imm parameters borrow", {
@@ -171,13 +205,13 @@ test("imm and mut receivers", {
 });
 
 test("a mode is part of the fn type, for every type", {
-  comptime_assert(!Type.is_compatible_with((fn(imm(x) : String) -> usize), (fn(x : String) -> usize)), "imm is not by value");
-  comptime_assert(!Type.is_compatible_with((fn(x : String) -> usize), (fn(imm(x) : String) -> usize)), "both directions");
-  comptime_assert(!Type.is_compatible_with((fn(imm(x) : i32) -> i32), (fn(x : i32) -> i32)), "Copy types too");
-  comptime_assert(Type.is_compatible_with((fn(mut(n) : i32) -> unit), (fn(mut(n) : i32) -> unit)), "mut(n) is inout(n)");
-  comptime_assert(Type.is_compatible_with((fn(mut(n) : i32) -> unit), (fn(mut(n) : i32) -> unit)), "both directions");
-  comptime_assert(!Type.is_compatible_with((fn(mut(n) : i32) -> unit), (fn(n : i32) -> unit)), "mut is not a plain parameter");
-  (f : (fn(imm(x) : String) -> usize)) = _pm_len;
+  comptime_assert(!Type.is_compatible_with((fn(x : &String) -> usize), (fn(x : String) -> usize)), "imm is not by value");
+  comptime_assert(!Type.is_compatible_with((fn(x : String) -> usize), (fn(x : &String) -> usize)), "both directions");
+  comptime_assert(!Type.is_compatible_with((fn(x : &i32) -> i32), (fn(x : i32) -> i32)), "Copy types too");
+  comptime_assert(Type.is_compatible_with((fn(n : &mut i32) -> unit), (fn(n : &mut i32) -> unit)), "mut(n) is inout(n)");
+  comptime_assert(Type.is_compatible_with((fn(n : &mut i32) -> unit), (fn(n : &mut i32) -> unit)), "both directions");
+  comptime_assert(!Type.is_compatible_with((fn(n : &mut i32) -> unit), (fn(n : i32) -> unit)), "mut is not a plain parameter");
+  (f : (fn(x : &String) -> usize)) = _pm_len;
   s := String.from("abc");
   assert(f(s) == usize(3), "an imm-parameter function is a value of its own fn type");
 });
@@ -194,15 +228,15 @@ test("Fn traits spelled with imm and mut", {
 
 test("mut(y) := place is inout(y) := place", {
   (x : i32) = i32(1);
-  mut(y) := x;
+  y := &mut x;
   y = i32(5);
   assert(y == i32(5), "read through y");
   assert(x == i32(5), "a write through y lands in x (read after y's last use)");
   x = i32(6);
-  mut(z) := x;
+  z := &mut x;
   assert(z == i32(6), "mut(z) := names the same place");
   h := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
-  mut(n) := h.n;
+  n := &mut h.n;
   n = i32(9);
   assert(h.n == i32(9), "a field place");
 });
@@ -229,14 +263,15 @@ test("a marker that does not fit the parameter is an error", {
     _q := (&mut c, i32(1));
   }, "is not an expression of its own");
   comptime_expect_error({
-    imm(y) := c;
+    y := &c;
     y = i32(1);
   }, "is a `&` borrow, which is read-only");
   comptime_expect_error(addr_of(c), "not available in safe code");
 });
 
-// Decision 34's Dyn test: `LogicalNot`'s `(!)` takes `self` and returns
-// `bool`, so it has a vtable slot; a by-value impl is reached through it
+// Decision 34's Dyn test: `LogicalNot`'s `(!)` takes `self` by value (as
+// amended 2026-10-11) and returns `bool`, so it has a vtable slot; a by-value
+// impl is reached through it
 // (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
 _PmFlag :: struct(on : bool);
 derive(_PmFlag, Copy, Clone);
@@ -248,23 +283,50 @@ test("Dyn(LogicalNot) over a by-value operator impl", {
   assert(!e, "!e negates through the Dyn");
 });
 
+// The vtable wrapper hands a by-value `self` a copy of the payload, its
+// counted fields incremented: the impl drops its copy and the Dyn keeps the
+// original. A move-only payload has no copy, so it cannot be boxed behind a
+// by-value slot at all
+// (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
+_PmNamed :: struct(name : String);
+impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.len() == usize(0))));
+_PmHeld :: struct(n : i32);
+impl(
+  _PmHeld,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_pm_disposed = (g_pm_disposed + i32(1));
+    })
+  )
+);
+impl(_PmHeld, LogicalNot((!) : (fn(self : Self) -> bool)(self.n == i32(0))));
+test("a by-value self called through a Dyn gets a copy of the payload", {
+  (e : Dyn(LogicalNot)) = dyn(_PmNamed(name : String.from("abc")));
+  assert(!!e, "first call: the name is non-empty");
+  assert(!!e, "second call reads the payload the first call did not free");
+  assert(!!e, "third call");
+  comptime_expect_error({
+    (_h : Dyn(LogicalNot)) = dyn(_PmHeld(n : i32(1)));
+  }, "cannot hold the move-only");
+});
+
 // Passing a function value checks its type against a function-typed
 // parameter as binding does, modes included: a by-value `fn(s : String)`
 // drops what an `imm(s)` slot only lends (a double free;
 // issues/fixed/a-function-argument-is-not-checked-against-a-function-typed-parameter.md).
-_PmHook :: (fn(imm(s) : String) -> usize);
-_PmMutHook :: (fn(mut(n) : i32) -> unit);
+_PmHook :: (fn(s : &String) -> usize);
+_PmMutHook :: (fn(n : &mut i32) -> unit);
 _PmByValHook :: (fn(s : String) -> usize);
-_pm_call_hook :: (fn(f : _PmHook, imm(s) : String) -> usize)(f(s));
-_pm_call_mut_hook :: (fn(f : _PmMutHook, mut(n) : i32) -> unit)(f(n));
+_pm_call_hook :: (fn(f : _PmHook, s : &String) -> usize)(f(s));
+_pm_call_mut_hook :: (fn(f : _PmMutHook, n : &mut i32) -> unit)(f(n));
 _pm_call_byval_hook :: (fn(f : _PmByValHook, s : String) -> usize)(f(s));
 _pm_sink_len :: (fn(sink(s) : String) -> usize)(s.len());
 _pm_plain_bump :: (fn(n : i32) -> unit)(());
-_pm_imm_bump :: (fn(imm(n) : i32) -> unit)(());
-_pm_len_i32 :: (fn(imm(s) : String) -> i32)(i32(1));
+_pm_imm_bump :: (fn(n : &i32) -> unit)(());
+_pm_len_i32 :: (fn(s : &String) -> i32)(i32(1));
 _PmHookBox :: struct(f : _PmHook);
 _PmLens :: struct(k : usize);
-impl(_PmLens, by_value : (fn(s : String) -> usize)(s.len()), lent : (fn(imm(s) : String) -> usize)(s.len()));
+impl(_PmLens, by_value : (fn(s : String) -> usize)(s.len()), lent : (fn(s : &String) -> usize)(s.len()));
 test("a function argument's modes must be its function-typed parameter's", {
   s := String.from("abc");
   (n : i32) = i32(1);
@@ -308,7 +370,7 @@ test("a function value whose modes are the slot's is accepted", {
   assert(n == i32(2), "a mut function for a mut slot writes through");
   assert(_pm_apply_imm(_pm_len, s) == usize(3), "an imm function for Impl(Fn(imm(s) : String) -> usize)");
   assert(_pm_apply_imm(t => t.len(), s) == usize(3), "a closure literal adopts the slot's modes");
-  (c : Impl(Fn(imm(t) : String) -> usize)) = (t => t.len());
+  (c : Impl(Fn(t : &String) -> usize)) = (t => t.len());
   assert(_pm_apply_imm(c, s) == usize(3), "a named closure typed with the slot's modes");
   assert(_PmHookBox(f : _pm_len).f(s) == usize(3), "a struct field of the slot's type");
   assert(s.len() == usize(3), "s was only ever lent");
@@ -343,7 +405,7 @@ test("the deleted spellings inout and own are errors naming mut and sink", {
 // the arm writes through; the scrutinee is reached only through the places
 // while one is live (E0911).
 // ---------------------------------------------------------------------------
-_pm_bump :: (fn(mut(o) : Option(i32)) -> unit)(
+_pm_bump :: (fn(o : &mut Option(i32)) -> unit)(
   match(
     o,
     .Some(n) => {
@@ -352,7 +414,7 @@ _pm_bump :: (fn(mut(o) : Option(i32)) -> unit)(
     .None => ()
   )
 );
-_pm_rename :: (fn(mut(o) : Option(String)) -> unit)(
+_pm_rename :: (fn(o : &mut Option(String)) -> unit)(
   match(
     o,
     .Some(s) => {
@@ -362,7 +424,7 @@ _pm_rename :: (fn(mut(o) : Option(String)) -> unit)(
   )
 );
 _PmPair :: enum(P(a : i32, b : String), Q);
-_pm_read_place :: (fn(mut(p) : _PmPair) -> usize)(
+_pm_read_place :: (fn(p : &mut _PmPair) -> usize)(
   match(
     p,
     .P(a, b) => (usize(a) + b.len()),
@@ -420,7 +482,7 @@ test("the scrutinee is reached only through a live mut place", {
   );
   (h : Option(i32)) = .Some(i32(1));
   comptime_expect_error(
-    (fn(imm(x) : Option(i32)) -> i32)(match(&mut x, .Some(n) => n, .None => i32(0))),
+    (fn(x : &Option(i32)) -> i32)(match(&mut x, .Some(n) => n, .None => i32(0))),
     "is a `&` borrow"
   );
   comptime_expect_error(match(&mut Option(i32).Some(i32(1)), .Some(n) => n, .None => i32(0)), "is a temporary");
@@ -439,4 +501,52 @@ test("a mut place's writing method writes the scrutinee's part", {
     .None => ()
   );
   assert(match(&ol, .Some(xs) => xs.len(), .None => usize(0)) == usize(2), "pushed in place, twice");
+});
+
+test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
+  comptime_expect_error((fn(imm(s) : String) -> usize)(s.len()), "`imm(x)` was deleted: a read-only borrow is spelled `x : &T`");
+  comptime_expect_error(
+    (fn(mut(n) : i32) -> unit)({
+      n = i32(1);
+    }),
+    "`mut(x)` was deleted: an exclusive borrow is spelled `x : &mut T`"
+  );
+  comptime_expect_error((fn(comptime(imm(n)) : i32) -> i32)(n), "`imm(x)` was deleted");
+  comptime_expect_error((fn(f : Impl(Fn(imm(v) : String) -> usize)) -> unit)(()), "`imm(x)` was deleted");
+  comptime_expect_error((imm(v) : String) => v.len(), "`imm(x)` was deleted");
+  (_v : i32) = i32(0);
+  comptime_expect_error(
+    _pm_apply_mut(mut(n) => {
+      n = i32(1);
+    }, _v),
+    "`mut(x)` was deleted"
+  );
+  comptime_expect_error((fn(s : String) -> imm(String))(s), "`imm(x)` was deleted");
+  (_c : i32) = i32(0);
+  comptime_expect_error({
+    imm(y) := _c;
+  }, "`imm(x)` was deleted");
+  comptime_expect_error({
+    mut(y) := _c;
+  }, "`mut(x)` was deleted");
+  comptime_expect_error({
+    y := &mut _c;
+    mut(y) = _c;
+  }, "`mut(x)` was deleted");
+  comptime_expect_error({ imm(_c) }() => i32(1), "`imm(x)` was deleted");
+  comptime_expect_error({ mut(z) : &mut _c }() => i32(1), "`mut(x)` was deleted");
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  comptime_expect_error(
+    for(xs, mut(x) => {
+      x = i32(2);
+    }),
+    "`for(coll, mut(x) => ...)` was deleted"
+  );
+  assert(xs(usize(0)) == i32(1), "nothing was written");
+});
+
+test("imm is an ordinary identifier", {
+  (imm : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(1)));
+  assert(imm(i32(1)) == i32(2), "a closure named imm is called");
 });

@@ -89,7 +89,7 @@ impl(
   /// O(n_slots) copy per fork per generation. Every step of the simulation
   /// forks rather than mutating, so a thread's captures are only ever written
   /// by the thread that owns them.
-  fork : (fn(imm(self) : Self, new_pc : usize) -> Self)({
+  fork : (fn(self : &Self, new_pc : usize) -> Self)({
     new_slots := ArrayList(usize).with_capacity(self.slots.len());
     match(
       self.slots.ptr(),
@@ -162,7 +162,7 @@ impl(
   /// bitmaps to the instruction count. Those two allocations are hoisted here,
   /// rather than made per generation, because `exec_at` clears them with a
   /// `memset` on every step.
-  new : (fn(imm(program) : NfaProgram, flags : RegexFlags, imm(input) : String) -> Self)({
+  new : (fn(program : &NfaProgram, flags : RegexFlags, input : &String) -> Self)({
     n_slots := ((program.n_groups + usize(1)) * usize(2));
     n_instr := program.instructions.len();
     seen := ArrayList(bool).with_capacity(n_instr);
@@ -183,20 +183,20 @@ impl(
   // happens to hold, so a malformed sequence yields U+FFFD and a width of 1
   // rather than failing. The old hand-rolled version indexed `_bytes` past the
   // end on a truncated tail; `decode_lossy` bounds-checks instead.
-  _decode_codepoint : (fn(imm(self) : Self, pos : usize) -> DecodedChar)({
+  _decode_codepoint : (fn(self : &Self, pos : usize) -> DecodedChar)({
     d := utf8.decode_lossy(self._bytes, pos);
     DecodedChar(codepoint : d.code.to_u32(), byte_len : d.width)
   }),
-  _to_lower : (fn(imm(self) : Self, cp : u32) -> u32)(
+  _to_lower : (fn(self : &Self, cp : u32) -> u32)(
     cond(
       ((cp >= u32(65)) && (cp <= u32(90))) => (cp + u32(32)),
       true => cp
     )
   ),
-  _is_word_char : (fn(imm(self) : Self, cp : u32) -> bool)(
+  _is_word_char : (fn(self : &Self, cp : u32) -> bool)(
     ((cp >= u32(48)) && (cp <= u32(57))) || ((cp >= u32(65)) && (cp <= u32(90))) || ((cp >= u32(97)) && (cp <= u32(122))) || (cp == u32(95))
   ),
-  _find_prev_char_start : (fn(imm(self) : Self, pos : usize) -> usize)({
+  _find_prev_char_start : (fn(self : &Self, pos : usize) -> usize)({
     p := (pos - usize(1));
     while(p > usize(0), p = (p - usize(1)), {
       b := self._bytes(p);
@@ -209,7 +209,7 @@ impl(
     });
     p
   }),
-  _prev_byte_is_newline : (fn(imm(self) : Self, pos : usize) -> bool)(
+  _prev_byte_is_newline : (fn(self : &Self, pos : usize) -> bool)(
     cond(
       (pos == usize(0)) => false,
       true => {
@@ -218,7 +218,7 @@ impl(
       }
     )
   ),
-  _cur_byte_is_newline : (fn(imm(self) : Self, pos : usize) -> bool)(
+  _cur_byte_is_newline : (fn(self : &Self, pos : usize) -> bool)(
     cond(
       (pos >= self._bytes.len()) => false,
       true => {
@@ -231,14 +231,14 @@ impl(
 // Block 2: Methods that depend on Block 1
 impl(
   NfaVm,
-  _char_matches : (fn(imm(self) : Self, expected : u32, actual : u32) -> bool)(
+  _char_matches : (fn(self : &Self, expected : u32, actual : u32) -> bool)(
     cond(
       (expected == actual) => true,
       self._flags.ignore_case => (self._to_lower(expected) == self._to_lower(actual)),
       true => false
     )
   ),
-  _codepoint_in_class : (fn(imm(self) : Self, cp : u32, imm(cls) : ClassEntry) -> bool)({
+  _codepoint_in_class : (fn(self : &Self, cp : u32, cls : &ClassEntry) -> bool)({
     check_cp := cond(
       self._flags.ignore_case => self._to_lower(cp),
       true => cp
@@ -282,7 +282,7 @@ impl(
       true => found
     )
   }),
-  _is_word_boundary : (fn(imm(self) : Self, pos : usize) -> bool)({
+  _is_word_boundary : (fn(self : &Self, pos : usize) -> bool)({
     left_is_word := cond(
       (pos == usize(0)) => false,
       true => {
@@ -304,7 +304,7 @@ impl(
 // Block 3: _add_thread (recursive, depends on Block 1+2)
 impl(
   NfaVm,
-  _add_thread : (fn(imm(self) : Self, mut(list) : ArrayList(NfaThread), imm(thread) : NfaThread, byte_pos : usize, mut(seen) : ArrayList(bool)) -> unit)({
+  _add_thread : (fn(self : &Self, list : &mut ArrayList(NfaThread), thread : &NfaThread, byte_pos : usize, seen : &mut ArrayList(bool)) -> unit)({
     cond(
       (thread.pc >= self._program.instructions.len()) => {
         return(());
@@ -400,7 +400,7 @@ impl(
   NfaVm,
   // Run a sub-VM starting at sub_start_pc from start_byte.
   // If required_end is not UNSET, only succeed when Match is found at exactly required_end.
-  _run_sub_vm : (fn(imm(self) : Self, sub_start_pc : usize, start_byte : usize, required_end : usize) -> bool)({
+  _run_sub_vm : (fn(self : &Self, sub_start_pc : usize, start_byte : usize, required_end : usize) -> bool)({
     unset := usize.MAX;
     sub_current := ArrayList(NfaThread).new();
     sub_next := ArrayList(NfaThread).new();
@@ -535,7 +535,7 @@ impl(
   ///
   /// `start_byte` is not boundary-checked: a mid-rune offset simply decodes
   /// the bytes it finds there and, for a valid pattern, fails to match.
-  exec_at : (fn(imm(self) : Self, start_byte : usize) -> VmMatch)({
+  exec_at : (fn(self : &Self, start_byte : usize) -> VmMatch)({
     // Reuse pre-allocated seen buffers from the VM
     current := ArrayList(NfaThread).new();
     next := ArrayList(NfaThread).new();

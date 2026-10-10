@@ -44,7 +44,7 @@ _have_z3 :: (fn() -> bool)(
   )
 );
 _load_reports :: (
-  fn(imm(rel_path) : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+  fn(rel_path : &String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
 )({
   exn := Exception(
     throw : (
@@ -84,7 +84,7 @@ _load_reports :: (
   verify_and_strip_tasks(cfg, binary, take_verify_tasks())
 });
 /// The rendered load diagnostic for a fixture that must FAIL to load.
-_load_error :: (fn(imm(rel_path) : String, io : Io) -> String)({
+_load_error :: (fn(rel_path : &String, io : Io) -> String)({
   exn := Exception(
     throw : (
       err -> {
@@ -109,7 +109,7 @@ _load_error :: (fn(imm(rel_path) : String, io : Io) -> String)({
     .None => String.from("(no diagnostic recorded)")
   )
 });
-_reports_dump :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> String)({
+_reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -133,7 +133,7 @@ _reports_dump :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> String)({
   });
   sb.to_string()
 });
-_count_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(outcome) : String) -> usize)({
+_count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -153,7 +153,7 @@ _count_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(outcome) : S
 /// The first report with the given outcome whose subset_construct or an
 /// obligation counter-example contains `needle`; asserts it exists.
 _first_refuted_with :: (
-  fn(imm(reports) : ArrayList(VerifyFnReport), imm(name_needle) : String, imm(ce_needle) : String) -> VerifyFnReport
+  fn(reports : &ArrayList(VerifyFnReport), name_needle : &String, ce_needle : &String) -> VerifyFnReport
 )({
   found := Option(VerifyFnReport).None;
   (i : usize) = usize(0);

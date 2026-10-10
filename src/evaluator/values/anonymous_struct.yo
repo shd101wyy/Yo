@@ -47,10 +47,10 @@ pragma(Pragma.AllowUnsafe);
 ///
 evaluate_anonymous_struct_value :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   (cur_env : Environment) = env;
@@ -113,15 +113,16 @@ evaluate_anonymous_struct_value :: (
   (i : usize) = usize(0);
   while(i < n, {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
-    // `imm(y)` / `mut(z)` (or `imm(y) : &p`) is a capture-list borrow entry
-    // (decision 35): it means something only before a closure's parameters.
+    // `__yo_imm(y)` / `__yo_mut(z)` (the puns `&y` / `&mut z`, or the label
+    // of `y : &p`) is a capture-list borrow entry (decision 35): it means
+    // something only before a closure's parameters.
     entry_label := if(ast_expr_is_fn_call_of(arg, ":", Option(usize).Some(usize(2))), match(arg, .FnCall(_, _, ea, _, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), .Atom(_, _) => arg), arg);
     if(ast_expr_is_capture_mode_entry(arg) || ast_expr_is_capture_mode_entry(entry_label), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `\`${ast_expr_to_string(arg)}\` is a borrow entry of a closure's capture list, which is written before the closure's parameters: \`{ imm(y) }(x : i32) => ...\`. A record literal's field is \`name : value\`.`
+            `\`${ast_expr_to_string(arg)}\` is a borrow entry of a closure's capture list, which is written before the closure's parameters: \`{ &y }(x : i32) => ...\`. A record literal's field is \`name : value\`.`
           )
         )
       );

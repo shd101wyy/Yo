@@ -57,10 +57,10 @@ pragma(Pragma.AllowUnsafe);
 /// If value is .Some(other), throws with a descriptive error.
 _extract_type_val :: (
   fn(
-    imm(arg) : AstExpr,
-    imm(info) : ExprInfo,
+    arg : &AstExpr,
+    info : &ExprInfo,
     fn_name : str,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> TypeValue
 )(
   match(
@@ -97,10 +97,10 @@ _extract_type_val :: (
 /// Returns the string representation of type T.
 evaluate_yo_type_to_string :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -185,10 +185,10 @@ evaluate_yo_type_to_string :: (
 /// Returns true if `given` type is compatible with `expected` type.
 evaluate_yo_are_types_compatible :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -297,10 +297,10 @@ evaluate_yo_are_types_compatible :: (
 /// Returns true if the two types are exactly equal (no implicit conversions).
 evaluate_yo_are_types_equal :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -388,10 +388,10 @@ evaluate_yo_are_types_equal :: (
 /// Delegates to type_contains_rc_type (stub: always false in Phase 2).
 evaluate_yo_type_contains_rc_type :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -446,10 +446,10 @@ evaluate_yo_type_contains_rc_type :: (
 /// Delegates to can_type_form_rc_cycle (stub: always false in Phase 2).
 evaluate_yo_type_can_form_rc_cycle :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -504,10 +504,10 @@ evaluate_yo_type_can_form_rc_cycle :: (
 ///
 evaluate_yo_type_impls :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -632,7 +632,7 @@ evaluate_yo_type_impls :: (
 // Phase 3 private helpers — used by the five builtins below.
 // ---------------------------------------------------------------------------
 /// Unwind a string for safe embedding inside a Yo double-quoted string literal.
-_ti_escape_str :: (fn(imm(s) : String) -> String)({
+_ti_escape_str :: (fn(s : &String) -> String)({
   s2 := s.replace(String.from("\\"), String.from("\\\\"));
   s2.replace(String.from("\""), String.from("\\\""))
 });
@@ -641,7 +641,7 @@ _ti_escape_str :: (fn(imm(s) : String) -> String)({
 /// Used by `_ti_build_type_field_info` to build the code string passed
 /// to `_ti_eval_code`. Pure string composition.
 format_type_field_info_call :: (
-  fn(imm(escaped_label) : String, imm(ty_var_name) : String) -> String
+  fn(escaped_label : &String, ty_var_name : &String) -> String
 )(
   String.from("TypeFieldInfo(\"") + escaped_label + String.from("\", ") + ty_var_name +
     String.from(")")
@@ -651,7 +651,7 @@ format_type_field_info_call :: (
 /// Used by `_ti_build_variant_info` to build the code string passed to
 /// `_ti_eval_code`. Pure string composition.
 format_variant_info_call :: (
-  fn(imm(escaped_name) : String, imm(fl_var_name) : String, imm(et_var_name) : String, imm(idx_str) : String) -> String
+  fn(escaped_name : &String, fl_var_name : &String, et_var_name : &String, idx_str : &String) -> String
 )(
   String.from("VariantInfo(\"") + escaped_name + String.from("\", ") + fl_var_name +
     String.from(", ")
@@ -664,9 +664,9 @@ format_variant_info_call :: (
 /// Mutates env in place via pointer; returns the generated variable name.
 _ti_bind_type :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(ty) : TypeValue,
-    imm(_ctx) : EvalContext
+    env_ptr : &Environment,
+    ty : &TypeValue,
+    _ctx : &EvalContext
   ) -> String
 )({
   name_str := stable_module_id(String.from("__ti_t_"), env_ptr.module_path);
@@ -687,10 +687,10 @@ _ti_bind_type :: (
 /// Updates env pointed to by env_ptr; returns the resulting EvalValue if any.
 _ti_eval_code :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(code) : String,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env_ptr : &Environment,
+    code : &String,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> Option(EvalValue)
 )({
   code_expr := generate_expr_from_code(code.clone(), exn);
@@ -722,12 +722,12 @@ _ti_eval_code :: (
 /// returns its name.
 _ti_bind_comptime_list :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(values) : ArrayList(EvalValue),
-    imm(type_name) : String,
-    imm(var_prefix) : String,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env_ptr : &Environment,
+    values : &ArrayList(EvalValue),
+    type_name : &String,
+    var_prefix : &String,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> String
 )({
   elem_type := {
@@ -774,11 +774,11 @@ _ti_bind_comptime_list :: (
 /// Evaluates `TypeFieldInfo("label", ty_var)` in the env via code string.
 _ti_build_type_field_info :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(label) : String,
-    imm(field_ty) : TypeValue,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env_ptr : &Environment,
+    label : &String,
+    field_ty : &TypeValue,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> EvalValue
 )({
   ty_name := _ti_bind_type(env_ptr, field_ty, ctx);
@@ -794,11 +794,11 @@ _ti_build_type_field_info :: (
 /// Returns the name of the temp var holding the list.
 _ti_bind_type_field_list :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(labels) : ArrayList(String),
-    imm(types) : ArrayList(TypeValue),
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env_ptr : &Environment,
+    labels : &ArrayList(String),
+    types : &ArrayList(TypeValue),
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> String
 )({
   fi_vals := ArrayList(EvalValue).new();
@@ -817,14 +817,14 @@ _ti_bind_type_field_list :: (
 /// Evaluates `VariantInfo("name", fl_var, et_var, usize(idx))` via code string.
 _ti_build_variant_info :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(v_name) : String,
-    imm(v_field_labels) : ArrayList(String),
-    imm(v_field_types) : ArrayList(TypeValue),
-    imm(enum_ty) : TypeValue,
+    env_ptr : &Environment,
+    v_name : &String,
+    v_field_labels : &ArrayList(String),
+    v_field_types : &ArrayList(TypeValue),
+    enum_ty : &TypeValue,
     v_idx : usize,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> EvalValue
 )({
   et_name := _ti_bind_type(env_ptr, enum_ty, ctx);
@@ -842,13 +842,13 @@ _ti_build_variant_info :: (
 /// Returns the name of the temp var holding the list.
 _ti_bind_variant_info_list :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(enum_ty) : TypeValue,
-    imm(variant_names) : ArrayList(String),
-    imm(variant_fields) : ArrayList(ArrayList(TypeValue)),
-    imm(variant_field_labels) : ArrayList(ArrayList(String)),
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env_ptr : &Environment,
+    enum_ty : &TypeValue,
+    variant_names : &ArrayList(String),
+    variant_fields : &ArrayList(ArrayList(TypeValue)),
+    variant_field_labels : &ArrayList(ArrayList(String)),
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> String
 )({
   vi_vals := ArrayList(EvalValue).new();
@@ -867,11 +867,11 @@ _ti_bind_variant_info_list :: (
 /// Build a ComptimeList(TraitInfo) from trait types and bind to a temp var.
 _ti_bind_trait_info_list :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(trait_types) : ArrayList(TypeValue),
-    imm(prefix) : String,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env_ptr : &Environment,
+    trait_types : &ArrayList(TypeValue),
+    prefix : &String,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> String
 )({
   values := ArrayList(EvalValue).new();
@@ -900,13 +900,13 @@ _ti_bind_trait_info_list :: (
 /// Build one ParamInfo value.
 _ti_build_param_info :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(label) : String,
-    imm(ty) : TypeValue,
+    env_ptr : &Environment,
+    label : &String,
+    ty : &TypeValue,
     is_comptime : bool,
     is_variadic : bool,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> EvalValue
 )({
   ty_name := _ti_bind_type(env_ptr, ty, ctx);
@@ -927,21 +927,21 @@ _ti_build_param_info :: (
 /// unreachable from a bare TypeValue — recorded gap in the map.
 _ti_bind_function_info :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(param_labels) : ArrayList(String),
-    imm(param_types) : ArrayList(TypeValue),
-    imm(forall_labels) : ArrayList(String),
-    imm(forall_types) : ArrayList(TypeValue),
-    imm(implicit_labels) : ArrayList(String),
-    imm(implicit_types) : ArrayList(TypeValue),
-    imm(result_ty) : TypeValue,
+    env_ptr : &Environment,
+    param_labels : &ArrayList(String),
+    param_types : &ArrayList(TypeValue),
+    forall_labels : &ArrayList(String),
+    forall_types : &ArrayList(TypeValue),
+    implicit_labels : &ArrayList(String),
+    implicit_types : &ArrayList(TypeValue),
+    result_ty : &TypeValue,
     // The variadic parameter (0-or-1 in variadic_types; label/comptime from
     // FuncMeta) — appended to the params list after the fixed params.
-    imm(variadic_types) : ArrayList(TypeValue),
-    imm(variadic_label) : String,
+    variadic_types : &ArrayList(TypeValue),
+    variadic_label : &String,
     variadic_comptime : bool,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> String
 )({
   param_vals := ArrayList(EvalValue).new();
@@ -1055,12 +1055,12 @@ _ti_bind_function_info :: (
 /// unassigned some-type).
 _ti_bind_trait_field_info_list :: (
   fn(
-    imm(env_ptr) : Environment,
-    imm(field_labels) : ArrayList(String),
-    imm(field_types) : ArrayList(TypeValue),
-    imm(assoc_type_names) : ArrayList(String),
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env_ptr : &Environment,
+    field_labels : &ArrayList(String),
+    field_types : &ArrayList(TypeValue),
+    assoc_type_names : &ArrayList(String),
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> String
 )({
   values := ArrayList(EvalValue).new();
@@ -1108,10 +1108,10 @@ _ti_bind_trait_field_info_list :: (
 /// Returns a TypeInfo enum value with metadata about the type.
 evaluate_yo_type_get_info :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -1410,10 +1410,10 @@ evaluate_yo_type_get_info :: (
 /// Parses and evaluates a comptime_str as Yo code. Returns unit.
 evaluate_comptime_eval :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -1507,10 +1507,10 @@ evaluate_comptime_eval :: (
 /// Parses a comptime_str as a Yo expression and returns it as a comptime Expr.
 evaluate_comptime_string_to_expr :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -1594,10 +1594,10 @@ evaluate_comptime_string_to_expr :: (
 /// all Exprs left-associatively using the combiner operator.
 evaluate_type_join_fields :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -1895,10 +1895,10 @@ evaluate_type_join_fields :: (
 /// a ComptimeList(Expr) for use with unquote_splicing.
 evaluate_type_map_variants :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(

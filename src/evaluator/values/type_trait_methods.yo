@@ -57,7 +57,7 @@
 /// The registry id of a `Dyn` type: its required (and negative) traits'
 /// identities, sorted, so `Dyn(A, B)` and `Dyn(B, A)` share one. A nominal trait
 /// contributes its id; an `Fn`/`Future` trait its structural key.
-_dyn_type_id :: (fn(imm(rtt) : ArrayList(TypeValue), imm(ntt) : ArrayList(TypeValue)) -> String)({
+_dyn_type_id :: (fn(rtt : &ArrayList(TypeValue), ntt : &ArrayList(TypeValue)) -> String)({
   keys := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < rtt.len(), {
@@ -81,14 +81,14 @@ _dyn_type_id :: (fn(imm(rtt) : ArrayList(TypeValue), imm(ntt) : ArrayList(TypeVa
   });
   `__yo_dyn(${String.from("+").join(keys)})`
 });
-_dyn_member_key :: (fn(imm(t) : TypeValue) -> String)(
+_dyn_member_key :: (fn(t : &TypeValue) -> String)(
   match(
     t,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
     _ => type_key(t)
   )
 );
-type_id_or_empty :: (fn(imm(t) : TypeValue) -> String)(
+type_id_or_empty :: (fn(t : &TypeValue) -> String)(
   match(
     t,
     .Struct({ id }) => id,
@@ -204,7 +204,7 @@ MethodEntry :: ref(
 /// the loader pushes into it, because importing module_loader from this
 /// module would close the module_loader → env → type_trait_methods cycle.
 (_registration_owner : String) = String.new();
-set_registration_owner :: (fn(imm(owner) : String) -> unit)({
+set_registration_owner :: (fn(owner : &String) -> unit)({
   set_current_owner(owner.clone());
   _registration_owner = owner;
 });
@@ -269,11 +269,11 @@ owned_id_log_entry_count :: (fn() -> usize)({
   n
 });
 /// Remove and return the expression ids `owner`'s evaluation recorded.
-take_owned_expr_ids :: (fn(imm(owner) : String) -> ArrayList(usize))(
+take_owned_expr_ids :: (fn(owner : &String) -> ArrayList(usize))(
   match(g_owned_expr_ids.remove(owner), .Some(ids) => ids, .None => ArrayList(usize).new())
 );
 /// Record `func_id` under the current owner (no-op outside a module load).
-record_owned_func_id :: (fn(imm(func_id) : String) -> unit)({
+record_owned_func_id :: (fn(func_id : &String) -> unit)({
   if((_registration_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
@@ -282,7 +282,7 @@ record_owned_func_id :: (fn(imm(func_id) : String) -> unit)({
   g_owned_func_ids.insert(_registration_owner.clone(), ids);
 });
 /// Remove and return the function ids `owner`'s evaluation registered.
-take_owned_func_ids :: (fn(imm(owner) : String) -> ArrayList(String))({
+take_owned_func_ids :: (fn(owner : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   match(
     g_owned_func_ids.remove(owner),
@@ -303,7 +303,7 @@ take_owned_func_ids :: (fn(imm(owner) : String) -> ArrayList(String))({
 /// itself included. Installed by module_loader.yo (`register_loading`),
 /// which owns the edge lists — importing it from here would close the
 /// module_loader → env → type_trait_methods cycle.
-ImportClosureFn :: (fn(imm(module) : String) -> HashSet(String));
+ImportClosureFn :: (fn(module : &String) -> HashSet(String));
 (g_import_closure_fn : Option(ImportClosureFn)) = Option(ImportClosureFn).None;
 set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
   g_import_closure_fn = Option(ImportClosureFn).Some(f);
@@ -312,7 +312,7 @@ set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
 /// comparisons go through their canonical spelling, memoized because this
 /// sits on the method-resolution path.
 (_canonical_owner_memo : HashMap(String, String)) = HashMap(String, String).new();
-_canonical_owner :: (fn(imm(owner) : String) -> String)(
+_canonical_owner :: (fn(owner : &String) -> String)(
   match(
     _canonical_owner_memo.get(owner.clone()),
     .Some(c) => c,
@@ -339,7 +339,7 @@ _canonical_owner :: (fn(imm(owner) : String) -> String)(
 ///   - otherwise the owner must be in the current module's import closure
 ///     (the prelude's key is in every closure via `mark_owner_always_visible`,
 ///     module_loader.yo — mm_load_prelude_file marks it when it stamps it).
-owner_visible_from_current :: (fn(imm(owner) : String) -> bool)({
+owner_visible_from_current :: (fn(owner : &String) -> bool)({
   if(_registration_owner.len() == usize(0), {
     return(true);
   });
@@ -359,7 +359,7 @@ owner_visible_from_current :: (fn(imm(owner) : String) -> bool)({
 /// created on demand. The owner tag is read from the module-loader's
 /// loading stack HERE so registration call sites stay unchanged.
 register_type_trait_method :: (
-  fn(imm(type_id) : String, imm(entry) : MethodEntry) -> unit
+  fn(type_id : &String, entry : &MethodEntry) -> unit
 )({
   owner := _registration_owner.clone();
   if(entry.owner.len() == usize(0), {
@@ -380,7 +380,7 @@ register_type_trait_method :: (
 /// prelude's `${std_path}/prelude.yo` owner key is deliberately NOT a
 /// loading-key spelling, so it never matches here: the cached prelude is
 /// never re-evaluated, and purging it would strand every later analysis.
-purge_type_trait_methods_owned_by :: (fn(imm(owner) : String) -> unit)({
+purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
@@ -440,7 +440,7 @@ purge_type_trait_methods_owned_by :: (fn(imm(owner) : String) -> unit)({
 /// prelude's are registered under its `${std_path}/prelude.yo` key —
 /// mm_load_prelude_file stamps it around the prelude's evaluation and is the
 /// one caller that collects them.
-type_trait_method_values_owned_by :: (fn(imm(owner) : String) -> ArrayList(EvalValue))({
+type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
   it := _type_trait_methods.keys();
   (go : bool) = true;
@@ -496,7 +496,7 @@ type_trait_methods_entry_count :: (fn() -> usize)({
 /// Return all method entries registered for `type_id`, or an empty
 /// list when nothing has been registered.
 get_type_trait_methods_for_type :: (
-  fn(imm(type_id) : String) -> ArrayList(MethodEntry)
+  fn(type_id : &String) -> ArrayList(MethodEntry)
 )(
   match(
     _type_trait_methods.get(type_id),
@@ -524,14 +524,14 @@ get_type_trait_methods_for_type :: (
 (_provisional_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
   HashMap(String, ArrayList(MethodEntry)).new();
 register_provisional_trait_method :: (
-  fn(imm(type_id) : String, imm(entry) : MethodEntry) -> unit
+  fn(type_id : &String, entry : &MethodEntry) -> unit
 )({
   list := match(_provisional_trait_methods.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(MethodEntry).new());
   list.push(entry);
   _provisional_trait_methods.insert(type_id, list);
 });
 get_provisional_trait_methods_by_name :: (
-  fn(imm(type_id) : String, imm(method_name) : String) -> ArrayList(MethodEntry)
+  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
   result := ArrayList(MethodEntry).new();
   match(
@@ -556,12 +556,12 @@ get_provisional_trait_methods_by_name :: (
   );
   result
 });
-clear_provisional_trait_methods :: (fn(imm(type_id) : String) -> unit)({
+clear_provisional_trait_methods :: (fn(type_id : &String) -> unit)({
   _provisional_trait_methods.remove(type_id);
 });
 /// Return only the method entries whose `label` matches `method_name`.
 get_type_trait_methods_by_name :: (
-  fn(imm(type_id) : String, imm(method_name) : String) -> ArrayList(MethodEntry)
+  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
   result := ArrayList(MethodEntry).new();
   all := get_type_trait_methods_for_type(type_id);
@@ -588,7 +588,7 @@ visibility_report_enabled :: (fn() -> bool)(g_visibility_report);
 /// getter method RESOLUTION uses (`env.yo`); codegen, the LSP and the
 /// registries' own bookkeeping keep the unfiltered view.
 get_visible_type_trait_methods_by_name :: (
-  fn(imm(type_id) : String, imm(method_name) : String) -> ArrayList(MethodEntry)
+  fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
   all := get_type_trait_methods_by_name(type_id, method_name);
   if(_registration_owner.len() == usize(0), {
@@ -659,7 +659,7 @@ clear_type_trait_methods :: (fn() -> unit)({
 /// defined at a DIFFERENT site — a genuine duplicate the caller must
 /// reject — and `.None` for a fresh definition or a same-site replay.
 note_inherent_method_site :: (
-  fn(imm(type_id) : String, imm(label) : String, imm(site) : String) -> Option(String)
+  fn(type_id : &String, label : &String, site : &String) -> Option(String)
 )({
   key := `${type_id}\n${label}`;
   match(
@@ -684,7 +684,7 @@ note_inherent_method_site :: (
 /// Record `site` as the impl of trait `trait_key` for `type_id`. Returns
 /// `.Some(previous_site)` for a second impl from a different site, `.None`
 /// for a first impl or a same-site replay.
-note_trait_impl_site :: (fn(imm(type_id) : String, imm(trait_key) : String, imm(site) : String) -> Option(String))({
+note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &String) -> Option(String))({
   key := `${type_id}\n${trait_key}`;
   match(
     _trait_impl_sites.get(key.clone()),
@@ -701,11 +701,11 @@ note_trait_impl_site :: (fn(imm(type_id) : String, imm(trait_key) : String, imm(
 });
 /// The site of the impl of trait `trait_key` for the type `type_id`, if one
 /// is registered (`note_trait_impl_site`), without recording anything.
-trait_impl_site_of :: (fn(imm(type_id) : String, imm(trait_key) : String) -> Option(String))(
+trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(String))(
   _trait_impl_sites.get(`${type_id}\n${trait_key}`)
 );
 /// Drop every trait-impl site registered by `owner` (LSP invalidation).
-purge_trait_impl_sites_owned_by :: (fn(imm(owner) : String) -> unit)({
+purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
@@ -740,7 +740,7 @@ purge_trait_impl_sites_owned_by :: (fn(imm(owner) : String) -> unit)({
 (_trait_method_defaults : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
 /// `_trait_method_defaults` keys by owner (the trait's module).
 (_trait_default_owned : OwnedKeys) = owned_keys_new();
-register_trait_default :: (fn(imm(trait_id) : String, imm(label) : String, imm(value) : EvalValue) -> unit)({
+register_trait_default :: (fn(trait_id : &String, label : &String, value : &EvalValue) -> unit)({
   key := (trait_id + String.from("::") + label);
   owned_keys_record(_trait_default_owned, key.clone());
   _trait_method_defaults.insert(key, value);
@@ -749,7 +749,7 @@ register_trait_default :: (fn(imm(trait_id) : String, imm(label) : String, imm(v
 trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.len());
 /// Drop the trait defaults `owner`'s evaluation registered (its traits are
 /// re-minted under fresh ids when it is re-evaluated).
-purge_trait_defaults_owned_by :: (fn(imm(owner) : String) -> unit)({
+purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({
   keys := owned_keys_take(_trait_default_owned, owner);
   (i : usize) = usize(0);
   while(i < keys.len(), {
@@ -763,7 +763,7 @@ purge_trait_defaults_owned_by :: (fn(imm(owner) : String) -> unit)({
     i = (i + usize(1));
   });
 });
-get_trait_default :: (fn(imm(trait_id) : String, imm(label) : String) -> Option(EvalValue))(
+get_trait_default :: (fn(trait_id : &String, label : &String) -> Option(EvalValue))(
   _trait_method_defaults.get(trait_id + String.from("::") + label)
 );
 /// Trait-method CONTRACT clauses (V6 task 1, FORMAL_VERIFICATION.md):
@@ -780,7 +780,7 @@ get_trait_default :: (fn(imm(trait_id) : String, imm(label) : String) -> Option(
 (_trait_method_ensures : HashMap(String, ArrayList(AstExpr))) = HashMap(String, ArrayList(AstExpr)).new();
 (_trait_method_return_labels : HashMap(String, String)) = HashMap(String, String).new();
 register_trait_method_contracts :: (
-  fn(imm(trait_id) : String, imm(label) : String, imm(reqs) : ArrayList(AstExpr), imm(enss) : ArrayList(AstExpr), imm(ret) : Option(String)) -> unit
+  fn(trait_id : &String, label : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
 )({
   key := (trait_id + String.from("::") + label);
   _trait_method_requires.insert(key.clone(), reqs);
@@ -793,21 +793,21 @@ register_trait_method_contracts :: (
     .None => ()
   );
 });
-trait_method_requires :: (fn(imm(trait_id) : String, imm(label) : String) -> ArrayList(AstExpr))(
+trait_method_requires :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
   match(
     _trait_method_requires.get(trait_id + String.from("::") + label),
     .Some(xs) => xs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
-trait_method_ensures :: (fn(imm(trait_id) : String, imm(label) : String) -> ArrayList(AstExpr))(
+trait_method_ensures :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
   match(
     _trait_method_ensures.get(trait_id + String.from("::") + label),
     .Some(xs) => xs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
-trait_method_return_label :: (fn(imm(trait_id) : String, imm(label) : String) -> Option(String))(
+trait_method_return_label :: (fn(trait_id : &String, label : &String) -> Option(String))(
   match(
     _trait_method_return_labels.get(trait_id + String.from("::") + label),
     .Some(r) => Option(String).Some(r.clone()),
@@ -821,21 +821,21 @@ trait_method_return_label :: (fn(imm(trait_id) : String, imm(label) : String) ->
 /// pattern as impl.yo's set_register_trait_value_fn). Installed by
 /// function.yo's init binding; before installation the readers return
 /// empty and the writer is a no-op.
-TraitContractReadFn :: (fn(imm(id) : String) -> ArrayList(AstExpr));
-TraitReturnLabelReadFn :: (fn(imm(id) : String) -> Option(String));
+TraitContractReadFn :: (fn(id : &String) -> ArrayList(AstExpr));
+TraitReturnLabelReadFn :: (fn(id : &String) -> Option(String));
 /// V6 task 3: the refine() ANNOTATION-registry write hook — contracts.yo
 /// (evaluate_refine) records an annotation node's predicate id into the
 /// registry types/function.yo owns; the two modules cannot import each
 /// other, so the pointer is installed at function.yo module init (the
 /// `_name := (fn() -> bool)({...})();` shape — a bare call is dropped
 /// from compiled binaries).
-RefineAnnotationRegisterFn :: (fn(expr_id : usize, imm(pred_fid) : String) -> unit);
+RefineAnnotationRegisterFn :: (fn(expr_id : usize, pred_fid : &String) -> unit);
 (g_refine_annotation_register : Option(RefineAnnotationRegisterFn)) = Option(RefineAnnotationRegisterFn).None;
 set_refine_annotation_hook :: (fn(r : RefineAnnotationRegisterFn) -> unit)({
   g_refine_annotation_register = Option(RefineAnnotationRegisterFn).Some(r);
   ()
 });
-hook_register_refine_annotation :: (fn(expr_id : usize, imm(pred_fid) : String) -> unit)(
+hook_register_refine_annotation :: (fn(expr_id : usize, pred_fid : &String) -> unit)(
   match(
     g_refine_annotation_register,
     .Some(f) => {
@@ -846,7 +846,7 @@ hook_register_refine_annotation :: (fn(expr_id : usize, imm(pred_fid) : String) 
   )
 );
 TraitContractRegisterFn :: (
-  fn(imm(id) : String, imm(reqs) : ArrayList(AstExpr), imm(enss) : ArrayList(AstExpr), imm(ret) : Option(String)) -> unit
+  fn(id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
 );
 (g_func_requires_read : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
 (g_func_ensures_read : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
@@ -865,21 +865,21 @@ set_func_contract_hooks :: (
   g_func_return_label_read = Option(TraitReturnLabelReadFn).Some(l);
   g_func_contract_register = Option(TraitContractRegisterFn).Some(w);
 });
-hook_func_requires :: (fn(imm(id) : String) -> ArrayList(AstExpr))(
+hook_func_requires :: (fn(id : &String) -> ArrayList(AstExpr))(
   match(
     g_func_requires_read,
     .Some(f) => f(id.clone()),
     .None => ArrayList(AstExpr).new()
   )
 );
-hook_func_ensures :: (fn(imm(id) : String) -> ArrayList(AstExpr))(
+hook_func_ensures :: (fn(id : &String) -> ArrayList(AstExpr))(
   match(
     g_func_ensures_read,
     .Some(f) => f(id.clone()),
     .None => ArrayList(AstExpr).new()
   )
 );
-hook_func_return_label :: (fn(imm(id) : String) -> Option(String))(
+hook_func_return_label :: (fn(id : &String) -> Option(String))(
   match(
     g_func_return_label_read,
     .Some(f) => f(id.clone()),
@@ -887,7 +887,7 @@ hook_func_return_label :: (fn(imm(id) : String) -> Option(String))(
   )
 );
 hook_register_func_contracts :: (
-  fn(imm(id) : String, imm(reqs) : ArrayList(AstExpr), imm(enss) : ArrayList(AstExpr), imm(ret) : Option(String)) -> unit
+  fn(id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
 )(
   match(
     g_func_contract_register,
@@ -917,7 +917,7 @@ hook_register_func_contracts :: (
 /// prevent is a SILENT 0
 /// (issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md).
 find_associated_const_usize :: (
-  fn(imm(recv) : TypeValue, imm(label) : String) -> Option(usize)
+  fn(recv : &TypeValue, label : &String) -> Option(usize)
 )({
   tid := type_id_or_empty(recv);
   if(tid.len() == usize(0), {
@@ -955,7 +955,7 @@ find_associated_const_usize :: (
 /// Decimal `IntLit` text -> `usize`. Local rather than imported: this module is
 /// below `evaluator/utils.yo` in the import order, and an associated constant
 /// used as a length is always a plain non-negative decimal literal.
-_parse_usize_literal :: (fn(imm(raw) : String) -> Option(usize))({
+_parse_usize_literal :: (fn(raw : &String) -> Option(usize))({
   if(raw.len() == usize(0), {
     return(Option(usize).None);
   });
@@ -988,7 +988,7 @@ _assoc_const_len_init := (fn() -> bool)({
 /// the first `.map(...)`'s `IterMap(MyRange, i32, F1)` answer `Item = i32`
 /// for a later `IterMap(MyRange64, i64, F2)`
 /// (issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md).
-assoc_type_registry_key :: (fn(imm(t) : TypeValue) -> String)({
+assoc_type_registry_key :: (fn(t : &TypeValue) -> String)({
   tid := type_id_or_empty(t);
   has_args := match(
     t,
@@ -1005,7 +1005,7 @@ assoc_type_registry_key :: (fn(imm(t) : TypeValue) -> String)({
 /// instantiation's durable entries (`assoc_type_registry_key`) first, else the
 /// ones under the plain type id (a concrete impl's `Item : i32`, registered
 /// with the impl).
-get_assoc_type_entries :: (fn(imm(t) : TypeValue, imm(label) : String) -> ArrayList(MethodEntry))({
+get_assoc_type_entries :: (fn(t : &TypeValue, label : &String) -> ArrayList(MethodEntry))({
   exact := get_type_trait_methods_by_name(assoc_type_registry_key(t), label.clone());
   cond(
     (exact.len() > usize(0)) => exact,

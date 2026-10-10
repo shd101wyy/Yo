@@ -120,7 +120,7 @@ export(WalkOptions);
 // ============================================================================
 // Internal path join helper
 // ============================================================================
-_join_path :: (fn(imm(base) : String, imm(name) : String) -> String)(
+_join_path :: (fn(base : &String, name : &String) -> String)(
   cond(
     base.ends_with(String.from("/")) => `${base}${name}`,
     true => `${base}/${name}`
@@ -131,7 +131,7 @@ _join_path :: (fn(imm(base) : String, imm(name) : String) -> String)(
 // async fn so the walker's loops keep a SINGLE top-level await per body —
 // awaits nested in cond arms inside its while-in-while trip
 // issues/fixed/async-nested-cond-await-duplicate-while-labels.md.
-_canon_dir_target :: (fn(imm(lp) : String, io : Io) -> Impl(Future(String, IoExn)))(
+_canon_dir_target :: (fn(lp : &String, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
     is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
     cond(
@@ -150,7 +150,7 @@ _canon_dir_target :: (fn(imm(lp) : String, io : Io) -> Impl(Future(String, IoExn
 /// Keep the entries whose ROOT-RELATIVE path matches `pattern` (byte prefix
 /// strip is exact — every entry path is `_join_path(root_s, ...)`). `.None`
 /// passes everything through.
-_filter_by_pattern :: (fn(imm(results) : ArrayList(WalkEntry), imm(root_s) : String, imm(pattern) : Option(String)) -> ArrayList(WalkEntry))({
+_filter_by_pattern :: (fn(results : &ArrayList(WalkEntry), root_s : &String, pattern : &Option(String)) -> ArrayList(WalkEntry))({
   pat := match(
     pattern,
     .Some(p) => p,
@@ -192,7 +192,7 @@ _filter_by_pattern :: (fn(imm(results) : ArrayList(WalkEntry), imm(root_s) : Str
 /// decision needs are awaits, and an await that deep inside the scan loop
 /// trips the async state machine
 /// (issues/fixed/async-nested-cond-await-duplicate-while-labels.md).
-walk_with :: (fn(imm(root) : Path, imm(options) : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
+walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
   root_s := root.to_string();
   io.async(e => {
     results := ArrayList(WalkEntry).new();
@@ -306,18 +306,18 @@ walk_with :: (fn(imm(root) : Path, imm(options) : WalkOptions, io : Io) -> Impl(
 /// copied into a `Path` immediately. An undecodable or unterminated pointer
 /// yields an EMPTY path rather than an error (`Path.from_cstr`), which then
 /// throws when the walk tries to read it.
-walk_with_cstr :: (fn(root : *u8, imm(options) : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(
+walk_with_cstr :: (fn(root : *u8, options : &WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(
   walk_with(Path.from_cstr(root), options, io)
 );
 /// Walk a directory tree with default options.
-walk :: (fn(imm(root) : Path, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk_with(root, WalkOptions.defaults(), io));
+walk :: (fn(root : &Path, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk_with(root, WalkOptions.defaults(), io));
 /// `walk` taking a NUL-terminated C string as the root. See
 /// `walk_with_cstr` for what an undecodable pointer does.
 walk_cstr :: (fn(root : *u8, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk(Path.from_cstr(root), io));
 /// Split a glob pattern into (static base dir, relative pattern): the base
 /// is everything up to the last `/` BEFORE the first metacharacter
 /// (`*`, `?`, `[`), or `.` when the pattern is relative with no static dir.
-_glob_split :: (fn(imm(pattern) : String) -> struct(base : String, rest : String))({
+_glob_split :: (fn(pattern : &String) -> struct(base : String, rest : String))({
   bs := pattern;
   n := bs.len();
   // First metacharacter position (n = none).
@@ -363,7 +363,7 @@ _glob_split :: (fn(imm(pattern) : String) -> struct(base : String, rest : String
 /// walk from the pattern's static prefix and return every matching path
 /// (files, dirs and symlinks alike; `**` crosses directories). Throws the
 /// walker's IoExn when the static base directory cannot be read.
-glob :: (fn(imm(pattern) : String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))({
+glob :: (fn(pattern : &String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))({
   parts := _glob_split(pattern);
   io.async(e => {
     opts := WalkOptions(
@@ -393,7 +393,7 @@ export(walk, walk_cstr, walk_with, walk_with_cstr, glob);
 /// imports `fs/dir` — the reverse import would be a cycle. This is the same
 /// implementation the compiler ran in production as a private helper
 /// (src/fetch.yo) before it moved into std.
-remove_dir_all :: (fn(imm(path) : Path, io : Io) -> Impl(Future(unit, IoExn)))(
+remove_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .None);
     entries := e.io.await(walk_with(path, opts, e.io), e);

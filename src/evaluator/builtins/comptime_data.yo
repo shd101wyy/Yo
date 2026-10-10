@@ -28,18 +28,18 @@
 { Exception } :: import("std/error");
 /// `StrLit` keeps its `"` delimiters; strip them positionally, the way codegen
 /// and `comptime_print` do.
-_unquote :: (fn(imm(raw) : String) -> String)({
+_unquote :: (fn(raw : &String) -> String)({
   n := raw.len();
   if((n >= usize(2)) && raw.starts_with("\"") && raw.ends_with("\""), raw.substring(usize(1), n - usize(1)), raw.clone())
 });
 /// A `ComptimeValue` variant value. `fields` are the constructor arguments in
 /// declaration order; the variant name is dot-prefixed, which is how every
 /// enum value is stored.
-_cv :: (fn(imm(variant) : String, imm(fields) : ArrayList(EvalValue)) -> EvalValue)(
+_cv :: (fn(variant : &String, fields : &ArrayList(EvalValue)) -> EvalValue)(
   EvalValue.EnumVal(`.${variant}`, fields)
 );
-_cv0 :: (fn(imm(variant) : String) -> EvalValue)(_cv(variant, ArrayList(EvalValue).new()));
-_cv1 :: (fn(imm(variant) : String, imm(field) : EvalValue) -> EvalValue)({
+_cv0 :: (fn(variant : &String) -> EvalValue)(_cv(variant, ArrayList(EvalValue).new()));
+_cv1 :: (fn(variant : &String, field : &EvalValue) -> EvalValue)({
   fs := ArrayList(EvalValue).new();
   fs.push(field);
   _cv(variant, fs)
@@ -51,7 +51,7 @@ _cv1 :: (fn(imm(variant) : String, imm(field) : EvalValue) -> EvalValue)({
 /// `8080.0` — which is what every use of this wants and what a reader would
 /// expect. The cut is on the value, not on the spelling: `8080.0` is also
 /// `.Int`, because the document cannot tell them apart.
-_lift_json :: (fn(imm(v) : JsonValue) -> EvalValue)(
+_lift_json :: (fn(v : &JsonValue) -> EvalValue)(
   match(
     v,
     .Null => _cv0(String.from("Null")),
@@ -94,7 +94,7 @@ _lift_json :: (fn(imm(v) : JsonValue) -> EvalValue)(
 /// and its integers and floats are already distinct, so the mapping is direct.
 /// A datetime has no `ComptimeValue` variant and arrives as its TOML spelling
 /// in a `.Str` — the alternative is a variant no caller can do anything with.
-_lift_toml :: (fn(imm(v) : TomlValue) -> EvalValue)(
+_lift_toml :: (fn(v : &TomlValue) -> EvalValue)(
   match(
     v,
     .Str(s) => _cv1(String.from("Str"), EvalValue.StrLit(`"${s}"`)),
@@ -130,7 +130,7 @@ _lift_toml :: (fn(imm(v) : TomlValue) -> EvalValue)(
 /// The prelude's `ComptimeValue` type, so the result annotation carries the
 /// type a `match` will check against. Looked up by NAME in the environment —
 /// the same route `_resolve_prelude_range_type` takes for `Range`.
-_comptime_value_type :: (fn(imm(env) : Environment) -> Option(TypeValue))({
+_comptime_value_type :: (fn(env : &Environment) -> Option(TypeValue))({
   vars := get_variables_from_env(env, String.from("ComptimeValue"));
   (i : usize) = usize(0);
   while(i < vars.len(), {
@@ -151,7 +151,7 @@ _comptime_value_type :: (fn(imm(env) : Environment) -> Option(TypeValue))({
 /// error. `.None` means "this is a trial run" — the argument has no value yet,
 /// so there is nothing to parse.
 _string_argument :: (
-  fn(imm(name) : String, imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> Option(String)
+  fn(name : &String, expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(String)
 )({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
@@ -192,7 +192,7 @@ _string_argument :: (
   )
 });
 /// Annotate `expr` with the `ComptimeValue` type and `value`.
-_annotate :: (fn(imm(expr) : AstExpr, imm(value) : Option(EvalValue), imm(env) : Environment, imm(ctx) : EvalContext) -> AstExpr)({
+_annotate :: (fn(expr : &AstExpr, value : &Option(EvalValue), env : &Environment, ctx : &EvalContext) -> AstExpr)({
   ty := match(_comptime_value_type(env), .Some(t) => t, .None => t_unit());
   info := new_expr_info(env, ty);
   info.value = value;
@@ -200,7 +200,7 @@ _annotate :: (fn(imm(expr) : AstExpr, imm(value) : Option(EvalValue), imm(env) :
   expr
 });
 evaluate_comptime_json_parse :: (
-  fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr
 )({
   src := _string_argument(String.from(BF_COMPTIME_JSON_PARSE), expr, env, ctx, exn);
   if(src.is_none(), {
@@ -225,7 +225,7 @@ evaluate_comptime_json_parse :: (
   _annotate(expr, Option(EvalValue).Some(lifted), env, ctx)
 });
 evaluate_comptime_toml_parse :: (
-  fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr
 )({
   src := _string_argument(String.from(BF_COMPTIME_TOML_PARSE), expr, env, ctx, exn);
   if(src.is_none(), {

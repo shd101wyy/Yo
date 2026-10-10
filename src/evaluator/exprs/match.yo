@@ -143,7 +143,7 @@ pragma(Pragma.AllowUnsafe);
 ///
 /// A method call (`x.f()`) is NOT a 2-arg dot call (its func IS the dot), so
 /// it still takes the begin() path and keeps its owning temp.
-is_place_expression :: (fn(imm(e) : AstExpr, imm(env) : Environment) -> bool)({
+is_place_expression :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   if(ast_expr_is_atom(e), {
     return(true);
   });
@@ -208,7 +208,7 @@ is_place_expression :: (fn(imm(e) : AstExpr, imm(env) : Environment) -> bool)({
 /// (int, float, bool, comptime_*). A match whose scrutinee is one of these and
 /// whose arms are all literal/constant/or-of-literal is stamped
 /// `is_primitive_match` so codegen keeps emitting the `switch`.
-is_matchable_primitive_type :: (fn(imm(ty) : TypeValue) -> bool)(
+is_matchable_primitive_type :: (fn(ty : &TypeValue) -> bool)(
   is_integer_type(ty) || is_float_type(ty) || is_c_compatible_type(ty) ||
     is_bool_type(ty) || is_comptime_int_type(ty)
     ||
@@ -217,7 +217,7 @@ is_matchable_primitive_type :: (fn(imm(ty) : TypeValue) -> bool)(
 /// True for a value that is a concrete compile-time literal (the scrutinee
 /// kinds the arm selection can decide on). A tuple/struct of literals is one
 /// (an opaque payload — an `Rc` — makes the whole value undecidable).
-_is_literal_val :: (fn(imm(v) : EvalValue) -> bool)(
+_is_literal_val :: (fn(v : &EvalValue) -> bool)(
   match(
     v,
     .IntLit(_) => true,
@@ -229,7 +229,7 @@ _is_literal_val :: (fn(imm(v) : EvalValue) -> bool)(
     _ => false
   )
 );
-_all_literal_vals :: (fn(imm(vals) : ArrayList(EvalValue)) -> bool)({
+_all_literal_vals :: (fn(vals : &ArrayList(EvalValue)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
   while((i < vals.len()) && ok, {
@@ -249,7 +249,7 @@ _all_literal_vals :: (fn(imm(vals) : ArrayList(EvalValue)) -> bool)({
 /// with an `if` inside the case block. Such a group of arms is only soundly
 /// switch-lowered when it jointly covers its variant (see the coverage pass
 /// before `register_match_arms` and `variant_group_covers` in pattern.yo).
-_variant_pattern_has_literal_sub :: (fn(imm(p) : Pattern) -> bool)(
+_variant_pattern_has_literal_sub :: (fn(p : &Pattern) -> bool)(
   match(
     p,
     .Variant(_, _, _, subs, _, _, _) => {
@@ -275,7 +275,7 @@ _variant_pattern_has_literal_sub :: (fn(imm(p) : Pattern) -> bool)(
 /// refines it to the variant's `-> recur(...)` arg at that position
 /// (e.g. expected `T`, tca `[T]`, variant args `[i32]` → `i32`).
 _gadt_refined_expected :: (
-  fn(imm(expected) : TypeValue, imm(tca) : ArrayList(TypeValue), imm(gra) : ArrayList(TypeValue)) -> TypeValue
+  fn(expected : &TypeValue, tca : &ArrayList(TypeValue), gra : &ArrayList(TypeValue)) -> TypeValue
 )({
   exp_id := match(expected, .SomeT({ id : sid }) => sid, _ => String.new());
   if(exp_id.len() == usize(0), {
@@ -301,7 +301,7 @@ _gadt_refined_expected :: (
 });
 /// The result type of a body given the running expected type (the arm's
 /// type unless a concrete expected type is in force).
-_arm_result_type :: (fn(imm(ctx) : EvalContext, imm(body_ty) : TypeValue) -> TypeValue)(
+_arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
   cond(
     match(ctx.expected_type, .Some(et) => (!type_contains_some_type(et.ty) && !type_mentions_impl_fn_or_future(et.ty)), .None => false) =>
       match(ctx.expected_type, .Some(et) => et.ty, .None => body_ty),
@@ -310,7 +310,7 @@ _arm_result_type :: (fn(imm(ctx) : EvalContext, imm(body_ty) : TypeValue) -> Typ
 );
 /// `env` takes over the frames of `src` (the body-env handover the arm loop
 /// and the post-loop use).
-_adopt_env :: (fn(imm(env) : Environment, imm(src) : Environment) -> unit)({
+_adopt_env :: (fn(env : &Environment, src : &Environment) -> unit)({
   env.frames = src.frames;
   env.module_path = src.module_path;
   env.function_declaration_frame_level = src.function_declaration_frame_level;
@@ -327,7 +327,7 @@ _GUARD_HELP :: "an arm with a guard (`p && (guard)`) does not count toward exhau
 // ---------------------------------------------------------------------------
 /// The variable a scrutinee place is rooted at: `x`, `x.f.g`, `x.a(i)` → `x`
 /// (the innermost binding of the name). `.None` for a temporary.
-_scrutinee_root_variable :: (fn(imm(scr) : AstExpr, imm(env) : Environment) -> Option(Variable))({
+_scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Variable))({
   (cur : AstExpr) = scr;
   (walking : bool) = true;
   while(walking, {
@@ -348,7 +348,7 @@ _scrutinee_root_variable :: (fn(imm(scr) : AstExpr, imm(env) : Environment) -> O
 /// The scrutinee is a projection of a variable: a field chain (`x.f`), a
 /// dereference (`p.*`) or an index (`xs(i)`) rooted at one. A call on a
 /// value (`make()`, `x.get()`) is a temporary.
-_scrutinee_is_projection :: (fn(imm(scr) : AstExpr, imm(env) : Environment) -> bool)(
+_scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
   cond(
     // A `.` access rooted at a runtime variable (`Type.Variant` is a value).
     ast_expr_is_fn_call_of(scr, BF_DOT, Option(usize).Some(usize(2))) => match(_scrutinee_root_variable(scr, env), .Some(rv) => !rv.is_compile_time_only, .None => false),
@@ -368,12 +368,12 @@ _scrutinee_is_projection :: (fn(imm(scr) : AstExpr, imm(env) : Environment) -> b
 );
 /// A binding that holds a `mut` place: a `mut` parameter, a `mut(y) :=`
 /// local borrow, or a binding of a `mut` match.
-_variable_is_mut_borrow :: (fn(imm(v) : Variable) -> bool)(
+_variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(
   v.is_ref && match(local_borrow_info_of_variable(v), .Some(info) => info.is_mut, .None => true)
 );
 /// A binding that holds an `imm` borrow: an `imm` parameter, an `imm(y) :=`
 /// local borrow, or a binding of a borrowing match or a `for` loop.
-_variable_is_imm_borrow :: (fn(imm(v) : Variable) -> bool)(
+_variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(
   cond(
     v.is_ref => !_variable_is_mut_borrow(v),
     v.is_module_level => false,
@@ -385,7 +385,7 @@ _variable_is_imm_borrow :: (fn(imm(v) : Variable) -> bool)(
 );
 /// E0901 for a scrutinee a `match` would have to move but cannot: `why`
 /// says what owns it, and the help names the borrow that matches it in place.
-_throw_unmovable_scrutinee :: (fn(imm(scr) : AstExpr, imm(ty) : TypeValue, imm(why) : String, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
   // `yo fix --migrate match-scrutinee` writes the borrow instead.
   if(migrate_match_scrutinee_on() && !propagate_def_time_errors(), {
     lt := _leftmost_token(scr);
@@ -411,7 +411,7 @@ _throw_unmovable_scrutinee :: (fn(imm(scr) : AstExpr, imm(ty) : TypeValue, imm(w
 });
 /// The first token of `e` as written: the receiver of a `.` access, the
 /// callee of a call.
-_leftmost_token :: (fn(imm(e) : AstExpr) -> Token)(
+_leftmost_token :: (fn(e : &AstExpr) -> Token)(
   match(
     e,
     .Atom(_, t) => t,
@@ -438,13 +438,13 @@ _leftmost_token :: (fn(imm(e) : AstExpr) -> Token)(
 ///   a projection (no partial moves) is E0901.
 _decide_match_mode :: (
   fn(
-    imm(scr_raw) : AstExpr,
-    imm(evaluated) : AstExpr,
-    imm(info) : ExprInfo,
+    scr_raw : &AstExpr,
+    evaluated : &AstExpr,
+    info : &ExprInfo,
     marker : u8,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> u8
 )({
   scr := ast_expr_strip_borrow_marker(scr_raw);
@@ -473,7 +473,7 @@ _decide_match_mode :: (
               format_error_message_with_help(
                 ast_expr_token(scr),
                 `Cannot match \`&mut ${ast_expr_to_string(scr)}\`: \`${rv.name}\` is a \`&\` borrow, which is read-only.`,
-                Option(String).Some(`match it with \`&${ast_expr_to_string(scr)}\`, or take \`${rv.name}\` as \`mut(${rv.name})\``)
+                Option(String).Some(`match it with \`&${ast_expr_to_string(scr)}\`, or take \`${rv.name}\` as \`${rv.name} : &mut T\``)
               ),
               E_WRITE_THROUGH_BORROW
             )
@@ -577,26 +577,26 @@ _ArmOwnership :: ref(
     is_mut : bool
   )
 );
-_ownership_hidden_bind :: (fn(imm(own) : _ArmOwnership, imm(ty) : TypeValue, imm(env) : Environment) -> BindInfo)({
+_ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
   tok := own.tok;
   name := generate_new_temp_variable_name(env.module_path, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path));
   own.counter = (own.counter + usize(1));
   atok := Token(kind : TokenKind.Identifier, value : name.clone(), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : tok.module_path, input : tok.input);
   BindInfo(name : name, ty : ty, value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
 });
-_ownership_unbound :: (fn(imm(own) : _ArmOwnership, imm(ty) : TypeValue, imm(env) : Environment) -> Pattern)({
+_ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
   own.unbound.push(b);
   Pattern.Bind(name : b.name.clone(), token : ast_expr_token(b.atom), atom : b.atom)
 });
-_ownership_keep :: (fn(imm(own) : _ArmOwnership, imm(ty) : TypeValue, imm(p) : Pattern, imm(env) : Environment) -> Pattern)({
+_ownership_keep :: (fn(own : &_ArmOwnership, ty : &TypeValue, p : &Pattern, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
   own.keeps.push(b);
   Pattern.At(name : b.name.clone(), token : ast_expr_token(b.atom), atom : b.atom, sub : p)
 });
 /// A part with a drop of its own (a counted cell or a move-only value).
-_part_has_drop :: (fn(imm(ty) : TypeValue) -> bool)(type_contains_rc_cell_or_move_only(ty));
-_bind_ty_of :: (fn(imm(own) : _ArmOwnership, imm(name) : String) -> Option(TypeValue))({
+_part_has_drop :: (fn(ty : &TypeValue) -> bool)(type_contains_rc_cell_or_move_only(ty));
+_bind_ty_of :: (fn(own : &_ArmOwnership, name : &String) -> Option(TypeValue))({
   (i : usize) = usize(0);
   while(i < own.bind_tys.len(), {
     match(
@@ -617,7 +617,7 @@ _bind_ty_of :: (fn(imm(own) : _ArmOwnership, imm(name) : String) -> Option(TypeV
 /// one that keeps it to the arm's end; the user's bindings below a cell are
 /// recorded as borrows. Coverage is unchanged: a hidden binding sits where a
 /// `_` or an unlisted field was.
-_augment_arm_pattern :: (fn(imm(p) : Pattern, imm(ty) : TypeValue, in_cell : bool, imm(own) : _ArmOwnership, imm(env) : Environment, imm(exn) : Exception) -> Pattern)(
+_augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own : &_ArmOwnership, env : &Environment, exn : &Exception) -> Pattern)(
   match(
     p,
     .Wildcard => cond(
@@ -820,7 +820,7 @@ _augment_arm_pattern :: (fn(imm(p) : Pattern, imm(ty) : TypeValue, in_cell : boo
     }
   )
 );
-_names_contain :: (fn(imm(xs) : ArrayList(String), imm(x) : String) -> bool)({
+_names_contain :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     if(match(xs.get(i), .Some(y) => (y == x), .None => false), {
@@ -832,7 +832,7 @@ _names_contain :: (fn(imm(xs) : ArrayList(String), imm(x) : String) -> bool)({
 });
 /// Add a consuming arm's hidden bindings to its frame, borrowing until the
 /// arm is selected.
-_add_hidden_bindings :: (fn(imm(binds) : ArrayList(BindInfo), imm(env) : Environment, imm(ctx) : EvalContext) -> ArrayList(Variable))({
+_add_hidden_bindings :: (fn(binds : &ArrayList(BindInfo), env : &Environment, ctx : &EvalContext) -> ArrayList(Variable))({
   out := ArrayList(Variable).new();
   (i : usize) = usize(0);
   while(i < binds.len(), {
@@ -853,7 +853,7 @@ _add_hidden_bindings :: (fn(imm(binds) : ArrayList(BindInfo), imm(env) : Environ
   });
   out
 });
-_own_all :: (fn(imm(vs) : ArrayList(Variable)) -> unit)({
+_own_all :: (fn(vs : &ArrayList(Variable)) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
     match(
@@ -869,7 +869,7 @@ _own_all :: (fn(imm(vs) : ArrayList(Variable)) -> unit)({
 /// After a consuming arm's body: a binding it still owns is dropped at the
 /// arm's end (and at each exit inside it); one it moved is dropped at the
 /// exits before the move.
-_drop_owned_at_arm_end :: (fn(imm(vs) : ArrayList(Variable), imm(body) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_drop_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
     match(
@@ -886,10 +886,10 @@ _drop_owned_at_arm_end :: (fn(imm(vs) : ArrayList(Variable), imm(body) : AstExpr
 /// Evaluate a `match(...)` expression.
 evaluate_match :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

@@ -80,7 +80,7 @@ _level_value :: (fn(l : Level) -> i32)(
 impl(
   Level,
   ToString(
-    to_string : (fn(mut(self) : Self) -> String)(
+    to_string : (fn(self : &mut Self) -> String)(
       match(
         self,
         .Trace => String.from("TRACE"),
@@ -117,7 +117,7 @@ export(LogOutput);
 /// lines from interleaving. A sink must therefore not log, directly or
 /// indirectly: that would deadlock.
 Sink :: trait(
-  write_line : (fn(mut(self) : Self, level : Level, imm(target) : String, imm(msg) : String) -> unit)
+  write_line : (fn(self : &mut Self, level : Level, target : &String, msg : &String) -> unit)
 );
 export(Sink);
 /// Parse a level name, case-insensitively — `trace`, `debug`, `info`, `warn`,
@@ -125,7 +125,7 @@ export(Sink);
 ///
 /// `warning` is accepted for `warn` because it is the spelling people reach
 /// for, and rejecting it silently would be the worst of the three options.
-level_from_string :: (fn(imm(name) : String) -> Option(Level))({
+level_from_string :: (fn(name : &String) -> Option(Level))({
   lowered := name.trim().to_ascii_lowercase();
   cond(
     (lowered == "trace") => Option(Level).Some(Level.Trace),
@@ -184,7 +184,7 @@ set_timestamps :: (fn(on : bool) -> unit)({
 /// `set_output` and `set_timestamps` stop having any effect while a sink is
 /// installed — rendering is the sink's job. The LEVEL filter still applies, so
 /// a sink never sees a record the configuration suppressed.
-set_sink :: (fn(imm(sink) : Dyn(Sink)) -> unit)({
+set_sink :: (fn(sink : &Dyn(Sink)) -> unit)({
   unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   _global_sink = Option(Dyn(Sink)).Some(sink);
   unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
@@ -243,7 +243,7 @@ enabled :: (fn(level : Level) -> bool)({
   on
 });
 export(enabled);
-_write_string :: (fn(imm(s) : String, dest : *FILE) -> unit)({
+_write_string :: (fn(s : &String, dest : *FILE) -> unit)({
   bytes := s;
   cond(
     (bytes.len() > usize(0)) => {
@@ -256,7 +256,7 @@ _write_string :: (fn(imm(s) : String, dest : *FILE) -> unit)({
 /// Emit one already-rendered line: `[TS ]?[LEVEL] [target ]?msg\n`. The
 /// filter check and the whole write are under one lock, so concurrent
 /// threads never interleave a line.
-_emit :: (fn(level : Level, imm(target) : String, imm(msg) : String) -> unit)({
+_emit :: (fn(level : Level, target : &String, msg : &String) -> unit)({
   unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   cond(
     !_enabled_locked(level) => {
@@ -301,16 +301,16 @@ _emit :: (fn(level : Level, imm(target) : String, imm(msg) : String) -> unit)({
   unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 /// Log a `ToString` value at `level`.
-log :: (fn(generic(T : Type), level : Level, imm(msg) : T, where(T <: ToString)) -> unit)(
+log :: (fn(generic(T : Type), level : Level, msg : &T, where(T <: ToString)) -> unit)(
   _emit(level, String.new(), msg.to_string())
 );
 /// Log a `ToString` value at `level`, tagged with a `target`/module string.
-log_target :: (fn(generic(T : Type), level : Level, target : str, imm(msg) : T, where(T <: ToString)) -> unit)(
+log_target :: (fn(generic(T : Type), level : Level, target : str, msg : &T, where(T <: ToString)) -> unit)(
   _emit(level, String.from(target), msg.to_string())
 );
 /// Log at `level`, building the message from `make` ONLY when it passes the
 /// filter — for messages that are costly to construct.
-log_lazy :: (fn(level : Level, imm(make) : Impl(Fn() -> String)) -> unit)(
+log_lazy :: (fn(level : Level, make : &Impl(Fn() -> String)) -> unit)(
   cond(
     enabled(level) => _emit(level, String.new(), make()),
     true => ()
@@ -322,18 +322,18 @@ export(log, log_target, log_lazy);
 // ============================================================================
 /// Per-step verbosity at `Trace` — Rust's `trace!`. Silent under the default
 /// `Info` filter.
-trace :: (fn(generic(T : Type), imm(msg) : T, where(T <: ToString)) -> unit)(log(Level.Trace, msg));
+trace :: (fn(generic(T : Type), msg : &T, where(T <: ToString)) -> unit)(log(Level.Trace, msg));
 /// Developer detail at `Debug` — Rust's `debug!`. Also silent under the
 /// default `Info` filter.
-debug :: (fn(generic(T : Type), imm(msg) : T, where(T <: ToString)) -> unit)(log(Level.Debug, msg));
+debug :: (fn(generic(T : Type), msg : &T, where(T <: ToString)) -> unit)(log(Level.Debug, msg));
 /// A line an operator should see, at `Info` — Rust's `info!`. This is the
 /// lowest level the default filter admits.
-info :: (fn(generic(T : Type), imm(msg) : T, where(T <: ToString)) -> unit)(log(Level.Info, msg));
+info :: (fn(generic(T : Type), msg : &T, where(T <: ToString)) -> unit)(log(Level.Info, msg));
 /// A hazard the program recovered from, at `Warn` — Rust's `warn!`.
-warn :: (fn(generic(T : Type), imm(msg) : T, where(T <: ToString)) -> unit)(log(Level.Warn, msg));
+warn :: (fn(generic(T : Type), msg : &T, where(T <: ToString)) -> unit)(log(Level.Warn, msg));
 /// A failure, at `Error` — Rust's `error!`. The highest level, but still
 /// suppressed by `Level.Off`, which drops everything.
-error :: (fn(generic(T : Type), imm(msg) : T, where(T <: ToString)) -> unit)(log(Level.Error, msg));
+error :: (fn(generic(T : Type), msg : &T, where(T <: ToString)) -> unit)(log(Level.Error, msg));
 export(trace, debug, info, warn, error);
 /// `trace` tagged with a subsystem name, which renders as `[db]` between the
 /// level and the message and reaches a `Sink` as its own argument — Rust's
@@ -341,15 +341,15 @@ export(trace, debug, info, warn, error);
 ///
 /// The tag is caller-supplied text; nothing derives or checks it, and it does
 /// not participate in filtering (the level is the only filter).
-trace_target :: (fn(generic(T : Type), target : str, imm(msg) : T, where(T <: ToString)) -> unit)(log_target(Level.Trace, target, msg));
+trace_target :: (fn(generic(T : Type), target : str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Trace, target, msg));
 /// `debug` with a subsystem tag; see `trace_target`.
-debug_target :: (fn(generic(T : Type), target : str, imm(msg) : T, where(T <: ToString)) -> unit)(log_target(Level.Debug, target, msg));
+debug_target :: (fn(generic(T : Type), target : str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Debug, target, msg));
 /// `info` with a subsystem tag; see `trace_target`.
-info_target :: (fn(generic(T : Type), target : str, imm(msg) : T, where(T <: ToString)) -> unit)(log_target(Level.Info, target, msg));
+info_target :: (fn(generic(T : Type), target : str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Info, target, msg));
 /// `warn` with a subsystem tag; see `trace_target`.
-warn_target :: (fn(generic(T : Type), target : str, imm(msg) : T, where(T <: ToString)) -> unit)(log_target(Level.Warn, target, msg));
+warn_target :: (fn(generic(T : Type), target : str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Warn, target, msg));
 /// `error` with a subsystem tag; see `trace_target`.
-error_target :: (fn(generic(T : Type), target : str, imm(msg) : T, where(T <: ToString)) -> unit)(log_target(Level.Error, target, msg));
+error_target :: (fn(generic(T : Type), target : str, msg : &T, where(T <: ToString)) -> unit)(log_target(Level.Error, target, msg));
 export(trace_target, debug_target, info_target, warn_target, error_target);
 /// `trace`, with the message built by `make` ONLY if `Trace` passes the
 /// filter — the form to use when rendering costs real work (a formatted dump,
@@ -357,17 +357,17 @@ export(trace_target, debug_target, info_target, warn_target, error_target);
 /// evaluated at the call site whatever the filter says.
 ///
 /// Untagged; there is no lazy `*_target` form.
-trace_lazy :: (fn(imm(make) : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Trace, make));
+trace_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Trace, make));
 /// `debug` with the message built only if `Debug` passes the filter; see
 /// `trace_lazy`.
-debug_lazy :: (fn(imm(make) : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Debug, make));
+debug_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Debug, make));
 /// `info` with the message built only if `Info` passes the filter; see
 /// `trace_lazy`.
-info_lazy :: (fn(imm(make) : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Info, make));
+info_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Info, make));
 /// `warn` with the message built only if `Warn` passes the filter; see
 /// `trace_lazy`.
-warn_lazy :: (fn(imm(make) : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Warn, make));
+warn_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Warn, make));
 /// `error` with the message built only if `Error` passes the filter; see
 /// `trace_lazy`.
-error_lazy :: (fn(imm(make) : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Error, make));
+error_lazy :: (fn(make : &Impl(Fn() -> String)) -> unit)(log_lazy(Level.Error, make));
 export(trace_lazy, debug_lazy, info_lazy, warn_lazy, error_lazy);

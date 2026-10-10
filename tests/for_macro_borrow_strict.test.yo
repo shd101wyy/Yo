@@ -11,11 +11,11 @@ pragma(Pragma.StrictBorrow);
 Bag :: ref(struct(items : ArrayList(i32), version : i32));
 impl(
   Bag,
-  iter : (fn(imm(self) : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
-  bump_version : (fn(mut(self) : Self) -> unit)({
+  iter : (fn(self : &Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(self : &mut Self) -> unit)({
     self.version = (self.version + i32(1));
   }),
-  total : (fn(imm(self) : Self) -> i32)({
+  total : (fn(self : &Self) -> i32)({
     t := i32(0);
     for(self.items, x => {
       t = (t + x);
@@ -31,7 +31,7 @@ test("strict: read-only calls, fresh-storage mutation, element writes and other 
   names := ArrayList(String).new();
   names.push(String.from("a"));
   total := i32(0);
-  for(xs, mut(x) => {
+  for(&mut xs, x => {
     total = (total + (x * i32(xs.len())));
     assert(xs.contains(x), "read-only method on the borrowed collection");
     snapshot := xs.clone();
@@ -43,9 +43,9 @@ test("strict: read-only calls, fresh-storage mutation, element writes and other 
   assert((xs(usize(0)) == i32(11)) && (others.len() == usize(2)), "element writes and the other collection's growth");
   bag := Bag(items : xs, version : i32(0));
   seen := i32(0);
-  for(bag, mut(x) => {
+  for(&mut bag, x => {
     seen = (seen + bag.total());
-    for(names, mut(n) => {
+    for(&mut names, n => {
       n.push_str("!");
     });
   });
@@ -55,7 +55,7 @@ comptime_expect_error(
   push_on_borrowed_rejected :: (fn() -> unit)({
     xs := ArrayList(i32).new();
     xs.push(i32(1));
-    for(xs, mut(x) => {
+    for(&mut xs, x => {
       xs.push(x);
     });
   })
@@ -64,7 +64,7 @@ comptime_expect_error(
   pop_on_borrowed_rejected :: (fn() -> unit)({
     xs := ArrayList(i32).new();
     xs.push(i32(1));
-    for(xs, mut(x) => {
+    for(&mut xs, x => {
       xs.pop();
     });
   })
@@ -74,7 +74,7 @@ comptime_expect_error(
     xs := ArrayList(i32).new();
     xs.push(i32(1));
     ys := xs;
-    for(xs, mut(x) => {
+    for(&mut xs, x => {
       ys.push(x);
     });
   })
@@ -83,15 +83,15 @@ comptime_expect_error(
   mutating_inout_self_method_rejected :: (fn() -> unit)({
     bag := Bag(items : ArrayList(i32).new(), version : i32(0));
     bag.items.push(i32(1));
-    for(bag, mut(x) => {
+    for(&mut bag, x => {
       bag.bump_version();
     });
   })
 );
 comptime_expect_error(
   closure_call_rejected :: (fn() -> unit)({
-    run :: (fn(imm(xs) : ArrayList(i32), imm(f) : Impl(Fn() -> unit)) -> unit)({
-      for(xs, mut(x) => {
+    run :: (fn(xs : &ArrayList(i32), f : &Impl(Fn() -> unit)) -> unit)({
+      for(&mut xs, x => {
         f(); // unknown effects
       });
     });

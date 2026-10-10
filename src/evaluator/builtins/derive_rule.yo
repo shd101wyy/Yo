@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
 /// TypeValue)` codegen type).
 (g_derive_rule_types : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
 /// Look up a registered derive rule's Func type by trait name.
-get_derive_rule_type :: (fn(imm(name) : String) -> Option(TypeValue))(
+get_derive_rule_type :: (fn(name : &String) -> Option(TypeValue))(
   match(
     g_derive_rule_types.get(name),
     .Some(v) => match(v, .TypeVal(t) => Option(TypeValue).Some(t), _ => Option(TypeValue).None),
@@ -48,7 +48,7 @@ get_derive_rule_type :: (fn(imm(name) : String) -> Option(TypeValue))(
 ///   Atom("Clone")       → Some("Clone")
 ///   FnCall("Eq", [...]) → Some("Eq")
 ///   Other               → None
-extract_derive_key :: (fn(imm(e) : AstExpr) -> Option(String))(
+extract_derive_key :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
     .Atom(_, tok) => Option(String).Some(tok.value),
@@ -60,15 +60,15 @@ extract_derive_key :: (fn(imm(e) : AstExpr) -> Option(String))(
   )
 );
 /// Look up a registered derive rule by trait name.
-get_derive_rule :: (fn(imm(name) : String) -> Option(EvalValue))(
+get_derive_rule :: (fn(name : &String) -> Option(EvalValue))(
   g_derive_rules.get(name)
 );
 evaluate_derive_rule :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

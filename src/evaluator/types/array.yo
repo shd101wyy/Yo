@@ -48,7 +48,7 @@ import("std/fmt");
 /// (`N * 2`, `f(x)`) still has nowhere to go and is still rejected below —
 /// this widens the accepted set by one well-defined shape, not to
 /// "any expression".
-_length_projection_text :: (fn(imm(e) : AstExpr) -> Option(String))({
+_length_projection_text :: (fn(e : &AstExpr) -> Option(String))({
   if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(String).None);
   });
@@ -70,10 +70,10 @@ _length_projection_text :: (fn(imm(e) : AstExpr) -> Option(String))({
 });
 evaluate_array_type :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   // Verify this is `Array(T, N)` with exactly 2 arguments.

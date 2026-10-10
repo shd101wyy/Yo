@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 // A generic single-await passthrough: proves the WHERE-BOUND trait dispatch
 // works for both traits (the control shape from the filed bug).
 read_once :: (
-  fn(generic(R : Type), imm(r) : R, buf : *u8, size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
+  fn(generic(R : Type), r : &R, buf : *u8, size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
 )({
   // Hoist params into locals before io.async: a GENERIC fn's async closure
   // drops enclosing PARAMETERS from its capture struct (same filed family;
@@ -38,7 +38,7 @@ read_once :: (
   io.async(e => e.io.await(the_r.read(the_buf, the_size, e.io), e))
 });
 write_once :: (
-  fn(generic(W : Type), imm(w) : W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
+  fn(generic(W : Type), w : &W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
 )({
   the_w := w;
   the_buf := buf;
@@ -48,17 +48,17 @@ write_once :: (
 
 // Slice-2 generic helpers: the defaults reached through where bounds.
 read_all_generic :: (
-  fn(generic(R : Type), imm(r) : R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
+  fn(generic(R : Type), r : &R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
 )(
   io.async(e => e.io.await(r.read_to_end(io), e))
 );
 read_string_generic :: (
-  fn(generic(R : Type), imm(r) : R, io : Io, where(R <: Reader)) -> Impl(Future(String, IoExn))
+  fn(generic(R : Type), r : &R, io : Io, where(R <: Reader)) -> Impl(Future(String, IoExn))
 )(
   io.async(e => e.io.await(r.read_to_string(io), e))
 );
 write_all_generic :: (
-  fn(generic(W : Type), imm(w) : W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(unit, IoExn))
+  fn(generic(W : Type), w : &W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(unit, IoExn))
 )(
   io.async(e => e.io.await(w.write_all(buf, size, io), e))
 );
@@ -280,8 +280,8 @@ test("TcpStream carries the Reader and Writer impls", {
   // helpers must ACCEPT a TcpStream-typed argument at compile time. The
   // trait methods delegate to the inherent read/write, whose behavior the
   // tcp tests cover.
-  taker_r :: (fn(generic(R : Type), imm(r) : R, where(R <: Reader)) -> bool)(true);
-  taker_w :: (fn(generic(W : Type), imm(w) : W, where(W <: Writer)) -> bool)(true);
+  taker_r :: (fn(generic(R : Type), r : &R, where(R <: Reader)) -> bool)(true);
+  taker_w :: (fn(generic(W : Type), w : &W, where(W <: Writer)) -> bool)(true);
   fake :: (fn() -> Option(TcpStream))(Option(TcpStream).None);
   match(
     fake(),
@@ -303,7 +303,7 @@ test("TcpStream carries the Reader and Writer impls", {
 DynSource :: ref(struct(inner : Dyn(Reader)));
 impl(
   DynSource,
-  read_four : (fn(imm(self) : Self, io : Io) -> Impl(Future(String, IoExn)))(
+  read_four : (fn(self : &Self, io : Io) -> Impl(Future(String, IoExn)))(
     io.async(e => {
       buf := ArrayList(u8).new();
       buf.resize_with_byte(usize(4), int(0));
@@ -311,7 +311,7 @@ impl(
       String.from_bytes(buf.slice_copy(usize(0) .. n))
     })
   ),
-  rest : (fn(imm(self) : Self, io : Io) -> Impl(Future(String, IoExn)))(
+  rest : (fn(self : &Self, io : Io) -> Impl(Future(String, IoExn)))(
     io.async(e => {
       bytes := e.io.await(self.inner.read_to_end(e.io), e);
       String.from_bytes(bytes)

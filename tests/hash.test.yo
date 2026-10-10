@@ -202,7 +202,7 @@ derive(ByteXor, Copy, Clone);
 impl(
   ByteXor,
   Hasher(
-    write : (fn(mut(self) : Self, buf : *u8, size : usize) -> unit)({
+    write : (fn(self : &mut Self, buf : *u8, size : usize) -> unit)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
         // byte position = bytes written so far, so a value split across
@@ -211,7 +211,7 @@ impl(
         self.count = (self.count + usize(1));
       });
     }),
-    finish : (fn(mut(self) : Self) -> u64)(self.acc)
+    finish : (fn(self : &mut Self) -> u64)(self.acc)
   )
 );
 test("a user Hasher gets the default write_* methods through write", {

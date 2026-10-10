@@ -7,7 +7,7 @@
 { assert } :: import("std/assert");
 { rune, String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-_runes :: (fn(generic(I : Type), imm(it) : I, where(I <: Iterator(Item := rune))) -> ArrayList(rune))({
+_runes :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := rune))) -> ArrayList(rune))({
   out := ArrayList(rune).new();
   iter := it;
   while(runtime(true), {
@@ -23,7 +23,7 @@ _runes :: (fn(generic(I : Type), imm(it) : I, where(I <: Iterator(Item := rune))
   });
   out
 });
-_lines :: (fn(generic(I : Type), imm(it) : I, where(I <: Iterator(Item := String))) -> ArrayList(String))({
+_lines :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := String))) -> ArrayList(String))({
   out := ArrayList(String).new();
   iter := it;
   while(runtime(true), {

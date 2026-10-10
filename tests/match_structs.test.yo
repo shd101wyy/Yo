@@ -28,7 +28,7 @@ test("an anonymous struct pattern binds same-named fields", {
   assert(g(Point(3, 7)) == i32(10));
 });
 test("a struct pattern is partial: unlisted fields match anything", {
-  h :: (fn(imm(p) : Person) -> i32)(
+  h :: (fn(p : &Person) -> i32)(
     match(
       p,
       Person(age : 0) => i32(-1),
@@ -44,7 +44,7 @@ test("a field may carry any sub-pattern", {
   Cell :: enum(Full(v : i32), Empty);
   derive(Cell, Copy, Clone);
   Holder :: struct(tag : Cell, note : i32);
-  k :: (fn(imm(hh) : Holder) -> i32)(
+  k :: (fn(hh : &Holder) -> i32)(
     match(
       hh,
       Holder(tag : .Full(7), note) => (note + i32(100)),
@@ -78,7 +78,7 @@ test("compile-time scrutinee: the struct arm is selected at compile time", {
 });
 test("an enum payload holding a struct takes a struct sub-pattern", {
   Wrap :: enum(W(p : Point), Nothing);
-  w :: (fn(imm(e) : Wrap) -> i32)(
+  w :: (fn(e : &Wrap) -> i32)(
     match(
       e,
       .W(Point(x : 0, y)) => y,
@@ -104,7 +104,7 @@ test("a whole-value binding of a struct pattern", {
 });
 test("a reference-semantics struct pattern reads through the pointer", {
   SharedPoint :: ref(struct(x : i32, y : i32));
-  s :: (fn(imm(p) : SharedPoint) -> i32)(
+  s :: (fn(p : &SharedPoint) -> i32)(
     match(p, { x : 0, y } => y, { x, y } => (x + y))
   );
   assert(s(SharedPoint(0, 7)) == i32(7));

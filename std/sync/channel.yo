@@ -126,7 +126,7 @@ export(TryRecvError);
 impl(
   TryRecvError,
   ToString(
-    to_string : (fn(mut(self) : Self) -> String)(
+    to_string : (fn(self : &mut Self) -> String)(
       match(
         self,
         .Empty => String.from("channel empty"),
@@ -213,7 +213,7 @@ impl(
   /// `Receiver` has been dropped — the failed value is handed BACK to the
   /// caller instead of being silently dropped (Rust's `SendError(T)`;
   /// plans/archive/STD_API_AUDIT.md C8).
-  send : (fn(imm(self) : Self, value : T) -> Result(unit, T))({
+  send : (fn(self : &Self, value : T) -> Result(unit, T))({
     self._mutex._raw_lock();
     // Wait while the buffer is full and there is still a point in waiting:
     // a closed channel takes no more values, and a channel whose `Receiver`
@@ -248,7 +248,7 @@ impl(
   /// Receive a value from the channel.
   /// Blocks if the channel is empty until a value is available.
   /// Returns .Some(value) on success, .None if the channel is closed and empty.
-  recv : (fn(imm(self) : Self) -> Option(T))({
+  recv : (fn(self : &Self) -> Option(T))({
     self._mutex._raw_lock();
     // Wait while buffer is empty and channel is not closed
     while(runtime(
@@ -278,7 +278,7 @@ impl(
   /// Returns .Ok(()) if sent, .Err(value) if full or closed — the failed
   /// value is handed back to the caller (use `is_closed()` to tell the
   /// two failure causes apart).
-  try_send : (fn(imm(self) : Self, value : T) -> Result(unit, T))({
+  try_send : (fn(self : &Self, value : T) -> Result(unit, T))({
     self._mutex._raw_lock();
     cond(
       (
@@ -301,7 +301,7 @@ impl(
   }),
   /// Try to receive a value without blocking.
   /// Returns .Some(value) if available, .None if empty.
-  try_recv : (fn(imm(self) : Self) -> Result(T, TryRecvError))({
+  try_recv : (fn(self : &Self) -> Result(T, TryRecvError))({
     self._mutex._raw_lock();
     cond(
       (self._len.load(MemoryOrder.Relaxed) == usize(0)) => {
@@ -331,7 +331,7 @@ impl(
   /// Close the channel. No more values can be sent.
   /// Pending recv() calls will return .None once the buffer is drained.
   /// Pending send() calls will return .Err(value).
-  close : (fn(imm(self) : Self) -> unit)({
+  close : (fn(self : &Self) -> unit)({
     self._mutex._raw_lock();
     self._closed.store(true, MemoryOrder.Release);
     self._not_empty.broadcast();
@@ -346,24 +346,24 @@ impl(
   /// `close` does it: a sender that has evaluated its wait predicate but not
   /// yet parked still holds the mutex, so a broadcast issued outside it could
   /// land before the park and be lost.
-  _mark_receiver_dropped : (fn(imm(self) : Self) -> unit)({
+  _mark_receiver_dropped : (fn(self : &Self) -> unit)({
     self._mutex._raw_lock();
     self._recv_dropped.store(true, MemoryOrder.Release);
     self._not_full.broadcast();
     self._mutex._raw_unlock();
   }),
   /// Check if the channel is closed (lock-free atomic load).
-  is_closed : (fn(imm(self) : Self) -> bool)(
+  is_closed : (fn(self : &Self) -> bool)(
     self._closed.load(MemoryOrder.Acquire)
   ),
   /// Return the number of values currently buffered (lock-free atomic load).
   /// Snapshot semantics: the value may be stale by the time the caller acts on it,
   /// matching Rust's `mpsc::channel` idiom.
-  len : (fn(imm(self) : Self) -> usize)(
+  len : (fn(self : &Self) -> usize)(
     self._len.load(MemoryOrder.Acquire)
   ),
   /// Check if the channel buffer is empty (lock-free atomic load).
-  is_empty : (fn(imm(self) : Self) -> bool)(
+  is_empty : (fn(self : &Self) -> bool)(
     self._len.load(MemoryOrder.Acquire) == usize(0)
   )
 );
@@ -373,7 +373,7 @@ impl(
   Channel(T),
   where(T <: (Send, Acyclic)),
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
       (i : usize) = usize(0);
       while(runtime(i < current_len), {
@@ -427,7 +427,7 @@ impl(
   /// The increment is `Relaxed`, exactly as `Arc::clone`'s is: it publishes
   /// no data, and the handle it produces cannot be used by another thread
   /// until it has been moved there, which is itself a synchronizing transfer.
-  _attach : (fn(imm(ch) : Channel(T)) -> Self)({
+  _attach : (fn(ch : &Channel(T)) -> Self)({
     _prev := ch._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
     Self(_ch : ch)
   }),
@@ -436,27 +436,27 @@ impl(
   /// `.Err(value)` — Rust's `SendError(T)` — once the channel is closed or
   /// the `Receiver` has been dropped; the value that could not be sent comes
   /// back rather than being dropped on the floor.
-  send : (fn(imm(self) : Self, value : T) -> Result(unit, T))(
+  send : (fn(self : &Self, value : T) -> Result(unit, T))(
     self._ch.send(value)
   ),
   /// Send without blocking: `.Err(value)` if the buffer is full, the channel
   /// is closed, or the `Receiver` is gone.
-  try_send : (fn(imm(self) : Self, value : T) -> Result(unit, T))(
+  try_send : (fn(self : &Self, value : T) -> Result(unit, T))(
     self._ch.try_send(value)
   ),
   /// True once the channel is closed — by an explicit `close()`, or by the
   /// last `Sender` being dropped.
-  is_closed : (fn(imm(self) : Self) -> bool)(
+  is_closed : (fn(self : &Self) -> bool)(
     self._ch.is_closed()
   ),
   /// Number of values currently buffered (a snapshot, like `Channel.len`).
-  len : (fn(imm(self) : Self) -> usize)(
+  len : (fn(self : &Self) -> usize)(
     self._ch.len()
   ),
   /// Close the channel now, without waiting for the other senders to go.
   /// Every `Sender`'s subsequent `send` fails and the `Receiver` drains what
   /// is buffered and then reports `Disconnected`.
-  close : (fn(imm(self) : Self) -> unit)(
+  close : (fn(self : &Self) -> unit)(
     self._ch.close()
   )
 );
@@ -466,7 +466,7 @@ impl(
   where(T <: (Send, Acyclic)),
   /// Another producer over the same queue, counted.
   Clone(
-    clone : (fn(mut(self) : Self) -> Self)({
+    clone : (fn(self : &mut Self) -> Self)({
       _prev := self._ch._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
       Self(_ch : self._ch)
     })
@@ -494,7 +494,7 @@ impl(
   /// between its predicate check and its park wake up instead of blocking
   /// forever.
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       (prev : usize) = self._ch._senders.fetch_sub(usize(1), MemoryOrder.AcqRel);
       if(prev == usize(1), {
         self._ch.close();
@@ -508,7 +508,7 @@ impl(
   where(T <: (Send, Acyclic)),
   /// Attach the consumer to `ch`. Internal: `Channel.receiver` and
   /// `Channel.pair` are the only callers.
-  _attach : (fn(imm(ch) : Channel(T)) -> Self)(
+  _attach : (fn(ch : &Channel(T)) -> Self)(
     Self(_ch : ch)
   ),
   /// Mint a producer for this queue, counted like every other `Sender`.
@@ -520,7 +520,7 @@ impl(
   /// A sender minted after the channel has already closed does NOT reopen it
   /// — `_closed` is one-way — so its sends fail; mint the producers while the
   /// previous ones are still alive.
-  sender : (fn(imm(self) : Self) -> Sender(T))(
+  sender : (fn(self : &Self) -> Sender(T))(
     Sender(T)._attach(self._ch)
   ),
   /// Receive the oldest value, blocking while the channel is empty.
@@ -534,7 +534,7 @@ impl(
   /// Values already queued when the last sender went away are still handed
   /// out, one per call, BEFORE the disconnect is reported — closing a channel
   /// must not lose what it already accepted (Rust guarantees the same).
-  recv : (fn(imm(self) : Self) -> Result(T, TryRecvError))(
+  recv : (fn(self : &Self) -> Result(T, TryRecvError))(
     match(
       self._ch.recv(),
       .Some(v) => Result(T, TryRecvError).Ok(v),
@@ -544,26 +544,26 @@ impl(
   /// Receive without blocking: `.Ok(value)`, `Empty` while the channel is
   /// open but has nothing buffered, `Disconnected` once it is closed and
   /// drained.
-  try_recv : (fn(imm(self) : Self) -> Result(T, TryRecvError))(
+  try_recv : (fn(self : &Self) -> Result(T, TryRecvError))(
     self._ch.try_recv()
   ),
   /// True once the channel is closed — including by the last `Sender` being
   /// dropped. Buffered values may still be waiting; `try_recv` answering
   /// `Disconnected` is the closed-AND-drained test.
-  is_closed : (fn(imm(self) : Self) -> bool)(
+  is_closed : (fn(self : &Self) -> bool)(
     self._ch.is_closed()
   ),
   /// Number of values currently buffered (a snapshot, like `Channel.len`).
-  len : (fn(imm(self) : Self) -> usize)(
+  len : (fn(self : &Self) -> usize)(
     self._ch.len()
   ),
   /// True while nothing is buffered (a snapshot).
-  is_empty : (fn(imm(self) : Self) -> bool)(
+  is_empty : (fn(self : &Self) -> bool)(
     self._ch.is_empty()
   ),
   /// Stop accepting values now. Buffered values still come out of `recv`,
   /// then it reports `Disconnected`.
-  close : (fn(imm(self) : Self) -> unit)(
+  close : (fn(self : &Self) -> unit)(
     self._ch.close()
   )
 );
@@ -581,7 +581,7 @@ impl(
   /// the honest failure. The buffered values are released when the last
   /// handle drops the `Channel` itself (its `dispose`).
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)(
+    dispose : (fn(self : &Self) -> unit)(
       self._ch._mark_receiver_dropped()
     )
   )

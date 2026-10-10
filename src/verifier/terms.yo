@@ -57,7 +57,7 @@ derive(VcSort, Eq(VcSort));
 impl(
   VcSort,
   ToString(
-    to_string : (fn(mut(self) : Self) -> String)(
+    to_string : (fn(self : &mut Self) -> String)(
       match(
         self,
         .BoolS => String.from("bool"),
@@ -236,23 +236,23 @@ VcQuery :: ref(
 impl(
   VcQuery,
   /// Builder: push a declaration.
-  declare : (fn(imm(self) : Self, imm(name) : String, imm(sort) : VcSort) -> Self)({
+  declare : (fn(self : &Self, name : &String, sort : &VcSort) -> Self)({
     self.declarations.push(VcDecl(name : name.clone(), sort : sort));
     self
   }),
   /// Builder: push an unnamed assumption.
-  assume : (fn(imm(self) : Self, imm(term) : VcTerm) -> Self)({
+  assume : (fn(self : &Self, term : &VcTerm) -> Self)({
     self.assumptions.push(VcAssumption(name : Option(String).None, term : term));
     self
   }),
   /// Builder: push a named assumption (unsat-core attribution).
-  assume_named : (fn(imm(self) : Self, imm(name) : String, imm(term) : VcTerm) -> Self)({
+  assume_named : (fn(self : &Self, name : &String, term : &VcTerm) -> Self)({
     self.assumptions.push(VcAssumption(name : Option(String).Some(name.clone()), term : term));
     self
   })
 );
 /// Construct an empty query with a diagnostic name.
-new_vc_query :: (fn(imm(name) : String) -> VcQuery)(
+new_vc_query :: (fn(name : &String) -> VcQuery)(
   VcQuery(
     name : name,
     declarations : ArrayList(VcDecl).new(),
@@ -269,13 +269,13 @@ new_vc_query :: (fn(imm(name) : String) -> VcQuery)(
 // Convenience constructors (keep VC construction sites terse and uniform)
 // ============================================================================
 /// Boolean negation.
-vc_not :: (fn(imm(t) : VcTerm) -> VcTerm)({
+vc_not :: (fn(t : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(t);
   VcTerm.App(VcOp.NotOp, args)
 });
 /// N-ary conjunction.
-vc_and :: (fn(imm(ts) : ArrayList(VcTerm)) -> VcTerm)({
+vc_and :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(0), {
     return(VcTerm.BoolLit(true));
   });
@@ -285,7 +285,7 @@ vc_and :: (fn(imm(ts) : ArrayList(VcTerm)) -> VcTerm)({
   VcTerm.App(VcOp.AndOp, ts)
 });
 /// N-ary disjunction.
-vc_or :: (fn(imm(ts) : ArrayList(VcTerm)) -> VcTerm)({
+vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(0), {
     return(VcTerm.BoolLit(false));
   });
@@ -295,21 +295,21 @@ vc_or :: (fn(imm(ts) : ArrayList(VcTerm)) -> VcTerm)({
   VcTerm.App(VcOp.OrOp, ts)
 });
 /// Implication `a => b` (right-associative chain when built pairwise).
-vc_imp :: (fn(imm(a) : VcTerm, imm(b) : VcTerm) -> VcTerm)({
+vc_imp :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
   VcTerm.App(VcOp.ImpOp, args)
 });
 /// Equality `a = b`.
-vc_eq :: (fn(imm(a) : VcTerm, imm(b) : VcTerm) -> VcTerm)({
+vc_eq :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
   VcTerm.App(VcOp.EqOp, args)
 });
 /// Distinctness `a != b`.
-vc_distinct :: (fn(imm(a) : VcTerm, imm(b) : VcTerm) -> VcTerm)({
+vc_distinct :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);

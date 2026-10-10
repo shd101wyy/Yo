@@ -28,11 +28,11 @@
 (g_control_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function as a control function (uses `unwind`).
 /// Idempotent: calling multiple times with the same id is safe.
-mark_as_control_fn :: (fn(imm(func_id) : String) -> unit)({
+mark_as_control_fn :: (fn(func_id : &String) -> unit)({
   g_control_fn_registry.insert(func_id, true);
 });
 /// Returns true if the function identified by `func_id` is a control function.
-is_control_fn :: (fn(imm(func_id) : String) -> bool)(
+is_control_fn :: (fn(func_id : &String) -> bool)(
   match(
     g_control_fn_registry.get(func_id.clone()),
     .Some(_) => true,
@@ -50,12 +50,12 @@ is_control_fn :: (fn(imm(func_id) : String) -> bool)(
 /// function-emission driver to prepend the `void* closure_context` capture param
 (g_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by `func_id`) as a closure. Idempotent.
-mark_as_closure_fn :: (fn(imm(func_id) : String) -> unit)({
+mark_as_closure_fn :: (fn(func_id : &String) -> unit)({
   g_closure_fn_registry.insert(func_id, true);
 });
 /// True if the function identified by `func_id` is a closure (takes a capture
 /// context as its first C parameter).
-is_closure_fn :: (fn(imm(func_id) : String) -> bool)(
+is_closure_fn :: (fn(func_id : &String) -> bool)(
   match(
     g_closure_fn_registry.get(func_id.clone()),
     .Some(_) => true,
@@ -70,20 +70,20 @@ is_closure_fn :: (fn(imm(func_id) : String) -> bool)(
 /// its closure still owns them.
 (g_fnonce_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a closure (by `func_id`) as owning its captures. Idempotent.
-mark_as_fnonce_closure_fn :: (fn(imm(func_id) : String) -> unit)({
+mark_as_fnonce_closure_fn :: (fn(func_id : &String) -> unit)({
   g_fnonce_closure_fn_registry.insert(func_id, true);
 });
 /// The capture-struct type ids of the closures that own their captures: a
 /// value whose type is (or resolves to) one of these is such a closure, even
 /// where its function value is not at hand (a local typed `Impl(FnOnce(...))`).
 (g_fnonce_capture_struct_ids : HashMap(String, bool)) = HashMap(String, bool).new();
-mark_fnonce_capture_struct :: (fn(imm(struct_id) : String) -> unit)({
+mark_fnonce_capture_struct :: (fn(struct_id : &String) -> unit)({
   g_fnonce_capture_struct_ids.insert(struct_id, true);
 });
-is_fnonce_capture_struct :: (fn(imm(struct_id) : String) -> bool)(g_fnonce_capture_struct_ids.get(struct_id).is_some());
+is_fnonce_capture_struct :: (fn(struct_id : &String) -> bool)(g_fnonce_capture_struct_ids.get(struct_id).is_some());
 /// True if the closure identified by `func_id` owns its captures (its body
 /// was typed against `FnOnce(...)` with a capture list).
-is_fnonce_closure_fn :: (fn(imm(func_id) : String) -> bool)(
+is_fnonce_closure_fn :: (fn(func_id : &String) -> bool)(
   match(
     g_fnonce_closure_fn_registry.get(func_id.clone()),
     .Some(_) => true,
@@ -115,17 +115,17 @@ ClosureCaptureInfo :: ref(struct(capture_type : TypeValue, frame_level : usize))
 (g_closure_fid_source : HashMap(String, String)) = HashMap(String, String).new();
 (g_closure_capture_by_source : HashMap(String, ClosureCaptureInfo)) = HashMap(String, ClosureCaptureInfo).new();
 /// Record the source key for a closure fid (at FuncVal mint).
-register_closure_fid_source :: (fn(imm(func_id) : String, imm(src_key) : String) -> unit)({
+register_closure_fid_source :: (fn(func_id : &String, src_key : &String) -> unit)({
   if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
     eprintln(`[fid-src] fid=${func_id} src=${src_key}`);
   });
   g_closure_fid_source.insert(func_id, src_key);
   ()
 });
-_capture_struct_field_count :: (fn(imm(t) : TypeValue) -> usize)(
+_capture_struct_field_count :: (fn(t : &TypeValue) -> usize)(
   match(t, .Struct({ field_labels : cfl }) => cfl.len(), _ => usize(0))
 );
-register_closure_capture_info :: (fn(imm(func_id) : String, imm(info) : ClosureCaptureInfo) -> unit)({
+register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureInfo) -> unit)({
   if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
     (reg_flds : String) = String.new();
     match(
@@ -190,7 +190,7 @@ register_closure_capture_info :: (fn(imm(func_id) : String, imm(info) : ClosureC
 /// struct id recovers the closure fid, whose registered func type carries the
 /// callable Func signature. Linear scan — only reached on the non-Func callee
 /// miss path.
-find_closure_fid_by_capture_struct_id :: (fn(imm(struct_id) : String) -> Option(String))({
+find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(String))({
   it := g_closure_capture_info.keys();
   (out : Option(String)) = Option(String).None;
   (go : bool) = true;
@@ -216,7 +216,7 @@ find_closure_fid_by_capture_struct_id :: (fn(imm(struct_id) : String) -> Option(
   });
   out
 });
-get_closure_capture_info :: (fn(imm(func_id) : String) -> Option(ClosureCaptureInfo))({
+get_closure_capture_info :: (fn(func_id : &String) -> Option(ClosureCaptureInfo))({
   fid_info := g_closure_capture_info.get(func_id.clone());
   // Cross-generation fallback: prefer the LARGEST capture struct any
   // generation of this SOURCE closure recorded (see g_closure_capture_by_source).
@@ -244,7 +244,7 @@ get_closure_capture_info :: (fn(imm(func_id) : String) -> Option(ClosureCaptureI
 /// mark lives here.
 (g_effect_record_member_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by func_id) as an effect-record member. Idempotent.
-mark_as_effect_record_member :: (fn(imm(func_id) : String) -> unit)({
+mark_as_effect_record_member :: (fn(func_id : &String) -> unit)({
   g_effect_record_member_registry.insert(func_id, true);
 });
 // ---------------------------------------------------------------------------
@@ -254,16 +254,16 @@ mark_as_effect_record_member :: (fn(imm(func_id) : String) -> unit)({
 /// (`xs(i)`, the ExprInfo's `index_method_value`). The caller of an interior
 /// `inout` argument takes the container's borrow flag BEFORE the argument
 /// expression — the `index` call itself — runs, so the index method's
-/// `inout(self)` entry assert would always see its own caller's borrow and
+/// `self : &mut Self` entry assert would always see its own caller's borrow and
 /// panic (a user `Index` impl on any object:
 /// issues/fixed/borrow-count-on-an-atomic-object-is-non-atomic-and-a-user-index-impl-panics-on-it.md).
 /// Its entry assert is skipped; any reallocation it performs goes through a
 /// callee that asserts on its own entry, or the realloc/free auto-assert.
 (g_index_entry_method_registry : HashMap(String, bool)) = HashMap(String, bool).new();
-mark_as_index_entry_method :: (fn(imm(func_id) : String) -> unit)({
+mark_as_index_entry_method :: (fn(func_id : &String) -> unit)({
   g_index_entry_method_registry.insert(func_id, true);
 });
-is_index_entry_method :: (fn(imm(func_id) : String) -> bool)(
+is_index_entry_method :: (fn(func_id : &String) -> bool)(
   g_index_entry_method_registry.get(func_id).is_some()
 );
 // ---------------------------------------------------------------------------
@@ -278,11 +278,11 @@ is_index_entry_method :: (fn(imm(func_id) : String) -> bool)(
 /// (io_async_await_analysis hit).
 (g_io_async_sm_closure_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a closure (by func_id) as an io.async state-machine closure. Idempotent.
-mark_io_async_sm_closure :: (fn(imm(func_id) : String) -> unit)({
+mark_io_async_sm_closure :: (fn(func_id : &String) -> unit)({
   g_io_async_sm_closure_registry.insert(func_id, true);
 });
 /// Returns true if `func_id` is an io.async state-machine closure.
-is_io_async_sm_closure :: (fn(imm(func_id) : String) -> bool)(
+is_io_async_sm_closure :: (fn(func_id : &String) -> bool)(
   match(
     g_io_async_sm_closure_registry.get(func_id.clone()),
     .Some(_) => true,
@@ -297,15 +297,15 @@ is_io_async_sm_closure :: (fn(imm(func_id) : String) -> bool)(
 /// reads idempotent. Populated on the FSM path (closures with await analysis).
 (g_io_async_closure_fid_by_expr : HashMap(String, String)) = HashMap(String, String).new();
 /// Record the io.async call expr (by AST id, stringified) → closure func_id.
-register_io_async_closure_fid :: (fn(imm(expr_id) : String, imm(func_id) : String) -> unit)({
+register_io_async_closure_fid :: (fn(expr_id : &String, func_id : &String) -> unit)({
   g_io_async_closure_fid_by_expr.insert(expr_id.clone(), func_id.clone());
 });
 /// Look up the closure func_id recorded for an io.async call expr.
-lookup_io_async_closure_fid :: (fn(imm(expr_id) : String) -> Option(String))(
+lookup_io_async_closure_fid :: (fn(expr_id : &String) -> Option(String))(
   g_io_async_closure_fid_by_expr.get(expr_id.clone())
 );
 /// Returns true if the function identified by `func_id` is an effect-record member.
-is_effect_record_member :: (fn(imm(func_id) : String) -> bool)(
+is_effect_record_member :: (fn(func_id : &String) -> bool)(
   match(
     g_effect_record_member_registry.get(func_id.clone()),
     .Some(_) => true,
@@ -335,13 +335,13 @@ is_effect_record_member :: (fn(imm(func_id) : String) -> bool)(
 ///
 /// Called when creating a FuncVal (in `evaluator/values/anonymous_function.yo`)
 /// if the function is defined inside another function body.
-register_definition_site_return :: (fn(imm(func_id) : String, imm(return_ty) : TypeValue) -> unit)({
+register_definition_site_return :: (fn(func_id : &String, return_ty : &TypeValue) -> unit)({
   g_definition_site_return_registry.insert(func_id, return_ty);
 });
 /// Get the enclosing function's return type at a function's definition site.
 /// Returns `t_unit()` if the function was not defined inside another function
 /// body (e.g., top-level definitions, handlers defined in test blocks).
-get_definition_site_return :: (fn(imm(func_id) : String) -> TypeValue)(
+get_definition_site_return :: (fn(func_id : &String) -> TypeValue)(
   match(
     g_definition_site_return_registry.get(func_id.clone()),
     .Some(ty) => ty,
@@ -363,10 +363,10 @@ get_definition_site_return :: (fn(imm(func_id) : String) -> TypeValue)(
 /// SAME env channel the spec body eval reads.
 (g_closure_body_type_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
-register_closure_body_type :: (fn(imm(func_id) : String, imm(body_ty) : TypeValue) -> unit)({
+register_closure_body_type :: (fn(func_id : &String, body_ty : &TypeValue) -> unit)({
   g_closure_body_type_registry.insert(func_id, body_ty);
 });
-get_closure_body_type :: (fn(imm(func_id) : String) -> Option(TypeValue))(
+get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
   g_closure_body_type_registry.get(func_id.clone())
 );
 /// Record a function's own resolved `Func` type by func_id (called when the
@@ -375,7 +375,7 @@ get_closure_body_type :: (fn(imm(func_id) : String) -> Option(TypeValue))(
 /// specialized id can run to 25 KB, so a cloned key was one more copy of an
 /// id the FuncVal already holds (plans/EVALUATOR_MEMORY_REDUCTION.md §0.23).
 /// Function ids are never mutated in place once minted.
-register_func_type :: (fn(imm(func_id) : String, imm(func_ty) : TypeValue) -> unit)({
+register_func_type :: (fn(func_id : &String, func_ty : &TypeValue) -> unit)({
   record_owned_func_id(func_id);
   g_func_type_registry.insert(func_id, func_ty);
 });
@@ -388,10 +388,10 @@ register_func_type :: (fn(imm(func_id) : String, imm(func_ty) : TypeValue) -> un
 /// codegen would emit a body referencing
 /// undeclared outer variables. should_skip_function_codegen consults this.
 (g_unemittable_fns : HashSet(String)) = HashSet(String).new();
-mark_fn_unemittable :: (fn(imm(func_id) : String) -> unit)({
+mark_fn_unemittable :: (fn(func_id : &String) -> unit)({
   g_unemittable_fns.insert(func_id.clone());
 });
-is_fn_unemittable :: (fn(imm(func_id) : String) -> bool)(
+is_fn_unemittable :: (fn(func_id : &String) -> bool)(
   g_unemittable_fns.contains(func_id.clone())
 );
 // ---------------------------------------------------------------------------
@@ -404,10 +404,10 @@ is_fn_unemittable :: (fn(imm(func_id) : String) -> bool)(
 /// context: a `:=` in it stays legal
 /// (issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
 (g_ctfe_clone_fns : HashSet(String)) = HashSet(String).new();
-mark_fn_ctfe_clone :: (fn(imm(func_id) : String) -> unit)({
+mark_fn_ctfe_clone :: (fn(func_id : &String) -> unit)({
   g_ctfe_clone_fns.insert(func_id.clone());
 });
-is_fn_ctfe_clone :: (fn(imm(func_id) : String) -> bool)(
+is_fn_ctfe_clone :: (fn(func_id : &String) -> bool)(
   g_ctfe_clone_fns.contains(func_id.clone())
 );
 // ---------------------------------------------------------------------------
@@ -421,17 +421,17 @@ is_fn_ctfe_clone :: (fn(imm(func_id) : String) -> bool)(
 /// last registered under its id
 /// (issues/fixed/forwarded-closure-param-shares-specialization.md).
 (g_specialized_originals : HashSet(String)) = HashSet(String).new();
-mark_fn_specialized :: (fn(imm(func_id) : String) -> unit)({
+mark_fn_specialized :: (fn(func_id : &String) -> unit)({
   g_specialized_originals.insert(func_id.clone());
 });
-fn_has_specializations :: (fn(imm(func_id) : String) -> bool)(
+fn_has_specializations :: (fn(func_id : &String) -> bool)(
   g_specialized_originals.contains(func_id.clone())
 );
 /// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
 /// Every function the evaluator registered a type for (std included) — the
 /// denominator of plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9's number.
 registered_func_type_count :: (fn() -> usize)(g_func_type_registry.len());
-get_func_type :: (fn(imm(func_id) : String) -> TypeValue)(
+get_func_type :: (fn(func_id : &String) -> TypeValue)(
   match(
     g_func_type_registry.get(func_id.clone()),
     .Some(ty) => ty,
@@ -459,18 +459,18 @@ get_func_type :: (fn(imm(func_id) : String) -> TypeValue)(
 (g_func_parameters_frame : HashMap(String, Frame)) = HashMap(String, Frame).new();
 /// Store the parameter-bound frame for a function, keyed by its `fn(...)`
 /// type-expression id. (Capture timing is critical — see DEFTIME_BODY_EVAL.md.)
-register_func_parameters_frame :: (fn(imm(func_id) : String, imm(frame) : Frame) -> unit)({
+register_func_parameters_frame :: (fn(func_id : &String, frame : &Frame) -> unit)({
   record_owned_func_id(func_id.clone());
   g_func_parameters_frame.insert(func_id, frame);
 });
 /// Retrieve a function's parameter-bound frame, if captured.
-get_func_parameters_frame :: (fn(imm(func_id) : String) -> Option(Frame))(
+get_func_parameters_frame :: (fn(func_id : &String) -> Option(Frame))(
   g_func_parameters_frame.get(func_id.clone())
 );
 /// Drop the given function ids from this module's per-function registries
 /// (see `purge_function_side_tables`, plans/EVALUATOR_MEMORY_REDUCTION.md
 /// Phase 1 step 5).
-purge_function_value_tables :: (fn(imm(ids) : ArrayList(String)) -> unit)({
+purge_function_value_tables :: (fn(ids : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < ids.len(), {
     match(

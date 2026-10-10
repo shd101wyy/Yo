@@ -77,7 +77,7 @@ _is_digit :: (fn(c : rune) -> bool)(
   (c.char >= u32(0x30)) && (c.char <= u32(0x39))
 );
 /// Append `count` copies of `r` to `sb`.
-_pad_runes :: (fn(mut(sb) : StringBuilder, r : rune, count : usize) -> unit)({
+_pad_runes :: (fn(sb : &mut StringBuilder, r : rune, count : usize) -> unit)({
   (i : usize) = usize(0);
   while(i < count, i = (i + usize(1)), {
     sb.write_rune(r);
@@ -87,7 +87,7 @@ _pad_runes :: (fn(mut(sb) : StringBuilder, r : rune, count : usize) -> unit)({
 /// truncate: `precision` means decimal places for numbers and a truncation
 /// length for text, so only the text path may apply it.
 _apply_width :: (
-  fn(fill : rune, align : Option(Alignment), width : usize, imm(text) : String, dflt : Alignment) -> String
+  fn(fill : rune, align : Option(Alignment), width : usize, text : &String, dflt : Alignment) -> String
 )({
   // `width` is a CHARACTER count (the field doc says so, and Rust counts
   // chars here too), so the measurement is a rune count — otherwise
@@ -224,7 +224,7 @@ impl(
   /// Apply width/fill/alignment (and text truncation) to an already-rendered
   /// body. `dflt` is the alignment used when the spec did not give one —
   /// `Left` for text, `Right` for numbers, as in Rust.
-  pad : (fn(self : Self, imm(body) : String, dflt : Alignment) -> String)({
+  pad : (fn(self : Self, body : &String, dflt : Alignment) -> String)({
     (text : String) = body;
     match(
       self.precision,
@@ -250,7 +250,7 @@ impl(
   /// fill goes BETWEEN the sign/prefix and the digits, so `-0042` and
   /// `0x0000002a` are reachable. Otherwise this is ordinary right-aligned
   /// padding over the whole rendering.
-  pad_numeric : (fn(self : Self, imm(sign) : String, imm(prefix) : String, imm(digits) : String) -> String)({
+  pad_numeric : (fn(self : Self, sign : &String, prefix : &String, digits : &String) -> String)({
     // Same CHARACTER basis as `_apply_width` — the two are compared against
     // the same `self.width`, so they must measure the same thing.
     head_len := (sign.chars().count() + prefix.chars().count());

@@ -96,7 +96,7 @@ DocState :: ref(
 (g_hierarchical_symbols : bool) = false;
 
 /// Read a string field out of a JSON object; empty string when absent.
-_jfield_str :: (fn(imm(v) : JsonValue, key : str) -> String)(
+_jfield_str :: (fn(v : &JsonValue, key : str) -> String)(
   match(
     v.get(String.from(key)),
     .Some(f) => match(f, .Str(x) => x, _ => String.new()),
@@ -104,7 +104,7 @@ _jfield_str :: (fn(imm(v) : JsonValue, key : str) -> String)(
   )
 );
 /// Read a numeric field as usize; 0 when absent or not a number.
-_jfield_usize :: (fn(imm(v) : JsonValue, key : str) -> usize)(
+_jfield_usize :: (fn(v : &JsonValue, key : str) -> usize)(
   match(
     v.get(String.from(key)),
     // LSP integer fields (line, character, id) parse as .Int — without this
@@ -114,7 +114,7 @@ _jfield_usize :: (fn(imm(v) : JsonValue, key : str) -> usize)(
   )
 );
 /// Read a boolean field; `dflt` when absent or not a boolean.
-_jfield_bool :: (fn(imm(v) : JsonValue, key : str, dflt : bool) -> bool)(
+_jfield_bool :: (fn(v : &JsonValue, key : str, dflt : bool) -> bool)(
   match(
     v.get(String.from(key)),
     .Some(f) => match(f, .Bool(b) => b, _ => dflt),
@@ -122,7 +122,7 @@ _jfield_bool :: (fn(imm(v) : JsonValue, key : str, dflt : bool) -> bool)(
   )
 );
 /// `params.textDocument.uri`; empty string when absent.
-_params_uri :: (fn(imm(params) : JsonValue) -> String)(
+_params_uri :: (fn(params : &JsonValue) -> String)(
   match(
     params.get(String.from("textDocument")),
     .Some(td) => _jfield_str(td, "uri"),
@@ -138,7 +138,7 @@ LspPos :: struct(
 derive(LspPos, Copy, Clone);
 /// `params.position`, with `character` converted from the client's encoding
 /// to a RUNE column against the document's line.
-_rune_position :: (fn(imm(params) : JsonValue, imm(lines) : ArrayList(String)) -> LspPos)(
+_rune_position :: (fn(params : &JsonValue, lines : &ArrayList(String)) -> LspPos)(
   match(
     params.get(String.from("position")),
     .Some(pos) => {
@@ -157,7 +157,7 @@ _rune_position :: (fn(imm(params) : JsonValue, imm(lines) : ArrayList(String)) -
 /// definition.yo uses); only when the target cannot be read are the rune
 /// columns emitted unconverted (exact for BMP-only lines, the only thing
 /// knowable without the text).
-_related_json :: (fn(imm(related) : ArrayList(RelatedInfo), imm(lines) : ArrayList(String), imm(doc_fs) : String) -> JsonValue)({
+_related_json :: (fn(related : &ArrayList(RelatedInfo), lines : &ArrayList(String), doc_fs : &String) -> JsonValue)({
   if(related.len() == usize(0), {
     return(JsonValue.Null);
   });
@@ -190,7 +190,7 @@ _related_json :: (fn(imm(related) : ArrayList(RelatedInfo), imm(lines) : ArrayLi
 /// Analyze `text` as the document at `uri`, retain the analysis state for
 /// feature requests, and push publishDiagnostics.
 _analyze_and_publish :: (
-  fn(imm(uri) : String, imm(text) : String, imm(std_path) : String, mut(docs) : HashMap(String, DocState), io : Io) -> unit
+  fn(uri : &String, text : &String, std_path : &String, docs : &mut HashMap(String, DocState), io : Io) -> unit
 )({
   fs_path := uri_to_fs_path(uri.clone());
   // Phase B1 (plans/reference/INCREMENTAL_COMPILATION.md): the editor holds this
@@ -244,7 +244,7 @@ _analyze_and_publish :: (
 });
 
 /// Send an empty diagnostics list for `uri` (clears squiggles on close).
-_publish_empty :: (fn(imm(uri) : String) -> unit)({
+_publish_empty :: (fn(uri : &String) -> unit)({
   params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : ArrayList(JsonValue).new())).obj();
   write_lsp_message(json.stringify(j_notification("textDocument/publishDiagnostics", params)));
 });
@@ -285,7 +285,7 @@ _new_pending_analysis :: (fn() -> PendingAnalysis)(
 /// `didOpen`) falls back to an immediate analysis: there is no outcome to
 /// serve requests from in the meantime.
 _note_document_change :: (
-  fn(imm(uri) : String, imm(text) : String, imm(std_path) : String, mut(docs) : HashMap(String, DocState), imm(pending) : PendingAnalysis, io : Io) -> unit
+  fn(uri : &String, text : &String, std_path : &String, docs : &mut HashMap(String, DocState), pending : &PendingAnalysis, io : Io) -> unit
 )(
   match(
     docs.get(uri.clone()),
@@ -324,7 +324,7 @@ _note_document_change :: (
 /// document closed inside the window is skipped: its state is gone and
 /// `didClose` already cleared its diagnostics.
 _flush_pending_analyses :: (
-  fn(imm(std_path) : String, mut(docs) : HashMap(String, DocState), imm(pending) : PendingAnalysis, io : Io) -> unit
+  fn(std_path : &String, docs : &mut HashMap(String, DocState), pending : &PendingAnalysis, io : Io) -> unit
 )({
   if(pending.uris.len() == usize(0), {
     return(());
@@ -379,7 +379,7 @@ _completion_triggers :: (fn() -> ArrayList(JsonValue))({
 
 /// The client's `capabilities.general.positionEncodings` list, or an empty
 /// list when absent.
-_client_position_encodings :: (fn(imm(params) : JsonValue) -> ArrayList(String))({
+_client_position_encodings :: (fn(params : &JsonValue) -> ArrayList(String))({
   out := ArrayList(String).new();
   encodings := match(
     params.get(String.from("capabilities")),
@@ -418,7 +418,7 @@ _client_position_encodings :: (fn(imm(params) : JsonValue) -> ArrayList(String))
 /// `utf-8` (2). An absent or empty list takes the protocol default utf-16;
 /// the answer is never an encoding the client did not offer
 /// (issues/lsp-position-encoding-is-negotiated-against-the-clients-list.md).
-_negotiated_encoding :: (fn(imm(params) : JsonValue) -> usize)({
+_negotiated_encoding :: (fn(params : &JsonValue) -> usize)({
   offered := _client_position_encodings(params);
   (i : usize) = usize(0);
   while(i < offered.len(), {
@@ -466,7 +466,7 @@ _negotiated_encoding :: (fn(imm(params) : JsonValue) -> usize)({
 /// `textDocument.documentSymbol.hierarchicalDocumentSymbolSupport` — without
 /// it the documentSymbol reply must be FLAT SymbolInformation[], not the
 /// hierarchical DocumentSymbol[] (VS Code's client always declares it).
-_client_wants_hierarchical_symbols :: (fn(imm(params) : JsonValue) -> bool)(
+_client_wants_hierarchical_symbols :: (fn(params : &JsonValue) -> bool)(
   match(
     params.get(String.from("capabilities")),
     .Some(caps) => match(
@@ -485,7 +485,7 @@ _client_wants_hierarchical_symbols :: (fn(imm(params) : JsonValue) -> bool)(
 /// True iff the client accepts markdown hover content: false only when
 /// `textDocument.hover.contentFormat` is a NONEMPTY list without "markdown"
 /// (absent means the protocol default, markdown first).
-_client_accepts_markdown_hover :: (fn(imm(params) : JsonValue) -> bool)({
+_client_accepts_markdown_hover :: (fn(params : &JsonValue) -> bool)({
   fmts := match(
     params.get(String.from("capabilities")),
     .Some(caps) => match(
@@ -534,7 +534,7 @@ _client_accepts_markdown_hover :: (fn(imm(params) : JsonValue) -> bool)({
 /// diagnostics carry no capability flag. The client's documentSymbol and
 /// hover capability shapes are recorded for the reply builders
 /// (`g_hierarchical_symbols`, `set_hover_markdown`).
-_initialize_result :: (fn(imm(params) : JsonValue) -> JsonValue)({
+_initialize_result :: (fn(params : &JsonValue) -> JsonValue)({
   enc := _negotiated_encoding(params);
   set_position_encoding(enc);
   g_hierarchical_symbols = _client_wants_hierarchical_symbols(params);
@@ -558,7 +558,7 @@ _initialize_result :: (fn(imm(params) : JsonValue) -> JsonValue)({
 /// when already canonical, or Null (own unwind frame) when the source does
 /// not lex, or renders different but does not parse (`_fmt_parse_gate`) —
 /// the client keeps the buffer untouched.
-_format_document :: (fn(imm(text) : String, imm(doc_abs) : String) -> JsonValue)({
+_format_document :: (fn(text : &String, doc_abs : &String) -> JsonValue)({
   fmt_exn := Exception(
     throw : (
       _err -> unwind(JsonValue.Null)
@@ -585,7 +585,7 @@ _format_document :: (fn(imm(text) : String, imm(doc_abs) : String) -> JsonValue)
 
 /// Write the response for `id_opt` (a REQUEST); a notification-shaped
 /// message (no id) gets nothing back.
-_respond :: (fn(imm(id_opt) : Option(JsonValue), imm(result) : JsonValue) -> unit)({
+_respond :: (fn(id_opt : &Option(JsonValue), result : &JsonValue) -> unit)({
   match(
     id_opt,
     .Some(id) => write_lsp_message(json.stringify(j_response(id, result))),
@@ -597,10 +597,10 @@ _respond :: (fn(imm(id_opt) : Option(JsonValue), imm(result) : JsonValue) -> uni
 /// 11 = exit(1) (`exit` without a preceding `shutdown`).
 _handle_message :: (
   fn(
-    imm(body) : String,
-    mut(docs) : HashMap(String, DocState),
-    imm(std_path) : String,
-    imm(pending) : PendingAnalysis,
+    body : &String,
+    docs : &mut HashMap(String, DocState),
+    std_path : &String,
+    pending : &PendingAnalysis,
     io : Io
   ) -> i32
 )({
@@ -1314,7 +1314,7 @@ _handle_message :: (
 });
 
 /// `yo lsp` entry: serve LSP over stdio until `exit` or EOF.
-run_lsp_server :: (fn(io : Io, imm(exn) : Exception) -> unit)({
+run_lsp_server :: (fn(io : Io, exn : &Exception) -> unit)({
   // Windows text-mode stdout would corrupt every frame header
   // (issues/fixed/lsp-windows-text-mode-framing-breaks-every-client.md) — flip it
   // to binary before anything can be written.

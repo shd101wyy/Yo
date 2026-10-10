@@ -16,7 +16,7 @@ _MoFd :: struct(n : i32);
 impl(
   _MoFd,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_mo_disposed = (g_mo_disposed + i32(1));
       g_mo_sum = (g_mo_sum + self.n);
     })
@@ -28,7 +28,7 @@ _MoToken :: struct(id : i32);
 _MoChoice :: enum(Open(fd : _MoFd), Closed);
 _MoRef :: ref(struct(fd : _MoFd));
 _mo_take :: (fn(sink(f) : _MoFd) -> i32)(f.n);
-_mo_peek :: (fn(imm(f) : _MoFd) -> i32)(f.n);
+_mo_peek :: (fn(f : &_MoFd) -> i32)(f.n);
 _mo_make :: (fn(n : i32) -> _MoFd)({
   x := _MoFd(n : n);
   x
@@ -56,7 +56,7 @@ _MoLate :: struct(n : i32);
 impl(
   _MoLate,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_mo_disposed = (g_mo_disposed + i32(1));
     })
   )
@@ -64,7 +64,7 @@ impl(
 // A `sink(x)` parameter is the same function type as a plain `x` (the move
 // is decided at the caller); `own(x)`, its old spelling, is deleted.
 _mo_take_old :: (fn(sink(f) : _MoFd) -> i32)(f.n);
-_mo_dup_generic :: (fn(generic(T : Type), imm(x) : T) -> T)(x);
+_mo_dup_generic :: (fn(generic(T : Type), x : &T) -> T)(x);
 _mo_move_generic :: (fn(generic(T : Type), sink(x) : T) -> T)(x);
 // ---------------------------------------------------------------------------
 // The marker
@@ -175,12 +175,12 @@ test("move-only: a return moves the value out, an early return disposes once", {
   assert(g_mo_disposed == (before + i32(5)), "each value disposed once");
   assert(g_mo_sum == (before_sum + i32(67)), "7 + 10 + 10 + 20 + 20");
 });
-_mo_one_arm :: (fn(c : bool, mut(keep) : ArrayList(_MoFd)) -> i32)({
+_mo_one_arm :: (fn(c : bool, keep : &mut ArrayList(_MoFd)) -> i32)({
   a := _MoFd(n : i32(30));
   cond(c => keep.push(a), true => ());
   i32(1)
 });
-_mo_one_arm_reads :: (fn(c : bool, mut(keep) : ArrayList(_MoFd)) -> i32)({
+_mo_one_arm_reads :: (fn(c : bool, keep : &mut ArrayList(_MoFd)) -> i32)({
   a := _MoFd(n : i32(40));
   cond(
     c => {
@@ -190,7 +190,7 @@ _mo_one_arm_reads :: (fn(c : bool, mut(keep) : ArrayList(_MoFd)) -> i32)({
     true => a.n
   )
 });
-_mo_one_match_arm :: (fn(k : i32, mut(keep) : ArrayList(_MoFd)) -> unit)({
+_mo_one_match_arm :: (fn(k : i32, keep : &mut ArrayList(_MoFd)) -> unit)({
   a := _MoFd(n : i32(50));
   match(
     k,
@@ -274,7 +274,7 @@ test("move-only: a closure capture moves the value, and the closure disposes it"
   };
   assert(g_mo_disposed == (before + i32(1)), "the closure disposes once");
 });
-_mo_with :: (fn(imm(f) : Impl(Fn() -> i32)) -> i32)(f());
+_mo_with :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f());
 _mo_with_sink :: (fn(sink(f) : Impl(Fn() -> i32)) -> i32)(f());
 test("move-only: a closure passed straight to a borrowing parameter borrows its captures", {
   before := g_mo_disposed;
@@ -316,17 +316,17 @@ test("move-only: a generic `sink` parameter moves at the instantiation", {
 // ---------------------------------------------------------------------------
 test("move-only: a borrow cannot be copied or moved out", {
   a := _MoFd(n : i32(1));
-  comptime_expect_error((fn(imm(f) : _MoFd) -> _MoFd)(f), "it is borrowed");
+  comptime_expect_error((fn(f : &_MoFd) -> _MoFd)(f), "it is borrowed");
   comptime_expect_error(
-    (fn(imm(f) : _MoFd) -> i32)({
+    (fn(f : &_MoFd) -> i32)({
       g := f;
       g.n
     }),
     "it is borrowed"
   );
-  comptime_expect_error((fn(mut(f) : _MoFd) -> i32)(_mo_take(f)), "it is a `&mut` borrow");
+  comptime_expect_error((fn(f : &mut _MoFd) -> i32)(_mo_take(f)), "it is a `&mut` borrow");
   comptime_expect_error(
-    (fn(imm(f) : _MoFd) -> i32)({
+    (fn(f : &_MoFd) -> i32)({
       (k : Impl(Fn() -> i32)) = (() => f.n);
       k()
     }),
@@ -379,7 +379,7 @@ test("move-only: the E0901 note names why the type is move-only", {
 test("move-only: `sink` and plain spell one function type, and `sink` moves", {
   comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(f : _MoFd) -> i32)), "sink and plain are one parameter mode");
   comptime_assert(Type.is_compatible_with((fn(f : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "both directions");
-  comptime_assert(!Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(imm(f) : _MoFd) -> i32)), "sink is not a borrow");
+  comptime_assert(!Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(f : &_MoFd) -> i32)), "sink is not a borrow");
   before := g_mo_disposed;
   {
     a := _MoFd(n : i32(3));
@@ -405,7 +405,7 @@ _mo_two :: (fn(k : i32) -> _MoTwo)(
   )
 );
 _mo_some :: (fn(n : i32) -> Option(_MoFd))(.Some(_MoFd(n : n)));
-_mo_peek_opt :: (fn(imm(o) : Option(_MoFd)) -> i32)(
+_mo_peek_opt :: (fn(o : &Option(_MoFd)) -> i32)(
   match(
     o,
     .Some(f) => f.n,
@@ -429,7 +429,7 @@ _mo_match_early :: (fn(c : bool) -> i32)({
 });
 // A consuming match in a loop body: an arm moves its binding and continues,
 // returns it to the keeper, or breaks while still owning it.
-_mo_match_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
+_mo_match_in_loop :: (fn(keep : &mut ArrayList(_MoFd)) -> i32)({
   (i : i32) = i32(0);
   (total : i32) = i32(0);
   while(i < i32(5), {
@@ -455,7 +455,7 @@ _mo_match_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
 });
 // The same loop over a plain local: the value moved before `continue` is the
 // keeper's (issues/fixed/a-value-moved-before-a-continue-or-break-is-dropped-again-at-the-exit.md).
-_mo_local_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
+_mo_local_in_loop :: (fn(keep : &mut ArrayList(_MoFd)) -> i32)({
   (i : i32) = i32(0);
   (total : i32) = i32(0);
   while(i < i32(5), {

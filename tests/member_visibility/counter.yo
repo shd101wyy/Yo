@@ -5,12 +5,12 @@
 Counter :: struct(_count : i32, label : String);
 impl(
   Counter,
-  new : (fn(imm(label) : String) -> Counter)(Counter(_count : i32(0), label : label)),
-  _bump : (fn(imm(self) : Self, by : i32) -> Counter)(
+  new : (fn(label : &String) -> Counter)(Counter(_count : i32(0), label : label)),
+  _bump : (fn(self : &Self, by : i32) -> Counter)(
     Counter(_count : (self._count + by), label : self.label.clone())
   ),
-  add : (fn(imm(self) : Self, by : i32) -> Counter)(self._bump(by)),
-  count : (fn(imm(self) : Self) -> i32)(self._count)
+  add : (fn(self : &Self, by : i32) -> Counter)(self._bump(by)),
+  count : (fn(self : &Self) -> i32)(self._count)
 );
 /// A GENERIC type: its methods reach callers through the generic-impl
 /// registry, whose candidates must carry the impl's declaring module.
@@ -20,8 +20,8 @@ derive(generic(T : Type), where(T <: Copy), Cell(T), Copy);
 impl(
   generic(T : Type),
   Cell(T),
-  wrap : (fn(imm(v) : T) -> Self)(Self(_inner : v)),
-  _peek : (fn(imm(self) : Self) -> T)(self._inner),
-  get : (fn(imm(self) : Self) -> T)(self._peek())
+  wrap : (fn(v : &T) -> Self)(Self(_inner : v)),
+  _peek : (fn(self : &Self) -> T)(self._inner),
+  get : (fn(self : &Self) -> T)(self._peek())
 );
 export(Counter, Cell);

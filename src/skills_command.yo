@@ -49,12 +49,12 @@ SkillCopyCounters :: ref(
 /// mechanism.
 _copy_skills_file :: (
   fn(
-    imm(src) : Path,
-    imm(dest) : Path,
-    imm(display) : String,
-    imm(counters) : SkillCopyCounters,
+    src : &Path,
+    dest : &Path,
+    display : &String,
+    counters : &SkillCopyCounters,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   existed := io.await(exists(dest.clone(), io), io);
@@ -73,9 +73,9 @@ _copy_skills_file :: (
 /// file list (main.yo) and build_runner's step names.
 _sorted_dir_names :: (
   fn(
-    imm(path) : Path,
+    path : &Path,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ArrayList(String)
 )({
   entries := io.await(read_dir(path.clone(), io), IoExn(io : io, exn : exn));
@@ -90,12 +90,12 @@ _sorted_dir_names :: (
 });
 _copy_skills_dir :: (
   fn(
-    imm(src) : Path,
-    imm(dest) : Path,
-    imm(display_prefix) : String,
-    imm(counters) : SkillCopyCounters,
+    src : &Path,
+    dest : &Path,
+    display_prefix : &String,
+    counters : &SkillCopyCounters,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   // Explicit worklist of (src, dest, display prefix) triples — an iterative
@@ -129,9 +129,9 @@ _copy_skills_dir :: (
 /// closing one, so body prose is never mistaken for the description.
 _skill_description :: (
   fn(
-    imm(skill_md) : Path,
+    skill_md : &Path,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> String
 )({
   (desc : String) = String.from("");
@@ -145,7 +145,7 @@ _skill_description :: (
 /// The pure half of `_skill_description`: pull `description:` out of a
 /// SKILL.md's YAML frontmatter. Split from the file read so it can be tested
 /// without touching the disk (`tests/internal/init.test.yo`).
-description_from_frontmatter :: (fn(imm(content) : String) -> String)({
+description_from_frontmatter :: (fn(content : &String) -> String)({
   (desc : String) = String.from("");
   lines := content.split(String.from("\n"));
   // "description:" is 12 bytes, so the value starts at 12 — NOT 13. Slicing
@@ -195,7 +195,7 @@ description_from_frontmatter :: (fn(imm(content) : String) -> String)({
 ///    inside a Yo checkout) — the same exe-walk-up-then-cwd shape
 ///    `resolve_std_path` uses for `std/`.
 _find_bundled_skills_dir :: (
-  fn(io : Io, imm(exn) : Exception) -> Option(Path)
+  fn(io : Io, exn : &Exception) -> Option(Path)
 )({
   override := env.get(String.from("YO_SKILLS"));
   if(override.is_some(), {
@@ -263,9 +263,9 @@ _user_cwd :: (fn() -> String)(
 /// on it.
 install_skills_into :: (
   fn(
-    imm(project) : Path,
+    project : &Path,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Option(SkillsInstallResult)
 )({
   bundled_opt := _find_bundled_skills_dir(io, exn);
@@ -365,7 +365,7 @@ install_skills_into :: (
 /// The closing summary line shared by `yo skills install` and `yo init`'s
 /// agent scaffolding.
 print_skills_summary :: (
-  fn(imm(res) : SkillsInstallResult) -> unit
+  fn(res : &SkillsInstallResult) -> unit
 )({
   (locations : String) = String.from("");
   (l : usize) = usize(0);
@@ -396,9 +396,9 @@ print_skills_summary :: (
 /// Run the `skills install` subcommand.
 run_skills_install :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {

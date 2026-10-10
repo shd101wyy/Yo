@@ -298,19 +298,21 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
 
 `&` 与 `&mut` 的位置规则：
 
-- 在这一代中它们是**模式**，不是类型：它们只作为参数类型和局部借用位置的
-  前缀。`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T` 和
-  `&&T` 都是错误（"a borrow mode, not a type"）；引用要到决策 43 才成为类型。
+- 它们是**模式**，不是类型：它们只作为参数类型和局部借用位置的前缀。
+  `T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T` 和 `&&T`
+  都是错误（"a borrow mode, not a type"）。决策 43（2026-10-10 确认）使
+  `&T`/`&mut T` 成为二等类型，从而解除这些错误和返回类型禁令；在该阶段落地
+  之前，它们仍是模式。
 - 它们在**返回类型位置被拒绝**（`-> &T`、`-> &mut T`、`-> (name : &mut T)`）：
-  函数不能返回借用（投影，即决策 24，尚未实现）。
+  在决策 43 的阶段落地之前，函数不能返回借用（投影，即决策 24，也尚未实现）。
 - `mut` 是保留字：名为 `mut` 的绑定或参数是错误。
-- 在第二代（Generation B）之前仍接受模式关键字写法 `imm(x) : T`、
-  `mut(x) : T`、`comptime(imm(x)) : T`、`imm(y) := place`、`mut(cur) = place`、
-  捕获项 `imm(y)` / `mut(z) : &mut w` 以及 `for(xs, mut(x) => ...)`，
-  仅为了让 `std/` 和 `src/` 能用种子编译器构建；
-  `yo fix <path> --migrate borrow-spelling` 会改写它们。
-- `inout(x)` 和 `own(x)` 是 `x : &mut T` 与 `sink(x)` 更早的写法，现在会报错并
-  给出新写法；`yo fix <path> --migrate modes` 会改写它们。
+- 已删除的模式关键字写法 `imm(x) : T`、`mut(x) : T`、`inout(x) : T`、
+  `comptime(imm(x)) : T`、`-> imm(T)`、`imm(y) := place`、`mut(cur) = place`、
+  捕获项 `imm(y)` / `mut(z) : &mut w` 以及 `for(xs, mut(x) => ...)` 都是
+  错误 E0009，并给出符号写法；`yo fix <path> --migrate borrow-spelling`
+  会改写它们。`imm` 是普通标识符。
+- `own(x)` 是 `sink(x)` 更早的写法，同样是错误 E0009；
+  `yo fix <path> --migrate modes` 会改写它。
 - 语义见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 在调用处，被借出的实参带有与参数匹配的标记：

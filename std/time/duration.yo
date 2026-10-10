@@ -76,30 +76,30 @@ impl(
   ),
   /// Whole seconds, truncating the sub-second part toward zero — this is the
   /// `secs` field, so 1.999 s reads as `1`. Rust's `Duration::as_secs`.
-  as_secs : (fn(mut(self) : Self) -> i64)(
+  as_secs : (fn(self : &mut Self) -> i64)(
     self.secs
   ),
   /// Total milliseconds, truncated toward zero. Computed as
   /// `secs * 1000 + nanos / 1e6`, so it overflows `i64` for spans beyond
   /// ~2.9e8 years — Rust returns a `u128` here for that reason.
-  as_millis : (fn(mut(self) : Self) -> i64)(
+  as_millis : (fn(self : &mut Self) -> i64)(
     (self.secs * i64(1000)) + (self.nanos / i64(1000000))
   ),
   /// Total microseconds, truncated toward zero. Same multiply-out as
   /// `as_millis`, so it overflows `i64` beyond ~292 000 years.
-  as_micros : (fn(mut(self) : Self) -> i64)(
+  as_micros : (fn(self : &mut Self) -> i64)(
     (self.secs * i64(1000000)) + (self.nanos / i64(1000))
   ),
   /// Total nanoseconds — exact for every value this type can hold up to
   /// ~292 years, past which `secs * 1e9` overflows `i64` (signed overflow is
   /// UB in C, so this is not a wrap you may rely on). Rust returns `u128`.
-  as_nanos : (fn(mut(self) : Self) -> i64)(
+  as_nanos : (fn(self : &mut Self) -> i64)(
     (self.secs * i64(1000000000)) + self.nanos
   ),
   /// Total seconds as an `f64` — Rust's `Duration::as_secs_f64`. An `f64`
   /// carries 53 significant bits, so beyond ~104 days the nanosecond part no
   /// longer fits and the result quietly loses sub-nanosecond precision.
-  as_secs_f64 : (fn(mut(self) : Self) -> f64)(
+  as_secs_f64 : (fn(self : &mut Self) -> f64)(
     f64(self.secs) + (f64(self.nanos) / f64(1000000000.0))
   ),
   /// The sum of the two spans, carrying `nanos` into `secs`.
@@ -107,7 +107,7 @@ impl(
   /// NOT checked: the seconds sum can overflow `i64`. Rust's
   /// `Duration::add` panics on that and offers `checked_add` /
   /// `saturating_add`; neither exists here yet (see `## Stability`).
-  add : (fn(mut(self) : Self, other : Duration) -> Duration)({
+  add : (fn(self : &mut Self, other : Duration) -> Duration)({
     total_nanos := (self.nanos + other.nanos);
     carry := (total_nanos / i64(1000000000));
     Duration(
@@ -122,7 +122,7 @@ impl(
   ///
   /// Both sides go through `as_nanos`, so this inherits its ~292-year
   /// overflow bound.
-  sub : (fn(mut(self) : Self, other : Duration) -> Duration)({
+  sub : (fn(self : &mut Self, other : Duration) -> Duration)({
     self_ns := self.as_nanos();
     other_ns := other.as_nanos();
     cond(
@@ -132,14 +132,14 @@ impl(
   }),
   /// True only for the zero span, both fields being zero — Rust's
   /// `Duration::is_zero`.
-  is_zero : (fn(mut(self) : Self) -> bool)(
+  is_zero : (fn(self : &mut Self) -> bool)(
     (self.secs == i64(0)) && (self.nanos == i64(0))
   )
 );
 impl(
   Duration,
   ToString(
-    to_string : (fn(mut(self) : Self) -> String)({
+    to_string : (fn(self : &mut Self) -> String)({
       buf := Array(u8, usize(64)).fill(u8(0));
       buf_ptr := addr_of(buf(usize(0)));
       unsafe(snprintf((*char)(buf_ptr), usize(64), "%llds %lldns", self.secs, self.nanos));
@@ -180,15 +180,15 @@ impl(
     )
   ),
   /// The sub-second part in milliseconds (0..999).
-  subsec_millis : (fn(mut(self) : Self) -> i64)(
+  subsec_millis : (fn(self : &mut Self) -> i64)(
     self.nanos / i64(1000000)
   ),
   /// The sub-second part in microseconds (0..999_999).
-  subsec_micros : (fn(mut(self) : Self) -> i64)(
+  subsec_micros : (fn(self : &mut Self) -> i64)(
     self.nanos / i64(1000)
   ),
   /// The sub-second part in nanoseconds (0..999_999_999).
-  subsec_nanos : (fn(mut(self) : Self) -> i64)(
+  subsec_nanos : (fn(self : &mut Self) -> i64)(
     self.nanos
   )
 );
@@ -197,7 +197,7 @@ impl(
   Duration,
   Add(Duration)(
     Output : Duration,
-    (+) : (fn(imm(self) : Self, imm(other) : Self) -> Self.Output)(
+    (+) : (fn(self : Self, other : Self) -> Self.Output)(
       self.add(other)
     )
   )
@@ -207,7 +207,7 @@ impl(
   Duration,
   Sub(Duration)(
     Output : Duration,
-    (-) : (fn(imm(self) : Self, imm(other) : Self) -> Self.Output)(
+    (-) : (fn(self : Self, other : Self) -> Self.Output)(
       self.sub(other)
     )
   )
@@ -215,10 +215,10 @@ impl(
 impl(
   Duration,
   Eq(Duration)(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
     ),
-    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !(lhs == rhs)
     )
   )
@@ -226,19 +226,19 @@ impl(
 impl(
   Duration,
   Ord(Duration)(
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       cond(
         (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
         true => (lhs.nanos < rhs.nanos)
       )
     ),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !(rhs < lhs)
     ),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       rhs < lhs
     ),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !(lhs < rhs)
     )
   )
@@ -246,7 +246,7 @@ impl(
 impl(
   Duration,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(
       // Total nanoseconds is the value's identity (secs/nanos are kept
       // normalized by every constructor), so hashing it keeps Eq's contract.
       hasher.write_i64(self.as_nanos())

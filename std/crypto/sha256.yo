@@ -206,7 +206,7 @@ impl(
   /// O(len(data)). The return value is the receiver, not a copy — the
   /// hasher is mutated in place either way, so ignoring the result is
   /// equally correct.
-  update : (fn(imm(self) : Self, imm(data) : ArrayList(u8)) -> Self)({
+  update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
     i := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
@@ -232,7 +232,7 @@ impl(
   /// padding as if it were more message and returns a digest of nothing
   /// you fed it. RustCrypto's `finalize(self)` makes that a compile error;
   /// here it is a rule — one hasher, one message.
-  finish : (fn(imm(self) : Self) -> Array(u8, usize(32)))({
+  finish : (fn(self : &Self) -> Array(u8, usize(32)))({
     // Padding
     bit_len := (self._total * u64(8));
     self._buf(self._buflen) = u8(0x80);
@@ -284,10 +284,10 @@ impl(
   Sha256,
   Digest(
     new : (fn() -> Self)(Self.new()),
-    update : (fn(imm(self) : Self, imm(data) : ArrayList(u8)) -> Self)(self.update(data)),
+    update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)(self.update(data)),
     digest_size : (fn() -> usize)(usize(32)),
     block_size : (fn() -> usize)(usize(64)),
-    finish_bytes : (fn(imm(self) : Self) -> ArrayList(u8))({
+    finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
       d := self.finish();
       out := ArrayList(u8).with_capacity(usize(32));
       (fbi : usize) = usize(0);
@@ -307,7 +307,7 @@ impl(
 /// Exactly `Sha256.new().update(data).finish()`, so use it whenever the
 /// whole message is in memory; reach for the `Sha256` type only to hash in
 /// pieces.
-sha256 :: (fn(imm(data) : ArrayList(u8)) -> Array(u8, usize(32)))(
+sha256 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(32)))(
   Sha256.new().update(data).finish()
 );
 /// SHA-256 of `data` as 64 lowercase hex characters — the spelling
@@ -316,7 +316,7 @@ sha256 :: (fn(imm(data) : ArrayList(u8)) -> Array(u8, usize(32)))(
 /// Convenience over `sha256` + `hex_encode`; it allocates the `String`.
 /// Compare hex digests with care: use `constant_time_eq`
 /// (`std/crypto/hmac`) when the comparison is a security decision.
-sha256_hex :: (fn(imm(data) : ArrayList(u8)) -> String)({
+sha256_hex :: (fn(data : &ArrayList(u8)) -> String)({
   digest := sha256(data);
   // Convert fixed array to ArrayList(u8) for hex.encode
   bytes := ArrayList(u8).with_capacity(usize(32));

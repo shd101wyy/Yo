@@ -147,7 +147,7 @@ JsonKV :: struct(
 impl(
   JsonValue,
   /// Get a field from an Object value by key. Returns `.None` if not an Object or key is missing.
-  get : (fn(imm(self) : Self, imm(key) : String) -> Option(JsonValue))(
+  get : (fn(self : &Self, key : &String) -> Option(JsonValue))(
     match(
       self,
       .Object(keys, values) => {
@@ -166,7 +166,7 @@ impl(
     )
   ),
   /// Get an element from an Array value by index.
-  at : (fn(imm(self) : Self, index : usize) -> Option(JsonValue))(
+  at : (fn(self : &Self, index : usize) -> Option(JsonValue))(
     match(
       self,
       .Array(items) => items.get(index),
@@ -174,7 +174,7 @@ impl(
     )
   ),
   /// Extract the boolean value, or `.None` if not a `Bool`.
-  as_bool : (fn(imm(self) : Self) -> Option(bool))(
+  as_bool : (fn(self : &Self) -> Option(bool))(
     match(
       self,
       .Bool(b) => .Some(b),
@@ -182,7 +182,7 @@ impl(
     )
   ),
   /// Extract the numeric value, or `.None` if not a `Number`.
-  as_number : (fn(imm(self) : Self) -> Option(f64))(
+  as_number : (fn(self : &Self) -> Option(f64))(
     match(
       self,
       .Number(n) => .Some(n),
@@ -193,7 +193,7 @@ impl(
     )
   ),
   /// Extract the string value, or `.None` if not a `Str`.
-  as_string : (fn(imm(self) : Self) -> Option(String))(
+  as_string : (fn(self : &Self) -> Option(String))(
     match(
       self,
       .Str(s) => .Some(s),
@@ -201,7 +201,7 @@ impl(
     )
   ),
   /// Extract the array items, or `.None` if not an `Array`.
-  as_array : (fn(imm(self) : Self) -> Option(ArrayList(JsonValue)))(
+  as_array : (fn(self : &Self) -> Option(ArrayList(JsonValue)))(
     match(
       self,
       .Array(items) => .Some(items),
@@ -209,7 +209,7 @@ impl(
     )
   ),
   /// Extract object entries as `ArrayList(JsonKV)`, or `.None` if not an `Object`.
-  as_object : (fn(imm(self) : Self) -> Option(ArrayList(JsonKV)))(
+  as_object : (fn(self : &Self) -> Option(ArrayList(JsonKV)))(
     match(
       self,
       .Object(keys, values) => {
@@ -227,7 +227,7 @@ impl(
 /// Is `token` a valid RFC 6901 array index — `"0"`, or digits with no leading
 /// zero? The RFC is explicit that `"01"` is not an index, so it must not
 /// silently resolve to element 1.
-_is_rfc6901_index :: (fn(imm(token) : String) -> bool)({
+_is_rfc6901_index :: (fn(token : &String) -> bool)({
   b := token;
   if(b.len() == usize(0), {
     return(false);
@@ -253,33 +253,33 @@ _is_rfc6901_index :: (fn(imm(token) : String) -> bool)({
 impl(
   JsonValue,
   /// True for JSON `null`.
-  is_null : (fn(imm(self) : Self) -> bool)(
+  is_null : (fn(self : &Self) -> bool)(
     match(self, .Null => true, _ => false)
   ),
   /// True for a JSON boolean.
-  is_bool : (fn(imm(self) : Self) -> bool)(
+  is_bool : (fn(self : &Self) -> bool)(
     match(self, .Bool(_) => true, _ => false)
   ),
   /// True for a JSON number.
-  is_number : (fn(imm(self) : Self) -> bool)(
+  is_number : (fn(self : &Self) -> bool)(
     match(self, .Number(_) => true, .Int(_) => true, _ => false)
   ),
   /// True for a JSON string.
-  is_string : (fn(imm(self) : Self) -> bool)(
+  is_string : (fn(self : &Self) -> bool)(
     match(self, .Str(_) => true, _ => false)
   ),
   /// True for a JSON array.
-  is_array : (fn(imm(self) : Self) -> bool)(
+  is_array : (fn(self : &Self) -> bool)(
     match(self, .Array(_) => true, _ => false)
   ),
   /// True for a JSON object.
-  is_object : (fn(imm(self) : Self) -> bool)(
+  is_object : (fn(self : &Self) -> bool)(
     match(self, .Object(_, _) => true, _ => false)
   ),
   /// The numeric value as an `f64` — Rust's name for what `as_number`
   /// already did. Both spellings are kept: `as_f64` sits beside `as_i64` /
   /// `as_u64`, and `as_number` is what the rest of this module calls.
-  as_f64 : (fn(imm(self) : Self) -> Option(f64))(
+  as_f64 : (fn(self : &Self) -> Option(f64))(
     self.as_number()
   ),
   /// The numeric value as an `i64`, or `.None` when it is not a number, not
@@ -289,7 +289,7 @@ impl(
   /// arm), so "integral" is decided by a round trip: `2^63` is exactly
   /// representable as a double, which makes `[-2^63, 2^63)` an exact bound,
   /// and NaN / ±infinity fail both comparisons and land in `.None`.
-  as_i64 : (fn(imm(self) : Self) -> Option(i64))(
+  as_i64 : (fn(self : &Self) -> Option(i64))(
     match(
       self,
       // Exact: no f64 round trip, which is the whole point of the variant.
@@ -306,7 +306,7 @@ impl(
   ),
   /// The numeric value as a `u64`, or `.None` when it is not a number, not
   /// integral, negative, or outside `u64` — `serde_json::Value::as_u64`.
-  as_u64 : (fn(imm(self) : Self) -> Option(u64))(
+  as_u64 : (fn(self : &Self) -> Option(u64))(
     match(
       self,
       .Int(i) => cond((i >= i64(0)) => Option(u64).Some(u64(i)), true => Option(u64).None),
@@ -333,7 +333,7 @@ impl(
   /// and a replacement keeps the key's original position.
   ///
   /// Panics when `self` is not an object.
-  insert : (fn(mut(self) : Self, key : String, value : JsonValue) -> Option(JsonValue))({
+  insert : (fn(self : &mut Self, key : String, value : JsonValue) -> Option(JsonValue))({
     // The payload lists are taken into locals, written, and stored back: a
     // `match` binding is a copy of them once collections are values.
     keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
@@ -356,7 +356,7 @@ impl(
   /// `serde_json`'s `Map::remove`. The remaining keys keep their order.
   ///
   /// Panics when `self` is not an object.
-  remove : (fn(mut(self) : Self, imm(key) : String) -> Option(JsonValue))({
+  remove : (fn(self : &mut Self, key : &String) -> Option(JsonValue))({
     keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
     values := match(self, .Object(_, v) => v, _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
     i := usize(0);
@@ -373,7 +373,7 @@ impl(
   /// Append `value` to an array.
   ///
   /// Panics when `self` is not an array.
-  push : (fn(mut(self) : Self, value : JsonValue) -> unit)({
+  push : (fn(self : &mut Self, value : JsonValue) -> unit)({
     items := match(self, .Array(xs) => xs, _ => __yo_panic("JsonValue.push: requires the .Array variant"));
     items.push(value);
     self = Self.Array(items);
@@ -385,7 +385,7 @@ impl(
   /// `~1` decoding to `/` and `~0` to `~`. An array index must be `0` or a
   /// digit string with no leading zero, as the RFC requires — `"01"` is not a
   /// valid index and resolves to `.None`, not to element 1.
-  pointer : (fn(imm(self) : Self, imm(path) : String) -> Option(JsonValue))({
+  pointer : (fn(self : &Self, path : &String) -> Option(JsonValue))({
     if(path.is_empty(), {
       return(Option(JsonValue).Some(self));
     });
@@ -431,7 +431,7 @@ impl(
   JsonValue,
   Index(String)(
     Output : JsonValue,
-    index : (fn(mut(self) : Self, imm(key) : String) -> *Self.Output)(
+    index : (fn(self : &mut Self, key : &String) -> *Self.Output)(
       match(
         self,
         .Object(keys, values) => {
@@ -458,14 +458,14 @@ impl(
   JsonValue,
   Index(usize)(
     Output : JsonValue,
-    index : (fn(mut(self) : Self, imm(idx) : usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : &usize) -> *Self.Output)(
       match(
         self,
         .Array(items) => {
           assert(idx < items.len(), "JsonValue: Array index out of bounds");
           // SAFETY: assert above bounds `idx`; `items` is the
           // Rc-managed Array list whose storage outlives this call
-          // (mut(self) keeps `self` and therefore `items` alive);
+          // (`self : &mut Self` keeps `self` and therefore `items` alive);
           // `&(items(idx))` (Index trait) yields the element pointer.
           return(unsafe(addr_of(items(idx))));
         },
@@ -511,13 +511,13 @@ impl(
   _Parser,
   /// A cursor over `src` positioned at byte 0. `src` is stored by reference
   /// (an `ArrayList` is a `ref` type), so the parser does not copy the input.
-  new : (fn(imm(src) : ArrayList(u8)) -> Self)(
+  new : (fn(src : &ArrayList(u8)) -> Self)(
     Self(src : src, pos : usize(0))
   ),
   /// The byte at the cursor WITHOUT consuming it, or `.None` at end of
   /// input. Every `.None` here becomes `JsonError.UnexpectedEnd` at the
   /// caller — this is the only place the parser learns it ran out.
-  peek : (fn(imm(self) : Self) -> Option(u8))(
+  peek : (fn(self : &Self) -> Option(u8))(
     cond(
       (self.pos < self.src.len()) => .Some(self.src(self.pos)),
       true => .None
@@ -526,14 +526,14 @@ impl(
   /// Step the cursor one byte forward. Deliberately unchecked: it is only
   /// ever called after a `peek()` that returned `.Some`, and letting `pos`
   /// run one past the end is harmless because `peek` bounds-checks.
-  advance : (fn(imm(self) : Self) -> unit)({
+  advance : (fn(self : &Self) -> unit)({
     self.pos = (self.pos + usize(1));
   }),
   /// Consume the four bytes RFC 8259 §2 calls insignificant whitespace —
   /// space, tab, LF, CR — and nothing else. A JSON comment or a vertical tab
   /// is NOT whitespace and stops the scan, so it surfaces as
   /// `UnexpectedChar` rather than being skipped.
-  skip_ws : (fn(imm(self) : Self) -> unit)({
+  skip_ws : (fn(self : &Self) -> unit)({
     while(runtime(true), {
       match(
         self.peek(),
@@ -555,7 +555,7 @@ impl(
   /// Note the position in `UnexpectedChar(c, self.pos)` is the offset of the
   /// OFFENDING byte, after whitespace was skipped, so it points at what the
   /// caller should look at rather than at where the token was expected.
-  expect : (fn(imm(self) : Self, ch : u8) -> Result(unit, JsonError))({
+  expect : (fn(self : &Self, ch : u8) -> Result(unit, JsonError))({
     self.skip_ws();
     match(
       self.peek(),
@@ -572,7 +572,7 @@ impl(
   }),
   /// Four hex digits after `\u`, as a code unit. `.Err(.InvalidUnicode)`
   /// on a short read or a non-hex byte.
-  parse_hex4 : (fn(imm(self) : Self) -> Result(u32, JsonError))({
+  parse_hex4 : (fn(self : &Self) -> Result(u32, JsonError))({
     (cp : u32) = u32(0);
     (i : usize) = usize(0);
     while(i < usize(4), {
@@ -609,7 +609,7 @@ impl(
   /// escaped, and the non-escape bytes are copied through without UTF-8
   /// validation, so invalid UTF-8 in the input reaches the resulting `String`.
   /// See the module's `## Stability` note.
-  parse_string : (fn(imm(self) : Self) -> Result(String, JsonError))({
+  parse_string : (fn(self : &Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
     while(runtime(true), {
@@ -744,7 +744,7 @@ impl(
   /// and since `_parse_value` routes every unrecognized leading byte here, an
   /// empty span made `"hello"` and `"<html>"` parse as the NUMBER 0
   /// (issues/fixed/json-number-parser-accepts-invalid-and-any-garbage.md).
-  parse_number : (fn(imm(self) : Self) -> Result(JsonValue, JsonError))({
+  parse_number : (fn(self : &Self) -> Result(JsonValue, JsonError))({
     start := self.pos;
     // [ minus ] — a leading '+' is NOT part of the grammar.
     match(
@@ -931,14 +931,14 @@ impl(
 // Recursive value parser (standalone for self-recursion support)
 // ============================================================================
 // Tiny helpers to avoid begin blocks in cond branches (works around codegen temp var issue)
-_parse_true_lit :: (fn(imm(p) : _Parser) -> Result(JsonValue, JsonError))({
+_parse_true_lit :: (fn(p : &_Parser) -> Result(JsonValue, JsonError))({
   p.advance();
   p.advance();
   p.advance();
   p.advance();
   .Ok(.Bool(true))
 });
-_parse_false_lit :: (fn(imm(p) : _Parser) -> Result(JsonValue, JsonError))({
+_parse_false_lit :: (fn(p : &_Parser) -> Result(JsonValue, JsonError))({
   p.advance();
   p.advance();
   p.advance();
@@ -946,14 +946,14 @@ _parse_false_lit :: (fn(imm(p) : _Parser) -> Result(JsonValue, JsonError))({
   p.advance();
   .Ok(.Bool(false))
 });
-_parse_null_lit :: (fn(imm(p) : _Parser) -> Result(JsonValue, JsonError))({
+_parse_null_lit :: (fn(p : &_Parser) -> Result(JsonValue, JsonError))({
   p.advance();
   p.advance();
   p.advance();
   p.advance();
   .Ok(.Null)
 });
-_parse_value :: (fn(imm(p) : _Parser) -> Result(JsonValue, JsonError))({
+_parse_value :: (fn(p : &_Parser) -> Result(JsonValue, JsonError))({
   p.skip_ws();
   match(
     p.peek(),
@@ -1117,7 +1117,7 @@ _parse_value :: (fn(imm(p) : _Parser) -> Result(JsonValue, JsonError))({
 /// trailing bytes were silently dropped and the caller was handed `.Ok` for
 /// input that is not JSON
 /// (`issues/fixed/json-parse-accepts-trailing-content-after-the-value.md`).
-_expect_eof :: (fn(imm(p) : _Parser) -> Result(unit, JsonError))({
+_expect_eof :: (fn(p : &_Parser) -> Result(unit, JsonError))({
   p.skip_ws();
   match(
     p.peek(),
@@ -1128,7 +1128,7 @@ _expect_eof :: (fn(imm(p) : _Parser) -> Result(unit, JsonError))({
 /// Parse JSON bytes into a `JsonValue` tree (D13 — a pure transform returns a
 /// `Result`). `.Err` on invalid input, INCLUDING any content after the single
 /// top-level value.
-parse_bytes :: (fn(imm(bytes) : ArrayList(u8)) -> Result(JsonValue, JsonError))({
+parse_bytes :: (fn(bytes : &ArrayList(u8)) -> Result(JsonValue, JsonError))({
   p := _Parser.new(bytes);
   match(
     _parse_value(p),
@@ -1150,20 +1150,20 @@ parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
 /// Parse a runtime `String` of JSON into a `JsonValue` tree. (`parse`
 /// takes the STATIC `str` view; runtime input — an HTTP body, an LSP frame —
 /// arrives as `String`.)
-parse_string :: (fn(imm(s) : String) -> Result(JsonValue, JsonError))(
+parse_string :: (fn(s : &String) -> Result(JsonValue, JsonError))(
   parse_bytes(s.to_bytes())
 );
 /// `parse_bytes` as an effect, for callers already inside an effect
 /// scope. Same for the two below.
-parse_bytes_exn :: (fn(imm(bytes) : ArrayList(u8), imm(exn) : Exception) -> JsonValue)(
+parse_bytes_exn :: (fn(bytes : &ArrayList(u8), exn : &Exception) -> JsonValue)(
   match(parse_bytes(bytes), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 /// `parse` as an effect.
-parse_exn :: (fn(s : str, imm(exn) : Exception) -> JsonValue)(
+parse_exn :: (fn(s : str, exn : &Exception) -> JsonValue)(
   match(parse(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 /// `parse_string` as an effect.
-parse_string_exn :: (fn(imm(s) : String, imm(exn) : Exception) -> JsonValue)(
+parse_string_exn :: (fn(s : &String, exn : &Exception) -> JsonValue)(
   match(parse_string(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 export(
@@ -1177,7 +1177,7 @@ export(
 // ============================================================================
 // Serialisation
 // ============================================================================
-_write_str_escaped :: (fn(imm(s) : String, mut(out) : ArrayList(u8)) -> unit)({
+_write_str_escaped :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   out.push(u8(34)); // '"'
   bytes := s;
   i := usize(0);
@@ -1230,7 +1230,7 @@ _write_str_escaped :: (fn(imm(s) : String, mut(out) : ArrayList(u8)) -> unit)({
   });
   out.push(u8(34)); // '"'
 });
-_stringify_into :: (fn(imm(value) : JsonValue, mut(out) : ArrayList(u8)) -> unit)({
+_stringify_into :: (fn(value : &JsonValue, out : &mut ArrayList(u8)) -> unit)({
   match(
     value,
     .Null => {
@@ -1314,13 +1314,13 @@ _stringify_into :: (fn(imm(value) : JsonValue, mut(out) : ArrayList(u8)) -> unit
   );
 });
 /// Serialize a `JsonValue` to a compact JSON string.
-stringify :: (fn(imm(value) : JsonValue) -> String)({
+stringify :: (fn(value : &JsonValue) -> String)({
   out := ArrayList(u8).new();
   _stringify_into(value, out);
   String.from_bytes(out)
 });
 /// Write `n` spaces to `out`.
-_write_spaces :: (fn(n : usize, mut(out) : ArrayList(u8)) -> unit)({
+_write_spaces :: (fn(n : usize, out : &mut ArrayList(u8)) -> unit)({
   i := usize(0);
   while(i < n, i = (i + usize(1)), {
     out.push(u8(32));
@@ -1332,10 +1332,10 @@ _write_spaces :: (fn(n : usize, mut(out) : ArrayList(u8)) -> unit)({
 /// (`{}` / `[]`), and object keys are followed by `": "`.
 _stringify_pretty_into :: (
   fn(
-    imm(value) : JsonValue,
+    value : &JsonValue,
     indent : usize,
     depth : usize,
-    mut(out) : ArrayList(u8)
+    out : &mut ArrayList(u8)
   ) -> unit
 )({
   match(
@@ -1396,7 +1396,7 @@ _stringify_pretty_into :: (
 /// Serialize a `JsonValue` to a pretty-printed JSON string, `indent` spaces per
 /// nesting level. `indent == 0` produces the compact form, as
 /// `JSON.stringify(v, null, 0)` does.
-stringify_pretty :: (fn(imm(value) : JsonValue, indent : usize) -> String)(
+stringify_pretty :: (fn(value : &JsonValue, indent : usize) -> String)(
   cond(
     (indent == usize(0)) => stringify(value),
     true => {
@@ -1412,7 +1412,7 @@ stringify_pretty :: (fn(imm(value) : JsonValue, indent : usize) -> String)(
 impl(
   JsonValue,
   ToString(
-    to_string : (fn(mut(self) : Self) -> String)(
+    to_string : (fn(self : &mut Self) -> String)(
       stringify(self)
     )
   )
@@ -1423,7 +1423,7 @@ impl(
 /// `a`. `Clone` is what makes an independent tree, and it recurses through a
 /// free function rather than `ArrayList.clone` so the `T <: Clone` bound does
 /// not have to be satisfied by the impl being defined.
-_json_clone :: (fn(imm(v) : JsonValue) -> JsonValue)(
+_json_clone :: (fn(v : &JsonValue) -> JsonValue)(
   match(
     v,
     .Null => JsonValue.Null,
@@ -1454,7 +1454,7 @@ _json_clone :: (fn(imm(v) : JsonValue) -> JsonValue)(
 impl(
   JsonValue,
   Clone(
-    clone : (fn(mut(self) : Self) -> Self)(
+    clone : (fn(self : &mut Self) -> Self)(
       _json_clone(self)
     )
   )
@@ -1475,7 +1475,7 @@ impl(
 /// definition-time evaluation fails, is swallowed, and codegen emits an
 /// abort()-ing stub behind a green `yo check`
 /// (issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md).
-_json_eq :: (fn(imm(lhs) : JsonValue, imm(rhs) : JsonValue) -> bool)(
+_json_eq :: (fn(lhs : &JsonValue, rhs : &JsonValue) -> bool)(
   match(
     lhs,
     .Null => match(rhs, .Null => true, _ => false),
@@ -1536,10 +1536,10 @@ _json_eq :: (fn(imm(lhs) : JsonValue, imm(rhs) : JsonValue) -> bool)(
 impl(
   JsonValue,
   Eq(JsonValue)(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       _json_eq(lhs, rhs)
     ),
-    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !_json_eq(lhs, rhs)
     )
   )
@@ -1552,27 +1552,27 @@ export(stringify, stringify_pretty);
 /// this to make a type encodable; the text form always goes through
 /// `stringify`, so formatting stays centralized.
 ToJson :: trait(
-  to_json : (fn(mut(self) : Self) -> JsonValue)
+  to_json : (fn(self : &mut Self) -> JsonValue)
 );
 /// Deserialise a value from a `JsonValue` tree. Returns `Result` rather
 /// than throwing: decode failures are ordinary values a caller matches
 /// on, and `JsonError` can grow structured variants without breaking
 /// this signature. Call as `T.from_json(v)` or through `decode`.
 FromJson :: trait(
-  from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))
+  from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))
 );
 /// Call `T.from_json(v)` through a where-constrained helper — the shape
 /// the container impls below use for their element/value decodes. (During
 /// development this also worked around a forall-binding-order evaluator
 /// bug, fixed alongside this module — see
 /// issues/fixed/generic-impl-fromjson-container-decode-failures.md.)
-_from_json_of :: (fn(comptime(T) : Type, imm(v) : JsonValue, where(T <: FromJson)) -> Result(T, JsonError))(
+_from_json_of :: (fn(comptime(T) : Type, v : &JsonValue, where(T <: FromJson)) -> Result(T, JsonError))(
   T.from_json(v)
 );
 /// Shared integer decode: `.Number` whose value is integral and within
 /// [lo, hi], as an i64. (JSON numbers are IEEE 754 doubles — integers
 /// beyond 2^53 cannot round-trip through JSON text at all.)
-_decode_int :: (fn(imm(v) : JsonValue, lo : f64, hi : f64) -> Result(i64, JsonError))(
+_decode_int :: (fn(v : &JsonValue, lo : f64, hi : f64) -> Result(i64, JsonError))(
   match(
     v,
     // Exact path: no f64 round trip, so integers beyond 2^53 decode losslessly.
@@ -1590,81 +1590,81 @@ _decode_int :: (fn(imm(v) : JsonValue, lo : f64, hi : f64) -> Result(i64, JsonEr
 );
 impl(
   bool,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Bool(value : self))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Bool(value : self))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(v, .Bool(b) => .Ok(b), _ => .Err(.Other(`expected a bool`)))
     )
   )
 );
 impl(
   i8,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i8.MIN), f64(i8.MAX)), .Ok(n) => .Ok(i8(n)), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   i16,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i16.MIN), f64(i16.MAX)), .Ok(n) => .Ok(i16(n)), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   i32,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i32.MIN), f64(i32.MAX)), .Ok(n) => .Ok(i32(n)), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   i64,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i64.MIN), f64(i64.MAX)), .Ok(n) => .Ok(n), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   u8,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(0), f64(u8.MAX)), .Ok(n) => .Ok(u8(n)), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   u16,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(0), f64(u16.MAX)), .Ok(n) => .Ok(u16(n)), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   u32,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(0), f64(u32.MAX)), .Ok(n) => .Ok(u32(n)), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   u64,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       // 2^53 is the last contiguous integer a double holds; larger u64s
       // cannot survive JSON's number representation anyway.
       match(_decode_int(v, f64(0), f64(9007199254740992)), .Ok(n) => .Ok(u64(n)), .Err(e) => .Err(e))
@@ -1673,45 +1673,45 @@ impl(
 );
 impl(
   usize,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(0), f64(9007199254740992)), .Ok(n) => .Ok(usize(n)), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   isize,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i64.MIN), f64(i64.MAX)), .Ok(n) => .Ok(isize(n)), .Err(e) => .Err(e))
     )
   )
 );
 impl(
   f32,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(v, .Number(n) => .Ok(f32(n)), .Int(i) => .Ok(f32(i)), _ => .Err(.Other(`expected a number`)))
     )
   )
 );
 impl(
   f64,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Number(value : self))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Number(value : self))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(v, .Number(n) => .Ok(n), .Int(i) => .Ok(f64(i)), _ => .Err(.Other(`expected a number`)))
     )
   )
 );
 impl(
   String,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Str(value : self.clone()))),
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Str(value : self.clone()))),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(v, .Str(s) => .Ok(s.clone()), _ => .Err(.Other(`expected a string`)))
     )
   )
@@ -1719,20 +1719,20 @@ impl(
 // `str` is encode-only: a runtime String cannot become the static view.
 impl(
   str,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(JsonValue.Str(value : String.from(self))))
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Str(value : String.from(self))))
 );
 // JsonValue round-trips through itself, so generic code can hold raw JSON.
 impl(
   JsonValue,
-  ToJson(to_json : (fn(mut(self) : Self) -> JsonValue)(self)),
-  FromJson(from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(.Ok(v)))
+  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(self)),
+  FromJson(from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(.Ok(v)))
 );
 impl(
   generic(T : Type),
   where(T <: ToJson),
   Option(T),
   ToJson(
-    to_json : (fn(mut(self) : Self) -> JsonValue)(
+    to_json : (fn(self : &mut Self) -> JsonValue)(
       match(self, .Some(x) => x.to_json(), .None => JsonValue.Null)
     )
   )
@@ -1742,7 +1742,7 @@ impl(
   where(T <: FromJson),
   Option(T),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(
         v,
         .Null => .Ok(Option(T).None),
@@ -1756,7 +1756,7 @@ impl(
   where(T <: ToJson),
   ArrayList(T),
   ToJson(
-    to_json : (fn(mut(self) : Self) -> JsonValue)({
+    to_json : (fn(self : &mut Self) -> JsonValue)({
       items := ArrayList(JsonValue).new();
       (i : usize) = usize(0);
       while(i < self.len(), {
@@ -1778,7 +1778,7 @@ impl(
   where(T <: FromJson),
   ArrayList(T),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(
         v,
         .Array(items) => {
@@ -1812,7 +1812,7 @@ impl(
   where(V <: ToJson),
   HashMap(String, V),
   ToJson(
-    to_json : (fn(mut(self) : Self) -> JsonValue)({
+    to_json : (fn(self : &mut Self) -> JsonValue)({
       keys := ArrayList(String).new();
       values := ArrayList(JsonValue).new();
       it := self.keys();
@@ -1844,7 +1844,7 @@ impl(
   where(V <: FromJson),
   HashMap(String, V),
   FromJson(
-    from_json : (fn(imm(v) : JsonValue) -> Result(Self, JsonError))(
+    from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(
         v,
         .Object(keys, values) => {
@@ -1879,16 +1879,16 @@ impl(
 /// DEPRECATED (D13), removed in v0.2.32 with the module-prefix aliases below:
 /// `json.parse_string` returns the same `Result`. This name existed only
 /// because `json.parse*` used to throw.
-json_parse_result :: (fn(imm(s) : String) -> Result(JsonValue, JsonError))(
+json_parse_result :: (fn(s : &String) -> Result(JsonValue, JsonError))(
   parse_string(s)
 );
 /// Serialise any `ToJson` value to JSON text.
-encode :: (fn(generic(T : Type), imm(v) : T, where(T <: ToJson)) -> String)(
+encode :: (fn(generic(T : Type), v : &T, where(T <: ToJson)) -> String)(
   stringify(v.to_json())
 );
 /// Parse JSON text and decode it into `T`:
 /// `json.decode(Point, s)` → `Result(Point, JsonError)`.
-decode :: (fn(comptime(T) : Type, imm(s) : String, where(T <: FromJson)) -> Result(T, JsonError))(
+decode :: (fn(comptime(T) : Type, s : &String, where(T <: FromJson)) -> Result(T, JsonError))(
   match(parse_string(s), .Ok(v) => T.from_json(v), .Err(e) => .Err(e))
 );
 export(ToJson, FromJson, json_parse_result, encode, decode);
@@ -1978,31 +1978,31 @@ derive_rule(FromJson, __derive_from_json);
 /// DEPRECATED, removed in v0.2.32: call `json.parse`.
 json_parse :: (fn(s : str) -> Result(JsonValue, JsonError))(parse(s));
 /// DEPRECATED, removed in v0.2.32: call `json.parse_bytes`.
-json_parse_bytes :: (fn(imm(bytes) : ArrayList(u8)) -> Result(JsonValue, JsonError))(
+json_parse_bytes :: (fn(bytes : &ArrayList(u8)) -> Result(JsonValue, JsonError))(
   parse_bytes(bytes)
 );
 /// DEPRECATED, removed in v0.2.32: call `json.parse_string`.
-json_parse_string :: (fn(imm(s) : String) -> Result(JsonValue, JsonError))(parse_string(s));
+json_parse_string :: (fn(s : &String) -> Result(JsonValue, JsonError))(parse_string(s));
 /// DEPRECATED, removed in v0.2.32: call `json.parse_exn`.
-json_parse_exn :: (fn(s : str, imm(exn) : Exception) -> JsonValue)(parse_exn(s, exn));
+json_parse_exn :: (fn(s : str, exn : &Exception) -> JsonValue)(parse_exn(s, exn));
 /// DEPRECATED, removed in v0.2.32: call `json.parse_bytes_exn`.
-json_parse_bytes_exn :: (fn(imm(bytes) : ArrayList(u8), imm(exn) : Exception) -> JsonValue)(
+json_parse_bytes_exn :: (fn(bytes : &ArrayList(u8), exn : &Exception) -> JsonValue)(
   parse_bytes_exn(bytes, exn)
 );
 /// DEPRECATED, removed in v0.2.32: call `json.parse_string_exn`.
-json_parse_string_exn :: (fn(imm(s) : String, imm(exn) : Exception) -> JsonValue)(
+json_parse_string_exn :: (fn(s : &String, exn : &Exception) -> JsonValue)(
   parse_string_exn(s, exn)
 );
 /// DEPRECATED, removed in v0.2.32: call `json.stringify`.
-json_stringify :: (fn(imm(value) : JsonValue) -> String)(stringify(value));
+json_stringify :: (fn(value : &JsonValue) -> String)(stringify(value));
 /// DEPRECATED, removed in v0.2.32: call `json.stringify_pretty`.
-json_stringify_pretty :: (fn(imm(value) : JsonValue, indent : usize) -> String)(
+json_stringify_pretty :: (fn(value : &JsonValue, indent : usize) -> String)(
   stringify_pretty(value, indent)
 );
 /// DEPRECATED, removed in v0.2.32: call `json.encode`.
-json_encode :: (fn(generic(T : Type), imm(v) : T, where(T <: ToJson)) -> String)(encode(v));
+json_encode :: (fn(generic(T : Type), v : &T, where(T <: ToJson)) -> String)(encode(v));
 /// DEPRECATED, removed in v0.2.32: call `json.decode`.
-json_decode :: (fn(comptime(T) : Type, imm(s) : String, where(T <: FromJson)) -> Result(T, JsonError))(
+json_decode :: (fn(comptime(T) : Type, s : &String, where(T <: FromJson)) -> Result(T, JsonError))(
   decode(T, s)
 );
 export(

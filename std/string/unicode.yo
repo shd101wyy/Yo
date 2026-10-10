@@ -2152,19 +2152,19 @@ _find_upper_expansion :: (fn(cp : i32) -> usize)({
   });
   _XU_COUNT
 });
-_push_cp :: (fn(cp : i32, mut(out) : ArrayList(u8)) -> unit)({
+_push_cp :: (fn(cp : i32, out : &mut ArrayList(u8)) -> unit)({
   utf8.encode_lossy_into(u32(cp), out);
 });
 // One-to-many lowercase expansions: SpecialCasing has exactly one
 // unconditional entry — İ (U+0130) → i + U+0307 COMBINING DOT ABOVE.
-_special_to_lower :: (fn(cp : i32, mut(out) : ArrayList(u8)) -> bool)(
+_special_to_lower :: (fn(cp : i32, out : &mut ArrayList(u8)) -> bool)(
   if(cp == i32(0x0130), {
     out.push(u8(0x69));
     _push_cp(i32(0x0307), out);
     true
   }, false)
 );
-_special_to_upper :: (fn(cp : i32, mut(out) : ArrayList(u8)) -> bool)({
+_special_to_upper :: (fn(cp : i32, out : &mut ArrayList(u8)) -> bool)({
   i := _find_upper_expansion(cp);
   if(i == _XU_COUNT, {
     return(false);
@@ -2179,7 +2179,7 @@ _special_to_upper :: (fn(cp : i32, mut(out) : ArrayList(u8)) -> bool)({
 /// Lowercase UTF-8 bytes using the Unicode case mapping (all scripts, plus
 /// the `İ` → `i̇` expansion). Locale-independent. `String.to_lowercase` calls
 /// this; the input must be valid UTF-8 (a `String` always is).
-to_lowercase_bytes :: (fn(imm(input) : ArrayList(u8)) -> ArrayList(u8))({
+to_lowercase_bytes :: (fn(input : &ArrayList(u8)) -> ArrayList(u8))({
   (bytes : ArrayList(u8)) = input;
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
@@ -2210,7 +2210,7 @@ to_lowercase_bytes :: (fn(imm(input) : ArrayList(u8)) -> ArrayList(u8))({
 /// the one-to-many expansions such as `ß` → `SS` and `ﬁ` → `FI`).
 /// Locale-independent. `String.to_uppercase` calls this; the input must be
 /// valid UTF-8 (a `String` always is).
-to_uppercase_bytes :: (fn(imm(input) : ArrayList(u8)) -> ArrayList(u8))({
+to_uppercase_bytes :: (fn(input : &ArrayList(u8)) -> ArrayList(u8))({
   (bytes : ArrayList(u8)) = input;
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);

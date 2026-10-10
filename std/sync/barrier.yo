@@ -73,7 +73,7 @@ impl(
   ),
   /// Block until `parties` threads have called `wait()`. Returns `true` in
   /// exactly one of them per generation — the thread that tripped the barrier.
-  wait : (fn(imm(self) : Self) -> bool)({
+  wait : (fn(self : &Self) -> bool)({
     self._mutex._raw_lock();
     arrival_generation := self._generation;
     self._count = (self._count + i32(1));
@@ -97,12 +97,12 @@ impl(
     is_leader
   }),
   /// The number of threads this barrier trips on. Fixed at construction.
-  parties : (fn(imm(self) : Self) -> i32)(
+  parties : (fn(self : &Self) -> i32)(
     self._parties
   ),
   /// How many times the barrier has tripped so far — the round a caller
   /// arriving now would join.
-  generation : (fn(imm(self) : Self) -> i64)({
+  generation : (fn(self : &Self) -> i64)({
     self._mutex._raw_lock();
     g := self._generation;
     self._mutex._raw_unlock();
@@ -110,7 +110,7 @@ impl(
   }),
   /// How many threads are currently parked in `wait()` for the round in
   /// progress. Informational only.
-  waiting : (fn(imm(self) : Self) -> i32)({
+  waiting : (fn(self : &Self) -> i32)({
     self._mutex._raw_lock();
     n := self._count;
     self._mutex._raw_unlock();

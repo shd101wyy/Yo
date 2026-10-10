@@ -46,9 +46,9 @@ mk_escape_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstEx
 });
 stub_evaluate_i32 :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());
@@ -57,7 +57,7 @@ stub_evaluate_i32 :: (
 });
 /// The raw evaluator twin of `stub_evaluate_i32` (the handler is unused): the code under
 /// test evaluates sub-expressions through `evaluate_expression_raw` too.
-stub_evaluate_i32_raw :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(stub_evaluate_i32(expr, env, ctx));
+stub_evaluate_i32_raw :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(stub_evaluate_i32(expr, env, ctx));
 test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   set_evaluate_expression_fn(stub_evaluate_i32);
   set_evaluate_expression_raw_fn(stub_evaluate_i32_raw);

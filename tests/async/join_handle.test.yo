@@ -117,7 +117,7 @@ AbortCaptureProbe :: ref(struct(id : i32));
 impl(
   AbortCaptureProbe,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_abort_capture_disposed = (g_abort_capture_disposed + i32(1));
     })
   )
@@ -176,7 +176,7 @@ test("io.await of an already-aborted future inside a task aborts the awaiting ta
   assert(ho.await(io).is_none(), "the awaiting task was aborted in turn");
 });
 /// A PLAIN function awaiting a future: the sync await path.
-_plain_get :: (fn(imm(t) : Impl(Future(i32, Io)), io : Io) -> i32)(io.await(t, io));
+_plain_get :: (fn(t : &Impl(Future(i32, Io)), io : Io) -> i32)(io.await(t, io));
 test("a plain function's io.await of an already-aborted future propagates to the calling task", {
   t := _aborted_task(io);
   caller := io.async((io : Io) => {

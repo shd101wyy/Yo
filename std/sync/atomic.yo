@@ -8,7 +8,7 @@
 //! IS a shared handle — mutation goes through the C11 atomic operation, not
 //! through a Yo place-write — so a `mut` receiver would only demand a
 //! mutable binding at every call site without buying any extra guarantee.
-//! `compare_exchange` keeps `mut(expected)`, which really is written back:
+//! `compare_exchange` keeps `expected : &mut T`, which really is written back:
 //! on failure it is updated to the value the object actually held.
 //!
 //! # Read-modify-write family
@@ -213,17 +213,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> bool)(
+  load : (fn(self : &Self, order : MemoryOrder) -> bool)(
     unsafe(atomic_load_explicit(addr_of(self.*), _load_order(order).to_c_order())) == true
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : bool, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : bool, order : MemoryOrder) -> unit)(
     unsafe(atomic_store_explicit(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : bool, order : MemoryOrder) -> bool)(
+  swap : (fn(self : &Self, value : bool, order : MemoryOrder) -> bool)(
     unsafe(atomic_exchange_explicit(addr_of(self.*), value, order.to_c_order())) == true
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -236,8 +236,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : bool,
+      self : &Self,
+      expected : &mut bool,
       new_value : bool,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -270,17 +270,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> i8)(
+  load : (fn(self : &Self, order : MemoryOrder) -> i8)(
     unsafe(i8(__yo_atomic_load_schar(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : i8, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_schar(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> i8)(
+  swap : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)(
     unsafe(i8(__yo_atomic_exchange_schar(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -293,8 +293,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : i8,
+      self : &Self,
+      expected : &mut i8,
       new_value : i8,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -312,7 +312,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> i8)({
+  fetch_add : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
@@ -322,7 +322,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> i8)({
+  fetch_sub : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
@@ -332,7 +332,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> i8)({
+  fetch_and : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
@@ -342,7 +342,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> i8)({
+  fetch_or : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
@@ -352,7 +352,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> i8)({
+  fetch_xor : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
@@ -364,7 +364,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> i8)({
+  fetch_min : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
@@ -376,7 +376,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : i8, order : MemoryOrder) -> i8)({
+  fetch_max : (fn(self : &Self, value : i8, order : MemoryOrder) -> i8)({
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
@@ -403,17 +403,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> i16)(
+  load : (fn(self : &Self, order : MemoryOrder) -> i16)(
     unsafe(i16(__yo_atomic_load_short(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : i16, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_short(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> i16)(
+  swap : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)(
     unsafe(i16(__yo_atomic_exchange_short(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -426,8 +426,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : i16,
+      self : &Self,
+      expected : &mut i16,
       new_value : i16,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -445,7 +445,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> i16)({
+  fetch_add : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
@@ -455,7 +455,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> i16)({
+  fetch_sub : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
@@ -465,7 +465,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> i16)({
+  fetch_and : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
@@ -475,7 +475,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> i16)({
+  fetch_or : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
@@ -485,7 +485,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> i16)({
+  fetch_xor : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
@@ -497,7 +497,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> i16)({
+  fetch_min : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
@@ -509,7 +509,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : i16, order : MemoryOrder) -> i16)({
+  fetch_max : (fn(self : &Self, value : i16, order : MemoryOrder) -> i16)({
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
@@ -536,17 +536,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> i32)(
+  load : (fn(self : &Self, order : MemoryOrder) -> i32)(
     unsafe(i32(__yo_atomic_load_int(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : i32, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_int(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  swap : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(__yo_atomic_exchange_int(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -559,8 +559,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : i32,
+      self : &Self,
+      expected : &mut i32,
       new_value : i32,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -578,29 +578,29 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  fetch_add : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(atomic_fetch_add_explicit(addr_of(self.*), int(value), order.to_c_order())))
   ),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  fetch_sub : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(atomic_fetch_sub_explicit(addr_of(self.*), int(value), order.to_c_order())))
   ),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  fetch_and : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(atomic_fetch_and_explicit(addr_of(self.*), int(value), order.to_c_order())))
   ),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  fetch_or : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(atomic_fetch_or_explicit(addr_of(self.*), int(value), order.to_c_order())))
   ),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> i32)(
+  fetch_xor : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)(
     unsafe(i32(atomic_fetch_xor_explicit(addr_of(self.*), int(value), order.to_c_order())))
   ),
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> i32)({
+  fetch_min : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)({
     read := _read_order(order);
     (current : i32) = self.load(read);
     (swapped : bool) = false;
@@ -612,7 +612,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : i32, order : MemoryOrder) -> i32)({
+  fetch_max : (fn(self : &Self, value : i32, order : MemoryOrder) -> i32)({
     read := _read_order(order);
     (current : i32) = self.load(read);
     (swapped : bool) = false;
@@ -639,17 +639,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> i64)(
+  load : (fn(self : &Self, order : MemoryOrder) -> i64)(
     unsafe(i64(__yo_atomic_load_llong(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : i64, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_llong(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> i64)(
+  swap : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)(
     unsafe(i64(__yo_atomic_exchange_llong(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -662,8 +662,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : i64,
+      self : &Self,
+      expected : &mut i64,
       new_value : i64,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -681,7 +681,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> i64)({
+  fetch_add : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
@@ -691,7 +691,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> i64)({
+  fetch_sub : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
@@ -701,7 +701,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> i64)({
+  fetch_and : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
@@ -711,7 +711,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> i64)({
+  fetch_or : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
@@ -721,7 +721,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> i64)({
+  fetch_xor : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
@@ -733,7 +733,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> i64)({
+  fetch_min : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
@@ -745,7 +745,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : i64, order : MemoryOrder) -> i64)({
+  fetch_max : (fn(self : &Self, value : i64, order : MemoryOrder) -> i64)({
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
@@ -772,17 +772,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> u8)(
+  load : (fn(self : &Self, order : MemoryOrder) -> u8)(
     unsafe(u8(__yo_atomic_load_uchar(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : u8, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_uchar(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> u8)(
+  swap : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)(
     unsafe(u8(__yo_atomic_exchange_uchar(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -795,8 +795,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : u8,
+      self : &Self,
+      expected : &mut u8,
       new_value : u8,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -814,7 +814,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> u8)({
+  fetch_add : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
@@ -824,7 +824,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> u8)({
+  fetch_sub : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
@@ -834,7 +834,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> u8)({
+  fetch_and : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
@@ -844,7 +844,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> u8)({
+  fetch_or : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
@@ -854,7 +854,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> u8)({
+  fetch_xor : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
@@ -866,7 +866,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> u8)({
+  fetch_min : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
@@ -878,7 +878,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : u8, order : MemoryOrder) -> u8)({
+  fetch_max : (fn(self : &Self, value : u8, order : MemoryOrder) -> u8)({
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
@@ -905,17 +905,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> u16)(
+  load : (fn(self : &Self, order : MemoryOrder) -> u16)(
     unsafe(u16(__yo_atomic_load_ushort(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : u16, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ushort(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> u16)(
+  swap : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)(
     unsafe(u16(__yo_atomic_exchange_ushort(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -928,8 +928,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : u16,
+      self : &Self,
+      expected : &mut u16,
       new_value : u16,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -947,7 +947,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> u16)({
+  fetch_add : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
@@ -957,7 +957,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> u16)({
+  fetch_sub : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
@@ -967,7 +967,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> u16)({
+  fetch_and : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
@@ -977,7 +977,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> u16)({
+  fetch_or : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
@@ -987,7 +987,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> u16)({
+  fetch_xor : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
@@ -999,7 +999,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> u16)({
+  fetch_min : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
@@ -1011,7 +1011,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : u16, order : MemoryOrder) -> u16)({
+  fetch_max : (fn(self : &Self, value : u16, order : MemoryOrder) -> u16)({
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
@@ -1038,17 +1038,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> u32)(
+  load : (fn(self : &Self, order : MemoryOrder) -> u32)(
     unsafe(u32(__yo_atomic_load_uint(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : u32, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_uint(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> u32)(
+  swap : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)(
     unsafe(u32(__yo_atomic_exchange_uint(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -1061,8 +1061,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : u32,
+      self : &Self,
+      expected : &mut u32,
       new_value : u32,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -1080,7 +1080,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> u32)({
+  fetch_add : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
@@ -1090,7 +1090,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> u32)({
+  fetch_sub : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
@@ -1100,7 +1100,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> u32)({
+  fetch_and : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
@@ -1110,7 +1110,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> u32)({
+  fetch_or : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
@@ -1120,7 +1120,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> u32)({
+  fetch_xor : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
@@ -1132,7 +1132,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> u32)({
+  fetch_min : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
@@ -1144,7 +1144,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : u32, order : MemoryOrder) -> u32)({
+  fetch_max : (fn(self : &Self, value : u32, order : MemoryOrder) -> u32)({
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
@@ -1171,17 +1171,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> u64)(
+  load : (fn(self : &Self, order : MemoryOrder) -> u64)(
     unsafe(u64(__yo_atomic_load_ullong(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : u64, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ullong(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> u64)(
+  swap : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)(
     unsafe(u64(__yo_atomic_exchange_ullong(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -1194,8 +1194,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : u64,
+      self : &Self,
+      expected : &mut u64,
       new_value : u64,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -1213,7 +1213,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> u64)({
+  fetch_add : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
@@ -1223,7 +1223,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> u64)({
+  fetch_sub : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
@@ -1233,7 +1233,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> u64)({
+  fetch_and : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
@@ -1243,7 +1243,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> u64)({
+  fetch_or : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
@@ -1253,7 +1253,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> u64)({
+  fetch_xor : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
@@ -1265,7 +1265,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> u64)({
+  fetch_min : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
@@ -1277,7 +1277,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : u64, order : MemoryOrder) -> u64)({
+  fetch_max : (fn(self : &Self, value : u64, order : MemoryOrder) -> u64)({
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
@@ -1304,17 +1304,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> usize)(
+  load : (fn(self : &Self, order : MemoryOrder) -> usize)(
     unsafe(usize(__yo_atomic_load_size_t(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : usize, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_size_t(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> usize)(
+  swap : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)(
     unsafe(usize(__yo_atomic_exchange_size_t(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -1327,8 +1327,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : usize,
+      self : &Self,
+      expected : &mut usize,
       new_value : usize,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -1346,7 +1346,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> usize)({
+  fetch_add : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
@@ -1356,7 +1356,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> usize)({
+  fetch_sub : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
@@ -1366,7 +1366,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> usize)({
+  fetch_and : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
@@ -1376,7 +1376,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> usize)({
+  fetch_or : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
@@ -1386,7 +1386,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> usize)({
+  fetch_xor : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
@@ -1398,7 +1398,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> usize)({
+  fetch_min : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
@@ -1410,7 +1410,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : usize, order : MemoryOrder) -> usize)({
+  fetch_max : (fn(self : &Self, value : usize, order : MemoryOrder) -> usize)({
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
@@ -1437,17 +1437,17 @@ impl(
   }),
   /// Read the current value. PANICS on `Release`/`AcqRel`, which C11 does
   /// not permit on a load.
-  load : (fn(imm(self) : Self, order : MemoryOrder) -> isize)(
+  load : (fn(self : &Self, order : MemoryOrder) -> isize)(
     unsafe(isize(__yo_atomic_load_ptrdiff(addr_of(self.*), _load_order(order).to_c_order())))
   ),
   /// Replace the current value. PANICS on `Acquire`/`AcqRel`, which C11 does
   /// not permit on a store.
-  store : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> unit)(
+  store : (fn(self : &Self, value : isize, order : MemoryOrder) -> unit)(
     unsafe(__yo_atomic_store_ptrdiff(addr_of(self.*), value, _store_order(order).to_c_order()))
   ),
   /// Replace the value and return what it held before — C11
   /// `atomic_exchange`, Rust's `swap`.
-  swap : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> isize)(
+  swap : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)(
     unsafe(isize(__yo_atomic_exchange_ptrdiff(addr_of(self.*), value, order.to_c_order())))
   ),
   /// Store `new_value` only if the current value equals `expected`, and
@@ -1460,8 +1460,8 @@ impl(
   /// PANICS on `Release`/`AcqRel`, since that path only reads.
   compare_exchange : (
     fn(
-      imm(self) : Self,
-      mut(expected) : isize,
+      self : &Self,
+      expected : &mut isize,
       new_value : isize,
       success : MemoryOrder,
       failure : MemoryOrder
@@ -1479,7 +1479,7 @@ impl(
   ),
   /// Add `value`, returning the PREVIOUS value. Wraps on overflow, as C11
   /// `atomic_fetch_add` does.
-  fetch_add : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> isize)({
+  fetch_add : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
@@ -1489,7 +1489,7 @@ impl(
     current
   }),
   /// Subtract `value`, returning the PREVIOUS value. Wraps on underflow.
-  fetch_sub : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> isize)({
+  fetch_sub : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
@@ -1499,7 +1499,7 @@ impl(
     current
   }),
   /// Bitwise-AND with `value`, returning the PREVIOUS value.
-  fetch_and : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> isize)({
+  fetch_and : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
@@ -1509,7 +1509,7 @@ impl(
     current
   }),
   /// Bitwise-OR with `value`, returning the PREVIOUS value.
-  fetch_or : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> isize)({
+  fetch_or : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
@@ -1519,7 +1519,7 @@ impl(
     current
   }),
   /// Bitwise-XOR with `value`, returning the PREVIOUS value.
-  fetch_xor : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> isize)({
+  fetch_xor : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
@@ -1531,7 +1531,7 @@ impl(
   /// Store the smaller of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic min, so this is a compare-exchange
   /// loop — lock-free, and it only costs a retry under contention.
-  fetch_min : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> isize)({
+  fetch_min : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
@@ -1543,7 +1543,7 @@ impl(
   }),
   /// Store the larger of the current value and `value`, returning the
   /// PREVIOUS value. C11 has no atomic max; see `fetch_min`.
-  fetch_max : (fn(imm(self) : Self, value : isize, order : MemoryOrder) -> isize)({
+  fetch_max : (fn(self : &Self, value : isize, order : MemoryOrder) -> isize)({
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;

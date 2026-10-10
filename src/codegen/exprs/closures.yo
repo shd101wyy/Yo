@@ -28,13 +28,13 @@ closure_capture_counter_reset :: (fn() -> unit)({
 /// (check_variable_is_closure_captured), so a direct import back would be a
 /// cycle — codegen_c.yo installs the fn at codegen init instead (the same
 /// pattern as register_collect_type / register_on_demand_declare).
-SmAtomResolverFn :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(context) : FunctionGenerationContext) -> Option(String));
+SmAtomResolverFn :: (fn(expr : &AstExpr, var_name : &String, context : &FunctionGenerationContext) -> Option(String));
 (g_sm_atom_resolver : Option(SmAtomResolverFn)) = Option(SmAtomResolverFn).None;
 set_sm_atom_resolver :: (fn(f : SmAtomResolverFn) -> unit)({
   g_sm_atom_resolver = Option(SmAtomResolverFn).Some(f);
   ()
 });
-_resolve_sm_atom :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(context) : FunctionGenerationContext) -> Option(String))(
+_resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &FunctionGenerationContext) -> Option(String))(
   match(
     g_sm_atom_resolver,
     .Some(f) => f(expr, var_name, context),
@@ -49,14 +49,14 @@ _resolve_sm_atom :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(context
 /// cycle — so codegen_c.yo installs the fn at codegen init, right beside the
 /// SM resolver above. A capture-list field's by-value initializer carries its
 /// RC +1 that way: materialize the initializer, then the dup.
-DeferredDupOrCodeFn :: (fn(imm(expr) : AstExpr, imm(fallback_code) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String);
+DeferredDupOrCodeFn :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &FunctionGenerationContext) -> String);
 (g_deferred_dup_or_code : Option(DeferredDupOrCodeFn)) = Option(DeferredDupOrCodeFn).None;
 set_deferred_dup_or_code :: (fn(f : DeferredDupOrCodeFn) -> unit)({
   g_deferred_dup_or_code = Option(DeferredDupOrCodeFn).Some(f);
   ()
 });
 _emit_deferred_dup_or_code :: (
-  fn(imm(expr) : AstExpr, imm(fallback_code) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String
+  fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &FunctionGenerationContext) -> String
 )(
   match(
     g_deferred_dup_or_code,
@@ -68,7 +68,7 @@ _emit_deferred_dup_or_code :: (
 /// a binding at or below the closure's capture frame level — i.e. it is
 /// captured by the closure rather than a local of the closure body.
 check_variable_is_closure_captured :: (
-  fn(key : ExprId, imm(variable_name) : String, imm(env) : Environment, closure_capture_frame_level : usize) -> bool
+  fn(key : ExprId, variable_name : &String, env : &Environment, closure_capture_frame_level : usize) -> bool
 )({
   variables := scope_variables(key, env, variable_name.clone());
   n := variables.len();
@@ -83,7 +83,7 @@ check_variable_is_closure_captured :: (
 /// Walk a SomeType's resolved-concrete chain until a non-SomeType is reached
 /// (or no resolution / a self-cycle). The resolved concrete is the value's
 /// own `SomeT.resolution` (`some_resolution`, expr_info.yo).
-resolve_some_type_to_concrete :: (fn(imm(t) : TypeValue) -> TypeValue)({
+resolve_some_type_to_concrete :: (fn(t : &TypeValue) -> TypeValue)({
   (cur : TypeValue) = t;
   (go : bool) = true;
   // Cycle guard by VISITED SomeT id — not by type_key equality: type_key's
@@ -128,7 +128,7 @@ resolve_some_type_to_concrete :: (fn(imm(t) : TypeValue) -> TypeValue)({
 });
 /// True if `expr` is a closure-construction call: its ExprInfo carries a
 /// `closure_function_value` and its type implements `Fn`.
-is_closure_construction :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
+is_closure_construction :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(expr),
     // closure_function_value OR (the documented fallback) info.value being a
@@ -159,7 +159,7 @@ is_closure_construction :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGener
 /// DEFERRED: Dyn(Fn(...)) heap-allocated closures + the
 /// ARC dup-expr capture-field path (Rc captures) — the corpus/repro paths are
 /// value-type Impl closures with plain captures.
-generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("Missing closure metadata"))));
   closure_fv := match(
     expr_info_closure_function_value(ei),
@@ -399,7 +399,7 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
 /// closure being generated captures it (the test `generate_atom`'s
 /// `_is_captured_here` makes), else `.None`. `env` is node `key`'s recorded
 /// scope.
-_enclosing_closure_capture_read :: (fn(key : ExprId, imm(name) : String, imm(env) : Environment, imm(context) : FunctionGenerationContext) -> Option(String))({
+_enclosing_closure_capture_read :: (fn(key : ExprId, name : &String, env : &Environment, context : &FunctionGenerationContext) -> Option(String))({
   captured := match(
     context.current_closure_captures,
     .Some(caps) => match(
@@ -428,7 +428,7 @@ _enclosing_closure_capture_read :: (fn(key : ExprId, imm(name) : String, imm(env
 /// before the closure's construction site (which also registers the map), so the
 /// call-site lookup misses. The capture struct comes from the
 /// get_closure_capture_info side-table (keyed by func_id).
-register_impl_closure_call_mappings :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
+register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext) -> unit)({
   it := context.base.functions.keys();
   (go : bool) = true;
   while(go, {

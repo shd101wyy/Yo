@@ -19,7 +19,7 @@
 /// Is `e` a function TYPE expression? `fn(...) -> T` parses as an `->`
 /// INFIX call whose first argument is the `fn(...)` call, so both shapes
 /// count.
-_is_fn_type_expr :: (fn(imm(e) : AstExpr) -> bool)({
+_is_fn_type_expr :: (fn(e : &AstExpr) -> bool)({
   if(ast_expr_is_fn_call_of(e, "fn", .None), {
     return(true);
   });
@@ -40,7 +40,7 @@ _is_fn_type_expr :: (fn(imm(e) : AstExpr) -> bool)({
 });
 
 /// LSP SymbolKind for the bound value's AST shape.
-_symbol_kind_of :: (fn(imm(value_expr) : AstExpr) -> usize)({
+_symbol_kind_of :: (fn(value_expr : &AstExpr) -> usize)({
   // Function 12, Struct 23, Enum 10, Interface 11, Namespace 3,
   // Constant 14 (the LSP SymbolKind table).
   if(_is_fn_type_expr(value_expr), {
@@ -78,7 +78,7 @@ _symbol_kind_of :: (fn(imm(value_expr) : AstExpr) -> usize)({
 /// (`(g_shutdown_requested : bool) = false;`). Reported as a Variable
 /// (kind 13): the binding is a mutable slot regardless of the value's shape
 /// (issues/fixed/lsp-document-symbol-misses-typed-declarations.md).
-_typed_decl_symbol :: (fn(imm(e) : AstExpr, imm(lines) : ArrayList(String)) -> Option(SymbolEntry))({
+_typed_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(SymbolEntry))({
   if(!ast_expr_is_fn_call_of(e, "=", .Some(usize(2))), {
     return(Option(SymbolEntry).None);
   });
@@ -130,7 +130,7 @@ SymbolEntry :: struct(
 );
 /// The bound-name token of a declaration left side: the atom itself
 /// (`name :=`), or the atom inside `thread_local(name)`.
-_decl_name_tok :: (fn(imm(lhs) : AstExpr) -> Option(Token))(
+_decl_name_tok :: (fn(lhs : &AstExpr) -> Option(Token))(
   match(
     lhs,
     .Atom(
@@ -165,7 +165,7 @@ _decl_name_tok :: (fn(imm(lhs) : AstExpr) -> Option(Token))(
 /// reported as a Variable (13): the binding is a mutable slot regardless of
 /// the initializer's shape, like the typed module constant
 /// (issues/lsp-document-symbol-misses-runtime-and-thread-local-declarations.md).
-_runtime_decl_symbol :: (fn(imm(e) : AstExpr, imm(lines) : ArrayList(String)) -> Option(SymbolEntry))({
+_runtime_decl_symbol :: (fn(e : &AstExpr, lines : &ArrayList(String)) -> Option(SymbolEntry))({
   // `name := value` and `thread_local(name) := init`.
   if(ast_expr_is_fn_call_of(e, ":=", .Some(usize(2))), {
     match(
@@ -249,7 +249,7 @@ _runtime_decl_symbol :: (fn(imm(e) : AstExpr, imm(lines) : ArrayList(String)) ->
 /// `name :: value` bindings, typed `(name : T) = value` declarations and the
 /// runtime `:=` / `thread_local(...)` declaration forms.
 collect_document_symbols :: (
-  fn(imm(exprs) : ArrayList(AstExpr), imm(lines) : ArrayList(String), mut(out) : ArrayList(SymbolEntry)) -> unit
+  fn(exprs : &ArrayList(AstExpr), lines : &ArrayList(String), out : &mut ArrayList(SymbolEntry)) -> unit
 )({
   (i : usize) = usize(0);
   while(i < exprs.len(), {
@@ -306,7 +306,7 @@ collect_document_symbols :: (
 /// Collect DocumentSymbols from the top-level statements. Ranges are
 /// converted to the wire encoding against `lines`.
 handle_document_symbols :: (
-  fn(imm(exprs) : ArrayList(AstExpr), imm(lines) : ArrayList(String)) -> JsonValue
+  fn(exprs : &ArrayList(AstExpr), lines : &ArrayList(String)) -> JsonValue
 )({
   entries := ArrayList(SymbolEntry).new();
   collect_document_symbols(exprs, lines, entries);
@@ -334,7 +334,7 @@ handle_document_symbols :: (
 /// declares it, the bare cli-case driver does not
 /// (issues/lsp-document-symbol-shape-ignores-the-client-capability.md).
 handle_document_symbols_flat :: (
-  fn(imm(exprs) : ArrayList(AstExpr), imm(lines) : ArrayList(String), imm(uri) : String) -> JsonValue
+  fn(exprs : &ArrayList(AstExpr), lines : &ArrayList(String), uri : &String) -> JsonValue
 )({
   entries := ArrayList(SymbolEntry).new();
   collect_document_symbols(exprs, lines, entries);
@@ -369,7 +369,7 @@ WorkspaceDoc :: struct(
 /// top-level symbols of every OPEN document whose name matches `query`
 /// (case-insensitive substring; an empty query lists everything), as
 /// SymbolInformation items pointing into their document.
-handle_workspace_symbols :: (fn(imm(query) : String, imm(docs) : ArrayList(WorkspaceDoc)) -> JsonValue)({
+handle_workspace_symbols :: (fn(query : &String, docs : &ArrayList(WorkspaceDoc)) -> JsonValue)({
   out := ArrayList(JsonValue).new();
   q := query.to_lowercase();
   (di : usize) = usize(0);
@@ -405,7 +405,7 @@ handle_workspace_symbols :: (fn(imm(query) : String, imm(docs) : ArrayList(Works
 /// Does impl-argument `e` (a Self type or a trait) name `name`? A bare
 /// atom, or an instantiated head — `ArrayList(T)` for a cursor on
 /// `ArrayList`, `ToString(...)` for a cursor on the trait.
-_impl_arg_is :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+_impl_arg_is :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
     .Atom(_, t) => (t.value == name),
@@ -418,7 +418,7 @@ _impl_arg_is :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
 );
 /// `args.get(a)` is a `generic(...)` clause (the leading clauses of
 /// `impl(generic(T : Type), ArrayList(T), ...)`); false past the end.
-_impl_arg_is_generic :: (fn(imm(args) : ArrayList(AstExpr), a : usize) -> bool)(
+_impl_arg_is_generic :: (fn(args : &ArrayList(AstExpr), a : usize) -> bool)(
   match(
     args.get(a),
     .Some(arg) => ast_expr_is_fn_call_of(arg, "generic", .None),
@@ -434,11 +434,11 @@ _impl_arg_is_generic :: (fn(imm(args) : ArrayList(AstExpr), a : usize) -> bool)(
 /// the trait argument for a trait cursor (`impl(Point, ToString(...))`).
 handle_implementations :: (
   fn(
-    imm(text) : String,
-    imm(doc_abs) : String,
-    imm(uri) : String,
-    imm(lines) : ArrayList(String),
-    imm(exprs) : ArrayList(AstExpr),
+    text : &String,
+    doc_abs : &String,
+    uri : &String,
+    lines : &ArrayList(String),
+    exprs : &ArrayList(AstExpr),
     line : usize,
     character : usize
   ) -> JsonValue

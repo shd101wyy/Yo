@@ -68,7 +68,7 @@ _CtFd :: struct(fd : i32);
 impl(
   _CtFd,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)(())
+    dispose : (fn(self : &Self) -> unit)(())
   )
 );
 _CtRef :: ref(struct(n : i32));
@@ -82,7 +82,7 @@ _CtHandle :: struct(n : i32);
 impl(
   _CtHandle,
   Clone(
-    clone : (fn(mut(self) : Self) -> Self)(Self(n : self.n))
+    clone : (fn(self : &mut Self) -> Self)(Self(n : self.n))
   )
 );
 _CtOpen :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -97,7 +97,7 @@ impl(
   generic(T : Type),
   _CtTag(T),
   Clone(
-    clone : (fn(mut(self) : Self) -> Self)(Self(id : self.id))
+    clone : (fn(self : &mut Self) -> Self)(Self(id : self.id))
   )
 );
 // No Clone: Copy is rejected on each, checked in a test below. The derive's
@@ -117,13 +117,13 @@ _CtCloneField :: struct(clone : (fn() -> i32));
 _ct_five :: (fn() -> i32)(i32(5));
 _CtAddField :: struct(add : (fn() -> i32));
 _ct_seven :: (fn() -> i32)(i32(7));
-_ct_clone_any :: (fn(generic(T : Type), imm(x) : T, where(T <: Clone)) -> T)(x.clone());
+_ct_clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
 // `where(T <: Copy)` gives `T <: Clone` in the body (Copy's supertrait).
 _ct_clone_copy :: (fn(generic(T : Type), x : T, where(T <: Copy)) -> T)(x.clone());
 _CtUser :: struct(at : _CtPoint);
 impl(
   _CtUser,
-  moved : (fn(imm(self) : Self) -> _CtPoint)(self.at.clone())
+  moved : (fn(self : &Self) -> _CtPoint)(self.at.clone())
 );
 // ---------------------------------------------------------------------------
 // The trait and the prelude's impls
@@ -213,7 +213,7 @@ test("Copy: a Copy struct keeps copying implicitly after the flip", {
 });
 test("Copy: a closure that only borrows its captures is Copy", {
   a := _CtPlain(n : i32(5));
-  (f : Impl(Fn() -> i32)) = ({ imm(a) : &a }() => a.n);
+  (f : Impl(Fn() -> i32)) = ({ a : &a }() => a.n);
   g := f;
   assert((f() + g()) == i32(10), "copying an imm-capture closure copies the borrow (decision 38 A)");
 });
@@ -351,7 +351,7 @@ test("Copy: the prelude Option(i32) stays Copy with its generic Clone", {
   assert(match(o.clone(), .Some(v) => (v == i32(4)), .None => false) && p.is_some(), "Option(i32) copies and clones");
 });
 test("Copy: a hand-written Clone on a type Copy for every instantiation is an error, in either order", {
-  comptime_expect_error(impl(_CtPoint, Clone(clone : (fn(mut(self) : Self) -> Self)(self))), "Write derive(_CtPoint, Clone) instead");
+  comptime_expect_error(impl(_CtPoint, Clone(clone : (fn(self : &mut Self) -> Self)(self))), "Write derive(_CtPoint, Clone) instead");
   comptime_expect_error(impl(_CtHandle, Copy()), "a hand-written Clone impl can only repeat it or contradict it");
   comptime_expect_error(impl(generic(T : Type), _CtTag(T), Copy()), "a hand-written Clone impl can only repeat it or contradict it");
 });
@@ -363,7 +363,7 @@ test("Copy: a hand-written Clone on a type Copy for every instantiation is an er
 // record whose fields are, are `Copy` structurally. No impl can name them, so
 // `x.clone()` expands to the copy
 // (issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md).
-_ct_sclone :: (fn(generic(T : Type), imm(x) : T, where(T <: Clone)) -> T)(x.clone());
+_ct_sclone :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
 test("Copy: a fn pointer, a Copy closure and a Copy anonymous record clone as the copy", {
   f := _ct_seven;
   g := f.clone();
@@ -401,7 +401,7 @@ test("Copy: a struct of fn pointers derives Copy and Clone", {
 _CtWrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
 derive(generic(T : Type), where(T <: Clone), _CtWrap(T), Clone);
 _CtHand :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
-impl(generic(T : Type), where(T <: Clone), _CtHand(T), Clone(clone : (fn(mut(self) : Self) -> Self)(Self(v : self.v.clone()))));
+impl(generic(T : Type), where(T <: Clone), _CtHand(T), Clone(clone : (fn(self : &mut Self) -> Self)(Self(v : self.v.clone()))));
 test("Clone: a conditional Clone impl answers no for a type argument without Clone", {
   comptime_assert(!Type.impls(_CtNoClone, Clone), "_CtNoClone has no Clone");
   comptime_assert(!Type.impls(_CtWrap(_CtNoClone), Clone), "a derived conditional Clone");

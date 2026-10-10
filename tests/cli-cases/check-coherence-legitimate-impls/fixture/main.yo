@@ -3,7 +3,7 @@
 { Show, A } :: import("./a.yo");
 { B } :: import("./b.yo");
 Loud :: trait();
-Named :: trait(name : (fn(imm(self) : Self) -> i32));
+Named :: trait(name : (fn(self : &Self) -> i32));
 impl(bool, Loud());
 impl(i32, Named(name : (self -> i32(1))));
 impl(generic(T : Type), where(T <: Loud), T, Named(name : (self -> i32(2))));
@@ -14,8 +14,8 @@ impl(Point, ToString(to_string : (self -> `(${self.x}, ${self.y})`)));
 impl(Point, Format());
 Quiet :: trait();
 impl(i64, Quiet());
-impl(generic(T : Type), where(T <: Loud), T, level : (fn(imm(self) : Self) -> i32)(i32(10)));
-impl(generic(T : Type), where(T <: Quiet), T, level : (fn(imm(self) : Self) -> i32)(i32(20)));
+impl(generic(T : Type), where(T <: Loud), T, level : (fn(self : &Self) -> i32)(i32(10)));
+impl(generic(T : Type), where(T <: Quiet), T, level : (fn(self : &Self) -> i32)(i32(20)));
 main :: (fn() -> unit)({
   println(A(v : i32(3)).show());
   println(B(w : i32(4)).show());

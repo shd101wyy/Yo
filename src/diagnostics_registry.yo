@@ -25,6 +25,7 @@ json :: import("std/encoding/json");
   E_UNKNOWN_OPERATOR,
   E_STRUCT_LITERAL_VS_BLOCK,
   E_CALL_SYNTAX,
+  E_DELETED_SPELLING,
   E_VARIABLE_NOT_FOUND,
   E_ENUM_VARIANT_NOT_FOUND,
   E_MODULE_FIELD_NOT_FOUND,
@@ -240,6 +241,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper();\n});\nexport(main);\n",
       "The space before `(` makes `helper` a bare identifier followed by a parenthesised expression.",
       "`(` 前的空格让 `helper` 成为一个裸标识符，后面跟着一个括号表达式。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DELETED_SPELLING,
+      "deleted spelling",
+      "已删除的写法",
+      "This spelling was deleted: a borrow is written with the sigil of the call site.",
+      "这种写法已被删除：借用使用与调用处相同的符号书写。",
+      "A borrow is spelled `x : &T` (read-only) or `x : &mut T` (exclusive) in every slot that holds one: a parameter, a receiver (`self : &Self`), a closure parameter, an `Fn(...)` slot, a local borrow (`y := &place`, `y := &mut place`), a capture list (`{ &y, z : &mut p }`) and the borrowed loop (`for(&mut xs, x => ...)`). The mode words `imm(x)`, `mut(x)` and the older `inout(x)` were deleted (plans/VALUES_BY_DEFAULT.md decision 42), as was `own(x)`, now `sink(x)`. `yo fix <path> --migrate borrow-spelling` rewrites the borrow words in a whole tree, and `yo fix <path> --migrate modes` rewrites `own`.",
+      "借用在每个容纳它的位置都写作 `x : &T`（只读）或 `x : &mut T`（独占）：参数、接收者（`self : &Self`）、闭包参数、`Fn(...)` 位置、局部借用（`y := &place`、`y := &mut place`）、捕获列表（`{ &y, z : &mut p }`）以及借用循环（`for(&mut xs, x => ...)`）。模式关键字 `imm(x)`、`mut(x)` 以及更早的 `inout(x)` 已被删除（plans/VALUES_BY_DEFAULT.md 决策 42），`own(x)` 也已删除，现写作 `sink(x)`。`yo fix <path> --migrate borrow-spelling` 会改写整棵树中的借用关键字，`yo fix <path> --migrate modes` 会改写 `own`。",
+      "{ String } :: import(\"std/string\");\nlen_of :: (fn(imm(s) : String) -> usize)(s.len());\nexport(len_of);\n",
+      "{ String } :: import(\"std/string\");\nlen_of :: (fn(s : &String) -> usize)(s.len());\nexport(len_of);\n",
+      "`imm(s) : String` is the deleted mode-word spelling of the read-only borrow `s : &String`.",
+      "`imm(s) : String` 是只读借用 `s : &String` 已删除的模式关键字写法。"
     )
   );
   out.push(
@@ -787,8 +803,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_DYN_UNCALLABLE,
       "a trait method cannot be called through a Dyn",
       "trait 方法无法通过 Dyn 调用",
-      "A `Dyn(Trait)` value erases its concrete type and calls its methods through a vtable, one function per method. A method whose signature mentions `Self` anywhere but the receiver (a `Self` parameter, a `Self` or `Option(Self)` result) has no single C type at the call once the concrete type is erased, and a method with `generic(...)` parameters has no single function to put in the vtable. Such methods get no vtable slot, so calling one through a `Dyn` is an error. Forming the `Dyn` and calling its other methods is fine.",
-      "`Dyn(Trait)` 值会擦除具体类型，并通过 vtable（每个方法一个函数）调用方法。签名中除接收者外还提到 `Self` 的方法（`Self` 参数、`Self` 或 `Option(Self)` 结果）在具体类型被擦除后，在调用处没有唯一的 C 类型；带 `generic(...)` 参数的方法也没有唯一的函数可以放进 vtable。这类方法没有 vtable 槽位，因此通过 `Dyn` 调用它们是错误。构造该 `Dyn` 并调用其他方法不受影响。",
+      "A `Dyn(Trait)` value erases its concrete type and calls its methods through a vtable, one function per method. A method whose signature mentions `Self` anywhere but the receiver (a `Self` parameter, a `Self` or `Option(Self)` result) has no single C type at the call once the concrete type is erased, and a method with `generic(...)` parameters has no single function to put in the vtable. Such methods get no vtable slot, so calling one through a `Dyn` is an error. Forming the `Dyn` and calling its other methods is fine. A slot that takes `self` by value hands the impl a copy of the payload, so a move-only payload cannot be boxed behind it at all.",
+      "`Dyn(Trait)` 值会擦除具体类型，并通过 vtable（每个方法一个函数）调用方法。签名中除接收者外还提到 `Self` 的方法（`Self` 参数、`Self` 或 `Option(Self)` 结果）在具体类型被擦除后，在调用处没有唯一的 C 类型；带 `generic(...)` 参数的方法也没有唯一的函数可以放进 vtable。这类方法没有 vtable 槽位，因此通过 `Dyn` 调用它们是错误。构造该 `Dyn` 并调用其他方法不受影响。按值接收 `self` 的槽位会把载荷的一份副本交给实现，因此仅可移动的载荷根本不能装箱到这样的 `Dyn` 中。",
       "Call the method on a concrete value instead, or declare it so that `Self` appears only as the receiver and it takes no `generic(...)` parameters. Before this was an error the call passed `check` and failed inside the C compiler.",
       "改为在具体值上调用该方法，或把它声明为 `Self` 只作为接收者出现、且不带 `generic(...)` 参数。在这成为错误之前，这种调用能通过 `check`，却在 C 编译器中失败。",
       "Sp :: trait(speak : (fn(self : Self) -> i32), me : (fn(self : Self) -> Self));\nCat :: ref(struct(n : i32));\nimpl(Cat, Sp(speak : (self -> self.n), me : (self -> self)));\nmain :: (fn() -> unit)({\n  (d : Dyn(Sp)) = dyn(Cat(n : i32(3)));\n  c := d.me();\n});\n",
@@ -939,7 +955,7 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   out
 });
 /// Find the registry entry for `code`.
-lookup_explain :: (fn(imm(code) : String) -> Option(Explain))({
+lookup_explain :: (fn(code : &String) -> Option(Explain))({
   entries := registry_entries();
   (i : usize) = usize(0);
   while(i < entries.len(), {
@@ -979,10 +995,10 @@ all_registry_codes :: (fn() -> ArrayList(String))({
 /// string (E99999 → E0909, matched on two nines) is noise. The identifier
 /// engine's default threshold is 3 (`suggest_name`); codes pass 2 explicitly
 /// so the registry can densify without re-arming the far-miss probe.
-suggest_code :: (fn(imm(code) : String) -> Option(String))(suggest_name(code, all_registry_codes(), usize(2)));
+suggest_code :: (fn(code : &String) -> Option(String))(suggest_name(code, all_registry_codes(), usize(2)));
 /// One registry entry as JSON (for `yo explain --format json`): both
 /// languages always included.
-explain_to_json :: (fn(imm(e) : Explain) -> String)({
+explain_to_json :: (fn(e : &Explain) -> String)({
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();
   keys.push(String.from("code"));

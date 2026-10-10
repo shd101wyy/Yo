@@ -41,7 +41,7 @@ OpenMode :: enum(
   CreateNew
 );
 // Convert OpenMode to POSIX open flags.
-_open_mode_to_flags :: (fn(imm(mode) : OpenMode) -> i32)(
+_open_mode_to_flags :: (fn(mode : &OpenMode) -> i32)(
   match(
     mode,
     .Read => (O_RDONLY | O_CLOEXEC),
@@ -54,7 +54,7 @@ _open_mode_to_flags :: (fn(imm(mode) : OpenMode) -> i32)(
 // Returns the POSIX mode for an OpenMode.
 // Read/ReadWrite don't create files, so mode is 0.
 // Write/Append/CreateNew create files, so use the given permission.
-_open_mode_needs_perm :: (fn(imm(mode) : OpenMode) -> bool)(
+_open_mode_needs_perm :: (fn(mode : &OpenMode) -> bool)(
   match(
     mode,
     .Read => false,

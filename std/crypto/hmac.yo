@@ -34,7 +34,7 @@ hex :: import("../encoding/hex");
 /// with `K'` the key hashed down (if longer than the block) then
 /// zero-padded to the block size.
 hmac :: (
-  fn(comptime(D) : Type, imm(key) : ArrayList(u8), imm(message) : ArrayList(u8), where(D <: Digest)) -> ArrayList(u8)
+  fn(comptime(D) : Type, key : &ArrayList(u8), message : &ArrayList(u8), where(D <: Digest)) -> ArrayList(u8)
 )({
   block := (D <: Digest).block_size();
   // K': hash an over-long key, then zero-pad to the block size.
@@ -55,34 +55,34 @@ hmac :: (
   (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).update((D <: Digest).new(), okey), inner))
 });
 /// HMAC-SHA256.
-hmac_sha256 :: (fn(imm(key) : ArrayList(u8), imm(message) : ArrayList(u8)) -> ArrayList(u8))(
+hmac_sha256 :: (fn(key : &ArrayList(u8), message : &ArrayList(u8)) -> ArrayList(u8))(
   hmac(Sha256, key, message)
 );
 /// HMAC-SHA256, lowercase hex.
-hmac_sha256_hex :: (fn(imm(key) : ArrayList(u8), imm(message) : ArrayList(u8)) -> String)(
+hmac_sha256_hex :: (fn(key : &ArrayList(u8), message : &ArrayList(u8)) -> String)(
   hex.encode(hmac_sha256(key, message))
 );
 /// HMAC-SHA512.
-hmac_sha512 :: (fn(imm(key) : ArrayList(u8), imm(message) : ArrayList(u8)) -> ArrayList(u8))(
+hmac_sha512 :: (fn(key : &ArrayList(u8), message : &ArrayList(u8)) -> ArrayList(u8))(
   hmac(Sha512, key, message)
 );
 /// HMAC-SHA512, lowercase hex.
-hmac_sha512_hex :: (fn(imm(key) : ArrayList(u8), imm(message) : ArrayList(u8)) -> String)(
+hmac_sha512_hex :: (fn(key : &ArrayList(u8), message : &ArrayList(u8)) -> String)(
   hex.encode(hmac_sha512(key, message))
 );
 /// HMAC-SHA1 (for protocols that still require it — see std/crypto/sha1's
 /// security note).
-hmac_sha1 :: (fn(imm(key) : ArrayList(u8), imm(message) : ArrayList(u8)) -> ArrayList(u8))(
+hmac_sha1 :: (fn(key : &ArrayList(u8), message : &ArrayList(u8)) -> ArrayList(u8))(
   hmac(Sha1, key, message)
 );
 /// HMAC-SHA1, lowercase hex.
-hmac_sha1_hex :: (fn(imm(key) : ArrayList(u8), imm(message) : ArrayList(u8)) -> String)(
+hmac_sha1_hex :: (fn(key : &ArrayList(u8), message : &ArrayList(u8)) -> String)(
   hex.encode(hmac_sha1(key, message))
 );
 /// Constant-time byte comparison — verify MACs with this, never `==`:
 /// an early-exit compare leaks WHERE the first mismatch sits, which lets an
 /// attacker forge a MAC byte-by-byte over the network.
-constant_time_eq :: (fn(imm(a) : ArrayList(u8), imm(b) : ArrayList(u8)) -> bool)({
+constant_time_eq :: (fn(a : &ArrayList(u8), b : &ArrayList(u8)) -> bool)({
   if(a.len() != b.len(), {
     return(false);
   });

@@ -694,7 +694,16 @@ The one exception is the receiver of an `impl` member: a trait method declared w
 
 `&T` and `&mut T` are borrow **modes** a slot spells, not types, in this generation: they prefix the type of a parameter, a receiver (`self : &Self`, `self : &mut Self`), a closure parameter (`(v : &T) => ...`) or a labeled `Fn` slot (`Fn(v : &T) -> R`; an unlabeled `Fn(&T)` is not accepted). Anywhere a type stands on its own (`T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field `f : &T`, `&&T`) the sigil is an error, "a borrow mode, not a type". A function cannot return a borrow either (`-> &T` needs projections, which are not implemented).
 
-The older word spelling (`imm(x) : T`, `mut(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) still parses as an exact synonym until Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): the standard library and the compiler keep it until the next seed. `yo fix <path> --migrate borrow-spelling` rewrites a tree to the sigil spelling.
+The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): it is error E0009, which names the sigil spelling, and `yo fix <path> --migrate borrow-spelling` rewrites a tree to it. `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
+
+Operator traits spell their operands' modes the same way, and every impl writes exactly those modes (decision 34). The comparison traits `Eq` and `Ord` borrow, `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`, so `a == b` keeps both operands. The arithmetic, bitwise and unary traits (`Add` through `BitRightShift`, `Negate`, `LogicalNot`, `BitNot` and their `Comptime*` twins) take their operands by value, as in Rust: `(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`. A by-value operand follows the parameter rules above: a `Copy` operand is copied, a `String` is shared, and a move-only operand moves into the operator. An impl that borrows an operand the trait takes by value, or the reverse, is rejected as written. `Dyn(LogicalNot)` hands its impl a copy of the payload, so a move-only payload cannot be boxed into it (E0614).
+
+```yo
+Money :: struct(cents : i64);
+derive(Money, Copy, Clone);
+impl(Money, Add(Money)(Output : Money, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(Money(cents : (lhs.cents + rhs.cents)))));
+impl(Money, Eq(Money)((==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.cents == rhs.cents)));
+```
 
 ### Call-site borrow markers
 

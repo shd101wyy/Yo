@@ -47,7 +47,7 @@ test("multiple predicates inside a single requires/ensures", {
 test("where clause may precede requires/ensures in a signature", {
   // Use a simple generic + where(Runtime) — focus on the contract
   // syntax, not the trait machinery.
-  echo :: (fn(generic(T : Type), imm(x) : T, where(T <: Runtime), requires(i32(1) == i32(1))) -> T)(
+  echo :: (fn(generic(T : Type), x : &T, where(T <: Runtime), requires(i32(1) == i32(1))) -> T)(
     x
   );
   assert(echo(generic(i32), i32(7)) == i32(7), "echo returns its arg");
@@ -207,7 +207,7 @@ test("canonical clause order generic/params/where/requires/ensures is accepted",
   full :: (
     fn(
       generic(T : Type),
-      imm(x) : T,
+      x : &T,
       where(T <: Runtime),
       requires(i32(1) == i32(1)),
       ensures(i32(1) == i32(1))
@@ -217,7 +217,7 @@ test("canonical clause order generic/params/where/requires/ensures is accepted",
 });
 
 test("nested old(old(...)) in ensures resolves to the entry value", {
-  bump :: (fn(mut(n) : i32, ensures(n == (old(old(n)) + i32(1)))) -> unit)({
+  bump :: (fn(n : &mut i32, ensures(n == (old(old(n)) + i32(1)))) -> unit)({
     n = (n + i32(1));
   });
   x := i32(7);
@@ -264,7 +264,7 @@ test("ensures(...) with multiple postconditions in a single call", {
 });
 
 test("ensures(...) with old(...) captures the entry value of a ref param", {
-  increment :: (fn(mut(n) : i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
+  increment :: (fn(n : &mut i32, requires(n < i32(100)), ensures(n == (old(n) + i32(1)))) -> unit)({
     n = (n + i32(1));
   });
   x := i32(5);
@@ -315,7 +315,7 @@ test("ensures(...) on a unit-returning function with a side effect", {
   // No meaningful return value; the postcondition is about the
   // mutated ref param. Exercises the unit-return lowering path
   // (no `result` binding — would otherwise emit invalid `void result`).
-  set :: (fn(mut(n) : i32, x : i32, ensures(n == x)) -> unit)({
+  set :: (fn(n : &mut i32, x : i32, ensures(n == x)) -> unit)({
     n = x;
   });
   n := i32(0);
@@ -331,7 +331,7 @@ test("requires + ensures + old() together on a non-unit return", {
   // ensures clause.
   bump_and_report :: (
     fn(
-      mut(n) : i32,
+      n : &mut i32,
       requires(n >= i32(0)),
       ensures(n == (old(n) + i32(1)), result == old(n))
     ) -> (result : i32)
@@ -349,7 +349,7 @@ test("requires + ensures + old() together on a non-unit return", {
 test("ensures(...) with multiple old(...) snapshots", {
   // Two distinct old() expressions in one ensures clause — both must
   // be hoisted to separate entry snapshots.
-  swap_check :: (fn(mut(a) : i32, mut(b) : i32, ensures(a == old(b), b == old(a))) -> unit)({
+  swap_check :: (fn(a : &mut i32, b : &mut i32, ensures(a == old(b), b == old(a))) -> unit)({
     tmp := a;
     a = b;
     b = tmp;
@@ -373,7 +373,7 @@ test("V1: an arbitrary return label names the return value in ensures(...)", {
 test("V1: the label resolves alongside old(...) and requires(...)", {
   bump_and_report :: (
     fn(
-      mut(n) : i32,
+      n : &mut i32,
       requires(n >= i32(0)),
       ensures(n == (old(n) + i32(1)), result == old(n))
     ) -> (result : i32)
@@ -392,7 +392,7 @@ test("V1: unlabeled non-unit return supports param-only ensures(...)", {
   // No label: predicates may still constrain parameters and old(...)
   // expressions — the wrapper threads the return value under an
   // unspeakable internal name.
-  set_and_get :: (fn(mut(n) : i32, x : i32, ensures(n == x)) -> i32)({
+  set_and_get :: (fn(n : &mut i32, x : i32, ensures(n == x)) -> i32)({
     n = x;
     x
   });
@@ -413,7 +413,7 @@ test("V1: unbound name in ensures(...) with an unlabeled return gets the label h
 
 test("V1: referencing the unit return label inside ensures(...) is rejected", {
   comptime_expect_error({
-    f :: (fn(mut(n) : i32, ensures(n == i32(1), nothing == i32(0))) -> (nothing : unit))({
+    f :: (fn(n : &mut i32, ensures(n == i32(1), nothing == i32(0))) -> (nothing : unit))({
       n = i32(1);
     });
     x := i32(0);
@@ -424,7 +424,7 @@ test("V1: referencing the unit return label inside ensures(...) is rejected", {
 test("V1: a unit return label unreferenced by ensures(...) is accepted", {
   // `-> (name : unit)` parses; only REFERENCING the label in ensures(...)
   // is an error.
-  set :: (fn(mut(n) : i32, x : i32, ensures(n == x)) -> (unused : unit))({
+  set :: (fn(n : &mut i32, x : i32, ensures(n == x)) -> (unused : unit))({
     n = x;
   });
   n := i32(0);

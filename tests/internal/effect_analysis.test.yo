@@ -42,7 +42,7 @@ make_ident :: (fn(v : str) -> AstExpr)(
   AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, v))
 );
 /// Create `func_name(arg)` — a simple call expression.
-make_simple_call :: (fn(func_name : str, imm(arg) : AstExpr, char_pos : usize) -> AstExpr)({
+make_simple_call :: (fn(func_name : str, arg : &AstExpr, char_pos : usize) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(arg);
   AstExpr.FnCall(
@@ -54,7 +54,7 @@ make_simple_call :: (fn(func_name : str, imm(arg) : AstExpr, char_pos : usize) -
   )
 });
 /// Create `module_name.method_name(arg)` — a dotted-access call expression.
-make_dot_call :: (fn(module_name : str, method_name : str, imm(arg) : AstExpr) -> AstExpr)({
+make_dot_call :: (fn(module_name : str, method_name : str, arg : &AstExpr) -> AstExpr)({
   dot_args := ArrayList(AstExpr).new();
   dot_args.push(make_ident(module_name));
   dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, method_name)));
@@ -76,7 +76,7 @@ make_dot_call :: (fn(module_name : str, method_name : str, imm(arg) : AstExpr) -
   )
 });
 /// get_info that always returns None (no type information).
-get_info_none :: (fn(imm(e) : AstExpr) -> Option(ExprInfo))(
+get_info_none :: (fn(e : &AstExpr) -> Option(ExprInfo))(
   Option(ExprInfo).None
 );
 // ---------------------------------------------------------------------------
