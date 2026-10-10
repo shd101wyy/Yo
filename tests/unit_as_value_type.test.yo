@@ -342,9 +342,9 @@ test("a unit-typed constructor argument still runs for its side effects", {
 _Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, n : i32));
 derive(generic(T : Type), where(T <: Clone), _Pair(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _Pair(T), Copy);
-_pair_x :: (fn(generic(T : Type), p : _Pair(T)) -> T)(p.x);
-_pair_n :: (fn(generic(T : Type), p : _Pair(T)) -> i32)(p.n);
-_mk_pair :: (fn(generic(T : Type), v : T, n : i32) -> _Pair(T))(_Pair(T)(x : v, n : n));
+_pair_x :: (fn(generic(T : Type), imm(p) : _Pair(T)) -> T)(p.x);
+_pair_n :: (fn(generic(T : Type), imm(p) : _Pair(T)) -> i32)(p.n);
+_mk_pair :: (fn(generic(T : Type), imm(v) : T, n : i32) -> _Pair(T))(_Pair(T)(x : v, n : n));
 _SZ_PAIR_UNIT :: size_of(_Pair(unit));
 _SZ_PAIR_I32 :: size_of(_Pair(i32));
 test("a generic struct at T = unit erases the field; Array(unit, N) constructs, fills and indexes", {

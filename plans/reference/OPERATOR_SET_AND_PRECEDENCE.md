@@ -86,7 +86,7 @@ streams (zero diffs expected).
 | Arrows / structure | `->` `=>` `:` `<:` |
 | Dot family (own token kinds) | `.` `..` `..=` `...` |
 | Pointer / option types | `*` `?` (the `?*` token was REMOVED 2026-08-21: `?` is the Option alias, so `?(*(T))` composes — 138 corpus sites migrated) |
-| Splices (macro/derive layer) | `#` `...#` |
+| Splices (macro/derive layer) | none since 2026-10-10: the words `unquote(x)` / `unquote_splicing(xs)` (the `#` / `...#` operators were deleted) |
 | Iso sugar | `^` (prefix use of the bitwise token) |
 | Word alias | `not` (identifier-alias of `!`, `std/prelude.yo:569`) |
 
@@ -109,7 +109,7 @@ Notes:
 
 ### Reserved operators (no user binding, no overload)
 
-`=` `:=` `::` `.` `:` `=>` `->` `<:` `?=` `&&` `\|\|` `#` `...#` `...` `==>`
+`=` `:=` `::` `.` `:` `=>` `->` `<:` `?=` `&&` `\|\|` `...` `==>`
 
 - `==>` (added 2026-09-11, V5 of
   `plans/backlog/FORMAL_VERIFICATION.md` §6) is ghost-only logical
@@ -249,12 +249,12 @@ priors conflict.
   (Ruby/Lisp read `:x` as a symbol literal); `'` is char literals;
   backtick is template strings. `quote` occurs once per template at the
   outermost position, where an explicit word is cheap and announces "AST
-  territory" — sigils stay reserved for the frequent inner holes
-  (`#`, `...#`). If a sigil is ever revisited, `@(...)` is the least-bad
+  territory" — sigils stayed reserved for the frequent inner holes
+  (`#`, `...#`, themselves deleted 2026-10-10 in favour of the words). If a sigil is ever revisited, `@(...)` is the least-bad
   candidate (`@` is unused; Julia's `@macro` prior is at least
   metaprogramming-adjacent).
 - No change to trait-based overloading of table operators.
-- No change to `#`/`...#` (see the open question in
-  `plans/reference/MACRO_POLICY.md` — kept, with removal-if-ever as a separate
-  mechanical PR).
+- `#`/`...#` were kept here and removed 2026-10-10 as the separate
+  mechanical PR the open question in `plans/reference/MACRO_POLICY.md`
+  anticipated.
 - No precedence table of any size (Part 2).

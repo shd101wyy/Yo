@@ -60,14 +60,14 @@ derive_rule(MyEq, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
             true => quote(false) // simplified — full version uses variant field matching
           );
           quote(
-            .(#(variant.name.to_expr())) => match(other,
-              .(#(variant.name.to_expr())) => #(field_eq),
+            .(unquote(variant.name.to_expr())) => match(other,
+              .(unquote(variant.name.to_expr())) => unquote(field_eq),
               _ => false
             )
           )
         }
       );
-      quote(match(self, ...#(match_arms)))
+      quote(match(self, unquote_splicing(match_arms)))
     },
     info.is_struct() => {
       cond(
@@ -75,7 +75,7 @@ derive_rule(MyEq, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
         true => Type.join_fields(
           T,
           (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-            quote(self.(#(field.name.to_expr())).eq(other.(#(field.name.to_expr()))))
+            quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
           ),
           quote(&&)
         )
@@ -86,8 +86,8 @@ derive_rule(MyEq, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
 
   // Use ctx.make_impl to construct impl with optional forall/where
   ctx.make_impl(quote(
-    MyEq(...#(trait_params))(
-      eq : ((self, other) -> #(eq_body))
+    MyEq(unquote_splicing(trait_params))(
+      eq : ((self, other) -> unquote(eq_body))
     )
   ))
 });
@@ -176,10 +176,10 @@ The trait constructor arguments from the `derive(...)` call are collected by the
 // derive(Point, Conv(A, B))     → trait_params = [quote(A), quote(B)]
 ```
 
-Inside the derive rule, use `...#(trait_params)` (unquote_splicing) to reconstruct the trait application:
+Inside the derive rule, use `unquote_splicing(trait_params)` to reconstruct the trait application:
 
 ```rust
-quote(MyEq(...#(trait_params)))  // → MyEq(Point) or MyEq(i32) etc.
+quote(MyEq(unquote_splicing(trait_params)))  // → MyEq(Point) or MyEq(i32) etc.
 ```
 
 #### Fully Expr-based — No Code-String Generation
@@ -226,7 +226,7 @@ __yo_type_join_variants(
   T,
   (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
     // variant.name : comptime_string, variant.field_count : i32, etc.
-    quote(.unquote(variant.name.to_expr()) => ...)
+    quote(.(unquote(variant.name.to_expr())) => ...)
   ),
   quote(,)   // or whatever combiner makes sense for match arms
 )
@@ -292,7 +292,7 @@ Usage in derive rules:
 ```rust
 // Instead of manually constructing impl with forall/where:
 ctx.make_impl(quote(
-  MyEq(...#(trait_params))(
+  MyEq(unquote_splicing(trait_params))(
     eq : ((self, other) -> unquote(eq_body))
   )
 ))
@@ -428,7 +428,7 @@ derive_rule(MyEq, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
   );
 
   ctx.make_impl(quote(
-    MyEq(...#(trait_params))(
+    MyEq(unquote_splicing(trait_params))(
       eq : ((self, other) -> unquote(eq_body))
     )
   ))
@@ -492,7 +492,7 @@ derive_rule(Eq, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
   );
 
   ctx.make_impl(quote(
-    Eq(...#(trait_params))(
+    Eq(unquote_splicing(trait_params))(
       (==) : ((lhs, rhs) -> unquote(eq_body)),
       (!=) : ((lhs, rhs) -> !(unquote(eq_body)))
     )
@@ -667,7 +667,7 @@ if (deriveRule) {
 - Test `derive_rule` override of built-in trait
 - Test `derive_rule` with forall/where generic types — DeriveContext.forall_params and where_clause
 - Test `derive_rule` imported from another module
-- Test trait params via `ComptimeList(Expr)` with `...#(trait_params)`
+- Test trait params via `ComptimeList(Expr)` with `unquote_splicing(trait_params)`
 - Test error cases
 - Update fixme.yo
 

@@ -403,7 +403,7 @@ Map each field of a struct to an `Expr` and combine them with a binary operator:
 eq_body :: Type.join_fields(
   Point,
   (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-    quote(self.(#(field.name.to_expr())).eq(other.(#(field.name.to_expr()))))
+    quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
   ),
   quote(&&)
 );
@@ -417,7 +417,7 @@ Map each variant of an enum to an `Expr`, returning `ComptimeList(Expr)`:
 branches :: Type.map_variants(
   Color,
   (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
-    quote(.(#(variant.name.to_expr())) => true)
+    quote(.(unquote(variant.name.to_expr())) => true)
   )
 );
 ```

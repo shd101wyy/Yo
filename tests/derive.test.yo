@@ -265,7 +265,7 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
       true => Type.join_fields(
         T,
         (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-          quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+          quote(self.(unquote(field.name.to_expr())).my_eq(other.(unquote(field.name.to_expr()))))
         ),
         quote(&&)
       )
@@ -276,9 +276,9 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
         (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
           cond(
             (variant.fields.len() == usize(0)) => quote(
-              .(#(variant.name.to_expr())) => match(
+              .(unquote(variant.name.to_expr())) => match(
                 other,
-                .(#(variant.name.to_expr())) => true,
+                .(unquote(variant.name.to_expr())) => true,
                 _ => false
               )
             ),
@@ -288,14 +288,14 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
           )
         )
       );
-      quote(match(self, ...#(match_branches)))
+      quote(match(self, unquote_splicing(match_branches)))
     },
     true => quote(false)
   );
   ctx.make_impl(
     quote(
-      MyEq(...#(trait_params))(
-        my_eq : ((self, other) -> #(eq_body))
+      MyEq(unquote_splicing(trait_params))(
+        my_eq : ((self, other) -> unquote(eq_body))
       )
     )
   )
@@ -776,7 +776,7 @@ __te_plain :: (
   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
 )({
   src :: "`TE_PLAIN`";
-  ctx.make_impl(quote(_TeLbl(te_lbl : (self -> #(src.to_expr())))))
+  ctx.make_impl(quote(_TeLbl(te_lbl : (self -> unquote(src.to_expr())))))
 });
 derive_rule(_TeLbl, __te_plain);
 _TePoint :: struct(x : i32);
@@ -786,7 +786,7 @@ __te_interp :: (
   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
 )({
   src :: "`P(${self.x.to_string()})`";
-  ctx.make_impl(quote(_TeIntLbl(te_int : (self -> #(src.to_expr())))))
+  ctx.make_impl(quote(_TeIntLbl(te_int : (self -> unquote(src.to_expr())))))
 });
 derive_rule(_TeIntLbl, __te_interp);
 derive(_TePoint, _TeIntLbl);

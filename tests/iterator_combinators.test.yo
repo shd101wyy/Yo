@@ -160,12 +160,12 @@ test("iter.zip stops at shorter iterator", {
 });
 // --- fold ------------------------------------------------------------------
 test("iter.fold sums values", {
-  add :: (fn(acc : i32, x : i32) -> i32)(acc + x);
+  add :: (fn(imm(acc) : i32, imm(x) : i32) -> i32)(acc + x);
   total := my_range(i32(1), i32(6)).fold(i32(0), add);
   assert(total == i32(15), "1+2+3+4+5=15");
 });
 test("iter.fold with single accumulation", {
-  mul :: (fn(acc : i32, x : i32) -> i32)(acc * x);
+  mul :: (fn(imm(acc) : i32, imm(x) : i32) -> i32)(acc * x);
   prod := my_range(i32(1), i32(5)).fold(i32(1), mul);
   assert(prod == i32(24), "1*2*3*4=24");
 });
@@ -224,8 +224,8 @@ test("iter.skip then take then count", {
   assert(n == usize(15), "15");
 });
 test("iter.filter then map then count", {
-  square :: (fn(x : i32) -> i32)(x * x);
-  is_even :: (fn(x : i32) -> bool)((x % i32(2)) == i32(0));
+  square :: (fn(imm(x) : i32) -> i32)(x * x);
+  is_even :: (fn(imm(x) : i32) -> bool)((x % i32(2)) == i32(0));
   n := my_range(i32(0), i32(10)).filter(is_even).map(square).count();
   assert(n == usize(5), "5 evens");
 });
@@ -244,7 +244,7 @@ test("ArrayList.into_iter combinators", {
   assert(even_sum == i32(6), "2+4=6");
   even_count := make_list().into_iter().filter(p => ((p % i32(2)) == i32(0))).count();
   assert(even_count == usize(2), "2 evens");
-  double :: (fn(x : i32) -> i32)(x * i32(2));
+  double :: (fn(imm(x) : i32) -> i32)(x * i32(2));
   doubled_count := make_list().into_iter().map(double).count();
   assert(doubled_count == usize(5), "5 mapped");
 });

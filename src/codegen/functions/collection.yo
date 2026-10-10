@@ -1471,7 +1471,7 @@ _synthesize_and_register_dispose :: (
   });
   body.push_str("()");
   // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
-  code := `(fn(self : Self) -> unit)({ ${body} })`;
+  code := `(fn(imm(self) : Self) -> unit)({ ${body} })`;
   _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
 });
 /// Synthesize + register the auto-derived `___dispose` for a concrete reference-
@@ -1604,7 +1604,7 @@ _synthesize_and_register_enum_dispose :: (
   });
   body.push_str("()");
   // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
-  code := `(fn(self : Self) -> unit)({ ${body} })`;
+  code := `(fn(imm(self) : Self) -> unit)({ ${body} })`;
   _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
 });
 /// Register the `___dispose` of a move-only VALUE type with a user `Dispose`
@@ -1652,7 +1652,7 @@ _synthesize_and_register_value_dispose :: (
   if(!has_user_dispose, {
     return(());
   });
-  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, String.from("(fn(self : Self) -> unit)({ self.dispose(); () })"), String.from("___dispose"));
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, String.from("(fn(imm(self) : Self) -> unit)({ self.dispose(); () })"), String.from("___dispose"));
 });
 /// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC
 /// struct and ref-enum type that lacks one (and the user destructor of every move-only

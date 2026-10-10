@@ -1,13 +1,15 @@
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-sink :: (fn(own(xs) : ArrayList(i32)) -> unit)(());
+take_list :: (fn(sink(xs) : ArrayList(i32)) -> unit)(());
 main :: (fn() -> unit)({
   xs := ArrayList(i32).new();
   c := runtime(true);
+  // Moved in one arm, so the other arm drops it where the arms meet.
   if(c, {
-    sink(xs);
+    take_list(xs);
   }, {
     println(`else ${xs.len()}`);
   });
+  println(`after ${xs.len()}`);
 });
 export(main);

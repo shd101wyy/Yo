@@ -457,7 +457,7 @@ impl(
     })
   )
 );
-m3_consume :: (fn(own(v) : M3HiddenRet) -> i32)(v.tag);
+m3_consume :: (fn(sink(v) : M3HiddenRet) -> i32)(v.tag);
 m3_hidden_if :: (fn(early : bool) -> i32)({
   s := M3HiddenRet(tag : i32(11));
   if(early, {
@@ -834,7 +834,7 @@ test("an INDEXED borrowed argument is protected like a field projection", {
 // not consume its operand, so the scope-end drop decrements a second time —
 // so no valid program exercises it and it gets no test; the classification
 // rule still lists it, documented in mutation-summary.ts.
-stage1_drop_owned :: (fn(own(h) : Rc(i32), imm(borrowed) : Rc(i32)) -> usize)({
+stage1_drop_owned :: (fn(sink(h) : Rc(i32), imm(borrowed) : Rc(i32)) -> usize)({
   ___drop(h);
   ref_count(borrowed)
 });
@@ -1064,14 +1064,14 @@ impl(
     })
   )
 );
-own_ident :: (fn(generic(V : Type), own(v) : V) -> V)(v);
-own_via_local :: (fn(generic(V : Type), own(v) : V) -> V)({
+own_ident :: (fn(generic(V : Type), sink(v) : V) -> V)(v);
+own_via_local :: (fn(generic(V : Type), sink(v) : V) -> V)({
   w := v;
   w
 });
 OwnHolder :: (fn(comptime(V) : Type) -> comptime(Type))(ref(struct(item : V)));
-own_hold :: (fn(generic(V : Type), own(v) : V) -> OwnHolder(V))(OwnHolder(V)(item : v));
-own_discard :: (fn(generic(V : Type), own(v) : V) -> i32)(i32(1));
+own_hold :: (fn(generic(V : Type), sink(v) : V) -> OwnHolder(V))(OwnHolder(V)(item : v));
+own_discard :: (fn(generic(V : Type), sink(v) : V) -> i32)(i32(1));
 test("an own parameter of a generic function releases its value exactly once", {
   before := g_own_param_freed;
   {
@@ -1372,7 +1372,7 @@ impl(
   )
 );
 at_read :: (fn(imm(a) : ArgTemp) -> i32)(a.n);
-at_sink :: (fn(own(a) : ArgTemp) -> i32)(a.n);
+at_sink :: (fn(sink(a) : ArgTemp) -> i32)(a.n);
 at_pick_match :: (fn(flag : bool, imm(keep) : ArgTemp) -> i32)(at_read(match(flag, true => ArgTemp(n : i32(1)), false => keep)));
 at_pick_cond :: (fn(flag : bool, imm(keep) : ArgTemp) -> i32)(at_read(cond(flag => ArgTemp(n : i32(2)), true => keep)));
 test("a match passed as a call argument releases its fresh result", {
@@ -1410,7 +1410,7 @@ test("a match/cond argument arm that returns a borrowed value does not over-rele
   };
   assert(g_at_disposed == (before + i32(3)), "the caller's value is disposed once, at its scope end");
 });
-at_sink_plus :: (fn(own(a) : ArgTemp) -> i32)(a.n + i32(1));
+at_sink_plus :: (fn(sink(a) : ArgTemp) -> i32)(a.n + i32(1));
 test("an own parameter read by a bare-expression body is released after the read", {
   before := g_at_disposed;
   {
@@ -1618,12 +1618,12 @@ impl(
 _OwnMHolder :: struct(b : _OwnM);
 impl(
   _OwnMHolder,
-  make : (fn(own(b) : _OwnM) -> Self)(Self(b : b)),
-  adopt : (fn(imm(self) : Self, own(b) : _OwnM) -> i32)(b.tag)
+  make : (fn(sink(b) : _OwnM) -> Self)(Self(b : b)),
+  adopt : (fn(imm(self) : Self, sink(b) : _OwnM) -> i32)(b.tag)
 );
 _OwnMWrap :: struct(m : _OwnM, n : i32);
 _OwnMOuter :: struct(w : _OwnMWrap);
-_own_m_plain :: (fn(own(b) : _OwnM) -> _OwnMHolder)(_OwnMHolder(b : b));
+_own_m_plain :: (fn(sink(b) : _OwnM) -> _OwnMHolder)(_OwnMHolder(b : b));
 _own_m_param_field :: (fn(imm(w) : _OwnMWrap) -> _OwnMHolder)(_OwnMHolder.make(w.m));
 _own_m_param :: (fn(imm(m) : _OwnM) -> _OwnMHolder)(_OwnMHolder.make(m));
 _own_m_nested_field :: (fn(imm(o) : _OwnMOuter) -> _OwnMHolder)(_OwnMHolder.make(o.w.m));

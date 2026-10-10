@@ -62,7 +62,7 @@ impl(
 );
 // `own(x)` is the old spelling of `sink(x)` (plans/VALUES_BY_DEFAULT.md
 // decision 15), accepted until the sweep after the next seed.
-_mo_take_old :: (fn(own(f) : _MoFd) -> i32)(f.n);
+_mo_take_old :: (fn(sink(f) : _MoFd) -> i32)(f.n);
 _mo_dup_generic :: (fn(generic(T : Type), imm(x) : T) -> T)(x);
 _mo_move_generic :: (fn(generic(T : Type), sink(x) : T) -> T)(x);
 // ---------------------------------------------------------------------------
@@ -174,6 +174,95 @@ test("move-only: a return moves the value out, an early return disposes once", {
   assert(g_mo_disposed == (before + i32(5)), "each value disposed once");
   assert(g_mo_sum == (before_sum + i32(67)), "7 + 10 + 10 + 20 + 20");
 });
+_mo_one_arm :: (fn(c : bool, mut(keep) : ArrayList(_MoFd)) -> i32)({
+  a := _MoFd(n : i32(30));
+  cond(c => keep.push(a), true => ());
+  i32(1)
+});
+_mo_one_arm_reads :: (fn(c : bool, mut(keep) : ArrayList(_MoFd)) -> i32)({
+  a := _MoFd(n : i32(40));
+  cond(
+    c => {
+      keep.push(a);
+      i32(0)
+    },
+    true => a.n
+  )
+});
+_mo_one_match_arm :: (fn(k : i32, mut(keep) : ArrayList(_MoFd)) -> unit)({
+  a := _MoFd(n : i32(50));
+  match(
+    k,
+    0 => keep.push(a),
+    1 => (),
+    _ => ()
+  );
+});
+test("move-only: a value moved in one arm is dropped at the end of the others", {
+  before := g_mo_disposed;
+  before_sum := g_mo_sum;
+  keep := ArrayList(_MoFd).new();
+  assert(_mo_one_arm(true, keep) == i32(1), "moved into the list");
+  assert(g_mo_disposed == before, "the list owns it: not disposed");
+  assert(_mo_one_arm(false, keep) == i32(1), "kept");
+  assert(g_mo_disposed == (before + i32(1)), "the arm that kept it dropped it once");
+  assert(_mo_one_arm_reads(false, keep) == i32(40), "read in the keeping arm, then dropped");
+  assert(g_mo_disposed == (before + i32(2)), "dropped after the arm's value");
+  assert(_mo_one_arm_reads(true, keep) == i32(0), "moved");
+  _mo_one_match_arm(i32(0), keep);
+  _mo_one_match_arm(i32(1), keep);
+  _mo_one_match_arm(i32(7), keep);
+  assert(g_mo_disposed == (before + i32(4)), "each match arm that kept it dropped it once");
+  assert(keep.len() == usize(3), "three moved into the list");
+  assert(g_mo_sum == (before_sum + i32(170)), "30 + 40 + 50 + 50");
+});
+_mo_all_move_or_return :: (fn(k : i32) -> i32)({
+  a := _MoFd(n : i32(60));
+  cond(
+    (k == i32(0)) => _mo_take(a),
+    (k == i32(1)) => {
+      return(i32(77));
+    },
+    true => _mo_take(a)
+  )
+});
+_mo_some_move_or_return :: (fn(k : i32) -> i32)({
+  a := _MoFd(n : i32(70));
+  cond(
+    (k == i32(0)) => _mo_take(a),
+    (k == i32(1)) => {
+      return(i32(77));
+    },
+    true => i32(0)
+  )
+});
+test("move-only: a returning arm beside arms that move a value drops it at the return", {
+  before := g_mo_disposed;
+  assert(_mo_all_move_or_return(i32(0)) == i32(60), "moved");
+  assert(_mo_all_move_or_return(i32(1)) == i32(77), "returned");
+  assert(_mo_all_move_or_return(i32(2)) == i32(60), "moved");
+  assert(g_mo_disposed == (before + i32(3)), "every path disposed it once, the returning one included");
+  assert(_mo_some_move_or_return(i32(0)) == i32(70), "moved");
+  assert(_mo_some_move_or_return(i32(1)) == i32(77), "returned");
+  assert(_mo_some_move_or_return(i32(2)) == i32(0), "kept, then dropped at the arm's end");
+  assert(g_mo_disposed == (before + i32(6)), "and again for a move in some arms");
+});
+_MoPair :: struct(fd : _MoFd, tag : i32);
+test("move-only: an assignment statement drops the old value at the assignment", {
+  before := g_mo_disposed;
+  (x : _MoFd) = _MoFd(n : i32(1));
+  x = _MoFd(n : i32(2));
+  assert(g_mo_disposed == (before + i32(1)), "the variable's old value is gone at once");
+  h := _MoPair(fd : _MoFd(n : i32(3)), tag : i32(0));
+  h.fd = _MoFd(n : i32(4));
+  assert(g_mo_disposed == (before + i32(2)), "a field store's too");
+  xs := ArrayList(_MoFd).new();
+  xs.push(_MoFd(n : i32(5)));
+  xs(usize(0)) = _MoFd(n : i32(6));
+  assert(g_mo_disposed == (before + i32(3)), "an index store's too");
+  old := (x = _MoFd(n : i32(7)));
+  assert((g_mo_disposed == (before + i32(3))) && (old.n == i32(2)), "a used result keeps it");
+});
 test("move-only: a closure capture moves the value, and the closure disposes it", {
   before := g_mo_disposed;
   {
@@ -262,10 +351,8 @@ test("move-only: a generic body that copies is rejected at the instantiation", {
   comptime_expect_error(xs.get(usize(0)), "a dereference copies, it never moves");
   assert(xs.len() == usize(0), "empty");
 });
-test("move-only: flow joins move on all paths or none", {
+test("move-only: a loop moves on every way out or none", {
   a := _MoFd(n : i32(1));
-  c := runtime(true);
-  comptime_expect_error(cond(c => _mo_take(a), true => i32(0)), "moved in some arms but not in others");
   b := _MoFd(n : i32(2));
   comptime_expect_error({
     i := i32(0);
@@ -286,8 +373,8 @@ test("move-only: the E0901 note names why the type is move-only", {
   assert((g.tag + u.id) == i32(5), "moved values");
 });
 test("move-only: `own` is the old spelling of `sink`, and both spell one function type", {
-  comptime_assert(Type.is_compatible_with((fn(own(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "own and sink are one parameter mode");
-  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(own(f) : _MoFd) -> i32)), "both directions");
+  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "own and sink are one parameter mode");
+  comptime_assert(Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(sink(f) : _MoFd) -> i32)), "both directions");
   comptime_assert(!Type.is_compatible_with((fn(sink(f) : _MoFd) -> i32), (fn(imm(f) : _MoFd) -> i32)), "sink is not a borrow");
   before := g_mo_disposed;
   {

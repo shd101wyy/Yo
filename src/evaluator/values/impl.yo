@@ -35,9 +35,11 @@ pragma(Pragma.AllowUnsafe);
   BK_COLON,
   BK_IMPL_LOWER,
   BK_WHERE,
-  BK_TUPLE
+  BK_TUPLE,
+  BK_FN,
+  BK_COMPTIME
 } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
+{ migrate_param_modes_on, record_imm_param_migration, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -374,7 +376,7 @@ get_trait_key :: (fn(imm(trait_ty) : TypeValue) -> String)(
   match(
     trait_ty,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
-    .FnTraitT(base_name, _, _, _, _, _, _) => base_name,
+    .FnTraitT(base_name, _, _, _, _, _, _, _) => base_name,
     .FutureTraitT(base_name, _, _, _) => base_name,
     _ => String.from("")
   )
@@ -3181,6 +3183,7 @@ _retype_with_value_param_labels :: (fn(imm(ty) : TypeValue, imm(fv) : EvalValue)
             result_is_comptime_only : rw_m.*.result_is_comptime_only,
             param_is_ref : rw_m.*.param_is_ref,
             param_is_owning : rw_m.*.param_is_owning,
+            param_is_sink : rw_m.*.param_is_sink,
             result_is_ref : rw_m.*.result_is_ref,
             has_variadic : rw_m.*.has_variadic,
             is_extern : rw_m.*.is_extern,
@@ -3444,6 +3447,127 @@ _materialize_default_body :: (
 /// the impl's own signature, and a Dyn vtable slot goes through a wrapper.
 /// Every OTHER parameter's mode is part of the member's type
 /// (plans/reference/TYPE_IDENTITY.md), so conformance compares those.
+/// The parameter-list call `fn(...)` inside a member's value
+/// (`(fn(lhs : T, rhs : T) -> bool)(body)`), searched depth-first.
+_member_fn_param_list :: (fn(imm(e) : AstExpr, depth : usize) -> Option(ArrayList(AstExpr)))({
+  if(depth > usize(4), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  match(
+    e,
+    .Atom(_, _) => Option(ArrayList(AstExpr)).None,
+    .FnCall(_, f, args, _, _) => {
+      if(match(f, .Atom(_, ftok) => (ftok.value == BK_FN), .FnCall(_, _, _, _, _) => false), {
+        return(Option(ArrayList(AstExpr)).Some(args));
+      });
+      match(
+        _member_fn_param_list(f, depth + usize(1)),
+        .Some(found) => Option(ArrayList(AstExpr)).Some(found),
+        .None => {
+          (ai : usize) = usize(0);
+          while(ai < args.len(), ai = (ai + usize(1)), {
+            match(
+              _member_fn_param_list(match(args.get(ai), .Some(a) => a, .None => make_err_expr()), depth + usize(1)),
+              .Some(found) => {
+                return(Option(ArrayList(AstExpr)).Some(found));
+              },
+              .None => ()
+            );
+          });
+          Option(ArrayList(AstExpr)).None
+        }
+      )
+    }
+  )
+});
+/// The bare label atom of a parameter expression (`lhs : T`, `(lhs : T) ?= d`),
+/// or `.None` when the label carries a mode wrapper already.
+_plain_param_label_atom :: (fn(imm(p) : AstExpr) -> Option(AstExpr))({
+  (cur : AstExpr) = p;
+  if(ast_expr_is_fn_call_of(cur, "?=", Option(usize).Some(usize(2))), {
+    cur = match(_fn_args_of(cur).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  });
+  if(!ast_expr_is_fn_call_of(cur, BK_COLON, Option(usize).Some(usize(2))), {
+    return(Option(AstExpr).None);
+  });
+  (lbl : AstExpr) = match(_fn_args_of(cur).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  // `comptime(lhs) : T` becomes `comptime(imm(lhs)) : T`: the mode sits
+  // inside the binding time.
+  if(ast_expr_is_fn_call_of(lbl, BK_COMPTIME, Option(usize).Some(usize(1))), {
+    lbl = match(_fn_args_of(lbl).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  });
+  if(ast_expr_is_atom(lbl), Option(AstExpr).Some(lbl), Option(AstExpr).None)
+});
+_fn_args_of :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// `yo fix --migrate params`, the trait-conformance half (decision 34 as
+/// amended 2026-10-09: a parameter's mode is part of the member's type for
+/// every type, `Copy` or not). An impl member whose written parameters are
+/// plain where the trait's are `imm` differs from the trait only in those
+/// modes: record `imm(label)` for each, and report whether that made the
+/// member conform (the caller then does not reject it).
+_migrate_imm_for_trait_mismatch :: (fn(imm(val_expr) : AstExpr, imm(actual) : TypeValue, imm(expected) : TypeValue) -> bool)(
+  match(
+    actual,
+    .Func({ forall_types : afts, param_types : apts, implicit_types : aits, where_types : awts, result : aret, meta : ameta, variadic_types : avts }) => match(
+      expected,
+      .Func({ meta : emeta }) => {
+        fixed := ameta.*.clone();
+        owns := ArrayList(bool).new();
+        to_fix := ArrayList(String).new();
+        (pi : usize) = usize(0);
+        while(pi < apts.len(), pi = (pi + usize(1)), {
+          a_own := match(ameta.*.param_is_owning.get(pi), .Some(b) => b, .None => false);
+          e_own := match(emeta.*.param_is_owning.get(pi), .Some(b) => b, .None => false);
+          e_ref := match(emeta.*.param_is_ref.get(pi), .Some(b) => b, .None => false);
+          a_ref := match(ameta.*.param_is_ref.get(pi), .Some(b) => b, .None => false);
+          if(a_own && !e_own && !e_ref && !a_ref, {
+            owns.push(false);
+            to_fix.push(match(ameta.*.param_labels.get(pi), .Some(l) => l, .None => String.new()));
+          }, {
+            owns.push(a_own);
+          });
+        });
+        if(to_fix.len() == usize(0), {
+          return(false);
+        });
+        fixed.param_is_owning = owns;
+        if(!are_types_compatible(_with_receiver_mode_of(TypeValue.Func(afts, apts, aits, awts, aret, rc(fixed), avts), expected), expected), {
+          return(false);
+        });
+        params := match(
+          _member_fn_param_list(val_expr, usize(0)),
+          .Some(ps) => ps,
+          .None => {
+            return(false);
+          }
+        );
+        (found : usize) = usize(0);
+        (qi : usize) = usize(0);
+        while(qi < params.len(), qi = (qi + usize(1)), {
+          match(
+            _plain_param_label_atom(match(params.get(qi), .Some(p) => p, .None => make_err_expr())),
+            .Some(lbl) => {
+              lt := ast_expr_token(lbl);
+              (fj : usize) = usize(0);
+              while(fj < to_fix.len(), fj = (fj + usize(1)), {
+                if(match(to_fix.get(fj), .Some(n) => (n == lt.value), .None => false), {
+                  record_imm_param_migration(lt);
+                  found = (found + usize(1));
+                });
+              });
+            },
+            .None => ()
+          );
+        });
+        found == to_fix.len()
+      },
+      _ => false
+    ),
+    _ => false
+  )
+);
 _with_receiver_mode_of :: (fn(imm(actual) : TypeValue, imm(expected) : TypeValue) -> TypeValue)(
   match(
     actual,
@@ -3598,7 +3722,7 @@ _c3_eval_colon_pair :: (
         .Some(conf_tt) => match(
           expected_method_ty_resolved,
           .None => (),
-          .Some(conf_exp) => if((get_all_some_types(conf_exp).len() == usize(0)) && (get_all_some_types(fi.ty).len() == usize(0)) && !is_type_hierarchy_type(conf_exp) && !are_types_compatible(_with_receiver_mode_of(fi.ty, conf_exp), conf_exp), {
+          .Some(conf_exp) => if((get_all_some_types(conf_exp).len() == usize(0)) && (get_all_some_types(fi.ty).len() == usize(0)) && !is_type_hierarchy_type(conf_exp) && !are_types_compatible(_with_receiver_mode_of(fi.ty, conf_exp), conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(val_expr, fi.ty, conf_exp)), {
             exn.throw(
               dyn(
                 format_error_message(

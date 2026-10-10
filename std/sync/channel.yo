@@ -213,7 +213,7 @@ impl(
   /// `Receiver` has been dropped — the failed value is handed BACK to the
   /// caller instead of being silently dropped (Rust's `SendError(T)`;
   /// plans/archive/STD_API_AUDIT.md C8).
-  send : (fn(imm(self) : Self, imm(value) : T) -> Result(unit, T))({
+  send : (fn(imm(self) : Self, value : T) -> Result(unit, T))({
     self._mutex._raw_lock();
     // Wait while the buffer is full and there is still a point in waiting:
     // a closed channel takes no more values, and a channel whose `Receiver`
@@ -278,7 +278,7 @@ impl(
   /// Returns .Ok(()) if sent, .Err(value) if full or closed — the failed
   /// value is handed back to the caller (use `is_closed()` to tell the
   /// two failure causes apart).
-  try_send : (fn(imm(self) : Self, imm(value) : T) -> Result(unit, T))({
+  try_send : (fn(imm(self) : Self, value : T) -> Result(unit, T))({
     self._mutex._raw_lock();
     cond(
       (
@@ -436,12 +436,12 @@ impl(
   /// `.Err(value)` — Rust's `SendError(T)` — once the channel is closed or
   /// the `Receiver` has been dropped; the value that could not be sent comes
   /// back rather than being dropped on the floor.
-  send : (fn(imm(self) : Self, imm(value) : T) -> Result(unit, T))(
+  send : (fn(imm(self) : Self, value : T) -> Result(unit, T))(
     self._ch.send(value)
   ),
   /// Send without blocking: `.Err(value)` if the buffer is full, the channel
   /// is closed, or the `Receiver` is gone.
-  try_send : (fn(imm(self) : Self, imm(value) : T) -> Result(unit, T))(
+  try_send : (fn(imm(self) : Self, value : T) -> Result(unit, T))(
     self._ch.try_send(value)
   ),
   /// True once the channel is closed — by an explicit `close()`, or by the

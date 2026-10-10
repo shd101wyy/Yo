@@ -4,8 +4,8 @@ pragma(Pragma.StrictBorrow);
 Bag :: ref(struct(items : ArrayList(i32)));
 impl(
   Bag,
-  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
-  total : (fn(self : Self) -> i32)({
+  iter : (fn(imm(self) : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  total : (fn(imm(self) : Self) -> i32)({
     t := i32(0);
     for(self.items, x => {
       t = (t + x);
@@ -18,7 +18,7 @@ main :: (fn() -> unit)({
   xs.push(i32(1));
   bag := Bag(items : xs);
   (seen : i32) = i32(0);
-  for(bag, inout(x) => {
+  for(bag, mut(x) => {
     seen = (seen + bag.total());
   });
   println(seen);

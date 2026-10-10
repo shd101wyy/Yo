@@ -58,7 +58,7 @@ test("mut borrow writes through, and the place is free after its last use", {
 });
 test("inout(y) := is mut's synonym and gets the same live range", {
   s := String.from("a");
-  inout(r) := s;
+  mut(r) := s;
   r.push_str("b");
   assert(s == "ab", "read of s after r's last use");
 });
@@ -518,7 +518,7 @@ comptime_expect_error(
 comptime_expect_error(
   an_inout_borrow_is_muts_synonym_so_its_return_is_rejected_too :: (fn() -> String)({
     s := String.from("a");
-    inout(r) := s;
+    mut(r) := s;
     return(r);
   }),
   "Cannot return the local borrow `r`"

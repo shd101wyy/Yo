@@ -24,7 +24,7 @@ E0902  cannot reassign
 E0903  variable may be uninitialized
 E0905  body was never fully evaluated
 E0906  forward reference
-E0907  value moved on some paths only
+E0907  value moved on some ways out of a loop only
 E0908  write through a borrowed value
 E0909  a borrowing value escapes
 E0911  access conflicts with a live local borrow
@@ -68,7 +68,7 @@ Example — this fails:
   
 Example — write this instead:
   Point :: struct(x : i32);
-  norm :: (fn(p : Point) -> i32)(p.x);
+  norm :: (fn(imm(p) : Point) -> i32)(p.x);
   p := Point(x : i32(1));
   _s := norm(p);
   

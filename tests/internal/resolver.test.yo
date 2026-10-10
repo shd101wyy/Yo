@@ -192,14 +192,14 @@ test("select_version: highest satisfying tag from ls-remote output", {
 // choose_ref — one ref per package across every requirer
 // ---------------------------------------------------------------------------
 _reqs :: (fn() -> ArrayList(Requirement))(ArrayList(Requirement).new());
-_want :: (fn(reqs : ArrayList(Requirement), who : str, r : GitRequirement) -> unit)(
+_want :: (fn(imm(reqs) : ArrayList(Requirement), who : str, imm(r) : GitRequirement) -> unit)(
   reqs.push(Requirement(requirer : String.from(who), requirement : r))
 );
 _ver :: (fn(t : str) -> GitRequirement)(GitRequirement.Version(String.from(t)));
-_choose :: (fn(reqs : ArrayList(Requirement)) -> Result(ChosenRef, String))(
+_choose :: (fn(imm(reqs) : ArrayList(Requirement)) -> Result(ChosenRef, String))(
   choose_ref(String.from("dep"), String.from("https://host/dep"), _tags(_LS_REMOTE), reqs)
 );
-_chosen_tag :: (fn(reqs : ArrayList(Requirement)) -> String)(
+_chosen_tag :: (fn(imm(reqs) : ArrayList(Requirement)) -> String)(
   match(
     _choose(reqs),
     .Ok(c) => c.ref_text(),
@@ -209,7 +209,7 @@ _chosen_tag :: (fn(reqs : ArrayList(Requirement)) -> String)(
     }
   )
 );
-_choose_err :: (fn(reqs : ArrayList(Requirement)) -> String)(
+_choose_err :: (fn(imm(reqs) : ArrayList(Requirement)) -> String)(
   match(
     _choose(reqs),
     .Ok(c) => {
@@ -300,7 +300,7 @@ test("choose_ref: a bad range is reported with its requirer", {
 // ---------------------------------------------------------------------------
 // locked_entry_satisfies — lock reuse without the network
 // ---------------------------------------------------------------------------
-_locked :: (fn(source : String) -> LockEntry)(
+_locked :: (fn(imm(source) : String) -> LockEntry)(
   LockEntry(
     name : String.from("dep"),
     version : String.new(),
@@ -350,7 +350,7 @@ test("locked_entry_satisfies: a different URL or a path source never satisfies",
 // ---------------------------------------------------------------------------
 /// The E15xx assertion, shared by the capture-free handlers below: the thrown
 /// error must be a coded YoError whose primary code is `code`.
-_expect_e15xx :: (fn(err : AnyError, code : String) -> unit)({
+_expect_e15xx :: (fn(imm(err) : AnyError, imm(code) : String) -> unit)({
   match(
     downcast(err, YoError),
     .Some(ye) => match(

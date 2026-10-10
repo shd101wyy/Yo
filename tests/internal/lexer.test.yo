@@ -7,11 +7,11 @@
 { YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
 // Tokenize source, panicking on any lexer error.
-lex_or_panic :: (fn(source : String, exn : Exception) -> ArrayList(Token))(
+lex_or_panic :: (fn(imm(source) : String, imm(exn) : Exception) -> ArrayList(Token))(
   tokenize(source, `test.yo`, exn)
 );
 // Filter out Whitespace tokens.
-non_ws :: (fn(toks : ArrayList(Token)) -> ArrayList(Token))({
+non_ws :: (fn(imm(toks) : ArrayList(Token)) -> ArrayList(Token))({
   result := ArrayList(Token).new();
   i := usize(0);
   n := toks.len();
@@ -1406,6 +1406,46 @@ test("A run of four dots is a closed-set lex error", {
     )
   );
   tokenize(String.from("f(x .... y);"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("`#(x)` is a lex error naming unquote(x)", {
+  // The quote layer has one spelling per operation since 2026-10-10: the
+  // `#` operator alias of `unquote` was deleted.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`write \`unquote(x)\` instead of \`#(x)\``), "names the word");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("e :: quote(f(#(x)));"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("`...#(xs)` is a lex error naming unquote_splicing(xs)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`write \`unquote_splicing(xs)\` instead of \`...#(xs)\``), "names the word");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("e :: quote(f(...#(xs)));"), `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });
 test("A multiline template token carries its START row", {

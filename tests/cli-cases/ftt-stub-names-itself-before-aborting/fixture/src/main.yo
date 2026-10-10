@@ -23,12 +23,12 @@
 // level. This build must therefore fail, naming `failed_to_transpile`.
 { println } :: import("std/fmt");
 { String } :: import("std/string");
-Lbl :: trait(lbl : (fn(inout(self) : Self) -> String));
+Lbl :: trait(lbl : (fn(mut(self) : Self) -> String));
 __r :: (
   fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
 )({
   src :: "String.from(\"x\").__no_such_method_at_the_splice_site()";
-  ctx.make_impl(quote(Lbl(lbl : (self -> #(src.to_expr())))))
+  ctx.make_impl(quote(Lbl(lbl : (self -> unquote(src.to_expr())))))
 });
 derive_rule(Lbl, __r);
 P :: struct(x : i32);

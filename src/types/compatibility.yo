@@ -1527,14 +1527,30 @@ _compat_impl :: (
     // result. `Fn` implies `FnOnce` (plans/VALUES_BY_DEFAULT.md decision 37):
     // a borrowing call also serves for one call, so an `Fn` is accepted where
     // an `FnOnce` is expected; never the other way round.
-    .FnTraitT(base_name : abn, call_param_types : apts, call_result : aret) => match(
+    .FnTraitT(base_name : abn, call_param_types : apts, call_result : aret, call_param_is_ref : arefs, call_param_is_owning : aowns) => match(
       expected,
-      .FnTraitT(base_name : ebn, call_param_types : epts, call_result : eret) => {
+      .FnTraitT(base_name : ebn, call_param_types : epts, call_result : eret, call_param_is_ref : erefs, call_param_is_owning : eowns) => {
         if((abn != ebn) && !((abn == "Fn") && (ebn == "FnOnce")), {
           return(false);
         });
         if(apts.len() != epts.len(), {
           return(false);
+        });
+        // Parameter modes are part of the call signature, as they are of a
+        // `fn(...)` type (the `.Func` arm above): a closure typed
+        // `Fn(s : String)` owns and drops its argument, so it cannot stand
+        // where `Fn(imm(s) : String)` lends one. Judged when both carriers
+        // record every flag (a closure type no `Fn(...)` was written for
+        // records none).
+        if((arefs.len() == apts.len()) && (erefs.len() == epts.len()) && (aowns.len() == apts.len()) && (eowns.len() == epts.len()), {
+          (fmi : usize) = usize(0);
+          while(fmi < apts.len(), {
+            if((match(arefs.get(fmi), .Some(b) => b, .None => false) != match(erefs.get(fmi), .Some(b) => b, .None => false))
+            || (match(aowns.get(fmi), .Some(b) => b, .None => false) != match(eowns.get(fmi), .Some(b) => b, .None => false)), {
+              return(false);
+            });
+            fmi = (fmi + usize(1));
+          });
         });
         i := usize(0);
         while(i < apts.len(), {

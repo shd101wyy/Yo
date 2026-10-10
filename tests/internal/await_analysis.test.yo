@@ -47,7 +47,7 @@ make_ident :: (fn(v : str) -> AstExpr)(
   AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, v))
 );
 // Creates a call `io.await(arg, io)` with `io.await` as infix dot access
-make_io_method_call :: (fn(method : str, arg : AstExpr, call_char : usize) -> AstExpr)({
+make_io_method_call :: (fn(method : str, imm(arg) : AstExpr, call_char : usize) -> AstExpr)({
   dot_args := ArrayList(AstExpr).new();
   dot_args.push(make_ident("io"));
   dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, method)));
@@ -69,7 +69,7 @@ make_io_method_call :: (fn(method : str, arg : AstExpr, call_char : usize) -> As
   )
 });
 // Creates a call `handle.await(using_arg, handle)` for JoinHandle await detection
-make_handle_await_call :: (fn(handle_name : str, arg : AstExpr) -> AstExpr)({
+make_handle_await_call :: (fn(handle_name : str, imm(arg) : AstExpr) -> AstExpr)({
   dot_args := ArrayList(AstExpr).new();
   dot_args.push(make_ident(handle_name));
   dot_args.push(AstExpr.Atom(usize(0), make_token(TokenKind.Identifier, "await")));
@@ -122,7 +122,7 @@ make_future_dyn_type :: (fn() -> TypeValue)({
     ArrayList(usize).new()
   )
 });
-get_info_none :: (fn(e : AstExpr) -> Option(ExprInfo))(
+get_info_none :: (fn(imm(e) : AstExpr) -> Option(ExprInfo))(
   Option(ExprInfo).None
 );
 // ---------------------------------------------------------------------------

@@ -42,7 +42,7 @@ _have_z3 :: (fn() -> bool)(
   )
 );
 _load_reports :: (
-  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+  fn(imm(rel_path) : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
 )({
   exn := Exception(
     throw : (
@@ -81,7 +81,7 @@ _load_reports :: (
   );
   verify_and_strip_tasks(cfg, binary, take_verify_tasks())
 });
-_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+_reports_dump :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -105,7 +105,7 @@ _reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
   });
   sb.to_string()
 });
-_variance_report :: (fn(reports : ArrayList(VerifyFnReport)) -> Option(VerifyFnReport))({
+_variance_report :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> Option(VerifyFnReport))({
   out := Option(VerifyFnReport).None;
   (i : usize) = usize(0);
   while(i < reports.len(), {

@@ -85,6 +85,7 @@ pragma(Pragma.AllowUnsafe);
   Variable,
   add_variable_to_env,
   mark_fnonce_capture_frame,
+  mark_closure_param_frame,
   mark_fn_capture_value_binding,
   synthetic_token,
   snapshot_env,
@@ -140,7 +141,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
-{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy } :: import("../../types/utils.yo");
+{ get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
 { attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
@@ -306,7 +307,7 @@ _get_param_name_from_expr :: (fn(imm(param_expr) : AstExpr, imm(fallback) : Stri
 _func_from_fn_trait :: (fn(imm(ftt) : TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf) => TypeValue.Func(
+    .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => TypeValue.Func(
       ArrayList(TypeValue).new(),
       // no generic types
       cpt,
@@ -324,8 +325,8 @@ _func_from_fn_trait :: (fn(imm(ftt) : TypeValue) -> TypeValue)(
           // Fn-trait-derived closure type (runtime); `inout` call params
           // carry through (the with_lock write-through closure).
           param_is_ref : cprf,
-          param_is_owning : ArrayList(bool).new(),
-          // no `own` params in Fn-trait closure type
+          // A plain `Fn(x : T)` parameter is by value (V3b's flip).
+          param_is_owning : cpof,
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -1163,7 +1164,7 @@ evaluate_anonymous_function_implementation :: (
   function_type_opt := match(
     expected_ty,
     .Func({ result : _ }) => Option(TypeValue).Some(expected_ty),
-    .FnTraitT(_, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
+    .FnTraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(expected_ty)),
     .SomeT(_, _, _, _, _, _, _, _, _, _) => {
       fn_trait_opt := extract_fn_trait_from_type(expected_ty);
       match(
@@ -1252,6 +1253,14 @@ evaluate_anonymous_function_implementation :: (
   param_is_ref := match(
     function_type,
     .Func({ meta : __fm3 }) => __fm3.*.param_is_ref,
+    _ => ArrayList(bool).new()
+  );
+  // The expected type's by-value flags (V3b's flip, decision 30): a closure
+  // parameter typed by value owns its argument, exactly as a `fn`
+  // parameter does (`bind_parameter`), so the closure drops it.
+  param_is_owning := match(
+    function_type,
+    .Func({ meta : __fm3o }) => __fm3o.*.param_is_owning,
     _ => ArrayList(bool).new()
   );
   implicit_labels := match(
@@ -1598,6 +1607,7 @@ evaluate_anonymous_function_implementation :: (
   // Push a new environment frame for the function parameters.
   // -------------------------------------------------------------------------
   _frame_idx := env.push_frame(false);
+  match(env.frames.get(_frame_idx), .Some(pfr) => mark_closure_param_frame(pfr.id), .None => ());
   // -------------------------------------------------------------------------
   // Add generic parameters to the environment.
   // Each generic type variable is bound as a compile-time unknown SomeT.
@@ -1715,6 +1725,19 @@ evaluate_anonymous_function_implementation :: (
       false,
       rp_tok
     );
+    if(match(param_is_owning.get(rp_i), .Some(b) => b, .None => false) && !match(param_is_ref.get(rp_i), .Some(b) => b, .None => false) && !type_is_bitwise_copy(rp_ty), {
+      match(
+        rp_v_opt,
+        .Some(rp_v_own) => {
+          rp_v_own.is_owning_the_rc_value = true;
+          // A parameter, so the function-body pass over the parameters
+          // frame (`_schedule_scope_end_drops`, params_only) drops it at
+          // the end of the body, as it drops a `fn`'s by-value parameter.
+          rp_v_own.is_parameter = true;
+        },
+        .None => ()
+      );
+    });
     // Stamp is_ref from the expected type so a `inout(...)` param's body reads
     // dereference the C pointer (see param_is_ref note above).
     if(match(param_is_ref.get(rp_i), .Some(b) => b, .None => false), {

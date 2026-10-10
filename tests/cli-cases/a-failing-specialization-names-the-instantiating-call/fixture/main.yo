@@ -2,8 +2,8 @@
 // `f`'s body checks for any `T` until a call fixes `T = i32`, which has no
 // `foo`. The error is in `f`'s body; the notes name the instantiation chain
 // that reached it (Phase 6 step 3).
-f :: (fn(generic(T : Type), x : T) -> i32)(x.foo());
-g :: (fn(generic(U : Type), u : U) -> i32)(f(u));
+f :: (fn(generic(T : Type), imm(x) : T) -> i32)(x.foo());
+g :: (fn(generic(U : Type), imm(u) : U) -> i32)(f(u));
 main :: (fn() -> unit)({
   println(g(i32(3)));
 });

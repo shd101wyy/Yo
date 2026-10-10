@@ -1672,7 +1672,7 @@ type_contains_some_type :: (fn(imm(ty) : TypeValue) -> bool)(
         while(cst_i < cst_rtt.len(), {
           match(
             cst_rtt.get(cst_i),
-            .Some(.FnTraitT(_, _, _, _, _, _, _)) => {
+            .Some(.FnTraitT(_, _, _, _, _, _, _, _)) => {
               cst_has_fn_or_fut = true;
             },
             .Some(.FutureTraitT(_, _, _, _)) => {
@@ -1812,6 +1812,16 @@ get_all_some_types :: (fn(imm(ty) : TypeValue) -> ArrayList(TypeValue))({
   _collect_some_types_into(ty, acc, visited_ids);
   acc
 });
+/// A value with nothing to transfer: no counted payload, implicitly
+/// copyable, and a type of its own (a value typed by a type variable or an
+/// opaque `Impl(...)` has no type to judge, so it keeps its move: an
+/// `Impl(FnOnce(...))` call still consumes it). The test is the TOP-LEVEL
+/// type only: a struct of generic fn pointers (the prelude's `Io`) is a
+/// concrete `Copy` type. Such a value is COPIED into a by-value parameter and
+/// is never consumed (V3b's flip, plans/VALUES_BY_DEFAULT.md decision 30).
+type_is_bitwise_copy :: (fn(ty : TypeValue) -> bool)(
+  !is_some_type(ty) && !type_contains_rc_type(ty) && !type_requires_explicit_copy(ty)
+);
 /// Does `ty` mention a `SomeT` anywhere — through fields, elements, pointees
 /// AND a generic instantiation's TYPE ARGUMENTS? `get_all_some_types` walks
 /// fields and elements but not `type_arguments`, so it answers `[]` for a
@@ -2290,7 +2300,7 @@ type_mentions_impl_fn_or_future :: (fn(imm(ty) : TypeValue) -> bool)({
         while(j < rtt.len(), {
           match(
             rtt.get(j),
-            .Some(.FnTraitT(_, _, _, _, _, _, _)) => {
+            .Some(.FnTraitT(_, _, _, _, _, _, _, _)) => {
               return(true);
             },
             .Some(.FutureTraitT(_, _, _, _)) => {
@@ -3194,7 +3204,7 @@ export(type_is_control_bound);
 export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);
 export(type_contains_some_type);
-export(get_all_some_types, type_mentions_some_type);
+export(get_all_some_types, type_mentions_some_type, type_is_bitwise_copy);
 /// True when any PARAM of this `Func` type still contains a SomeT under a RAW
 /// scan — the SomeT's own resolution is deliberately NOT consulted
 /// (unlike `type_contains_some_type`). Used to recognise the def-era ORIGINAL
@@ -3304,7 +3314,7 @@ dyn_type_has_vtable_slot :: (fn(imm(dyn_ty) : TypeValue, imm(name) : String) -> 
         i = (i + usize(1));
         hit := match(
           tt,
-          .FnTraitT(_, _, _, _, _, _, _) => (name == "call"),
+          .FnTraitT(_, _, _, _, _, _, _, _) => (name == "call"),
           .TraitT({ field_labels : fls, field_types : fts }) => {
             (found : bool) = false;
             (j : usize) = usize(0);

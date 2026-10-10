@@ -141,6 +141,7 @@ evaluate_fn_trait_type :: (
   call_param_labels := ArrayList(String).new();
   call_param_types := ArrayList(TypeValue).new();
   call_param_is_ref := ArrayList(bool).new();
+  call_param_is_owning := ArrayList(bool).new();
   (pi : usize) = usize(0);
   while(pi < params_result.params.len(), {
     p := match(
@@ -154,6 +155,7 @@ evaluate_fn_trait_type :: (
     call_param_labels.push(p.label);
     call_param_types.push(p.ty);
     call_param_is_ref.push(p.is_ref);
+    call_param_is_owning.push(p.is_owning_rc_value);
     pi = (pi + usize(1));
   });
   implicit_labels := ArrayList(String).new();
@@ -172,7 +174,7 @@ evaluate_fn_trait_type :: (
     implicit_types.push(ip.ty);
     ii = (ii + usize(1));
   });
-  fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, true => BK_FN_TRAIT)), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, call_param_is_ref);
+  fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, true => BK_FN_TRAIT)), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, call_param_is_ref, call_param_is_owning);
   // Set expr info
   out_info := new_expr_info(env_mut, type_of_type(fn_trait_type));
   out_info.value = .Some(create_type_value(fn_trait_type));

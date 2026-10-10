@@ -148,7 +148,6 @@ needs_space_before_atom :: (fn(imm(previous) : Option(Token)) -> bool)(
 ///     exactly like `is_tightly_bound_operator` — because the no-space
 ///     path TRIMS the buffer, and trimming after an INFIX operator would
 ///     corrupt `x & *p` into `x &*p`.
-///   * Exception: `...` followed by `#` does not need a space.
 ///
 /// (the unconditional
 /// after-any-operator rule dated from the retired maximal-munch lexer,
@@ -160,7 +159,6 @@ prefix_operator_needs_leading_space :: (
     previous,
     .None => false,
     .Some(p) => cond(
-      ((p.kind == TokenKind.Operator) && (p.value == "...") && (token.value == "#")) => false,
       (p.kind == TokenKind.Comma) => true,
       ((p.kind == TokenKind.Operator) && (p.value != ".")) => {
         prev_is_prefix_capable := (
@@ -1441,8 +1439,8 @@ is_callee_prefix_call_paren :: (
   )
 );
 /// True iff the `(` at `left_index` is the CALL delimiter of a
-/// NON-prefix-capable operator in prefix position — `...(entries)`,
-/// `#(field)`, `...#(exprs)`. Those operators have no bare prefix form
+/// NON-prefix-capable operator in prefix position — `...(entries)`. Such
+/// an operator has no bare prefix form
 /// (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1 lists only
 /// `- ! ~ & * ? ^`), so the tight call is their ONLY operand grammar:
 /// eliding the paren yields `op operand`, which the parser rejects (E0008,

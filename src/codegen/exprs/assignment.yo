@@ -30,7 +30,7 @@
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
 { declare_c_var_name, get_type_string, get_variable_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ expr_info_is_compile_time_only_assignment, scope_variables } :: import("../../expr_info.yo");
+{ expr_info_is_compile_time_only_assignment, scope_variables, lookup_immediate_old_value_drop } :: import("../../expr_info.yo");
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
 _last_is_module_level :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String) -> bool)({
@@ -319,6 +319,22 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
     });
   });
   context.current_assignment_save_temp = prev_save_temp;
+  // A statement whose old value is unused and explicit-copy drops it right
+  // after the store, as Rust does (`_drop_unused_old_value_now`,
+  // evaluator/exprs/begin.yo). The result is then nothing: the old value is
+  // gone.
+  match(
+    lookup_immediate_old_value_drop(ast_expr_id(expr)),
+    .Some(drop_expr) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
+      context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+      drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+      if(drop_code.len() > usize(0), {
+        em.emit_string_line(`${indent.clone()}${drop_code};`);
+      });
+      return(String.from(""));
+    }),
+    .None => ()
+  );
   match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(v, false), .None => String.from(""))
 });
 export(generate_assignment);

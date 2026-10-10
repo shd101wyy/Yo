@@ -1,7 +1,8 @@
 //! `addr_of(x)` is today's address-of `&x` (plans/VALUES_BY_DEFAULT.md
-//! decision 33, V3b Generation A), and `&x` passed to a raw-pointer or
-//! generic parameter keeps meaning address-of. A `&x` passed to a borrowing
-//! parameter of any other type lends `x` instead, in unsafe files too.
+//! decision 33, V3b Generation A), and `&x` passed to a raw-pointer
+//! parameter keeps meaning address-of. A `&x` passed to any other `imm` or
+//! `mut` parameter, a generic one included, lends `x` instead, in unsafe
+//! files too.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { String } :: import("std/string");
@@ -28,10 +29,17 @@ test("&x to a pointer parameter is still the address-of", {
   assert(n == i32(9), "&n to a *(i32) parameter");
   _ao_write(addr_of(n), i32(10));
   assert(n == i32(10), "addr_of(n) to a *(i32) parameter");
-  q := _ao_id(&n);
-  comptime_assert(Type.is_compatible_with(type_of(q), *i32), "&n to a generic parameter infers a pointer");
+  q := _ao_id(addr_of(n));
+  comptime_assert(Type.is_compatible_with(type_of(q), *i32), "addr_of(n) to a generic parameter infers a pointer");
   q.* = i32(11);
   assert(n == i32(11), "the generic parameter received n's address");
+});
+
+test("&x to a generic imm parameter lends x", {
+  (n : i32) = i32(5);
+  r := _ao_id(&n);
+  comptime_assert(Type.is_compatible_with(type_of(r), i32), "&n to a generic imm parameter infers i32, not *(i32)");
+  assert(r == i32(5), "the generic parameter read n");
 });
 
 test("&x to a non-pointer parameter lends x", {

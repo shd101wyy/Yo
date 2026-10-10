@@ -13,7 +13,7 @@
 { assert : assert } :: import("std/assert");
 main :: (fn() -> unit)({
   Raise :: (ctl(imm(msg) : String) -> i32);
-  might_fail :: (fn(raise : Raise) -> i32)(raise(`oops`));
+  might_fail :: (fn(imm(raise) : Raise) -> i32)(raise(`oops`));
   run :: (fn(generic(T : Type, E : Type.Struct), f : (fn(imm(e) : E) -> T), imm(e) : E) -> T)(f(e));
   (raise : Raise) = (msg -> begin(println(msg), return(i32(42)), ()));
   result := run(might_fail, raise);

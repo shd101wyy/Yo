@@ -29,11 +29,11 @@ pragma(Pragma.AllowUnsafe);
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, generate_some_type_id, t_dyn } :: import("../../types/creators.yo");
-{ is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
+{ is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
 { type_contains_some_type_deep } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{ type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { format_error_message, with_code } :: import("../../error.yo");
 { E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE } :: import("../../diagnostics.yo");
@@ -301,6 +301,34 @@ _require_dyn_traits_implemented :: (
       });
     },
     _ => ()
+  );
+  // A FUNCTION payload is called through the `Dyn(Fn(...))`'s call
+  // signature, so its own must be that one, modes included: a by-value
+  // `fn(s : String)` behind a `Dyn(Fn(imm(s) : String) -> usize)` would drop
+  // what every caller only lends. A `fn(...)` value is judged on its whole
+  // signature (the `Fn`-trait satisfaction rule); a closure, whose literal
+  // adopts the Dyn's signature, on its modes
+  // (issues/fixed/a-function-argument-is-not-checked-against-a-function-typed-parameter.md).
+  match(
+    extract_fn_trait_from_type(dyn_type),
+    .Some(dfn_req) => {
+      dfn_is_fn := is_function_type(fv_payload);
+      dfn_note := cond(
+        (dfn_is_fn && type_implements_trait_bool(fv_payload.clone(), dfn_req, env)) => Option(String).None,
+        dfn_is_fn => match(function_value_slot_mismatch(dyn_type, fv_payload), .Some(dfn_m) => Option(String).Some(dfn_m), .None => Option(String).Some(String.from(""))),
+        true => function_value_slot_mismatch(dyn_type, fv_payload)
+      );
+      match(
+        dfn_note,
+        .Some(dfn_n) => raise_flow_violation(
+          format_error_message(token, `Incompatible types:\n- Expected: ${type_to_string(dyn_type.clone())}\n- Given   : ${type_to_string(fv_payload.clone())}${dfn_n}`),
+          ctx,
+          exn
+        ),
+        .None => ()
+      );
+    },
+    .None => ()
   );
   check_ty := match(
     _dyn_bound_check_type(_unwrap_box_for_method_lookup(value_type), env),
@@ -658,7 +686,7 @@ _resolve_dyn_trait_values :: (fn(imm(dyn_type) : TypeValue, imm(value_type) : Ty
             // C wrapper for the synthetic `call` slot resolves the closure fn
             // via the impl_closure_call_map (capture-struct id → closure C
             // name).
-            .FnTraitT(fn_base, _, _, _, _, _, _) => {
+            .FnTraitT(fn_base, _, _, _, _, _, _, _) => {
               trait_vals.push(
                 EvalValue.TraitVal(
                   fn_base.clone(),

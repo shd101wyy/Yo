@@ -665,7 +665,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### 参数模式是函数类型的一部分
 
-`fn(inout(x) : i32) -> unit`、`fn(sink(x) : String) -> usize` 和 `fn(x : i32) -> unit` 是三个不同的类型：`inout` 参数按引用传递，`sink` 参数被移动进被调函数，普通参数是借用。`sink` 参数会消耗其实参：调用方的绑定在调用处结束。`own(x)` 是 `sink(x)` 的旧写法；在下一个版本之后的一次统一替换删除它之前，它仍被接受，并且表示同一个类型。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置：
+`fn(mut(x) : i32) -> unit`、`fn(imm(x) : String) -> usize` 和 `fn(x : String) -> usize` 是三个不同的类型：`mut` 参数是对调用方位置的独占借用（`inout` 是它的旧写法），`imm` 参数是只读借用，普通参数是**按值**传递。`Copy` 类型的按值参数得到一份副本；显式复制类型（只能移动的值，或没有 `Copy` 的纯数据）的按值参数会消耗其实参，调用方的绑定在调用处结束。仍然隐式复制的种类（`String`、各集合、`Rc`、`ref` 句柄）则像 `t := s` 那样以共享方式传入，调用方仍保留它的值；等值默认计划的相应阶段把它变成显式复制时，它会与 `t := s` 一起改为移动。在那之前，这种共享就是别名，与 `t := s` 一样：被调用方写入按值传入的 `String` 或集合，也会改到调用方的那一份，所以请改写一个 `.clone()`。`sink(x)` 参数，以及闭包或函数实参，总是移动。无论参数类型是否为 `Copy`，模式都是类型的一部分，所以 `fn(imm(x) : i32)` 与 `fn(x : i32)` 也不同。`sink(x)` 和 `own(x)` 是普通按值参数的旧写法，将在下一次统一替换中删除。函数值只能放进参数模式相同（隐式 `using(...)` 参数也相同）的位置，无论它经由哪条路径到达：绑定到带类型的名字、作为实参传给 `fn(...)` 或 `Impl(Fn(...))` 参数、存入字段、作为返回值，或由 `dyn(...)` 包装成 `Dyn(Fn(...))`。闭包字面量采用它所在位置的参数模式：
 
 ```yo
 bump :: (fn(inout(x) : i32) -> unit)({
@@ -1156,7 +1156,7 @@ export(main);
 
 这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；对是 `Clone` 但不是 `Copy` 的记录或闭包调用 `clone()` 暂不可用。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
 
-`Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。按值参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请把参数写成 `sink(...)`。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
+`Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。`imm` 参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请按值接受参数（`p : Point`，不写 `imm`）。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
 
 #### 只能移动的值
 
@@ -1172,8 +1172,8 @@ impl(
   )
 );
 
-peek :: (fn(f : Fd) -> i32)(f.n); // 按值参数是借用：不复制
-keep :: (fn(sink(f) : Fd) -> unit)(()); // sink 参数把值移动进来
+peek :: (fn(imm(f) : Fd) -> i32)(f.n); // imm 参数是借用：不复制
+keep :: (fn(f : Fd) -> unit)(()); // 按值参数把值移动进来
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
@@ -1185,7 +1185,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-每个复制点都会移动只能移动的值：`:=`、`=`、`sink` 实参、字段或元素写入、构造器实参、返回以及闭包捕获。移动之后再使用就是 E0901，其说明会指出该类型为什么只能移动。只能移动的值也不能从并不拥有它的存储中复制出来：按值参数以及 `match`/`for` 绑定只是借用它，字段属于其持有者（没有部分移动），模块级绑定永远不会被移动。在 `cond`/`match` 的各分支或循环的各个出口汇合处，只能移动的值要么在所有路径上都被移动，要么在所有路径上都不被移动（E0907）。它唯一的所有者在 drop 它时恰好运行一次 `dispose`，然后 drop 它的字段。实现了 `Clone` 的类型用 `x.clone()` 显式复制；要共享一个值，请把它放在引用类型之后。
+每个复制点都会移动只能移动的值：`:=`、`=`、`sink` 实参、字段或元素写入、构造器实参、返回以及闭包捕获。移动之后再使用就是 E0901，其说明会指出该类型为什么只能移动。只能移动的值也不能从并不拥有它的存储中复制出来：`imm` 参数以及 `match`/`for` 绑定只是借用它，字段属于其持有者（没有部分移动），模块级绑定永远不会被移动。在 `cond`/`match` 的部分分支中被移动的值，会在每个保留它的分支末尾被 drop，所以在各分支汇合处它在每条路径上都已不存在，之后再使用就是 E0901（这是 Rust drop 标志的静态形式：分支是结构化的，不需要运行时标志）。在循环的各个出口汇合处，值仍然必须要么在所有出口上都被移动，要么都不被移动（E0907）。赋值语句（`x = y;`、`h.f = y;`、`xs(i) = y;`）会在写入后立即 drop 旧值，与 Rust 一致；`old := (x = y)` 则把旧值保存在 `old` 中。它唯一的所有者在 drop 它时恰好运行一次 `dispose`，然后 drop 它的字段。实现了 `Clone` 的类型用 `x.clone()` 显式复制；要共享一个值，请把它放在引用类型之后。
 
 泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。`std/` 目前还没有使用只能移动的类型：它的资源仍是引用类型，会在[值语义计划](../../plans/VALUES_BY_DEFAULT.md)的后续步骤中变成只能移动的值。
 
@@ -2471,10 +2471,10 @@ s3 := (s + s2); // 创建一个新字符串。
 
 写入落在被写的位置上：
 
-- **普通参数** `fn(out : String)` 借用调用方的值。写入它（`out.push_str("!")`，
-  或把它传给 `inout` 形参）是 E0908。要修改调用方的字符串，请接受
-  `inout(out) : String`；要产生新字符串，请返回它；要在私有副本上操作，请先克隆到
-  局部变量（`t := out.clone();`）再写这个局部变量。
+- **`imm` 参数** `fn(imm(out) : String)` 借用调用方的值。写入它
+  （`out.push_str("!")`，或把它传给 `mut` 形参）是 E0908。要修改调用方的字符串，
+  请接受 `mut(out) : String`；要产生新字符串，请按值接受 `out`（普通的
+  `out : String` 拥有其实参，可以写入）并返回它。
 - **`for` 或 `match` 的绑定**同样是借用：`for(xs, s => s.push_str("!"))` 是
   E0908。`for(xs, inout(s) => s.push_str("!"))` 会就地写入每个元素，
   `xs(i).push_str("!")` 也一样。
@@ -2491,8 +2491,8 @@ append_inout :: (fn(inout(out) : String) -> unit)({
   out.push_str("!");
 });
 
-// 按值参数是借用的：写一个局部克隆并返回它。
-with_bang :: (fn(s : String) -> String)({
+// `imm` 参数是借用的：写一个局部克隆并返回它。
+with_bang :: (fn(imm(s) : String) -> String)({
   t := s.clone();
   t.push_str("!");
   t
@@ -3030,8 +3030,8 @@ run_once(add); // `Fn` 也能用于一次调用
 - **`Fn` 蕴含 `FnOnce`。** 任何要求 `FnOnce(...)` 的地方都接受 `Fn(...)` 闭包；在要求 `Fn(...)`
   的地方传入 `FnOnce` 闭包是 E0913。
 - **只有闭包逃逸进去的 API 才能调用它一次。** 按值接收：`sink(f) : Impl(FnOnce(...))`；通过借用形参调用
-  `FnOnce` 闭包是 E0901。不逃逸的回调保持 `imm(f) : Impl(Fn(...))`。与所有只能移动的值一样，
-  在某些路径上被移动（被调用）的 `sink` 闭包必须在所有路径上都被移动（E0907）。
+  `FnOnce` 闭包是 E0901。不逃逸的回调保持 `imm(f) : Impl(Fn(...))`。与所有拥有的值一样，
+  在 `cond`/`match` 部分分支中被调用的 `sink` 闭包，会在其余分支末尾不经调用地被 drop。
 - **把捕获移出需要 `FnOnce` 和捕获列表。** `Fn(...)` 的调用借用捕获，以便闭包能再次运行，因此在其中移出
   捕获是 E0913，指向移出的那一行。本版本中隐式捕获也不能被移出（E0913 会给出捕获列表的写法）。
 - `Dyn(FnOnce(...) -> R)` 可以容纳任何只调用一次的闭包；它的调用同样会消耗它。
@@ -4162,14 +4162,14 @@ my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
   eq_body :: Type.join_fields(
     T,
     (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
-      quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
+      quote(self.(unquote(field.name.to_expr())).my_eq(other.(unquote(field.name.to_expr()))))
     ),
     quote(&&)
   );
   ctx.make_impl(
     quote(
-      MyEq(...#(trait_params))(
-        my_eq : ((self, other) -> #(eq_body))
+      MyEq(unquote_splicing(trait_params))(
+        my_eq : ((self, other) -> unquote(eq_body))
       )
     )
   )

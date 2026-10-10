@@ -22,8 +22,8 @@ side-table chase — starting with `if`.**
 
 ### 1.1 What a macro is in Yo
 
-There is no `macro` keyword and no parser/lexer support beyond the 5-line
-`...#` token (`src/lexer.yo:107-111`). A macro is an ordinary comptime function
+There is no `macro` keyword and no parser/lexer support (the `...#` token
+this audit found was deleted with the `#` alias, 2026-10-10). A macro is an ordinary comptime function
 whose *type signature* carries one or both of two flags:
 
 - a **quoted parameter** — `quote(p) : Expr` — binds the caller's raw AST as an
@@ -75,7 +75,7 @@ conversion.
   `derive_rule.yo`) explicitly evaluate the returned Expr.
   `plans/reference/DERIVE_TRAITS.md:147` states this design explicitly.
 - **But derive hard-depends on the quote/Expr comptime layer**: `quote`,
-  `unquote`, `#()`, `...#()`, `gensym`, `Expr`/`ExprList`, `EvalValue.ExprVal`,
+  `unquote`, `unquote_splicing`, `gensym`, `Expr`/`ExprList`, `EvalValue.ExprVal`,
   `clone_expr_fresh_ids`, the `__yo_expr_*` reflection builtins, and
   `DeriveContext.make_impl` (`std/prelude.yo:6537-6565`). **That layer survives
   any macro decision.** `quote` and all AST/type reflection builtins are
@@ -402,13 +402,13 @@ All parts landed together at the user's direction. Deltas vs the proposal:
 ## Open questions (considered, deferred)
 
 - **Drop the `#` / `...#` aliases for `unquote` / `unquote_splicing`?**
-  Raised 2026-08-21; deferred. Two spellings for one operation is a real
-  design smell, but the terse forms are what keep derive templates
-  readable (`quote(self.(#(f.name.to_expr())))...`), splices only occur
-  inside `quote` where they are unambiguous, and removal is pure churn
-  across every `__derive_*` rule, both doc languages, the formatter's
-  tight-syntax rules, and the lexer. If it is ever done: remove the
-  aliases, keep the spelled-out forms, as a mechanical follow-up PR.
+  Raised 2026-08-21 and deferred; **DECIDED 2026-10-10 by the maintainer:
+  dropped.** One spelling per operation, words over sigils (as `addr_of(x)`
+  replaced the address-of `&x`). The spelled-out forms stay; the lexer
+  rejects `#` and `...#` with a message naming `unquote(x)` /
+  `unquote_splicing(xs)`, and the `...unquote(x)` spread spelling of a
+  splice went with them. A dense template binds the unquoted expression to
+  a local first (`n := f.name.to_expr(); quote(self.(unquote(n)))`).
 - **When a desugar-bearing release becomes the seed**: delete the prelude
   `if` macro + its `export`, add `pragma(Pragma.AllowMacroDef);` to
   std/prelude.yo and the three collection modules, and drop the std

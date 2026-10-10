@@ -39,17 +39,17 @@ import("std/fmt");
 { Diagnostic } :: import("../../src/diagnostics.yo");
 { format_yo_source } :: import("../../src/formatter.yo");
 /// The E13xx/E15xx band: codes raised outside the evaluator (see the header).
-_toolchain_band :: (fn(code : String) -> bool)(
+_toolchain_band :: (fn(imm(code) : String) -> bool)(
   (code == "E1301") || ((code == "E1501") || ((code == "E1502") || ((code == "E1503") || ((code == "E1504") || (code == "E1505")))))
 );
-_bad_exempt :: (fn(code : String) -> bool)(
+_bad_exempt :: (fn(imm(code) : String) -> bool)(
   (code == "E0002") || (code == "E0905") || _toolchain_band(code)
 );
 /// The `good` half is also a transcript for the toolchain band — there is no
 /// Yo program whose loading demonstrates the fix for a missing yo.toml.
-_good_exempt :: (fn(code : String) -> bool)(_toolchain_band(code));
+_good_exempt :: (fn(imm(code) : String) -> bool)(_toolchain_band(code));
 /// The code of the first `error[EXXXX]` in a rendered diagnostic, "" when none.
-_first_code_in_text :: (fn(text : String) -> String)(
+_first_code_in_text :: (fn(imm(text) : String) -> String)(
   match(
     text.index_of(String.from("error[")),
     .Some(k) => text.substring(k + usize(6), k + usize(11)),
@@ -59,7 +59,7 @@ _first_code_in_text :: (fn(text : String) -> String)(
 /// Load `src` as the module at `path` and return the first diagnostic code
 /// ("" for a clean load). Drains every error channel so nothing leaks into
 /// the next example.
-_load_code :: (fn(path : String, src : String, std_path : String, io : Io, exn : Exception) -> String)({
+_load_code :: (fn(imm(path) : String, imm(src) : String, imm(std_path) : String, io : Io, imm(exn) : Exception) -> String)({
   ioexn := IoExn(io : io, exn : exn);
   io.await(write_string(Path.new(path.clone()), src, io), ioexn);
   _inv := mm_invalidate_document(path.clone());

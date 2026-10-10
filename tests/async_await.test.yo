@@ -6688,7 +6688,7 @@ _inout_inner :: (fn(io : Io, n : i32) -> Impl(Future(i32, Io)))(io.async((e : Io
 _inout_whole :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     x := i32(1);
-    inout(y) := x;
+    mut(y) := x;
     z := e.await(_inout_inner(e, y), e);
     y = z;
     x
@@ -6701,7 +6701,7 @@ _InoutPair :: struct(a : i32, b : i32);
 _inout_field :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     p := _InoutPair(a : i32(1), b : i32(2));
-    inout(r) := p.a;
+    mut(r) := p.a;
     e.await(yield(e), e);
     r = (r + i32(10));
     e.await(yield(e), e);
@@ -6715,7 +6715,7 @@ _InoutObj :: ref(struct(v : i32));
 _inout_pinned :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     o := _InoutObj(v : i32(1));
-    inout(r) := o.v;
+    mut(r) := o.v;
     r = (r + i32(1));
     // The binding's last use is above: a borrow through a reference cell may
     // not be live across an await (decision 18, rule 4). Its pin holds the
@@ -6731,7 +6731,7 @@ test("an inout binding through an object pins it to the end of its scope, across
 _inout_loop :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     (total : i32) = i32(0);
-    inout(t) := total;
+    mut(t) := total;
     (i : i32) = i32(0);
     while(i < i32(4), {
       e.await(yield(e), e);
@@ -6751,7 +6751,7 @@ _inout_arm :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     e.await(yield(e), e);
     n := i32(1);
     if(xs.len() > usize(0), {
-      inout(x) := n;
+      mut(x) := n;
       e.await(yield(e), e);
       x = (x + i32(1));
     });
@@ -6767,7 +6767,7 @@ _inout_for :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     xs.push(i32(1));
     xs.push(i32(2));
     e.await(yield(e), e);
-    for(xs, inout(x) => {
+    for(xs, mut(x) => {
       e.await(yield(e), e);
       x = (x + i32(10));
     });

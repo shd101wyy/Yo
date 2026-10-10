@@ -351,7 +351,7 @@ test("Copy: the prelude Option(i32) stays Copy with its generic Clone", {
   assert(match(o.clone(), .Some(v) => (v == i32(4)), .None => false) && p.is_some(), "Option(i32) copies and clones");
 });
 test("Copy: a hand-written Clone on a type Copy for every instantiation is an error, in either order", {
-  comptime_expect_error(impl(_CtPoint, Clone(clone : (fn(inout(self) : Self) -> Self)(self))), "Write derive(_CtPoint, Clone) instead");
+  comptime_expect_error(impl(_CtPoint, Clone(clone : (fn(mut(self) : Self) -> Self)(self))), "Write derive(_CtPoint, Clone) instead");
   comptime_expect_error(impl(_CtHandle, Copy()), "a hand-written Clone impl can only repeat it or contradict it");
   comptime_expect_error(impl(generic(T : Type), _CtTag(T), Copy()), "a hand-written Clone impl can only repeat it or contradict it");
 });

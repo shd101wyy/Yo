@@ -563,7 +563,7 @@ impl(
   /// The allocator-aware form (D9); `insert` is the one to reach for. An
   /// insertion that crosses the load factor rehashes the table first, which
   /// INVALIDATES every entry pointer previously handed out.
-  try_insert : (fn(mut(self) : Self, imm(key) : K, imm(value) : V) -> Result(Option(V), HashMapError))({
+  try_insert : (fn(mut(self) : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
@@ -704,7 +704,7 @@ impl(
   /// The `.Some(old)` result is a trap worth knowing: `map.insert(k, v)
   /// .unwrap()` used to unwrap a `Result` and now unwraps the OPTION, so it
   /// panics on a FRESH key.
-  insert : (fn(mut(self) : Self, imm(key) : K, imm(value) : V) -> Option(V))(
+  insert : (fn(mut(self) : Self, key : K, value : V) -> Option(V))(
     match(
       Self.try_insert(self, key, value),
       .Ok(prev) => prev,
@@ -1367,7 +1367,7 @@ impl(
     /// reference count (a by-value managed handle would be dup'd then dropped,
     /// freeing a live element mid-collection). Mirrors the ArrayList `Trace` impl +
     /// the SwissTable slot scan.
-    trace : (fn(imm(self) : Self, imm(tracer) : GcTracer) -> unit)({
+    trace : (fn(imm(self) : Self, tracer : GcTracer) -> unit)({
       match(
         self.ctrl,
         .Some(ctrl_ptr) => match(
@@ -1405,7 +1405,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       HashMap(K, V).new()
     ),
-    from_iter_add : (fn(own(acc) : Self, imm(item) : MapEntry(K, V)) -> Self)({
+    from_iter_add : (fn(sink(acc) : Self, imm(item) : MapEntry(K, V)) -> Self)({
       acc.insert(item.key, item.value);
       acc
     })

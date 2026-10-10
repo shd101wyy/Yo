@@ -190,10 +190,12 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           p_is_ref := match(__fm1.*.param_is_ref.get(i), .Some(b) => b, .None => false);
           p_is_own := match(__fm1.*.param_is_owning.get(i), .Some(b) => b, .None => false);
           if(label.len() > usize(0), {
+            // After the flip (decision 30) a plain parameter is by value:
+            // the by-value mode prints bare, the borrows print their words.
             moded := cond(
-              p_is_ref => `inout(${label})`,
-              p_is_own => `sink(${label})`,
-              true => label
+              p_is_ref => `mut(${label})`,
+              p_is_own => label,
+              true => `imm(${label})`
             );
             body = `${body}${moded} : ${ts}`;
           }, {

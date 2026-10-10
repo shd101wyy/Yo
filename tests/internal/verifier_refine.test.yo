@@ -43,7 +43,7 @@ _have_z3 :: (fn() -> bool)(
   )
 );
 _load_reports :: (
-  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+  fn(imm(rel_path) : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
 )({
   exn := Exception(
     throw : (
@@ -85,7 +85,7 @@ _load_reports :: (
 /// The same flow with a NONEXISTENT solver binary: any obligation that is
 /// not constant-folded reports solver-error; only CTFE-folded ones pass.
 _load_reports_bogus_solver :: (
-  fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport)
+  fn(imm(rel_path) : String, io : Io) -> ArrayList(VerifyFnReport)
 )({
   exn := Exception(
     throw : (
@@ -115,7 +115,7 @@ _load_reports_bogus_solver :: (
   cfg := default_verify_run_config();
   verify_and_strip_tasks(cfg, String.from("/nonexistent/z3-ctfe-probe"), take_verify_tasks())
 });
-_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+_reports_dump :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -139,7 +139,7 @@ _reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
   });
   sb.to_string()
 });
-_count_outcome :: (fn(reports : ArrayList(VerifyFnReport), outcome : String) -> usize)({
+_count_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(outcome) : String) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < reports.len(), {
