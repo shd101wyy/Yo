@@ -20,7 +20,7 @@ import("std/fmt");
 test("inout binding to the container variable survives container growth", {
   xs := ArrayList(String).new();
   xs.push(String.from("element-zero"));
-  inout(r) := xs;
+  mut(r) := xs;
   i := usize(0);
   while(i < usize(64), {
     r.push(String.from("filler"));
@@ -36,7 +36,7 @@ test("inout binding to the container variable survives container growth", {
 comptime_expect_error(
   grow_by_name_under_a_live_binding :: (fn() -> unit)({
     xs := ArrayList(String).new();
-    inout(r) := xs;
+    mut(r) := xs;
     xs.push(String.from("filler"));
     _n := r.len();
   }),

@@ -48,3 +48,26 @@ value. The right side has already been evaluated when the store runs, and a
 move-only right side cannot alias the old value (it would have been a copy,
 which is E0901). So the immediate drop is sound for move-only values, and it
 is the behavior resource code expects.
+
+## Resolution (2026-10-09)
+
+The maintainer chose option 1: drop at the assignment, as Rust does. As
+built (branch `feat/vbd-v3b-storing-by-value`):
+
+- An assignment STATEMENT (its value, the old value, unused) whose old value
+  is explicit-copy (a move-only value, or plain data without `Copy`) drops it
+  right after the store. `_drop_unused_old_value_now`
+  (`src/evaluator/exprs/begin.yo`) marks the old-value temp moved, so the
+  scope-end pass skips it, and records the drop
+  (`record_immediate_old_value_drop`, `src/expr_info.yo`), which
+  `generate_assignment` (`src/codegen/exprs/assignment.yo`) emits after the
+  store. Variable, field and index stores, and stores inside `io.async`
+  bodies, all take this path.
+- `old := (x = y)` is unchanged: the old value moves into `old`.
+- A still implicitly copyable kind (`String`, a collection, `Rc`, a `ref`
+  handle) keeps the end-of-block release until its own phase makes it
+  explicit-copy (V2b, V2c, V5): its right side can share the old value
+  through a dup the pair optimizer elided.
+- `tests/move_only.test.yo`, "an assignment statement drops the old value at
+  the assignment", checks the timing for a variable, a field and an index
+  store, and that a used result keeps the old value.

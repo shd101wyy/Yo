@@ -42,18 +42,18 @@
 pragma(Pragma.AllowUnsafe);
 /// The field labels of a source-namespace module type, or an empty list for
 /// anything else.
-_ns_labels :: (fn(t : TypeValue) -> ArrayList(String))(
+_ns_labels :: (fn(imm(t) : TypeValue) -> ArrayList(String))(
   match(t, .Struct({ field_labels }) => field_labels, _ => ArrayList(String).new())
 );
 /// The field types of a source-namespace module type, or an empty list for
 /// anything else.
-_ns_types :: (fn(t : TypeValue) -> ArrayList(TypeValue))(
+_ns_types :: (fn(imm(t) : TypeValue) -> ArrayList(TypeValue))(
   match(t, .Struct({ field_types }) => field_types, _ => ArrayList(TypeValue).new())
 );
 /// A namespace field's TYPE by label — the type the export walk recorded for
 /// that binding, which is what `build_doc_module` routes a declaration on.
 /// `TypeValue.Unit` when the label is absent.
-_ns_field_type :: (fn(t : TypeValue, label : String) -> TypeValue)({
+_ns_field_type :: (fn(imm(t) : TypeValue, imm(label) : String) -> TypeValue)({
   labels := _ns_labels(t);
   tys := _ns_types(t);
   (i : usize) = usize(0);
@@ -76,7 +76,7 @@ _ns_field_type :: (fn(t : TypeValue, label : String) -> TypeValue)({
   TypeValue.Unit
 });
 /// The names of a doc module's `types` list.
-_doc_type_names :: (fn(m : DocModule) -> ArrayList(String))({
+_doc_type_names :: (fn(imm(m) : DocModule) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < m.types.len(), {
@@ -90,7 +90,7 @@ _doc_type_names :: (fn(m : DocModule) -> ArrayList(String))({
   out
 });
 /// The names of a doc module's `traits` list.
-_doc_trait_names :: (fn(m : DocModule) -> ArrayList(String))({
+_doc_trait_names :: (fn(imm(m) : DocModule) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < m.traits.len(), {

@@ -337,7 +337,7 @@ impl(
   /// O(1) — the buffer doubles (4 elements first), so a growth INVALIDATES
   /// every pointer previously handed out by `ptr()`, `iter()` or the `Index`
   /// impl.
-  try_push : (fn(mut(self) : Self, imm(value) : T) -> Result(unit, ArrayListError))(
+  try_push : (fn(mut(self) : Self, value : T) -> Result(unit, ArrayListError))(
     // Check if we need to grow
     cond(
       (self._length >= self._cap()) => {
@@ -395,7 +395,7 @@ impl(
   push : (
     fn(
       mut(self) : Self,
-      imm(value) : T,
+      value : T,
       // The element clause is proof-only (it quantifies), so it is never
       // spliced as a runtime assert; the verifier uses it to prove what a
       // loop of pushes built.
@@ -627,7 +627,7 @@ impl(
     fn(
       mut(self) : Self,
       idx : usize,
-      imm(value) : T,
+      value : T,
       requires(idx <= self.len()),
       ensures(self.len() == (old(self.len()) + usize(1))),
       assumed()
@@ -1046,7 +1046,7 @@ impl(
     /// it WITHOUT touching the element's reference count — a by-value managed
     /// handle would be dup'd then dropped, freeing a live element
     /// mid-collection.
-    trace : (fn(imm(self) : Self, imm(tracer) : GcTracer) -> unit)({
+    trace : (fn(imm(self) : Self, tracer : GcTracer) -> unit)({
       match(
         self._ptr,
         .Some(base) => {
@@ -1814,7 +1814,7 @@ impl(
     from_iter_new : (fn() -> Self)(
       ArrayList(T).new()
     ),
-    from_iter_add : (fn(own(acc) : Self, imm(item) : T) -> Self)({
+    from_iter_add : (fn(sink(acc) : Self, imm(item) : T) -> Self)({
       acc.push(item);
       acc
     })

@@ -639,10 +639,10 @@ impl(
 impl(
   DateTime,
   Eq(DateTime)(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       (lhs.to_unix_utc() == rhs.to_unix_utc()) && (lhs.nanosecond == rhs.nanosecond)
     ),
-    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(lhs == rhs)
     )
   )
@@ -650,7 +650,7 @@ impl(
 impl(
   DateTime,
   Ord(DateTime)(
-    (<) : (fn(lhs : Self, rhs : Self) -> bool)({
+    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
       ls := lhs.to_unix_utc();
       rs := rhs.to_unix_utc();
       cond(
@@ -658,13 +658,13 @@ impl(
         true => (lhs.nanosecond < rhs.nanosecond)
       )
     }),
-    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(rhs < lhs)
     ),
-    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       rhs < lhs
     ),
-    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(lhs < rhs)
     )
   )

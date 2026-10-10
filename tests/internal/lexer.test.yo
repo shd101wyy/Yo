@@ -7,11 +7,11 @@
 { YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
 // Tokenize source, panicking on any lexer error.
-lex_or_panic :: (fn(source : String, exn : Exception) -> ArrayList(Token))(
+lex_or_panic :: (fn(imm(source) : String, imm(exn) : Exception) -> ArrayList(Token))(
   tokenize(source, `test.yo`, exn)
 );
 // Filter out Whitespace tokens.
-non_ws :: (fn(toks : ArrayList(Token)) -> ArrayList(Token))({
+non_ws :: (fn(imm(toks) : ArrayList(Token)) -> ArrayList(Token))({
   result := ArrayList(Token).new();
   i := usize(0);
   n := toks.len();

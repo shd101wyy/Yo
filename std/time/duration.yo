@@ -197,7 +197,7 @@ impl(
   Duration,
   Add(Duration)(
     Output : Duration,
-    (+) : (fn(self : Self, other : Self) -> Self.Output)(
+    (+) : (fn(imm(self) : Self, imm(other) : Self) -> Self.Output)(
       self.add(other)
     )
   )
@@ -207,7 +207,7 @@ impl(
   Duration,
   Sub(Duration)(
     Output : Duration,
-    (-) : (fn(self : Self, other : Self) -> Self.Output)(
+    (-) : (fn(imm(self) : Self, imm(other) : Self) -> Self.Output)(
       self.sub(other)
     )
   )
@@ -215,10 +215,10 @@ impl(
 impl(
   Duration,
   Eq(Duration)(
-    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
     ),
-    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(lhs == rhs)
     )
   )
@@ -226,19 +226,19 @@ impl(
 impl(
   Duration,
   Ord(Duration)(
-    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       cond(
         (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
         true => (lhs.nanos < rhs.nanos)
       )
     ),
-    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(rhs < lhs)
     ),
-    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       rhs < lhs
     ),
-    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
       !(lhs < rhs)
     )
   )

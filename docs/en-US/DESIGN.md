@@ -680,7 +680,7 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(inout(x) : i32) -> unit`, `fn(sink(x) : String) -> usize` and `fn(x : i32) -> unit` are three different types: an `inout` parameter is passed by reference, a `sink` parameter is moved into the callee, and a plain parameter is borrowed. A `sink` parameter consumes its argument: the caller's binding ends at the call. `own(x)` is the old spelling of `sink(x)`; it is still accepted, and spells the same type, until a sweep after the next release removes it. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters):
+`fn(mut(x) : i32) -> unit`, `fn(imm(x) : String) -> usize` and `fn(x : String) -> usize` are three different types: a `mut` parameter is an exclusive borrow of the caller's place (`inout` is its old spelling), an `imm` parameter is a read-only borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, or plain data without `Copy`) consumes its argument: the caller's binding ends at the call. A kind that is still implicitly copyable (`String`, the collections, `Rc`, a `ref` handle) is passed the way `t := s` binds it, as a share, and the caller keeps its value; it moves with `t := s` when its phase of the values-by-default plan makes it explicit-copy. Until then the share is an alias, as `t := s` is: a callee that writes a by-value `String` or collection writes the caller's too, so write a `.clone()` instead. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(imm(x) : i32)` and `fn(x : i32)` differ too. `sink(x)` and `own(x)` are the old spellings of a plain by-value parameter, removed by the next sweep. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
 
 ```yo
 bump :: (fn(inout(x) : i32) -> unit)({
@@ -1187,7 +1187,7 @@ export(main);
 
 The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. When it is `Copy`, `x.clone()` is the copy, so `f.clone()` on a `fn` pointer works; `clone()` on a record or closure that is `Clone` but not `Copy` is not available yet. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
 
-`Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. A by-value parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter `sink(...)` to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
+`Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. An `imm` parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter by value (`p : Point`, without `imm`) to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
 
 #### Move-only values
 
@@ -1203,8 +1203,8 @@ impl(
   )
 );
 
-peek :: (fn(f : Fd) -> i32)(f.n); // a by-value parameter borrows: no copy
-keep :: (fn(sink(f) : Fd) -> unit)(()); // a sink parameter moves the value in
+peek :: (fn(imm(f) : Fd) -> i32)(f.n); // an imm parameter borrows: no copy
+keep :: (fn(f : Fd) -> unit)(()); // a by-value parameter moves the value in
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
@@ -1216,7 +1216,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: a by-value parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. Where the arms of a `cond`/`match` or the ways out of a loop meet, a move-only value is moved on all of them or on none (E0907). Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
+Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: an `imm` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). An assignment statement (`x = y;`, `h.f = y;`, `xs(i) = y;`) drops the old value right after the store, as Rust does; `old := (x = y)` keeps it in `old` instead. Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
 
 A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
 
@@ -2570,11 +2570,11 @@ through a plain copy.
 
 A write lands where it is written:
 
-- **A plain parameter** `fn(out : String)` borrows the caller's value. Writing
-  it (`out.push_str("!")`, or passing it to an `inout` parameter) is E0908. To
-  change the caller's string, take `inout(out) : String`; to produce a new one,
-  return it; to work on a private copy, clone it into a local
-  (`t := out.clone();`) and write the local.
+- **An `imm` parameter** `fn(imm(out) : String)` borrows the caller's value.
+  Writing it (`out.push_str("!")`, or passing it to a `mut` parameter) is
+  E0908. To change the caller's string, take `mut(out) : String`; to produce a
+  new one, take `out` by value (a plain `out : String` owns its argument and
+  may write it) and return it.
 - **A `for` or `match` binding** borrows too: `for(xs, s => s.push_str("!"))`
   is E0908. `for(xs, inout(s) => s.push_str("!"))` writes each element in
   place, and so does `xs(i).push_str("!")`.
@@ -2591,8 +2591,8 @@ append_inout :: (fn(inout(out) : String) -> unit)({
   out.push_str("!");
 });
 
-// A by-value parameter is borrowed: write a local clone and return it.
-with_bang :: (fn(s : String) -> String)({
+// An `imm` parameter is borrowed: write a local clone and return it.
+with_bang :: (fn(imm(s) : String) -> String)({
   t := s.clone();
   t.push_str("!");
   t
@@ -3159,8 +3159,8 @@ run_once(add); // an `Fn` serves for one call
 - **Only an API the closure escapes into can call it once.** Take it by value,
   `sink(f) : Impl(FnOnce(...))`; calling an `FnOnce` closure through a
   borrowed parameter is E0901. A non-escaping callback keeps
-  `imm(f) : Impl(Fn(...))`. Like every move-only value, a `sink` closure that
-  is moved (called) on some paths must be moved on all of them (E0907).
+  `imm(f) : Impl(Fn(...))`. Like every owned value, a `sink` closure called on
+  some arms of a `cond`/`match` is dropped, uncalled, at the end of the others.
 - **Moving a capture out needs `FnOnce` and a capture list.** Against
   `Fn(...)`, whose call borrows the captures so the closure can run again, a
   move out is E0913 at the moving line. In this release an implicit capture

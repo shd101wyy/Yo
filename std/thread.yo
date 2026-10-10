@@ -60,14 +60,14 @@ extern(
   // `FnOnce`: the spawned thread calls the relay exactly once
   // (plans/VALUES_BY_DEFAULT.md decision 37), so a relay may move what it
   // captured out of its body.
-  __yo_thread_spawn : (fn(own(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> __yo_thread_t),
+  __yo_thread_spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(imm(t) : __yo_thread_t) -> unit),
   __yo_thread_detach : (fn(imm(t) : __yo_thread_t) -> unit)
 );
 extern(
   "Yo",
   // `own(cb)` for the same reason as `__yo_thread_spawn` above.
-  __yo_worker_spawn : (fn(own(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit),
+  __yo_worker_spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> unit),
   __yo_worker_get_num_threads : (fn() -> usize),
   __yo_worker_set_num_threads : (fn(num : usize) -> unit)
 );
@@ -400,7 +400,7 @@ _take_blocking_result :: (
 spawn_blocking :: (
   fn(
     generic(T : Type),
-    own(cb) : Impl(Fn() -> T, Send),
+    sink(cb) : Impl(Fn() -> T, Send),
     io : Io,
     where(T <: (Send, Acyclic))
   ) -> Impl(Future(T, Io))

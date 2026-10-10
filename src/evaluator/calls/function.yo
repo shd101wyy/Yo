@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note } :: import("../../types/utils.yo");
+{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -102,6 +102,7 @@ pragma(Pragma.AllowUnsafe);
   type_is_callable_shaped,
   fn_constrained_param_requires_callable,
   fn_argument_not_callable_message,
+  function_value_slot_mismatch,
   impl_param_unmet_trait,
   impl_argument_unmet_trait_message,
   type_implements_future,
@@ -2330,7 +2331,7 @@ _gc_collect_binder_sites :: (
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -2621,9 +2622,9 @@ _funcval_try_synthesize_param :: (
 _fv_fn_trait_with_result :: (fn(imm(ftt) : TypeValue, imm(result) : TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(bn, cpl, cpt, cr, il, it, cpr) => if(
+    .FnTraitT(bn, cpl, cpt, cr, il, it, cpr, cpo) => if(
       is_some_type(cr) || (get_all_some_types(cr).len() > usize(0)),
-      TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, cpr),
+      TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, cpr, cpo),
       ftt
     ),
     _ => ftt
@@ -2670,7 +2671,7 @@ _fv_closure_arg_synth_type :: (fn(imm(info) : ExprInfo) -> TypeValue)({
           });
           TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)
         },
-        .FnTraitT(_, _, _, _, _, _, _) => _fv_fn_trait_with_result(info.ty, body),
+        .FnTraitT(_, _, _, _, _, _, _, _) => _fv_fn_trait_with_result(info.ty, body),
         _ => info.ty
       )
     ),
@@ -3818,7 +3819,7 @@ _rre_binder_ids :: (
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -3908,7 +3909,7 @@ _rre_mentions_binder :: (fn(imm(t) : TypeValue, imm(ids) : ArrayList(String)) ->
               ri = (ri + usize(1));
             });
           },
-          .FnTraitT(_, _, fcp, fcr, _, fit, _) => {
+          .FnTraitT(_, _, fcp, fcr, _, fit, _, _) => {
             (fi : usize) = usize(0);
             while(fi < fcp.len(), {
               match(fcp.get(fi), .Some(fp) => work.push(fp), .None => ());
@@ -4060,6 +4061,30 @@ _evaluate_funcval_runtime_call :: (
                     // Reported at the ARGUMENT (index-aligned with the infos here).
                     _ac_tok := ast_expr_token(match(runtime_arg_exprs.get(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr));
                     raise_flow_violation(format_error_message(_ac_tok, _ac_mmsg), ctx, exn);
+                  });
+                  // A FUNCTION-typed slot skips the check above (its type
+                  // variables live inside the Func), so its own rule runs
+                  // here: a function value fills it only when its modes — and,
+                  // for a concrete slot, its whole signature — are the slot's
+                  // (`function_value_slot_mismatch`, the rule the shared
+                  // `check_argument_for_parameter` applies on the other paths).
+                  if(is_function_type(_ac_pty) && !_ac_a_comptime, {
+                    match(
+                      function_value_slot_mismatch(_ac_pty, _ac_ai.ty),
+                      .Some(_ac_fv_note) => {
+                        _ac_fv_tok := ast_expr_token(match(runtime_arg_exprs.get(_ac_i), .Some(_ac_ae) => _ac_ae, .None => expr));
+                        raise_flow_violation(
+                          mark_generic_independent(
+                            format_error_message(_ac_fv_tok, `Incompatible types:\n- Expected: ${type_to_string(_ac_pty)}\n- Given   : ${type_to_string(_ac_ai.ty)}${_ac_fv_note}`),
+                            _ac_pty,
+                            _ac_ai.ty
+                          ),
+                          ctx,
+                          exn
+                        );
+                      },
+                      .None => ()
+                    );
                   });
                 },
                 .None => ()
@@ -6242,7 +6267,7 @@ Fix: wrap the call:
             try_to_implement_function_by_function_type(expr, func_type, callee_env, ctx, exn)
           },
           // FnTraitT (Fn(A, B) -> C as a type) — try closure creation.
-          .FnTraitT(_, _, _, _, _, _, _) => {
+          .FnTraitT(_, _, _, _, _, _, _, _) => {
             result_opt := try_to_implement_closure_by_fn_module_type(
               expr,
               func_type,
@@ -7145,10 +7170,17 @@ Fix: wrap the call:
         // default flows through the call EXACTLY like a supplied argument
         // (generic inference, param binding, runtime C args, specialization).
         fv_default_exprs := get_func_param_default_exprs(func_id_fv.clone());
+        // A closure callee is typed by its `Fn` trait (or a SomeT wrapping
+        // it): its call parameters come from the trait, as `fv_param_is_ref`
+        // below does, so the call-site markers see every position.
         fv_param_types := match(
           fv_callee_ty,
           .Func({ param_types : fpts }) => fpts,
-          _ => ArrayList(TypeValue).new()
+          _ => match(
+            extract_fn_trait_from_type(fv_callee_ty),
+            .Some(.FnTraitT(_, _, fv_cpt, _, _, _, _, _)) => fv_cpt,
+            _ => ArrayList(TypeValue).new()
+          )
         );
         // Per-parameter `ref` flags, parallel to `fv_param_types`. A
         // `comptime(inout(n))` / `inout(n)` parameter must be bound as
@@ -7162,7 +7194,11 @@ Fix: wrap the call:
           .Some(ci) => match(
             ci.ty,
             .Func({ meta : __fm5 }) => __fm5.*.param_labels,
-            _ => ArrayList(String).new()
+            _ => match(
+              extract_fn_trait_from_type(ci.ty),
+              .Some(.FnTraitT(_, fv_cpl, _, _, _, _, _, _)) => fv_cpl,
+              _ => ArrayList(String).new()
+            )
           ),
           .None => ArrayList(String).new()
         );
@@ -7178,7 +7214,7 @@ Fix: wrap the call:
             // with_lock write-through arm).
             _ => match(
               extract_fn_trait_from_type(ci.ty),
-              .Some(.FnTraitT(_, _, _, _, _, _, fv_cprf)) => fv_cprf,
+              .Some(.FnTraitT(_, _, _, _, _, _, fv_cprf, _)) => fv_cprf,
               .Some(_) => ArrayList(bool).new(),
               .None => ArrayList(bool).new()
             )
@@ -7198,6 +7234,19 @@ Fix: wrap the call:
           .Some(ci) => match(
             ci.ty,
             .Func({ meta : __fm7 }) => __fm7.*.param_is_owning,
+            _ => match(
+              extract_fn_trait_from_type(ci.ty),
+              .Some(.FnTraitT(_, _, _, _, _, _, _, fv_cpof)) => fv_cpof,
+              _ => ArrayList(bool).new()
+            )
+          ),
+          .None => ArrayList(bool).new()
+        );
+        fv_param_is_sink := match(
+          callee_info_opt,
+          .Some(ci_s) => match(
+            ci_s.ty,
+            .Func({ meta : __fm7s }) => match(__fm7s.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new()),
             _ => ArrayList(bool).new()
           ),
           .None => ArrayList(bool).new()
@@ -7740,6 +7789,7 @@ Fix: wrap the call:
             // `_eat(a)` with `own(s)` read the moved value
             // (issues/fixed/a-free-function-call-accepts-an-already-moved-argument.md).
             fv_p_owning := match(fv_param_is_owning.get(ai), .Some(o) => o, .None => false);
+            fv_p_sink := match(fv_param_is_sink.get(ai), .Some(o) => o, .None => false);
             fv_p_is_ct := (
               match(fv_param_ct.get(ai), .Some(c) => c, .None => false)
               || match(resolved_param_types.get(ai), .Some(apt2) => is_type_hierarchy_type(apt2), .None => false)
@@ -7780,7 +7830,8 @@ Fix: wrap the call:
                   env,
                   ctx,
                   exn,
-                  argument_is_aliased_by_inout(arg_expr_eff, fv_p_is_ref, inout_argument_roots(fv_args, fv_param_is_ref))
+                  argument_is_aliased_by_inout(arg_expr_eff, fv_p_is_ref, inout_argument_roots(fv_args, fv_param_is_ref)),
+                  fv_p_sink
                 ),
                 .Some(fv_s0d) => {
                   fv_s0_drops.push(fv_s0d);

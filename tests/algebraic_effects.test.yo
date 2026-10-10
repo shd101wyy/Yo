@@ -622,7 +622,7 @@ test("Test given variable shadowing (inner scope shadows outer) with unwind", {
 });
 test("Test effect polymorphism with using spread", {
   Raise :: (ctl(imm(msg) : String) -> i32);
-  might_fail :: (fn(raise : Raise) -> i32)(
+  might_fail :: (fn(imm(raise) : Raise) -> i32)(
     raise(`oops`)
   );
   // Effect-polymorphic function: forwards whatever effects f needs
@@ -644,7 +644,7 @@ test("Test effect polymorphism with using spread", {
 });
 test("Test effect polymorphism with using spread and unwind", {
   Raise :: (ctl(imm(msg) : String) -> i32);
-  might_fail :: (fn(raise : Raise) -> i32)(
+  might_fail :: (fn(imm(raise) : Raise) -> i32)(
     raise(`oops`)
   );
   // Effect-polymorphic function: forwards whatever effects f needs
@@ -815,10 +815,10 @@ test("Test struct record labeled name : Type with resume", {
 test("Test multiple effect row spreads with resume", {
   Raise :: (ctl(imm(msg) : String) -> i32);
   Log :: (fn(imm(msg) : String) -> unit);
-  might_fail :: (fn(raise : Raise) -> i32)(
+  might_fail :: (fn(imm(raise) : Raise) -> i32)(
     raise(`oops`)
   );
-  might_log :: (fn(log : Log) -> unit)(
+  might_log :: (fn(imm(log) : Log) -> unit)(
     log(`logged something`)
   );
   run_both :: (
@@ -851,10 +851,10 @@ test("Test multiple effect row spreads with resume", {
 test("Test multiple effect row spreads with unwind", {
   Raise :: (ctl(imm(msg) : String) -> i32);
   Log :: (fn(imm(msg) : String) -> unit);
-  might_fail :: (fn(raise : Raise) -> i32)(
+  might_fail :: (fn(imm(raise) : Raise) -> i32)(
     raise(`oops`)
   );
-  might_log :: (fn(log : Log) -> unit)(
+  might_log :: (fn(imm(log) : Log) -> unit)(
     log(`logged something`)
   );
   run_both :: (

@@ -81,14 +81,14 @@ test("workaround B: each construction keeps its own closure", {
   assert(plus.cb(i32(4)) == i32(104), "the second calls the capturing one");
 });
 // --- Argument position (C67) ---
-apply_cb :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));
+apply_cb :: (fn(imm(f) : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));
 Holder :: ref(struct(n : i32));
 impl(
   Holder,
-  run : (fn(self : Self, f : Impl(Fn(x : i32) -> i32)) -> i32)(f(self.n)),
+  run : (fn(imm(self) : Self, imm(f) : Impl(Fn(x : i32) -> i32)) -> i32)(f(self.n)),
   // A FORWARDED closure param: `f` arrives typed as its capture struct inside
   // the specialized body, which is callable-shaped and must stay accepted.
-  forward : (fn(self : Self, f : Impl(Fn(x : i32) -> i32)) -> i32)(apply_cb(f))
+  forward : (fn(imm(self) : Self, imm(f) : Impl(Fn(x : i32) -> i32)) -> i32)(apply_cb(f))
 );
 triple :: (fn(x : i32) -> i32)(x * i32(3));
 test("a non-callable argument for an Impl(Fn) parameter is rejected", {

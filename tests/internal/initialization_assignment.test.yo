@@ -49,24 +49,24 @@ mk_op_atom :: (fn(id : usize, op : str) -> AstExpr)(
   AstExpr.Atom(id, mk_token(TokenKind.Operator, op))
 );
 /// Build `op(args…)` FnCall — callee is Atom with an Operator token.
-mk_op_call :: (fn(id : usize, op : str, args : ArrayList(AstExpr)) -> AstExpr)({
+mk_op_call :: (fn(id : usize, op : str, imm(args) : ArrayList(AstExpr)) -> AstExpr)({
   callee := mk_op_atom(id + usize(10000), op);
   AstExpr.FnCall(id, callee, args, true, mk_token(TokenKind.Operator, op))
 });
 /// Build `name(args…)` FnCall — callee is Atom with an Identifier token.
-mk_ident_call :: (fn(id : usize, name : str, args : ArrayList(AstExpr)) -> AstExpr)({
+mk_ident_call :: (fn(id : usize, name : str, imm(args) : ArrayList(AstExpr)) -> AstExpr)({
   callee := mk_ident(id + usize(10000), name);
   AstExpr.FnCall(id, callee, args, false, mk_token(TokenKind.Identifier, name))
 });
 /// Build `lhs := rhs` initialization assignment expression.
-mk_init_assign :: (fn(id : usize, lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
+mk_init_assign :: (fn(id : usize, imm(lhs) : AstExpr, imm(rhs) : AstExpr) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
   mk_op_call(id, BK_INIT_ASSIGN, args)
 });
 /// Build `lhs :: rhs` const declaration expression.
-mk_const :: (fn(id : usize, lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
+mk_const :: (fn(id : usize, imm(lhs) : AstExpr, imm(rhs) : AstExpr) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
@@ -75,9 +75,9 @@ mk_const :: (fn(id : usize, lhs : AstExpr, rhs : AstExpr) -> AstExpr)({
 /// Stub evaluator: stores t_bool() + BoolVal(true) ExprInfo for any expr.
 stub_eval_bool :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_bool());
@@ -88,10 +88,10 @@ stub_eval_bool :: (
 /// Raw-seam variant of stub_eval_bool (ignores the custom handler).
 stub_eval_bool_raw :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext,
-    exn : Exception
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
   ) -> AstExpr
 )(
   stub_eval_bool(expr, env, ctx)
@@ -99,9 +99,9 @@ stub_eval_bool_raw :: (
 /// Stub evaluator: stores t_i32() + IntLit("42") ExprInfo for any expr.
 stub_eval_i32 :: (
   fn(
-    expr : AstExpr,
-    env : Environment,
-    ctx : EvalContext
+    imm(expr) : AstExpr,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());

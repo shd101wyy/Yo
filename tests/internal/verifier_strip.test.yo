@@ -50,7 +50,7 @@ _load_strip_tasks :: (fn(io : Io) -> ArrayList(VerifyTask))(
   _load_fixture_tasks(String.from("./tests/spec/fixtures/valid/verifyplus_abs.yo"), io)
 );
 /// Load one fixture file as a verification target; its single task.
-_load_fixture_tasks :: (fn(rel : String, io : Io) -> ArrayList(VerifyTask))({
+_load_fixture_tasks :: (fn(imm(rel) : String, io : Io) -> ArrayList(VerifyTask))({
   exn := Exception(
     throw : (
       err -> {
@@ -82,7 +82,7 @@ _load_fixture_tasks :: (fn(rel : String, io : Io) -> ArrayList(VerifyTask))({
   tasks
 });
 /// The task list's single FuncVal.
-_task_func_val :: (fn(tasks : ArrayList(VerifyTask)) -> EvalValue)(
+_task_func_val :: (fn(imm(tasks) : ArrayList(VerifyTask)) -> EvalValue)(
   match(
     tasks.get(usize(0)),
     .Some(t) => t.func_val,
@@ -90,21 +90,21 @@ _task_func_val :: (fn(tasks : ArrayList(VerifyTask)) -> EvalValue)(
   )
 );
 /// Count the spliced contract asserts of one label in a wrapped body.
-_count_contract_asserts :: (fn(func_val : EvalValue, label : String) -> usize)(
+_count_contract_asserts :: (fn(imm(func_val) : EvalValue, imm(label) : String) -> usize)(
   match(
     func_val,
     .FuncVal(fvd, _) => _count_labeled_asserts_in_body(fvd.*.body, label.clone()),
     _ => usize(0)
   )
 );
-_count_labeled_asserts_in_body :: (fn(body : AstExpr, label : String) -> usize)(
+_count_labeled_asserts_in_body :: (fn(imm(body) : AstExpr, imm(label) : String) -> usize)(
   match(
     body,
     .FnCall(_, _, args, _, _) => _count_labeled_asserts(args, label.clone()),
     .Atom(_, _) => usize(0)
   )
 );
-_count_labeled_asserts :: (fn(args : ArrayList(AstExpr), label : String) -> usize)({
+_count_labeled_asserts :: (fn(imm(args) : ArrayList(AstExpr), imm(label) : String) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < args.len(), {
@@ -122,7 +122,7 @@ _count_labeled_asserts :: (fn(args : ArrayList(AstExpr), label : String) -> usiz
   n
 });
 /// Arg 1 of a call as a string when it is a plain atom ("" otherwise).
-_arg1_atom_value :: (fn(a : ArrayList(AstExpr)) -> String)(
+_arg1_atom_value :: (fn(imm(a) : ArrayList(AstExpr)) -> String)(
   match(
     a.get(usize(1)),
     .Some(m_arg) => match(
@@ -137,7 +137,7 @@ _arg1_atom_value :: (fn(a : ArrayList(AstExpr)) -> String)(
 /// so the test tracks the wrapper's spliced shape by construction — it
 /// previously mirrored the old `assert(pred, msg)` call shape and counted
 /// zero after the splice became the dependency-free cond guard.
-_is_assert_with_label :: (fn(e : AstExpr, label : String) -> bool)(
+_is_assert_with_label :: (fn(imm(e) : AstExpr, imm(label) : String) -> bool)(
   _is_contract_assert_call(e, `${label}:`)
 );
 test("strip drops proved ensures asserts and keeps the requires guard (mechanism, no solver)", {

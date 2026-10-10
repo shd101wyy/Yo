@@ -409,7 +409,15 @@ generate_case_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
         }),
         .None => code
       )
-    }, code);
+    }, {
+      // An empty arm (`_ => ()`) renders no code, but it can still carry
+      // drops: a value another arm moves is dropped at the end of the arms
+      // that keep it (`_drop_in_arms_that_keep`, evaluator/utils.yo).
+      if((code.len() == usize(0)) && has_pending_emittable_drop(body_expr, context), {
+        generate_deferred_drop_expressions(body_expr, indent.clone(), context);
+      });
+      code
+    });
     context.pending_deferred_drops = prev_pending;
     context.consumed_var_pending_drops = prev_consumed;
     out

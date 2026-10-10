@@ -406,8 +406,8 @@ dechunk :: (fn(imm(body) : ArrayList(u8), body_start : usize) -> Dechunk)({
 // Takes the read buffer and lets it drop: the paths of `read_http_message`
 // that hand on no prefix of it (an error, a dechunked rewrite) still move it,
 // as the other paths do into `_split_message` / `String.from_bytes` (E0907).
-_release_message :: (fn(own(_b) : ArrayList(u8)) -> unit)(());
-_split_message :: (fn(own(data) : ArrayList(u8), limit : usize, mut(carry) : ArrayList(u8)) -> String)({
+_release_message :: (fn(sink(_b) : ArrayList(u8)) -> unit)(());
+_split_message :: (fn(sink(data) : ArrayList(u8), limit : usize, mut(carry) : ArrayList(u8)) -> String)({
   carry.clear();
   if(limit < data.len(), {
     i := limit;

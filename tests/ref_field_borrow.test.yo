@@ -99,7 +99,7 @@ test("whole module-level variable to a ref param", {
 // borrow is still in use.
 comptime_expect_error(
   ref_and_own_same_call :: (fn() -> unit)({
-    use_and_sink :: (fn(mut(x) : String, own(victim) : Holder) -> usize)(
+    use_and_sink :: (fn(mut(x) : String, sink(victim) : Holder) -> usize)(
       x.len()
     );
     h := Holder(s : String.from("element-zero"), n : i32(1));
@@ -111,7 +111,7 @@ comptime_expect_error(
 // An ALIAS of the owner is caught too.
 comptime_expect_error(
   ref_and_own_alias_same_call :: (fn() -> unit)({
-    use_and_sink :: (fn(mut(x) : String, own(victim) : Holder) -> usize)(
+    use_and_sink :: (fn(mut(x) : String, sink(victim) : Holder) -> usize)(
       x.len()
     );
     h := Holder(s : String.from("element-zero"), n : i32(1));
@@ -123,7 +123,7 @@ comptime_expect_error(
 
 // Positive: ref + own of DISTINCT objects in one call is fine.
 test("ref and own arguments of distinct objects are allowed", {
-  use_and_sink :: (fn(mut(x) : String, own(victim) : Holder) -> usize)(
+  use_and_sink :: (fn(mut(x) : String, sink(victim) : Holder) -> usize)(
     x.len()
   );
   a := Holder(s : String.from("abcde"), n : i32(1));
@@ -139,7 +139,7 @@ test("ref and own arguments of distinct objects are allowed", {
 // emitted by BOTH the body-level flush-first (before the read!) and the tail
 // call's post-emit flush — ref_count()==0 double-free (glibc tcache abort in CI).
 test("own param of a single-expression body is released exactly once", {
-  read_and_sink :: (fn(own(victim) : Holder) -> usize)(victim.s.len());
+  read_and_sink :: (fn(sink(victim) : Holder) -> usize)(victim.s.len());
   h := Holder(s : String.from("single-expr"), n : i32(3));
   h2 := h;
   assert(ref_count(h) == 2, "two handles before the sink call");
@@ -155,7 +155,7 @@ test("own param of a single-expression body is released exactly once", {
 // drop filter treated any referenced own param as closure-captured and
 // skipped its drop — the discard leaked the Holder and its String.
 test("discarding an own param via ___ := releases it exactly once", {
-  sink :: (fn(own(victim) : Holder) -> unit)({
+  sink :: (fn(sink(victim) : Holder) -> unit)({
     ___ := victim;
   });
   h := Holder(s : String.from("discard-own"), n : i32(7));
@@ -377,7 +377,7 @@ comptime_expect_error(
 // in the same call should be REJECTED.
 comptime_expect_error(
   borrow_index_ref_own_overlap :: (fn() -> unit)({
-    own_and_ref :: (fn(mut(x) : i32, own(victim) : ArrayList(i32)) -> unit)({
+    own_and_ref :: (fn(mut(x) : i32, sink(victim) : ArrayList(i32)) -> unit)({
       x = i32(99);
     });
     xs := ArrayList(i32).new();

@@ -72,7 +72,10 @@ pragma(Pragma.AllowUnsafe);
   UndoneMove,
   variable_record_undone_move,
   is_fn_capture_value_binding,
-  is_fnonce_capture_frame
+  is_fnonce_capture_frame,
+  is_closure_param_frame,
+  variable_note_arm_move,
+  variable_move_note
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook } :: import("./context.yo");
@@ -98,7 +101,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain } :: import("../types/utils.yo");
 { expr_info_table_set } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -480,7 +483,7 @@ require_expr_not_consumed :: (
           if(same_site, {
             return(());
           });
-          exn.throw(dyn(use_of_moved_value_error(var_name, v.ty, ast_expr_token(rhs), consumed_tok.*)));
+          exn.throw(dyn(use_of_moved_value_error(var_name, v.ty, ast_expr_token(rhs), variable_move_note(v, consumed_tok.*))));
         }
       );
     }
@@ -801,7 +804,7 @@ move_captured_explicit_copy_variable :: (fn(imm(v) : Variable, imm(tok) : Token,
     .Some(ct) => {
       same_site := ((ct.*.row == tok.row) && ((ct.*.column == tok.column) && (ct.*.module_path == tok.module_path)));
       if(!same_site, {
-        raise_flow_violation(use_of_moved_value_error(v.name.clone(), v.ty, tok, ct.*), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(v.name.clone(), v.ty, tok, variable_move_note(v, ct.*)), ctx, exn);
       });
     },
     .None => {
@@ -853,7 +856,7 @@ _explicit_copy_kind :: (fn(imm(ty) : TypeValue) -> String)(
   )
 );
 /// Throw E0901 for a copy of the not-implicitly-copyable value `rhs` out of
-/// storage it does not own: a by-value parameter or a `match`/`for` binding (they borrow), an
+/// storage it does not own: an `imm` parameter or a `match`/`for` binding (they borrow), an
 /// `inout` binding, a module-level binding, or a projection (a field, an
 /// element, a dereference). The value cannot be copied, and moving it out
 /// would leave its owner partly moved: Yo has no partial moves, so the owner
@@ -899,22 +902,40 @@ _is_implicit_closure_capture :: (fn(imm(v) : Variable, imm(env) : Environment, i
           return(false);
         });
         body_level := sub.eval_env.frame_count();
+        // The first closure parameter frame below the body, walking down, is
+        // this closure's own: its parameters are not captures. One further
+        // down belongs to an enclosing closure, whose parameters are. The
+        // same holds for an `FnOnce` capture-list frame: only this closure's
+        // own (below its parameter frame, above any enclosing closure's) is
+        // the body's to move from; an enclosing closure's captures are
+        // captures here.
+        (own_params_seen : bool) = false;
+        (enclosing_seen : bool) = false;
         (fi : usize) = env.frames.len();
         while(fi > usize(0), {
           fi = (fi - usize(1));
           match(
             env.frames.get(fi),
             .Some(fr) => {
+              is_param_frame := ((fi < body_level) && is_closure_param_frame(fr.id));
+              is_own_params := (is_param_frame && !own_params_seen);
+              if(is_param_frame && own_params_seen, {
+                enclosing_seen = true;
+              });
+              is_own_capture := (is_fnonce_capture_frame(fr.id) && !enclosing_seen);
               (vi : usize) = usize(0);
               while(vi < fr.variables.len(), {
                 match(
                   fr.variables.get(vi),
                   .Some(fv2) => if(fv2.id == v.id, {
-                    return((fi < body_level) && !is_fnonce_capture_frame(fr.id));
+                    return((fi < body_level) && !is_own_capture && !is_own_params);
                   }),
                   .None => ()
                 );
                 vi = (vi + usize(1));
+              });
+              if(is_own_params, {
+                own_params_seen = true;
               });
             },
             .None => ()
@@ -998,13 +1019,13 @@ transfer_explicit_copy_value :: (fn(imm(rhs) : AstExpr, imm(ei) : ExprInfo, imm(
           _throw_explicit_copy_violation(rhs, ei.ty, what, ctx, exn);
         });
       },
-      v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a by-value parameter (a borrow) instead."), ctx, exn),
+      v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to an `imm` parameter (a borrow) instead."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, ei.ty, ctx, exn),
       _is_implicit_closure_capture(v, ei.env, ctx) => _throw_implicit_capture_move(rhs, ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
       _move_through_sink_shadow(v, rhs, ei.env) => (),
-      true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (a by-value parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter `sink(...)` to own it."), ctx, exn)
+      true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (an `imm` parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `imm`) to own it."), ctx, exn)
     )
   );
 });
@@ -1407,6 +1428,12 @@ set_expr_as_consumed :: (
     .Some(info) => cond(
       // Step 1: type values are reusable, never consumed.
       is_type_value(info.value) => (),
+      // A value with nothing to transfer (no counted payload, implicitly
+      // copyable: a `Copy` value) is copied, never consumed. Since the flip
+      // (decision 30) every plain parameter owns its value, so a `usize`
+      // parameter returned from one `cond` arm would otherwise read as moved
+      // there and not in the others (E0907).
+      type_is_bitwise_copy(info.ty) => (),
       true => match(
         info.variable_name,
         // Step 2: no variable name → nothing to consume.
@@ -1495,7 +1522,7 @@ set_expr_as_consumed :: (
               },
               // Step 4: throw `use of moved value`.
               true => {
-                exn.throw(dyn(use_of_moved_value_error(name, v.ty, ast_expr_token(expr), consumed_tok.*)));
+                exn.throw(dyn(use_of_moved_value_error(name, v.ty, ast_expr_token(expr), variable_move_note(v, consumed_tok.*))));
               }
             )
           );
@@ -2476,6 +2503,100 @@ reset_sibling_flow_state :: (fn(imm(env) : Environment, imm(prev_arm) : Option(A
     ri = (ri + usize(1));
   });
 });
+/// Does a `match` arm pattern anywhere in `e` bind `name`?
+_pattern_binds_name :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+  match(
+    e,
+    .FnCall(_, callee, args, _, _) => {
+      is_match := ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            if(is_match && (i > usize(0)) && ast_expr_is_fn_call_of(a, "=>", Option(usize).None), {
+              match(
+                a,
+                .FnCall(_, _, arm_args, _, _) => match(
+                  arm_args.get(usize(0)),
+                  .Some(pat) => if(_atom_named_in(pat, name.clone()), {
+                    return(true);
+                  }),
+                  .None => ()
+                ),
+                .Atom(_, _) => ()
+              );
+            });
+            if(recur(a, name.clone()), {
+              return(true);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      recur(callee, name)
+    },
+    .Atom(_, _) => false
+  )
+);
+/// Is there an identifier atom spelled `name` anywhere in `e`?
+_atom_named_in :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+  match(
+    e,
+    .Atom(_, tok) => (tok.value == name),
+    .FnCall(_, callee, args, _, _) => {
+      if(recur(callee, name.clone()), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => if(recur(a, name.clone()), {
+            return(true);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
+/// The earliest token of `e`'s own source: the start of an arm.
+_first_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
+  (best : Token) = root;
+  tok := ast_expr_token(e);
+  if((tok.module_path == root.module_path) && (tok.character < best.character), {
+    best = tok;
+  });
+  match(
+    e,
+    .FnCall(_, callee, args, _, _) => {
+      c := recur(callee, root);
+      if((c.module_path == root.module_path) && (c.character < best.character), {
+        best = c;
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            t := recur(a, root);
+            if((t.module_path == root.module_path) && (t.character < best.character), {
+              best = t;
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  best
+});
 /// The latest token of `e`'s own source: the end of an arm.
 _last_token_of :: (fn(imm(e) : AstExpr, imm(root) : Token) -> Token)({
   (best : Token) = root;
@@ -2707,6 +2828,128 @@ find_variable_by_id :: (fn(imm(env) : Environment, id : usize) -> Option(Variabl
   });
   Option(Variable).None
 });
+/// The first `.Some` token in `toks`.
+_first_some_token :: (fn(imm(toks) : ArrayList(Option(Token))) -> Option(Token))({
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    match(
+      toks.get(i),
+      .Some(.Some(t)) => {
+        return(Option(Token).Some(t));
+      },
+      _ => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(Token).None
+});
+/// A value moved in some arms of a `cond`/`match` and kept in others: attach
+/// `___drop(name)` to the end of each arm that keeps it (the arm body's
+/// deferred drops, which codegen emits inside the arm, after its value).
+/// Where the arms meet, the value is then moved or dropped on every path, so
+/// the caller marks it consumed. True when the drops are attached, or when
+/// the binding owns nothing to drop. False leaves the caller's E0907: a
+/// module-level value, or one whose type is not known enough to drop.
+_drop_in_arms_that_keep :: (
+  fn(
+    imm(v) : Variable,
+    imm(bodies) : ArrayList(AstExpr),
+    imm(consumed_at_tokens) : ArrayList(Option(Token)),
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception,
+    (imm(branch_expr) : Option(AstExpr)) ?= Option(AstExpr).None
+  ) -> bool
+)({
+  if(v.is_module_level, {
+    return(false);
+  });
+  // The drop names the value, so a `match` pattern in the branch that binds
+  // the same name (`.Some(x)`) would make the drop release that binding
+  // instead: keep E0907 there.
+  if(match(branch_expr, .Some(be) => _pattern_binds_name(be, v.name.clone()), .None => false), {
+    return(false);
+  });
+  // A binding that owns nothing (a `match`/`for` binding, a `mut` place)
+  // has nothing of its own to drop: what its move consumed is its holder,
+  // whose own join drops it in the arms that keep it.
+  if(!v.is_owning_the_rc_value || v.is_ref || !type_contains_rc_type(v.ty), {
+    return(true);
+  });
+  if(match(
+    v.ty,
+    .SomeT({ required_trait_types : s_rtt, resolution : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    _ => false
+  ), {
+    return(false);
+  });
+  // The drop names the value, so an arm that binds the same name (a
+  // `.Some(x)` pattern) would drop its own binding instead: keep E0907 there.
+  (si : usize) = usize(0);
+  while(si < bodies.len(), {
+    keeps_s := match(consumed_at_tokens.get(si), .Some(.Some(_)) => false, _ => true);
+    if(keeps_s, {
+      match(
+        bodies.get(si),
+        .Some(sb) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(sb)),
+          .Some(sbi) => {
+            same_name := get_variables_from_env(sbi.env, v.name.clone());
+            (sni : usize) = usize(0);
+            while(sni < same_name.len(), {
+              match(
+                same_name.get(sni),
+                .Some(sv) => if(sv.id != v.id, {
+                  return(false);
+                }),
+                .None => ()
+              );
+              sni = (sni + usize(1));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    si = (si + usize(1));
+  });
+  // The drop is evaluated with the value still owned, as the scope-end drop
+  // of an unmoved local is; the join marks it moved afterwards.
+  saved_consumed := v.consumed_at_token;
+  v.consumed_at_token = Option(Rc(Token)).None;
+  (i : usize) = usize(0);
+  while(i < bodies.len(), {
+    keeps := match(consumed_at_tokens.get(i), .Some(.Some(_)) => false, _ => true);
+    if(keeps, {
+      match(
+        bodies.get(i),
+        .Some(body) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(body)),
+          .Some(bi) => {
+            drop_expr := generate_expr_from_code(`${BF_DROP}(${v.name})`, exn);
+            evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+            v.consumed_at_token = Option(Rc(Token)).None;
+            drops := match(bi.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+            drops.push(evaluated);
+            bi.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(drops);
+            // A `return` inside this arm already emits the arm's deferred
+            // drops (they ride the pending list codegen keeps for the arm),
+            // so the early-return pass must not add a second drop there:
+            // record the arm as a window in which the value counts as gone.
+            arm_tok := ast_expr_token(body);
+            variable_record_undone_move(v, UndoneMove(moved_at : _first_token_of(body, arm_tok), until : _last_token_of(body, arm_tok), inclusive : true, arm_drop : true));
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  v.consumed_at_token = saved_consumed;
+  true
+});
 /// The closure an arm yields, as its capture struct: a closure literal's
 /// `capture_type`, or the resolution of a bound closure identity (a local
 /// declared `(f : Impl(Fn...)) = closure`).
@@ -2776,7 +3019,11 @@ merge_and_check_envs :: (
     group_log_start : usize,
     imm(arm_ranges) : ArrayList(usize),
     imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    imm(exn) : Exception,
+    /// The whole `cond`/`match`, every arm included (a returning arm is not
+    /// in `bodies`): a value moved in some arms is moved at its end, so the
+    /// early-return drop pass covers the returns inside it.
+    (imm(branch_expr) : Option(AstExpr)) ?= Option(AstExpr).None
   ) -> Environment
 )({
   if(bodies.len() == usize(0), {
@@ -3281,16 +3528,54 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             });
             if(all_consumed && !match(base_var.consumed_at_token, .Some(_) => true, .None => false), {
               first_tok := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
+              // Moved where the branch ends, as for a move in some arms: a
+              // `return` in an arm that left the join (a returning arm) is
+              // before that point, so the early-return pass drops the value
+              // there; one after a move in its own arm is not (the flow log
+              // keeps each arm's move as an `UndoneMove`).
+              end_tok := match(
+                branch_expr,
+                .Some(be) => match(first_tok, .Some(ft) => Option(Token).Some(_last_token_of(be, ft)), .None => Option(Token).None),
+                .None => first_tok
+              );
               match(
-                first_tok,
+                end_tok,
                 .Some(t) => {
                   base_var.consumed_at_token = Option(Rc(Token)).Some(rc(t.clone()));
+                  variable_note_arm_move(base_var, t, first_tok);
                 },
                 .None => ()
               );
             });
-            // Case 3: partial consumption → error
-            if(any_consumed && !all_consumed, {
+            // Case 3: partial consumption. An owned value is dropped at the
+            // end of every arm that does not move it, so where the arms meet
+            // it is gone on every path (the static form of Rust's drop flag:
+            // the arms are structured, so no runtime flag is needed). Only a
+            // value the elaboration cannot drop is still E0907.
+            partial := (any_consumed && !all_consumed);
+            elaborated := (partial && _drop_in_arms_that_keep(base_var, bodies, consumed_at_tokens, env, ctx, exn, branch_expr));
+            if(elaborated, {
+              // Moved where the branch ends: every arm has either moved it
+              // or dropped it by then. A `return` inside the branch is before
+              // that point, so the early-return drop pass gives it the drop
+              // unless the flow log shows a move earlier in its own arm
+              // (`variable_moved_at_cleanup_point`), whatever the arm order.
+              first_ct := _first_some_token(consumed_at_tokens);
+              end_ct := match(
+                branch_expr,
+                .Some(be) => match(first_ct, .Some(fct) => Option(Token).Some(_last_token_of(be, fct)), .None => Option(Token).None),
+                .None => first_ct
+              );
+              match(
+                end_ct,
+                .Some(t) => {
+                  base_var.consumed_at_token = Option(Rc(Token)).Some(rc(t.clone()));
+                  variable_note_arm_move(base_var, t, first_ct);
+                },
+                .None => ()
+              );
+            });
+            if(partial && !elaborated, {
               err_list := ArrayList(TokenAndError).new();
               (eci : usize) = usize(0);
               while(eci < n_cases, {

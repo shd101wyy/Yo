@@ -696,7 +696,7 @@ _dio_call_param :: (fn(mut(y) : i32, imm(cb) : Dyn(Fn(mut(n) : i32) -> unit)) ->
 });
 test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   h := _DioHolder(
-    cb : dyn(inout(n) => {
+    cb : dyn(mut(n) => {
       n = (n + i32(1));
     })
   );
@@ -708,7 +708,7 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   _dio_call_param(x, h.cb);
   assert(x == i32(45), "a Dyn(Fn) parameter called with an inout parameter");
   p := _DioPusher(
-    push : dyn(inout(xs) => {
+    push : dyn(mut(xs) => {
       xs.push(i32(7));
     })
   );
@@ -738,4 +738,27 @@ test("Dyn(trait) method with an inout parameter writes through to the caller's p
   assert(x == i32(42), "a local i32 is updated in place");
   _dio_trait_bump(x, d);
   assert(x == i32(44), "an inout parameter is forwarded, not re-addressed");
+});
+
+// A `fn(...)` value behind a `Dyn(Fn(...))` is called through the Dyn's
+// signature, so `dyn(f)` checks f's against it, modes included
+// (issues/fixed/a-function-argument-is-not-checked-against-a-function-typed-parameter.md).
+// A `fn(...)` value whose signature IS the Dyn's passes the check but has no
+// runtime canary here: `dyn(f)` of a named function emits invalid C
+// (issues/dyn-of-a-named-function-value-emits-invalid-c.md).
+_dfs_by_value :: (fn(s : String) -> usize)(s.len());
+_dfs_call :: (fn(imm(f) : Dyn(Fn(imm(s) : String) -> usize), imm(s) : String) -> usize)(f(s));
+test("dyn of a function value checks its signature against the Dyn's `Fn`", {
+  s := String.from("four");
+  comptime_expect_error({
+    (h : Dyn(Fn(imm(s) : String) -> usize)) = dyn(_dfs_by_value);
+  }, "a parameter's mode is part of the function type");
+  comptime_expect_error({
+    (h : Dyn(Fn(x : i32) -> i32)) = dyn(_dfs_by_value);
+  }, "Incompatible types");
+  (by_value : Dyn(Fn(t : String) -> usize)) = dyn(t => t.len());
+  comptime_expect_error(_dfs_call(by_value, s), "a parameter's mode is part of the function type");
+  (c : Dyn(Fn(imm(t) : String) -> usize)) = dyn(t => t.len());
+  assert(_dfs_call(c, s) == usize(4), "a closure literal adopts the Dyn's modes");
+  assert(s.len() == usize(4), "s was only ever lent");
 });

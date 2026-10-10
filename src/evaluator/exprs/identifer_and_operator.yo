@@ -18,7 +18,7 @@
   scope_release_note_query
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
-{ Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at, variable_move_note } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition, is_unlabeled_ensures_atom }
 :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -438,7 +438,7 @@ evaluate_identifier_and_operator :: (
         // Through the flow-violation channel, so a definition-time trial
         // (a closure or `io.async` body) re-raises it instead of swallowing
         // it into an abort stub.
-        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), variable.ty, token, moved_at.*), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), variable.ty, token, variable_move_note(variable, moved_at.*)), ctx, exn);
         return(expr);
       });
     },

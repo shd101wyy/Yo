@@ -267,8 +267,11 @@ test("Test 'MaybeUninit'", {
     (p.*)(0) = 1;
     // initialize the array
     arr := uninit_arr.assume_init(p);
-    // uninit_arr should be consumed after assume_init, so this should be an error:
-    comptime_expect_error(arr2 := uninit_arr.assume_init(p));
+    // `MaybeUninit(Array(i32, 2))` is `Copy` (its payload is), so
+    // `assume_init` takes a copy and `uninit_arr` stays usable (decision 36:
+    // a `Copy` value is copied at every copy point, a by-value argument too).
+    arr2 := uninit_arr.assume_init(p);
+    assert(arr2(0) == 1);
     arr(0) = (arr(0) + 1);
     arr(1) = 99;
     assert(arr(0) == 2);

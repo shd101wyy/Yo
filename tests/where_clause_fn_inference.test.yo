@@ -42,7 +42,7 @@ impl(
     LocalMapIter(Self, A, B, F)(_inner : self, _f : f)
   )
 );
-double :: (fn(x : i32) -> i32)(x * i32(2));
+double :: (fn(imm(x) : i32) -> i32)(x * i32(2));
 test("where-clause associated-type inference binds A and B from impl + Fn signature", {
   list := ArrayList(i32).new();
   list.push(i32(1));
@@ -50,7 +50,7 @@ test("where-clause associated-type inference binds A and B from impl + Fn signat
   // The annotation forces the result type explicitly. Before the fix, the
   // call would specialize `local_map_to` with A,B left as SomeTypes, producing a
   // distinct shadow LocalMapIter struct that didn't satisfy the annotation.
-  (iter : LocalMapIter(type_of(it1), i32, i32, fn(x : i32) -> i32)) = it1.local_map_to(double);
+  (iter : LocalMapIter(type_of(it1), i32, i32, fn(imm(x) : i32) -> i32)) = it1.local_map_to(double);
   match(
     iter.next(),
     .None => assert(true, "stub returns None"),
@@ -61,8 +61,8 @@ test("where-clause inference with bool callback return type", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   it1 := list.into_iter();
-  is_pos :: (fn(x : i32) -> bool)(x > i32(0));
-  (iter : LocalMapIter(type_of(it1), i32, bool, fn(x : i32) -> bool)) = it1.local_map_to(is_pos);
+  is_pos :: (fn(imm(x) : i32) -> bool)(x > i32(0));
+  (iter : LocalMapIter(type_of(it1), i32, bool, fn(imm(x) : i32) -> bool)) = it1.local_map_to(is_pos);
   match(
     iter.next(),
     .None => assert(true, "stub returns None"),
@@ -144,8 +144,8 @@ _WcBox :: (fn(comptime(T) : Type, where(T <: _WcBar)) -> comptime(Type))(struct(
 derive(generic(T : Type), where(T <: Clone), _WcBox(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _WcBox(T), Copy);
 _WcPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
-_wc_need_send :: (fn(generic(T : Type), x : T, where(T <: Send)) -> unit)(());
-_wc_fwd :: (fn(generic(U : Type), y : U) -> unit)(_wc_need_send(_WcPair(U)(a : y, b : y)));
+_wc_need_send :: (fn(generic(T : Type), imm(x) : T, where(T <: Send)) -> unit)(());
+_wc_fwd :: (fn(generic(U : Type), imm(y) : U) -> unit)(_wc_need_send(_WcPair(U)(a : y, b : y)));
 _WcKey :: struct(x : i32);
 impl(_WcKey, Eq(_WcKey)((==) : ((a, b) -> (a.x == b.x))));
 

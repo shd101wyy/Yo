@@ -3,26 +3,26 @@
 { Deque } :: import("std/collections/deque");
 { println } :: import("std/fmt");
 // Listed: a push through a by-value parameter.
-fill_copy :: (fn(out : ArrayList(i32)) -> unit)({
+fill_copy :: (fn(imm(out) : ArrayList(i32)) -> unit)({
   out.push(i32(1));
 });
 // Listed: an assignment through a by-value parameter.
-set_copy :: (fn(xs : ArrayList(i32)) -> unit)({
+set_copy :: (fn(imm(xs) : ArrayList(i32)) -> unit)({
   xs(usize(0)) = i32(2);
 });
 // Listed: a nested list written through the outer by-value parameter.
-nested_copy :: (fn(rows : ArrayList(ArrayList(i32))) -> unit)({
+nested_copy :: (fn(imm(rows) : ArrayList(ArrayList(i32))) -> unit)({
   rows(usize(0)).push(i32(3));
 });
 // Listed as unresolved: `Deque.push_back`'s mutation mask is not resolved.
-deque_copy :: (fn(d : Deque(i32)) -> unit)({
+deque_copy :: (fn(imm(d) : Deque(i32)) -> unit)({
   d.push_back(i32(4));
 });
 // Not listed: an `inout` parameter is the caller's list.
-fill_inout :: (fn(inout(out) : ArrayList(i32)) -> unit)({
+fill_inout :: (fn(mut(out) : ArrayList(i32)) -> unit)({
   out.push(i32(5));
 });
-apply :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+apply :: (fn(imm(f) : Impl(Fn() -> unit)) -> unit)(f());
 main :: (fn() -> unit)({
   xs := ArrayList(i32).new();
   fill_copy(xs);
@@ -39,7 +39,7 @@ main :: (fn() -> unit)({
   // Listed: a value `for` binding.
   for(rows, row => row.push(i32(7)));
   // Not listed: the borrowed `for` form writes the element in place.
-  for(rows, inout(row) => row.push(i32(8)));
+  for(rows, mut(row) => row.push(i32(8)));
   // Listed as a capture: the closure's copy of `seen`.
   seen := ArrayList(i32).new();
   apply(() => {

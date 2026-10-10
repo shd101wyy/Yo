@@ -201,7 +201,7 @@ impl(
   /// `value` moves INTO the lock and is thereafter reachable only through
   /// `with_lock` / `try_with_lock`. Creating the OS primitive is the only
   /// allocation-time cost; there is no lazy initialization on first lock.
-  new : (fn(imm(value) : T) -> Self)({
+  new : (fn(value : T) -> Self)({
     return(Self(__yo_mutex_create(), value, AtomicUsize(usize(0))));
   }),
   /// Take the lock, run `body` on the protected value, release the lock,

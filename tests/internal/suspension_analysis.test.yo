@@ -42,7 +42,7 @@ make_fncall_expr :: (fn(func_name : str) -> AstExpr)(
   )
 );
 // Creates a `:= x rhs` FnCall to simulate an assignment parent expression.
-make_assign_expr :: (fn(var_name : str, rhs : AstExpr) -> AstExpr)({
+make_assign_expr :: (fn(var_name : str, imm(rhs) : AstExpr) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(make_ident_expr(var_name));
   args.push(rhs);
@@ -55,7 +55,7 @@ make_assign_expr :: (fn(var_name : str, rhs : AstExpr) -> AstExpr)({
   )
 });
 // A get_info that always returns None (no type info available).
-get_info_none :: (fn(e : AstExpr) -> Option(ExprInfo))(
+get_info_none :: (fn(imm(e) : AstExpr) -> Option(ExprInfo))(
   Option(ExprInfo).None
 );
 // A detector that never detects anything.

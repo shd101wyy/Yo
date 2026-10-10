@@ -454,7 +454,7 @@ impl(
   /// Replace the spilled code with `bytes` (the FTT-stub attribute insert,
   /// `_insert_attr_before_first_decl`, when the first declaration was
   /// already spilled). Rare; it rewrites the whole file.
-  rewrite_code_spill : (fn(mut(self) : Self, own(bytes) : ArrayList(u8)) -> unit)({
+  rewrite_code_spill : (fn(mut(self) : Self, sink(bytes) : ArrayList(u8)) -> unit)({
     close_sync(self.code_spill_fd);
     cpath := self.code_spill_path.to_cstr();
     fd := open_sync(cpath.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, i32(DEFAULT_FILE_MODE));

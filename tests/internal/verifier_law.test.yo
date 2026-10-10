@@ -47,7 +47,7 @@ _have_z3 :: (fn() -> bool)(
     .None => false
   )
 );
-_join :: (fn(xs : ArrayList(String), sep : String) -> String)({
+_join :: (fn(imm(xs) : ArrayList(String), imm(sep) : String) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   while(i < xs.len(), {
@@ -59,7 +59,7 @@ _join :: (fn(xs : ArrayList(String), sep : String) -> String)({
   });
   out
 });
-_arm :: (fn(rel_path : String, std_path : String) -> unit)({
+_arm :: (fn(imm(rel_path) : String, imm(std_path) : String) -> unit)({
   targets := ArrayList(String).new();
   targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
@@ -69,7 +69,7 @@ _arm :: (fn(rel_path : String, std_path : String) -> unit)({
   clear_module_cache();
 });
 /// Evaluate a fixture that must LOAD CLEANLY, then run the verify pass.
-_verify_fixture :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))({
+_verify_fixture :: (fn(imm(rel_path) : String, io : Io) -> ArrayList(VerifyFnReport))({
   exn := Exception(
     throw : (
       err -> {
@@ -100,7 +100,7 @@ _verify_fixture :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))
 /// why. The rendered diagnostic arrives through `_take_load_error()` — an
 /// `Exception` handler is a capture-free `->` function and cannot record into a
 /// local, which the evaluator enforces.
-_expect_rejected :: (fn(rel_path : String, needle : String, io : Io) -> unit)({
+_expect_rejected :: (fn(imm(rel_path) : String, imm(needle) : String, io : Io) -> unit)({
   exn := Exception(throw : (err -> ()));
   std_path := resolve_std_path();
   _arm(rel_path.clone(), std_path.clone());
@@ -117,7 +117,7 @@ _expect_rejected :: (fn(rel_path : String, needle : String, io : Io) -> unit)({
   );
   take_verify_tasks();
 });
-_count_outcome :: (fn(reports : ArrayList(VerifyFnReport), want : String) -> usize)({
+_count_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(want) : String) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -133,7 +133,7 @@ _count_outcome :: (fn(reports : ArrayList(VerifyFnReport), want : String) -> usi
   n
 });
 /// The first report whose fn_id names a LAW (the `law@` prefix).
-_first_law :: (fn(reports : ArrayList(VerifyFnReport)) -> Option(VerifyFnReport))({
+_first_law :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> Option(VerifyFnReport))({
   (found : Option(VerifyFnReport)) = Option(VerifyFnReport).None;
   (i : usize) = usize(0);
   while(i < reports.len(), {

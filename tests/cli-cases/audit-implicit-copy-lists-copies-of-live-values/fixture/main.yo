@@ -22,18 +22,18 @@ bind_then_read :: (fn() -> usize)({
   x.len() + y.len() + z.len()
 });
 // A by-value parameter is borrowed: storing it always copies.
-store_param :: (fn(s : String) -> Holder)(
+store_param :: (fn(imm(s) : String) -> Holder)(
   Holder(name : s, items : ArrayList(i32).new())
 );
 // Returning a borrowed parameter copies it.
-return_param :: (fn(xs : ArrayList(i32)) -> ArrayList(i32))(xs);
+return_param :: (fn(imm(xs) : ArrayList(i32)) -> ArrayList(i32))(xs);
 // A field read stored elsewhere: a projection, always a copy (no partial moves).
-store_field :: (fn(h : Holder) -> Holder)(
+store_field :: (fn(imm(h) : Holder) -> Holder)(
   Holder(name : h.name, items : ArrayList(i32).new())
 );
 // An owning argument from a borrowed binding copies.
-take :: (fn(own(s) : String) -> usize)(s.len());
-pass_borrowed :: (fn(s : String) -> usize)(take(s));
+take :: (fn(sink(s) : String) -> usize)(s.len());
+pass_borrowed :: (fn(imm(s) : String) -> usize)(take(s));
 // Inside a loop the site runs again: a copy, unless the loop reassigns.
 loop_store :: (fn() -> usize)({
   s := String.from("x");
@@ -90,11 +90,11 @@ capture_two :: (fn() -> usize)({
 // A `match` binding is a part of its scrutinee: passing it to an owning
 // parameter copies when the scrutinee lives on (a local read again, or a
 // parameter), and moves out of a call's temporary.
-hold :: (fn(own(s) : String) -> Holder)(
+hold :: (fn(sink(s) : String) -> Holder)(
   Holder(name : s, items : ArrayList(i32).new())
 );
 make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
-match_parts :: (fn(p : Option(String)) -> usize)({
+match_parts :: (fn(imm(p) : Option(String)) -> usize)({
   o := Option(String).Some(String.from("o"));
   h1 := match(o, .Some(x) => hold(x), .None => hold(String.from("")));
   n := match(o, .Some(y) => y.len(), .None => usize(0));
@@ -103,7 +103,7 @@ match_parts :: (fn(p : Option(String)) -> usize)({
   h1.name.len() + n + h2.name.len() + h3.name.len()
 });
 // A `for` element borrows: passing it on copies.
-for_store :: (fn(xs : ArrayList(String)) -> usize)({
+for_store :: (fn(imm(xs) : ArrayList(String)) -> usize)({
   out := ArrayList(Holder).new();
   for(xs, s => {
     out.push(hold(s));
