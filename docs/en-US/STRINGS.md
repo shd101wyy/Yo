@@ -154,7 +154,7 @@ s(usize(1) .. usize(3)); // "é" — a new String
 
 Every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`,
 `reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`)
-takes `mut(self)` and writes in place. `clone()` copies the bytes (O(n));
+takes `self : &mut Self` and writes in place. `clone()` copies the bytes (O(n));
 the clone is independent of the original, empty or not. A plain copy
 (`t := s`) still shares a non-empty buffer until `plans/VALUES_BY_DEFAULT.md`
 V2b makes `String` uniquely owned (then `t := s` is a move, or an error naming

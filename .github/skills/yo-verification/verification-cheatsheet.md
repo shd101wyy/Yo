@@ -75,7 +75,7 @@ safe_div :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(r == (x / y))) 
   `ensures`; every call site PROVES the callee's `requires` and ASSUMES its
   `ensures`. No body is ever opened.
 - `old(x)` is the two-state snapshot: param values at entry (works for
-  params and `mut` names; body locals have no entry value).
+  params and `&mut` parameters; body locals have no entry value).
 - Trait contracts: impl variance is checked automatically
   (`trait.requires ⇒ impl.requires` contravariant, `impl.ensures ⇒
   trait.ensures` covariant) as synthetic `impl-variance@…` tasks.
@@ -197,7 +197,7 @@ match(
 - Verified: integer/bool arithmetic and comparisons, `cond`/`if`, let
   bindings and calls to contracted callees, `assert`/`old`, `match` over
   value enums, `while` + `invariant`, `decreases`, `break`/`continue`,
-  `mut` params, ghost `Seq`/`Multiset`/`Set`/`str_bytes`, fixed
+  `&mut` params, ghost `Seq`/`Multiset`/`Set`/`str_bytes`, fixed
   `Array(T, N)` reads/writes and `ms_of(a)` (permutation specs),
   `ArrayList(T)` of integer/bool element types modeled by
   (contents, len) with the std mutators' contracts, ghost code erasure,

@@ -241,46 +241,89 @@ ArgumentList ::= [Expression (',' Expression)*]
 
 ## 函数签名与参数修饰符
 
-参数是 `label : Type`，可选地被恰好一个修饰符调用包裹。
-修饰符包裹的是**标签**，绝不是类型：
+参数是 `label : Type`。标签可选地被恰好一个修饰符调用包裹（`sink`、
+`comptime`、`quote`），类型可选地带一个借用符号前缀 `&` 或 `&mut`
+（`plans/VALUES_BY_DEFAULT.md` 决策 42）：
 
 ```abnf
-Parameter ::= ParameterLabel ':' Type
+Parameter ::= ParameterLabel ':' ParameterType
 ParameterLabel ::=
-  | Identifier                  ;; 按值：复制（Copy）、移动，或共享句柄（引用类）
-  | 'imm' '(' Identifier ')'    ;; 对调用方值的只读借用
-  | 'mut' '(' Identifier ')'    ;; 对调用方位置的独占借用（写入落在那里）
+  | Identifier                  ;; 按值；类型带符号时为借用
   | 'sink' '(' Identifier ')'   ;; 按值，并且总是移动（即使是共享类）
   | 'comptime' '(' Identifier ')' ;; 仅限编译期的参数
   | 'quote' '(' Identifier ')'  ;; 宏参数（接收 AST）
+ParameterType ::=
+  | Type                        ;; 按值：复制（Copy）、移动，或共享句柄（引用类）
+  | '&' Type                    ;; 对调用方值的只读借用
+  | '&mut' Type                 ;; 对调用方位置的独占借用（写入落在那里）
 ```
 
+`&mut` 是一个记号。同一个 `ParameterType` 也用于接收者（`self : &Self`、
+`self : &mut Self`）、编译期参数（`comptime(x) : &T`）、带注解的闭包参数
+（`(v : &T) => ...`），以及带标签的 `Fn(...)` / `fn(...)` 槽位，包括在
+`Impl(...)` 和 `Dyn(...)` 之内（`Fn(v : &T) -> R`）。函数类型的槽位总是需要
+标签：不接受 `Fn(&T)`。
+
 ```yo
-swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({ ... });
+swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({ ... });
 sink :: (fn(sink(victim) : Holder) -> unit)({ ... });
 ```
 
-`imm` 与 `mut` 的位置规则：
+局部借用把一个名字绑定到某个位置，重指向则把已有的借用移到另一个位置：
 
-- 它们出现在参数标签上（`mut(name) : T`）和局部借用绑定上
-  （`mut(r) := place;`、`imm(r) := place;`）。
-- 它们在**返回类型位置被拒绝**（`-> mut(T)`、`-> (mut(name) : T)`），
-  在任何其他类型表达式中也被拒绝（`Option(mut(T))`、结构体字段、泛型参数）。
-- `inout(x)` 和 `own(x)` 是 `mut(x)` 与 `sink(x)` 的旧写法，现在会报错并给出
-  新写法；`yo fix <path> --migrate modes` 会改写它们。
+```abnf
+BorrowPlace ::=
+  | '&' Place                   ;; 只读
+  | '&mut' Place                ;; 独占
+LocalBorrow ::=
+  | Identifier ':=' BorrowPlace                            ;; y := &mut place;
+  | '(' Identifier ':' ('&' | '&mut') Type ')' '=' BorrowPlace ;; (y : &T) = &place;
+RePoint ::= Identifier '=' BorrowPlace                     ;; cur = &mut n.next;
+```
+
+由右侧的符号决定：`cur = &mut place` 重指向 `cur`，而不带符号的 `cur = v`
+会通过借用把 `v` 写入被借出的位置。
+
+闭包的捕获列表和借用形式的 `for` 使用同样的符号：
+
+```abnf
+CaptureEntry ::=
+  | Identifier                  ;; 按值：{ x }
+  | Identifier ':' Expression   ;; 按值：{ n : s.len() }
+  | Identifier ':' BorrowPlace  ;; 借用：{ name : &s, z : &mut w }
+  | '&' Identifier              ;; y : &y 的简写
+  | '&mut' Identifier           ;; z : &mut z 的简写
+BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x => ...)
+```
+
+`&` 与 `&mut` 的位置规则：
+
+- 在这一代中它们是**模式**，不是类型：它们只作为参数类型和局部借用位置的
+  前缀。`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T` 和
+  `&&T` 都是错误（"a borrow mode, not a type"）；引用要到决策 43 才成为类型。
+- 它们在**返回类型位置被拒绝**（`-> &T`、`-> &mut T`、`-> (name : &mut T)`）：
+  函数不能返回借用（投影，即决策 24，尚未实现）。
+- `mut` 是保留字：名为 `mut` 的绑定或参数是错误。
+- 在第二代（Generation B）之前仍接受模式关键字写法 `imm(x) : T`、
+  `mut(x) : T`、`comptime(imm(x)) : T`、`imm(y) := place`、`mut(cur) = place`、
+  捕获项 `imm(y)` / `mut(z) : &mut w` 以及 `for(xs, mut(x) => ...)`，
+  仅为了让 `std/` 和 `src/` 能用种子编译器构建；
+  `yo fix <path> --migrate borrow-spelling` 会改写它们。
+- `inout(x)` 和 `own(x)` 是 `x : &mut T` 与 `sink(x)` 更早的写法，现在会报错并
+  给出新写法；`yo fix <path> --migrate modes` 会改写它们。
 - 语义见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 在调用处，被借出的实参带有与参数匹配的标记：
 
 ```abnf
 BorrowArgument ::=
-  | '&' Expression              ;; 借给 'imm' 参数：show(&s)
-  | '&mut' Expression           ;; 借给 'mut' 参数：swap(&mut x, &mut y)
+  | '&' Expression              ;; 借给 '&T' 参数：show(&s)
+  | '&mut' Expression           ;; 借给 '&mut T' 参数：swap(&mut x, &mut y)
 ```
 
-`&x` 只有这一种含义。裸指针写作 `addr_of(x)`（不安全代码）；`&x` 出现在
-其他位置，或传给按值参数、裸指针参数，都是错误，并给出 `addr_of(x)`
-（按值参数还会给出 `x` / `x.clone()`）。
+`&x` 只表示借用：即这个标记、局部借用、捕获项或借用形式 `for` 的来源。
+裸指针写作 `addr_of(x)`（不安全代码）；`&x` 出现在其他位置，或传给按值参数、
+裸指针参数，都是错误，并给出 `addr_of(x)`（按值参数还会给出 `x` / `x.clone()`）。
 
 ## 注释与空白
 

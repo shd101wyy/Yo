@@ -419,7 +419,8 @@ Rules for codegen code and for the evaluator analyses codegen calls late
 - **`key` is the node whose record holds `name`**, which is not always the node
   you are generating:
   - a binding site uses the bound name atom (the `:=` lhs, the destructured
-    field atom, the `mut(name)` atom, the pattern binding);
+    field atom, a local borrow's name atom (`y` in `y := &mut place`), the
+    pattern binding);
   - a cleanup drop uses the drop target atom (`deferred_drop_target_variable`);
   - a place's base uses its binder (`_lhs_root_binder` in `exprs/assignment.yo`).
 - **A new name source needs a record.** If you add a site that asks a node about

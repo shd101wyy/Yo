@@ -103,7 +103,7 @@ evaluate_address_call :: (
       dyn(
         format_error_message(
           ptok,
-          `Taking an address with 'addr_of(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use the 'mut(name) : T' parameter form on the receiving function (the caller lends with '&mut x'); to read without copying, an 'imm(name) : T' parameter (the caller lends with '&x'). For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+          `Taking an address with 'addr_of(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use a 'name : &mut T' parameter on the receiving function (the caller lends with '&mut x'); to read without copying, a 'name : &T' parameter (the caller lends with '&x'). For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );

@@ -258,47 +258,96 @@ ArgumentList ::= [Expression (',' Expression)*]
 
 ## Function Signatures and Parameter Modifiers
 
-A parameter is `label : Type`, optionally wrapped by ONE modifier call.
-Modifiers wrap the **label**, never the type:
+A parameter is `label : Type`. The label is optionally wrapped by ONE
+modifier call (`sink`, `comptime`, `quote`), and the type is optionally
+prefixed by a borrow sigil, `&` or `&mut` (`plans/VALUES_BY_DEFAULT.md`
+decision 42):
 
 ```abnf
-Parameter ::= ParameterLabel ':' Type
+Parameter ::= ParameterLabel ':' ParameterType
 ParameterLabel ::=
-  | Identifier                  ;; by value: copied (Copy), moved, or a shared handle (reference kinds)
-  | 'imm' '(' Identifier ')'    ;; read-only borrow of the caller's value
-  | 'mut' '(' Identifier ')'    ;; exclusive borrow of a caller place (writes land there)
+  | Identifier                  ;; by value, or borrowed when the type carries a sigil
   | 'sink' '(' Identifier ')'   ;; by value, and always a move (even of a shared kind)
   | 'comptime' '(' Identifier ')' ;; compile-time-only parameter
   | 'quote' '(' Identifier ')'  ;; macro parameter (receives the AST)
+ParameterType ::=
+  | Type                        ;; by value: copied (Copy), moved, or a shared handle (reference kinds)
+  | '&' Type                    ;; read-only borrow of the caller's value
+  | '&mut' Type                 ;; exclusive borrow of a caller place (writes land there)
 ```
 
+`&mut` is one token. The same `ParameterType` is used by a receiver
+(`self : &Self`, `self : &mut Self`), a compile-time parameter
+(`comptime(x) : &T`), an annotated closure parameter (`(v : &T) => ...`) and a
+labeled `Fn(...)` / `fn(...)` slot, including inside `Impl(...)` and `Dyn(...)`
+(`Fn(v : &T) -> R`). A function-type slot always needs its label: `Fn(&T)` is
+not accepted.
+
 ```yo
-swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({ ... });
+swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({ ... });
 sink :: (fn(sink(victim) : Holder) -> unit)({ ... });
 ```
 
-Placement rules for `imm` and `mut`:
+A local borrow binds a name to a place, and a re-point moves an existing
+borrow to another place:
 
-- They appear on a parameter label (`mut(name) : T`) and on a local
-  borrow binding (`mut(r) := place;`, `imm(r) := place;`).
-- They are **rejected in return-type position** (`-> mut(T)`,
-  `-> (mut(name) : T)`) and inside any other type expression
-  (`Option(mut(T))`, struct fields, generic arguments).
-- `inout(x)` and `own(x)`, the old spellings of `mut(x)` and `sink(x)`, are
-  errors naming the new word; `yo fix <path> --migrate modes` rewrites them.
+```abnf
+BorrowPlace ::=
+  | '&' Place                   ;; read-only
+  | '&mut' Place                ;; exclusive
+LocalBorrow ::=
+  | Identifier ':=' BorrowPlace                            ;; y := &mut place;
+  | '(' Identifier ':' ('&' | '&mut') Type ')' '=' BorrowPlace ;; (y : &T) = &place;
+RePoint ::= Identifier '=' BorrowPlace                     ;; cur = &mut n.next;
+```
+
+The sigil on the right decides: `cur = &mut place` re-points `cur`, and a bare
+`cur = v` writes `v` through the borrow into the lent place.
+
+A closure's capture list and the borrowed `for` use the same sigils:
+
+```abnf
+CaptureEntry ::=
+  | Identifier                  ;; by value: { x }
+  | Identifier ':' Expression   ;; by value: { n : s.len() }
+  | Identifier ':' BorrowPlace  ;; borrow: { name : &s, z : &mut w }
+  | '&' Identifier              ;; pun of y : &y
+  | '&mut' Identifier           ;; pun of z : &mut z
+BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x => ...)
+```
+
+Placement rules for `&` and `&mut`:
+
+- They are a **mode**, not a type, in this generation: they prefix a
+  parameter's type and a local borrow's place. `T :: &i32`, `ArrayList(&T)`,
+  `Option(&T)`, a struct field `f : &T` and `&&T` are errors ("a borrow mode,
+  not a type"); references become types with decision 43.
+- They are **rejected in return-type position** (`-> &T`, `-> &mut T`,
+  `-> (name : &mut T)`): a function cannot return a borrow (projections,
+  decision 24, are not implemented).
+- `mut` is a reserved word: a binding or parameter named `mut` is an error.
+- Accepted until Generation B: the mode-word spellings `imm(x) : T`,
+  `mut(x) : T`, `comptime(imm(x)) : T`, `imm(y) := place`, `mut(cur) = place`,
+  the capture entries `imm(y)` / `mut(z) : &mut w` and `for(xs, mut(x) => ...)`,
+  kept only so `std/` and `src/` build under the seed;
+  `yo fix <path> --migrate borrow-spelling` rewrites them.
+- `inout(x)` and `own(x)`, the older spellings of `x : &mut T` and `sink(x)`,
+  are errors naming the new spelling; `yo fix <path> --migrate modes` rewrites
+  them.
 - See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
 
 At a call, a borrowed argument carries a marker that matches the parameter:
 
 ```abnf
 BorrowArgument ::=
-  | '&' Expression              ;; lends to an 'imm' parameter: show(&s)
-  | '&mut' Expression           ;; lends to a 'mut' parameter: swap(&mut x, &mut y)
+  | '&' Expression              ;; lends to a '&T' parameter: show(&s)
+  | '&mut' Expression           ;; lends to a '&mut T' parameter: swap(&mut x, &mut y)
 ```
 
-`&x` is only this marker. A raw pointer is `addr_of(x)` (unsafe code); a
-`&x` anywhere else, or passed to a by-value or raw-pointer parameter, is an
-error naming `addr_of(x)` (and `x` / `x.clone()` for a by-value parameter).
+`&x` is only a borrow: this marker, a local borrow, a capture entry or the
+borrowed `for` source. A raw pointer is `addr_of(x)` (unsafe code); a `&x`
+anywhere else, or passed to a by-value or raw-pointer parameter, is an error
+naming `addr_of(x)` (and `x` / `x.clone()` for a by-value parameter).
 
 ## Comments and Whitespace
 

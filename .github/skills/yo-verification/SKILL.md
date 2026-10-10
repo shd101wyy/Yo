@@ -32,7 +32,7 @@ Use this skill when you need to:
 
 - Name the return to use it in `ensures`: `-> (r : i32)` — there is NO magic `result` identifier (an unlabeled return leaves `result` unbound, E0401).
 - Verification is modular: a caller assumes the callee's `ensures` and proves its `requires`; bodies are never opened. A `refuted` law usually means the callee's contract is weaker than the claim needs.
-- `old(...)` reads the entry snapshot (params and `mut` names, not body locals).
+- `old(...)` reads the entry snapshot (params and `&mut` parameters, not body locals).
 - A plain `yo verify` PASSES on `assumed` and `outside-subset` — and on `unproven` in `verify+` files (in verify mode an `unproven` already fails the run) — so a green run is not "everything proved". `--strict` denies all three in every mode.
 - `law(fn(..., requires(...), ensures(...)) -> unit)` states a claim outside the code, proved from the callee's contract alone; the callee may be imported from another file (laws in `spec/`). Gate laws with `yo verify <path> --strict`.
 - Do not confuse this `--strict` with safe mode's planned "strict mode" (denying safe-mode laxity) — different features, same word.

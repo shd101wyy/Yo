@@ -860,3 +860,65 @@ test("Reject adjacent different operators without parentheses", {
   parse(`x := 1 + 2 * 3;`, `test.yo`, exn);
   assert(false, "expected an adjacent-different-operator parse error");
 });
+// ─── Decision 42 Generation A: `&T` / `&mut T` in the declaration slots ──────
+// The parse rewrites each new-spelling slot into the mode-word form every
+// later pass reads (plans/VALUES_BY_DEFAULT.md decision 42), so the two
+// spellings are exact synonyms; a `&` anywhere else is left for the
+// evaluator's "a borrow mode, not a type" error, and a call-site marker (a
+// named argument `f(s : &x)`) is never touched.
+_d42 :: (fn(src : str) -> String)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected parse error");
+        unwind(String.new());
+      }
+    )
+  );
+  ast_expr_to_string(only_expr(parse(String.from(src), `test.yo`, exn)))
+});
+test("decision 42: parameters, receivers and comptime parameters", {
+  assert_str_eq(_d42(`(fn(x : &String, y : &mut i32, comptime(k) : &i32, self : &Self, z : i32) -> unit)`), _d42(`(fn(imm(x) : String, mut(y) : i32, comptime(imm(k)) : i32, imm(self) : Self, z : i32) -> unit)`), "each parameter reads as its mode-word form");
+  assert_str_eq(_d42(`(fn((x : &i32) ?= 1) -> unit)`), _d42(`(fn((imm(x) : i32) ?= 1) -> unit)`), "through a ?= default");
+});
+test("decision 42: Fn slots, closure parameters and results", {
+  assert_str_eq(_d42(`Impl(Fn(v : &String, w : &mut i32) -> unit)`), _d42(`Impl(Fn(imm(v) : String, mut(w) : i32) -> unit)`), "an Fn slot");
+  assert_str_eq(_d42(`(v : &String) => v.len()`), _d42(`(imm(v) : String) => v.len()`), "one closure parameter");
+  assert_str_eq(_d42(`(a : &String, b : &mut i32) => a`), _d42(`(imm(a) : String, mut(b) : i32) => a`), "a closure parameter list");
+  assert_str_eq(_d42(`(fn(s : &String) -> &mut String)`), _d42(`(fn(imm(s) : String) -> mut(String))`), "a result slot");
+});
+test("decision 42: local borrows, the annotated form and re-points", {
+  assert_str_eq(_d42(`y := &s.items`), _d42(`imm(y) := s.items`), "a read-only local borrow");
+  assert_str_eq(_d42(`y := &mut s.items`), _d42(`mut(y) := s.items`), "an exclusive local borrow");
+  assert_str_eq(_d42(`cur = &mut n.next`), _d42(`mut(cur) = n.next`), "a re-point");
+  assert_str_eq(_d42(`(y : &String) = &s`), _d42(`imm(y, String) := s`), "the annotation is the mode call's second argument");
+  assert_str_eq(_d42(`cur = v`), `cur = v`, "a bare right side writes through, it never re-points");
+});
+test("decision 42: capture lists and the borrowed for", {
+  assert_str_eq(_d42(`{ x, y : &y, z : &mut w }(m : i32) => m`), _d42(`{ x, imm(y) : &y, mut(z) : &mut w }(m : i32) => m`), "the long form");
+  assert_str_eq(_d42(`{ &y, &mut z }() => y`), _d42(`{ imm(y), mut(z) }() => y`), "the puns");
+  assert_str_eq(_d42(`for(&xs, x => x)`), _d42(`for(xs, x => x)`), "the read-only borrowed for");
+  assert_str_eq(_d42(`for(&mut xs, x => x)`), _d42(`for(xs, mut(x) => x)`), "the exclusive borrowed for");
+  assert_str_eq(_d42(`for(&mut m, (k, v) => v)`), _d42(`for(m, (k, mut(v)) => v)`), "the map form borrows the value");
+});
+test("decision 42: a `&` outside a slot is left as written", {
+  assert_str_eq(_d42(`T :: &i32`), `T :: &(i32)`, "a type alias is not a slot");
+  assert_str_eq(_d42(`show(s : &name)`), `show(s : &(name))`, "a named argument keeps its call-site marker");
+  assert_str_eq(_d42(`S :: struct(f : &i32)`), `S :: struct(f : &(i32))`, "a field is not a slot in Generation A");
+});
+test("decision 42: `&&T` is rejected: a borrow of a borrow does not exist", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(`a borrow of a borrow does not exist`), "wrong error message"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`f :: (fn(x : &&i32) -> unit)(());`, `test.yo`, exn);
+  assert(false, "expected the `&&T` parse error");
+});

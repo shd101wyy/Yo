@@ -79,7 +79,7 @@ Use `recur(args)` only when calling the type constructor with **different** type
 - Double quote string returns `str` type (contains `[u8]` byte slice)
 - Template string returns `String` type (UTF-8 text; `clone()` makes an independent copy). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.
 - `str` is a builtin type — don't use it as a variable or type name.
-- **`String` copies by `clone()`; copy-on-write is OUT** (`plans/STRING_VALUE_SEMANTICS.md` §0, S3a): every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`) takes `mut(self)` and writes in place; `clone()` copies the bytes (O(n)) and is independent, empty or not. A plain `t := s` still copies the handle — a non-empty buffer is shared, an empty one is not (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`, open) — until VALUES_BY_DEFAULT V2b makes `t := s` a move or an error naming `s.clone()`. Writing through a borrowed copy — a by-value parameter, a `for`/`match` binding — is E0908: take `mut(x)`, return the new string, or write a local clone (`t := x.clone();`); `for(xs, mut(s) => s.push_str("!"))` and `xs(i).push_str("!")` write elements in place. The bytes are copied or moved, never lent: `to_bytes()` (an independent copy), `into_bytes()` (`sink(self)`, moves the buffer out, no copy when unique), `from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`; read in place with `len()`, `byte_at(i)`, `get_byte(i) -> Option(u8)`, `bytes()`. `as_bytes` is gone, and `String` has no `Index(usize)`: runtime `s(i)` is E0606 (a writable byte place would reach every string sharing the buffer and could break UTF-8). For shared text use `StringBuilder` (a shared mutable `ref` builder). User docs: `docs/en-US/DESIGN.md` §Writing through a copy of a `String`, `docs/en-US/STRINGS.md`.
+- **`String` copies by `clone()`; copy-on-write is OUT** (`plans/STRING_VALUE_SEMANTICS.md` §0, S3a): every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`) takes `self : &mut Self` and writes in place; `clone()` copies the bytes (O(n)) and is independent, empty or not. A plain `t := s` still copies the handle — a non-empty buffer is shared, an empty one is not (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`, open) — until VALUES_BY_DEFAULT V2b makes `t := s` a move or an error naming `s.clone()`. Writing through a borrowed copy — a by-value parameter, a `for`/`match` binding — is E0908: take `x : &mut String`, return the new string, or write a local clone (`t := x.clone();`); `for(&mut xs, s => s.push_str("!"))` and `xs(i).push_str("!")` write elements in place. The bytes are copied or moved, never lent: `to_bytes()` (an independent copy), `into_bytes()` (`sink(self)`, moves the buffer out, no copy when unique), `from_bytes(sink(bytes))` / `from_utf8(sink(bytes))`; read in place with `len()`, `byte_at(i)`, `get_byte(i) -> Option(u8)`, `bytes()`. `as_bytes` is gone, and `String` has no `Index(usize)`: runtime `s(i)` is E0606 (a writable byte place would reach every string sharing the buffer and could break UTF-8). For shared text use `StringBuilder` (a shared mutable `ref` builder). User docs: `docs/en-US/DESIGN.md` §Writing through a copy of a `String`, `docs/en-US/STRINGS.md`.
 - **String indexing is BYTE-based, everywhere** (D4, `plans/archive/STD_API_AUDIT_D4_PLAN.md`, 2026-08-26): `String.len()` is the byte count at O(1), and `at` / `substring` / `s(a..b)` / `index_of` / `last_index_of` / the positional arguments of `contains` / `starts_with` / `ends_with` / the `Pattern` trait all take and return byte offsets — the same unit as `str.len()` and `StringBuilder.len()`, which were always bytes. `substring` clamps out-of-range but PANICS on an offset inside a rune; `try_substring` is the non-panicking form, `floor_char_boundary` / `ceil_char_boundary` snap arbitrary offsets. Rune work goes through `chars()` / `char_indices()` composed with iterator methods — the rune count is `s.chars().count()` (the iterator spelling keeps the O(n) cost visible; `len()` is O(1) everywhere in std). Comptime strings share the byte basis (D4 PR 7). Full contract: `docs/en-US/STRINGS.md` / `docs/zh-CN/STRINGS.md`.
 - **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
 - **`replace` replaces EVERY occurrence** (D10, `plans/archive/STD_API_STABILIZATION.md` §2, 2026-09-07): `String.replace` is Rust's `str::replace`. `replacen(pattern, new, count)` is the bounded form, and `replace_first` (= `replacen(..., usize(1))`) is the pre-D10 meaning, kept deprecated for one release; `replace_all` stays one release as a deprecated synonym of `replace`. **`Regex.replace(haystack, rep)` — the method ON a `Regex` — still replaces the FIRST match**, because that is the Rust regex crate's shape (`Regex::replace` vs `Regex::replace_all`); it is `String.replace(re, rep)` (the `Pattern` dispatch) that replaces all. Before the flip, four compiler call sites already assumed replace-all and were silently wrong — see `issues/fixed/string-replace-first-only-broke-compiler-callers.md`.
@@ -165,8 +165,8 @@ The guarantee is data-race freedom for every program that compiles without `prag
 
 - **D10, `Send` vs `Sync` (VALUES_BY_DEFAULT §3.8, decision 38 E).** `Send` = may be MOVED to another thread; `Sync` = copies may be READ from several threads. Today's derivation is `Sync`; `Send` additionally needs every component `Send` and no non-atomic cell. An atomic object is `Send` iff its fields are `Sync`; `Mutex(T)` is `Sync` for `T <: Send` (explicit impl). Raw pointers are neither: a type holding one opts in with `impl(T, Send())`/`impl(T, Sync())` under the pragma (`Channel`, `Waker`), and `enforce_atomic_object_send` (which now asks `Sync`) skips pragma'd files because their impl registers after the type. `Dyn(Trait)` is either only through an explicit bound (`_thread_marker_named_in`, `values/dyn.yo`); a `Dyn(Trait, Send)` payload must also be `Sync` until V2b, since its copies share it. A closure literal that borrows its captures (`closure_literal_is_borrowed`) is never `Send`. Every marker list (`_marker_name_of`, the step-4b re-derivation, `record_closure_capture_verdicts`, `function_value_marker`, the manual-impl pragma gate) names both. **Generation B (sharing needs `Sync`):** the `Arc`/`arc` and `RwLock` bounds are `T <: (Send, Sync, Acyclic)` — `Sync` because each handle or read guard reads the payload from its own thread, `Send` because the last release (and `Dispose`) may run on any thread; `Arc(T)`'s own `Send`/`Sync` impls stay explicit under that bound, because the atomic-object derivation asks the payload TYPE and an `Impl(Fn)` payload is `Sync` only by value (dropping them broke `arc(closure)` across `Thread.spawn`). `Mutex`/`Channel`/`Sender`/`Receiver` keep `T <: (Send, Acyclic)` (serialized access / a moved payload), and `Thread.spawn`/`ThreadPool`/`spawn` keep `Impl(Fn, Send)` with a `T <: Send` result. A `Send`-but-not-`Sync` type (`impl(T, !(Sync()))`) is the canary (`tests/send_sync.test.yo`). `String`/collections stay non-`Send` until V2b's unique buffers.
 - **D1, module globals.** A closure bound to a `Send` or `Sync` closure type (a spawn body, a pool task, a `Dyn(Trait, Send)` method) may not reach a non-`Sync` module-level global, directly or through any function, local closure or `Send` trait object it calls. A value global that is written anywhere may not also be reached that way (a mutable static). Check: `function_reaches_non_send_global` (`src/evaluator/effects/mutation_summary.yo`). Use `thread_local(name)` for per-thread state, an atomic object for shared state. A pragma'd std file is the audited base: its globals are under a lock (`std/log.yo`, `std/encoding/html.yo`).
-- **D3, no writes through an atomic object.** No `=`, index store, or `mut` binding whose callee may write, rooted in an `Arc`/`Mutex`/`atomic(ref(...))`. The decision uses the callee's per-parameter mutation mask. A read-only `mut(self)` method (`ToString`, `Hash`) through an `Arc` stays legal.
-- **D8, second-class captures.** A closure may not capture a `mut`/`ref` parameter or a control-bound value. A new rejection that fires inside a definition-time trial must be flagged with `flag_flow_violation` before it throws, or the trial swallows it. A trial's caller re-raises the flagged error with `reraise_flow_violation`, which flags it again, so it also survives a trial that encloses that definition (a handler inside an `io.async` body).
+- **D3, no writes through an atomic object.** No `=`, index store, or `&mut` argument whose callee may write, rooted in an `Arc`/`Mutex`/`atomic(ref(...))`. The decision uses the callee's per-parameter mutation mask. A read-only `&mut self` method (`ToString`, `Hash`) through an `Arc` stays legal.
+- **D8, second-class captures.** A closure may not capture a `&mut`/`ref` parameter or a control-bound value. A new rejection that fires inside a definition-time trial must be flagged with `flag_flow_violation` before it throws, or the trial swallows it. A trial's caller re-raises the flagged error with `reraise_flow_violation`, which flags it again, so it also survives a trial that encloses that definition (a handler inside an `io.async` body).
 - **D4 + D9, function values.** A function value (closure or named function) holds `Send` iff what it captures is `Send` AND its code reaches no non-`Send` global; `Acyclic` is the captures alone. The VALUE decides, wherever it is known: `function_value_marker` (`src/evaluator/utils/closure.yo`, reached from `trait_checking.yo`/`types/function.yo` through `call_function_value_marker`) runs at every where-clause path, both `Impl` argument paths, `Impl` results and captures. A bare `fn(...)` type with no value (a struct field, a `Channel(fn() -> unit)` payload) is NOT `Send`, so a std type that must cross threads holds `Impl(Fn(...), Send)`, never a bare `fn` field. A new site that judges a function-typed value for a marker must pass the value as the witness, or it judges by type and rejects.
 - **D6, runtime externs.** Calling a `__yo_*` runtime extern (any `extern` other than `"c"`) by name or through a module value needs the pragma. Expose a runtime entry point as a Yo wrapper function in a pragma'd module, never as a bare alias (`get_thread_id :: __yo_get_thread_id;` made every caller call the extern).
 - **D2, `Iso`.** `^v` is the only safe constructor; it proves the whole graph unique at runtime (`__yo_iso_unique`), through the traversal functions. `T` must reach a non-atomic cell (`type_reaches_non_atomic_cell`): a non-atomic object, held by its handle, or a value holding one, held inline (its walk roots are its fields, `__yo_iso_roots_<Iso>`, and its dispose drops it field by field in `generate_iso_uniqueness_functions`).
@@ -385,8 +385,8 @@ Four rules to keep when extending it or implementing it on a new type:
   an API that THROWS (`Reader.read`, `BufReader.read_line`) cannot become a
   stream until it can return its failure —
   `plans/backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`.
-- **`next` takes `self : Self`, not `mut(self)`** (`Iterator` uses `mut`):
-  the future outlives the call and a `mut` borrow cannot cross a
+- **`next` takes `self : Self`, not `self : &mut Self`** (`Iterator` uses
+  `&mut`): the future outlives the call and a `&mut` borrow cannot cross a
   suspension. So every source is a `ref(struct(...))`.
 - **`.None` is terminal and stays terminal.** Every combinator preserves it.
 - **The associated type is named `Item`**, with the same uncheckable coherence
@@ -454,11 +454,11 @@ Traits use direct `trait(...)` syntax with associated types as labeled `Type` fi
 
 ```yo
 // Trait definition — Item is an associated type. Iterator was
-// migrated to take mut(self) : Self in plans/archive/ITERATOR_REDESIGN.md
+// migrated to take self : &mut Self in plans/archive/ITERATOR_REDESIGN.md
 // (the old *(Self) signature would be forbidden in safe code).
 Iterator :: trait(
   Item : Type,
-  next : (fn(mut(self) : Self) -> Option(Self.Item))
+  next : (fn(self : &mut Self) -> Option(Self.Item))
 );
 
 // impl — provide concrete values for all fields
@@ -466,7 +466,7 @@ impl(
   Counter,
   Iterator(
     Item : i32,
-    next : (fn(mut(self) : Self) -> Option(Self.Item))(
+    next : (fn(self : &mut Self) -> Option(Self.Item))(
       cond(
         (self._current >= self._max) => .None,
         true => {
@@ -792,7 +792,7 @@ Two conventions that are easy to miss:
   becomes a trait impl, so generic code can dispatch on it. Types that should
   compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
 - **Hashing is Rust-shaped (plans/reference/HASHER_REDESIGN.md).** `Hash.hash(self,
-  mut(hasher) : H)` FEEDS bytes; a `Hasher` (`std/hash`: `SipHasher13` =
+  hasher : &mut H)` FEEDS bytes; a `Hasher` (`std/hash`: `SipHasher13` =
   `DefaultHasher`, `Fnv1aHasher`) turns them into the `u64`. Never write a
   `-> u64` hash method or fold hashes with `* 31`; a new type's impl calls
   `hasher.write_*` per field (or `derive(Hash)`), variable-length data writes a
@@ -930,8 +930,8 @@ All container indexing uses the `Index` trait. Array/Slice have special compiler
 
 ### Architecture
 
-- `Index(Idx)` — runtime indexing trait with associated type `Output`. Self is taken by `mut(self) : Self` so the index method can return a pointer to a field of the caller's value.
-- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`). Self is taken by `comptime(mut(self)) : Self` — the comptime binding is erased at runtime but mutations through it propagate to the caller via the evaluator's binding-update path.
+- `Index(Idx)` — runtime indexing trait with associated type `Output`. Self is taken by `self : &mut Self` so the index method can return a pointer to a field of the caller's value.
+- `ComptimeIndex(Idx)` — compile-time variant (parameters and return are `comptime`). Self is taken by `comptime(self) : &mut Self` — the comptime binding is erased at runtime but mutations through it propagate to the caller via the evaluator's binding-update path.
 - Array/Slice Index impls delegate to compiler builtins (`__yo_array_index`, `__yo_slice_index`, etc.)
 - Other types (ArrayList, HashMap, BTreeMap, Deque, String) implement Index with normal methods
 

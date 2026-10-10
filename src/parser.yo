@@ -87,6 +87,23 @@ make_parse_error_raw :: (fn(imm(module_path) : String, imm(message) : String) ->
 _is_prefix_op_token :: (fn(imm(t) : Token) -> bool)(
   (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "^") || (t.value == "&mut"))
 );
+/// A capture-list borrow pun in decision 42's spelling: `&y` or `&mut z`, a
+/// prefix sigil on one identifier (plans/VALUES_BY_DEFAULT.md decision 35).
+/// Only a closure's capture list gives it a meaning; an ordinary record
+/// literal rejects the `&y` value at evaluation.
+_is_capture_sigil_pun :: (fn(imm(expr) : AstExpr) -> bool)(
+  match(
+    expr,
+    .FnCall(_, pf, pargs, p_infix, _) => (
+      !p_infix && (pargs.len() == usize(1)) && match(pf, .Atom(_, pt) => ((pt.value == "&") || (pt.value == "&mut")), .FnCall(_, _, _, _, _) => false) && match(
+        pargs.get(usize(0)),
+        .Some(a) => match(a, .Atom(_, at) => (at.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false),
+        .None => false
+      )
+    ),
+    .Atom(_, _) => false
+  )
+);
 /// The result of peeling a `:spec` suffix off a template-string interpolation.
 /// `spec` is empty when the text carries none, in which case `expr_text` is the
 /// original text unchanged.
@@ -1019,6 +1036,8 @@ impl(
         // a closure's capture list `{ … }(params) => body` gives it a
         // meaning; an ordinary record literal rejects it at evaluation.
         ast_expr_is_capture_mode_entry(expr) => true,
+        // `&y` / `&mut z`: the same puns in decision 42's spelling.
+        _is_capture_sigil_pun(expr) => true,
         true => match(
           func_box,
           .Atom(_, func_tok2) => (func_tok2.value == "..."),

@@ -7,7 +7,7 @@
 **重要说明**：`Dyn` 是一个**值类型**（包含数据指针和虚表的结构体）。其 `data` 字段**必须**指向一个 `ref(struct(...))` 类型（引用计数类型）。
 
 ```typescript
-Id :: trait(id : (fn(mut(self) : Self) -> i32));
+Id :: trait(id : (fn(self : &mut Self) -> i32));
 
 impl(i32, Id(id : ((self) -> { printf("i32: %d\n", self.*); return self.*; })));
 impl(bool, Id(id : ((self) -> { printf("bool\n"); return cond(self.* => 1, true => 0); })));
@@ -97,7 +97,7 @@ typedef struct {
 
 一个方法满足以下条件时，可以通过 `Dyn(Trait)` 接收者调用：
 
-1. 第一个参数是 `self`（`self : Self`、`mut(self) : Self` 或 `self : *(Self)`，因为 vtable 包装函数会为接收者拆箱）；
+1. 第一个参数是 `self`（`self : Self`、`self : &mut Self` 或 `self : *(Self)`，因为 vtable 包装函数会为接收者拆箱）；
 2. `Self` 不出现在签名的其他位置：既不是其他参数，也不是结果，也不在其中出现（`Option(Self)`、`Result(Self, E)`）；
 3. 不带 `generic(...)` 参数。
 

@@ -615,3 +615,17 @@ test("format_yo_fences: a ```yo block in a doc comment is formatted", {
   out := _fences(src, true);
   assert(out == "/// Doc.\n///\n/// ```yo\n/// x := f(i32(1)); // aligned\n/// ```\nf :: (fn() -> i32)(i32(1));\n", `got:\n${out}`);
 });
+// Decision 42 Generation A (plans/VALUES_BY_DEFAULT.md): the formatter keeps
+// whichever borrow spelling a file uses. The sigil spelling is canonical as
+// written in every slot, and the mode words are never rewritten to it (std/
+// and src/ keep them until Generation B, which the seed must still parse).
+test("fmt: the `&T` / `&mut T` spelling is stable in every slot", {
+  src := String.from(
+    "f :: (fn(x : &String, y : &mut i32, comptime(k) : &i32, z : i32) -> unit)(());\nS :: struct(n : i32);\nimpl(S, get : (fn(self : &Self) -> i32)(self.n), set : (fn(self : &mut Self, v : i32) -> unit)({\n  self.n = v;\n}));\napply :: (fn(f : &Impl(Fn(v : &String) -> usize), g : &Dyn(Fn(v : &mut i32) -> unit)) -> unit)(());\nmain :: (fn() -> unit)({\n  s := String.from(\"a\");\n  y := &s;\n  x := i32(1);\n  z := &mut x;\n  (w : &String) = &s;\n  z = &mut x;\n  h := { y : &s, z : &mut x }(m : i32) => m;\n  p := { &s, &mut x }() => i32(1);\n  c := (v : &String) => v.len();\n  for(&xs, e => e);\n  for(&mut xs, e => e);\n  for(&mut m, (k, v) => v);\n});\n"
+  );
+  assert(_fmt(src.clone()) == src, `the sigil spelling is canonical as written; got:\n${_fmt(src.clone())}`);
+});
+test("fmt: the mode-word spelling is kept as written", {
+  src := String.from("f :: (fn(imm(x) : String, mut(y) : i32, comptime(imm(k)) : i32) -> unit)({\n  imm(a) := x;\n  mut(b) := y;\n  mut(b) = y;\n});\nimpl(S, get : (fn(imm(self) : Self) -> i32)(self.n));\nmain :: (fn() -> unit)({\n  h := { imm(a), mut(b) : &mut c }() => i32(1);\n  for(xs, mut(e) => e);\n});\n");
+  assert(_fmt(src.clone()) == src, `the formatter never rewrites a mode word; got:\n${_fmt(src.clone())}`);
+});
