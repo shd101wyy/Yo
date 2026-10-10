@@ -23,8 +23,8 @@ eval :: (fn(e : *MyExpr) -> i32)({
       e.*,
       .Lit(v) => v,
       .Add(l, r) => {
-        lv := recur(&(l.*));
-        rv := recur(&(r.*));
+        lv := recur(addr_of(l.*));
+        rv := recur(addr_of(r.*));
         lv + rv
       },
       .List(items) => {
@@ -34,7 +34,7 @@ eval :: (fn(e : *MyExpr) -> i32)({
           match(
             items.get(i),
             .Some(it) => {
-              sum = (sum + recur(&it));
+              sum = (sum + recur(addr_of(it)));
             },
             .None => ()
           );
@@ -51,7 +51,7 @@ main :: (fn() -> unit)({
   items.push(MyExpr.Lit(i32(20)));
   items.push(MyExpr.Add(rc(MyExpr.Lit(i32(3))), rc(MyExpr.Lit(i32(4)))));
   e := MyExpr.List(items);
-  v := eval(&e);
+  v := eval(addr_of(e));
   println(`v=${v.to_string()}`);
 });
 export(main);

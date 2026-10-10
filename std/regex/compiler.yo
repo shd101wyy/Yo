@@ -435,14 +435,14 @@ impl(
         right := node.children(usize(1));
         split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
         left_start := self._current_pc();
-        &(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, usize(0));
+        addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, usize(0));
         recur(self, left);
         jump_pc := self._emit(Instr.jump_instr(usize(0)));
         right_start := self._current_pc();
-        &(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, right_start);
+        addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, right_start);
         recur(self, right);
         end_pc := self._current_pc();
-        &(self._program.instructions(jump_pc)).* = Instr.jump_instr(end_pc);
+        addr_of(self._program.instructions(jump_pc)).* = Instr.jump_instr(end_pc);
       },
       .Quantifier => {
         child := node.children(usize(0));
@@ -467,10 +467,10 @@ impl(
             l3 := self._current_pc();
             cond(
               greedy => {
-                &(self._program.instructions(split_pc)).* = Instr.split_instr(l2, l3);
+                addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(l2, l3);
               },
               true => {
-                &(self._program.instructions(split_pc)).* = Instr.split_instr(l3, l2);
+                addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(l3, l2);
               }
             );
           },
@@ -480,10 +480,10 @@ impl(
             l2 := self._current_pc();
             cond(
               greedy => {
-                &(self._program.instructions(split_pc)).* = Instr.split_instr(last_body_start, l2);
+                addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(last_body_start, l2);
               },
               true => {
-                &(self._program.instructions(split_pc)).* = Instr.split_instr(l2, last_body_start);
+                addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(l2, last_body_start);
               }
             );
           },
@@ -498,10 +498,10 @@ impl(
               after := self._current_pc();
               cond(
                 greedy => {
-                  &(self._program.instructions(split_pc)).* = Instr.split_instr(body_start, after);
+                  addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(body_start, after);
                 },
                 true => {
-                  &(self._program.instructions(split_pc)).* = Instr.split_instr(after, body_start);
+                  addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(after, body_start);
                 }
               );
             });
@@ -532,7 +532,7 @@ impl(
         recur(self, child);
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
-        &(self._program.instructions(la_pc)).* = Instr.lookahead_instr(sub_start, sub_end, positive);
+        addr_of(self._program.instructions(la_pc)).* = Instr.lookahead_instr(sub_start, sub_end, positive);
       },
       .Lookbehind => {
         child := node.children(usize(0));
@@ -542,7 +542,7 @@ impl(
         recur(self, child);
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
-        &(self._program.instructions(lb_pc)).* = Instr.lookbehind_instr(sub_start, sub_end, positive);
+        addr_of(self._program.instructions(lb_pc)).* = Instr.lookbehind_instr(sub_start, sub_end, positive);
       }
     );
   })

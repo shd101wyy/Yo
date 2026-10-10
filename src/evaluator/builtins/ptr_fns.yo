@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type } :: import("../../types/guards.yo");
 {
   ExprInfo,
@@ -17,7 +17,9 @@ pragma(Pragma.AllowUnsafe);
   expr_info_comptime_ref,
   expr_info_index_trait_ptr_type,
   expr_info_set_comptime_ref,
-  expr_info_set_is_index_trait_address_of
+  expr_info_set_is_index_trait_address_of,
+  record_addr_of_site,
+  migrate_addr_of_on
 } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -106,6 +108,10 @@ evaluate_address_call :: (
       )
     );
   });
+  // `yo fix --migrate addr-of`: every `&x` this evaluator sees is the
+  // raw-pointer address-of (a lent marker was peeled before evaluation), so
+  // the sweep rewrites it to `addr_of(x)`.
+  if(migrate_addr_of_on(), match(expr, .FnCall(_, amp_callee, _, _, _) => match(amp_callee, .Atom(_, amp_tok) => record_addr_of_site(amp_tok, ast_expr_to_string(expr), false), _ => ()), _ => ()));
   // Adjust expected type: if expected is a pointer, use the pointee type.
   // Build a FRESH ExpectedTypeCtx — ExpectedTypeCtx is an
   // `object` (reference semantics), so mutating an alias of the current

@@ -33,7 +33,7 @@ _count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
 _COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
 test("A counting allocator sees every block it owns, prefix included", {
   counts := _Counts(allocs : usize(0), frees : usize(0), reallocs : usize(0), bytes : usize(0));
-  a := Allocator(ctx : .Some((*void)(&counts)), vtable : &_COUNT_VTABLE);
+  a := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(_COUNT_VTABLE));
   p := a.alloc(usize(10));
   q := a.alloc(usize(20));
   assert(counts.allocs == usize(2), "two allocations");

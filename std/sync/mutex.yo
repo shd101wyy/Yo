@@ -125,7 +125,7 @@ impl(
       (self._owner.load(MemoryOrder.Acquire) == me) => __yo_panic("RawMutex.lock: locked again by the thread that already holds it"),
       true => ()
     );
-    __yo_mutex_lock(&self._handle);
+    __yo_mutex_lock(addr_of(self._handle));
     self._owner.store(me, MemoryOrder.Release);
   }),
   /// Take the lock if it is free; `true` = taken (you must `unlock`). `false`
@@ -135,7 +135,7 @@ impl(
     me := __yo_thread_self();
     cond(
       (self._owner.load(MemoryOrder.Acquire) == me) => false,
-      __yo_mutex_trylock(&self._handle) => {
+      __yo_mutex_trylock(addr_of(self._handle)) => {
         self._owner.store(me, MemoryOrder.Release);
         true
       },
@@ -151,7 +151,7 @@ impl(
       true => ()
     );
     self._owner.store(usize(0), MemoryOrder.Release);
-    __yo_mutex_unlock(&self._handle);
+    __yo_mutex_unlock(addr_of(self._handle));
   }),
   /// Whether the calling thread holds this lock. Exact for the caller (only
   /// it can change that fact); the answer about any OTHER thread is
@@ -165,7 +165,7 @@ impl(
   RawMutex,
   Dispose(
     dispose : (fn(imm(self) : Self) -> unit)({
-      return(__yo_mutex_destroy(&self._handle));
+      return(__yo_mutex_destroy(addr_of(self._handle)));
     })
   )
 );
@@ -266,7 +266,7 @@ impl(
     me := __yo_thread_self();
     cond(
       (self._owner.load(MemoryOrder.Acquire) == me) => Option(R).None,
-      !__yo_mutex_trylock(&self._handle) => Option(R).None,
+      !__yo_mutex_trylock(addr_of(self._handle)) => Option(R).None,
       true => {
         self._owner.store(me, MemoryOrder.Release);
         _guard := __MutexUnlocker(T)(self);
@@ -286,7 +286,7 @@ impl(
     me := __yo_thread_self();
     cond(
       (self._owner.load(MemoryOrder.Acquire) == me) => false,
-      __yo_mutex_trylock(&self._handle) => {
+      __yo_mutex_trylock(addr_of(self._handle)) => {
         self._owner.store(me, MemoryOrder.Release);
         self._raw_unlock();
         true
@@ -302,7 +302,7 @@ impl(
       (self._owner.load(MemoryOrder.Acquire) == me) => __yo_panic("Mutex: locked again by the thread that already holds it (a with_lock inside a with_lock on the same mutex)"),
       true => ()
     );
-    __yo_mutex_lock(&self._handle);
+    __yo_mutex_lock(addr_of(self._handle));
     self._owner.store(me, MemoryOrder.Release);
   }),
   _raw_unlock : (fn(imm(self) : Self) -> unit)({
@@ -311,10 +311,10 @@ impl(
       true => ()
     );
     self._owner.store(usize(0), MemoryOrder.Release);
-    __yo_mutex_unlock(&self._handle);
+    __yo_mutex_unlock(addr_of(self._handle));
   }),
   _raw_handle_ptr : (fn(mut(self) : Self) -> *__YO_THREAD_SYNC_TYPE)(
-    &self._handle
+    addr_of(self._handle)
   ),
   /// Whether the calling thread holds this mutex (exact for the caller).
   _held_by_current_thread : (fn(imm(self) : Self) -> bool)(
@@ -340,7 +340,7 @@ impl(
   Mutex(T),
   Dispose(
     dispose : (fn(imm(self) : Self) -> unit)({
-      return(__yo_mutex_destroy(&self._handle));
+      return(__yo_mutex_destroy(addr_of(self._handle)));
     })
   )
 );

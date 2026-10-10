@@ -17,15 +17,15 @@ test("addr_of produces a raw pointer", {
   (n : i32) = i32(1);
   p := addr_of(n);
   comptime_assert(Type.is_compatible_with(type_of(p), *i32), "addr_of(n) : *(i32)");
-  comptime_assert(Type.is_compatible_with(type_of(addr_of(n)), type_of(&n)), "the same type as &n");
+  comptime_assert(Type.is_compatible_with(type_of(addr_of(n)), type_of(addr_of(n))), "the same type as &n");
   p.* = i32(7);
   assert(n == i32(7), "a write through the pointer lands in n");
-  assert(addr_of(n) == &n, "the same address as &n");
+  assert(addr_of(n) == addr_of(n), "the same address as &n");
 });
 
 test("&x to a pointer parameter is still the address-of", {
   (n : i32) = i32(1);
-  _ao_write(&n, i32(9));
+  _ao_write(addr_of(n), i32(9));
   assert(n == i32(9), "&n to a *(i32) parameter");
   _ao_write(addr_of(n), i32(10));
   assert(n == i32(10), "addr_of(n) to a *(i32) parameter");

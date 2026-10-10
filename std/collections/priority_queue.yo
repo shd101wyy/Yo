@@ -87,8 +87,8 @@ impl(
       parent_val := self._data(parent);
       cond(
         (child_val > parent_val) => {
-          &(self._data(i)).* = parent_val;
-          &(self._data(parent)).* = child_val;
+          addr_of(self._data(i)).* = parent_val;
+          addr_of(self._data(parent)).* = child_val;
           i = parent;
         },
         true => {
@@ -110,7 +110,7 @@ impl(
       true => {
         top := self._data(usize(0));
         last := self._data(n - usize(1));
-        &(self._data(usize(0))).* = last;
+        addr_of(self._data(usize(0))).* = last;
         self._data.pop();
         // Sift down
         i := usize(0);
@@ -138,8 +138,8 @@ impl(
             true => {
               a := self._data(i);
               b := self._data(largest);
-              &(self._data(i)).* = b;
-              &(self._data(largest)).* = a;
+              addr_of(self._data(i)).* = b;
+              addr_of(self._data(largest)).* = a;
               i = largest;
             }
           );

@@ -32,7 +32,7 @@ test("a raw-pointer struct that opts in is Send and Sync", {
 comptime_expect_error({
   _spawn_raw_holder :: (fn() -> unit)({
     (n : i32) = i32(1);
-    h := SrpHolder(p : &n);
+    h := SrpHolder(p : addr_of(n));
     t := Thread(unit).spawn(io => {
       _q := h.p;
       ()
@@ -44,7 +44,7 @@ comptime_expect_error({
 // One that opts in does.
 _spawn_opt_in :: (fn() -> i32)({
   (n : i32) = i32(41);
-  h := SrpOptIn(p : &n);
+  h := SrpOptIn(p : addr_of(n));
   got := AtomicI32(i32(0));
   t := Thread(unit).spawn(io => {
     got.store(h.p.*, MemoryOrder.Release);

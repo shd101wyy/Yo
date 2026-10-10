@@ -156,28 +156,28 @@ _log_mutex := __yo_mutex_create();
 /// Set the minimum level that is emitted (`Off` silences everything). The
 /// default, before any call to this, is `Info`.
 set_level :: (fn(level : Level) -> unit)({
-  unsafe(__yo_mutex_lock(&_log_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   _global_level = level;
-  unsafe(__yo_mutex_unlock(&_log_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 /// The current minimum level.
 get_level :: (fn() -> Level)({
-  unsafe(__yo_mutex_lock(&_log_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   level := _global_level;
-  unsafe(__yo_mutex_unlock(&_log_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
   level
 });
 /// Choose stdout or stderr (default stderr).
 set_output :: (fn(output : LogOutput) -> unit)({
-  unsafe(__yo_mutex_lock(&_log_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   _global_output = output;
-  unsafe(__yo_mutex_unlock(&_log_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 /// Prefix each line with an RFC 3339 UTC timestamp when true.
 set_timestamps :: (fn(on : bool) -> unit)({
-  unsafe(__yo_mutex_lock(&_log_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   _global_timestamps = on;
-  unsafe(__yo_mutex_unlock(&_log_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 /// Send every record to `sink` instead of stdout/stderr.
 ///
@@ -185,15 +185,15 @@ set_timestamps :: (fn(on : bool) -> unit)({
 /// installed — rendering is the sink's job. The LEVEL filter still applies, so
 /// a sink never sees a record the configuration suppressed.
 set_sink :: (fn(imm(sink) : Dyn(Sink)) -> unit)({
-  unsafe(__yo_mutex_lock(&_log_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   _global_sink = Option(Dyn(Sink)).Some(sink);
-  unsafe(__yo_mutex_unlock(&_log_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 /// Go back to writing to stdout/stderr.
 clear_sink :: (fn() -> unit)({
-  unsafe(__yo_mutex_lock(&_log_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   _global_sink = Option(Dyn(Sink)).None;
-  unsafe(__yo_mutex_unlock(&_log_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 export(set_sink, clear_sink);
 /// Apply `YO_LOG` to the level filter, if it is set to a name
@@ -237,9 +237,9 @@ _enabled_locked :: (fn(level : Level) -> bool)(
 /// True iff a message at `level` would be emitted right now — the guard the
 /// lazy forms check before building their message.
 enabled :: (fn(level : Level) -> bool)({
-  unsafe(__yo_mutex_lock(&_log_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   on := _enabled_locked(level);
-  unsafe(__yo_mutex_unlock(&_log_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
   on
 });
 export(enabled);
@@ -257,10 +257,10 @@ _write_string :: (fn(imm(s) : String, dest : *FILE) -> unit)({
 /// filter check and the whole write are under one lock, so concurrent
 /// threads never interleave a line.
 _emit :: (fn(level : Level, imm(target) : String, imm(msg) : String) -> unit)({
-  unsafe(__yo_mutex_lock(&_log_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_log_mutex)));
   cond(
     !_enabled_locked(level) => {
-      unsafe(__yo_mutex_unlock(&_log_mutex));
+      unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
       return(());
     },
     true => ()
@@ -271,7 +271,7 @@ _emit :: (fn(level : Level, imm(target) : String, imm(msg) : String) -> unit)({
     _global_sink,
     .Some(sink) => {
       sink.write_line(level, target, msg);
-      unsafe(__yo_mutex_unlock(&_log_mutex));
+      unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
       return(());
     },
     .None => ()
@@ -298,7 +298,7 @@ _emit :: (fn(level : Level, imm(target) : String, imm(msg) : String) -> unit)({
   );
   _write_string(msg, dest);
   _write_string(String.from("\n"), dest);
-  unsafe(__yo_mutex_unlock(&_log_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_log_mutex)));
 });
 /// Log a `ToString` value at `level`.
 log :: (fn(generic(T : Type), level : Level, imm(msg) : T, where(T <: ToString)) -> unit)(

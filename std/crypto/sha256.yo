@@ -214,8 +214,8 @@ impl(
       self._total = (self._total + u64(1));
       cond(
         (self._buflen == usize(64)) => {
-          buf_ptr := &self._buf(usize(0));
-          h_ptr := &self._h(usize(0));
+          buf_ptr := addr_of(self._buf(usize(0)));
+          h_ptr := addr_of(self._h(usize(0)));
           _sha256_block(buf_ptr, h_ptr);
           self._buflen = usize(0);
         },
@@ -243,8 +243,8 @@ impl(
         while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
           self._buf(self._buflen) = u8(0);
         });
-        buf_ptr := &self._buf(usize(0));
-        h_ptr := &self._h(usize(0));
+        buf_ptr := addr_of(self._buf(usize(0)));
+        h_ptr := addr_of(self._h(usize(0)));
         _sha256_block(buf_ptr, h_ptr);
         self._buflen = usize(0);
       },
@@ -262,8 +262,8 @@ impl(
     self._buf(usize(61)) = u8(bit_len >> u64(16));
     self._buf(usize(62)) = u8(bit_len >> u64(8));
     self._buf(usize(63)) = u8(bit_len);
-    buf_ptr := &self._buf(usize(0));
-    h_ptr := &self._h(usize(0));
+    buf_ptr := addr_of(self._buf(usize(0)));
+    h_ptr := addr_of(self._h(usize(0)));
     _sha256_block(buf_ptr, h_ptr);
     // Extract digest
     digest := Array(u8, usize(32)).fill(u8(0));

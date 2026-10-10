@@ -66,8 +66,8 @@ make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       // Build the IP string "a.b.c.d"
       { snprintf } :: import("../libc/stdio");
       buf := Array(u8, usize(16)).fill(u8(0));
-      unsafe(snprintf((*char)(&buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
-      IO_tcp.make_sockaddr_in(&buf(usize(0)), addr.port)
+      unsafe(snprintf((*char)(addr_of(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
+      IO_tcp.make_sockaddr_in(addr_of(buf(usize(0))), addr.port)
     },
     .V6(_) => {
       // Render the real address text. `to_string` emits the RFC 5952 canonical
@@ -104,7 +104,7 @@ sockaddr_to_socket_addr :: (fn(buf : *u8) -> SocketAddr)({
     },
     (fam == u16(AF_INET6)) => {
       bytes := Array(u8, usize(16)).fill(u8(0));
-      IO_tcp.get_addr_in6(buf, &bytes(usize(0)));
+      IO_tcp.get_addr_in6(buf, addr_of(bytes(usize(0))));
       segs := Array(u16, usize(8)).fill(u16(0));
       i := usize(0);
       while(runtime(i < usize(8)), {
@@ -273,7 +273,7 @@ impl(
       fd := NetError.check(raw_fd, e.exn);
       // Set SO_REUSEADDR
       reuse_val := i32(1);
-      reuse_ptr := &reuse_val;
+      reuse_ptr := addr_of(reuse_val);
       e.io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*u8)(reuse_ptr), u32(4)), e.io);
       // Bind
       saddr := make_sockaddr(addr);
@@ -561,7 +561,7 @@ impl(
     sock_fd := self._fd;
     io.async(e => {
       val := cond(nodelay => i32(1), true => i32(0));
-      val_ptr := &val;
+      val_ptr := addr_of(val);
       r := e.io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, (*u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {
@@ -576,7 +576,7 @@ impl(
     sock_fd := self._fd;
     io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
-      val_ptr := &val;
+      val_ptr := addr_of(val);
       r := e.io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, (*u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {

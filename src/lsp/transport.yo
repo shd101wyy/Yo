@@ -195,7 +195,7 @@ _stdin_has_input_windows :: (fn() -> bool)({
     .None => true,
     .Some(h) => {
       (avail : ulong) = ulong(0);
-      peeked := unsafe(PeekNamedPipe(h, Option(*void).None, u32(0), Option(*u32).None, &avail, Option(*u32).None));
+      peeked := unsafe(PeekNamedPipe(h, Option(*void).None, u32(0), Option(*u32).None, addr_of(avail), Option(*u32).None));
       cond(
         (peeked != int(0)) => (avail > ulong(0)),
         // Not a pipe (console, disk file): WAIT_OBJECT_0 = 0 means signaled.
@@ -215,7 +215,7 @@ _stdin_has_input_posix :: (fn() -> bool)({
   // and 8 bytes total on every ABI this compiler targets (4-byte int
   // alignment, little-endian), laid out by hand through one i64 slot.
   (pfd : i64) = i64(0);
-  p := &pfd;
+  p := addr_of(pfd);
   unsafe({
     fd_field := (*int)(p);
     fd_field.* = int(0);

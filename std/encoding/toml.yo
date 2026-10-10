@@ -2340,7 +2340,7 @@ _write_f64 :: (fn(v : f64, mut(out) : ArrayList(u8)) -> unit)({
   (p : i32) = i32(1);
   while((p <= i32(17)) && !found, p = (p + i32(1)), {
     buf := Array(u8, usize(48)).fill(u8(0));
-    buf_ptr := &buf(usize(0));
+    buf_ptr := addr_of(buf(usize(0)));
     unsafe(snprintf((*char)(buf_ptr), usize(48), "%.*g", p, v));
     s := String.from_cstr(buf_ptr).unwrap();
     match(
@@ -2385,7 +2385,7 @@ _write_datetime :: (fn(d : TomlDateTime, mut(out) : ArrayList(u8)) -> unit)({
   cond(
     has_date => {
       dbuf := Array(u8, usize(32)).fill(u8(0));
-      dptr := &dbuf(usize(0));
+      dptr := addr_of(dbuf(usize(0)));
       unsafe(snprintf((*char)(dptr), usize(32), "%04d-%02u-%02u", v.year, v.month, v.day));
       _push_string(String.from_cstr(dptr).unwrap(), out);
     },
@@ -2398,13 +2398,13 @@ _write_datetime :: (fn(d : TomlDateTime, mut(out) : ArrayList(u8)) -> unit)({
   cond(
     has_time => {
       tbuf := Array(u8, usize(32)).fill(u8(0));
-      tptr := &tbuf(usize(0));
+      tptr := addr_of(tbuf(usize(0)));
       unsafe(snprintf((*char)(tptr), usize(32), "%02u:%02u:%02u", v.hour, v.minute, v.second));
       _push_string(String.from_cstr(tptr).unwrap(), out);
       cond(
         (v.nanosecond != u32(0)) => {
           fbuf := Array(u8, usize(16)).fill(u8(0));
-          fptr := &fbuf(usize(0));
+          fptr := addr_of(fbuf(usize(0)));
           unsafe(snprintf((*char)(fptr), usize(16), "%09u", v.nanosecond));
           fs := String.from_cstr(fptr).unwrap();
           fb := fs;
@@ -2436,7 +2436,7 @@ _write_datetime :: (fn(d : TomlDateTime, mut(out) : ArrayList(u8)) -> unit)({
           true => out.push(_PLUS)
         );
         obuf := Array(u8, usize(16)).fill(u8(0));
-        optr := &obuf(usize(0));
+        optr := addr_of(obuf(usize(0)));
         unsafe(
           snprintf(
             (*char)(optr),
