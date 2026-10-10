@@ -76,7 +76,7 @@ impl<'a> Lexer<'a> {
 The Yo lexer **stores no view** (shape 5): its state is a `Copy` cursor, the
 buffer is borrowed per call (shape 4), and each access re-derives the place:
 
-```rust
+```yo
 Lexer :: struct(pos : usize, len : usize);
 derive(Lexer, Copy, Clone);
 
@@ -106,7 +106,7 @@ impl Doc {
 A view into an owned buffer cannot be stored. Store **offsets** (shape 5) and
 re-derive:
 
-```rust
+```yo
 Doc :: struct(text : String);
 word_ranges :: (fn(imm(self) : Doc) -> ArrayList(Range(usize)))(...);   // Copy elements
 // use — the view is re-derived at each step, never stored:
@@ -154,7 +154,7 @@ type, so each chunk is a freshly allocated `ArrayList(T)`"), and
 is passed as the pair "the whole buffer, lent, plus a `Copy` range" and
 re-derived in the callee (shape 4 + shape 5):
 
-```rust
+```yo
 sum :: (fn(imm(xs) : ArrayList(i32), r : Range(usize)) -> i32)({
   acc := i32(0);
   for(r, i => { acc = (acc + xs(i)); });
@@ -186,7 +186,7 @@ fn work(ctx: &mut Ctx) { ctx.db.write(..) }
 
 Two Yo shapes, picked by where the context lives:
 
-```rust
+```yo
 // Shape 4: call-local — no Ctx type at all; the borrows are the signatures
 work :: (fn(mut(db) : Db, imm(cfg) : Config) -> unit)(...);
 work(&mut db, &cfg);                      // the sigils say what is lent (V3b)
@@ -216,7 +216,7 @@ let g = m.lock().unwrap();   // holds &mut T through a guard value
 Safe Yo **returns no guards**: the borrow is scoped by a non-escaping closure
 (shape 4):
 
-```rust
+```yo
 n := m.with_lock(v => (v + i32(1)));              // Mutex(T)
 xs.with(usize(0), mut(e) => { e.hits = (e.hits + i32(1)); });   // element (V2b)
 ```
@@ -274,7 +274,7 @@ instead: `to_string : (fn(mut(self) : Self) -> String)`, so there is no
 sink to borrow and the trait object is the returned `String`. A real
 streaming serializer takes its sink per call (shape 4):
 
-```rust
+```yo
 serialize :: (fn(imm(self) : Doc, mut(out) : StringBuilder, depth : usize) -> unit)(...);
 ```
 
@@ -294,7 +294,7 @@ let n = self.name.as_deref().unwrap_or("?");
 Decision 19 (no partial moves) and decision 26 (a `match` on a borrowed
 scrutinee binds borrows) carry both idioms with no struct change:
 
-```rust
+```yo
 self.state = match(take(mut(self.state)), .Running(j) => step(j), .Empty => .Empty);   // leaves Default
 old := replace(mut(self.state), .Empty);                                                  // Rust's mem::replace
 match(&mut self.conn, .Some(c) => c.send(msg), .None => ());                              // `as_mut` + `if let`
@@ -325,7 +325,7 @@ other builder convention (`std::thread::Builder`, `Command` by `&mut`
 aside) and it costs nothing — a move of a stack value is a register copy
 under decision 30.
 
-```rust
+```yo
 req := RequestBuilder.new().method("GET").header("a", "b").build();
 method : (fn(self : Self, m : str) -> Self)({ self.method = m; self });
 ```
@@ -350,7 +350,7 @@ struct Node {
 Yo has **no `Weak`** — the cycle collector is the `Weak`. Children and parents
 are plain handles (shape 2):
 
-```rust
+```yo
 Node :: struct(
   value : i32,
   children : ArrayList(Rc(Node)),
@@ -372,7 +372,7 @@ Node :: struct(
 - **The alternative is the arena** (shape 3), and it is what big Rust systems
   do too (rustc's interners, ECS storages, Cranelift's arenas):
 
-```rust
+```yo
 Forest :: struct(nodes : ArrayList(Node));          // the one owner
 Node :: struct(value : i32, children : ArrayList(usize), parent : Option(usize));
 ```
@@ -413,7 +413,7 @@ impl Interner { fn get(&self, id: usize) -> &str { &self.strings[id] } }
 The `&str` return is the only part that does not translate — and the id
 already is the answer (shape 3). rustc's own interner works this way;
 
-```rust
+```yo
 Interner :: struct(map : HashMap(String, usize), strings : ArrayList(String));
 
 intern :: (fn(mut(self) : Interner, s : String) -> usize)(...);
@@ -430,7 +430,7 @@ ids/keys, or `ArrayList(Rc(V))` when the entries are themselves shared.
 Post-VBD Yo has no copy-on-write (§0.1 of the plan dropped it); an explicit
 enum is the shape:
 
-```rust
+```yo
 StrArg :: enum(Borrowed(str), Owned(String));
 ```
 
@@ -459,7 +459,7 @@ it a shape. **Open:**
 `issues/questions/hashmap-entry-has-no-sound-post-v2b-shape.md`. What the
 rules already permit, and what porting code should use now:
 
-```rust
+```yo
 counts.update_with(word, n => (n + i32(1)));          // Rust's and_modify
 counts.get_or_insert(word, i32(0));                   // or_insert, the value out (Copy)
 cache.get_or_insert_with(k, () => compute(k));        // or_insert_with, the value out
@@ -484,7 +484,7 @@ decision — and in Yo it is the explicit allocator of
 [`EXPLICIT_ALLOCATORS.md`](../reference/EXPLICIT_ALLOCATORS.md) and
 VALUES_BY_DEFAULT §3.11:
 
-```rust
+```yo
 a := Arena.new();
 with_allocator(a.allocator(), () => {
   xs := ArrayList(Node).new();     // its buffer, and every cell it creates, lives in `a`
@@ -583,7 +583,7 @@ register(logger);                            // stored, escapes
 A **borrow capture is second-class** (D35, D38 A): the closure cannot be
 stored, returned or spawned. Escaping closures own or share:
 
-```rust
+```yo
 // owns (shape 1): moves at last use, or clones
 { s2 : sink.clone() }() => s2.write(...);
 // shares (shape 2): a handle moves in; the outer keeps using its own handle
@@ -594,7 +594,7 @@ stored, returned or spawned. Escaping closures own or share:
 Non-escaping callbacks borrow freely, including `mut` captures, with no
 allocation:
 
-```rust
+```yo
 n := i32(0);
 xs.for_each({ mut(n) }(x : i32) => { n = (n + x); });   // no Rc counter needed
 ```
@@ -609,7 +609,7 @@ struct Bus { listeners: Vec<Box<dyn Fn(&Event) + 'a>> }   // borrow outlives reg
 The `+ 'a` is what Yo refuses: a stored callback cannot borrow the emitter.
 The registry holds **owned or shared first-class values**:
 
-```rust
+```yo
 Bus :: struct(listeners : ArrayList(Dyn(Fn(Event))));     // owned, move-only
 Bus :: struct(listeners : ArrayList(Rc(Dyn(Fn(Event))))); // shared with several buses
 ```
@@ -636,7 +636,7 @@ operand of `io.await` or of a future-taking combinator, and (transitively)
 returned only when every borrowed place is rooted at the returning function's
 own `imm`/`mut` parameters. It cannot be spawned, stored or bound.
 
-```rust
+```yo
 // rejected: an exclusive lend through a shared handle across a suspension
 shared.next(io)                    // shared : Rc(Stream)
 // the error names the fixes:
@@ -664,7 +664,7 @@ spawned (D38 A), and `std/thread.yo` has no scoped spawn
 (`Thread.spawn` takes `Impl(FnOnce(io : Io) -> T, Send)` by value). The
 shapes that exist, checked 2026-10-10 with the VBD session:
 
-```rust
+```yo
 // shape 2: Sync-bounded read sharing — Arc(ArrayList(T)) needs T <: (Send, Sync, Acyclic)
 shared := arc(data);                        // one move in; data is not used afterwards
 l := Thread.spawn({ d : Arc.clone(shared) }(io : Io) => sum_range(&d, 0..mid));
