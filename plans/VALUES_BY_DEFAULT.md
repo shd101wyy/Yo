@@ -578,7 +578,7 @@ structurally shared family.
     generic recursion, cache keys and atomic counts. Several fixed issues
     and `src/` comments trace bugs to `std/imm/map.yo` and `sorted_map.yo`.
 
-### 3.10 Exclusivity: no `RefCell`
+### 3.10 Exclusivity: static by default, `RefCell(T)` for the dynamic case
 
 Rust's `RefCell` guards a borrow that is alive while a write happens. Safe
 Yo's borrows are all second-class:
@@ -627,12 +627,88 @@ Each kind of root gets its own check:
   - a module-level root follows rule 3 above.
 - **What V2b removes.** The automatic assert before `realloc`/`free` in an
   object method (`_maybe_emit_auto_borrow_assert`) goes with the
-  collections' headers. `pragma(Pragma.StrictBorrow)` is deleted, or kept
-  for `Rc` roots.
+  collections' headers. `pragma(Pragma.StrictBorrow)` is deleted (decision
+  41: strict is the only mode).
 - **At V5** `require_valid_ref_argument_places` keeps only its `Rc`/`Arc`
   and module-level arms.
 
-**There is no `RefCell`.**
+- **The static verdict is the only mode; the dynamic check is spelled
+  `RefCell(T)`** (maintainer decisions 2026-10-10, decisions 41 and 43).
+  At every write through a shared handle and every mutating-method entry
+  on a cell, the Stage-1 mutation summaries
+  (`src/evaluator/effects/mutation_summary.yo`) decide one of three
+  outcomes:
+  - **(a) Proved safe** — no conflicting borrow can be live: a plain
+    write, no assert, no mark traffic (CODEGEN_PERFORMANCE.md CP2c).
+  - **(b) Proved conflict** — a borrow of the same place is live and a
+    callee's summary writes it (the canonical case: a borrowed `for` whose
+    body reaches `push` on its own container): a compile error.
+  - **(c) Undecidable** — the body passes through a `Dyn`, a function
+    value, a callee with no summary, or a second handle the summary cannot
+    relate: a compile error naming the two repairs, prove it (restructure
+    so the summaries can see the write) or spell it (`RefCell(T)` in the
+    type, or `Rc.get_mut` for a uniquely held handle,
+    `issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`).
+  - There is no `pragma(Pragma.StrictBorrow)`: strict is the default and
+    the only mode.
+- **`Rc(T)` is writable only in outcome (a).** Everywhere else the payload
+  is read-only through the handle. The cell header carries **no borrow
+  marks** (the `borrow_count` word goes with V2b's header work) and a lend
+  through a plain `Rc` sets no mark, so `Rc(T)` costs what Rust's `Rc<T>`
+  costs (CODEGEN_PERFORMANCE.md CP2d).
+- **`RefCell(T)`** (`std/sync`, beside `Mutex(T)`: `Mutex` blocks,
+  `RefCell` panics) holds the shared/exclusive marks and asserts them. Its
+  API is closure- and projection-shaped, never a guard value (decision 38
+  A): `with(body : Impl(Fn(v : &T) -> R))`,
+  `with_mut(body : Impl(FnMut(v : &mut T) -> R))`, and the projections
+  `get() -> &T` and `get_mut() -> &mut T` (decision 24; bindable since
+  decision 43, rooted at the cell for their life).
+  `cell.get_mut().field = x` is Rust's `cell.borrow_mut().field = x`; a
+  conflict panics at `with_mut`/`get_mut` entry as `RefCell::borrow_mut`
+  does. `RefCell(T)` is `Send` iff `T <: Send` and never `Sync`;
+  `Arc(RefCell(T))` is rejected; `Arc(Mutex(T))`/`Arc(RwLock(T))` stay the
+  cross-thread forms (decision 5, D3). Whether a `RefCell` may sit inside
+  a plain value, not only behind `Rc`/`Arc`:
+  `issues/questions/refcell-inside-a-plain-value.md` (recommendation: yes,
+  anywhere, verifier-excluded).
+- **Why a type and not a per-site marker.** A marker leaves every `Rc`
+  cell carrying marks because some site elsewhere might write; the type
+  makes the fact modular: the collector's tracking predicate becomes "the
+  payload reaches a `RefCell`/`Mutex`/`RwLock` that reaches an `Rc`" with
+  no whole-program pass (CP2e, §3.12), it works across static libraries,
+  and a struct definition shows which fields are dynamically checked.
+- **A `&T` lend means "unchanged" only for `RefCell`-free types**
+  (interior mutability, Rust's `&` over `UnsafeCell`); the verifier
+  excludes `RefCell`-reaching values as it excludes `Rc` (§3.12).
+- **Decision 21's trees need nothing**: immutable after construction they
+  stay `Rc(struct(...))`; the mutable registries among the compiler's
+  ~3,000 `ref` trees get `RefCell` at V4/V5, classified once per tree.
+- **Rollout** (the VBD implementer, 2026-10-10): the error cannot turn on
+  before std, `src/` and tests stop relying on the run-time mark.
+  - **Generation A** (with V1's write-site work): `RefCell(T)` lands; the
+    compiler classifies every write through an `Rc`/`Arc` handle as
+    (a)/(b)/(c) and reports the census (a `YO_AUDIT_*` knob, like the V3b
+    marker audit) without rejecting (c); the run-time assert stays for
+    (c).
+  - **Generation B** (on the seed carrying A): the sweep wraps each (c)
+    site's payload in `RefCell(T)` or restructures it so the summaries
+    prove it; then (c) is the error everywhere.
+  - **`ref(struct)` handles** are outside this rule until V5: they keep
+    the entry-time assert (`_maybe_emit_method_entry_borrow_assert`), and
+    V4/V5's per-tree classification decides `RefCell` or immutable for
+    each; Generation A's census counts them separately.
+  - **The V1 determinism tests** (a closure and an async body mutating a
+    captured `Rc(ArrayList(T))` under a `for`) flip in Generation B from
+    "panics" to "compile error, or a `RefCell` that panics".
+- **Tests:** an over-elision canary for (a); compile-error tests for (b)
+  and (c), c's naming `RefCell(T)` and `Rc.get_mut`; a `RefCell` conflict
+  panics (a closure and an async body calling `with_mut` under a live
+  `with`); `RefCell(T)` fails `Sync` and `Arc(RefCell(T))` is rejected.
+  **Ratchet:** CODEGEN_PERFORMANCE.md CP0's "asserts executed" counter,
+  which after this rule counts `RefCell` `with_mut`/`get_mut` entries.
+
+**The run-time check has one spelling, `RefCell(T)`; outside it the check is
+static.**
 
 ### 3.11 Explicit allocators
 
@@ -695,8 +771,13 @@ and every free routes through the owner prefix.
     `src/verifier/vc.yo` (`list_alias_locals`, `distinct_pairs`) go away
     once the collections are values.
   - An `Rc(ArrayList(T))` parameter is outside the verifier subset.
-- **The cycle collector.** Only `Rc` cells whose payload reaches an `Rc` are
-  tracked, and values, `Box` trees and collections are never tracked.
+- **The cycle collector.** A cell can only point at values older than
+  itself, so a cycle needs a later write through a shared handle, and in
+  safe code that write exists only inside a `RefCell`, `Mutex` or `RwLock`
+  (decision 41). So only `Rc` cells whose payload reaches one of those
+  that reaches an `Rc` are tracked, with no analysis (CODEGEN_PERFORMANCE.md
+  CP2e); values, `Box` trees and collections are never tracked; `Dyn` and
+  closure payloads stay conservative unless `Acyclic` is declared.
   - The compiler's trees have `Rc` children (decision 21), so V4 makes
     `can_type_form_rc_cycle` honour a declared `Acyclic`. Trees with no
     back edges then stay untracked.
@@ -915,8 +996,10 @@ and in git, not a silent edit.
      36's Generation B.
 3. **Explicit copies are `Clone`.** `Sender` keeps `clone`, and `Receiver`
    stays uncloneable.
-4. **A write through `Rc` is a plain write**, guarded by §3.10's assert. No
-   `RefCell`. D3 forbids writes through an `Arc` root in safe code.
+4. **A write through `Rc` compiles only where the summaries prove it
+   exclusive** (§3.10 outcome (a)), as a plain write with no assert; the
+   dynamic check is spelled `RefCell(T)` (decision 41). D3 forbids writes
+   through an `Arc` root in safe code.
 5. **`Arc` reads are a borrowed place, plus the `Sync` bound** (§3.8).
 6. **The heap cell is usable in `pragma(Pragma.AllowUnsafe)` files.** Safe
    code cannot name it.
@@ -1064,26 +1147,26 @@ and in git, not a silent edit.
       instantiation. A generic that copies writes `Impl(Fn(...), Clone)`.
     - **`Dyn(Fn(...))`** is move-only. `Dyn(Fn(...), Clone)` is
       explicit-copy, with a `clone` slot.
-    - **No `FnMut`.** A closure body never writes its own captures. State
-      goes through a `mut` capture (decision 35), an `Rc` capture or a `mut`
-      parameter. A `mut` capture writes through the captured pointer, not
-      the closure's environment, so the call stays `imm(self)`. Decision 37
-      gives the reasons.
+    - **`Fn`, `FnMut`, `FnOnce`** (decision 37): the call trait is inferred
+      from the body — consumes a capture ⇒ `FnOnce`, writes a `&mut`
+      capture or its own state ⇒ `FnMut`, otherwise `Fn`.
     - **`FnOnce` is added by decision 37** (amended 2026-10-05). The first
       version also had no `FnOnce`, so a body could not move a capture out.
 24. **Projections (Hylo's subscripts), first cut.**
-    - A function whose result is `mut(T)` is a mutable projection, and one
-      whose result is `imm(T)` a read projection.
+    - A function whose result is `&mut T` is a mutable projection, and one
+      whose result is `&T` a read projection.
     - It yields one place and ends, with no code after the yield, so it
       lowers to today's pointer-returning `index` plus the second-class
       check.
-    - The yielded place may be a receiver, an argument, an operand, the left
-      of `=`, or a `for` source. It may not be bound, stored, captured or
-      returned.
-    - While a `mut` projection is live, its base is exclusively borrowed.
-    - `Index.index` becomes `fn(mut(self), idx) -> mut(Self.Output)`
-      (today `-> *(Self.Output)`, `plans/reference/INDEX_TRAIT.md`), with an
-      `imm` form for reads.
+    - The result is a `&T`/`&mut T` value (decision 43): a receiver, an
+      argument, an operand, the left of `=`, a `for` source, bindable to a
+      local, and returnable under the single-root rule
+      (`NON_ESCAPABLE_TYPES.md` R3). It is second-class: never stored in a
+      cell, never captured by an escaping closure.
+    - While a `&mut` projection is live, its base is exclusively borrowed.
+    - `Index.index` becomes `fn(self : &mut Self, idx) -> &mut Self.Output`
+      (today `-> *(Self.Output)`, `plans/reference/INDEX_TRAIT.md`), with a
+      `&Self` form for reads.
     - `with(i, body)` and `get_cloned` remain only where a projection cannot
       express the access.
     - Rejected: inferring the projection's mutability from the receiver.
@@ -1762,8 +1845,10 @@ and in git, not a silent edit.
         copyable its capture record's words are, so the anonymous-composite
         rule must not derive `Copy` for it.
 
-37. **`FnOnce` is added; `FnMut` is not.** Confirmed 2026-10-05 by the
-    maintainer. This amends decision 23.
+37. **`FnOnce` and `FnMut` are added: three call traits, as Rust has
+    them.** `FnOnce` confirmed 2026-10-05 by the maintainer (amending
+    decision 23); `FnMut` confirmed 2026-10-10 with decision 43, once
+    `&mut` captures became values of a reference type.
     - **Background.** Rust's three closure traits differ only in how a call
       uses the closure's own environment:
 
@@ -1817,110 +1902,61 @@ and in git, not a silent edit.
         `imm(f) : Impl(Fn(...))` (decision 38 C), so a body passed to them
         cannot move a capture out (corrected 2026-10-07, second audit #1264
         finding 6; the first text listed them as `FnOnce` motivations).
-    - **Why no `FnMut`.** In Rust, an `FnMut` closure is a value whose own
-      state changes on every call. Yo never needs one, because every use
-      has an explicit spelling:
-      - **Mutating outside state from a non-escaping closure:** a `mut`
-        capture (decision 35), e.g. `xs.for_each({ mut(count) }(x : i32) =>
-        { count = (count + x); })`.
-        - The closure is second-class and move-only, so it cannot escape or
-          be duplicated.
-        - It is not `Sync`, so a parallel `for_each` that requires
-          `Impl(Fn(...), Sync)` rejects it.
-        - Those are exactly the hazards `FnMut`'s `&mut self` guards
-          against in Rust: two callers of one stateful closure, and a call
-          that runs while another is live.
-        - The call writes through the captured pointer, never the
-          environment, so `imm(self)` stays honest.
-      - **An escaping closure with private state** (Rust's `move || { n +=
-        1; n }` returned as `impl FnMut`):
-        - an `Rc` capture, `{ n : rc(0) }() => { n.* = (n.* + 1); n.* }`,
-          whose sharing and allocation are visible;
-        - or a named struct with a `mut(self)` method, which is what Yo's
-          iterators already are.
-
-        Both cost a little more than Rust's version, which is the point:
-        state that changes across calls is never hidden inside a value
-        that looks like a function.
-      - **Worked example: a counter.** What decision 37 rules out is only
-        that a closure's own captured variables change between calls. The
-        state lives where the closure points, or the counter is a named
-        type. The choice follows from whether it escapes:
-        ```rust
-        // 1. Non-escaping: a mut capture (decision 35). No allocation.
+    - **`FnMut(...)`.** Its call takes `self : &mut Self`. A closure
+      whose body writes a `&mut` capture, or its own by-value state
+      (`{ n : 0 }() => { n = (n + 1); n }`), implements `FnMut` and not
+      `Fn`; it stays move-only and second-class (decision 38 A). `Fn`
+      implies `FnMut`, which implies `FnOnce`. A `FnMut` is called through
+      `&mut f`, so two live calls of one closure are the ordinary E0911 and
+      decision 38 B's re-entry rule is a consequence of exclusivity rather
+      than a separate check. The trait is inferred from the body with no
+      annotation: consumes a capture ⇒ `FnOnce`; writes a `&mut` capture
+      or its own state ⇒ `FnMut`; otherwise `Fn`.
+      - **Why it is needed.** A `&mut n` capture is a value of type
+        `&mut T` in the capture record (decision 43), and a `&mut T`
+        reached through a `&` path is read-only; a `Fn` call takes its
+        closure by `&self`, so only a `&mut self` call can write through
+        the capture. Exempting capture fields from that rule was rejected:
+        it is exactly the aliasing the rule exists to stop (two live calls
+        of one `Fn` closure holding `&mut n` would be two writers to one
+        place). A Hylo-style receiver mode without a trait name was
+        rejected too: a slot must be able to state its bound, and the
+        blanket impls decision 43 allows (`impl(&mut F, FnMut)`-shaped)
+        need the trait.
+      - **Slots.** `Fn` stays the bound for shared and `Sync` slots (the
+        parallel `for_each`, `Impl(Fn(...), Sync)`, which rejects a
+        `FnMut`). A slot that calls a body repeatedly and privately — the
+        borrowed `for`, `for_each`, `sort_by`, `retain`, `update_with`,
+        the `with_lock` bodies — takes `Impl(FnMut(...))`, by value or lent
+        as `&mut`; a non-escaping literal argument needs no change at the
+        call site. `Dyn(FnMut(...))` exists for a stored callback that
+        mutates.
+      - **A counter, three ways.**
+        ```yo
+        // 1. Non-escaping: a &mut capture. No allocation. A FnMut.
         n := 0;
-        tick := { mut(n) }() => { n = (n + 1); n };
+        tick := { n : &mut n }() => { n.* = (n.* + 1); n.* };
         tick(); tick();                       // n == 2
 
-        // 2. Escaping, as a closure: the state lives in an Rc cell the closure holds.
+        // 2. Escaping, as a closure: the state lives in a RefCell the closure holds (decision 41).
         make_counter :: (fn() -> Impl(Fn() -> i32))({
-          n := rc(0);
-          { n }() => { n.* = (n.* + 1); n.* }
+          n := rc(RefCell(i32)(0));
+          { n }() => n.with_mut(v => { v.* = (v.* + 1); v.* })
         });
 
-        // 3. Escaping, with no allocation: a named struct. This is what
-        // Rust compiles an FnMut closure to anyway.
+        // 3. Escaping, with no allocation: a named struct — what Rust compiles an FnMut closure to.
         Counter :: struct(n : i32);
-        impl(Counter, next : (fn(mut(self)) -> i32)({ self.n = (self.n + 1); self.n }));
+        impl(Counter, next : (fn(self : &mut Self) -> i32)({ self.n = (self.n + 1); self.n }));
         c := Counter(n : 0);
         c.next(); c.next();
         ```
-        - **What is lost.** No capability, and no run-time cost: form 3
-          is the machine code of Rust's `FnMut` closure, which is itself an
-          anonymous struct with a `&mut self` call method.
-        - **The one case that is longer:** an escaping closure that keeps
-          its own state and must not allocate. It is written as form 3, or as
-          form 2 at the cost of the `Rc` allocation. Lazy adapters that store
-          their closure, std's `StreamMap`/`StreamFilter`
-          (`std/async/stream.yo`) and generators, are where this shows.
-        - **If that case proves common, a stateful call is added the way
-          Hylo has it,** not as Rust's third trait (recorded 2026-10-05 by
-          the maintainer).
-      - **Hylo's design.** Hylo
-        (https://hylo-lang.org/docs/user/language-tour/functions-and-methods/)
-        has three capture kinds, its parameter conventions: `let`, `inout`
-        and `sink`.
-        - `let` and `inout` captures are inferred from the body. A `sink`
-          capture must be listed (`fun[var i = 0]`).
-        - A closure that changes its own state is an `inout` lambda,
-          `fun[var i = 0]() inout -> Int { … }`, and its call is marked:
-          `&counter()`.
-        - So Hylo's `FnMut` is the third receiver mode of one call, not a
-          third trait.
-        - Lambda types carry their environment (`[E]`, or erased), which is
-          Yo's `Impl(Fn(...))` versus `Dyn(Fn(...))`.
-        - Hylo's issue #1807 (a `let` capture of a temporary,
-          `fun[let c = c.copy()]`, used after its lifetime) is the hole
-          decision 35 closes by requiring a place for a borrow entry.
-      - **The planned addition, if it is ever made.**
-        - **One call trait.** `Fn` stays the only call trait, and a
-          closure's call takes one of the three receiver modes decision 30
-          already has: `imm(self)` (`Fn`), `self` (`FnOnce`), or `mut(self)`
-          (the stateful call). The spelling of the `mut` form in a type is
-          chosen when it is added. It must name the mode and must not be a
-          new trait name.
-        - **The body.** A closure whose body writes one of its by-value
-          captures gets the `mut(self)` call. A capture list makes its
-          initial state explicit: `{ n : 0 }() => { n = (n + 1); n }`.
-        - **The call site is unmarked,** like every closure call (see "Calling
-          a closure" below): `counter()`, as `xs.push(1)` is unmarked.
-          Hylo marks `&counter()` because it also marks mutating method
-          calls (`&xs.append(y)`), and Yo exempts receivers (decision 33).
-        - **Holding one.** It needs a `mut` place to be called through:
-          `mut(f) : Impl(Fn(...))` with the `mut` call, or an owned local.
-          An `Fn` (`imm(self)`) closure is accepted wherever the `mut` call
-          is required, as `Fn` implies `FnOnce`.
-        - **Rejected for that future step:** a separate `FnMut` trait,
-          because a third trait name would recreate Rust's three-way split
-          in every bound and in `Dyn`.
-        - **What would trigger it:** stateful closures stored in lazy
-          adapters (`StreamMap`/`StreamFilter`) or generators that are
-          common enough that form 3's named struct is a burden.
-      - **What leaving it out saves today.** No callback bound, `Dyn` slot
-        or closure inference has to handle a third call mode. A closure's
-        environment never changes while it lives, and a call either borrows
-        it (`Fn`) or consumes it (`FnOnce`). The Hylo-style addition above
-        would add the mode to every bound that accepts a stateful closure.
+      - **Phase.** With decision 43, not before: until `&mut` is a type, a
+        `mut` capture writes through its pointer and the `Fn` call is
+        honest.
+      - **Tests.** Inference of each trait from a body; a `&mut`-capturing
+        closure passed to an `Impl(Fn)` slot is rejected naming `FnMut`;
+        two live calls of one `FnMut` are E0911; `Dyn(FnMut)` stored and
+        called; the `Sync` slot rejects a `FnMut`.
     - **Calling a closure is a receiver call, so it is never marked**
       (amended 2026-10-05 by the maintainer).
       - `f(x)` is `f`'s call method with `f` as the receiver, so decision
@@ -1928,8 +1964,7 @@ and in git, not a silent edit.
         - an `Fn` call borrows `f`, like `s.len()`;
         - an `FnOnce` call consumes it, like `h.join()`, and a later use is
           E0901 pointing at the call;
-        - a stateful call, if one is added, borrows it exclusively, like
-          `xs.push(1)`.
+        - an `FnMut` call borrows it exclusively, like `xs.push(1)`.
       - The mode is part of the closure's type, as a method's receiver mode
         is part of its signature.
       - Marking only closure calls (`&mut counter()`), or `imm` calls as
@@ -1951,9 +1986,9 @@ and in git, not a silent edit.
         send();                              // E0901: send was moved by the call above
         run_once(send2);                     // a by-value Impl(FnOnce(...)) parameter: moves send2 in
         ```
-      - **A stateful closure (if added) is passed with `&mut`:**
-        `step(&mut counter)` to a `mut(f)` parameter. It cannot be called
-        through an `imm` borrow, as `xs.push` cannot be called on `imm(xs)`.
+      - **An `FnMut` closure is passed with `&mut`:** `step(&mut counter)`
+        to an `f : &mut Impl(FnMut(...))` parameter. It cannot be called
+        through a `&` borrow, as `xs.push` cannot be called on `xs : &ArrayList`.
     - **std switches to `Impl(FnOnce(...))` only where the closure escapes**
       (amended 2026-10-06 by the maintainer, after the closure audit,
       decision 38):
@@ -1970,15 +2005,17 @@ and in git, not a silent edit.
       - `Result`: `map`, `map_err`, `and_then`, `or_else`, `map_or_else`,
         `unwrap_or_else`;
       - the `with_lock`/`try_with_lock` bodies (`std/sync/mutex.yo`,
-        `std/async/mutex.yo`).
+        `std/async/mutex.yo`), which take `Impl(FnMut(...))` since
+        2026-10-10 because a body that mutates a capture is a `FnMut`.
 
-      Their bodies may borrow captures, including `mut` captures, but
+      Their bodies may borrow captures, including `&mut` captures, but
       cannot move a capture out. A *non-escaping consuming* parameter mode
       (by value, but not allowed to escape) is recorded as a possible
       later addition. It is not adopted, because it would be a fourth
       parameter mode beside `imm`, `mut` and by-value.
-    - Callbacks that run per element keep `Impl(Fn(...))` too: `for_each`,
-      the iterator `map`/`filter`, comparators and hashers.
+    - Callbacks that run per element take `Impl(FnMut(...))` from decision
+      43's phase (`for_each`, the iterator `map`/`filter`, comparators);
+      hashers stay `Fn`.
     - **Phase.**
       - **Generation A:** the compiler. That means the prelude `FnOnce`
         trait, the "moves a capture out" rule that decides a closure's
@@ -2083,20 +2120,24 @@ and in git, not a silent edit.
       - stored in a field, element or `Dyn`;
       - captured by an escaping closure, implicitly or by value;
       - spawned;
-      - passed to a by-value parameter (except `io.async`, decision 37).
+      - passed to a by-value parameter (except `io.async`, decision 37) —
+        for closures and borrowing futures; a parameter whose type IS a
+        reference (`x : &T`, or a generic `T` instantiated with `&U`)
+        receives it by value, a `&T` copied and a `&mut T` moved, with
+        the callee checked per instantiation and its result inheriting the
+        roots (decision 43).
     - **Results and assignments.** A block, arm or `cond` result, or an `=`
       target, may not outlive any place its value borrows. Re-assigning a
       second-class local follows decision 25's rule.
-    - **Type positions.** A second-class type may not appear as a field
-      type, an element type, or a generic argument of a type constructor.
-      `type_of(f)` names closure types, so `ArrayList(type_of(f))` is
-      checked too. The check runs at the declaration and at every
-      instantiation. The rule is about DECLARED storage, a type written in
-      source; a composite VALUE built from a second-class value (`.Some(f)`,
-      the tuple `(f, 1)`) is legal and is itself second-class by the
-      structural rule above, so "an `Option` payload" there and "a generic
-      argument" here do not contradict each other (clarified 2026-10-07,
-      second audit #1264 finding 8).
+    - **Type positions (the inline rule, decision 43).** A second-class
+      type may be a component of anything laid out **inline** — a struct
+      field, an enum payload, a tuple or array component, an inline
+      instantiation such as `Option(&T)` — and the element of a
+      **root-joining buffer container** (`ArrayList(&T)`, `HashMap(&K, V)`);
+      the containing type is then second-class too. It may never be the
+      payload of a **cell** (`Rc`, `Arc`, `Box`, `RefCell`, a `Dyn`): E0909.
+      `type_of(f)` names closure types, so `Rc(type_of(f))` is checked
+      too. The check runs at the declaration and at every instantiation.
     - **Transitive freezes.** A borrow, or any second-class value built
       from one, keeps its source live, and so frozen (decision 18), until
       its own last use. This applies transitively through captures, `Copy`
@@ -2109,9 +2150,8 @@ and in git, not a silent edit.
       any borrow derived from `cur`'s current target is live: a capture, a
       local re-borrow, or a borrowing future.
     - **Corrects decision 30's rationale.** Closure types are nameable
-      (`type_of`), so "a borrow type would leak" is answered by these
-      type-position rules, not by namelessness. Borrows themselves still
-      stay modes, never types.
+      (`type_of`), and since decision 43 references are types; what keeps
+      both second-class is the type-position rule above, not namelessness.
 
     **B. Exclusivity counts the receiver, and a value carrying a `mut`
     borrow is lent exclusively.** The maintainer chose this over giving
@@ -2226,7 +2266,7 @@ and in git, not a silent edit.
         E0908.
       - A borrow entry's place is rooted at a named binding and crosses no
         temporary.
-      - A stateful (`mut(self)`) closure, if added, is never `Copy`.
+      - A `FnMut` closure (one holding a `&mut` capture) is never `Copy`.
 
     **Sound as stated.** The audit also confirmed these:
     - sibling `mut` captures;
@@ -2267,84 +2307,54 @@ and in git, not a silent edit.
   decision 22), which the callee's signature spells. The explicit form is
   the capture list (decision 35).
 
-39. **Post-V2b iterators are index-based; pointer iterators are
-    unsafe-gated.** Confirmed 2026-10-07 by the maintainer, from audit
-    #1251 finding 2. This decides the shape V2b leaves `iter()` in, before
-    the V3b sweep can walk it into a broken spelling.
+39. **Iteration: the borrowed `for` and index cursors at V2b; borrowing
+    iterators from decision 43's phase; pointer iterators unsafe-gated.**
+    Confirmed 2026-10-07 by the maintainer (audit #1251 finding 2, amended
+    by audit #1264 finding 4) and completed by decision 43 (2026-10-10).
     - **The gap.** Today `ArrayList.iter()` takes `self` by value, stores
       the receiver in the iterator, and yields `*(T)` into the list's own
       buffer (`std/collections/array_list.yo`); it is sound only because
       the stored handle is an RC dup keeping the buffer alive, and growth
       mid-walk is UB by discipline. After V2b the buffer is uniquely owned
-      and uncounted: a by-value `iter()` consumes the list at every
-      read-only walk, and an `imm(self)` spelling cannot exist — a
-      pointer-yielding iterator is a stored, returned, first-class value,
-      and borrows are second-class (decision 38 A). The old text said only
-      "V2b needs an `iter_mut(mut(self))` split", which addresses mutation
-      through the iterator, not the iterator's own validity.
-    - **The decision.** `iter()` — and every read-only iterator reachable
-      from safe code — becomes INDEX-BASED: the iterator holds a handle to
-      the container plus an index, re-derives `xs(i)` at each `next`, and
-      growth mid-walk is an out-of-bounds error, not UB. A consuming
-      `into_iter()` keeps yielding values. Pointer-yielding iterators
-      stay only beside `ptr()` inside `pragma(Pragma.AllowUnsafe)` std
-      files (the `HashMapIterPtr` shape); they are not part of the
-      ordinary iteration story and are not touched by the rename.
-    - **The V3b sweep is told:** iterator-returning methods are exempt
-      from the mechanical `imm(x)` conversion (§7's table carries the
-      row); their signatures are re-derived from this decision when V2b
-      lands.
-    - **Perf note.** Index re-derivation costs one bounds check per step;
-      hot loops that need the raw pointer keep using `ptr()` under the
-      pragma. V2b's PR measures the iterator-heavy std tests before and
-      after.
-    - **Amended 2026-10-07 by the maintainer (second audit #1264, finding 4):
-      the iterator holds NO handle. "Index-based" means an index cursor,
-      and the borrowed `for` is the ordinary walk.** The first text's
-      "handle to the container plus an index" has no spelling in this
-      design: under decision 38 A a borrow cannot be a struct field and a
-      second-class value cannot be returned; only a closure's capture
-      record and a future's capture slots hold borrows, a closure cannot
-      advance its own index (decision 37, no stateful call), and A2's
-      return exception is for futures alone. So `iter(imm(self))`
-      returning a borrowing iterator is rejected by the very rules that
-      made the pointer iterator unsound, and the `Iterator` trait's
-      `next -> Option(Self.Item)` cannot yield a borrow either
-      (`Option(imm(T))` is a borrow in a type-constructor argument).
+      and uncounted, so that iterator cannot exist.
+    - **At V2b (before references are types):**
       - **Read-only walks over a value container** are the borrowed `for`
         over the container place (§3.10): the body is a non-escaping
         closure, each element is re-derived per step through the place,
         and no iterator value exists.
-      - **Index cursors.** `xs.indices()` returns a `Range(usize)`, which
-        is `Copy` and first-class, and `xs(i)` is re-derived by the user or
-        by a non-escaping closure: `xs.indices().map(i => xs(i).len())`.
-        This is Swift's index model, and it is what "re-derive `xs(i)` at
-        each step" meant.
+      - **Index cursors.** `xs.indices()` returns a `Range(usize)`, `Copy`
+        and first-class, and `xs(i)` is re-derived by the user or by a
+        non-escaping closure: `xs.indices().map(i => xs(i).len())` —
+        Swift's index model. Growth mid-walk is an out-of-bounds error, not
+        UB (the test `issues/collection-iterators-have-no-sound-post-v2b-shape.md`
+        requires).
       - **`into_iter()` consumes**, and `iter()` on an `Rc(C)` iterates a
         shared container through a first-class handle with decision 38 D's
-        per-call marks.
-      - **`iter()` on a value container leaves the safe surface.** A
-        stored, read-only, borrowing iterator (`it := xs.iter(); …
-        it.next()` with `xs` a local value) and lazy adapter chains over a
-        borrowed container are not expressible; a chain that must own its
-        source writes `xs.clone().into_iter()`, an explicit copy.
-      - **Growth mid-walk** is an out-of-bounds error in both the borrowed
-        `for` and an `indices()` walk, which is the test
-        `issues/collection-iterators-have-no-sound-post-v2b-shape.md`
-        requires.
-      - **Recorded for later, not adopted: borrow-mode struct fields.** A
-        named struct declaring `imm(xs) : ArrayList(T)` as a field would be
-        the record decision 35's capture list already builds, second-class
-        by 38 A's structural rule, and with A2's return exception
-        generalized to every second-class value rooted at the callee's own
-        parameters it would give a true borrowing iterator
-        (`struct(imm(xs) : ArrayList(T), i : usize)`, `next(mut(self)) ->
-        imm(T)`). It widens the same escape machinery as decision 37's
-        parked stateful call and is decided together with it, by the same
-        trigger: adapter chains over borrowed containers proving common
-        enough that `for` bodies and `indices()` are a burden. Rejected
-        outright: `rc(xs.clone()).iter()` as the read-only walk, a clone
-        per walk being the hidden copy this plan removes.
+        per-call marks. A chain that must own its source writes
+        `xs.clone().into_iter()`, an explicit copy.
+      - **The V3b sweep** leaves iterator-returning methods out of the
+        mechanical conversion (§7's table); their signatures come from this
+        decision.
+    - **From decision 43's phase (`NON_ESCAPABLE_TYPES.md` N2):** a struct
+      may hold `xs : &ArrayList(T)` (R1), so `iter(self : &Self) -> Cursor(T)`
+      returns a borrowing iterator under the single-root rule (R3),
+      `next(self : &mut Self) -> Option(&T)` is an ordinary method, lazy
+      adapter chains over a borrowed container are inline structs holding
+      the cursor, and the borrowed `for(&xs, …)` dispatches through
+      `impl(&C, IntoIterator(…))`. Growth mid-walk is then E0911 for a
+      value root (the cursor holds `&xs`) and the pin panic for an `Rc`
+      root (R5). `indices()` remains for a cursor that must survive a
+      mutation of its container.
+    - **Pointer-yielding iterators** stay only beside `ptr()` inside
+      `pragma(Pragma.AllowUnsafe)` std files (the `HashMapIterPtr` shape);
+      they are not part of the ordinary iteration story.
+    - **Perf note.** Index re-derivation and `next` cost one bounds check
+      per step where the verifier cannot elide it (CODEGEN_PERFORMANCE
+      CP2b); hot loops that need the raw pointer keep `ptr()` under the
+      pragma. V2b's PR measures the iterator-heavy std tests before and
+      after.
+    - **Rejected outright:** `rc(xs.clone()).iter()` as the read-only walk,
+      a clone per walk being the hidden copy this plan removes.
 
 40. **No `Pin`: live values never relocate, and borrows stay
     second-class.** Confirmed 2026-10-07 by the maintainer, from the
@@ -2393,6 +2403,196 @@ and in git, not a silent edit.
         local borrow (§9), must preserve second-classness when decided;
       - any V2b escape of a yielded place out of its owner's storage;
       - any future first-class or storable reference type.
+
+41. **`RefCell(T)` is the one spelling of the dynamic exclusivity check;
+    outside it the check is static.** Confirmed 2026-10-10 by the maintainer
+    ("what if we bring `RefCell` to Yo?", after deciding the same day that
+    the static verdict is the default). Amends decision 4 and §3.10 (the
+    full rule is §3.10's second 2026-10-10 amendment), and reopens
+    CODEGEN_PERFORMANCE.md CP2d on a soundness ground, not the measured one
+    it asked for.
+    - §3.10's outcome (c), the undecidable write through a shared handle,
+      is a compile error like (b); `pragma(Pragma.StrictBorrow)` is deleted.
+    - `Rc(T)`/`Arc(T)` payloads are writable only in outcome (a), with no
+      assert; the cell header carries no borrow marks.
+    - `RefCell(T)` lives in `std/sync` beside `Mutex(T)`, holds the marks,
+      and exposes `with`/`with_mut` closures and `get`/`get_mut`
+      projections — never a guard value. `Send` iff `T <: Send`, never
+      `Sync`; `Arc(RefCell(T))` is rejected.
+    - The collector tracks only payloads that reach a
+      `RefCell`/`Mutex`/`RwLock` reaching an `Rc` (§3.12); the verifier
+      excludes `RefCell`-reaching values; `imm` is "unchanged" only for
+      `RefCell`-free types.
+    - Open: `issues/questions/refcell-inside-a-plain-value.md`.
+    - Phase: with V1's write-site work; the header word with V2b.
+    - Rejected: a per-site or per-module opt-in to the run-time mark (a
+      pragma or a call-site marker), because it leaves every `Rc` cell
+      paying for marks some other site might need and the fact stays
+      whole-program; and "strict with no escape at all", because `Dyn`
+      dispatch and unrelated-handle aliasing are real and Rust needs
+      `RefCell` for exactly them.
+
+42. **`&T` / `&mut T` is the one spelling of a borrow in every slot; `imm`,
+    the `mut(…)` form and `inout` are deleted.** Confirmed 2026-10-10 by
+    the maintainer ("it makes more sense to just have `x : &T` instead of
+    `imm(x) : T`"; "remove `imm` and `mut` completely"). The semantics of
+    what is spelled are decision 43's (references are types); this
+    decision is the surface and the sweep.
+    - **The spelling, which is also Generation B's deletion list:**
+      | Form deleted | Positions | Spelling |
+      | --- | --- | --- |
+      | `imm(x) : T`, `mut(x) : T` | parameters, closure parameters, receivers (`imm(self)`/`mut(self)`) | `x : &T`, `x : &mut T`, `self : &Self`, `self : &mut Self` |
+      | `-> imm(T)`, `-> mut(T)` | projection results (decision 24) | `-> &T`, `-> &mut T` |
+      | `imm(f) : T`, `mut(f) : T` | fields, enum payloads, tuple components, inline instantiations | `f : &T`, `f : &mut T`, `Borrowed(&String)`, `(&ArrayList(T), usize)`, `Option(&T)` |
+      | `imm(y) := place`, `mut(y) := place`, `mut(cur) = place` | local borrows (decision 18), re-points (decision 25) | `y := &place`, `y := &mut place`, `cur = &mut place`; `(y : &T) = &place` with an annotation |
+      | `{ imm(y) : &y, mut(z) : &mut z }` | capture lists (decision 35) | `{ y : &y, z : &mut z }` — the sigil carries the mode |
+      | `for(xs, inout(x) => …)` | the borrowed `for` | `for(&mut xs, x => …)`, `for(&xs, x => …)` — the sigil on the source, the element mode follows |
+      | `inout(x) : T` | the pre-`mut` spelling still in the tree under the seed | deleted with the rest |
+      | `BK_IMM`, `BK_MUT`, `BK_INOUT` (`src/expr.yo:360`–`365`) and their parser, evaluator, formatter, LSP and `yo fix` branches | the compiler | deleted; `&`/`&mut` in a type slot is parsed by the sigil path decision 33 already has for call sites |
+      - **Not deleted:** `sink(x) : T` (consume, decision 30), `comptime(…)`
+        and `generic(…)` (not borrow modes), and `&x` / `&mut x` at call
+        sites (decision 33), which are the spelling itself.
+      - **`mut` is a reserved word**, as in Rust: it may not name a
+        binding and appears only after `&` (a binding named `mut` is an
+        error naming `&mut`). `imm` stops being reserved. Raw pointers stay
+        `*T` / `*(T)`.
+    - **Why.** The call site writes `f(&x)` / `f(&mut x)` (decision 33); the
+      slot that receives it says the same thing, and it is the spelling
+      every reader and every model knows.
+    - **Three consequences** (the VBD implementer, 2026-10-10):
+      - **A plain `for(xs, x => …)` consumes `xs`.** With the borrowed form
+        `for(&xs, …)` / `for(&mut xs, …)`, a bare source is by value, as a
+        bare argument is (decision 33) and as Rust's `for x in xs` is: the
+        loop takes `xs`, each element moves into `x`, a use of `xs` after
+        the loop is E0901 naming `for(&xs, …)`, a `Copy` element still
+        copies. This is a semantic change and rides decision 26's
+        consuming-`match` work and its scrutinee sweep: Generation A
+        rewrites every `for(xs, …)` whose source is used afterwards (or is
+        a module-level or projection place) to `for(&xs, …)` before the
+        bare form starts consuming.
+      - **Ordering.** Generation A needs V3b step 3 first: until it lands,
+        `y := &place` in a binding is the raw-pointer address-of.
+      - **Writes versus re-points.** With a local borrow `cur`, `cur = v`
+        writes `v` through the borrow into the lent place; `cur = &mut place`
+        (or `y = &place`) re-points it (decision 25). The sigil on the
+        right decides; a bare right-hand side never re-points.
+    - **Rollout, two generations (the seed gate, nothing else).**
+      Generation A: parser, formatter, LSP and diagnostics accept and emit
+      `&T` / `&mut T`; tests, docs and cheatsheets use it; the old forms
+      keep parsing only so `std/` and `src/` build under the seed.
+      Generation B, on the seed that carries A: the V3b sweep tooling
+      rewrites `std/` and `src/`, the old parsing is deleted in the same PR,
+      and `yo fix` carries the rewrite for any user tree — no compatibility
+      window. Timing is the VBD session's call, after the remaining V3b
+      generations settle. Plan documents keep their historical spelling and
+      are read through AGENTS.md's translation list.
+    - **Tests.** fmt round-trip on every slot kind; a binding named `mut`
+      rejected; the borrowed `for` with the sigil on the source and the
+      consuming bare form; a capture list in the new form; `yo fix`'s
+      rewrite on each row of the table.
+
+43. **`&T` and `&mut T` are types: second-class, with lifetimes elided.**
+    Confirmed 2026-10-10 by the maintainer ("I want to make `&T` a real
+    type because I also want to support `impl(&T, …)`"; `ArrayList(&T)` by
+    the root-joining option), with the VBD implementer's checker-side
+    review folded in. Yo keeps mutable value semantics for owned values
+    and moves from Hylo's "no first-class references" to **references as
+    second-class types with elided lifetimes**, the point Swift's `Span`
+    and Mojo's `ref` reached. The design is
+    `plans/backlog/NON_ESCAPABLE_TYPES.md` (rules R1–R7).
+    - **Types.** `&T` and `&mut T` are bindable (`r := &x`), nameable
+      (`IntRef :: &i32`), passable, returnable under the single-root rule
+      (R3), usable as generic arguments (so `&&T` exists and is accepted),
+      and the subject of impls: `impl(&T, Trait(…))` and the blanket
+      `impl(generic(T), &T, Trait(…))`, distinct from `impl(T, …)` under
+      `TRAIT_COHERENCE.md`. `&T` is `Copy`. `&mut T` is not: passed to a
+      slot declared `&mut T` it is **reborrowed** (the source frozen for
+      the call, usable after; `&mut *r` is spelled `&mut r.*`); passed to
+      a generic `T` slot it moves, at its last use.
+    - **`str` is first-class and never takes `&`.** `str` is the `Copy`
+      view of static bytes (decision 36): `(x : str) = "Hi";` is the whole
+      spelling and `ArrayList(str)` an ordinary list. A view into an owned
+      `String`'s interior is the second-class view of
+      `RUST_ADOPTION_CANDIDATES.md` L1 (`View(u8)` in the examples; whether
+      `str` becomes that view in borrow position is L1's open question).
+      A `&` is written only where a lend of an owned value happens.
+    - **Access.** `.*` reads or writes the whole value (`x.* = y.*`);
+      `.field` and `.method()` auto-deref through any number of `&`; a
+      method whose receiver is `&Self`/`&mut Self` auto-borrows an owned
+      receiver (`xs.len()` and `s.left` are unchanged); a method declared
+      `self : Self` still consumes its receiver and resolution never
+      auto-moves; receivers stay exempt from call-site markers (decision
+      33). Nothing else coerces: no `&String → &str`. Resolution probes
+      the exact receiver type, then `&`/`&mut` of it, then each deref, so
+      `impl(&T, M)` wins over `impl(T, M)` for a `&T` receiver. A `&mut T`
+      reached through a `&` path (an element of `&ArrayList(&mut T)`, a
+      `&mut` field through `&S`) is read-only, a `&T`.
+    - **Second-class, structurally** (decision 38 A). Any type containing
+      a `&` is second-class: inline composites and root-joining buffer
+      containers may contain it, a cell never may (`Rc(&T)`, `Box(&T)`,
+      `RefCell(&T)`, a `Dyn` payload: E0909), it is never spawned, never
+      captured by an escaping closure, never `Send`. Lifetimes are elided:
+      a borrow set per value (R2), the single-root return with `depends`
+      (R3), `Rc` roots only through the pin (R5), async per A2 (R6).
+    - **Root-joining containers (R7).** `ArrayList(&T)`, `HashMap(&K, V)`
+      and every buffer-owning container over a `&` are legal and
+      second-class, with a borrow set that **grows**: every `&` lent into a
+      `&mut self` method of the container (`push`, `insert`, `extend`,
+      `set`, an `Index` place write) joins its roots; a `&self` method
+      joins nothing; a `depends` clause on the method narrows the rule.
+      Joined roots keep their mode: a `&mut x` pushed in freezes `x`
+      exclusively for the container's live range, so a second `&mut x` or
+      a read of `x` while it lives is E0911; a `&x` freezes `x` against
+      writes only. The container is returned under R3 over the joined set
+      (`words(self : &Doc) -> ArrayList(View(u8))` compiles when every
+      pushed view is rooted in `self`). Elements rooted through an
+      `Rc`/`Arc` deref are rejected (one pin per element is not taken);
+      `Rc(ArrayList(&T))` is E0909. Codegen is a buffer of pointers with no
+      count traffic and no element drops.
+      - **Its tracker is new.** The closures' capture-borrow sets
+        (`g_capture_borrows`, keyed by the capture struct's type id) cannot
+        carry it: every closure literal has its own type, while two
+        `ArrayList(&T)` values share one type and hold different roots.
+        Root-joining is a per-value borrow set on the binding, extending
+        the single local-borrow root `VariableRare.inout_borrow_root_id`
+        keeps today to a set of `(root, mode)` pairs, joined at each
+        `&mut self` call that receives a `&` argument, unioned over
+        reaching definitions at control-flow joins (decision 38 A), and
+        read by the freeze and exclusivity checks (decisions 18 and 28).
+        Flow-sensitive and intraprocedural, like everything else here.
+    - **Verifier.** A `&T` parameter stays a lent, unchanged place and a
+      `&mut T` a modifiable one; a bound `&T` local is modelled as an alias
+      of its root; containers of references are outside the subset until
+      modelled.
+    - **Reflection.** `TypeInfo` gains a `Reference(T, mutable : bool)`
+      kind; derive rules see it; `type_of(&x)` is `&T`.
+    - **Diagnostics.** The storage errors say "a `&T` cannot outlive its
+      root, and this position has no root" and point at
+      `RUST_REFERENCE_PATTERNS.md`.
+    - **Rejected.** Named regions or origins (a comptime
+      `generic(r : Region)` stays the growth path only if the residue in
+      `RUST_REFERENCE_PATTERNS.md` §14 bites); `&String → &str` and every
+      other deref coercion; Austral's linear types; a cell holding a
+      reference.
+    - **Cost and phase.** A `TypeValue` reference variant replaces the slot
+      flags (`param_is_ref`, `call_param_is_ref`/`is_owning` in
+      `FnTraitT`, `FuncParam` modes) through the evaluator, the
+      specializer, the verifier encoding and codegen: the largest refactor
+      in this plan. Its own phase after decision 42's Generation B and
+      after V2b (root-joining is meaningful only once collections are
+      uniquely owned values), timed by the VBD session. Generation A adds
+      the types, `.*`, auto-deref and auto-borrow, `impl(&T, …)`,
+      root-joining, `FnMut` (decision 37) and the tests in user code;
+      Generation B lets std adopt (`iter`, `slice`, `entry`, the borrowed
+      `for` by `impl(&C, IntoIterator)`, the `FnMut` slots).
+    - **Tests.** `impl(&T, M)` versus `impl(T, M)` dispatch; `&&T` reached
+      through a generic; reborrow versus move of a `&mut T`; the `.*`
+      swap; auto-deref on a field and a method; `&mut T` through a `&`
+      path is read-only; root-joining: two roots pushed then a conflicting
+      write (E0911), a return with a non-parameter root (error), a
+      `depends` narrowing; an `Rc`-rooted element in a container
+      (rejected); the cell cases (E0909); `words` returning a list of
+      views; the borrowed `for` by `impl(&C, IntoIterator)`.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -3972,11 +4172,6 @@ inside a settled design:
 - **§3.13 A1:** whether std adds a shared-future adapter (one task joins,
   the others wait on the result), now that `Rc(JoinHandle(T))` is known
   not to work. Decided in V3's async work.
-- **Decision 39:** borrow-mode struct fields as the path to a true
-  borrowing iterator, decided together with decision 37's stateful call,
-  by the same trigger.
-- **§3.10:** whether `pragma(Pragma.StrictBorrow)` is deleted or kept for
-  `Rc` roots. Decided in V2b, when the collections' headers go.
 - **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
   the constructors' `alloc` parameter. Decided after V2b.
 - *(Decided as decision 35, 2026-10-05: the capture list.)*

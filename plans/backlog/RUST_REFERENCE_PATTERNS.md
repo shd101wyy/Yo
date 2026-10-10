@@ -1,51 +1,53 @@
 # Rust reference-in-structure patterns in post-VBD Yo
 
-**Status: BACKLOG** — a companion to
-[`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md), written 2026-10-08 and
-parked here on the maintainer's call (2026-10-08): it is a reference catalog,
-not an implementation plan — nothing here drives a phase. It answers one
-question: **Rust stores borrows in data structures**
-(`struct S<'a> { r: &'a T }`), **and Yo's borrows are second-class — what
-replaces each shape?**
+**Status: BACKLOG** — a reference catalog, not an implementation plan,
+companion to [`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md). It answers
+one question: **Rust stores borrows in data structures**
+(`struct S<'a> { r: &'a T }`) **and Yo's references are second-class with
+no lifetime names — what replaces each shape, and what does it cost?**
 
-The catalog describes the model **at V5**: every declared type a value,
-`ref(...)`/`atomic(...)` gone, sharing only where `Rc`/`Arc` is spelled. It was
-written against the 2026-10-07 tree and re-checked on 2026-10-09 (landed:
-the `Rc` rename with the legacy `Box`/`box` spelling deleted (#1267, #1273),
-decision 32's clash error, the `Send`/`Sync` split, `FnOnce` (Generation B
-in #1273), decision 36's `Copy` sweep and flip (#1269, #1280), local borrows
-and re-points, capture lists, V3b Generation A); the shapes that depend on
-V1 step 2 (the unique `Box` — no `Box` type exists in the tree between
-#1273 and that step), V2b (projections, `with`, `indices`, value
-collections), V2c (explicit `Rc.clone`) and V5 are marked and land with
-those phases. At V5 this document is the seed of the
-user-facing porting guide (`docs/en-US/` + `docs/zh-CN/`, linked from the
-plan's V5 docs list).
+It describes the model **at V5 with decisions 41–43 landed**: every
+declared type a value, sharing spelled `Rc`/`Arc`, the dynamic exclusivity
+check spelled `RefCell(T)`, references `&T`/`&mut T` as second-class types
+with lifetimes elided ([`NON_ESCAPABLE_TYPES.md`](NON_ESCAPABLE_TYPES.md),
+rules R1–R7). Sections that depend on that design or on V2b say so. At V5
+this document is the seed of the user-facing porting guide (`docs/en-US/`
++ `docs/zh-CN/`). Four shapes still have an open design question, each
+filed with a recommendation and cited where it applies:
+`issues/questions/hashmap-lookup-by-borrowed-key-form.md`,
+`issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`,
+`issues/questions/refcell-inside-a-plain-value.md`,
+`issues/questions/borrowed-for-over-user-defined-collections.md`.
 
-Decision numbers (`D18`, `D39`, …) refer to `VALUES_BY_DEFAULT.md` §4; bare
-`§`-references (`§3.10`, `§3.13 A2`) are that plan's sections.
+Decision numbers (`D18`, `D43`, …) refer to `VALUES_BY_DEFAULT.md` §4; bare
+`§`-references (`§3.10`, `§3.13 A2`) are that plan's sections; `R1`–`R7`
+are the design note's rules.
 
 ---
 
 ## 1. The rule, and the five replacement shapes
 
-**A borrow is a mode, never a type** (D30, D38 A). `imm`/`mut` annotate
-positions — parameters and receivers (`imm(x) : T`), local bindings
-(`imm(y) := place`), re-points (`mut(cur) = place`), projection results
-(`-> mut(T)`), capture-list entries, and the argument sigils `&x`/`&mut x` at
-call sites (D33). A borrow can never be a field type, an element type, a
-generic argument of a type constructor, a stored/returned value, or a `Dyn`
-payload. That is why no lifetimes exist: every check is intraprocedural.
+**A reference is a type, second-class, with its lifetime elided** (D43,
+D38 A). `&T` and `&mut T` may stand anywhere laid out inline — a
+parameter, a local, a result, a struct field, an enum payload, a tuple or
+array component, `Option(&T)` — and as the element of a root-joining buffer
+container (`ArrayList(&T)`, R7). They may never be the payload of a cell
+(`Rc`, `Box`, `RefCell`, `Dyn`), be spawned, be `Send`, or be captured by
+an escaping closure. A function returns one only when every root is one
+of its own parameters, inferred, narrowed by `depends(...)` (R3). That is
+why no lifetimes exist: every check is intraprocedural.
 
-A Rust struct that holds a reference therefore becomes exactly one of five
-shapes, in the order Yo prefers them:
+A Rust struct that holds a reference therefore becomes one of five shapes,
+in the order Yo prefers them; the first is now Rust's own, within one
+frame:
 
 | # | Shape | Costs | Use when |
 | --- | --- | --- | --- |
-| 1 | **Own it** — the field holds the value `T` (a recursive child in `Box(T)`) | a move or `.clone()` at the boundary | this structure is the value's sole owner for its whole life |
-| 2 | **Share it** — the field holds a handle: `Rc(T)` (one thread) or `Arc(T)` (across threads) | one allocation, count traffic, per-cell borrow marks on write (§3.10) | aliasing is real and long-lived |
+| 1 | **Hold the reference** — the field is `&T`/`&mut T`, the struct is second-class (R1) | nothing; the struct cannot outlive its roots or live in a cell | a view, cursor, guard, entry or sink whose life is one frame |
+| 1b | **Own it** — the field holds the value `T` (a recursive child in `Box(T)`) | a move or `.clone()` at the boundary | this structure is the value's sole owner for its whole life |
+| 2 | **Share it** — the field holds a handle: `Rc(T)` (one thread) or `Arc(T)` (across threads); `Rc(RefCell(T))` when the payload is mutated through the handle (decision 41) | one allocation, count traffic; marks and a write assert only inside a `RefCell` (§3.10) | aliasing is real and long-lived |
 | 3 | **Index it** — the field holds an index/key into an owner living elsewhere (`usize`, an arena id, a map key) | a bounds/lookup step per access; the owner must outlive the index | graphs, caches, interners — often *faster* than a pointer (§12) |
-| 4 | **Pass it, don't store it** — the function takes `imm(x) : T` / `mut(x) : T`, or takes a non-escaping closure (`imm(body) : Fn(mut(v) : T) -> R`) | none (an `Impl(Fn)` body inlines) | the borrow's life is one call |
+| 4 | **Pass it, don't store it** — the function takes `x : &T` / `x : &mut T`, or a non-escaping closure (`body : Impl(FnMut(v : &mut T) -> R)`) | none (an `Impl(Fn)` body inlines) | the borrow's life is one call |
 | 5 | **Re-derive it** — store a small `Copy` cursor (an offset, a `Range(usize)`), re-derive the place at each use through an owner you can name | one bounds check per re-derivation | zero-copy views, cursors, walkers |
 
 Everything below is these five shapes applied to the recurring Rust patterns.
@@ -65,11 +67,11 @@ impl<'a> Lexer<'a> {
 The Yo lexer **stores no view** (shape 5): its state is a `Copy` cursor, the
 buffer is borrowed per call (shape 4), and each access re-derives the place:
 
-```rust
+```yo
 Lexer :: struct(pos : usize, len : usize);
 derive(Lexer, Copy, Clone);
 
-peek :: (fn(imm(src) : ArrayList(u8), st : Lexer) -> Option(u8))(
+peek :: (fn(src : &ArrayList(u8), st : Lexer) -> Option(u8))(
   cond(st.pos < st.len, .Some(src(st.pos)), .None)
 );
 ```
@@ -92,15 +94,19 @@ impl Doc {
 }
 ```
 
-A view into an owned buffer cannot be stored. Store **offsets** (shape 5) and
-re-derive:
+Within one frame, `fn words(&self) -> Vec<&str>` has a direct spelling:
+`words(self : &Doc) -> ArrayList(View(u8))`, a root-joining second-class
+list that depends on `self` (R7; `View(u8)` is the L1 view into the
+`String`'s bytes — `str` itself is the first-class static view and never
+takes `&`). For a list that must outlive the call or live in a cell, store
+**offsets** (shape 5) and re-derive:
 
-```rust
+```yo
 Doc :: struct(text : String);
-word_ranges :: (fn(imm(self) : Doc) -> ArrayList(Range(usize)))(...);   // Copy elements
+word_ranges :: (fn(self : &Doc) -> ArrayList(Range(usize)))(...);   // Copy elements
 // use — the view is re-derived at each step, never stored:
 ranges := doc.word_ranges();
-imm(d) := doc;
+d := &doc;
 for(ranges, r => { process(&d.text, r); });
 ```
 
@@ -128,6 +134,41 @@ state machine, not a moved stack frame. The Rust pattern that *wants* a
 self-view (a cursor into a own buffer) is shape 5: own `buf`, store
 `Range(usize)`, re-derive.
 
+### 2.4 Sub-slice arguments and parser remainders — `&xs[a..b]`, `fn parse(&str) -> (&str, T)`
+
+```rust
+// Rust
+fn sum(xs: &[i32]) -> i32 { .. }
+sum(&v[lo..hi]);                                   // a view, no copy
+fn number(input: &str) -> IResult<&str, i32>;      // nom: the REMAINDER is a borrow
+```
+
+Yo has no slice type (`std/collections/array_list.yo`: "Yo has no slice
+type, so each chunk is a freshly allocated `ArrayList(T)`"), and
+`ArrayList.slice(start, end)` returns a **copy**. A window into a buffer
+is passed as the pair "the whole buffer, lent, plus a `Copy` range" and
+re-derived in the callee (shape 4 + shape 5):
+
+```yo
+sum :: (fn(xs : &ArrayList(i32), r : Range(usize)) -> i32)({
+  acc := i32(0);
+  for(r, i => { acc = (acc + xs(i)); });
+  acc
+});
+sum(&v, lo..hi);
+```
+
+- A parser that returns "the rest of the input" returns the **offset**
+  (`(usize, T)`, or a `Result((usize, T), E)`) and takes the whole input
+  as `input : &String` plus the start position; the caller threads the
+  offset. This is §2.1's cursor again, applied to the signature rather
+  than to a struct.
+- Error values that borrow the input (`enum Error<'a> { Unexpected(&'a str) }`)
+  carry the offset or own a clone of the fragment; an error is a stored
+  value and can never hold a borrow.
+- A function that must **own** a sub-range (store it, return it as a
+  value) calls `slice`, which is the explicit copy.
+
 ## 3. A borrow held across calls
 
 ### 3.1 The context struct — `struct Ctx<'a> { db: &'a Db }`
@@ -140,9 +181,9 @@ fn work(ctx: &mut Ctx) { ctx.db.write(..) }
 
 Two Yo shapes, picked by where the context lives:
 
-```rust
+```yo
 // Shape 4: call-local — no Ctx type at all; the borrows are the signatures
-work :: (fn(mut(db) : Db, imm(cfg) : Config) -> unit)(...);
+work :: (fn(db : &mut Db, cfg : &Config) -> unit)(...);
 work(&mut db, &cfg);                      // the sigils say what is lent (V3b)
 
 // Shape 2: stored (a task, a spawn, a registry) — handles, not borrows
@@ -151,9 +192,12 @@ Ctx :: struct(db : Rc(Db), cfg : Rc(Config));
 
 - The stored form is exactly what the compiler's ~60 context objects become at
   V5 (`Rc(struct(...))`, the plan's V5 list).
-- Through a handle, `ctx.db.write(...)` auto-derefs (§3.3) and a write asserts
-  no conflicting borrow mark on the cell (§3.10). Sharing the `Db` across
-  threads is `Arc(Db)` for reads (needs `Db <: (Send, Sync)`) or
+- Through a handle, `ctx.db.read(...)` auto-derefs (§3.3). A write through
+  `Rc(Db)` compiles only where the summaries prove no borrow is live
+  (§3.10 outcome (a)); a `Db` that is mutated through the handle in general
+  is `Rc(RefCell(Db))` and writes `ctx.db.get_mut().write(...)` or
+  `ctx.db.with_mut(d => d.write(...))` (decision 41). Sharing the `Db`
+  across threads is `Arc(Db)` for reads (needs `Db <: (Send, Sync)`) or
   `Arc(Mutex(Db))` for writes (D3: no write through an `Arc` root in safe
   code).
 - A handle copy is explicit: `Rc.clone(ctx.db)` (D17/D32 — `ctx.db.clone()` is
@@ -167,24 +211,27 @@ let g = m.lock().unwrap();   // holds &mut T through a guard value
 *g += 1;
 ```
 
-Safe Yo **returns no guards**: the borrow is scoped by a non-escaping closure
-(shape 4):
+Two Yo forms, the closure one preferred:
 
-```rust
-n := m.with_lock(v => (v + i32(1)));              // Mutex(T)
-xs.with(usize(0), mut(e) => { e.hits = (e.hits + i32(1)); });   // element (V2b)
+```yo
+n := m.with_lock(v => (v.* + i32(1)));                        // Mutex(T): the borrow is the closure's scope
+cell.with_mut(v => { v.* = (v.* + i32(1)); });              // RefCell(T) (D41)
+g := m.lock();                                               // a guard VALUE: LockGuard(T) holds m : &mut Mutex(T) (R1, R3)
+g.* = (g.* + i32(1));                                        // dropped at scope end, which unlocks (Dispose is an access, D38 A)
 ```
 
-- `with_lock`'s body parameter is `imm(body) : Fn(mut(v) : T) -> R` — the
-  `mut(v)` lend is exactly the `&mut` the guard held, with the scope checked
-  structurally (the closure cannot escape, D38 A).
-- An `Impl(Fn)` body is monomorphized and inlines; the zero-cost property
-  Rust gets from stack guards, Yo gets from inlining the closure.
-- std's own RAII guards (`__MutexUnlocker`, `__RwLock*Unlocker`,
-  `__BorrowGuard`) hold a raw pointer into a `Box`ed move-only state and exist
-  only in `pragma(Pragma.AllowUnsafe)` std files (§3.4). A library that truly
-  needs guard values (an FFI lock, a scoped queue) uses the same pattern —
-  see §11.
+- `with_lock`'s body is `Impl(FnMut(v : &mut T) -> R)`: the lend is exactly
+  the `&mut` the guard held, scoped structurally, and an `Impl(Fn)` body
+  inlines — the zero-cost property Rust gets from stack guards.
+- A guard value is a second-class struct holding `&mut Mutex(T)`: it cannot
+  be stored in a cell or returned past its root, so lock-then-hold APIs
+  read as in Rust within one frame. `RefCell` keeps the closure and
+  projection forms only (`with_mut`, `get_mut() -> &mut T`), since its
+  dynamic borrow is call-scoped (D41).
+- std's own RAII guards over raw pointers (`__MutexUnlocker`,
+  `__RwLock*Unlocker`, `__BorrowGuard`) exist only in
+  `pragma(Pragma.AllowUnsafe)` std files (§3.4 of the plan); after R1 lands
+  they become ordinary reference-holding structs.
 
 ### 3.3 Split borrows — `split_at_mut`, two `&mut` fields at once
 
@@ -193,7 +240,7 @@ xs.with(usize(0), mut(e) => { e.hits = (e.hits + i32(1)); });   // element (V2b)
 let (a, b) = buf.split_at_mut(mid);
 ```
 
-- **Distinct fields are free** (D18): `mut(a) := s.left; mut(b) := s.right;`
+- **Distinct fields are free** (D18): `a := &mut s.left; b := &mut s.right;`
   is accepted — siblings never conflicted.
 - **A container splits by index ranges** (shape 3/5): walk `[0, mid)` and
   `[mid, len)` as two cursor loops over `xs(i)` places, or over
@@ -206,11 +253,88 @@ A value that holds a borrow of its argument for later use (a builder that
 borrows a sink, a transaction that borrows a store) cannot exist. Restructure:
 
 - **immediate scope** (shape 4): `begin`/`commit` collapse into one call that
-  takes `mut(x)` and the closure or body;
+  takes `&mut x` and the closure or body;
 - or the loaned state moves in (shape 1): the builder owns its sink and is
   consumed by `finish`;
-- or the loan becomes a handle (shape 2): `Rc(Store)`, with §3.10's assert in
-  place of the exclusivity Rust proved.
+- or the loan becomes a handle (shape 2): `Rc(RefCell(Store))`, with the
+  cell's assert in place of the exclusivity Rust proved.
+
+### 3.5 A sink held in a struct — `fmt::Formatter<'a>`, `Serializer<'a, W: Write>`
+
+```rust
+// Rust
+impl fmt::Display for Point {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "({}, {})", self.x, self.y) }
+}
+struct Serializer<'a, W: Write> { out: &'a mut W, depth: usize }
+```
+
+`Formatter` is a struct wrapping `&mut dyn Write`, handed down a call
+tree. Yo's `ToString` (`std/fmt/to_string.yo`) **returns the text**
+instead: `to_string : (fn(self : &mut Self) -> String)`, so there is no
+sink to borrow and the trait object is the returned `String`. A real
+streaming serializer takes its sink per call (shape 4):
+
+```yo
+serialize :: (fn(self : &Doc, out : &mut StringBuilder, depth : usize) -> unit)(...);
+```
+
+and a serializer that must be a value (it is passed around, or it is a
+`Dyn`) owns its sink (shape 1) and gives it back on `finish` —
+`StringBuilder.to_string` already detaches the buffer that way.
+
+### 3.6 Take-and-replace transitions, and optional fields in place
+
+```rust
+// Rust: the state-machine idiom, and the as_ref/as_mut idiom
+self.state = match std::mem::replace(&mut self.state, State::Empty) { .. };
+if let Some(conn) = &mut self.conn { conn.send(..) }
+let n = self.name.as_deref().unwrap_or("?");
+```
+
+Decision 19 (no partial moves) and decision 26 (a `match` on a borrowed
+scrutinee binds borrows) carry both idioms with no struct change:
+
+```yo
+self.state = match(take(&mut self.state), .Running(j) => step(j), .Empty => .Empty);   // leaves Default
+old := replace(&mut self.state, .Empty);                                                  // Rust's mem::replace
+match(&mut self.conn, .Some(c) => c.send(msg), .None => ());                              // `as_mut` + `if let`
+n := match(&self.name, .Some(s) => s, .None => "?");                                      // `as_deref`: a str view
+```
+
+- `take(&mut place)` needs `Default` on the field type, like `mem::take`;
+  `replace` does not.
+- `match(&x, …)` / `match(&mut x, …)` are decision 33's sigils on the
+  scrutinee: the bindings are `&`/`&mut` places and `x` stays usable
+  afterwards. A bare `match(self.conn, …)` would be a consuming match and
+  is a partial move, which decision 19 rejects.
+- `Option.as_ref()`/`as_mut()`/`as_deref()` therefore have no Yo
+  spelling: `Option(&T)` would put a borrow inside a type constructor
+  (decision 38 A). The `match` **is** the method.
+
+### 3.7 Builders — `fn name(&mut self, ..) -> &mut Self`
+
+```rust
+// Rust: the mutable-chaining builder
+let req = Request::builder().method("GET").header("a", "b").body(())?;
+```
+
+A method cannot return a borrow of its receiver (§6), so the **consuming
+builder** is the shape: every step takes `self` by value and returns it,
+the chain moves the value along, and `finish` consumes it. This is Rust's
+other builder convention (`std::thread::Builder`, `Command` by `&mut`
+aside) and it costs nothing — a move of a stack value is a register copy
+under decision 30.
+
+```yo
+req := RequestBuilder.new().method("GET").header("a", "b").build();
+method : (fn(self : Self, m : str) -> Self)({ self.method = m; self });
+```
+
+A builder that must be mutated in place across statements (`b.a(); if c { b.b(); }`)
+is an ordinary `mut` local whose steps are `&mut self` methods returning
+`unit`; the two conventions are the same ones Rust offers, minus the
+reference-returning one.
 
 ## 4. Shared graphs and caches
 
@@ -227,29 +351,33 @@ struct Node {
 Yo has **no `Weak`** — the cycle collector is the `Weak`. Children and parents
 are plain handles (shape 2):
 
-```rust
+```yo
 Node :: struct(
   value : i32,
-  children : ArrayList(Rc(Node)),
-  parent : Option(Rc(Node))
+  children : ArrayList(Rc(RefCell(Node))),
+  parent : Option(Rc(RefCell(Node)))
 );
 ```
 
 - The parent cycle is reclaimed by the thread-local trial-deletion collector
-  (`docs/en-US/CYCLE_COLLECTION.md`); only cells whose payload can reach an
-  `Rc` are tracked, and this graph qualifies by construction.
-- **Writes through any handle are plain writes** with the cell's borrow marks
-  asserted at the write site (§3.10, D4): `node.value = 5` on an
-  `Rc(Node)`-typed place is legal and panics if a conflicting borrow is live.
-  This is `RefCell::borrow_mut`'s panic with no annotation — the run-time
-  rule `RefCell` encodes, moved to the write.
+  (`docs/en-US/CYCLE_COLLECTION.md`); only cells whose payload reaches a
+  `RefCell`/`Mutex`/`RwLock` that reaches an `Rc` are tracked (decision 41),
+  and this graph qualifies by construction — a tree whose nodes are plain
+  `Rc(Node)` does not, and is never tracked.
+- **The graph is mutated through `RefCell`**, exactly as in Rust minus the
+  guard value (decision 41): `node.get_mut().value = 5` (a projection, D24)
+  or `node.with_mut(n => { n.value = 5; })`. A conflicting live borrow
+  panics at `get_mut`/`with_mut` entry, `RefCell::borrow_mut`'s panic. A
+  write through a plain `Rc(Node)` compiles only where the summaries prove
+  no borrow is live (§3.10 outcome (a)) and is otherwise a compile error
+  naming `RefCell(T)`.
 - An `Arc` graph is rejected: `arc` requires `T <: Acyclic`, because an atomic
   cycle is never collected. Cross-thread graphs use arena + ids (below) or
   `Arc(Mutex(...))` nodes without parent handles.
 - **The alternative is the arena** (shape 3), and it is what big Rust systems
   do too (rustc's interners, ECS storages, Cranelift's arenas):
 
-```rust
+```yo
 Forest :: struct(nodes : ArrayList(Node));          // the one owner
 Node :: struct(value : i32, children : ArrayList(usize), parent : Option(usize));
 ```
@@ -265,14 +393,18 @@ Node :: struct(value : i32, children : ArrayList(usize), parent : Option(usize))
 
 - **`Cell<T>` disappears.** Its whole job — mutate a field through a shared
   reference — is either unnecessary (you own the value: mutate the field) or
-  is the `Rc` write of §4.1. There is no `Cell` in the language and no hole it
-  leaves.
-- **`RefCell<T>` is `Rc(T)`.** `Rc<RefCell<T>>` (Rust) becomes `Rc(T)` (Yo):
-  the cell header carries the shared and exclusive borrow marks, every write
-  through the cell asserts no conflicting mark, and `imm` lends through the
-  handle mark the cell for the call (D28). The failure mode is the same class
-  as Rust's (`RefCell` panic), checked at the same place (the mutation), with
-  no spelling at the type.
+  is a `RefCell(T)` over a `Copy` payload (`c.get_mut().* = v`). There is no
+  `Cell` in the language and no hole it leaves.
+- **`RefCell<T>` is `RefCell(T)`** (decision 41; `std/sync`, beside
+  `Mutex(T)`). `Rc<RefCell<T>>` becomes `Rc(RefCell(T))`: the cell holds the
+  shared and exclusive marks, `with(v => …)`/`with_mut(v => …)`
+  scope a borrow in a closure, and `get()`/`get_mut()` are projections
+  usable in one expression (`cell.get_mut().field = x`). What does not
+  carry over is the guard value: `borrow_mut()` returning a `RefMut` is a
+  stored borrow (D38 A). The failure mode is Rust's (`RefCell` panic at
+  `with_mut`/`get_mut`). A plain `Rc(T)` is read-only through the handle
+  except where §3.10's summaries prove a write exclusive, and its cell
+  carries no marks at all.
 - Cross-thread: `Arc<Mutex<T>>` → `Arc(Mutex(T))`; `Arc<RwLock<T>>` →
   `Arc(RwLock(T))` (both need `T <: (Send, Sync, Acyclic)`).
 - A `OnceCell`/lazy shape: initialize eagerly, or hold
@@ -290,12 +422,12 @@ impl Interner { fn get(&self, id: usize) -> &str { &self.strings[id] } }
 The `&str` return is the only part that does not translate — and the id
 already is the answer (shape 3). rustc's own interner works this way;
 
-```rust
+```yo
 Interner :: struct(map : HashMap(String, usize), strings : ArrayList(String));
 
-intern :: (fn(mut(self) : Interner, s : String) -> usize)(...);
+intern :: (fn(self : &mut Interner, s : String) -> usize)(...);
 // the text is re-derived (shape 5), never stored:
-imm(text) := it.strings(id);       // a local borrow of the interner
+text := &it.strings(id);       // a local borrow of the interner
 it.strings(id).clone();            // or own a copy
 ```
 
@@ -307,44 +439,112 @@ ids/keys, or `ArrayList(Rc(V))` when the entries are themselves shared.
 Post-VBD Yo has no copy-on-write (§0.1 of the plan dropped it); an explicit
 enum is the shape:
 
-```rust
+```yo
 StrArg :: enum(Borrowed(str), Owned(String));
 ```
 
 The `Borrowed` arm is sound only because a safe `str` cannot alias a mutable
 buffer (2.2). Most former-`Cow` call sites simply own the value: a copy is
 already explicit everywhere, so `Owned` alone is usually the honest type. For
-real structural sharing (snapshots, undo stacks), the persistent structures
-are the `std/imm` family — which leaves std as its own package at V5.
+real structural sharing (snapshots, undo stacks) there is no persistent
+collection in std: the `std/imm` family was deleted on 2026-10-09 (#1289,
+the maintainer's decision, to be revisited later); until then snapshots
+are explicit clones or `Rc` handles to immutable nodes.
+
+### 4.5 The entry API — `HashMap::entry(k).or_insert_with(..)`, `get_or_insert_with() -> &mut V`
+
+```rust
+// Rust
+*counts.entry(word).or_insert(0) += 1;
+let v = cache.entry(k).or_insert_with(compute);   // &mut V into the map
+```
+
+`Entry<'a, K, V>` is a value holding a loan of the map, and since D43 that
+is an ordinary second-class struct: `Entry :: struct(map : &mut HashMap(K, V), key : K, hash : u64, slot : BucketProbe)`,
+returned by `entry(self : &mut Self, k : K) -> Entry(K, V)` under R3 (root
+`self`), with `or_insert(self, v) -> &mut V` a projection (D24). The
+Rust lines read the same:
+
+```yo
+counts.entry(word).or_insert(i32(0)).* = (counts.entry(word).or_insert(i32(0)).* + i32(1));
+counts.update_with(word, n => (n + i32(1)));          // the closure form, shorter
+cache.entry(k).or_insert_with(() => compute(k));
+```
+
+The closure-taking methods std already has (`get_or_insert_with`,
+`update_with`) stay as the short spellings. Lands with the design note's
+phase N3.
+
+### 4.6 Two kinds of "arena" — index arenas (§4.1) versus `bumpalo`/`typed_arena` returning `&'a T`
+
+```rust
+// Rust
+let arena = Bump::new();
+let n: &Node = arena.alloc(Node { .. });   // a borrow with the arena's lifetime
+```
+
+§4.1's arena is a `ArrayList(Node)` with `usize` edges: the index IS the
+reference. Rust's *bump* arena is a different thing — a placement
+decision — and in Yo it is the explicit allocator of
+[`EXPLICIT_ALLOCATORS.md`](../reference/EXPLICIT_ALLOCATORS.md) and
+VALUES_BY_DEFAULT §3.11:
+
+```yo
+a := Arena.new();
+with_allocator(a.allocator(), () => {
+  xs := ArrayList(Node).new();     // its buffer, and every cell it creates, lives in `a`
+  ...
+});
+a.deinit();                        // panics while any block is live
+```
+
+- The value built in the arena is an **ordinary value** (`xs`, `Rc(Node)`,
+  a `String`); nothing in its type says where it lives, so no lifetime
+  parameter appears on anything that holds it. Ownership still decides when
+  it dies; the arena decides where.
+- Moving a value out is an explicit `clone_in(alloc)` (lands with V2b's
+  `alloc` parameter); a plain `clone()` lands where its source lives
+  (decision 12).
+- A plain struct, enum, tuple or array allocates nothing, so a bump arena
+  changes only where cells and buffers go — the same thing `Bump` changes.
 
 ## 5. Iteration
 
 ### 5.1 Borrowing iterators — `iter()`, `impl Iterator<Item = &T>`, adapter chains
 
-Decision 39 (amended) settles the whole area:
-
-| Rust | Post-V2b Yo |
+| Rust | Post-V2b Yo (with the design note's N2) |
 | --- | --- |
-| `for x in &xs` (a read-only walk) | the **borrowed `for`**: `for(xs, mut(x) => …)` — the container place is pinned, each element re-derived per step, no iterator value exists |
-| `xs.iter().map(...).filter(...)` (a lazy chain over a borrowed container) | **not expressible**: write the loop, compose `xs.indices()` with non-escaping closures (`xs.indices().map(i => xs(i).len())`), or `xs.clone().into_iter()` when the chain must own its source — an explicit copy |
-| `for x in xs` (by value) | `xs.into_iter()` — consumes; `Copy` elements are copies |
-| `xs.iter()` where `xs : Rc<C>` | `xs.iter()` — iterating a shared container through a first-class handle is allowed (D38 D's per-call marks) |
-| a stored read-only iterator (`it := xs.iter(); … it.next()`) | not expressible in safe code (a stored borrow); the cursor is `xs.indices()` — a `Copy` `Range(usize)` — with `xs(i)` re-derived by the user |
+| `for x in &xs` (a read-only walk) | `for(&xs, x => …)` — the sigil on the source; dispatches through `impl(&ArrayList(T), IntoIterator(…))`; each `x` is a `&T` |
+| `for x in &mut xs` | `for(&mut xs, x => …)` — each `x` is a `&mut T`, written in place through `x.*` or its fields |
+| `for x in xs` (by value) | `for(xs, x => …)` — consumes `xs` (D42); `Copy` elements copy |
+| `xs.iter().map(...).filter(...)` (a lazy chain over a borrowed container) | `xs.iter().map(…).filter(…)` — `iter(self : &Self) -> Cursor(T)` is a second-class struct holding `xs : &ArrayList(T)` (R1, R3), `next(self : &mut Self) -> Option(&T)`, and each adapter is an inline struct holding the cursor; the chain cannot be stored in a cell or outlive `xs` |
+| `xs.iter()` where `xs : Rc<C>` | the walk pins the cell for the cursor's life (R5) |
+| a stored read-only iterator (`it := xs.iter(); … it.next()`) | legal as a local; `ArrayList(Cursor(T))` is a root-joining container (R7); `Rc(Cursor(T))` is E0909 |
 | `ptr()`-style raw iteration | only beside `ptr()`, in `pragma(Pragma.AllowUnsafe)` std files |
 
-- **Growth mid-walk is an out-of-bounds error**, not UB (the borrowed `for`
-  and `indices()` re-derive; D39's test requirement).
-- **Cost:** one bounds check per re-derivation. Hot loops that need raw
-  pointers use `ptr()` under the pragma (§11) — the same decision Rust makes
-  when its iterators fail to elide.
+- **Growth mid-walk**: with a value-rooted `xs`, `xs.push(..)` inside the
+  walk is E0911 (the cursor holds `&xs`); with an `Rc`-rooted one, the pin
+  panics (D39's test requirement).
+- **Cost:** a bounds check per `next` where the verifier cannot elide it;
+  `indices()` (a `Copy` `Range(usize)`) remains for cursor walks that must
+  survive a mutation of the container.
 
 ### 5.2 `iter_mut` — mutable iteration
 
-The borrowed `for` with a `mut` binding **is** `iter_mut`:
-`for(xs, mut(x) => { x = (x + i32(1)); })` — each element is an exclusive place
-into the container's storage, in-place, no copy (the pinned borrow flag makes
-invalidation a run-time panic). A stored `iter_mut` cursor is a `Range(usize)`
-plus `xs(i) = v` place writes, or `xs.with(i, body)` for one element.
+`for(&mut xs, x => { x.* = (x.* + i32(1)); })`: each `x` is a `&mut T` into
+the container's storage, in place, no copy; `xs.iter_mut()` is the cursor
+form with `next(self : &mut Self) -> Option(&mut T)`. A `&mut T` reached
+through a `&` path is read-only (D43), so a shared view of a container
+never hands out mutable elements.
+
+### 5.3 `impl IntoIterator for &MyCollection`, `LendingIterator`
+
+Rust's shape, exactly: `impl(&MyColl, IntoIterator(Item := &T, …))` and
+`impl(&mut MyColl, IntoIterator(…))` make `for(&c, …)` work on a user
+container, and the iterator they return is a second-class value rooted in
+`c` (R3). A `LendingIterator` (`next(&mut self) -> Option<&mut T>`) is the
+`&mut` cursor above. Position recorded in
+`issues/questions/borrowed-for-over-user-defined-collections.md`.
 
 ## 6. Returning a borrow
 
@@ -353,22 +553,26 @@ plus `xs(i) = v` place writes, or `xs.with(i, body)` for one element.
 fn find(&self, k: Key) -> &Val;
 fn longest(w: &[String]) -> &String;
 fn parts(&mut self) -> (&mut A, &mut B);
+fn name(&mut self, s: &str) -> &mut Self;
 ```
 
-Nothing can return a borrow (a projection result `-> mut(T)` exists only in
-expression position and "may not be bound, stored, captured or returned",
-D24). Pick by what the caller needs:
+A function may return a reference, or anything holding one, when every
+root is one of its own parameters — inferred, all of them by default, or
+narrowed with `depends(...)` (R3). So:
 
-| The caller needs | Return | Read/use |
-| --- | --- | --- |
-| to read one field now | the call itself borrows: `imm(v) := xs(i)` — a local borrow (V2b places), or `xs(i).field` in place | free |
-| to mutate one entry | a non-escaping closure: `xs.with(i, mut(v) => …)` (D20, V2b) | free (inlines) |
-| the value out | a copy: `get(i)` for `Copy` payloads, `get_cloned(i)` or `xs(i).clone()` otherwise (D20: `get` exists only for implicitly copyable `T`); or ownership: `take(i)`, `pop`, `remove` | the copy |
-| to hold it beside others | a handle: store `Rc(V)` values and return `Rc.clone(v)` | count bump |
-| to find it again later | the key/index: `Option(usize)` / the key (shape 3) | a lookup |
+| Rust | Yo |
+| --- | --- |
+| `fn find(&self, k) -> &Val` | `find(self : &Self, k : Key) -> &Val` — a projection (D24), bindable since D43 |
+| `fn longest(a: &[u8], b: &[u8]) -> &[u8]` | `longest(a : &ArrayList(u8), b : &ArrayList(u8)) -> View(u8)` — depends on both; `depends(a)` narrows it |
+| `fn parts(&mut self) -> (&mut A, &mut B)` | `parts(self : &mut Self) -> (&mut A, &mut B)` — two distinct fields (D18) |
+| `fn get_mut(&mut self, i) -> &mut T` | `get_mut(self : &mut Self, i : usize) -> &mut T` |
+| the chaining builder `fn name(&mut self, ..) -> &mut Self` | `name(self : &mut Self, s : str) -> &mut Self` compiles under R3; the consuming builder (§3.7) stays the idiom when the value is being assembled |
+| a reference into a **local** or a temporary | a compile error at the `return` naming the place — the one thing Rust also refuses |
+| a value out instead | `get(i)` for `Copy` payloads, `get_cloned(i)` otherwise; `take(i)`, `pop`, `remove` for ownership |
+| a reference to hold beside others, long-lived | `Rc(V)` values and `Rc.clone(v)`; or the key/index (shape 3) |
 
-`longest` returns the index (`Option(usize)`), and `parts` returns a tuple of
-two of the above (two indices are the common case).
+`Rc::get_mut`/`try_unwrap`/`make_mut` out of a handle are
+`issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`.
 
 ## 7. Closures and async
 
@@ -383,7 +587,7 @@ register(logger);                            // stored, escapes
 A **borrow capture is second-class** (D35, D38 A): the closure cannot be
 stored, returned or spawned. Escaping closures own or share:
 
-```rust
+```yo
 // owns (shape 1): moves at last use, or clones
 { s2 : sink.clone() }() => s2.write(...);
 // shares (shape 2): a handle moves in; the outer keeps using its own handle
@@ -392,11 +596,12 @@ stored, returned or spawned. Escaping closures own or share:
 ```
 
 Non-escaping callbacks borrow freely, including `mut` captures, with no
-allocation:
+allocation (such a closure is a `FnMut`, D37, and the slot that calls it
+says `Impl(FnMut(…))`):
 
-```rust
+```yo
 n := i32(0);
-xs.for_each({ mut(n) }(x : i32) => { n = (n + x); });   // no Rc counter needed
+xs.for_each({ n : &mut n }(x : i32) => { n = (n + x); });   // no Rc counter needed
 ```
 
 ### 7.2 Listener/observer registries — `Vec<Box<dyn Fn(&Event) + 'a>>`
@@ -409,7 +614,7 @@ struct Bus { listeners: Vec<Box<dyn Fn(&Event) + 'a>> }   // borrow outlives reg
 The `+ 'a` is what Yo refuses: a stored callback cannot borrow the emitter.
 The registry holds **owned or shared first-class values**:
 
-```rust
+```yo
 Bus :: struct(listeners : ArrayList(Dyn(Fn(Event))));     // owned, move-only
 Bus :: struct(listeners : ArrayList(Rc(Dyn(Fn(Event))))); // shared with several buses
 ```
@@ -419,19 +624,28 @@ Bus :: struct(listeners : ArrayList(Rc(Dyn(Fn(Event))))); // shared with several
   the other.
 - One-shot callbacks that consume their captures are `FnOnce`
   (`Thread.spawn`'s `Impl(FnOnce(...), Send)` by value, D37).
+- **Re-entry** — a listener that mutates the bus that is dispatching to it
+  (`self.listeners.push(..)` from inside `emit`). Rust rejects it at
+  compile time through the `&mut self` borrow. Yo rejects the borrowing
+  form statically too (D38 B: a closure holding a `mut` borrow cannot be
+  reached by anything it is called with), and through an `Rc(RefCell(Bus))`
+  it is the cell's assert: a panic at the `with_mut`, the `RefCell` failure
+  mode (decision 41). The ported code that first trips the assert is
+  usually this shape; the fix is to collect the mutations and apply them
+  after `emit` returns.
 
 ### 7.3 Async tasks borrowing state
 
 §3.13 A2: a future that borrows is **second-class** — legal as the direct
 operand of `io.await` or of a future-taking combinator, and (transitively)
 returned only when every borrowed place is rooted at the returning function's
-own `imm`/`mut` parameters. It cannot be spawned, stored or bound.
+own `&`/`&mut` parameters. It cannot be spawned, stored or bound.
 
-```rust
+```yo
 // rejected: an exclusive lend through a shared handle across a suspension
 shared.next(io)                    // shared : Rc(Stream)
 // the error names the fixes:
-f(imm(shared), io)                 // pass the handle; re-derive shared.*.next at each use
+f(&shared, io)                 // pass the handle; re-derive shared.*.next at each use
 // or move the stream into the task and own it there,
 // or share the mutable state as Arc(Mutex(S))
 ```
@@ -439,11 +653,50 @@ f(imm(shared), io)                 // pass the handle; re-derive shared.*.next a
 A result several tasks need is awaited once and shared as `Rc(T)`, or moved
 through a channel.
 
+### 7.4 Scoped threads and data parallelism — `thread::scope`, rayon's `par_iter`
+
+```rust
+// Rust: lend STACK data to worker threads, joined before the scope ends
+let (left, right) = data.split_at(mid);
+thread::scope(|s| { s.spawn(|| sum(left)); s.spawn(|| sum(right)); });
+let total: i64 = data.par_iter().map(|x| cost(x)).sum();   // rayon borrows `data`
+```
+
+This is the one Rust borrow shape with **no Yo counterpart at all**: a
+borrow is never `Send` (D38 E, `PARALLELISM_RULES.md` D10 — "a closure
+that borrows its captures is never `Send`"), a borrowing closure cannot be
+spawned (D38 A), and `std/thread.yo` has no scoped spawn
+(`Thread.spawn` takes `Impl(FnOnce(io : Io) -> T, Send)` by value). The
+shapes that exist:
+
+```yo
+// shape 2: Sync-bounded read sharing — Arc(ArrayList(T)) needs T <: (Send, Sync, Acyclic)
+shared := arc(data);                        // one move in; data is not used afterwards
+l := Thread.spawn({ d : Arc.clone(shared) }(io : Io) => sum_range(&d, 0..mid));
+r := Thread.spawn({ d : shared }(io : Io) => sum_range(&d, mid..n));
+total := (l.join() + r.join());
+
+// shape 1: owned chunks moved in, results joined — rayon's `into_par_iter`
+chunks := data.into_chunks(k);              // each chunk an owned ArrayList(T)
+handles := chunks.into_iter().map(c => Thread.spawn({ c }(io : Io) => reduce(c))).collect();
+```
+
+- `Arc(Mutex(S))` for a shared accumulator; a channel for results.
+- Moving a whole `Rc` graph to one other thread is `^v` (`Iso(T)`,
+  `PARALLELISM_RULES.md` D2): the uniqueness check is deep and runs once,
+  at the move — the thing Rust cannot do with `Rc` at all.
+- **Not yet decided:** a `par_map`/`par_join` std layer is
+  [`LANGUAGE_FEATURE_CANDIDATES.md`](LANGUAGE_FEATURE_CANDIDATES.md) §1,
+  whose open question is exactly this section — whether `Arc` sharing plus
+  owned chunks covers rayon's real workloads. A borrowing scoped spawn
+  would need a non-escaping consuming mode and the Hylo-style stateful
+  call that decision 37 parked (VALUES_BY_DEFAULT §9); it is not planned.
+
 ## 8. Trait objects — `&dyn Trait`, `Box<dyn Trait>`
 
 | Rust | Yo |
 | --- | --- |
-| `fn f(x: &dyn Trait)` | `f(imm(x) : Dyn(Trait))` — the borrow is the parameter mode |
+| `fn f(x: &dyn Trait)` | `f(x : &Dyn(Trait))` — the borrow is the parameter mode |
 | `Box<dyn Trait>` (unique) | `Dyn(Trait)` — uniquely owned, uncounted cell (D7); `dyn(v)` moves in |
 | `Rc<dyn Trait>` | `Rc(Dyn(Trait))` |
 | `Arc<dyn Trait + Send + Sync>` | `Arc(Dyn(Trait, Send))` (`dyn(v)` into it checks `Send`) |
@@ -456,10 +709,14 @@ payload provides one, and is move-only otherwise.
 
 | Rust | Post-VBD Yo |
 | --- | --- |
-| `Vec<&str>` of literals/statics | `ArrayList(str)` — legal, `str` is `Copy` for literal-derived views |
-| `Vec<&str>` of sub-strings of an owned buffer | `ArrayList(Range(usize))` + re-derivation (2.2), or clones |
-| `Vec<&T>` beside the owner | `ArrayList(Rc(T))` handles, `ArrayList(usize)` indices, or the values themselves |
-| `HashMap<&K, V>` | own the keys; or `HashMap(Rc(K), V)` if the key is shared |
+| `Vec<&str>` of literals/statics | `ArrayList(str)` — first-class; `str` is the `Copy` view of static bytes and never takes `&` (D43) |
+| `Vec<&str>` of sub-strings of an owned buffer, used within the frame | `ArrayList(View(u8))` — a root-joining container (R7), second-class, cannot outlive the `String` or live in a cell |
+| the same, kept beyond the frame | `ArrayList(Range(usize))` + re-derivation (§2.2), or own the values |
+| `Vec<&T>` beside the owner, within the frame | `ArrayList(&T)` (R7): every pushed reference joins the list's roots |
+| `Vec<&mut T>` | `ArrayList(&mut T)`: legal, and two `&mut` to one root is E0911 at the second push |
+| `Vec<&T>` stored long-lived or shared | `ArrayList(Rc(T))` handles, `ArrayList(usize)` indices, or the values themselves |
+| `HashMap<&K, V>` | `HashMap(&K, V)` within the frame (R7, `insert` joins the key's root); own the keys, or `HashMap(Rc(K), V)`, beyond it |
+| `map.get("literal")` on a `HashMap<String, V>` (`Borrow<Q>`) | **undecided** — `get` takes `key : &K`; a `str` lookup is `String.from(s)` per call today; `issues/questions/hashmap-lookup-by-borrowed-key-form.md` |
 
 ## 10. Globals — `&'static`
 
@@ -508,8 +765,9 @@ cross-thread synchronization by construction.
 
 | Pattern | Rust | Post-VBD Yo | Delta |
 | --- | --- | --- | --- |
-| stored `&`/`&mut` in a scoped struct | free (borrow checker) | `Rc`: one alloc + count traffic + write assert | **the structural gap** — appears where Rust had a lifetime-parameterized struct |
-| interior mutability | `RefCell` (run-time flag) or `UnsafeCell` | `Rc` borrow marks at the write | same class of check, similar cost |
+| stored `&`/`&mut` in a scoped struct, one frame, roots in the parameters | free (borrow checker) | free: a second-class struct of pointers (R1, R3) | none |
+| stored `&`/`&mut` beyond the frame, or with independent roots, or in a cell | free (named lifetimes) | `Rc`/`Rc(RefCell)`: one alloc + count traffic + a write assert, or indices | **the structural gap** — §14 |
+| interior mutability | `RefCell` (run-time flag) or `UnsafeCell` | `RefCell(T)` marks at `with_mut`/`get_mut` (decision 41); a plain `Rc(T)` carries no marks | identical |
 | shared mutation across threads | `Arc<Mutex<T>>` | `Arc(Mutex(T))` | none — identical |
 | iterator chains | zero-cost (pointer iterators, elided checks) | one bounds check per re-derived step; `ptr()` under the pragma for hot loops | measurable in tight loops; escape hatch exists |
 | cyclic graphs | `Weak` bookkeeping or an arena | collector traversal (tracked cells only), or the arena (nothing) | arena = Rust arena |
@@ -526,7 +784,44 @@ returning `impl Iterator<Item = &T> + 'a`), guard-returning lock APIs in safe
 code, and self-referential types — each has a replacement above, and none is
 zero-cost in Yo the way its Rust form is.
 
----
+## 13. What simply vanishes
+
+Lifetime machinery that exists only because Rust borrows are types. None of
+it has, or needs, a Yo spelling:
+
+| Rust | Why it is gone |
+| --- | --- |
+| `PhantomData<&'a T>`, lifetime parameters on structs and impls (`impl<'a> Foo<'a>`) | no type carries a borrow, so nothing needs to be told it does |
+| `impl<T: Display> Display for &T` and the other blanket impls over `&T`/`&mut T` | a borrow has the lent type; `x : &T` dispatches on `T` |
+| HRTB `for<'a> Fn(&'a T) -> &'a U` | the closure's parameter mode says it: `Fn(v : &T) -> R`; a closure cannot return a borrow at all (§6) |
+| variance, `'static` bounds (`Box<dyn Error + 'static>`, `T: 'static` on `spawn`) | a stored value is owned by construction; `Send` is the only bound a spawn checks |
+| `Deref` coercions (`&String → &str`, `&Vec<T> → &[T]`, `&Box<T> → &T`) | none (D43): a view is explicit (`View(u8)`, L1); `str` is the first-class static view; `.field` and `.method()` auto-deref through `&` and `Box`/`Rc` |
+| `RefMut<'a, T>` / `Ref<'a, T>` guard values | §4.2: `with`/`with_mut` closures and `get`/`get_mut` projections (`MutexGuard` has a value form, §3.2) |
+| `Pin<&mut Self>`, `Unpin` | §2.3 |
+| `Cell<T>` | §4.2 (a `RefCell(T)` over a `Copy` payload) |
+| `Weak<T>` | §4.1 |
+| `Cow<'a, T>` | §4.4 |
+| `as_ref`/`as_mut`/`as_deref` | `Option(&T)` exists (D43); `match(&opt, …)` binds it (§3.6) |
+
+## 14. What Yo does not cover, and what each costs instead
+
+The residue after decisions 41–43 and the design note's phases land. Every
+shape in §1–§13 has an answer; these either pay something Rust does not or
+have no safe-code answer by design. The porting guide at V5 states this
+list up front.
+
+| Rust shape | Why Yo does not express it | What you write instead | What it costs |
+| --- | --- | --- | --- |
+| a reference kept beyond one frame with more than one independent root — `struct Parser<'src, 'arena>`, `Ctx<'a, 'b>` with fields lent from different callers at different times | R3 infers one dependency per function (all parameters, or a `depends` narrowing); distinguishing roots across frames is naming lifetimes, which D43 rejects | split the struct by root, or hold the longer-lived part as `Rc`/`Rc(RefCell)`, or index into an owner | one count, or one lookup per access |
+| a reference stored in a cell or a long-lived structure — a registry of `&'a Listener`, a cache kept across frames, `Rc<Vec<&'a T>>` | a cell never holds a reference (R1); a root-joining container (R7) lives one frame | `Rc(T)` elements, `ArrayList(usize)` ids, `Range(usize)` + re-derivation, or own the values | a count, a lookup, or a copy |
+| lending stack data to other threads — `thread::scope`, rayon `par_iter` over a local `Vec` | a reference is never `Send` (D38 E, R6); a borrowing scoped spawn would need the non-escaping consuming mode D37 parked | `Arc(ArrayList(T))` read sharing, owned chunks moved in and joined, `^v` for a whole `Rc` graph (§7.4) | one `Arc` allocation and count traffic, or the chunking copy |
+| a `&mut` through a shared handle held across an `await`, shared by several tasks | §3.13 A2: an exclusive lend across a suspension through an `Rc`/`Arc` would race the other task's write (§7.3) | own the state in the task, `Arc(Mutex(S))`, or a channel | a lock, or a message |
+| a stored lazy adapter chain in a **cell** or beyond its source's frame | the chain is a second-class value (it holds the cursor's reference) | compute eagerly into an owned list, or keep `indices()` and re-run the chain per use | a copy, or recomputation |
+| self-referential values and `Pin` — a parser holding `&self.buf`, an intrusive node pointing at its siblings | D40: a value cannot reference itself or a sibling in safe code; heap storage never relocates so `Pin` has nothing to police | offsets into the owned buffer (§2.3), an arena of indices (§4.1), or `pragma(Pragma.AllowUnsafe)` (§11) | a bounds check, or unsafe |
+| `unsafe` systems idioms as idioms — `UnsafeCell`, `MaybeUninit` arrays, `ptr::read`/`write`, `transmute`, `#[repr]` layouts | the pragma exists and std uses it, with no language vocabulary for layouts or uninitialized memory beyond `spare_capacity`/`assume_init` (ATS A4's init token is the planned safe form) | the pragma, raw pointers, `c_include` for C-side layout | the same risks as Rust's unsafe, with less tooling around them |
+| zero-cost as a guarantee | the collector tracks `Rc` payloads reaching a `RefCell`/`Mutex`/`RwLock` (D41), safe mode traps on integer overflow at every `-O` (SAFE_MODE D1), `push` runs its contract as an assert until CP2g | `Acyclic` where the predicate is conservative, `wrapping_*` at a measured hot site, the CODEGEN_PERFORMANCE levers | measured in `CODEGEN_PERFORMANCE.md` §0.1: parity on float and index loops, 5–7× on trapping integer loops until CP2f, 1.9× on `push` until CP2g |
+| lifetime-polymorphic trait objects — `dyn Trait + 'a`, `Box<dyn Iterator<Item = &T> + 'a>` | a `Dyn` payload is first-class only (R1) | `Impl(Trait)` (monomorphized) where the reference must flow; `Dyn` where ownership can | monomorphization, or an owned result |
+| the ecosystem — crates, registries, `serde`, `tokio`, `rayon`, `nom` | not a language gap | git dependencies in `yo.toml`, std's `json`/`toml`/`http`/`regex`, the async runtime, derive rules over AST reflection | writing it |
 
 ## Maintenance
 
@@ -543,7 +838,7 @@ meets its replacement in the cheatsheet, not in a backlog doc:
 
 - `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md` first — it is
   the skills' patterns home, and "I want to store a borrow" is a pattern;
-- the `yo-syntax` cheatsheet's ownership rows (which positions `imm`/`mut`
+- the `yo-syntax` cheatsheet's ownership rows (which positions `&`/`&mut`
   exist in, and that a borrow is never a field type);
 - the `yo context` pack's ownership section;
 
