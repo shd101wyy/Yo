@@ -181,7 +181,7 @@ json :: import("std/encoding/json");
 { panic, assert } :: import("std/assert");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
-extract_bare_import_path :: (fn(imm(e) : AstExpr) -> Option(String))(
+extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
   match(
     e,
     .Atom(_, _) => Option(String).None,
@@ -217,7 +217,7 @@ extract_bare_import_path :: (fn(imm(e) : AstExpr) -> Option(String))(
 ///   - `{ Names } :: import("path")` (infix `::`, RHS is import call)
 ///   - `import("path")` (bare import call)
 /// Returns the path without surrounding quotes, or .None if not an import expression.
-extract_import_path :: (fn(imm(expr) : AstExpr) -> Option(String))(
+extract_import_path :: (fn(expr : &AstExpr) -> Option(String))(
   match(
     expr,
     .Atom(_, _) => Option(String).None,
@@ -255,7 +255,7 @@ export(extract_bare_import_path, extract_import_path);
 /// yields `p`, and recursing into its `import(p)` child yields `p`
 /// again); callers dedup by resolved path.
 collect_import_paths_recursive :: (
-  fn(imm(expr) : AstExpr, mut(out) : ArrayList(String)) -> unit
+  fn(expr : &AstExpr, out : &mut ArrayList(String)) -> unit
 )({
   match(
     extract_import_path(expr),
@@ -286,7 +286,7 @@ export(collect_import_paths_recursive);
 TEST_BIN_TMP :: "/tmp/yo_self_test_bin";
 /// Derive a simple module ID string from a file path String.
 /// Returns a fixed safe C identifier — sufficient for compilation.
-module_id_from_path :: (fn(imm(path) : String) -> String)(
+module_id_from_path :: (fn(path : &String) -> String)(
   // path reserved for future use (filename stem extraction)
   String.from("yo_module")
 );
@@ -297,8 +297,8 @@ module_id_from_path :: (fn(imm(path) : String) -> String)(
 /// heuristics. See `plans/archive/BOOTSTRAPPING.md` Path Forward Stream A.
 try_populate_expr_info_table :: (
   fn(
-    imm(exprs) : ArrayList(AstExpr),
-    imm(module_path) : String
+    exprs : &ArrayList(AstExpr),
+    module_path : &String
   ) -> Option(ExprInfoTable)
 )({
   // Local exception handler: on any throw from the evaluator, unwind this
@@ -334,7 +334,7 @@ try_populate_expr_info_table :: (
 });
 /// Extract the test name string from a `test("name", { body })` expression.
 /// Returns None if the expression is not a 2-arg test call.
-extract_test_name :: (fn(imm(expr) : AstExpr) -> Option(String))(
+extract_test_name :: (fn(expr : &AstExpr) -> Option(String))(
   match(
     expr,
     .Atom(_, _) => Option(String).None,
@@ -375,7 +375,7 @@ extract_test_name :: (fn(imm(expr) : AstExpr) -> Option(String))(
 );
 /// Extract the test body expression from a `test("name", { body })` call.
 /// Returns the second argument (the body expression).
-extract_test_body :: (fn(imm(expr) : AstExpr) -> Option(AstExpr))(
+extract_test_body :: (fn(expr : &AstExpr) -> Option(AstExpr))(
   match(
     expr,
     .Atom(_, _) => Option(AstExpr).None,
@@ -389,7 +389,7 @@ extract_test_body :: (fn(imm(expr) : AstExpr) -> Option(AstExpr))(
 // import resolution helpers
 // ---------------------------------------------------------------------------
 /// Normalize an import path: append `.yo` if not already present.
-normalize_import_path :: (fn(imm(path_str) : String) -> String)(
+normalize_import_path :: (fn(path_str : &String) -> String)(
   cond(
     (path_str.ends_with(".yo") || path_str.ends_with(".test.yo")) => path_str.clone(),
     true => `${path_str}.yo`
@@ -406,13 +406,13 @@ normalize_import_path :: (fn(imm(path_str) : String) -> String)(
 /// Uses DFS post-order so each module's dependencies appear before it.
 collect_module_deps :: (
   fn(
-    imm(path_str) : String,
-    imm(base_dir) : String,
-    imm(std_base) : String,
-    mut(visited) : ArrayList(String),
-    mut(all_exprs) : ArrayList(AstExpr),
+    path_str : &String,
+    base_dir : &String,
+    std_base : &String,
+    visited : &mut ArrayList(String),
+    all_exprs : &mut ArrayList(AstExpr),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   // Standard library imports: when std_base is empty, skip (legacy behavior —
@@ -533,7 +533,7 @@ collect_module_deps :: (
 });
 /// Resolve a path for exclude comparison: make it absolute against the cwd,
 /// normalize separators to `/`, and fold `.`/`..` segments.
-_resolve_for_match :: (fn(imm(p) : String) -> String)({
+_resolve_for_match :: (fn(p : &String) -> String)({
   cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
   (joined : String) = p.clone();
   is_abs := (p.starts_with("/") || ((p.len() > usize(1)) && (p.byte_at(usize(1)) == u8(58))));
@@ -585,7 +585,7 @@ _resolve_for_match :: (fn(imm(p) : String) -> String)({
 /// may be replaced: in-process compiles (`build --watch`, `YO_TEST_IN_PROCESS`,
 /// the warm selfcheck) must come back to their caller.
 (g_compile_may_exec_cc : bool) = false;
-_index_std_exports :: (fn(imm(std_path) : String, io : Io, imm(exn) : Exception) -> unit)({
+_index_std_exports :: (fn(std_path : &String, io : Io, exn : &Exception) -> unit)({
   if(g_std_exports_indexed, {
     return(());
   });
@@ -593,7 +593,7 @@ _index_std_exports :: (fn(imm(std_path) : String, io : Io, imm(exn) : Exception)
   _index_std_dir(std_path.clone(), std_path.clone(), io, exn);
 });
 _index_std_dir :: (
-  fn(imm(root) : String, imm(dir) : String, io : Io, imm(exn) : Exception) -> unit
+  fn(root : &String, dir : &String, io : Io, exn : &Exception) -> unit
 )({
   entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
   files := ArrayList(String).new();
@@ -685,7 +685,7 @@ _index_std_dir :: (
   });
 });
 /// In-place insertion sort — the lists are directory listings.
-_sort_strings :: (fn(mut(xs) : ArrayList(String)) -> unit)({
+_sort_strings :: (fn(xs : &mut ArrayList(String)) -> unit)({
   (i : usize) = usize(1);
   while(i < xs.len(), {
     (j : usize) = i;
@@ -700,10 +700,10 @@ _sort_strings :: (fn(mut(xs) : ArrayList(String)) -> unit)({
 });
 _walk_check_dir :: (
   fn(
-    imm(dir) : String,
-    mut(out) : ArrayList(String),
+    dir : &String,
+    out : &mut ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
@@ -755,10 +755,10 @@ _walk_check_dir :: (
 /// `node_modules`/`.git`/`vscode-extension`/`outdated` are skipped.
 collect_check_files :: (
   fn(
-    imm(path_str) : String,
-    imm(excludes) : ArrayList(String),
+    path_str : &String,
+    excludes : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ArrayList(String)
 )({
   raw := ArrayList(String).new();
@@ -845,7 +845,7 @@ collect_check_files :: (
 /// annotated std/collections made every tier-1 `check ./std` red in
 /// solver-less environments).
 _run_contract_verification :: (
-  fn(io : Io, imm(exn) : Exception, strict_missing_solver : bool, record_guard_sites : bool) -> bool
+  fn(io : Io, exn : &Exception, strict_missing_solver : bool, record_guard_sites : bool) -> bool
 )({
   // 5b: every compile starts with an empty proved-site table (watch rounds).
   clear_proved_guard_sites();
@@ -926,10 +926,10 @@ _run_contract_verification :: (
 });
 check_single_file :: (
   fn(
-    imm(input_path) : String,
-    imm(std_path) : String,
+    input_path : &String,
+    std_path : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> bool
 )({
   // V3: arm this file as THE verification target (both path spellings —
@@ -959,14 +959,14 @@ check_single_file :: (
 });
 /// The argv entry following index `i` (the value of a `--flag value` pair), or
 /// "" if `i` is the last argument. Used by the `compile` flag parser.
-_arg_val :: (fn(imm(argv) : ArrayList(String), i : usize) -> String)(
+_arg_val :: (fn(argv : &ArrayList(String), i : usize) -> String)(
   if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
 );
 /// Like `_arg_val`, but a MISSING trailing value is an error instead of `""`
 /// (`yo compile -o` with nothing after silently produced an empty output name
 /// and a `.c` sidecar named `.c`).
 _arg_val_req :: (
-  fn(imm(argv) : ArrayList(String), i : usize, imm(flag) : String, imm(exn) : Exception) -> String
+  fn(argv : &ArrayList(String), i : usize, flag : &String, exn : &Exception) -> String
 )({
   if((i + usize(1)) < argv.len(), {
     return(argv(i + usize(1)));
@@ -988,7 +988,7 @@ _arg_val_req :: (
 /// Rune-indexed because `Span` is (`diagnostics.yo`), so a non-ASCII line
 /// splices correctly; a span at end-of-line (`col` == rune count) appends.
 _splice_runes :: (
-  fn(imm(line) : String, col : usize, len : usize, imm(replacement) : String) -> String
+  fn(line : &String, col : usize, len : usize, replacement : &String) -> String
 )({
   out := String.new();
   it := line.chars();
@@ -1022,7 +1022,7 @@ _PendingFix :: struct(row : usize, col : usize, len : usize, replacement : Strin
 /// position backwards so an earlier edit cannot invalidate a later span.
 /// Returns the number applied.
 _apply_fixes_to_file :: (
-  fn(imm(path) : String, mut(fixes) : ArrayList(_PendingFix), io : Io, imm(exn) : Exception) -> usize
+  fn(path : &String, fixes : &mut ArrayList(_PendingFix), io : Io, exn : &Exception) -> usize
 )({
   if(fixes.len() == usize(0), {
     return(usize(0));
@@ -1070,7 +1070,7 @@ _apply_fixes_to_file :: (
   applied
 });
 /// The runes `[col, col + len)` of `line` (empty when the line is shorter).
-_rune_slice :: (fn(imm(line) : String, col : usize, len : usize) -> String)({
+_rune_slice :: (fn(line : &String, col : usize, len : usize) -> String)({
   out := String.new();
   it := line.chars();
   (i : usize) = usize(0);
@@ -1105,7 +1105,7 @@ _rune_slice :: (fn(imm(line) : String, col : usize, len : usize) -> String)({
 /// scrutinee a `match` cannot move, records `&` before the scrutinee. Read
 /// with today's borrowing `match`, the edit changes nothing.
 _run_migrate_params :: (
-  fn(imm(files) : ArrayList(String), imm(std_path) : String, dry_run : bool, io : Io, imm(exn) : Exception, (match_scrutinee : bool) ?= false) -> unit
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : &Exception, (match_scrutinee : bool) ?= false) -> unit
 )({
   if(match_scrutinee, set_migrate_match_scrutinee(true), set_migrate_param_modes(true));
   what_migrates := if(match_scrutinee, String.from("match scrutinees"), String.from("parameters"));
@@ -1231,7 +1231,7 @@ _modes_walk :: (fn(e : &AstExpr, out : &mut ArrayList(_PendingFix)) -> unit)(
   )
 );
 /// `parse`, or `.None` when the file does not parse.
-_parse_or_none :: (fn(imm(src) : String, imm(file) : String) -> Option(ArrayList(AstExpr)))({
+_parse_or_none :: (fn(src : &String, file : &String) -> Option(ArrayList(AstExpr)))({
   local_exn := Exception(throw : (_err -> unwind(Option(ArrayList(AstExpr)).None)));
   Option(ArrayList(AstExpr)).Some(parse(src, file, local_exn))
 });
@@ -1328,29 +1328,29 @@ _bsm_new_counts :: (fn() -> _BsmCounts)(
 );
 /// The sigil a mode call `imm(x)` / `mut(x)` / `inout(x)` (one argument)
 /// becomes, else `.None`.
-_bsm_mode_sig :: (fn(imm(e) : AstExpr) -> Option(String))(
+_bsm_mode_sig :: (fn(e : &AstExpr) -> Option(String))(
   cond(
     ast_expr_is_fn_call_of(e, "imm", Option(usize).Some(usize(1))) => Option(String).Some(String.from("&")),
     (ast_expr_is_fn_call_of(e, "mut", Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, "inout", Option(usize).Some(usize(1)))) => Option(String).Some(String.from("&mut ")),
     true => Option(String).None
   )
 );
-_bsm_arg :: (fn(imm(e) : AstExpr, i : usize) -> AstExpr)(
+_bsm_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
   match(e, .FnCall(_, _, a, _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
 );
-_bsm_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+_bsm_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
-_bsm_callee :: (fn(imm(e) : AstExpr) -> AstExpr)(
+_bsm_callee :: (fn(e : &AstExpr) -> AstExpr)(
   match(e, .FnCall(_, f, _, _, _) => f, .Atom(_, _) => e)
 );
-_bsm_is_infix_of :: (fn(imm(e) : AstExpr, op : str) -> bool)(
+_bsm_is_infix_of :: (fn(e : &AstExpr, op : str) -> bool)(
   match(e, .FnCall(_, f, a, infix, _) => (infix && (a.len() == usize(2)) && ast_expr_is_atom_of(f, op)), .Atom(_, _) => false)
 );
-_bsm_key :: (fn(imm(t) : Token) -> String)(`${t.row.to_string()}:${t.column.to_string()}`);
-_bsm_rune_len :: (fn(imm(s) : String) -> usize)(s.chars().count());
+_bsm_key :: (fn(t : &Token) -> String)(`${t.row.to_string()}:${t.column.to_string()}`);
+_bsm_rune_len :: (fn(s : &String) -> usize)(s.chars().count());
 /// The rune at `(row, col)` of `lines`, or `.None` past a line's end.
-_bsm_rune_at :: (fn(imm(lines) : ArrayList(String), row : usize, col : usize) -> Option(rune))(
+_bsm_rune_at :: (fn(lines : &ArrayList(String), row : usize, col : usize) -> Option(rune))(
   match(
     lines.get(row),
     .Some(l) => {
@@ -1383,7 +1383,7 @@ _BsmPos :: struct(row : usize, col : usize);
 /// starts at `depth0`, and stop at the first rune `stop` met at depth zero
 /// (`)` closing the opener, or the `,` ending an argument). Brackets inside
 /// a `"…"` string literal are skipped.
-_bsm_scan_to :: (fn(imm(lines) : ArrayList(String), row : usize, col : usize, depth0 : i64, stop : u32) -> Option(_BsmPos))({
+_bsm_scan_to :: (fn(lines : &ArrayList(String), row : usize, col : usize, depth0 : i64, stop : u32) -> Option(_BsmPos))({
   (r : usize) = row;
   (c : usize) = col;
   (depth : i64) = depth0;
@@ -1429,7 +1429,7 @@ _bsm_scan_to :: (fn(imm(lines) : ArrayList(String), row : usize, col : usize, de
   Option(_BsmPos).None
 });
 /// The first non-whitespace position at or after `(row, col)`.
-_bsm_skip_ws :: (fn(imm(lines) : ArrayList(String), row : usize, col : usize) -> Option(_BsmPos))({
+_bsm_skip_ws :: (fn(lines : &ArrayList(String), row : usize, col : usize) -> Option(_BsmPos))({
   (r : usize) = row;
   (c : usize) = col;
   while(r < lines.len(), {
@@ -1449,14 +1449,14 @@ _bsm_skip_ws :: (fn(imm(lines) : ArrayList(String), row : usize, col : usize) ->
   });
   Option(_BsmPos).None
 });
-_bsm_edit :: (fn(row : usize, col : usize, imm(old) : String, imm(new) : String) -> _PendingFix)(
+_bsm_edit :: (fn(row : usize, col : usize, old : &String, new : &String) -> _PendingFix)(
   _PendingFix(row : row, col : col, len : _bsm_rune_len(old), replacement : new, description : old)
 );
 /// Unwrap the mode call `m` (`imm(x)`, `mut(x)`, `inout(x)`): its head
 /// `word(` becomes `head_repl` and its closing `)` goes. The callee token is
 /// claimed. `false` when the closing paren cannot be found.
 _bsm_unwrap :: (
-  fn(imm(m) : AstExpr, imm(head_repl) : String, imm(lines) : ArrayList(String), mut(out) : ArrayList(_PendingFix), mut(claimed) : HashSet(String)) -> bool
+  fn(m : &AstExpr, head_repl : &String, lines : &ArrayList(String), out : &mut ArrayList(_PendingFix), claimed : &mut HashSet(String)) -> bool
 )({
   ct := ast_expr_token(_bsm_callee(m));
   w := _bsm_rune_len(ct.value);
@@ -1475,7 +1475,7 @@ _bsm_unwrap :: (
 /// `L : T` where `L` is a mode call, or `comptime(m)` / `sink(m)` around one:
 /// the mode is unwrapped and its sigil written after the `:`.
 _bsm_param :: (
-  fn(imm(p) : AstExpr, imm(lines) : ArrayList(String), mut(out) : ArrayList(_PendingFix), mut(claimed) : HashSet(String)) -> Option(String)
+  fn(p : &AstExpr, lines : &ArrayList(String), out : &mut ArrayList(_PendingFix), claimed : &mut HashSet(String)) -> Option(String)
 )({
   (core : AstExpr) = p;
   if(_bsm_is_infix_of(core, "?=") || _bsm_is_infix_of(core, "="), {
@@ -1504,7 +1504,7 @@ _bsm_param :: (
 /// The parameters of a declaration head (`fn`, `ctl`, `Fn`, `FnOnce`) or a
 /// closure parameter list; `fn_slot` counts them as `Fn(...)` slots.
 _bsm_param_list :: (
-  fn(imm(args) : ArrayList(AstExpr), kind : usize, imm(lines) : ArrayList(String), mut(out) : ArrayList(_PendingFix), mut(claimed) : HashSet(String), mut(counts) : _BsmCounts) -> unit
+  fn(args : &ArrayList(AstExpr), kind : usize, lines : &ArrayList(String), out : &mut ArrayList(_PendingFix), claimed : &mut HashSet(String), counts : &mut _BsmCounts) -> unit
 )({
   (i : usize) = usize(0);
   while(i < args.len(), i = (i + usize(1)), {
@@ -1531,7 +1531,7 @@ _bsm_param_list :: (
 /// A `for` source is written after the sigil as is when it is a postfix
 /// chain (a name, a field path, a call or index on one); anything else is
 /// parenthesized.
-_bsm_is_postfix_chain :: (fn(imm(e) : AstExpr) -> bool)(
+_bsm_is_postfix_chain :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, t) => (t.kind == TokenKind.Identifier),
@@ -1542,7 +1542,7 @@ _bsm_is_postfix_chain :: (fn(imm(e) : AstExpr) -> bool)(
   )
 );
 _bsm_walk :: (
-  fn(imm(e) : AstExpr, in_asm : bool, imm(lines) : ArrayList(String), mut(out) : ArrayList(_PendingFix), mut(claimed) : HashSet(String), mut(counts) : _BsmCounts) -> unit
+  fn(e : &AstExpr, in_asm : bool, lines : &ArrayList(String), out : &mut ArrayList(_PendingFix), claimed : &mut HashSet(String), counts : &mut _BsmCounts) -> unit
 )(
   match(
     e,
@@ -1693,7 +1693,7 @@ _bsm_walk :: (
 );
 /// The mode calls no row claimed (`generic(mut(T) : Type)`, a word under an
 /// `unquote(...)`), as `row:col word` for the report.
-_bsm_unclaimed :: (fn(imm(e) : AstExpr, in_asm : bool, imm(claimed) : HashSet(String), mut(out) : ArrayList(String)) -> unit)(
+_bsm_unclaimed :: (fn(e : &AstExpr, in_asm : bool, claimed : &HashSet(String), out : &mut ArrayList(String)) -> unit)(
   match(
     e,
     .Atom(_, _) => (),
@@ -1715,12 +1715,12 @@ _bsm_unclaimed :: (fn(imm(e) : AstExpr, in_asm : bool, imm(claimed) : HashSet(St
   )
 );
 /// The raw parse (no desugar), or `.None` when the file does not parse.
-_raw_parse_or_none :: (fn(imm(src) : String, imm(file) : String) -> Option(ArrayList(AstExpr)))({
+_raw_parse_or_none :: (fn(src : &String, file : &String) -> Option(ArrayList(AstExpr)))({
   local_exn := Exception(throw : (_err -> unwind(Option(ArrayList(AstExpr)).None)));
   p := Parser.new(src, file, local_exn);
   Option(ArrayList(AstExpr)).Some(p.get_program(local_exn))
 });
-_run_migrate_borrow_spelling :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : Io, imm(exn) : Exception) -> unit)({
+_run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : &Exception) -> unit)({
   counts := _bsm_new_counts();
   (n_stale : usize) = usize(0);
   (n_left : usize) = usize(0);
@@ -1798,7 +1798,7 @@ _is_word_rune :: (fn(r : rune) -> bool)(
 /// the line where the brackets balance is parsed, and the first whose AST
 /// prints as `expect` wins (`&a` and `&a.b` print differently, so the
 /// shortest match is the expression itself).
-_addr_of_span_end :: (fn(imm(runes) : ArrayList(rune), col : usize, imm(expect) : String, imm(file) : String) -> Option(usize))({
+_addr_of_span_end :: (fn(runes : &ArrayList(rune), col : usize, expect : &String, file : &String) -> Option(usize))({
   (depth : i64) = i64(0);
   (e : usize) = (col + usize(1));
   while(e < runes.len(), {
@@ -1849,7 +1849,7 @@ _addr_of_span_end :: (fn(imm(runes) : ArrayList(rune), col : usize, imm(expect) 
 /// with their position and left as written; a second run picks up a nested
 /// one. Code that evaluation never reaches is not seen.
 _run_migrate_addr_of :: (
-  fn(imm(files) : ArrayList(String), imm(std_path) : String, dry_run : bool, io : Io, imm(exn) : Exception) -> unit
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : &Exception) -> unit
 )({
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
@@ -2022,9 +2022,9 @@ _run_migrate_addr_of :: (
 /// spin, because the pass count is bounded.
 run_fix :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -2283,9 +2283,9 @@ run_fix :: (
 });
 run_check :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -2424,9 +2424,9 @@ run_check :: (
 /// AoRTE). Non-zero exit on any refuted/unproven/subset-error report.
 run_verify_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   (target_path : String) = String.new();
@@ -2846,7 +2846,7 @@ run_verify_cmd :: (
 /// line is greppable, and it carries the wall time and query count that make
 /// checker speed measurable (D4,
 /// plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md).
-_verify_summary_line :: (fn(imm(sum) : VerifySummary, elapsed_ms : i64) -> String)({
+_verify_summary_line :: (fn(sum : &VerifySummary, elapsed_ms : i64) -> String)({
   names := verify_outcome_names();
   sb := StringBuilder.new();
   sb.write_string(String.from("verify: "));
@@ -2873,7 +2873,7 @@ _verify_summary_line :: (fn(imm(sum) : VerifySummary, elapsed_ms : i64) -> Strin
 });
 /// `(NN%)` cache hit rate for the summary line — empty when nothing was
 /// queried, so a fully-folded or empty run does not print `(0%)`.
-_verify_hit_rate :: (fn(imm(sum) : VerifySummary) -> String)(
+_verify_hit_rate :: (fn(sum : &VerifySummary) -> String)(
   if(
     sum.queries > usize(0),
     ` (${((sum.cached * usize(100)) / sum.queries).to_string()}%)`,
@@ -2882,7 +2882,7 @@ _verify_hit_rate :: (fn(imm(sum) : VerifySummary) -> String)(
 );
 /// The same numbers as JSON, plus what the deny set was.
 _verify_summary_json :: (
-  fn(imm(sum) : VerifySummary, strict : bool, imm(denied) : ArrayList(String), elapsed_ms : i64) -> JsonValue
+  fn(sum : &VerifySummary, strict : bool, denied : &ArrayList(String), elapsed_ms : i64) -> JsonValue
 )({
   names := verify_outcome_names();
   ks := ArrayList(String).new();
@@ -2918,7 +2918,7 @@ _verify_summary_json :: (
   JsonValue.Object(keys : ks, values : vs)
 });
 /// One function report as JSON (the verify subcommand's V3 shape).
-_verify_fn_report_json :: (fn(imm(rp) : VerifyFnReport) -> JsonValue)({
+_verify_fn_report_json :: (fn(rp : &VerifyFnReport) -> JsonValue)({
   obl_entries := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
   while(i < rp.obligations.len(), {
@@ -3009,7 +3009,7 @@ _verify_fn_report_json :: (fn(imm(rp) : VerifyFnReport) -> JsonValue)({
   JsonValue.Object(keys : ks2, values : vs2)
 });
 /// The self-test results as JSON (the V2 shape, kept verbatim).
-_verify_self_test_json :: (fn(imm(results) : ArrayList(VerifyResult)) -> ArrayList(JsonValue))({
+_verify_self_test_json :: (fn(results : &ArrayList(VerifyResult)) -> ArrayList(JsonValue))({
   entries := ArrayList(JsonValue).new();
   (ri : usize) = usize(0);
   while(ri < results.len(), {
@@ -3040,7 +3040,7 @@ _verify_self_test_json :: (fn(imm(results) : ArrayList(VerifyResult)) -> ArrayLi
   entries
 });
 /// How many of a report's obligations proved.
-_verify_proved_count :: (fn(imm(rp) : VerifyFnReport) -> usize)({
+_verify_proved_count :: (fn(rp : &VerifyFnReport) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < rp.obligations.len(), {
@@ -3054,7 +3054,7 @@ _verify_proved_count :: (fn(imm(rp) : VerifyFnReport) -> usize)({
 /// Text rendering of one function report. `detailed` (from `--explain`)
 /// prints every obligation; the default prints per-function lines plus the
 /// failing obligations' counter-examples.
-_print_verify_fn_report :: (fn(imm(rp) : VerifyFnReport, detailed : bool) -> unit)(
+_print_verify_fn_report :: (fn(rp : &VerifyFnReport, detailed : bool) -> unit)(
   cond(
     (rp.outcome == "subset-error") => {
       println(
@@ -3141,7 +3141,7 @@ _print_verify_fn_report :: (fn(imm(rp) : VerifyFnReport, detailed : bool) -> uni
   )
 );
 /// JSON array of strings (the verify subcommand's counter-example shape).
-_verify_json_strs :: (fn(imm(ss) : ArrayList(String)) -> JsonValue)({
+_verify_json_strs :: (fn(ss : &ArrayList(String)) -> JsonValue)({
   items := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
   while(i < ss.len(), {
@@ -3157,7 +3157,7 @@ _verify_json_strs :: (fn(imm(ss) : ArrayList(String)) -> JsonValue)({
   JsonValue.Array(items)
 });
 /// Comma-join (the verify subcommand's text rendering).
-_verify_join_strs :: (fn(imm(ss) : ArrayList(String), imm(sep) : String) -> String)({
+_verify_join_strs :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
   sb := StringBuilder.new();
   (i : usize) = usize(0);
   while(i < ss.len(), {
@@ -3177,13 +3177,13 @@ _verify_join_strs :: (fn(imm(ss) : ArrayList(String), imm(sep) : String) -> Stri
 });
 /// How far the arg cursor advances for a value option: 1 when the value was
 /// attached (`--flag=value`), 2 for the space form.
-_opt_step :: (fn(imm(attached) : Option(String)) -> usize)(
+_opt_step :: (fn(attached : &Option(String)) -> usize)(
   match(attached, .Some(_) => usize(1), .None => usize(2))
 );
 /// The value of a value option: the attached `=value` when present, else the
 /// (required) next argv entry.
 _opt_value :: (
-  fn(imm(argv) : ArrayList(String), i : usize, imm(flag) : String, imm(attached) : Option(String), imm(exn) : Exception) -> String
+  fn(argv : &ArrayList(String), i : usize, flag : &String, attached : &Option(String), exn : &Exception) -> String
 )(
   match(attached, .Some(v) => v, .None => _arg_val_req(argv, i, flag, exn))
 );
@@ -3192,7 +3192,7 @@ _opt_value :: (
 /// (FL_INDEX_MAX = 32 caps the size classes at 2^32), rounded DOWN to a
 /// 16-byte granule. `.Err(message)` on a malformed or out-of-range value.
 /// plans/reference/FIXED_REGION_ALLOCATOR.md §2.2.
-_parse_heap_size :: (fn(imm(raw) : String) -> Result(usize, String))({
+_parse_heap_size :: (fn(raw : &String) -> Result(usize, String))({
   if(raw.len() == usize(0), {
     return(Result(usize, String).Err(String.from("empty value")));
   });
@@ -3246,7 +3246,7 @@ _format_heap_size :: (fn(bytes : usize) -> String)(
   )
 );
 /// `compiler --version` probe — stdio ignored, availability = exit 0.
-_check_compiler_available :: (fn(imm(compiler) : String, io : Io) -> bool)({
+_check_compiler_available :: (fn(compiler : &String, io : Io) -> bool)({
   probe := Command.new(compiler.clone());
   probe.arg(String.from("--version"));
   // A spawn failure (missing binary) throws through IoExn — treat it as
@@ -3273,7 +3273,7 @@ _find_available_compiler :: (fn(io : Io) -> Option(String))({
   Option(String).None
 });
 /// The parent directory of a Windows-or-POSIX path (both separators).
-_win_dirname :: (fn(imm(p) : String) -> String)({
+_win_dirname :: (fn(p : &String) -> String)({
   (last_sep : isize) = (isize(0) - isize(1));
   (di : usize) = usize(0);
   while(di < p.len(), {
@@ -3296,7 +3296,7 @@ _win_dirname :: (fn(imm(p) : String) -> String)({
 /// in, the variable outgrew what child processes can search and a late
 /// test's `cmd /C ping ...` reported "'ping' is not recognized"
 /// (issues/fixed/the-test-runner-prepends-the-asan-dll-dir-to-path-once-per-batch.md).
-windows_path_with_dir_first :: (fn(imm(path) : String, imm(dir) : String) -> String)({
+windows_path_with_dir_first :: (fn(path : &String, dir : &String) -> String)({
   want := dir.trim_end_matches("\\");
   entries := path.split(";");
   (i : usize) = usize(0);
@@ -3312,7 +3312,7 @@ windows_path_with_dir_first :: (fn(imm(path) : String, imm(dir) : String) -> Str
 export(windows_path_with_dir_first);
 /// Put the ASan runtime DLL directory on this process's PATH (see
 /// `windows_path_with_dir_first`); children inherit it.
-_put_asan_dll_dir_on_path :: (fn(imm(dll_dir) : String) -> unit)({
+_put_asan_dll_dir_on_path :: (fn(dll_dir : &String) -> unit)({
   cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
   _sv_path := proc_env.set(String.from("PATH"), windows_path_with_dir_first(cur_path, dll_dir));
 });
@@ -3320,7 +3320,7 @@ _put_asan_dll_dir_on_path :: (fn(imm(dll_dir) : String) -> unit)({
 /// PATH before running ASan-instrumented test binaries (the DLL lives at
 /// `<llvm-root>/lib/clang/<version>/lib/windows`). `.None` on any failure or
 /// off Windows.
-_find_clang_asan_dll_path :: (fn(imm(compiler) : String, io : Io) -> Option(String))({
+_find_clang_asan_dll_path :: (fn(compiler : &String, io : Io) -> Option(String))({
   if(!is_target_windows(host_target()), {
     return(Option(String).None);
   });
@@ -3368,7 +3368,7 @@ _find_clang_asan_dll_path :: (fn(imm(compiler) : String, io : Io) -> Option(Stri
   Option(String).None
 });
 /// True when the path's basename carries an extension.
-_path_has_extension :: (fn(imm(p) : String) -> bool)({
+_path_has_extension :: (fn(p : &String) -> bool)({
   (last_slash : isize) = (isize(0) - isize(1));
   (last_dot : isize) = (isize(0) - isize(1));
   (pi : usize) = usize(0);
@@ -3390,7 +3390,7 @@ _path_has_extension :: (fn(imm(p) : String) -> bool)({
 /// fn boundary — the swallowing-probe pattern used throughout this file).
 /// Success is signalled by
 /// the push; a throw of any kind leaves `ok` empty.
-_try_remove_once :: (fn(imm(path) : String, io : Io, mut(ok) : ArrayList(bool)) -> unit)({
+_try_remove_once :: (fn(path : &String, io : Io, ok : &mut ArrayList(bool)) -> unit)({
   try_exn := Exception(
     throw : (
       _e -> {
@@ -3409,7 +3409,7 @@ _try_remove_once :: (fn(imm(path) : String, io : Io, mut(ok) : ArrayList(bool)) 
 /// files in. Retries with a growing pause (~3 s total budget); a FINAL
 /// failure downgrades to a warning, because a leaked temp artifact must
 /// never abort a test run.
-_remove_batch_artifact :: (fn(imm(path) : String, io : Io) -> unit)({
+_remove_batch_artifact :: (fn(path : &String, io : Io) -> unit)({
   (attempt : usize) = usize(0);
   (removed : bool) = false;
   (pause_ms : usize) = usize(25);
@@ -3540,7 +3540,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
 /// non-clang driver, that discovery folds to a no-op. Result is cached
 /// process-wide.
 (g_asan_usable : Option(bool)) = Option(bool).None;
-_asan_runtime_is_usable :: (fn(imm(base) : String, imm(cc) : String, io : Io) -> bool)({
+_asan_runtime_is_usable :: (fn(base : &String, cc : &String, io : Io) -> bool)({
   match(
     g_asan_usable,
     .Some(u) => {
@@ -3628,13 +3628,13 @@ impl(
   new : (fn() -> Self)(
     Self(recorded : ArrayList(String).new())
   ),
-  arg : (fn(mut(self) : Self, imm(a) : String) -> unit)({
+  arg : (fn(self : &mut Self, a : &String) -> unit)({
     self.recorded.push(a);
     ()
   })
 );
 /// Build a runnable `Command` from a recorded argv.
-_cc_command :: (fn(imm(program) : String, imm(argv) : ArrayList(String)) -> Command)({
+_cc_command :: (fn(program : &String, argv : &ArrayList(String)) -> Command)({
   c := Command.new(program.clone());
   (i : usize) = usize(0);
   while(i < argv.len(), {
@@ -3656,13 +3656,13 @@ _cc_command :: (fn(imm(program) : String, imm(argv) : ArrayList(String)) -> Comm
 /// (issues/fixed/yoself-missing-compiling-with-print.md). This is what makes
 /// a flag's arrival at the C compiler assertable from a log: a silently
 /// dropped `-fsanitize=…` is otherwise indistinguishable from a clean run.
-_print_cc_argv :: (fn(imm(program) : String, imm(argv) : ArrayList(String)) -> unit)(
+_print_cc_argv :: (fn(program : &String, argv : &ArrayList(String)) -> unit)(
   println(`Compiling with: ${program} ${String.from(" ").join(argv)}`)
 );
 /// Single-quote `s` for POSIX `sh`, escaping embedded single quotes as
 /// `'\''`. Flag values can carry user text (`-D`, `-I`, `--cflags`), so the
 /// generated compile script must never let them reach the shell unquoted.
-_sh_quote :: (fn(imm(s) : String) -> String)({
+_sh_quote :: (fn(s : &String) -> String)({
   out := String.from("'");
   b := s;
   (i : usize) = usize(0);
@@ -3679,17 +3679,17 @@ _sh_quote :: (fn(imm(s) : String) -> String)({
   out
 });
 /// Read a file's bytes, or `.None` when unreadable.
-_chunk_read :: (fn(imm(path) : String, io : Io) -> Option(ArrayList(u8)))({
+_chunk_read :: (fn(path : &String, io : Io) -> Option(ArrayList(u8)))({
   rd_exn := Exception(throw : (_e -> unwind(Option(ArrayList(u8)).None)));
   bytes := io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : rd_exn));
   Option(ArrayList(u8)).Some(bytes)
 });
 /// Recorded stamp beside an object file, `.None` when absent.
-_chunk_read_stamp :: (fn(imm(path) : String, io : Io) -> Option(String))(
+_chunk_read_stamp :: (fn(path : &String, io : Io) -> Option(String))(
   match(_chunk_read(path, io), .Some(b) => Option(String).Some(String.from_bytes(b)), .None => Option(String).None)
 );
 /// Record a stamp; failures are silent (the cache is only an optimization).
-_chunk_write_stamp :: (fn(imm(path) : String, imm(stamp) : String, io : Io) -> unit)({
+_chunk_write_stamp :: (fn(path : &String, stamp : &String, io : Io) -> unit)({
   wr_exn := Exception(throw : (_e -> unwind(())));
   io.await(write_string(Path.new(path.clone()), stamp.clone(), io), IoExn(io : io, exn : wr_exn));
 });
@@ -3709,22 +3709,22 @@ _chunk_write_stamp :: (fn(imm(path) : String, imm(stamp) : String, io : Io) -> u
 /// change or a type renumbering invalidates every chunk, which is the
 /// intended behaviour. `YO_BUILD_NO_CACHE=1` disables it.
 /// A chunk's object file: `<chunk>.c` → `<chunk>.o`.
-_chunk_obj_path :: (fn(imm(cf) : String) -> String)(
+_chunk_obj_path :: (fn(cf : &String) -> String)(
   `${cf.substring(usize(0), cf.len() - usize(2))}.o`
 );
 _compile_chunks_parallel :: (
   fn(
-    imm(cc) : String,
-    imm(flags) : ArrayList(String),
-    imm(chunk_c_files) : ArrayList(String),
-    imm(chunk_text_hashes) : ArrayList(String),
-    imm(out_base) : String,
+    cc : &String,
+    flags : &ArrayList(String),
+    chunk_c_files : &ArrayList(String),
+    chunk_text_hashes : &ArrayList(String),
+    out_base : &String,
     jobs : usize,
     force_recompile : bool,
-    mut(hits_out) : ArrayList(usize),
+    hits_out : &mut ArrayList(usize),
     verbose : bool,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ArrayList(String)
 )({
   objs := ArrayList(String).new();
@@ -3851,7 +3851,7 @@ _fmt_profile_ms :: (fn(ns : i64) -> String)({
 });
 /// Minimal JSON string escaping: backslash, double quote, and control bytes
 /// as \u00XX. Module paths are the only strings that flow through here.
-_json_escape :: (fn(imm(s) : String) -> String)({
+_json_escape :: (fn(s : &String) -> String)({
   bytes := s;
   out := ArrayList(u8).new();
   hexdigits := String.from("0123456789abcdef");
@@ -3892,9 +3892,9 @@ _json_escape :: (fn(imm(s) : String) -> String)({
 /// file diffs cleanly across commits and machines.
 _print_compile_profile :: (
   fn(
-    imm(json_path) : String,
+    json_path : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   if(!profile_enabled(), {
@@ -4030,7 +4030,7 @@ _print_compile_profile :: (
 /// Write the depfile: one `<sha256> <absolute path>` line per input, in
 /// first-open order. `files` is `input_file_entries()`, already formatted.
 _write_depfile :: (
-  fn(imm(path) : String, imm(files) : ArrayList(String), io : Io, imm(exn) : Exception) -> Impl(Future(unit, IoExn))
+  fn(path : &String, files : &ArrayList(String), io : Io, exn : &Exception) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
     body := String.new();
@@ -4074,7 +4074,7 @@ _compile_fail :: (fn(watch_mode : bool, code : int) -> unit)({
   });
   unsafe(exit(code));
 });
-run_warm_selfcheck_compile :: (fn(imm(argv) : ArrayList(String), io : Io, imm(exn) : Exception) -> unit)({
+run_warm_selfcheck_compile :: (fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> unit)({
   input := match(
     argv.get(usize(2)),
     .Some(x) => x.clone(),
@@ -4192,7 +4192,7 @@ CcPlan :: struct(
 _CC_PLAN_EXE :: u8(0);
 _CC_PLAN_CHUNKED :: u8(1);
 _CC_PLAN_STATIC_LIB :: u8(2);
-_new_cc_plan :: (fn(mode : u8, imm(cc) : String, imm(c_path) : String, imm(output) : String) -> CcPlan)(
+_new_cc_plan :: (fn(mode : u8, cc : &String, c_path : &String, output : &String) -> CcPlan)(
   CcPlan(
     mode : mode,
     cc : cc,
@@ -4212,7 +4212,7 @@ _new_cc_plan :: (fn(mode : u8, imm(cc) : String, imm(c_path) : String, imm(outpu
   )
 );
 /// A plan-file line value: `\` and newline escaped, so any argv survives.
-_cc_plan_escape :: (fn(imm(v) : String) -> String)({
+_cc_plan_escape :: (fn(v : &String) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   while(i < v.len(), {
@@ -4226,7 +4226,7 @@ _cc_plan_escape :: (fn(imm(v) : String) -> String)({
   });
   out
 });
-_cc_plan_unescape :: (fn(imm(v) : String) -> String)({
+_cc_plan_unescape :: (fn(v : &String) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   while(i < v.len(), {
@@ -4242,7 +4242,7 @@ _cc_plan_unescape :: (fn(imm(v) : String) -> String)({
   });
   out
 });
-_cc_plan_push_list :: (fn(mut(out) : String, key : str, imm(items) : ArrayList(String)) -> unit)({
+_cc_plan_push_list :: (fn(out : &mut String, key : str, items : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < items.len(), {
     out.push_str(key);
@@ -4254,7 +4254,7 @@ _cc_plan_push_list :: (fn(mut(out) : String, key : str, imm(items) : ArrayList(S
 });
 /// Serialize a plan: a version line, then one `<key> <escaped value>` line per
 /// scalar and per list item.
-_cc_plan_serialize :: (fn(imm(plan) : CcPlan) -> String)({
+_cc_plan_serialize :: (fn(plan : &CcPlan) -> String)({
   out := String.from("yo-cc-plan 1\n");
   out.push_string(`mode ${plan.mode.to_string()}\n`);
   out.push_string(`jobs ${plan.jobs.to_string()}\n`);
@@ -4273,7 +4273,7 @@ _cc_plan_serialize :: (fn(imm(plan) : CcPlan) -> String)({
   _cc_plan_push_list(out, "chunk_hash", plan.chunk_hashes);
   out
 });
-_cc_plan_parse :: (fn(imm(text) : String, imm(exn) : Exception) -> CcPlan)({
+_cc_plan_parse :: (fn(text : &String, exn : &Exception) -> CcPlan)({
   plan := _new_cc_plan(_CC_PLAN_EXE, String.new(), String.new(), String.new());
   lines := text.split(String.from("\n"));
   if(match(lines.get(usize(0)), .Some(l) => (l != "yo-cc-plan 1"), .None => true), {
@@ -4479,7 +4479,7 @@ _chunk_jobs_for_memory :: (fn(jobs : usize, max_unit_bytes : usize) -> usize)({
 /// reports `.yo` positions for code that came from Yo — a parsed entry then
 /// carries a real Yo span; a C-file position (generated plumbing, after a
 /// restore directive) stays a C span. No source excerpt is attached.
-_parse_cc_diagnostic_line :: (fn(imm(line) : String) -> Option(Diagnostic))({
+_parse_cc_diagnostic_line :: (fn(line : &String) -> Option(Diagnostic))({
   // The earliest severity marker on the line wins (a path can contain " : ").
   sevs := ArrayList(String).new();
   sevs.push(String.from(": error: "));
@@ -4574,7 +4574,7 @@ _parse_cc_diagnostic_line :: (fn(imm(line) : String) -> Option(Diagnostic))({
 /// structured Diagnostics (carrying the `.yo` spans the `#line` directives
 /// gave the C compiler), everything unparseable is printed verbatim first so
 /// no compiler output is lost.
-_report_captured_cc_stderr :: (fn(imm(captured_err) : ArrayList(u8)) -> unit)({
+_report_captured_cc_stderr :: (fn(captured_err : &ArrayList(u8)) -> unit)({
   text := String.from_bytes(captured_err);
   if(text.len() == usize(0), {
     return(());
@@ -4609,7 +4609,7 @@ _report_captured_cc_stderr :: (fn(imm(captured_err) : ArrayList(u8)) -> unit)({
 });
 /// Run a plan: the C-compiler half of `run_compile`, unchanged in behaviour
 /// wherever it runs.
-_run_cc_plan :: (fn(imm(plan) : CcPlan, io : Io, imm(exn) : Exception) -> unit)({
+_run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : &Exception) -> unit)({
   cc := plan.cc;
   if(plan.mode == _CC_PLAN_STATIC_LIB, {
     if(plan.verbose, {
@@ -4731,7 +4731,7 @@ _run_cc_plan :: (fn(imm(plan) : CcPlan, io : Io, imm(exn) : Exception) -> unit)(
 /// before cc starts. Not taken on Windows (no execve that keeps the waiting
 /// parent), under `--profile` (the phase table lives in this process), or with
 /// `YO_CC_IN_PROCESS=1`.
-_finish_cc_plan :: (fn(imm(plan) : CcPlan, imm(profile_json) : String, io : Io, imm(exn) : Exception) -> unit)({
+_finish_cc_plan :: (fn(plan : &CcPlan, profile_json : &String, io : Io, exn : &Exception) -> unit)({
   may_exec := (g_compile_may_exec_cc && !(platform == Platform.Windows) && (!profile_enabled() && proc_env.get(String.from("YO_CC_IN_PROCESS")).is_none()));
   if(may_exec, {
     match(
@@ -4758,7 +4758,7 @@ _finish_cc_plan :: (fn(imm(plan) : CcPlan, imm(profile_json) : String, io : Io, 
 });
 /// `yo __cc-plan <file>`: run a C-compiler plan written by `_finish_cc_plan`
 /// in this fresh image, then remove the file. Not a user command.
-run_cc_plan_cmd :: (fn(imm(argv) : ArrayList(String), io : Io, imm(exn) : Exception) -> unit)({
+run_cc_plan_cmd :: (fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> unit)({
   plan_path := match(
     argv.get(usize(2)),
     .Some(p) => p,
@@ -4773,9 +4773,9 @@ run_cc_plan_cmd :: (fn(imm(argv) : ArrayList(String), io : Io, imm(exn) : Except
 });
 run_compile :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -6262,7 +6262,7 @@ export(run_compile);
 /// anything else is an error rather than a silent single-package run, because
 /// `--workspace` in a non-workspace is always a mistake.
 _collect_workspace_test_files :: (
-  fn(imm(excludes) : ArrayList(String), io : Io, imm(exn) : Exception) -> ArrayList(String)
+  fn(excludes : &ArrayList(String), io : Io, exn : &Exception) -> ArrayList(String)
 )({
   cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
   root_path := match(
@@ -6302,10 +6302,10 @@ _collect_workspace_test_files :: (
 });
 _collect_test_files :: (
   fn(
-    imm(path_str) : String,
-    imm(excludes) : ArrayList(String),
+    path_str : &String,
+    excludes : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ArrayList(String)
 )({
   // `excludes` has the same semantics as `check --exclude`: a path is skipped if
@@ -6351,7 +6351,7 @@ _collect_test_files :: (
 /// The textual pre-filter (a line starting with `test(`) keeps the walk cheap;
 /// the parse behind it is what decides, so a `test(` inside a multi-line
 /// string literal cannot turn a fixture into a test file.
-_module_has_inline_tests :: (fn(imm(path) : String, io : Io, imm(exn) : Exception) -> bool)({
+_module_has_inline_tests :: (fn(path : &String, io : Io, exn : &Exception) -> bool)({
   src := String.from_bytes(io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : exn)));
   if(!(src.starts_with(String.from("test(")) || src.contains(String.from("\ntest("))), {
     return(false);
@@ -6373,7 +6373,7 @@ _module_has_inline_tests :: (fn(imm(path) : String, io : Io, imm(exn) : Exceptio
 });
 /// A module's OWN `main :: …` — the batch supplies its `main`, so a program
 /// that carries in-file tests must not bring a second one along.
-_is_main_definition :: (fn(imm(e) : AstExpr) -> bool)(
+_is_main_definition :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BK_CONST, Option(usize).Some(usize(2))) &&
     match(
       e,
@@ -6387,7 +6387,7 @@ _is_main_definition :: (fn(imm(e) : AstExpr) -> bool)(
 );
 /// `export(...)` with `main` removed — `None` when nothing else was exported
 /// (the statement is dropped). The batch exports its own `main`.
-_export_without_main :: (fn(imm(e) : AstExpr) -> Option(String))({
+_export_without_main :: (fn(e : &AstExpr) -> Option(String))({
   if(!ast_expr_is_fn_call_of(e, BK_EXPORT, .None), {
     return(Option(String).Some(ast_expr_to_string(e)));
   });
@@ -6457,7 +6457,7 @@ _current_rss_mb :: (fn() -> usize)(
 /// Append the file at `src_path` to `dst` in 4 MiB pieces (the code spill,
 /// plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3: reading it whole would put
 /// the ~110 MB of function bodies back in memory at the end).
-_copy_file_into :: (fn(imm(src_path) : String, imm(dst) : File, io : Io, imm(exn) : Exception) -> unit)({
+_copy_file_into :: (fn(src_path : &String, dst : &File, io : Io, exn : &Exception) -> unit)({
   chunk := usize(4194304);
   src := io.await(File.open(Path.new(src_path), .Read, io), IoExn(io : io, exn : exn));
   buf := (*u8)(valve_malloc(chunk).unwrap());
@@ -6596,7 +6596,7 @@ _current_rss_mb_windows :: (fn() -> usize)({
 /// storage is deliberately leaked — it must outlive execve, and on the
 /// failure path the process is about to die anyway. The argument is the
 /// C-string storage (one `to_cstr()` ArrayList per arg, in order).
-_exec_argv :: (fn(imm(exec_cstrs) : ArrayList(ArrayList(u8))) -> unit)({
+_exec_argv :: (fn(exec_cstrs : &ArrayList(ArrayList(u8))) -> unit)({
   argc := exec_cstrs.len();
   argv_bytes := (size_of(?*u8) * (argc + usize(1)));
   argv_raw := valve_malloc(argv_bytes).unwrap();
@@ -6641,9 +6641,9 @@ _exec_argv :: (fn(imm(exec_cstrs) : ArrayList(ArrayList(u8))) -> unit)({
 });
 run_test :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   // The positional path defaults to "." — a bare `yo test` runs the current
@@ -7887,9 +7887,9 @@ run_test :: (
 /// Human output is one line per fn; `--json` is one object per module.
 run_effects :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   (target_path : String) = String.new();
@@ -8069,7 +8069,7 @@ run_effects :: (
 /// `row` (an effects row). Struct fields are searched two levels deep so a
 /// bundle like `IoExn` reports both of its members' kinds. Empty = an
 /// ordinary value parameter.
-_effect_kinds_of_type :: (fn(imm(t) : TypeValue, depth : usize) -> ArrayList(String))({
+_effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String))({
   kinds := ArrayList(String).new();
   match(
     t,
@@ -8120,7 +8120,7 @@ _effect_kinds_of_type :: (fn(imm(t) : TypeValue, depth : usize) -> ArrayList(Str
 /// The effect labels/types of a `Future(T, E)` result: a bare `FutureTraitT`,
 /// or the one inside an `Impl(...)` SomeT's required traits.
 _collect_future_effects :: (
-  fn(imm(t) : TypeValue, mut(labels) : ArrayList(String), mut(types) : ArrayList(TypeValue)) -> unit
+  fn(t : &TypeValue, labels : &mut ArrayList(String), types : &mut ArrayList(TypeValue)) -> unit
 )({
   match(
     t,
@@ -8142,7 +8142,7 @@ _collect_future_effects :: (
     _ => ()
   );
 });
-_push_unique :: (fn(mut(xs) : ArrayList(String), imm(x) : String) -> unit)({
+_push_unique :: (fn(xs : &mut ArrayList(String), x : &String) -> unit)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     if(xs(i) == x, {
@@ -8152,7 +8152,7 @@ _push_unique :: (fn(mut(xs) : ArrayList(String), imm(x) : String) -> unit)({
   });
   xs.push(x);
 });
-_join_strings :: (fn(imm(xs) : ArrayList(String), sep : str) -> String)({
+_join_strings :: (fn(xs : &ArrayList(String), sep : str) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   while(i < xs.len(), {
@@ -8164,7 +8164,7 @@ _join_strings :: (fn(imm(xs) : ArrayList(String), sep : str) -> String)({
   });
   out
 });
-_json_string_list :: (fn(imm(xs) : ArrayList(String)) -> String)({
+_json_string_list :: (fn(xs : &ArrayList(String)) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   while(i < xs.len(), {
@@ -8192,9 +8192,9 @@ _json_string_list :: (fn(imm(xs) : ArrayList(String)) -> String)({
 /// AGENTS.md scaffolding.
 run_init :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   (dir : String) = String.from(".");
@@ -8242,9 +8242,9 @@ run_init :: (
 });
 run_fmt :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   // Parse arguments — collect positional paths, detect --check flag.
@@ -8320,9 +8320,9 @@ run_fmt :: (
 ///   yo cache <path|clean>
 run_cache :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   usage := "Usage: yo cache <path|clean|gc>";
@@ -8348,9 +8348,9 @@ run_cache :: (
 /// belongs to `yo version clean`.
 _cache_clean :: (
   fn(
-    imm(cache_dir) : String,
+    cache_dir : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   present := io.await(exists(Path.new(cache_dir.clone()), io), io);
@@ -8391,9 +8391,9 @@ _cache_clean :: (
 /// project's `yo.lock` references.
 _cache_gc :: (
   fn(
-    imm(cache_dir) : String,
+    cache_dir : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   present := io.await(exists(Path.new(cache_dir.clone()), io), io);
@@ -8419,9 +8419,9 @@ _cache_gc :: (
 ///   yo add <spec> [--dev] [--path <subdir>] [--name <name>] [--branch <b>] [--rev <sha>] [--verbose|-v]
 run_add_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   usage := "Usage: yo add <spec> [--dev] [--path <subdir>] [--name <name>] [--branch <branch>] [--rev <sha>] [--verbose]";
@@ -8504,9 +8504,9 @@ run_add_cmd :: (
 ///   yo remove <name> [--verbose|-v]
 run_remove_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   usage := "Usage: yo remove <name> [--verbose]";
@@ -8544,9 +8544,9 @@ run_remove_cmd :: (
 ///   yo install [--locked] [--offline] [--verbose|-v]
 run_install_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   usage := "Usage: yo install [--locked] [--offline] [--verbose]";
@@ -8594,9 +8594,9 @@ run_install_cmd :: (
 ///   yo update [name…] [--latest] [--offline] [--verbose|-v]
 run_update_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   usage := "Usage: yo update [name...] [--latest] [--offline] [--verbose]";
@@ -8637,7 +8637,7 @@ run_update_cmd :: (
 ///            [--build-file <path>] [--list-steps] [--list-options] [--dry-run] [--verbose|-v]
 /// One watch-mode build round: a full `run_build` whose failure is reported
 /// but never exits the loop (`unwind` returns `false` from THIS fn).
-_build_round_watch :: (fn(imm(opts) : BuildOptions, io : Io) -> bool)({
+_build_round_watch :: (fn(opts : &BuildOptions, io : Io) -> bool)({
   // §7 step 2: this round's artifact compiles run IN PROCESS against the
   // warm universe (the flag rides on opts into run_build's context).
   opts.watch_in_process = true;
@@ -8670,7 +8670,7 @@ _build_round_watch :: (fn(imm(opts) : BuildOptions, io : Io) -> bool)({
 /// `-j N` — nodes per DAG level (§4.8). Zero, a non-number or a negative
 /// value is an error rather than a silent 1: a mistyped `-j` should not look
 /// like a sequential build.
-_parse_jobs :: (fn(imm(value) : String, imm(exn) : Exception) -> usize)(
+_parse_jobs :: (fn(value : &String, exn : &Exception) -> usize)(
   match(
     value.parse_u64(),
     .Some(n) => if(n > u64(0), usize(n), {
@@ -8686,9 +8686,9 @@ _parse_jobs :: (fn(imm(value) : String, imm(exn) : Exception) -> usize)(
 ///            [--summary] [-D<name>=<value>]
 run_build_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   steps := ArrayList(String).new();
@@ -8870,7 +8870,7 @@ run_build_cmd :: (
   // issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
   if(watch, {
     set_in_process_compile_fn(
-      (fn(imm(argv) : ArrayList(String), io : Io, imm(exn) : Exception) -> bool)({
+      (fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> bool)({
         g_compile_watch_failed = false;
         run_compile(argv, io, exn);
         !g_compile_watch_failed
@@ -8965,9 +8965,9 @@ run_build_cmd :: (
 /// path reports on stderr and exits 1.
 run_unsafe_report_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   (target : String) = String.from(".");
@@ -9003,9 +9003,9 @@ run_unsafe_report_cmd :: (
 /// public_safe_report.yo). Informational: findings do NOT fail the exit.
 run_public_safe_report_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   (target : String) = String.from("./std");
@@ -9038,9 +9038,9 @@ run_public_safe_report_cmd :: (
 });
 run_doc_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   (input : String) = String.from(".");
@@ -9170,9 +9170,9 @@ run_doc_cmd :: (
 /// (plans/archive/P3_DISTRIBUTION.md item 2).
 run_version_cmd :: (
   fn(
-    imm(argv) : ArrayList(String),
+    argv : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   (action : String) = String.from("");
@@ -9544,7 +9544,7 @@ yo --version                     显示版本号`
 /// Per-subcommand help text (`yo <subcommand> --help`). Returns `.None` for
 /// an unknown subcommand (the caller falls back to the top-level usage).
 /// Print each line of `text` indented two spaces (registry examples).
-_print_indented :: (fn(imm(text) : String) -> unit)({
+_print_indented :: (fn(text : &String) -> unit)({
   parts := text.split(String.from("\n"));
   (i : usize) = usize(0);
   while(i < parts.len(), {
@@ -9563,7 +9563,7 @@ _print_indented :: (fn(imm(text) : String) -> unit)({
 /// env var) selects the Chinese prose. Exit 0 when found; an unknown code
 /// exits 1 with a did-you-mean over the registry.
 run_explain :: (
-  fn(imm(argv) : ArrayList(String), io : Io, imm(exn) : Exception) -> unit
+  fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> unit
 )({
   (show_list : bool) = false;
   (as_json : bool) = false;
@@ -9672,7 +9672,7 @@ run_explain :: (
     }
   );
 });
-_subcommand_help_text :: (fn(imm(subcmd) : String) -> Option(String))(
+_subcommand_help_text :: (fn(subcmd : &String) -> Option(String))(
   match(
     subcmd,
     "compile" => Option(String).Some(

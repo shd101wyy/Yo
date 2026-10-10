@@ -343,7 +343,7 @@ test("the deleted spellings inout and own are errors naming mut and sink", {
 // the arm writes through; the scrutinee is reached only through the places
 // while one is live (E0911).
 // ---------------------------------------------------------------------------
-_pm_bump :: (fn(mut(o) : Option(i32)) -> unit)(
+_pm_bump :: (fn(o : &mut Option(i32)) -> unit)(
   match(
     o,
     .Some(n) => {
@@ -352,7 +352,7 @@ _pm_bump :: (fn(mut(o) : Option(i32)) -> unit)(
     .None => ()
   )
 );
-_pm_rename :: (fn(mut(o) : Option(String)) -> unit)(
+_pm_rename :: (fn(o : &mut Option(String)) -> unit)(
   match(
     o,
     .Some(s) => {
@@ -362,7 +362,7 @@ _pm_rename :: (fn(mut(o) : Option(String)) -> unit)(
   )
 );
 _PmPair :: enum(P(a : i32, b : String), Q);
-_pm_read_place :: (fn(mut(p) : _PmPair) -> usize)(
+_pm_read_place :: (fn(p : &mut _PmPair) -> usize)(
   match(
     p,
     .P(a, b) => (usize(a) + b.len()),
@@ -420,7 +420,7 @@ test("the scrutinee is reached only through a live mut place", {
   );
   (h : Option(i32)) = .Some(i32(1));
   comptime_expect_error(
-    (fn(imm(x) : Option(i32)) -> i32)(match(&mut x, .Some(n) => n, .None => i32(0))),
+    (fn(x : &Option(i32)) -> i32)(match(&mut x, .Some(n) => n, .None => i32(0))),
     "is a `&` borrow"
   );
   comptime_expect_error(match(&mut Option(i32).Some(i32(1)), .Some(n) => n, .None => i32(0)), "is a temporary");
@@ -439,6 +439,7 @@ test("a mut place's writing method writes the scrutinee's part", {
     .None => ()
   );
   assert(match(&ol, .Some(xs) => xs.len(), .None => usize(0)) == usize(2), "pushed in place, twice");
+});
 
 test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
   comptime_expect_error((fn(imm(s) : String) -> usize)(s.len()), "`imm(x)` was deleted: a read-only borrow is spelled `x : &T`");
@@ -450,7 +451,7 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
   );
   comptime_expect_error((fn(comptime(imm(n)) : i32) -> i32)(n), "`imm(x)` was deleted");
   comptime_expect_error((fn(f : Impl(Fn(imm(v) : String) -> usize)) -> unit)(()), "`imm(x)` was deleted");
-  comptime_expect_error(((imm(v) : String) => v.len()), "`imm(x)` was deleted");
+  comptime_expect_error((imm(v) : String) => v.len(), "`imm(x)` was deleted");
   comptime_expect_error((fn(s : String) -> imm(String))(s), "`imm(x)` was deleted");
   (_c : i32) = i32(0);
   comptime_expect_error({
@@ -463,8 +464,8 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
     y := &mut _c;
     mut(y) = _c;
   }, "`mut(x)` was deleted");
-  comptime_expect_error(({ imm(_c) }() => i32(1)), "`imm(x)` was deleted");
-  comptime_expect_error(({ mut(z) : &mut _c }() => i32(1)), "`mut(x)` was deleted");
+  comptime_expect_error({ imm(_c) }() => i32(1), "`imm(x)` was deleted");
+  comptime_expect_error({ mut(z) : &mut _c }() => i32(1), "`mut(x)` was deleted");
   xs := ArrayList(i32).new();
   xs.push(i32(1));
   comptime_expect_error(

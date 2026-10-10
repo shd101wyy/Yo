@@ -54,11 +54,11 @@ _shadowed_name_code :: (fn(var_name : &String, context : &FunctionGenerationCont
 /// A `mut` match's place binding (decision 26): a shadowed C local that holds
 /// a pointer to the part. Read from the arm's emission state, not the env: a
 /// single-expression arm body records the env without the arm's frame.
-_is_place_binding :: (fn(imm(var_name) : String, imm(context) : FunctionGenerationContext) -> bool)(
+_is_place_binding :: (fn(var_name : &String, context : &FunctionGenerationContext) -> bool)(
   match(context.place_bindings, .Some(s) => s.contains(sanitize_for_c_identifier(var_name, false)), .None => false)
 );
 /// A match-arm binding the arm's C block declared under its source name.
-_is_shadowed_name :: (fn(imm(var_name) : String, imm(context) : FunctionGenerationContext) -> bool)(
+_is_shadowed_name :: (fn(var_name : &String, context : &FunctionGenerationContext) -> bool)(
   match(context.local_shadowed_variables, .Some(s) => s.contains(sanitize_for_c_identifier(var_name, false)), .None => false)
 );
 /// Async/effect state-machine variable resolution — the `sm->var_<id>` /

@@ -65,7 +65,7 @@ _doc_round :: (fn(doc_path : &String, text : &String, std_path : &String, io : I
 /// A trait with a DEFAULT method, reached through a generic impl on a
 /// comptime-built type: exercises the trait-default registry, the forall
 /// injection memo and type interning, all keyed by the doc's re-minted ids.
-_TRAIT_DOC :: "Named :: trait(\n  name : (fn(imm(self) : Self) -> i32),\n  (twice : (fn(imm(self) : Self) -> i32)) ?= (self -> (self.name() + self.name()))\n);\nBox1 :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));\nimpl(generic(T : Type), Box1(T), Named(name : (fn(imm(self) : Self) -> i32)(i32(7))));\nTag :: struct(n : i32);\nmain :: (fn() -> unit)({\n  b := Box1(Tag)(v : Tag(n : i32(1)));\n  _t := b.twice();\n});\nexport(main);\n";
+_TRAIT_DOC :: "Named :: trait(\n  name : (fn(self : &Self) -> i32),\n  (twice : (fn(self : &Self) -> i32)) ?= (self -> (self.name() + self.name()))\n);\nBox1 :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));\nimpl(generic(T : Type), Box1(T), Named(name : (fn(self : &Self) -> i32)(i32(7))));\nTag :: struct(n : i32);\nmain :: (fn() -> unit)({\n  b := Box1(Tag)(v : Tag(n : i32(1)));\n  _t := b.twice();\n});\nexport(main);\n";
 
 /// Analyze the app document; return the outcome's `ok`.
 _analyze_app_ok :: (fn(app_path : &String, std_path : &String, io : Io) -> bool)({

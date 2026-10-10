@@ -18,10 +18,10 @@ pragma(Pragma.AllowUnsafe);
 /// keeps (`clone_expr_fresh_ids` mints new ids, so an id key would lose the
 /// marker in every generic specialization).
 (g_borrowed_match_sites : HashMap(String, u8)) = HashMap(String, u8).new();
-_borrowed_match_site_key :: (fn(imm(tok) : Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
+_borrowed_match_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
 /// 0 when the `match` at `tok` was written with a plain scrutinee, 1 for
 /// `match(&x, …)`, 2 for `match(&mut x, …)`.
-borrowed_match_scrutinee_kind :: (fn(imm(tok) : Token) -> u8)(
+borrowed_match_scrutinee_kind :: (fn(tok : &Token) -> u8)(
   cond(
     (g_borrowed_match_sites.len() == usize(0)) => u8(0),
     true => match(g_borrowed_match_sites.get(_borrowed_match_site_key(tok)), .Some(k) => k, .None => u8(0))

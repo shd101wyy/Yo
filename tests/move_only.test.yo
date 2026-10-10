@@ -405,7 +405,7 @@ _mo_two :: (fn(k : i32) -> _MoTwo)(
   )
 );
 _mo_some :: (fn(n : i32) -> Option(_MoFd))(.Some(_MoFd(n : n)));
-_mo_peek_opt :: (fn(imm(o) : Option(_MoFd)) -> i32)(
+_mo_peek_opt :: (fn(o : &Option(_MoFd)) -> i32)(
   match(
     o,
     .Some(f) => f.n,
@@ -429,7 +429,7 @@ _mo_match_early :: (fn(c : bool) -> i32)({
 });
 // A consuming match in a loop body: an arm moves its binding and continues,
 // returns it to the keeper, or breaks while still owning it.
-_mo_match_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
+_mo_match_in_loop :: (fn(keep : &mut ArrayList(_MoFd)) -> i32)({
   (i : i32) = i32(0);
   (total : i32) = i32(0);
   while(i < i32(5), {
@@ -455,7 +455,7 @@ _mo_match_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
 });
 // The same loop over a plain local: the value moved before `continue` is the
 // keeper's (issues/fixed/a-value-moved-before-a-continue-or-break-is-dropped-again-at-the-exit.md).
-_mo_local_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
+_mo_local_in_loop :: (fn(keep : &mut ArrayList(_MoFd)) -> i32)({
   (i : i32) = i32(0);
   (total : i32) = i32(0);
   while(i < i32(5), {

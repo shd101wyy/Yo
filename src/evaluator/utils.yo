@@ -591,11 +591,11 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
 );
 /// The scrutinee tokens of the consuming `match`es (decision 26), so that a
 /// use after one names `match(&x, …)`. Keyed by token position.
-_consuming_match_key :: (fn(imm(tok) : Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
-note_consuming_match_scrutinee :: (fn(imm(tok) : Token) -> unit)({
+_consuming_match_key :: (fn(tok : &Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
+note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
   g_consuming_match_scrutinees.insert(_consuming_match_key(tok));
 });
-consuming_match_scrutinee_at :: (fn(imm(tok) : Token) -> bool)(
+consuming_match_scrutinee_at :: (fn(tok : &Token) -> bool)(
   (g_consuming_match_scrutinees.len() > usize(0)) && g_consuming_match_scrutinees.contains(_consuming_match_key(tok))
 );
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
@@ -615,7 +615,7 @@ use_of_moved_value_error :: (fn(name : &String, ty : &TypeValue, use_tok : &Toke
 /// The E0901 note for a use of `name` after a move at `moved_tok`: a
 /// consuming `match` names the borrow that keeps the value, any other move
 /// the type's note (`move_only_help`).
-moved_value_help :: (fn(imm(name) : String, imm(ty) : TypeValue, imm(moved_tok) : Token) -> Option(String))(
+moved_value_help :: (fn(name : &String, ty : &TypeValue, moved_tok : &Token) -> Option(String))(
   cond(
     consuming_match_scrutinee_at(moved_tok) => Option(String).Some(
       `a \`match\` consumes an owned scrutinee (plans/VALUES_BY_DEFAULT.md decision 26): match through a borrow to keep using \`${name}\`, \`match(&${name}, …)\`, or \`match(&mut ${name}, …)\` to write through the bindings`
@@ -626,7 +626,7 @@ moved_value_help :: (fn(imm(name) : String, imm(ty) : TypeValue, imm(moved_tok) 
 /// `yo fix --migrate match-scrutinee`: a use after the consuming `match`
 /// whose scrutinee is `moved_tok` records `&` before that scrutinee instead
 /// of being rejected (true when recorded).
-migrate_borrowed_match_at :: (fn(imm(moved_tok) : Token) -> bool)(
+migrate_borrowed_match_at :: (fn(moved_tok : &Token) -> bool)(
   cond(
     // An error a `comptime_expect_error` expects is the program's point.
     (migrate_match_scrutinee_on() && !propagate_def_time_errors() && consuming_match_scrutinee_at(moved_tok)) => {
@@ -4882,7 +4882,7 @@ local_borrow_is_scalar_type :: (fn(t : &TypeValue) -> bool)(
 /// A binding a consuming `match` arm owns, still unmoved after the arm's
 /// body: it is dropped at the arm's end and at each `return` inside the arm,
 /// as a value kept by one arm of a branch is (`_drop_in_arms_that_keep`).
-drop_owned_match_binding_at_arm_end :: (fn(imm(v) : Variable, imm(body) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+drop_owned_match_binding_at_arm_end :: (fn(v : &Variable, body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
   if(v.consumed_at_token.is_some(), {
     return(());
   });
@@ -4895,7 +4895,7 @@ drop_owned_match_binding_at_arm_end :: (fn(imm(v) : Variable, imm(body) : AstExp
 /// Is the variable `v` a closure's capture (a by-value capture field, or an
 /// implicit capture of the enclosing function's local)? A `match` cannot
 /// move it out of the closure.
-match_scrutinee_is_capture :: (fn(imm(v) : Variable, imm(env) : Environment, imm(ctx) : EvalContext) -> bool)(
+match_scrutinee_is_capture :: (fn(v : &Variable, env : &Environment, ctx : &EvalContext) -> bool)(
   is_fn_capture_value_binding(v.id) || _is_implicit_closure_capture(v, env, ctx)
 );
 /// Register the `mut` place a `match` arm binds (`name`, declared at `decl`)
@@ -4906,7 +4906,7 @@ match_scrutinee_is_capture :: (fn(imm(v) : Variable, imm(env) : Environment, imm
 /// `is_mut` false: a binding of `match(&x, …)`, which borrows the
 /// scrutinee read-only, so the arm cannot write or move it while the binding
 /// is live (Rust's shared borrow of a `ref` binding).
-local_borrow_register_match_place :: (fn(imm(name) : String, imm(decl) : Token, imm(place) : LocalBorrowPlace, imm(body) : AstExpr, (is_mut : bool) ?= true) -> unit)({
+local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : &LocalBorrowPlace, body : &AstExpr, (is_mut : bool) ?= true) -> unit)({
   last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => decl);
   end := cond(_lb_mentions(body, name.clone()) => _lb_region_end(body, name.clone(), decl), true => decl);
   _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
