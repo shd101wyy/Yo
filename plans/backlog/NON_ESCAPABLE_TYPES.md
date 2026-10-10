@@ -243,6 +243,10 @@ pick :: (fn(imm(a) : ArrayList(u8), imm(b) : ArrayList(u8), depends(a)) -> View(
 
 ### R4. The stateful call, for the one method that needs it
 
+**Amended 2026-10-10:** for closures the stateful call is `FnMut`
+(decision 37's amendment of the same day, landing with decision 43); for
+a named type it is an ordinary `self : &mut Self` method, as below.
+
 A borrowing iterator advances its own index: `next(mut(self)) -> Option(imm(T))`.
 That is the `mut(self)` receiver on a call that decision 37 parked
 ("added the way Hylo has it, not as a third trait"), and nothing else

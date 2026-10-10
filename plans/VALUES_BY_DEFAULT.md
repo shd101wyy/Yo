@@ -1906,7 +1906,10 @@ and in git, not a silent edit.
         copyable its capture record's words are, so the anonymous-composite
         rule must not derive `Copy` for it.
 
-37. **`FnOnce` is added; `FnMut` is not.** Confirmed 2026-10-05 by the
+37. **`FnOnce` is added; `FnMut` is not.** (**Amended 2026-10-10: `FnMut`
+    IS added, with decision 43 — see the dated bullet at the end of this
+    decision. The "why no `FnMut`" argument below is kept as the record of
+    a premise decision 43 removed.**) Confirmed 2026-10-05 by the
     maintainer. This amends decision 23.
     - **Background.** Rust's three closure traits differ only in how a call
       uses the closure's own environment:
@@ -2021,6 +2024,8 @@ and in git, not a silent edit.
           Hylo has it,** not as Rust's third trait (recorded 2026-10-05 by
           the maintainer). The design it lands with:
           `plans/backlog/NON_ESCAPABLE_TYPES.md` (R4), written 2026-10-10.
+          **Superseded the same day: the stateful call IS Rust's third
+          trait, `FnMut` (the amendment at the end of this decision).**
       - **Hylo's design.** Hylo
         (https://hylo-lang.org/docs/user/language-tour/functions-and-methods/)
         has three capture kinds, its parameter conventions: `let`, `inout`
@@ -2198,6 +2203,53 @@ and in git, not a silent edit.
           clone": `String` is not `Send` until it stops being reference
           counted. The same move is tested with a `Send` struct
           (`tests/thread.test.yo`).
+
+    - **Amended 2026-10-10 by the maintainer (with the VBD implementer's
+      position): `FnMut` is added, as Rust has it, landing with decision
+      43's phase.**
+      - **Why the premise is gone.** This decision rejected `FnMut` because
+        "a `mut` capture writes through the captured pointer, not the
+        closure's environment, so the call stays `imm(self)`". Under
+        decision 43 a `&mut n` capture is a value of type `&mut T` held in
+        the capture record, and its review rule says a `&mut T` reached
+        through a `&` path is read-only; a `Fn` call takes its closure by
+        `&self`, so the body could no longer write through the capture.
+        The worked counter above (`{ mut(n) }() => { n = (n + 1); n }`)
+        would stop compiling. Rust met the same fact, and `&mut` captures
+        making a closure `FnMut` is its answer.
+      - **The rule.** Three call traits with `Fn <: FnMut <: FnOnce`: `Fn`
+        calls through `&self`, `FnMut` through `&mut self`, `FnOnce` by
+        value. The trait is inferred from the body: consumes a capture ⇒
+        `FnOnce`; writes a `&mut` capture or its own by-value state ⇒
+        `FnMut`; otherwise `Fn`. A closure with a `&mut` capture
+        implements `FnMut` and not `Fn`; it stays move-only and
+        second-class (decision 38 A unchanged). A `FnMut` is called through
+        `&mut f`, so two live calls of one closure are the ordinary E0911,
+        and decision 38 B's re-entry rule becomes a consequence of
+        exclusivity rather than a separate check.
+      - **Slots.** `Fn` stays the bound for shared and `Sync` slots (the
+        parallel `for_each`, `Impl(Fn(...), Sync)`). A slot that calls a
+        body repeatedly and privately — the borrowed `for`, `for_each`,
+        `sort_by`, `retain`, `update_with`, `with_lock` bodies — takes
+        `Impl(FnMut(...))`, by value or lent as `&mut`; a non-escaping
+        literal argument needs no change at the call site. `Dyn(FnMut(...))`
+        exists for a stored callback that mutates. The std sweep is part of
+        decision 43's phase.
+      - **Rejected.** Exempting capture fields from the "`&mut` through `&`
+        is read-only" rule: that is exactly the aliasing the rule exists to
+        stop (two live calls of one `Fn` closure holding `&mut n` would be
+        two writers to one place). Also rejected: the Hylo-style stateful
+        call as a receiver mode without a trait name — a slot must be able
+        to state the bound, and the blanket impls decision 43 wants
+        (`impl(&mut F, FnMut)`-shaped) need the trait.
+      - **Phase.** With decision 43, not before: until `&mut` is a type, a
+        `mut` capture still writes through its pointer and the original
+        text holds. The worked examples above keep compiling; form 1
+        becomes a `FnMut`.
+      - **Tests.** Inference of each trait from a body; a `&mut`-capturing
+        closure passed to an `Impl(Fn)` slot is rejected naming `FnMut`;
+        two live calls of one `FnMut` are E0911; `Dyn(FnMut)` stored and
+        called; the `Sync` slot rejects a `FnMut`.
 
 38. **Closure soundness rules: the 2026-10-06 audit.** Confirmed
     2026-10-06 by the maintainer. An adversarial audit of decisions 22, 23,

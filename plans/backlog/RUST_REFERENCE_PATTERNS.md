@@ -612,7 +612,8 @@ stored, returned or spawned. Escaping closures own or share:
 ```
 
 Non-escaping callbacks borrow freely, including `mut` captures, with no
-allocation:
+allocation (such a closure is a `FnMut` since decision 37's 2026-10-10
+amendment, and the slot that calls it says `Impl(FnMut(…))`):
 
 ```yo
 n := i32(0);
