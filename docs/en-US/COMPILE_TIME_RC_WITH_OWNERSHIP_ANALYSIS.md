@@ -7,10 +7,10 @@
 >   - The rule that every assignment, constructor argument, return and block
 >     tail inserts `___dup`, and the dup/drop pair optimizer that cancels
 >     those dups.
->   - The `___dup` that `own()` inserts for a borrowed argument, and `own`
+>   - The `___dup` that `sink()` inserts for a borrowed argument, and `sink`
 >     itself. Parameters become by value by default: a copy for plain data,
 >     a move for owning values. Borrows are spelled `imm(x)` (read-only)
->     and `mut(x)` (exclusive, today's `inout`), as decided in decision 30.
+>     and `mut(x)` (exclusive, today's `mut`), as decided in decision 30.
 >   - A `String`, a collection, `Box` and `Dyn` will move at their last use
 >     and otherwise need `.clone()`. Copying an `Rc`/`Arc` handle will need
 >     `.clone()` too.
@@ -48,7 +48,7 @@ z = y; // ___dup(y), ___drop(old z), z owns, RC = 3
 
 ### 2. Function Parameters: Borrow by Default
 
-Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
+Function parameters **borrow** by default (no reference count change). The absence of `sink()` explicitly means the parameter borrows:
 
 ```yo
 print_point :: (fn(p : Point) -> unit)({
@@ -59,7 +59,7 @@ point := Point(x : i32(3), y : i32(4));
 print_point(point); // No ___dup at call site, p borrows point
 ```
 
-**Rule:** Parameters borrow unless explicitly marked with `own()`. Not having `own()` means borrow.
+**Rule:** Parameters borrow unless explicitly marked with `sink()`. Not having `sink()` means borrow.
 
 **Destructuring also borrows:**
 
@@ -96,10 +96,10 @@ A by-value parameter borrows its value: its storage is a copy of the caller's, a
 write changes only that copy. A field whose old value holds RC data (a `String`, a
 collection, an `Rc`, …) cannot be written through it, because the write would release data
 the caller still holds (E0908). The same holds for a `match` or `for` binding, and for
-passing such a place to an `inout` parameter the callee may write, including calling an
-`inout(self)` method such as `push_str` on it: the write would land in the borrowed copy
-alone. Read-only `inout(self)` methods (`clone`, `to_string`) and indexing stay allowed.
-Take the parameter as `own(p) : T` or `inout(p) : T`, or copy it into a local first:
+passing such a place to a `mut` parameter the callee may write, including calling an
+`mut(self)` method such as `push_str` on it: the write would land in the borrowed copy
+alone. Read-only `mut(self)` methods (`clone`, `to_string`) and indexing stay allowed.
+Take the parameter as `sink(p) : T` or `mut(p) : T`, or copy it into a local first:
 
 ```yo
 Named :: struct(s : String, n : i32);
@@ -113,17 +113,17 @@ rename :: (fn(p : Named) -> Named)({
 });
 ```
 
-### 4. Explicit Ownership Transfer: `own()` keyword
+### 4. Explicit Ownership Transfer: `sink()` keyword
 
-Use `own()` to transfer ownership to a function parameter.
+Use `sink()` to transfer ownership to a function parameter.
 
 **Move-ownership semantics:**
 
 - If the argument already **owns** the GC value, the call **moves** ownership into the callee (the caller binding becomes consumed).
-- If the argument is only **borrowed / non-owning** (e.g. a borrowed parameter), the compiler inserts `___dup` to materialize an owned temporary for the callee, and the original binding is still **consumed** (becomes unusable) to keep `own()` calls linear/consuming.
+- If the argument is only **borrowed / non-owning** (e.g. a borrowed parameter), the compiler inserts `___dup` to materialize an owned temporary for the callee, and the original binding is still **consumed** (becomes unusable) to keep `sink()` calls linear/consuming.
 
 ```yo
-consume :: (fn(own(box) : Rc(i32)) -> unit)({
+consume :: (fn(sink(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box is dropped at end of function
 });
@@ -132,8 +132,8 @@ b := rc(42); // b owns
 consume(b); // b cannot be used after this point
 call_consume :: (fn(p : Rc(i32)) -> unit)({
   // p borrows by default
-  consume(p); // compiler inserts ___dup(p) to satisfy own(box)
-  // p is NOT usable here (moved/consumed by the own() call)
+  consume(p); // compiler inserts ___dup(p) to satisfy sink(box)
+  // p is NOT usable here (moved/consumed by the sink() call)
 });
 
 call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
@@ -144,7 +144,7 @@ call_consume_but_keep_using :: (fn(p : Rc(i32)) -> unit)({
 });
 ```
 
-**Rule:** `own()` parameters take ownership; passing an owned value moves it, passing a borrowed value clones it via `___dup` and still consumes the argument binding.
+**Rule:** `sink()` parameters take ownership; passing an owned value moves it, passing a borrowed value clones it via `___dup` and still consumes the argument binding.
 
 ## Basic Model
 
@@ -276,7 +276,7 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 
   - **Stage 0** — an RC-typed field **projection** passed to a **borrowing**
     parameter gets a caller-owned `+1` for the call. Plain locals stay `+0` (the
-    caller's binding keeps them alive), as do owned temps, `inout` parameters, and
+    caller's binding keeps them alive), as do owned temps, `mut` parameters, and
     extern/builtin callees (no Yo code runs inside them).
   - **Stage 1** — per-callee **mutation summaries** (`src/evaluator/effects/mutation_summary.yo`)
     ask "may this call transitively mutate RC container storage?"; the read-only
@@ -399,12 +399,12 @@ executes unconditionally on every path that reaches the scope end**. The optimiz
   scope-end drop once);
 - skips `io.async` captures (the state machine needs both the dup and the drop).
 
-### Rule 5: The `own()` Keyword
+### Rule 5: The `sink()` Keyword
 
-**`own()` parameters take ownership (move if possible, otherwise dup):**
+**`sink()` parameters take ownership (move if possible, otherwise dup):**
 
 ```yo
-consume :: (fn(own(box) : Rc(i32)) -> unit)({
+consume :: (fn(sink(box) : Rc(i32)) -> unit)({
   printf("value: %d\n", box.*);
   // box is dropped at end of function
 });
@@ -413,7 +413,7 @@ b := rc(42); // b owns
 consume(b); // b is consumed
 // b cannot be used after this point
 // If the argument is borrowed/non-owning, the compiler inserts ___dup.
-// Example: borrowed parameter passing to an own() parameter.
+// Example: borrowed parameter passing to an sink() parameter.
 call_consume :: (fn(p : Rc(i32)) -> unit)({
   consume(p); // inserts ___dup(p); p is consumed (not usable after this)
 });
@@ -421,7 +421,7 @@ call_consume :: (fn(p : Rc(i32)) -> unit)({
 
 ### Exception: Function Parameters (Borrow by Default)
 
-**No `___dup` when passing to borrowed parameters (parameters without `own()`):**
+**No `___dup` when passing to borrowed parameters (parameters without `sink()`):**
 
 ```yo
 print_point :: (fn(p : Point) -> unit)({

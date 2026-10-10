@@ -547,7 +547,7 @@ move_only_help :: (fn(imm(name) : String, imm(ty) : TypeValue) -> Option(String)
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it \`mut\`, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
+      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it \`mut\`, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). An \`imm\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
     ),
     .None => cond(
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
@@ -557,7 +557,7 @@ move_only_help :: (fn(imm(name) : String, imm(ty) : TypeValue) -> Option(String)
         `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
       ),
       type_requires_explicit_copy(ty) => Option(String).Some(
-        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it \`mut\`. A by-value parameter borrows it without a copy.`
+        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it \`mut\`. An \`imm\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
       ),
       true => Option(String).None
     )

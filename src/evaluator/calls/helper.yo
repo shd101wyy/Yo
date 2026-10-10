@@ -34,6 +34,7 @@ pragma(Pragma.AllowUnsafe);
   clone_expr_fresh_ids,
   wrap_body_in_begin,
   ast_expr_strip_borrow_marker,
+  ast_place_text,
   BF_ADDRESS_OF,
   BK_BORROW_MUT
 } :: import("../../expr.yo");
@@ -861,7 +862,7 @@ apply_call_site_borrow_markers :: (
       p_is_owning := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
       p_label := match(param_labels.get(ai), .Some(l) => l, .None => String.new());
       p_ty := match(param_types.get(ai), .Some(t) => t, .None => t_unit());
-      place_text := ast_expr_to_string(ast_expr_strip_borrow_marker(bare));
+      place_text := ast_place_text(ast_expr_strip_borrow_marker(bare));
       cond(
         (is_mut_marker && p_is_ref) => {
           peel = true;

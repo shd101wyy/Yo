@@ -6,16 +6,15 @@ language has no way to form a pointer into reallocatable storage, so
 the classic invalidation footguns (grow a list, dangle a borrow) are
 not rejected by a clever analysis — they are _inexpressible_.
 
-## Where an `inout` can exist
+## Where a `mut` can exist
 
-`inout` is Yo's second-class reference, and it exists in exactly TWO
+`mut` is Yo's second-class reference, and it exists in exactly TWO
 places: **parameter position** and **local binding position**.
-`inout(name) : T` receives a caller lvalue (write-back, and no copy for big
+`mut(name) : T` receives a caller lvalue (write-back, and no copy for big
 structs); callback parameters that receive refs
-(`body : Impl(Fn(inout(v) : T) -> R)`, as in `Mutex.with_lock`) are the
+(`body : Impl(Fn(mut(v) : T) -> R)`, as in `Mutex.with_lock`) are the
 same thing one level down. A local borrow binds `name` to the storage
-`place` denotes: `mut(name) := place;` (`inout(name) :=` is its synonym)
-borrows it exclusively, `imm(name) := place;` read-only
+`place` denotes: `mut(name) := place;` borrows it exclusively, `imm(name) := place;` read-only
 (`plans/VALUES_BY_DEFAULT.md` decision 18):
 
 ```yo
@@ -26,7 +25,7 @@ z := x; // fine: y's last use is above, so x is free again
 imm(r) := p.x; // a read-only borrow of a value-struct field
 v := r; // reads through r; `r = v` would be E0908
 mut(n) := h.n; // a field of an RC object: h's object is pinned for the scope
-copy := n; // copies the pointee — there is no "inout type" to store
+copy := n; // copies the pointee — there is no "mut type" to store
 ```
 
 **A borrow is live from its binding to its last use**, and for that range
@@ -88,8 +87,8 @@ re-point is E0911 while a borrow derived from `cur`'s current target is
 live. Each step into a cell pins it and releases the cell the previous step
 pinned, so the walk is memory-safe even when another handle drops a node.
 
-**Functions cannot return `inout`**, and refs cannot be stored in fields,
-captured by closures, or placed inside generic types. An `inout` is born
+**Functions cannot return `mut`**, and refs cannot be stored in fields,
+captured by closures, or placed inside generic types. A `mut` is born
 at a call boundary or a binding and dies with the enclosing scope — it can
 never outlive the storage it points into.
 
@@ -101,10 +100,10 @@ implicitly copyable type produces a copy today, the spelling names the
 borrow itself, not the value it reads through. Read the value out into an
 owned local first (`v := y;` … `v`); a call or an operation on the borrow
 (`y.len()`, `y + i32(0)`) already produces a value and is fine. An
-`inout`/`mut` **parameter** is a different mechanism: returning it still
+`mut` **parameter** is a different mechanism: returning it still
 returns the pointee copy.
 
-The argument passed to an `inout` parameter is a simple lvalue **place**:
+The argument passed to a `mut` parameter is a simple lvalue **place**:
 
 - a whole variable (any scope — a variable's slot is stable storage);
 - `var.field` (or a struct-field path) rooted at a **local or
@@ -118,7 +117,7 @@ The argument passed to an `inout` parameter is a simple lvalue **place**:
 - an **indexed element** (`xs(i)`) or a chain through an **intermediate
   object** (including an `Rc` deref `b.*`, since `Rc` is an ordinary
   object and `*` is just a field) is a pointer into a heap object's
-  storage; it may be an `inout` argument only when the callee cannot reach
+  storage; it may be a `mut` argument only when the callee cannot reach
   that object — passing the container/cell (or an alias), indexing a
   module-level container, or passing **any other object/closure
   argument** that could hold a handle to it, is rejected (growth or
@@ -156,23 +155,23 @@ Elements can also be **borrowed**, in exactly one place: the borrowed
 `for`.
 
 ```yo
-for(enemies, inout(e) => {
+for(enemies, mut(e) => {
   e.hp = (e.hp - i32(1));
 }); // struct elements, in place
-for(names, inout(s) => {
+for(names, mut(s) => {
   s.push_str("!");
 }); // RC elements, no dup per element
-for(counts, inout(c) => {
+for(counts, mut(c) => {
   bump(c);
-}); // hand the element to an inout param
-for(scores, (k, inout(v)) => {
+}); // hand the element to a mut param
+for(scores, (k, mut(v)) => {
   v = (v + i32(10));
 }); // maps: key by value, value borrowed
 ```
 
 The macro binds the collection to a hidden local (it cannot be freed while
 the loop runs), holds the collection's **runtime borrow flag** for the whole
-loop, and binds each element as an `inout` local into the collection's own
+loop, and binds each element as a `mut` local into the collection's own
 storage through the pointer iterator `iter()` — which is why `iter()` exists
 and why it yields `*(T)`: it is the protocol `for` consumes, not an API for
 user code. `break`, `continue`, `return` and effect `unwind` all release the
@@ -193,7 +192,7 @@ then mutates it does. Read-only methods (`len`, `get`, `contains`,
 `index_of`, `==`, `clone`, iteration) cost nothing; a mutating method pays one
 load-compare at entry (~7–9 % on a nanosecond-scale `push`/`pop`
 microbenchmark, unmeasurable elsewhere). Plain
-`inout(e)` over a map yields the whole entry; prefer `(k, inout(v))`, which
+`mut(e)` over a map yields the whole entry; prefer `(k, mut(v))`, which
 keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
 or an index loop. The borrowed `for` works inside an `io.async` body, with
 awaits in the loop body.
@@ -222,17 +221,17 @@ never affects the result.
 
 ## One call-site rule
 
-**A single call may not receive the same object as both an `inout`-rooted
-argument and an `own` argument** (`use_and_sink(h.s, h)` with
-`own(victim)` is rejected) — `own` moves the caller's count into a
+**A single call may not receive the same object as both a `mut`-rooted
+argument and an `sink` argument** (`use_and_sink(h.s, h)` with
+`sink(victim)` is rejected) — `sink` moves the caller's count into a
 callee that could release it while the borrow is still in use. Distinct
-objects are fine. A by-value argument that overlaps an `inout` one is
-kept alive for the call: the callee can replace the `inout` variable's
+objects are fine. A by-value argument that overlaps a `mut` one is
+kept alive for the call: the callee can replace the `mut` variable's
 value, which would release the value the by-value argument borrows
-(`clobber(x, x)` with `fn(inout(a) : S, b : S)`), so that argument gets a
+(`clobber(x, x)` with `fn(mut(a) : S, b : S)`), so that argument gets a
 caller-owned `+1` until the call returns, like an overlapping field
 projection. A borrowed handle itself never releases the caller's count
-(forwarding it to an `own` position dups first).
+(forwarding it to an `sink` position dups first).
 
 With no local bindings there is nothing left to "invalidate": the old
 borrow-invalidation gates were deleted along with the binding form.

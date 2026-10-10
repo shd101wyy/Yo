@@ -25,9 +25,9 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 - **闭包和高阶函数** —— 在安全类型上。
 - **泛型、trait、GADT。** Yo 的全部类型系统特性。
 - **代数效应、async/await、comptime。** 完全可用。
-- **原地修改。** 通过 `inout(name) : T` 参数 —— 下面会讲。
+- **原地修改。** 通过 `mut(name) : T` 参数 —— 下面会讲。
 
-这是默认的用户体验。不需要 pragma、不需要 `&()` 注解、不需要 `*(T)` 类型、不需要 `unsafe(...)` 包装：
+这是默认的用户体验。不需要 pragma、不需要 `addr_of(...)` 调用、不需要 `*(T)` 类型、不需要 `unsafe(...)` 包装：
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`）。引用语义类型（`ref(struct(...))`）元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素可以用 `for(coll, inout(item) => …)` 逐个借用，对 `item` 赋值即原地写入元素；也可以用索引赋值写回（`coll(i) = v`）。
+`for` 宏按值迭代（`(item) => …` 底层调用 `.into_iter()`）。引用语义类型（`ref(struct(...))`）元素是句柄，在循环体内变异 `item` 即就地变异元素；struct/标量元素可以用 `for(coll, mut(item) => …)` 逐个借用，对 `item` 赋值即原地写入元素；也可以用索引赋值写回（`coll(i) = v`）。
 
 ## 安全代码不能做什么
 
@@ -54,9 +54,9 @@ main :: (fn() -> unit)({
 
 | 构造                                                | 诊断（简短）                                                                     | 安全替代方案                                                                                                           |
 | --------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`inout(name) : T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
-| `&(expr)` 取地址                                    | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` 参数，或直接传自有集合                                                                               |
-| 持有原始指针**值**（指针迭代器的 `it.next()` 交出 `Option(*(T))`） | "Raw pointer values are not available in safe code"                              | `for(coll, inout(x) => …)` 在循环期间借用元素；迭代器组合子（`count`、`map`）仍可用 |
+| 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`mut(name) : T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
+| `addr_of(expr)` 取地址                                    | "this expression has type `*(T)`, which is not available in safe code"           | `mut(name) : T` 参数，或直接传自有集合                                                                               |
+| 持有原始指针**值**（指针迭代器的 `it.next()` 交出 `Option(*(T))`） | "Raw pointer values are not available in safe code"                              | `for(coll, mut(x) => …)` 在循环期间借用元素；迭代器组合子（`count`、`map`）仍可用 |
 | 交出存储的 API 一律以原始指针形式交出（`s.ptr()`、`xs.ptr()`） | "Raw pointer values are not available in safe code"                 | 通过安全 API 读取或复制字节（`len()`、索引、`s(a..b)`）；原始视图是标准库内部管道 |
 | `unsafe(...)` 调用                                  | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`                                           |
 | `asm(...)` 块                                       | "inline assembly is not available in safe code"                                  | 同上                                                                                                                   |
@@ -87,12 +87,12 @@ best := scores.max().unwrap_or_else(() => recompute());
 
 豁免：`tests/*.test.yo`（失败的 unwrap 会让该测试响亮地失败 —— 这正是测试的本职）、`pragma(Pragma.AllowUnsafe)` 文件，以及编译器合成的代码。标准库遵守与你的代码相同的规则：它的安全文件中没有 `unwrap`，只有它的 `AllowUnsafe` 文件才会使用。编译期上下文目前**不**豁免：编译期已知的 `.None` 如今仍会生成运行时 unwrap（没有 CTFE 折叠），因此它仍是一个可达的陷阱。
 
-## 原地修改：`inout(name) : T`
+## 原地修改：`mut(name) : T`
 
 C / Rust 用 `&mut T` 解决的模式，在安全 Yo 中由一个参数修饰符解决：
 
 ```yo
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
@@ -101,18 +101,18 @@ swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y); // 调用处不需要 &() —— `inout` 性质在参数定义中
+  swap(&mut x, &mut y); // 调用处借出每个位置；没有裸指针
   assert(x == i32(2), "swapped");
 });
 ```
 
-`inout` 是**二等的**，存在于参数位置（`inout(name) : T`）和局部绑定（`inout(name) := place`）。函数不能返回 `inout`，不存在一等的"`inout` 类型"，借用也无法泄漏到 struct 字段或闭包捕获中。inout 实参或绑定命名一个简单的左值位置（变量，或以变量为根的字段路径）；经过 RC 对象的绑定会在其作用域内钉住该对象。局部借用（`mut(name) := place`，或只读的 `imm(name) := place`）存活到它的最后一次使用，并在这段范围内冻结它的位置：`imm` 借用下不能写入或移动它，`mut` 借用下除通过该借用外完全不能访问它（E0911）—— 因此被借用的存储按构造在整个借用期间存活且没有别名。局部借用也永远不跨越函数边界：`return(<以该借用为根的位置>)` 与以借用为结果的函数体尾部是 E0912；请先把值拷出到自有局部变量（`v := y;`）。元素位置（`xs(i)`）不能手动绑定；元素只能通过 `for(coll, inout(x) => …)` 借用，它会钉住集合并在循环期间持有其运行时借用标志。见 [FLOWABILITY.md](./FLOWABILITY.md)。
+`mut` 是**二等的**，存在于参数位置（`mut(name) : T`）和局部绑定（`mut(name) := place`）。函数不能返回 `mut`，不存在一等的"`mut` 类型"，借用也无法泄漏到 struct 字段或闭包捕获中。mut 实参或绑定命名一个简单的左值位置（变量，或以变量为根的字段路径）；经过 RC 对象的绑定会在其作用域内钉住该对象。局部借用（`mut(name) := place`，或只读的 `imm(name) := place`）存活到它的最后一次使用，并在这段范围内冻结它的位置：`imm` 借用下不能写入或移动它，`mut` 借用下除通过该借用外完全不能访问它（E0911）—— 因此被借用的存储按构造在整个借用期间存活且没有别名。局部借用也永远不跨越函数边界：`return(<以该借用为根的位置>)` 与以借用为结果的函数体尾部是 E0912；请先把值拷出到自有局部变量（`v := y;`）。元素位置（`xs(i)`）不能手动绑定；元素只能通过 `for(coll, mut(x) => …)` 借用，它会钉住集合并在循环期间持有其运行时借用标志。见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 使用场景：
 
-- 标准库中带变异的 trait 方法（`Hasher.write`、`Clone.clone`、`Iterator.next`）都接收 `inout(self) : Self`。你写 `hasher.write_u64(v)`、`it.next()` —— 不需要 `&()`；`inout` 参数同理，例如 `value.hash(hasher)`。
-- 你自己的变异辅助函数（`swap`、`increment`、`clear` 等）使用 `inout(name) : T`。
-- 在一个作用域内出借值的回调 API：`Mutex.with_lock(body : Impl(Fn(inout(v) : T) -> R))`。
+- 标准库中带变异的 trait 方法（`Hasher.write`、`Clone.clone`、`Iterator.next`）都接收 `mut(self) : Self`。你写 `hasher.write_u64(v)`、`it.next()` —— 接收者直接写；`mut` 实参用 `&mut` 借出，例如 `value.hash(&mut hasher)`。
+- 你自己的变异辅助函数（`swap`、`increment`、`clear` 等）使用 `mut(name) : T`。
+- 在一个作用域内出借值的回调 API：`Mutex.with_lock(body : Impl(Fn(mut(v) : T) -> R))`。
 
 ## 标准库集合保持安全
 
@@ -196,7 +196,7 @@ copy_bytes :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
 
 不需要门控的操作（地址只是数据，传递地址不会触发 UB）：
 
-- `&(x)` —— 取地址
+- `addr_of(x)` —— 取地址
 - 把 `*(T)` 传给函数
 - 把 `*(T)` 存进 struct 字段
 - 返回 `*(T)`

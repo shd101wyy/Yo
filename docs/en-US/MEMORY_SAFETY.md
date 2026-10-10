@@ -25,9 +25,9 @@ Everything you'd expect from a modern general-purpose language:
 - **Closures and higher-order functions** over safe types.
 - **Generics, traits, GADTs.** All of Yo's type-system features.
 - **Algebraic effects, async/await, comptime.** Full access.
-- **In-place mutation.** Via `inout(name) : T` parameters — covered below.
+- **In-place mutation.** Via `mut(name) : T` parameters — covered below.
 
-This is the default user experience. No pragma needed, no `&()` annotations, no `*(T)` types, no `unsafe(...)` wraps:
+This is the default user experience. No pragma needed, no `addr_of(...)` calls, no `*(T)` types, no `unsafe(...)` wraps:
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Reference-semantics elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, borrow each one with `for(coll, inout(item) => …)`, where an assignment to `item` writes the element in place, or write back with index assignment (`coll(i) = v`).
+The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Reference-semantics elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, borrow each one with `for(coll, mut(item) => …)`, where an assignment to `item` writes the element in place, or write back with index assignment (`coll(i) = v`).
 
 ## What Safe Code Cannot Do
 
@@ -54,9 +54,9 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 
 | Construct                                                    | Diagnostic (short)                                                               | Safe alternative                                                                                   |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `*(T)` type expression in a parameter, field, or return      | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `inout(name) : T`, a reference-semantics type, or a stdlib wrapper |
-| `&(expr)` address-of                                         | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` parameter, or pass the owned collection                                          |
-| Holding a raw pointer VALUE (`it.next()` on a pointer iterator yields `Option(*(T))`) | "Raw pointer values are not available in safe code"                       | `for(coll, inout(x) => …)` borrows an element for the loop; iterator combinators (`count`, `map`) stay available |
+| `*(T)` type expression in a parameter, field, or return      | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `mut(name) : T`, a reference-semantics type, or a stdlib wrapper |
+| `addr_of(expr)` address-of                                    | "this expression has type `*(T)`, which is not available in safe code"           | `mut(name) : T` parameter, or pass the owned collection                                          |
+| Holding a raw pointer VALUE (`it.next()` on a pointer iterator yields `Option(*(T))`) | "Raw pointer values are not available in safe code"                       | `for(coll, mut(x) => …)` borrows an element for the loop; iterator combinators (`count`, `map`) stay available |
 | Holding a plain struct/enum whose PUBLIC field carries a raw pointer (`s.raw_bytes()` yields `RawSlice(u8)`) | "Raw pointer values are not available in safe code"            | Read or copy the bytes through the safe API; `RawSlice` is stdlib-internal plumbing. A struct wrapping a pointer behind a PRIVATE field (an iterator handle), and every RC-managed container (`HashMap`, `String`, …), are fine — the field read is itself gated |
 | `unsafe(...)` call                                           | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops      |
 | `asm(...)` block                                             | "inline assembly is not available in safe code"                                  | Same                                                                                               |
@@ -87,12 +87,12 @@ This is safe-mode rule D7: a call may not erase a failure the type carries. It i
 
 Exempt: `tests/*.test.yo` (a failed unwrap fails the test loudly — the test doing its job), `pragma(Pragma.AllowUnsafe)` files, and compiler-synthesized code. The standard library follows the same rule as your code: its safe files contain no `unwrap`, and only its `AllowUnsafe` files use one. Comptime contexts are NOT exempt yet: a comptime-known `.None` still emits a runtime unwrap today (there is no CTFE fold), so it would remain a reachable trap.
 
-## In-Place Mutation: `inout(name) : T`
+## In-Place Mutation: `mut(name) : T`
 
 The pattern C/Rust solve with `&mut T` is solved in safe Yo with a parameter modifier:
 
 ```yo
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
+swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
@@ -101,18 +101,18 @@ swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y); // no &() at the call site — `inout` is in the param spec
+  swap(&mut x, &mut y); // the call site lends each place; no raw pointer
   assert(x == i32(2), "swapped");
 });
 ```
 
-`inout` is **second-class** and exists in parameter position (`inout(name) : T`) and as a local binding (`inout(name) := place`). Functions cannot return `inout`, there is no first-class "`inout` type", and a borrow cannot leak into a struct field or a closure capture. An `inout` argument or binding names a simple lvalue place (a variable, or a field path rooted at one); a binding through an RC object pins that object for its scope. A local borrow (`mut(name) := place`, or the read-only `imm(name) := place`) is live until its last use and freezes its place for that range: no write or move of it under an `imm` borrow, no access at all except through the borrow under a `mut` one (E0911) — so the borrowed storage is alive and unaliased for the whole borrow by construction. A local borrow also never crosses the function boundary: `return(<a place rooted at the borrow>)` and a body-tail yielding one are E0912; copy the value out into an owned local first (`v := y;`). Element places (`xs(i)`) are not bindable by hand; elements are borrowed only through `for(coll, inout(x) => …)`, which pins the collection and holds its runtime borrow flag for the loop. See [FLOWABILITY.md](./FLOWABILITY.md).
+`mut` is **second-class** and exists in parameter position (`mut(name) : T`) and as a local binding (`mut(name) := place`). Functions cannot return `mut`, there is no first-class "`mut` type", and a borrow cannot leak into a struct field or a closure capture. A `mut` argument or binding names a simple lvalue place (a variable, or a field path rooted at one); a binding through an RC object pins that object for its scope. A local borrow (`mut(name) := place`, or the read-only `imm(name) := place`) is live until its last use and freezes its place for that range: no write or move of it under an `imm` borrow, no access at all except through the borrow under a `mut` one (E0911) — so the borrowed storage is alive and unaliased for the whole borrow by construction. A local borrow also never crosses the function boundary: `return(<a place rooted at the borrow>)` and a body-tail yielding one are E0912; copy the value out into an owned local first (`v := y;`). Element places (`xs(i)`) are not bindable by hand; elements are borrowed only through `for(coll, mut(x) => …)`, which pins the collection and holds its runtime borrow flag for the loop. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 
-- Stdlib trait methods that mutate (`Hasher.write`, `Clone.clone`, `Iterator.next`) all take `inout(self) : Self`. You write `hasher.write_u64(v)`, `it.next()` — no `&()` needed; the same goes for `inout` arguments such as `value.hash(hasher)`.
-- Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `inout(name) : T`.
-- Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(inout(v) : T) -> R))`.
+- Stdlib trait methods that mutate (`Hasher.write`, `Clone.clone`, `Iterator.next`) all take `mut(self) : Self`. You write `hasher.write_u64(v)`, `it.next()` — a receiver is written bare; a `mut` argument is lent with `&mut`, as in `value.hash(&mut hasher)`.
+- Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `mut(name) : T`.
+- Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(mut(v) : T) -> R))`.
 
 ## Stdlib Collections Stay Safe
 
@@ -197,7 +197,7 @@ The wrap is a **compile-time marker only** — it lowers to its inner expression
 
 Operations that are NOT gated (addresses are just data; moving them around doesn't risk UB):
 
-- `&(x)` — taking an address
+- `addr_of(x)` — taking an address
 - Passing `*(T)` to a function
 - Storing `*(T)` in a struct field
 - Returning `*(T)`
@@ -353,7 +353,7 @@ The framing: **safe Yo code cannot violate memory safety. The unsafe surface is 
 ## Further Reading
 
 - `plans/reference/MEMORY_SAFETY.md` — the design document for the safety model. Covers the full rationale, phase rollout, alternatives considered.
-- [FLOWABILITY.md](./FLOWABILITY.md) — the user-facing `inout`/borrow rules (flowability + borrow invalidation).
+- [FLOWABILITY.md](./FLOWABILITY.md) — the user-facing `mut`/borrow rules (flowability + borrow invalidation).
 - `plans/archive/SLICE_REWORK.md` — the design that removed heap-backed slices (builtin `str`, copying ranges).
 - `plans/archive/EXTERN_UNSAFE_WRAP.md` — the per-call-site wrap requirement for extern "c" functions.
 - `plans/archive/ITERATOR_REDESIGN.md` — how iteration works under the safe model.

@@ -96,14 +96,27 @@ The repairs the compiler computes today:
 | E0401 name not found, exported by exactly one std module | insert `{ name } :: import("std/…");` above the first non-comment line (the help names the module; two exporting modules, or a rename candidate as well, give help only) |
 | E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
 
-`yo fix <path> --migrate params` is a migration rather than a repair: it runs on
-files that already evaluate, and rewrites parameter modes for the
-parameter-convention change (VALUES_BY_DEFAULT V3b). A plain parameter whose
-type is not `Copy` becomes `imm(x)`, which is what a plain parameter means
-today, and `inout(x)` becomes `mut(x)`. A generic parameter becomes `imm(x)`
-unless its `where` bounds make it `Copy`. Neither edit changes what a program
-does. A file that does not evaluate keeps the parameters evaluation never
-reached, and `fix` exits non-zero naming it.
+`yo fix <path> --migrate <name>` runs a migration rather than a repair, for
+the parameter-convention change (VALUES_BY_DEFAULT V3b):
+
+- `--migrate modes` rewrites the deleted spellings: `inout(x)` becomes
+  `mut(x)` and an `own(x)` parameter becomes `sink(x)`. It only parses each
+  file, so it also reaches code evaluation never sees (macro arguments,
+  `quote(...)` templates, test bodies). Run it first on old code: the
+  compiler rejects both spellings.
+- `--migrate addr-of` rewrites each `&x` that was the raw-pointer address-of
+  to `addr_of(x)`. It evaluates every file, because only the evaluator knows
+  which `&x` is a borrow (`show(&s)` to an `imm` parameter stays) and which is
+  the address-of (a binding, a raw-pointer, by-value or variadic argument, a
+  receiver). A site evaluation never reaches, or whose text no longer matches,
+  is listed with its position and left as written.
+- `--migrate params` runs on files that already evaluate: a plain parameter
+  whose type is not `Copy` becomes `imm(x)`, which is what a plain parameter
+  meant before the flip. A generic parameter becomes `imm(x)` unless its
+  `where` bounds make it `Copy`.
+
+None of them changes what a program does. A file that does not evaluate keeps
+what evaluation never reached, and `fix` exits non-zero naming it.
 
 ## Warnings
 

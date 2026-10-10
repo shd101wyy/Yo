@@ -54,6 +54,10 @@ test("&x to a raw-pointer parameter is an error naming addr_of(x)", {
   (n : i32) = i32(1);
   comptime_expect_error(_ao_write(&n, i32(2)), "take the address with `addr_of(n)`");
   assert(n == i32(1), "nothing was written");
+  // The message spells a field place as written, not as the AST printer's
+  // `((b.n))`.
+  b := _AoBox(n : i32(3));
+  comptime_expect_error(_ao_write(&b.n, i32(2)), "take the address with `addr_of(b.n)`");
 });
 
 test("&x to a by-value parameter is an error naming x and x.clone()", {

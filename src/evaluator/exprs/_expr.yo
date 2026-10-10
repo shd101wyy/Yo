@@ -18,6 +18,7 @@ import("std/fmt");
   make_err_expr,
   ast_expr_to_string,
   ast_expr_strip_borrow_marker,
+  ast_place_text,
   old_mode_spelling_message,
   BK_INOUT,
   BK_FN,
@@ -1096,7 +1097,7 @@ _evaluate_expression :: (
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_ADDRESS_OF, .Some(usize(1)))) => cond(
           migrate_addr_of_on() => evaluate_address_call(expr, env, ctx, exn),
           true => {
-            amp_place := ast_expr_to_string(ast_expr_strip_borrow_marker(expr));
+            amp_place := ast_place_text(ast_expr_strip_borrow_marker(expr));
             exn.throw(
               dyn(
                 format_error_message(

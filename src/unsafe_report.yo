@@ -284,7 +284,7 @@ _harvest_extern_c_fns :: (fn(imm(srcs) : ArrayList(String)) -> HashSet(String))(
 });
 /// Classify the body of an `unsafe(...)` wrap. Heuristics in priority order:
 /// leading `<harvested-ident>(` → extern-call; `.*` not followed by an
-/// identifier byte → deref; `&+`/`&-`/`&/` → arith; `&(` → addr-of; else
+/// identifier byte → deref; `&+`/`&-`/`&/` → arith; `addr_of(` → addr-of; else
 /// other.
 _classify_unsafe_body :: (
   fn(imm(src) : ArrayList(u8), body_start : usize, body_end : usize, imm(extern_c_fns) : HashSet(String)) -> UnsafeFinding
@@ -338,10 +338,21 @@ _classify_unsafe_body :: (
       i = (i + usize(1));
     });
   });
+  // `addr_of(` at an identifier boundary: the raw-pointer address-of
+  // (decision 33; `&x` is only a borrow marker since V3b step 3).
   if(!found, {
+    word := "addr_of(";
     i = body_start;
-    while(!found && ((i + usize(1)) < body_end), {
-      if((src(i) == u8(38)) && (src(i + usize(1)) == u8(40)), {
+    while(!found && ((i + usize(8)) <= body_end), {
+      (matches : bool) = ((i == usize(0)) || !_is_ident_byte(src(i - usize(1))));
+      (wk : usize) = usize(0);
+      while(matches && (wk < usize(8)), {
+        if(src(i + wk) != word.bytes(wk), {
+          matches = false;
+        });
+        wk = (wk + usize(1));
+      });
+      if(matches, {
         sub = String.from("addr-of");
         found = true;
       });

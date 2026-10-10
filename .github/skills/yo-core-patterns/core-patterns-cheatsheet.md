@@ -33,7 +33,7 @@ Key rules:
 - In **runtime** code, `"hello"` is always `str`. Mixing literal and variable branches in `cond`/`match` works fine.
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str`. It does NOT auto-convert to `str`. A comptime function returning `str` materializes its `comptime_str` result automatically.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
-- `String`: `t := s.clone()` is an independent copy (O(n)); a plain `t := s` still shares a non-empty buffer until VALUES_BY_DEFAULT V2b makes it a move, so write only through a clone. Mutators take `inout(self)`, so writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `inout(s) : String`, return the new string, or write a local clone. Bytes: `byte_at(i)` / `get_byte(i)` read in place, `to_bytes()` copies, `into_bytes()` moves out; there is no runtime `s(i)` (E0606) and no `as_bytes`.
+- `String`: `t := s.clone()` is an independent copy (O(n)); a plain `t := s` still shares a non-empty buffer until VALUES_BY_DEFAULT V2b makes it a move, so write only through a clone. Mutators take `mut(self)`, so writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `mut(s) : String`, return the new string, or write a local clone. Bytes: `byte_at(i)` / `get_byte(i)` read in place, `to_bytes()` copies, `into_bytes()` moves out; there is no runtime `s(i)` (E0606) and no `as_bytes`.
 - **PITFALL:** Never write `String.from(`hello`)` — backtick strings are already `String`, not `str`. `String.from` takes `str`, so wrapping a backtick in `String.from` causes a type error ("Cannot unify String and str"). Only use `String.from(str_expr)` for actual `str` values.
 
 ## Import patterns
@@ -127,7 +127,7 @@ first := numbers(usize(0)); // → i32  (value)
 numbers(usize(0)) = i32(99);
 
 // When you need the pointer explicitly:
-ptr := &numbers(usize(0)); // → *(i32)
+ptr := addr_of(numbers(usize(0))); // → *(i32)
 ptr.* = i32(100);
 
 // Safe access:
@@ -188,7 +188,7 @@ arena.deinit(); // PANICS while a block is still live; abandon() never frees
 ```yo
 Iterator :: trait(
   Item : Type,
-  next : (fn(inout(self) : Self) -> Option(Self.Item))
+  next : (fn(mut(self) : Self) -> Option(Self.Item))
 );
 ```
 
@@ -265,13 +265,13 @@ TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
 - Use `newtype(...)` when the type has exactly one field
 - Use `ref(struct(...))` / `ref(enum(...))` for types that need shared ownership (`atomic(ref(...))` for atomic RC)
 - **Parameter form by type kind:**
-  - `ref(struct(...))` / `ref(enum(...))`: plain `name : Type` (reference semantics — no pointer or inout needed).
+  - `ref(struct(...))` / `ref(enum(...))`: plain `name : Type` (reference semantics — no pointer or `mut` needed).
     `foo :: (fn(ctx : EvalContext) -> unit)(ctx.do_stuff());`
   - `struct(...)` / `enum(...)` / primitive, read-only: plain `name : Type`.
-  - `struct(...)` / `enum(...)` / primitive / `String`, need mutation: `inout(name) : Type` (writing a by-value `String`, or the `String` field of a by-value struct, is E0908).
-    `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)(...);`
+  - `struct(...)` / `enum(...)` / primitive / `String`, need mutation: `mut(name) : Type` (writing a by-value `String`, or the `String` field of a by-value struct, is E0908).
+    `swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)(...);`
   - Method receiver on `ref(struct(...))` / `ref(enum(...))`: plain `self : Self`.
-  - Method receiver on value type (traits + inherent mutators): `inout(self) : Self`.
+  - Method receiver on value type (traits + inherent mutators): `mut(self) : Self`.
   - Raw FFI pointer: `name : *(T)` (requires `pragma(Pragma.AllowUnsafe);`).
 - Source-file imports are namespace structs. The old `module(...)`, `Module`,
   and `SelfModule` syntax is gone; use `struct(...)`, `Type`, and normal `Self`.
@@ -466,9 +466,9 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 (inc : Impl(Fn(x : i32) -> i32)) = (x => (x + i32(1)));
 result := inc(i32(5));
 
-// `inout`: the caller's list is written. A plain `values : ArrayList(i32)`
+// `mut`: the caller's list is written. A plain `values : ArrayList(i32)`
 // parameter is the callee's copy once collections are values.
-transform :: (fn(inout(values) : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
+transform :: (fn(mut(values) : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
   i := usize(0);
   while(i < values.len(), {
     values(i) = f(values(i));
@@ -481,7 +481,7 @@ transform :: (fn(inout(values) : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -
 - `Impl(Fn(params) -> ReturnType)` is the STATIC closure type — monomorphized, capture struct by value, direct call, no allocation or refcount on the closure itself
 - `Dyn(Fn(params) -> ReturnType)` is the TYPE-ERASED closure type — capture heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer; wrap the value with `dyn(...)`
 - Closures capture: value types by copy, reference-semantics types by reference (the captured value carries the refcount, not the `Impl` closure). A collection a closure writes on purpose is a `Rc(ArrayList(T))` (`calls.*.push(x)`): the collections are becoming values, and a write to a captured bare list will land in the closure's copy
-- Collection mutators (`push`, `insert`, `remove`, `clear`, `sort`, `write_str`, …) take `inout(self)`: write a collection through a place (`xs(i).push(x)`, `for(xs, inout(x) => ...)`, an `inout` parameter), never through a `match` binding or a by-value parameter
+- Collection mutators (`push`, `insert`, `remove`, `clear`, `sort`, `write_str`, …) take `mut(self)`: write a collection through a place (`xs(i).push(x)`, `for(xs, mut(x) => ...)`, a `mut` parameter), never through a `match` binding or a by-value parameter
 - Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures — use `Dyn(Fn(...))` for that, and for struct fields, where `Impl(Fn(...))` is rejected outright
 
 ## Iterator and for loop
@@ -498,8 +498,8 @@ for(list, value => {
   println(value);
 });
 
-// Borrowed form — `x` is an `inout` local into the element's storage.
-for(list, inout(x) => {
+// Borrowed form — `x` is a `mut` local into the element's storage.
+for(list, mut(x) => {
   x = (x + i32(10));
 });
 
@@ -514,7 +514,7 @@ while(i < list.len(), {
 | Form                          | Expansion                                 | When to use                                                                 |
 | ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
 | `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; `ref` elements are handles and mutate in place; a value element (`String`, …) is borrowed, so writing it is E0908 |
-| `for(coll, inout(x) => …)`    | borrows each element's storage            | In-place element mutation (`s.push_str(…)` on a `String` element); growing/shrinking `coll` in the body panics |
+| `for(coll, mut(x) => …)`    | borrows each element's storage            | In-place element mutation (`s.push_str(…)` on a `String` element); growing/shrinking `coll` in the body panics |
 | index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                     |
 | `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                             |
 

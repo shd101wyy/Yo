@@ -1178,8 +1178,8 @@ for_await(names, io, n => {
 
 ### Implementing one
 
-`next` takes `self : Self`, NOT `inout(self)` the way `Iterator` does: the
-future outlives the call, and an `inout` borrow cannot be held across a
+`next` takes `self : Self`, NOT `mut(self)` the way `Iterator` does: the
+future outlives the call, and a `mut` borrow cannot be held across a
 suspension. So a stream source is a reference-semantics type
 (`ref(struct(...))`) and its field writes propagate through the handle:
 
