@@ -891,12 +891,6 @@ _evaluate_capture_list :: (
   while(ei < raw_entries.len(), {
     raw := match(raw_entries.get(ei), .Some(r) => r, .None => make_err_expr());
     raw_tok := ast_expr_token(raw);
-    // `{ imm(y) }`, `{ mut(z) : &mut p }`: the deleted mode-word spelling of
-    // the capture entries `&y` / `z : &mut p` (decision 42 Generation B), E0009.
-    reject_old_mode_spelling(raw, exn);
-    if(ast_expr_is_fn_call_of(raw, ":", Option(usize).Some(usize(2))), {
-      reject_old_mode_spelling(match(raw, .FnCall(_, _, ra, _, _) => match(ra.get(usize(0)), .Some(a) => a, .None => raw), .Atom(_, _) => raw), exn);
-    });
     // Normalize to (label expression, initializer expression).
     (label_e : AstExpr) = raw;
     (init_e : AstExpr) = raw;
@@ -1131,9 +1125,11 @@ evaluate_anonymous_function_implementation :: (
       .Atom(_, _) => ()
     );
   });
-  // `mut(n) => …`, `(imm(v) : String) => …`: the deleted mode-word spelling
-  // of a closure parameter (decision 42 Generation B), E0009, named before
-  // anything else is asked of the literal.
+  // `mut(n) => …`, `(imm(v) : String) => …`, `{ imm(y) }() => …`: the
+  // deleted mode-word spelling of a closure parameter or capture entry
+  // (decision 42 Generation B), E0009, named before anything else is asked
+  // of the literal.
+  match(cap_list_raw, .Some(entries) => _reject_old_closure_param_list(entries, exn), .None => ());
   if(ast_expr_is_capture_list_params(param_decl), _reject_old_closure_param_list(cap_list_params, exn), _reject_old_closure_params(param_decl, exn));
   // -------------------------------------------------------------------------
   // Resolve the expected type from context.
